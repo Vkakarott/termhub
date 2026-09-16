@@ -1,4 +1,4 @@
-import type { AuthConfig, Machine, Project, Tab, User } from './types';
+import type { AuthConfig, DashboardItem, Machine, Note, Project, Tab, Task, TaskStatus, User } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -68,6 +68,20 @@ export const api = {
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),
     createTab: (id: string, name?: string) => request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, name ? { name } : {}),
+  },
+  dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
+  tasks: {
+    list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),
+    create: (projectId: string, input: { title: string; description?: string | null; status?: TaskStatus }) =>
+      request<{ task: Task }>('POST', `/projects/${projectId}/tasks`, input),
+    update: (id: string, input: { title?: string; description?: string | null; status?: TaskStatus }) =>
+      request<{ task: Task }>('PATCH', `/tasks/${id}`, input),
+    move: (id: string, status: TaskStatus, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/move`, { status, position }),
+    remove: (id: string) => request<{ ok: true }>('DELETE', `/tasks/${id}`),
+  },
+  notes: {
+    get: (projectId: string) => request<{ note: Note }>('GET', `/projects/${projectId}/note`),
+    save: (projectId: string, content: string) => request<{ note: Note }>('PUT', `/projects/${projectId}/note`, { content }),
   },
   system: {
     sshKey: () => request<{ public_key: string | null; file: string | null }>('GET', '/system/ssh-key'),

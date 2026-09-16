@@ -6,6 +6,8 @@ import { LoginCodesRepository } from './login-codes.js';
 import { MachinesRepository } from './machines.js';
 import { ProjectsRepository } from './projects.js';
 import { TabsRepository } from './tabs.js';
+import { TasksRepository } from './tasks.js';
+import { NotesRepository } from './notes.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -15,6 +17,8 @@ export interface Repositories {
   machines: MachinesRepository;
   projects: ProjectsRepository;
   tabs: TabsRepository;
+  tasks: TasksRepository;
+  notes: NotesRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -26,6 +30,8 @@ export function createRepositories(db: PrismaClient): Repositories {
     machines: new MachinesRepository(db),
     projects: new ProjectsRepository(db),
     tabs: new TabsRepository(db),
+    tasks: new TasksRepository(db),
+    notes: new NotesRepository(db),
   };
 }
 

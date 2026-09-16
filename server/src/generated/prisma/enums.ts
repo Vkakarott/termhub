@@ -32,3 +32,12 @@ export const ProjectStatus = {
 } as const
 
 export type ProjectStatus = (typeof ProjectStatus)[keyof typeof ProjectStatus]
+
+
+export const TaskStatus = {
+  todo: 'todo',
+  doing: 'doing',
+  done: 'done'
+} as const
+
+export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus]

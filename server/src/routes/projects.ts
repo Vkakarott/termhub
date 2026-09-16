@@ -23,7 +23,8 @@ const tabBody = z.object({ name: z.string().trim().min(1).max(60).optional() });
 export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/', async (request) => {
     const q = z.object({ status: z.enum(['active', 'paused', 'archived']).optional() }).parse(request.query);
-    return { projects: await repos.projects.list({ status: q.status }) };
+    const [projects, openCounts] = await Promise.all([repos.projects.list({ status: q.status }), repos.tasks.openCountByProject()]);
+    return { projects: projects.map((p) => ({ ...p, open_tasks: openCounts[p.id] ?? 0 })) };
   });
 
   app.post('/', async (request, reply) => {

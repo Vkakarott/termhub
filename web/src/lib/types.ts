@@ -30,7 +30,43 @@ export interface Project {
   description: string | null;
   last_terminal_at: string | null;
   created_at: string;
+  /** tasks em "todo" + "doing" (vem na listagem) */
+  open_tasks?: number;
 }
+
+export type TaskStatus = 'todo' | 'doing' | 'done';
+
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  position: number;
+  external_ref: unknown | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Note {
+  id: string;
+  project_id: string;
+  content: string;
+  updated_at: string;
+}
+
+export interface DashboardItem {
+  project: Project;
+  machine: Machine | null;
+  doing: Task[];
+  open_tasks: number;
+}
+
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  todo: 'A fazer',
+  doing: 'Fazendo',
+  done: 'Feito',
+};
 
 export interface Tab {
   id: string;

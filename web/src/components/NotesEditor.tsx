@@ -1,0 +1,148 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+import { api, ApiError } from '../lib/api';
+
+interface Props {
+  projectId: string;
+}
+
+type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+const DEBOUNCE_MS = 800;
+
+marked.setOptions({ gfm: true, breaks: true });
+
+export function NotesEditor({ projectId }: Props) {
+  const [content, setContent] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [mode, setMode] = useState<'split' | 'edit' | 'preview'>(() => (localStorage.getItem('termhub:notes-mode') as 'split' | 'edit' | 'preview') || 'split');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef('');
+  const lastSaved = useRef('');
+
+  useEffect(() => {
+    let cancelled = false;
+    api.notes
+      .get(projectId)
+      .then((r) => {
+        if (cancelled) return;
+        setContent(r.note.content);
+        latest.current = r.note.content;
+        lastSaved.current = r.note.content;
+        setUpdatedAt(r.note.id ? r.note.updated_at : null);
+      })
+      .catch(() => !cancelled && setContent(''));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    localStorage.setItem('termhub:notes-mode', mode);
+  }, [mode]);
+
+  const save = useCallback(async () => {
+    const value = latest.current;
+    if (value === lastSaved.current) {
+      setSaveState('saved');
+      return;
+    }
+    setSaveState('saving');
+    try {
+      const r = await api.notes.save(projectId, value);
+      lastSaved.current = value;
+      setUpdatedAt(r.note.updated_at);
+      setSaveState(latest.current === value ? 'saved' : 'dirty');
+    } catch (e) {
+      setSaveState('error');
+      console.error(e instanceof ApiError ? e.message : e);
+    }
+  }, [projectId]);
+
+  const onChange = (value: string) => {
+    setContent(value);
+    latest.current = value;
+    setSaveState('dirty');
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void save(), DEBOUNCE_MS);
+  };
+
+  // Salva o que estiver pendente ao sair da tela / fechar a aba.
+  useEffect(() => {
+    const flush = () => {
+      if (latest.current !== lastSaved.current) {
+        const body = JSON.stringify({ content: latest.current });
+        const csrf = document.cookie.match(/(?:^|; )termhub_csrf=([^;]*)/)?.[1] ?? '';
+        void fetch(`/api/projects/${projectId}/note`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-csrf-token': decodeURIComponent(csrf) },
+          body,
+          keepalive: true,
+        });
+        lastSaved.current = latest.current;
+      }
+    };
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      if (timer.current) clearTimeout(timer.current);
+      flush();
+    };
+  }, [projectId]);
+
+  const html = useMemo(() => {
+    if (!content) return '';
+    return DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
+  }, [content]);
+
+  if (content === null) return <div className="flex h-full items-center justify-center text-sm text-fg-dim">Carregando notas…</div>;
+
+  const status =
+    saveState === 'saving' ? 'salvando…' : saveState === 'dirty' ? 'alterações pendentes' : saveState === 'error' ? 'erro ao salvar' : saveState === 'saved' ? 'salvo' : '';
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-bg-2 px-3 text-xs">
+        {(['edit', 'split', 'preview'] as const).map((m) => (
+          <button key={m} className={`rounded px-2 py-1 ${mode === m ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:text-fg'}`} onClick={() => setMode(m)}>
+            {m === 'edit' ? 'Editar' : m === 'split' ? 'Lado a lado' : 'Preview'}
+          </button>
+        ))}
+        <span className={`ml-auto ${saveState === 'error' ? 'text-danger' : 'text-fg-dim'}`}>
+          {status}
+          {updatedAt && saveState !== 'dirty' && saveState !== 'saving' ? ` · ${new Date(updatedAt).toLocaleString('pt-BR')}` : ''}
+        </span>
+      </div>
+      <div className={`grid min-h-0 flex-1 ${mode === 'split' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        {mode !== 'preview' && (
+          <textarea
+            className="h-full w-full resize-none border-r border-line bg-bg p-4 font-mono text-[13px] leading-relaxed text-fg outline-none placeholder:text-fg-dim"
+            value={content}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={'# Notas do projeto\n\nMarkdown com preview ao lado. Salva sozinho.'}
+            spellCheck={false}
+            onKeyDown={(e) => {
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                const el = e.currentTarget;
+                const { selectionStart: s, selectionEnd: en } = el;
+                const next = content.slice(0, s) + '  ' + content.slice(en);
+                onChange(next);
+                requestAnimationFrame(() => el.setSelectionRange(s + 2, s + 2));
+              }
+              if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                if (timer.current) clearTimeout(timer.current);
+                void save();
+              }
+            }}
+          />
+        )}
+        {mode !== 'edit' && (
+          <div className="prose-termhub h-full overflow-y-auto p-4" dangerouslySetInnerHTML={{ __html: html || '<p class="text-fg-dim">Nada para mostrar ainda.</p>' }} />
+        )}
+      </div>
+    </div>
+  );
+}

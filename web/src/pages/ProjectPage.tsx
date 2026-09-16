@@ -2,17 +2,25 @@ import { NavLink, useParams } from 'react-router-dom';
 import { useData } from '../lib/data';
 import { PROJECT_STATUS_LABEL } from '../lib/types';
 import { TerminalsView } from '../components/TerminalsView';
+import { TasksBoard } from '../components/TasksBoard';
+import { NotesEditor } from '../components/NotesEditor';
+import { ProjectSettings } from '../components/ProjectSettings';
 import { FullScreenMessage } from '../components/Layout';
 
-export type ProjectSection = 'terminals';
+export type ProjectSection = 'terminals' | 'tasks' | 'notes' | 'settings';
 
-const SECTIONS: { key: ProjectSection; label: string; path: string }[] = [{ key: 'terminals', label: 'Terminais', path: '' }];
+const SECTIONS: { key: ProjectSection; label: string; path: string }[] = [
+  { key: 'terminals', label: 'Terminais', path: '' },
+  { key: 'tasks', label: 'Tarefas', path: 'tasks' },
+  { key: 'notes', label: 'Notas', path: 'notes' },
+  { key: 'settings', label: 'Configurações', path: 'settings' },
+];
 
 export function ProjectPage() {
   const { id, section } = useParams<{ id: string; section?: string }>();
   const { projects, machines, statuses, loading } = useData();
   const project = projects.find((p) => p.id === id);
-  const current: ProjectSection = (SECTIONS.find((s) => s.path === (section ?? ''))?.key ?? 'terminals') as ProjectSection;
+  const current: ProjectSection = SECTIONS.find((s) => s.path === (section ?? ''))?.key ?? 'terminals';
 
   if (loading) return <FullScreenMessage>Carregando…</FullScreenMessage>;
   if (!project) return <FullScreenMessage>Projeto não encontrado.</FullScreenMessage>;
@@ -43,6 +51,7 @@ export function ProjectPage() {
               className={({ isActive }) => `rounded px-2 py-1 ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:text-fg'}`}
             >
               {s.label}
+              {s.key === 'tasks' && !!project.open_tasks && <span className="ml-1 text-[10px] text-fg-dim">{project.open_tasks}</span>}
             </NavLink>
           ))}
         </nav>
@@ -50,6 +59,9 @@ export function ProjectPage() {
       <div className="relative min-h-0 flex-1">
         {/* Terminais ficam montados mesmo em outras seções: trocar de aba não reconecta. */}
         <TerminalsView key={project.id} project={project} visible={current === 'terminals'} />
+        {current === 'tasks' && <TasksBoard key={project.id} projectId={project.id} />}
+        {current === 'notes' && <NotesEditor key={project.id} projectId={project.id} />}
+        {current === 'settings' && <ProjectSettings key={project.id + project.status + project.cwd + project.name} project={project} />}
       </div>
     </div>
   );

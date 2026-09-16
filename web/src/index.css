@@ -20,3 +20,22 @@ body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, 
   .input { @apply w-full rounded-md border border-line bg-bg-2 px-3 py-2 text-sm text-fg placeholder:text-fg-dim focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent; }
   .label { @apply mb-1 block text-xs font-medium uppercase tracking-wide text-fg-muted; }
 }
+
+/* Preview de markdown (notas) */
+.prose-termhub { @apply text-sm leading-relaxed text-fg; }
+.prose-termhub h1 { @apply mb-3 mt-4 text-xl font-semibold; }
+.prose-termhub h2 { @apply mb-2 mt-4 text-lg font-semibold; }
+.prose-termhub h3 { @apply mb-2 mt-3 text-base font-semibold; }
+.prose-termhub p { @apply my-2; }
+.prose-termhub ul { @apply my-2 list-disc pl-5; }
+.prose-termhub ol { @apply my-2 list-decimal pl-5; }
+.prose-termhub li { @apply my-0.5; }
+.prose-termhub a { @apply text-accent underline; }
+.prose-termhub code { @apply rounded bg-bg-3 px-1 py-0.5 font-mono text-[12px]; }
+.prose-termhub pre { @apply my-2 overflow-x-auto rounded-md border border-line bg-bg-2 p-3; }
+.prose-termhub pre code { @apply bg-transparent p-0; }
+.prose-termhub blockquote { @apply my-2 border-l-2 border-line pl-3 text-fg-muted; }
+.prose-termhub table { @apply my-2 w-full border-collapse text-xs; }
+.prose-termhub th, .prose-termhub td { @apply border border-line px-2 py-1 text-left; }
+.prose-termhub hr { @apply my-4 border-line; }
+.prose-termhub input[type="checkbox"] { @apply mr-1 align-middle; }

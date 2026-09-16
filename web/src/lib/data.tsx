@@ -19,6 +19,8 @@ interface DataState {
   createProject: (input: Partial<Project>) => Promise<Project>;
   updateProject: (id: string, input: Partial<Project>) => Promise<Project>;
   deleteProject: (id: string) => Promise<void>;
+  /** atualiza o contador de tasks abertas do projeto (sidebar) */
+  setOpenTasks: (projectId: string, n: number) => void;
 }
 
 const DataContext = createContext<DataState | null>(null);
@@ -96,12 +98,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       },
       async updateProject(id, input) {
         const { project } = await api.projects.update(id, input);
-        setProjects((p) => p.map((x) => (x.id === id ? project : x)).sort((a, b) => a.name.localeCompare(b.name)));
+        setProjects((p) => p.map((x) => (x.id === id ? { ...project, open_tasks: x.open_tasks } : x)).sort((a, b) => a.name.localeCompare(b.name)));
         return project;
       },
       async deleteProject(id) {
         await api.projects.remove(id);
         setProjects((p) => p.filter((x) => x.id !== id));
+      },
+      setOpenTasks(projectId, n) {
+        setProjects((p) => p.map((x) => (x.id === projectId && x.open_tasks !== n ? { ...x, open_tasks: n } : x)));
       },
     }),
     [machines, projects, statuses, missingTmux, loading, refresh, checkStatus],

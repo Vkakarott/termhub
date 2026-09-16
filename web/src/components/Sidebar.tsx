@@ -101,6 +101,11 @@ export function Sidebar() {
                         title={p.cwd}
                       >
                         <span className={`truncate ${p.status !== 'active' ? 'opacity-60' : ''}`}>{p.name}</span>
+                        {!!p.open_tasks && p.status === 'active' && (
+                          <span className="ml-auto rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums text-fg-muted" title={`${p.open_tasks} task(s) aberta(s)`}>
+                            {p.open_tasks}
+                          </span>
+                        )}
                         {p.status === 'paused' && <span className="ml-auto text-[10px] text-warn">pausado</span>}
                         {p.status === 'archived' && <span className="ml-auto text-[10px] text-fg-dim">arquivado</span>}
                       </NavLink>

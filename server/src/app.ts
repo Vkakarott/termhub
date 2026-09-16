@@ -14,6 +14,9 @@ import { machineRoutes } from './routes/machines.js';
 import { projectRoutes } from './routes/projects.js';
 import { tabRoutes } from './routes/tabs.js';
 import { systemRoutes } from './routes/system.js';
+import { projectTaskRoutes, taskRoutes } from './routes/tasks.js';
+import { noteRoutes } from './routes/notes.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 import { attachTerminalWebSocket } from './terminal/ws.js';
 import { seed } from './seed.js';
 
@@ -74,6 +77,10 @@ export async function buildApp(): Promise<App> {
       await api.register((a) => authRoutes(a, auth), { prefix: '/auth' });
       await api.register((a) => machineRoutes(a, repos), { prefix: '/machines' });
       await api.register((a) => projectRoutes(a, repos), { prefix: '/projects' });
+      await api.register((a) => projectTaskRoutes(a, repos), { prefix: '/projects' });
+      await api.register((a) => noteRoutes(a, repos), { prefix: '/projects' });
+      await api.register((a) => taskRoutes(a, repos), { prefix: '/tasks' });
+      await api.register((a) => dashboardRoutes(a, repos), { prefix: '/dashboard' });
       await api.register((a) => tabRoutes(a, repos), { prefix: '/tabs' });
       await api.register(systemRoutes, { prefix: '/system' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));

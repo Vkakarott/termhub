@@ -76,3 +76,13 @@ export type Project = Prisma.ProjectModel
  * 
  */
 export type Tab = Prisma.TabModel
+/**
+ * Model Task
+ * 
+ */
+export type Task = Prisma.TaskModel
+/**
+ * Model Note
+ * 
+ */
+export type Note = Prisma.NoteModel

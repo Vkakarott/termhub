@@ -4,11 +4,14 @@ import type {
   Machine as PrismaMachine,
   Project as PrismaProject,
   Tab as PrismaTab,
+  Task as PrismaTask,
+  Note as PrismaNote,
 } from '../../generated/prisma/client.js';
 
 export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
+export type TaskStatus = 'todo' | 'doing' | 'done';
 
 /**
  * Tipos expostos pela camada de dados (snake_case, datas em ISO string).
@@ -63,6 +66,26 @@ export interface Tab {
   created_at: string;
 }
 
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  position: number;
+  /** Reservado para integrações futuras (GitHub/Jira/Linear). */
+  external_ref: unknown | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Note {
+  id: string;
+  project_id: string;
+  content: string;
+  updated_at: string;
+}
+
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
 
 export const mapUser = (u: PrismaUser): User => ({
@@ -112,6 +135,25 @@ export const mapTab = (t: PrismaTab): Tab => ({
   tmux_session: t.tmuxSession,
   position: t.position,
   created_at: t.createdAt.toISOString(),
+});
+
+export const mapTask = (t: PrismaTask): Task => ({
+  id: t.id,
+  project_id: t.projectId,
+  title: t.title,
+  description: t.description,
+  status: t.status,
+  position: t.position,
+  external_ref: t.externalRef ?? null,
+  created_at: t.createdAt.toISOString(),
+  updated_at: t.updatedAt.toISOString(),
+});
+
+export const mapNote = (n: PrismaNote): Note => ({
+  id: n.id,
+  project_id: n.projectId,
+  content: n.content,
+  updated_at: n.updatedAt.toISOString(),
 });
 
 /** Remove campos sensíveis antes de enviar ao cliente. */
