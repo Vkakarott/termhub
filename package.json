@@ -1,0 +1,28 @@
+{
+  "name": "termhub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Terminais das suas m\u00e1quinas no navegador, organizados em M\u00e1quinas > Projetos > Tabs",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "migrate": "tsx server/src/db/migrate-cli.ts",
+    "create-user": "tsx server/scripts/create-user.ts",
+    "install-service": "node scripts/install-service.mjs",
+    "uninstall-service": "node scripts/install-service.mjs --uninstall",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
