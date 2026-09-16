@@ -14,7 +14,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('127.0.0.1'),
-  DATA_DIR: z.string().default(path.join(ROOT_DIR, 'data')),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória (postgresql://...)'),
   PUBLIC_URL: z.string().url().default('http://localhost:3000'),
 
   // "app" | "cloudflare" | "disabled" — pode combinar: "app,cloudflare"
@@ -32,6 +32,16 @@ const envSchema = z.object({
 
   LOCAL_SHELL: z.string().optional(),
   TMUX_PATH: z.string().default('tmux'),
+  SEED_LOCAL_MACHINE: z.enum(['true', 'false']).default('true'),
+
+  // E-mail (código de login). Sem SMTP_HOST em dev, o código é impresso no log.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.enum(['true', 'false']).default('false'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().default('termhub <termhub@localhost>'),
+  LOGIN_CODE_TTL_MINUTES: z.coerce.number().int().positive().default(10),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -65,14 +75,16 @@ if (authModes.has('cloudflare') && (!env.CF_TEAM_DOMAIN || !env.CF_AUD)) {
 if (authModes.has('disabled') && env.NODE_ENV === 'production') {
   console.warn('AVISO: AUTH_MODE=disabled em produção. Qualquer pessoa com acesso à porta tem acesso total.');
 }
+if (authModes.has('app') && env.NODE_ENV === 'production' && !env.SMTP_HOST) {
+  console.warn('AVISO: SMTP_HOST não configurado — o login por código de e-mail não vai funcionar em produção.');
+}
 
 export const config = {
   env: env.NODE_ENV,
   isProd: env.NODE_ENV === 'production',
   port: env.PORT,
   host: env.HOST,
-  dataDir: env.DATA_DIR,
-  dbPath: path.join(env.DATA_DIR, 'termhub.db'),
+  databaseUrl: env.DATABASE_URL,
   publicUrl: env.PUBLIC_URL.replace(/\/$/, ''),
   auth: {
     modes: authModes,
@@ -87,7 +99,20 @@ export const config = {
       env.CF_TEAM_DOMAIN && env.CF_AUD
         ? { teamDomain: env.CF_TEAM_DOMAIN.replace(/\/$/, ''), aud: env.CF_AUD }
         : null,
+    loginCodeTtlMs: env.LOGIN_CODE_TTL_MINUTES * 60 * 1000,
   },
+  email: {
+    smtp: env.SMTP_HOST
+      ? {
+          host: env.SMTP_HOST,
+          port: env.SMTP_PORT,
+          secure: env.SMTP_SECURE === 'true',
+          auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS ?? '' } : undefined,
+        }
+      : null,
+    from: env.EMAIL_FROM,
+  },
+  seedLocalMachine: env.SEED_LOCAL_MACHINE === 'true',
   terminal: {
     localShell: env.LOCAL_SHELL || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh'),
     tmuxPath: env.TMUX_PATH,

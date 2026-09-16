@@ -23,50 +23,50 @@ const tabBody = z.object({ name: z.string().trim().min(1).max(60).optional() });
 export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/', async (request) => {
     const q = z.object({ status: z.enum(['active', 'paused', 'archived']).optional() }).parse(request.query);
-    return { projects: repos.projects.list({ status: q.status }) };
+    return { projects: await repos.projects.list({ status: q.status }) };
   });
 
   app.post('/', async (request, reply) => {
     const body = createBody.parse(request.body);
-    if (!repos.machines.findById(body.machine_id)) throw badRequest('Máquina inexistente');
-    const project = repos.projects.create(body);
+    if (!(await repos.machines.findById(body.machine_id))) throw badRequest('Máquina inexistente');
+    const project = await repos.projects.create(body);
     return reply.code(201).send({ project });
   });
 
   app.get('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const project = repos.projects.findById(id);
+    const project = await repos.projects.findById(id);
     if (!project) throw notFound('Projeto não encontrado');
     return { project };
   });
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!repos.projects.findById(id)) throw notFound('Projeto não encontrado');
+    if (!(await repos.projects.findById(id))) throw notFound('Projeto não encontrado');
     const patch = patchBody.parse(request.body);
-    return { project: repos.projects.update(id, patch) };
+    return { project: await repos.projects.update(id, patch) };
   });
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const project = repos.projects.findById(id);
+    const project = await repos.projects.findById(id);
     if (!project) throw notFound('Projeto não encontrado');
-    const machine = repos.machines.findById(project.machine_id);
+    const machine = await repos.machines.findById(project.machine_id);
     // Melhor esforço: mata as sessões tmux das tabs antes de apagar (máquina pode estar offline).
     if (machine) {
-      await Promise.allSettled(repos.tabs.listByProject(id).map((t) => killTmuxSession(machine, t.tmux_session)));
+      await Promise.allSettled((await repos.tabs.listByProject(id)).map((t) => killTmuxSession(machine, t.tmux_session)));
     }
-    repos.projects.delete(id);
+    await repos.projects.delete(id);
     return { ok: true };
   });
 
   // --- Tabs ---
   app.get('/:id/tabs', async (request) => {
     const { id } = idParam.parse(request.params);
-    const project = repos.projects.findById(id);
+    const project = await repos.projects.findById(id);
     if (!project) throw notFound('Projeto não encontrado');
-    const machine = repos.machines.findById(project.machine_id);
-    const tabs = repos.tabs.listByProject(id);
+    const machine = await repos.machines.findById(project.machine_id);
+    const tabs = await repos.tabs.listByProject(id);
     let alive = new Set<string>();
     let reachable = false;
     if (machine && tabs.length > 0) {
@@ -87,11 +87,11 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
 
   app.post('/:id/tabs', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const project = repos.projects.findById(id);
+    const project = await repos.projects.findById(id);
     if (!project) throw notFound('Projeto não encontrado');
     const body = tabBody.parse(request.body ?? {});
-    const name = body.name ?? `Terminal ${repos.tabs.listByProject(id).length + 1}`;
-    const tab = repos.tabs.create(id, name);
+    const name = body.name ?? `Terminal ${(await repos.tabs.listByProject(id)).length + 1}`;
+    const tab = await repos.tabs.create(id, name);
     return reply.code(201).send({ tab: { ...tab, alive: false } });
   });
 }

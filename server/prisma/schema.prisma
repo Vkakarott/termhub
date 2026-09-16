@@ -1,0 +1,121 @@
+// Prisma 7: a URL do banco fica em prisma.config.ts (migrations) e no adapter (runtime).
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+  runtime             = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  owner
+  member
+}
+
+enum MachineType {
+  local
+  ssh
+}
+
+enum ProjectStatus {
+  active
+  paused
+  archived
+}
+
+model User {
+  id           String    @id
+  email        String    @unique
+  name         String
+  avatarUrl    String?   @map("avatar_url")
+  passwordHash String?   @map("password_hash")
+  googleId     String?   @unique @map("google_id")
+  role         UserRole  @default(member)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  sessions     Session[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Código de login por e-mail (OTP). Só o hash é armazenado.
+model LoginCode {
+  id        String    @id
+  email     String
+  codeHash  String    @map("code_hash")
+  expiresAt DateTime  @map("expires_at")
+  attempts  Int       @default(0)
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([email, createdAt])
+  @@map("login_codes")
+}
+
+/// Rate limit / lockout progressivo (chave "email:<e-mail>" ou "ip:<ip>").
+model LoginAttempt {
+  key         String    @id
+  failures    Int       @default(0)
+  lockedUntil DateTime? @map("locked_until")
+  updatedAt   DateTime  @default(now()) @map("updated_at")
+
+  @@map("login_attempts")
+}
+
+model Machine {
+  id        String      @id
+  name      String
+  host      String?
+  sshUser   String?     @map("ssh_user")
+  sshPort   Int         @default(22) @map("ssh_port")
+  type      MachineType
+  createdAt DateTime    @default(now()) @map("created_at")
+  projects  Project[]
+
+  @@map("machines")
+}
+
+model Project {
+  id             String        @id
+  machineId      String        @map("machine_id")
+  name           String
+  cwd            String
+  status         ProjectStatus @default(active)
+  description    String?
+  lastTerminalAt DateTime?     @map("last_terminal_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  machine        Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  tabs           Tab[]
+
+  @@index([machineId])
+  @@map("projects")
+}
+
+model Tab {
+  id          String   @id
+  projectId   String   @map("project_id")
+  name        String
+  tmuxSession String   @unique @map("tmux_session")
+  position    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("tabs")
+}

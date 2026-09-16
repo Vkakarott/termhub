@@ -1,6 +1,6 @@
-import type { DB } from '../connection.js';
+import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
-import type { Project, ProjectStatus } from './types.js';
+import { mapProject, type Project, type ProjectStatus } from './types.js';
 
 export interface ProjectInput {
   machine_id: string;
@@ -11,64 +11,55 @@ export interface ProjectInput {
 }
 
 export class ProjectsRepository {
-  constructor(private db: DB) {}
+  constructor(private db: PrismaClient) {}
 
-  list(filter?: { machine_id?: string; status?: ProjectStatus }): Project[] {
-    const where: string[] = [];
-    const params: Record<string, unknown> = {};
-    if (filter?.machine_id) {
-      where.push('machine_id = @machine_id');
-      params.machine_id = filter.machine_id;
-    }
-    if (filter?.status) {
-      where.push('status = @status');
-      params.status = filter.status;
-    }
-    const sql = `SELECT * FROM projects ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY name COLLATE NOCASE ASC`;
-    return this.db.prepare(sql).all(params) as Project[];
+  async list(filter?: { machine_id?: string; status?: ProjectStatus }): Promise<Project[]> {
+    const rows = await this.db.project.findMany({
+      where: {
+        ...(filter?.machine_id ? { machineId: filter.machine_id } : {}),
+        ...(filter?.status ? { status: filter.status } : {}),
+      },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map(mapProject);
   }
 
-  findById(id: string): Project | undefined {
-    return this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Project | undefined;
+  async findById(id: string): Promise<Project | undefined> {
+    const p = await this.db.project.findUnique({ where: { id } });
+    return p ? mapProject(p) : undefined;
   }
 
-  create(input: ProjectInput): Project {
-    const id = newId();
-    this.db
-      .prepare(
-        `INSERT INTO projects (id, machine_id, name, cwd, status, description)
-         VALUES (@id, @machine_id, @name, @cwd, @status, @description)`,
-      )
-      .run({
-        id,
-        machine_id: input.machine_id,
+  async create(input: ProjectInput): Promise<Project> {
+    const p = await this.db.project.create({
+      data: {
+        id: newId(),
+        machineId: input.machine_id,
         name: input.name,
         cwd: input.cwd,
         status: input.status ?? 'active',
         description: input.description ?? null,
-      });
-    return this.findById(id)!;
+      },
+    });
+    return mapProject(p);
   }
 
-  update(id: string, patch: Partial<Omit<ProjectInput, 'machine_id'>>): Project | undefined {
-    const current = this.findById(id);
+  async update(id: string, patch: Partial<Omit<ProjectInput, 'machine_id'>>): Promise<Project | undefined> {
+    const current = await this.findById(id);
     if (!current) return undefined;
     const next = { ...current, ...patch };
-    this.db
-      .prepare(
-        `UPDATE projects SET name = @name, cwd = @cwd, status = @status, description = @description WHERE id = @id`,
-      )
-      .run({ ...next, id });
-    return this.findById(id);
+    const p = await this.db.project.update({
+      where: { id },
+      data: { name: next.name, cwd: next.cwd, status: next.status, description: next.description ?? null },
+    });
+    return mapProject(p);
   }
 
-  touchTerminal(id: string): void {
-    this.db
-      .prepare("UPDATE projects SET last_terminal_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
-      .run(id);
+  async touchTerminal(id: string): Promise<void> {
+    await this.db.project.updateMany({ where: { id }, data: { lastTerminalAt: new Date() } });
   }
 
-  delete(id: string): boolean {
-    return this.db.prepare('DELETE FROM projects WHERE id = ?').run(id).changes > 0;
+  async delete(id: string): Promise<boolean> {
+    const r = await this.db.project.deleteMany({ where: { id } });
+    return r.count > 0;
   }
 }

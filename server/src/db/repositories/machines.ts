@@ -1,6 +1,6 @@
-import type { DB } from '../connection.js';
+import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
-import type { Machine, MachineType } from './types.js';
+import { mapMachine, type Machine, type MachineType } from './types.js';
 
 export interface MachineInput {
   name: string;
@@ -11,52 +11,48 @@ export interface MachineInput {
 }
 
 export class MachinesRepository {
-  constructor(private db: DB) {}
+  constructor(private db: PrismaClient) {}
 
-  list(): Machine[] {
-    return this.db.prepare('SELECT * FROM machines ORDER BY created_at ASC').all() as Machine[];
+  async list(): Promise<Machine[]> {
+    return (await this.db.machine.findMany({ orderBy: { createdAt: 'asc' } })).map(mapMachine);
   }
 
-  findById(id: string): Machine | undefined {
-    return this.db.prepare('SELECT * FROM machines WHERE id = ?').get(id) as Machine | undefined;
+  async findById(id: string): Promise<Machine | undefined> {
+    const m = await this.db.machine.findUnique({ where: { id } });
+    return m ? mapMachine(m) : undefined;
   }
 
-  findByType(type: MachineType): Machine[] {
-    return this.db.prepare('SELECT * FROM machines WHERE type = ?').all(type) as Machine[];
+  async findByType(type: MachineType): Promise<Machine[]> {
+    return (await this.db.machine.findMany({ where: { type } })).map(mapMachine);
   }
 
-  create(input: MachineInput): Machine {
-    const id = newId();
-    this.db
-      .prepare(
-        `INSERT INTO machines (id, name, type, host, ssh_user, ssh_port)
-         VALUES (@id, @name, @type, @host, @ssh_user, @ssh_port)`,
-      )
-      .run({
-        id,
+  async create(input: MachineInput): Promise<Machine> {
+    const m = await this.db.machine.create({
+      data: {
+        id: newId(),
         name: input.name,
         type: input.type,
         host: input.host ?? null,
-        ssh_user: input.ssh_user ?? null,
-        ssh_port: input.ssh_port ?? 22,
-      });
-    return this.findById(id)!;
+        sshUser: input.ssh_user ?? null,
+        sshPort: input.ssh_port ?? 22,
+      },
+    });
+    return mapMachine(m);
   }
 
-  update(id: string, patch: Partial<MachineInput>): Machine | undefined {
-    const current = this.findById(id);
+  async update(id: string, patch: Partial<MachineInput>): Promise<Machine | undefined> {
+    const current = await this.findById(id);
     if (!current) return undefined;
     const next = { ...current, ...patch };
-    this.db
-      .prepare(
-        `UPDATE machines SET name = @name, type = @type, host = @host, ssh_user = @ssh_user, ssh_port = @ssh_port
-         WHERE id = @id`,
-      )
-      .run({ ...next, id });
-    return this.findById(id);
+    const m = await this.db.machine.update({
+      where: { id },
+      data: { name: next.name, type: next.type, host: next.host ?? null, sshUser: next.ssh_user ?? null, sshPort: next.ssh_port ?? 22 },
+    });
+    return mapMachine(m);
   }
 
-  delete(id: string): boolean {
-    return this.db.prepare('DELETE FROM machines WHERE id = ?').run(id).changes > 0;
+  async delete(id: string): Promise<boolean> {
+    const r = await this.db.machine.deleteMany({ where: { id } });
+    return r.count > 0;
   }
 }

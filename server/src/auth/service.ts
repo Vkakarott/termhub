@@ -1,70 +1,166 @@
+import { createHash, randomInt } from 'node:crypto';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import { config } from '../config.js';
+import type { Mailer } from '../email/mailer.js';
+import { loginCodeMail } from '../email/templates.js';
 import { verifyPassword } from './password.js';
-import { generateToken, hashToken } from './tokens.js';
+import { generateToken, hashToken, safeEqual } from './tokens.js';
 
 export type LoginResult =
   | { ok: true; user: User }
   | { ok: false; reason: 'invalid' }
   | { ok: false; reason: 'locked'; retryAfterMs: number };
 
+export type SendCodeResult = { ok: true } | { ok: false; reason: 'rate_limited'; retryAfterMs: number } | { ok: false; reason: 'send_failed' };
+
+const CODE_RATE_WINDOW_MS = 10 * 60 * 1000;
+const CODE_RATE_MAX = 3;
+const CODE_MAX_ATTEMPTS = 5;
+
 /** Regras de autenticação independentes de HTTP (testáveis isoladamente). */
 export class AuthService {
-  constructor(private repos: Repositories) {}
+  constructor(
+    private repos: Repositories,
+    private mailer: Mailer,
+  ) {}
 
-  async loginWithPassword(email: string, password: string, ip: string): Promise<LoginResult> {
-    const emailKey = `email:${email.trim().toLowerCase()}`;
-    const ipKey = `ip:${ip}`;
+  private async checkLock(email: string, ip: string): Promise<number> {
+    const [a, b] = await Promise.all([
+      this.repos.loginAttempts.lockedFor(`email:${email}`),
+      this.repos.loginAttempts.lockedFor(`ip:${ip}`),
+    ]);
+    return Math.max(a, b);
+  }
 
-    const locked = Math.max(this.repos.loginAttempts.lockedFor(emailKey), this.repos.loginAttempts.lockedFor(ipKey));
+  private async recordFailure(email: string, ip: string): Promise<number> {
+    const [a, b] = await Promise.all([
+      this.repos.loginAttempts.recordFailure(`email:${email}`),
+      this.repos.loginAttempts.recordFailure(`ip:${ip}`),
+    ]);
+    return Math.max(a, b);
+  }
+
+  private async clearFailures(email: string, ip: string): Promise<void> {
+    await Promise.all([this.repos.loginAttempts.clear(`email:${email}`), this.repos.loginAttempts.clear(`ip:${ip}`)]);
+  }
+
+  // ---------- e-mail + senha ----------
+
+  async loginWithPassword(rawEmail: string, password: string, ip: string): Promise<LoginResult> {
+    const email = rawEmail.trim().toLowerCase();
+    const locked = await this.checkLock(email, ip);
     if (locked > 0) return { ok: false, reason: 'locked', retryAfterMs: locked };
 
-    const user = this.repos.users.findByEmail(email);
+    const user = await this.repos.users.findByEmail(email);
     const valid = await verifyPassword(user?.password_hash ?? null, password);
     if (!user || !valid) {
-      const a = this.repos.loginAttempts.recordFailure(emailKey);
-      const b = this.repos.loginAttempts.recordFailure(ipKey);
-      const lock = Math.max(a, b);
+      const lock = await this.recordFailure(email, ip);
       if (lock > 0) return { ok: false, reason: 'locked', retryAfterMs: lock };
       return { ok: false, reason: 'invalid' };
     }
-
-    this.repos.loginAttempts.clear(emailKey);
-    this.repos.loginAttempts.clear(ipKey);
+    await this.clearFailures(email, ip);
     return { ok: true, user };
   }
 
-  /** Google só entra se o e-mail já estiver cadastrado. Vincula google_id na primeira vez. */
-  loginWithGoogle(profile: { sub: string; email: string; emailVerified: boolean; picture?: string }): User | null {
-    if (!profile.emailVerified) return null;
-    const byGoogle = this.repos.users.findByGoogleId(profile.sub);
-    if (byGoogle) return byGoogle;
-    const byEmail = this.repos.users.findByEmail(profile.email);
-    if (!byEmail) return null;
-    if (byEmail.google_id && byEmail.google_id !== profile.sub) return null;
-    this.repos.users.linkGoogle(byEmail.id, profile.sub, profile.picture);
-    return this.repos.users.findById(byEmail.id)!;
+  // ---------- e-mail + código ----------
+
+  private hashCode(email: string, code: string): string {
+    return createHash('sha256').update(`${email}:${code}`).digest('hex');
   }
 
+  /**
+   * Envia um código de 6 dígitos. Sempre responde "ok" para e-mails desconhecidos
+   * (não revela quem está cadastrado) — mas só envia de fato se o usuário existir.
+   */
+  async sendLoginCode(rawEmail: string, ip: string): Promise<SendCodeResult> {
+    const email = rawEmail.trim().toLowerCase();
+    const locked = await this.checkLock(email, ip);
+    if (locked > 0) return { ok: false, reason: 'rate_limited', retryAfterMs: locked };
+
+    const recent = await this.repos.loginCodes.countSince(email, new Date(Date.now() - CODE_RATE_WINDOW_MS));
+    if (recent >= CODE_RATE_MAX) return { ok: false, reason: 'rate_limited', retryAfterMs: CODE_RATE_WINDOW_MS };
+
+    const user = await this.repos.users.findByEmail(email);
+    if (!user) {
+      // Conta como tentativa (evita enumeração em massa) e finge sucesso.
+      await this.repos.loginAttempts.recordFailure(`ip:${ip}`);
+      return { ok: true };
+    }
+
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const ttl = config.auth.loginCodeTtlMs;
+    await this.repos.loginCodes.invalidateAll(email);
+    await this.repos.loginCodes.create(email, this.hashCode(email, code), new Date(Date.now() + ttl));
+    try {
+      await this.mailer.send(loginCodeMail(email, code, Math.round(ttl / 60000)));
+    } catch {
+      return { ok: false, reason: 'send_failed' };
+    }
+    return { ok: true };
+  }
+
+  async verifyLoginCode(rawEmail: string, code: string, ip: string): Promise<LoginResult> {
+    const email = rawEmail.trim().toLowerCase();
+    const locked = await this.checkLock(email, ip);
+    if (locked > 0) return { ok: false, reason: 'locked', retryAfterMs: locked };
+
+    const record = await this.repos.loginCodes.findLatestUnused(email);
+    const fail = async (): Promise<LoginResult> => {
+      const lock = await this.recordFailure(email, ip);
+      return lock > 0 ? { ok: false, reason: 'locked', retryAfterMs: lock } : { ok: false, reason: 'invalid' };
+    };
+
+    if (!record || record.expires_at.getTime() < Date.now()) return fail();
+    const attempts = await this.repos.loginCodes.incrementAttempts(record.id);
+    if (attempts > CODE_MAX_ATTEMPTS) {
+      await this.repos.loginCodes.markUsed(record.id);
+      return fail();
+    }
+    if (!safeEqual(record.code_hash, this.hashCode(email, code.trim()))) return fail();
+
+    const user = await this.repos.users.findByEmail(email);
+    if (!user) return fail();
+
+    await this.repos.loginCodes.invalidateAll(email);
+    await this.clearFailures(email, ip);
+    return { ok: true, user };
+  }
+
+  // ---------- Google ----------
+
+  /** Google só entra se o e-mail já estiver cadastrado. Vincula google_id na primeira vez. */
+  async loginWithGoogle(profile: { sub: string; email: string; emailVerified: boolean; picture?: string }): Promise<User | null> {
+    if (!profile.emailVerified) return null;
+    const byGoogle = await this.repos.users.findByGoogleId(profile.sub);
+    if (byGoogle) return byGoogle;
+    const byEmail = await this.repos.users.findByEmail(profile.email);
+    if (!byEmail) return null;
+    if (byEmail.google_id && byEmail.google_id !== profile.sub) return null;
+    await this.repos.users.linkGoogle(byEmail.id, profile.sub, profile.picture);
+    return (await this.repos.users.findById(byEmail.id)) ?? null;
+  }
+
+  // ---------- sessões ----------
+
   /** Cria sessão e devolve o token opaco (só o hash vai pro banco). */
-  createSession(userId: string): { token: string; csrf: string; expiresAt: Date } {
+  async createSession(userId: string): Promise<{ token: string; csrf: string; expiresAt: Date }> {
     const token = generateToken(32);
     const expiresAt = new Date(Date.now() + config.auth.sessionTtlMs);
-    this.repos.sessions.create(userId, hashToken(token), expiresAt);
+    await this.repos.sessions.create(userId, hashToken(token), expiresAt);
     return { token, csrf: generateToken(24), expiresAt };
   }
 
-  resolveSession(token: string): User | null {
-    const found = this.repos.sessions.findValidByTokenHash(hashToken(token));
+  async resolveSession(token: string): Promise<User | null> {
+    const found = await this.repos.sessions.findValidByTokenHash(hashToken(token));
     return found?.user ?? null;
   }
 
-  destroySession(token: string): void {
-    this.repos.sessions.deleteByTokenHash(hashToken(token));
+  async destroySession(token: string): Promise<void> {
+    await this.repos.sessions.deleteByTokenHash(hashToken(token));
   }
 
-  purgeExpiredSessions(): number {
-    return this.repos.sessions.purgeExpired();
+  async purgeExpired(): Promise<void> {
+    await Promise.all([this.repos.sessions.purgeExpired(), this.repos.loginCodes.purgeExpired()]);
   }
 }

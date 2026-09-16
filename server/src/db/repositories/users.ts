@@ -1,66 +1,65 @@
-import type { DB } from '../connection.js';
+import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
-import type { User, UserRole } from './types.js';
+import { mapUser, type User, type UserRole } from './types.js';
 
 export class UsersRepository {
-  constructor(private db: DB) {}
+  constructor(private db: PrismaClient) {}
 
-  findById(id: string): User | undefined {
-    return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
+  async findById(id: string): Promise<User | undefined> {
+    const u = await this.db.user.findUnique({ where: { id } });
+    return u ? mapUser(u) : undefined;
   }
 
-  findByEmail(email: string): User | undefined {
-    return this.db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(email.trim()) as
-      | User
-      | undefined;
+  async findByEmail(email: string): Promise<User | undefined> {
+    const u = await this.db.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    return u ? mapUser(u) : undefined;
   }
 
-  findByGoogleId(googleId: string): User | undefined {
-    return this.db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId) as User | undefined;
+  async findByGoogleId(googleId: string): Promise<User | undefined> {
+    const u = await this.db.user.findUnique({ where: { googleId } });
+    return u ? mapUser(u) : undefined;
   }
 
   /** Primeiro owner (ou primeiro usuário criado). Usado em AUTH_MODE=disabled. */
-  findFirstOwner(): User | undefined {
-    return this.db
-      .prepare("SELECT * FROM users ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, created_at ASC LIMIT 1")
-      .get() as User | undefined;
+  async findFirstOwner(): Promise<User | undefined> {
+    const u =
+      (await this.db.user.findFirst({ where: { role: 'owner' }, orderBy: { createdAt: 'asc' } })) ??
+      (await this.db.user.findFirst({ orderBy: { createdAt: 'asc' } }));
+    return u ? mapUser(u) : undefined;
   }
 
-  count(): number {
-    return (this.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
+  count(): Promise<number> {
+    return this.db.user.count();
   }
 
-  create(input: {
+  async create(input: {
     email: string;
     name: string;
     password_hash?: string | null;
     role?: UserRole;
     avatar_url?: string | null;
-  }): User {
-    const id = newId();
-    this.db
-      .prepare(
-        `INSERT INTO users (id, email, name, password_hash, role, avatar_url)
-         VALUES (@id, @email, @name, @password_hash, @role, @avatar_url)`,
-      )
-      .run({
-        id,
+  }): Promise<User> {
+    const u = await this.db.user.create({
+      data: {
+        id: newId(),
         email: input.email.trim().toLowerCase(),
         name: input.name.trim(),
-        password_hash: input.password_hash ?? null,
+        passwordHash: input.password_hash ?? null,
         role: input.role ?? 'member',
-        avatar_url: input.avatar_url ?? null,
-      });
-    return this.findById(id)!;
+        avatarUrl: input.avatar_url ?? null,
+      },
+    });
+    return mapUser(u);
   }
 
-  linkGoogle(userId: string, googleId: string, avatarUrl?: string | null): void {
-    this.db
-      .prepare('UPDATE users SET google_id = ?, avatar_url = COALESCE(?, avatar_url) WHERE id = ?')
-      .run(googleId, avatarUrl ?? null, userId);
+  async linkGoogle(userId: string, googleId: string, avatarUrl?: string | null): Promise<void> {
+    await this.db.user.update({
+      where: { id: userId },
+      data: { googleId, ...(avatarUrl ? { avatarUrl } : {}) },
+    });
   }
 
-  setPassword(userId: string, passwordHash: string): void {
-    this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, userId);
+  async setPassword(userId: string, passwordHash: string): Promise<void> {
+    await this.db.user.update({ where: { id: userId }, data: { passwordHash } });
   }
 }

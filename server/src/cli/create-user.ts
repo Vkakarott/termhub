@@ -1,16 +1,17 @@
 /**
  * Cria um usuário via CLI. Uso:
  *   npm run create-user -- --email you@example.com --name "Seu Nome" [--password ...] [--role owner|member]
- * Sem --password, pergunta de forma interativa (sem eco).
- * O primeiro usuário criado vira "owner" automaticamente.
+ *   npm run create-user -- you@example.com "Seu Nome"
+ *   (Docker) docker compose exec app node server/dist/cli/create-user.js you@example.com "Seu Nome"
+ * A senha é opcional: sem ela, o usuário entra pelo código enviado por e-mail (ou Google).
+ * O primeiro usuário criado vira "owner".
  */
 import { parseArgs } from 'node:util';
 import readline from 'node:readline';
 import { z } from 'zod';
-import { openDb, closeDb } from '../src/db/connection.js';
-import { runMigrations } from '../src/db/migrate.js';
-import { createRepositories } from '../src/db/repositories/index.js';
-import { hashPassword } from '../src/auth/password.js';
+import { getPrisma, closePrisma } from '../db/prisma.js';
+import { createRepositories } from '../db/repositories/index.js';
+import { hashPassword } from '../auth/password.js';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -18,10 +19,10 @@ const { values, positionals } = parseArgs({
     email: { type: 'string' },
     name: { type: 'string' },
     password: { type: 'string' },
+    'ask-password': { type: 'boolean', default: false },
     role: { type: 'string' },
   },
 });
-// Também aceita posicionais: create-user <email> <nome> [senha]
 values.email ??= positionals[0];
 values.name ??= positionals[1];
 values.password ??= positionals[2];
@@ -29,12 +30,12 @@ values.password ??= positionals[2];
 function askHidden(question: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    const onKey = (rl as unknown as { _writeToOutput: (s: string) => void });
-    const original = onKey._writeToOutput;
+    const io = rl as unknown as { _writeToOutput: (s: string) => void };
+    const original = io._writeToOutput;
     process.stdout.write(question);
-    onKey._writeToOutput = () => {};
+    io._writeToOutput = () => {};
     rl.question('', (answer) => {
-      onKey._writeToOutput = original;
+      io._writeToOutput = original;
       process.stdout.write('\n');
       rl.close();
       resolve(answer);
@@ -55,7 +56,7 @@ function ask(question: string): Promise<string> {
 const schema = z.object({
   email: z.string().email(),
   name: z.string().trim().min(1).max(80),
-  password: z.string().min(8, 'senha precisa ter ao menos 8 caracteres').max(1024),
+  password: z.string().min(8, 'senha precisa ter ao menos 8 caracteres').max(1024).optional(),
   role: z.enum(['owner', 'member']).optional(),
 });
 
@@ -63,7 +64,7 @@ async function main() {
   const email = values.email ?? (await ask('E-mail: '));
   const name = values.name ?? (await ask('Nome: '));
   let password = values.password;
-  if (!password) {
+  if (!password && values['ask-password']) {
     password = await askHidden('Senha: ');
     const confirm = await askHidden('Confirme a senha: ');
     if (password !== confirm) {
@@ -71,32 +72,30 @@ async function main() {
       process.exit(1);
     }
   }
-  const input = schema.parse({ email, name, password, role: values.role });
+  const input = schema.parse({ email, name, password: password || undefined, role: values.role });
 
-  const db = openDb();
-  runMigrations(db);
-  const repos = createRepositories(db);
-
-  if (repos.users.findByEmail(input.email)) {
+  const repos = createRepositories(getPrisma());
+  if (await repos.users.findByEmail(input.email)) {
     console.error(`Já existe um usuário com o e-mail ${input.email}.`);
     process.exit(1);
   }
-  const role = input.role ?? (repos.users.count() === 0 ? 'owner' : 'member');
-  const user = repos.users.create({
+  const role = input.role ?? ((await repos.users.count()) === 0 ? 'owner' : 'member');
+  const user = await repos.users.create({
     email: input.email,
     name: input.name,
-    password_hash: await hashPassword(input.password),
+    password_hash: input.password ? await hashPassword(input.password) : null,
     role,
   });
-  console.log(`Usuário criado: ${user.email} (${user.role}) — id ${user.id}`);
-  closeDb();
+  console.log(`Usuário criado: ${user.email} (${user.role}) — id ${user.id}${input.password ? '' : ' — login por código de e-mail'}`);
+  await closePrisma();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   if (err instanceof z.ZodError) {
     console.error('Dados inválidos:', err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
   } else {
     console.error(err);
   }
+  await closePrisma();
   process.exit(1);
 });

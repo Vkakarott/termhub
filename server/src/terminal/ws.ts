@@ -67,9 +67,9 @@ export function attachTerminalWebSocket(server: HttpServer, deps: Deps): WebSock
     if (!user) return rejectUpgrade(socket, 401, 'Unauthorized');
 
     const tabId = match[1];
-    const tab = deps.repos.tabs.findById(tabId);
-    const project = tab && deps.repos.projects.findById(tab.project_id);
-    const machine = project && deps.repos.machines.findById(project.machine_id);
+    const tab = await deps.repos.tabs.findById(tabId);
+    const project = tab && (await deps.repos.projects.findById(tab.project_id));
+    const machine = project && (await deps.repos.machines.findById(project.machine_id));
     if (!tab || !project || !machine) return rejectUpgrade(socket, 404, 'Not Found');
 
     const cols = Number(url.searchParams.get('cols')) || 80;
@@ -138,7 +138,7 @@ function handleConnection(
 
   // Nunca logamos conteúdo do terminal: só metadados.
   log.info({ tabId: ctx.tab.id, machineId: ctx.machine.id, pid: session.pid }, 'terminal conectado');
-  deps.repos.projects.touchTerminal(ctx.project.id);
+  void deps.repos.projects.touchTerminal(ctx.project.id).catch(() => {});
   send({ type: 'ready' });
 
   ws.on('message', (raw, isBinary) => {

@@ -5,14 +5,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ZodError } from 'zod';
 import { config, ROOT_DIR } from './config.js';
-import { openDb } from './db/connection.js';
-import { runMigrations } from './db/migrate.js';
+import { getPrisma, closePrisma } from './db/prisma.js';
 import { createRepositories, type Repositories } from './db/repositories/index.js';
+import { createMailer } from './email/mailer.js';
 import { AuthService, authRoutes, buildAuthHook, type AuthContext } from './auth/index.js';
 import { HttpError } from './lib/errors.js';
 import { machineRoutes } from './routes/machines.js';
 import { projectRoutes } from './routes/projects.js';
 import { tabRoutes } from './routes/tabs.js';
+import { systemRoutes } from './routes/system.js';
 import { attachTerminalWebSocket } from './terminal/ws.js';
 import { seed } from './seed.js';
 
@@ -35,12 +36,13 @@ export async function buildApp(): Promise<App> {
     bodyLimit: 1024 * 1024,
   });
 
-  const db = openDb();
-  runMigrations(db, (m) => fastify.log.info(m));
-  const repos = createRepositories(db);
-  seed(repos, (m) => fastify.log.info(m));
+  const prisma = getPrisma();
+  await prisma.$connect();
+  const repos = createRepositories(prisma);
+  await seed(repos, (m) => fastify.log.info(m));
 
-  const authService = new AuthService(repos);
+  const mailer = createMailer((m) => fastify.log.info(m));
+  const authService = new AuthService(repos, mailer);
   const auth: AuthContext = { service: authService, repos };
 
   await fastify.register(fastifyCookie);
@@ -73,6 +75,7 @@ export async function buildApp(): Promise<App> {
       await api.register((a) => machineRoutes(a, repos), { prefix: '/machines' });
       await api.register((a) => projectRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => tabRoutes(a, repos), { prefix: '/tabs' });
+      await api.register(systemRoutes, { prefix: '/system' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },
@@ -98,8 +101,11 @@ export async function buildApp(): Promise<App> {
   attachTerminalWebSocket(fastify.server, { repos, auth, log: fastify.log });
 
   // Limpeza periódica de sessões expiradas
-  const purge = setInterval(() => authService.purgeExpiredSessions(), 60 * 60 * 1000);
-  fastify.addHook('onClose', async () => clearInterval(purge));
+  const purge = setInterval(() => void authService.purgeExpired().catch(() => {}), 60 * 60 * 1000);
+  fastify.addHook('onClose', async () => {
+    clearInterval(purge);
+    await closePrisma();
+  });
 
   return { fastify, repos, auth };
 }

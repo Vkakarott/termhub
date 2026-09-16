@@ -45,7 +45,7 @@ export async function resolveUser(
 
   if (modes.has('disabled')) {
     // Dev: qualquer requisição vira o primeiro owner (ou primeiro usuário).
-    return ctx.repos.users.findFirstOwner() ?? null;
+    return (await ctx.repos.users.findFirstOwner()) ?? null;
   }
 
   let cfUser: User | null = null;
@@ -59,7 +59,7 @@ export async function resolveUser(
     } catch {
       return null;
     }
-    cfUser = ctx.repos.users.findByEmail(identity.email) ?? null;
+    cfUser = (await ctx.repos.users.findByEmail(identity.email)) ?? null;
     if (!cfUser) return null;
   }
 
@@ -67,7 +67,7 @@ export async function resolveUser(
   if (modes.has('app')) {
     const token = input.cookies[SESSION_COOKIE];
     if (!token) return null;
-    appUser = ctx.service.resolveSession(token);
+    appUser = await ctx.service.resolveSession(token);
     if (!appUser) return null;
   }
 

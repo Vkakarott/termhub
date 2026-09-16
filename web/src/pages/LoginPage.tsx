@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { ApiError } from '../lib/api';
@@ -10,34 +10,74 @@ const OAUTH_ERRORS: Record<string, string> = {
   email_not_allowed: 'Este e-mail do Google não está cadastrado no termhub.',
 };
 
+type Step = 'email' | 'code' | 'password';
+
 export function LoginPage() {
-  const { user, loading, login, config } = useAuth();
+  const { user, loading, login, sendCode, verifyCode, config } = useAuth();
   const [params] = useSearchParams();
+  const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
+  const [ttl, setTtl] = useState(10);
   const [error, setError] = useState<string | null>(() => {
     const e = params.get('error');
     return e ? (OAUTH_ERRORS[e] ?? 'Falha no login.') : null;
   });
+  const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const codeRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (step === 'code') codeRef.current?.focus();
+  }, [step]);
 
   if (loading) return null;
   if (user) return <Navigate to="/" replace />;
 
   const appMode = !config || config.modes.includes('app');
+  const allowPassword = config?.password ?? true;
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     setError(null);
+    setInfo(null);
     try {
-      await login(email, password);
+      await fn();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Não foi possível entrar.');
+      setError(err instanceof ApiError ? err.message : 'Não foi possível continuar.');
     } finally {
       setBusy(false);
     }
   };
+
+  const submitEmail = (e: FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      const minutes = await sendCode(email);
+      setTtl(minutes);
+      setCode('');
+      setStep('code');
+      setInfo(`Se este e-mail estiver cadastrado, você receberá um código de 6 dígitos (vale ${minutes} min).`);
+    });
+  };
+
+  const submitCode = (e: FormEvent) => {
+    e.preventDefault();
+    void run(() => verifyCode(email, code));
+  };
+
+  const submitPassword = (e: FormEvent) => {
+    e.preventDefault();
+    void run(() => login(email, password));
+  };
+
+  const resend = () =>
+    void run(async () => {
+      const minutes = await sendCode(email);
+      setTtl(minutes);
+      setInfo(`Novo código enviado (vale ${minutes} min).`);
+    });
 
   return (
     <div className="flex h-full items-center justify-center p-4">
@@ -48,27 +88,24 @@ export function LoginPage() {
         <p className="mb-6 text-sm text-fg-muted">Terminais das suas máquinas, no navegador.</p>
 
         {!appMode ? (
-          <p className="text-sm text-fg-muted">
-            Este servidor não usa login por senha. Acesse pelo endereço protegido pelo Cloudflare Access.
-          </p>
-        ) : (
-          <form onSubmit={submit} className="space-y-3">
+          <p className="text-sm text-fg-muted">Este servidor não usa login próprio. Acesse pelo endereço protegido pelo Cloudflare Access.</p>
+        ) : step === 'email' ? (
+          <form onSubmit={submitEmail} className="space-y-3">
             <div>
               <label className="label" htmlFor="email">
                 E-mail
               </label>
               <input id="email" className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
             </div>
-            <div>
-              <label className="label" htmlFor="password">
-                Senha
-              </label>
-              <input id="password" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </div>
             {error && <p className="text-sm text-danger">{error}</p>}
             <button className="btn-primary w-full justify-center" type="submit" disabled={busy}>
-              {busy ? 'Entrando…' : 'Entrar'}
+              {busy ? 'Enviando…' : 'Receber código por e-mail'}
             </button>
+            {allowPassword && (
+              <button type="button" className="w-full text-center text-xs text-fg-dim hover:text-fg" onClick={() => setStep('password')}>
+                Entrar com senha
+              </button>
+            )}
             {config?.google && (
               <>
                 <div className="flex items-center gap-2 py-1 text-xs text-fg-dim">
@@ -81,6 +118,64 @@ export function LoginPage() {
                 </a>
               </>
             )}
+          </form>
+        ) : step === 'code' ? (
+          <form onSubmit={submitCode} className="space-y-3">
+            <p className="text-sm text-fg-muted">
+              Código enviado para <strong className="text-fg">{email}</strong>.
+            </p>
+            <div>
+              <label className="label" htmlFor="code">
+                Código de 6 dígitos
+              </label>
+              <input
+                id="code"
+                ref={codeRef}
+                className="input text-center font-mono text-2xl tracking-[0.5em]"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d{6}"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                required
+              />
+            </div>
+            {info && !error && <p className="text-xs text-fg-dim">{info}</p>}
+            {error && <p className="text-sm text-danger">{error}</p>}
+            <button className="btn-primary w-full justify-center" type="submit" disabled={busy || code.length !== 6}>
+              {busy ? 'Verificando…' : 'Entrar'}
+            </button>
+            <div className="flex justify-between text-xs text-fg-dim">
+              <button type="button" className="hover:text-fg" onClick={() => setStep('email')}>
+                ← trocar e-mail
+              </button>
+              <button type="button" className="hover:text-fg" onClick={resend} disabled={busy}>
+                reenviar código ({ttl} min)
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={submitPassword} className="space-y-3">
+            <div>
+              <label className="label" htmlFor="email2">
+                E-mail
+              </label>
+              <input id="email2" className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus={!email} />
+            </div>
+            <div>
+              <label className="label" htmlFor="password">
+                Senha
+              </label>
+              <input id="password" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus={!!email} />
+            </div>
+            {error && <p className="text-sm text-danger">{error}</p>}
+            <button className="btn-primary w-full justify-center" type="submit" disabled={busy}>
+              {busy ? 'Entrando…' : 'Entrar'}
+            </button>
+            <button type="button" className="w-full text-center text-xs text-fg-dim hover:text-fg" onClick={() => setStep('email')}>
+              ← entrar com código por e-mail
+            </button>
           </form>
         )}
       </div>

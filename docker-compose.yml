@@ -1,0 +1,120 @@
+# termhub
+#
+#   Infra só (Postgres + Mailpit) e app rodando no host com "npm run dev":
+#     docker compose up -d
+#
+#   Tudo no Docker com hot-reload (server + web em bind mount):
+#     docker compose --profile dev up --build
+#     → app http://localhost:5173 · API http://localhost:3000 · Mailpit http://localhost:8025
+#
+#   Produção (imagem otimizada, Fastify serve o build do frontend):
+#     docker compose --profile prod up -d --build
+#     → http://127.0.0.1:${PORT:-3000} (publique via Cloudflare Tunnel)
+#
+# ATENÇÃO: dentro do Docker a máquina "local" é o container. Para abrir terminais
+# no próprio host, cadastre-o como máquina SSH (host.docker.internal). O container
+# gera sua própria chave SSH no primeiro boot (volume "sshkeys"); a chave pública
+# aparece na tela de nova máquina e em: docker compose exec app cat /home/app/.ssh/id_ed25519.pub
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-termhub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-termhub}
+      POSTGRES_DB: ${POSTGRES_DB:-termhub}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Caixa de e-mail local: recebe os códigos de login em dev. UI em http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${BIND_ADDR:-127.0.0.1}:${MAILPIT_UI_PORT:-8025}:8025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+  # ── Dev: hot-reload (tsx watch + vite) ─────────────────────────────
+  app-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "5173:5173"
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 3000
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:5173}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-termhub}:${POSTGRES_PASSWORD:-termhub}@db:5432/${POSTGRES_DB:-termhub}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_SECURE: "false"
+      SEED_LOCAL_MACHINE: "false"
+      VITE_HOST: 0.0.0.0
+      TZ: ${TZ:-America/Sao_Paulo}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./server/src:/app/server/src
+      - ./server/prisma:/app/server/prisma
+      - ./web/src:/app/web/src
+      - ./web/index.html:/app/web/index.html
+      - sshkeys-dev:/root/.ssh
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  # ── Prod ───────────────────────────────────────────────────────────
+  app:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-3000}:3000"
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-termhub}:${POSTGRES_PASSWORD:-termhub}@db:5432/${POSTGRES_DB:-termhub}
+      # SMTP: no .env use SMTP_HOST=mailpit (caixa local) ou um SMTP real
+      SEED_LOCAL_MACHINE: ${SEED_LOCAL_MACHINE:-false}
+      TZ: ${TZ:-America/Sao_Paulo}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - sshkeys:/home/app/.ssh
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  pgdata:
+  sshkeys:
+  sshkeys-dev:

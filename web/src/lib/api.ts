@@ -49,6 +49,8 @@ export const api = {
     config: () => request<AuthConfig>('GET', '/auth/config'),
     me: () => request<{ user: User }>('GET', '/auth/me'),
     login: (email: string, password: string) => request<{ user: User }>('POST', '/auth/login', { email, password }),
+    sendCode: (email: string) => request<{ ok: true; ttl_minutes: number }>('POST', '/auth/code/send', { email }),
+    verifyCode: (email: string, code: string) => request<{ user: User }>('POST', '/auth/code/verify', { email, code }),
     logout: () => request<{ ok: true }>('POST', '/auth/logout'),
   },
   machines: {
@@ -66,6 +68,9 @@ export const api = {
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),
     createTab: (id: string, name?: string) => request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, name ? { name } : {}),
+  },
+  system: {
+    sshKey: () => request<{ public_key: string | null; file: string | null }>('GET', '/system/ssh-key'),
   },
   tabs: {
     rename: (id: string, name: string) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, { name }),

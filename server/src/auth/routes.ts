@@ -12,6 +12,12 @@ const loginSchema = z.object({
   password: z.string().min(1).max(1024),
 });
 
+const sendCodeSchema = z.object({ email: z.string().email().max(254) });
+const verifyCodeSchema = z.object({
+  email: z.string().email().max(254),
+  code: z.string().regex(/^\d{6}$/, 'código de 6 dígitos'),
+});
+
 const callbackSchema = z.object({
   code: z.string().min(1).max(2048).optional(),
   state: z.string().min(1).max(256).optional(),
@@ -36,6 +42,8 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
   app.get('/config', { config: { public: true } }, async () => ({
     modes: [...config.auth.modes],
     google: isGoogleEnabled(),
+    password: true,
+    email_code: true,
   }));
 
   app.get('/me', { config: { public: true } }, async (request) => {
@@ -54,14 +62,45 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
       }
       throw unauthorized('E-mail ou senha inválidos');
     }
-    const { token, csrf, expiresAt } = service.createSession(result.user.id);
+    const { token, csrf, expiresAt } = await service.createSession(result.user.id);
+    setSessionCookies(reply, token, csrf, expiresAt);
+    return { user: toPublicUser(result.user) };
+  });
+
+  // --- Login por código enviado por e-mail ---
+  app.post('/code/send', { config: { public: true } }, async (request, reply) => {
+    if (!config.auth.modes.has('app')) throw badRequest('Login por e-mail desativado neste modo');
+    const body = sendCodeSchema.parse(request.body);
+    const result = await service.sendLoginCode(body.email, request.ip);
+    if (!result.ok) {
+      if (result.reason === 'rate_limited') {
+        reply.header('retry-after', Math.ceil(result.retryAfterMs / 1000));
+        throw new HttpError(429, 'Muitos envios. Aguarde alguns minutos e tente de novo.', 'RATE_LIMITED');
+      }
+      throw new HttpError(502, 'Não foi possível enviar o e-mail. Tente novamente.', 'SEND_FAILED');
+    }
+    return { ok: true, ttl_minutes: Math.round(config.auth.loginCodeTtlMs / 60000) };
+  });
+
+  app.post('/code/verify', { config: { public: true } }, async (request, reply) => {
+    if (!config.auth.modes.has('app')) throw badRequest('Login por e-mail desativado neste modo');
+    const body = verifyCodeSchema.parse(request.body);
+    const result = await service.verifyLoginCode(body.email, body.code, request.ip);
+    if (!result.ok) {
+      if (result.reason === 'locked') {
+        reply.header('retry-after', Math.ceil(result.retryAfterMs / 1000));
+        throw new HttpError(429, `Muitas tentativas. Tente novamente em ${Math.ceil(result.retryAfterMs / 1000)}s.`, 'LOCKED');
+      }
+      throw unauthorized('Código inválido ou expirado');
+    }
+    const { token, csrf, expiresAt } = await service.createSession(result.user.id);
     setSessionCookies(reply, token, csrf, expiresAt);
     return { user: toPublicUser(result.user) };
   });
 
   app.post('/logout', async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE];
-    if (token) service.destroySession(token);
+    if (token) await service.destroySession(token);
     clearSessionCookies(reply);
     return { ok: true };
   });
@@ -104,10 +143,10 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
       return fail('google_exchange');
     }
 
-    const user = service.loginWithGoogle(profile);
+    const user = await service.loginWithGoogle(profile);
     if (!user) return fail('email_not_allowed');
 
-    const { token, csrf, expiresAt } = service.createSession(user.id);
+    const { token, csrf, expiresAt } = await service.createSession(user.id);
     setSessionCookies(reply, token, csrf, expiresAt);
     return reply.redirect('/', 302);
   });

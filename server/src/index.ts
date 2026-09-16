@@ -1,6 +1,5 @@
 import { config } from './config.js';
 import { buildApp } from './app.js';
-import { closeDb } from './db/connection.js';
 
 const { fastify } = await buildApp();
 
@@ -15,7 +14,6 @@ try {
 const shutdown = async (signal: string) => {
   fastify.log.info(`${signal} recebido, encerrando...`);
   await fastify.close();
-  closeDb();
   process.exit(0);
 };
 process.on('SIGINT', () => void shutdown('SIGINT'));

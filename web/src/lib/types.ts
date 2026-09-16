@@ -45,6 +45,8 @@ export interface Tab {
 export interface AuthConfig {
   modes: ('app' | 'cloudflare' | 'disabled')[];
   google: boolean;
+  password: boolean;
+  email_code: boolean;
 }
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {

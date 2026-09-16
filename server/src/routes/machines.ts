@@ -19,43 +19,43 @@ const machineBody = z
   });
 
 export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
-  app.get('/', async () => ({ machines: repos.machines.list() }));
+  app.get('/', async () => ({ machines: await repos.machines.list() }));
 
   app.post('/', async (request, reply) => {
     const body = machineBody.parse(request.body);
-    const machine = repos.machines.create(body);
+    const machine = await repos.machines.create(body);
     return reply.code(201).send({ machine });
   });
 
   app.get('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = repos.machines.findById(id);
+    const machine = await repos.machines.findById(id);
     if (!machine) throw notFound('Máquina não encontrada');
     return { machine };
   });
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const current = repos.machines.findById(id);
+    const current = await repos.machines.findById(id);
     if (!current) throw notFound('Máquina não encontrada');
     const merged = machineBody.parse({ ...current, ...(request.body as object) });
-    return { machine: repos.machines.update(id, merged) };
+    return { machine: await repos.machines.update(id, merged) };
   });
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = repos.machines.findById(id);
+    const machine = await repos.machines.findById(id);
     if (!machine) throw notFound('Máquina não encontrada');
-    if (repos.projects.list({ machine_id: id }).length > 0) {
+    if ((await repos.projects.list({ machine_id: id })).length > 0) {
       throw badRequest('Remova os projetos desta máquina antes de excluí-la');
     }
-    repos.machines.delete(id);
+    await repos.machines.delete(id);
     return { ok: true };
   });
 
   app.get('/:id/status', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = repos.machines.findById(id);
+    const machine = await repos.machines.findById(id);
     if (!machine) throw notFound('Máquina não encontrada');
     const online = await machineOnline(machine);
     return { id, online, checked_at: new Date().toISOString() };

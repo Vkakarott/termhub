@@ -2,41 +2,62 @@
 
 Sistema web self-hosted para acessar terminais das suas máquinas na rede local pelo navegador, organizados em **Máquinas > Projetos > Tabs**. Cada tab é uma sessão `tmux` na máquina de destino — fechar o navegador não mata o shell.
 
-- **Backend:** Node.js + Fastify, WebSocket (`ws`), `node-pty`, SQLite (`better-sqlite3`) com repositórios e migrations versionadas
+- **Backend:** Node.js + Fastify, WebSocket (`ws`), `node-pty`, Postgres + Prisma (migrations versionadas) com camada de repositórios isolada
 - **Frontend:** React + Vite + xterm.js (fit + webgl), Tailwind
-- **Auth:** e-mail/senha (argon2) + Google OAuth (PKCE) + Cloudflare Access (JWT), rate limit com lockout progressivo, CSRF
-- **Produção:** Fastify serve o build do frontend na porta 3000, escutando **apenas em 127.0.0.1** (acesso externo via Cloudflare Tunnel)
+- **Auth:** código por e-mail (OTP), senha (argon2) opcional, Google OAuth (PKCE), Cloudflare Access (JWT); rate limit com lockout progressivo, CSRF
+- **Produção:** Docker (Fastify serve o build do frontend na porta 3000); Cloudflare Tunnel ou acesso direto na LAN
 
 ## Requisitos
 
-- Node.js 20+ (testado com 22)
-- `tmux` na máquina onde o termhub roda (para máquinas "local") e em cada máquina SSH
-- Para máquinas SSH: chave SSH já configurada (o termhub usa `BatchMode=yes`, sem senha interativa)
+- Docker + Docker Compose (Postgres, Mailpit e, opcionalmente, o app)
+- Para rodar o app no host: Node.js 20+ e `tmux`
+- Em cada máquina SSH: `tmux` instalado e a chave pública do termhub em `~/.ssh/authorized_keys`
 
 ## Desenvolvimento
 
 ```bash
-npm install                # instala server + web (compila node-pty, better-sqlite3, argon2)
-cp .env.example .env       # ajuste se precisar (dev funciona com os padrões)
-npm run migrate            # cria data/termhub.db
-npm run create-user -- --email voce@exemplo.com --name "Seu Nome"   # pede a senha; 1º usuário vira owner
-npm run dev                # API em :3000 + Vite em :5173 (proxy de /api e /ws)
+npm install                 # server + web (compila node-pty e argon2)
+cp .env.example .env        # padrões já apontam para o Postgres/Mailpit do compose
+docker compose up -d        # Postgres em localhost:5434 + Mailpit (UI em http://localhost:8025)
+npm run prisma:migrate      # aplica migrations (cria novas com: npm run prisma:migrate -- --name <nome>)
+npm run create-user -- --email voce@exemplo.com --name "Seu Nome"   # 1º usuário vira owner
+npm run dev                 # API em :3000 + Vite em :5173 (proxy de /api e /ws)
 ```
 
-Abra http://localhost:5173 e faça login. A máquina "local" é criada automaticamente no primeiro boot.
+Abra http://localhost:5173, informe o e-mail e pegue o código de 6 dígitos no Mailpit (http://localhost:8025). A máquina "local" é criada automaticamente no primeiro boot (`SEED_LOCAL_MACHINE=true`).
 
-> Se o Vite escolher outra porta (5173 ocupada), use a porta que ele imprimir.
-
-## Build e produção
+Tudo dentro do Docker, com hot-reload (`Dockerfile.dev`):
 
 ```bash
-npm run build              # web/dist + server/dist
-NODE_ENV=production npm start
+docker compose --profile dev up --build
 ```
 
-Com `web/dist` presente, o Fastify serve o frontend em `http://127.0.0.1:3000`.
+## Produção (Docker)
 
-### Serviço de boot
+```bash
+cp .env.example .env        # ajuste: HOST/BIND_ADDR, PUBLIC_URL, POSTGRES_PASSWORD, SMTP_*
+docker compose --profile prod up -d --build
+docker compose exec app node server/dist/cli/create-user.js voce@exemplo.com "Seu Nome"
+```
+
+O `Dockerfile` gera uma imagem enxuta (tmux + ssh) e o entrypoint roda `prisma migrate deploy` a cada boot. Principais variáveis:
+
+| Variável | Valor |
+| --- | --- |
+| `BIND_ADDR` | `127.0.0.1` (só Cloudflare Tunnel) ou `0.0.0.0` (acesso direto pelo IP na LAN) |
+| `PUBLIC_URL` | `http://192.168.x.x:3000` ou `https://termhub.seudominio.com` |
+| `SMTP_HOST` | `mailpit` (caixa local, UI em `:8025`) ou um SMTP real (Mailgun etc.) |
+| `SEED_LOCAL_MACHINE` | `false` — no Docker a "local" seria o container |
+
+**Dentro do Docker, o próprio host precisa ser cadastrado como máquina SSH.** O container gera uma chave no primeiro boot (volume `sshkeys`); a pública aparece no formulário de nova máquina e no log (`docker compose logs app | grep chave`). Autorize-a no host e cadastre `host.docker.internal` como host (usuário e porta do SSH do host). Instale `tmux` no host.
+
+### Sem Docker (Node no host)
+
+```bash
+npm run build && NODE_ENV=production npm start
+```
+
+### Serviço de boot (sem Docker)
 
 Detecta o SO e instala um serviço de usuário (launchd no macOS, systemd no Linux):
 
@@ -58,14 +79,17 @@ cloudflared tunnel --url http://127.0.0.1:3000
 
 Ajuste `PUBLIC_URL=https://termhub.seudominio.com` no `.env` (cookies `secure` + redirect do Google). Se proteger com **Cloudflare Access**, configure `AUTH_MODE=app,cloudflare`, `CF_TEAM_DOMAIN` e `CF_AUD` — o servidor valida o JWT `Cf-Access-Jwt-Assertion` em toda requisição além da sessão do app.
 
-## Usuários
+## Usuários e login
 
 Não existe cadastro público. Crie usuários pela CLI:
 
 ```bash
 npm run create-user -- --email voce@exemplo.com --name "Seu Nome" [--password ...] [--role owner|member]
+# Docker: docker compose exec app node server/dist/cli/create-user.js voce@exemplo.com "Seu Nome"
 ```
 
+- **Código por e-mail (padrão):** informe o e-mail, receba um código de 6 dígitos (expira em `LOGIN_CODE_TTL_MINUTES`, 5 tentativas, máx. 3 envios a cada 10 min). E-mails não cadastrados recebem a mesma resposta, sem envio.
+- **Senha:** opcional (`--password`); botão "Entrar com senha" na tela de login.
 - O primeiro usuário vira `owner`.
 - **Google:** só entra quem já tem o e-mail cadastrado; na primeira vez o `google_id` é vinculado. Configure `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` e cadastre `<PUBLIC_URL>/api/auth/google/callback` como redirect URI autorizado no Google Cloud Console.
 
@@ -85,16 +109,21 @@ Veja [.env.example](.env.example). Principais:
 | --- | --- |
 | `AUTH_MODE` | `app`, `cloudflare`, `disabled` (dev) ou combinação `app,cloudflare` |
 | `PUBLIC_URL` | URL pública (cookies secure e redirect OAuth) |
-| `DATA_DIR` | pasta do SQLite (padrão `./data`) |
+| `DATABASE_URL` | Postgres (`postgresql://user:pass@host:5432/db`) |
+| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | envio do código de login |
+| `BIND_ADDR` | (compose) IP do host onde publicar as portas |
 | `TMUX_PATH` | caminho do tmux (útil como serviço, PATH mínimo) |
 | `LOCAL_SHELL` | shell dentro do tmux local (padrão `$SHELL`) |
 
 ## Estrutura
 
 ```
+server/prisma      schema.prisma + migrations (npm run prisma:migrate -- --name <nome>)
 server/src
   auth/          provedores (senha, google, cloudflare), sessão, CSRF, middleware
-  db/            conexão, migrations versionadas, repositórios (camada de dados isolada)
+  db/            Prisma client + repositórios (o resto do app nunca importa o Prisma)
+  email/         mailer (SMTP/console) e templates
+  cli/           create-user
   routes/        rotas REST (zod em todas as entradas)
   terminal/      exec em máquinas (local/ssh), PTY, WebSocket
 web/src

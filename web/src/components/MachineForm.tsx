@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from './Modal';
 import { useData } from '../lib/data';
 import type { Machine } from '../lib/types';
-import { ApiError } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 
 interface Props {
   open: boolean;
@@ -19,6 +19,15 @@ export function MachineForm({ open, onClose, machine }: Props) {
   const [sshPort, setSshPort] = useState(String(machine?.ssh_port ?? 22));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sshKey, setSshKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (type !== 'ssh') return;
+    api.system
+      .sshKey()
+      .then((r) => setSshKey(r.public_key))
+      .catch(() => setSshKey(null));
+  }, [type]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -80,7 +89,23 @@ export function MachineForm({ open, onClose, machine }: Props) {
                 <input className="input" value={sshPort} onChange={(e) => setSshPort(e.target.value)} inputMode="numeric" />
               </div>
             </div>
-            <p className="text-xs text-fg-dim">A autenticação usa a chave SSH já configurada no servidor do termhub (BatchMode).</p>
+            <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
+              {sshKey ? (
+                <>
+                  <p className="mb-1">
+                    Autorize a chave pública do termhub na máquina (<code className="font-mono">~/.ssh/authorized_keys</code>):
+                  </p>
+                  <div className="flex items-start gap-1">
+                    <code className="block max-h-16 flex-1 select-all overflow-auto break-all font-mono text-[10px] text-fg-muted">{sshKey}</code>
+                    <button type="button" className="btn-ghost px-1.5 py-0.5 text-[10px]" onClick={() => void navigator.clipboard?.writeText(sshKey)}>
+                      copiar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p>A autenticação usa a chave SSH do servidor do termhub (sem senha, BatchMode). Nenhuma chave pública encontrada em ~/.ssh.</p>
+              )}
+            </div>
           </>
         )}
         {error && <p className="text-sm text-danger">{error}</p>}

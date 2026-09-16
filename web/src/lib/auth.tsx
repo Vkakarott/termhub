@@ -7,6 +7,8 @@ interface AuthState {
   loading: boolean;
   config: AuthConfig | null;
   login: (email: string, password: string) => Promise<void>;
+  sendCode: (email: string) => Promise<number>;
+  verifyCode: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -47,12 +49,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(user);
   }, []);
 
+  const sendCode = useCallback(async (email: string) => {
+    const r = await api.auth.sendCode(email);
+    return r.ttl_minutes;
+  }, []);
+
+  const verifyCode = useCallback(async (email: string, code: string) => {
+    const { user } = await api.auth.verifyCode(email, code);
+    setUser(user);
+  }, []);
+
   const logout = useCallback(async () => {
     await api.auth.logout().catch(() => {});
     setUser(null);
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, config, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, config, login, sendCode, verifyCode, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

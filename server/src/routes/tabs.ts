@@ -10,17 +10,17 @@ const renameBody = z.object({ name: z.string().trim().min(1).max(60) });
 export async function tabRoutes(app: FastifyInstance, repos: Repositories) {
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!repos.tabs.findById(id)) throw notFound('Tab não encontrada');
+    if (!(await repos.tabs.findById(id))) throw notFound('Tab não encontrada');
     const { name } = renameBody.parse(request.body);
-    return { tab: repos.tabs.rename(id, name) };
+    return { tab: await repos.tabs.rename(id, name) };
   });
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const tab = repos.tabs.findById(id);
+    const tab = await repos.tabs.findById(id);
     if (!tab) throw notFound('Tab não encontrada');
-    const project = repos.projects.findById(tab.project_id);
-    const machine = project && repos.machines.findById(project.machine_id);
+    const project = await repos.projects.findById(tab.project_id);
+    const machine = project && (await repos.machines.findById(project.machine_id));
     let killed = false;
     if (machine) {
       try {
@@ -29,7 +29,7 @@ export async function tabRoutes(app: FastifyInstance, repos: Repositories) {
         killed = false;
       }
     }
-    repos.tabs.delete(id);
+    await repos.tabs.delete(id);
     return { ok: true, killed };
   });
 }
