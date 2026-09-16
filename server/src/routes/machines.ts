@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
-import { machineOnline } from '../terminal/machine-exec.js';
+import { machineStatus } from '../terminal/machine-exec.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
@@ -57,7 +57,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const { id } = idParam.parse(request.params);
     const machine = await repos.machines.findById(id);
     if (!machine) throw notFound('Máquina não encontrada');
-    const online = await machineOnline(machine);
-    return { id, online, checked_at: new Date().toISOString() };
+    const status = await machineStatus(machine);
+    return { id, ...status, checked_at: new Date().toISOString() };
   });
 }

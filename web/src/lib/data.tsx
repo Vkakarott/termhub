@@ -8,6 +8,8 @@ interface DataState {
   machines: Machine[];
   projects: Project[];
   statuses: Record<string, MachineStatus>;
+  /** máquinas online sem tmux instalado */
+  missingTmux: Record<string, boolean>;
   loading: boolean;
   refresh: () => Promise<void>;
   checkStatus: (machineId: string) => Promise<void>;
@@ -27,6 +29,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [statuses, setStatuses] = useState<Record<string, MachineStatus>>({});
+  const [missingTmux, setMissingTmux] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const machinesRef = useRef(machines);
   machinesRef.current = machines;
@@ -36,6 +39,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     try {
       const r = await api.machines.status(machineId);
       setStatuses((s) => ({ ...s, [machineId]: r.online ? 'online' : 'offline' }));
+      setMissingTmux((m) => ({ ...m, [machineId]: r.online && !r.tmux }));
     } catch {
       setStatuses((s) => ({ ...s, [machineId]: 'offline' }));
     }
@@ -65,6 +69,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       machines,
       projects,
       statuses,
+      missingTmux,
       loading,
       refresh,
       checkStatus,
@@ -99,7 +104,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setProjects((p) => p.filter((x) => x.id !== id));
       },
     }),
-    [machines, projects, statuses, loading, refresh, checkStatus],
+    [machines, projects, statuses, missingTmux, loading, refresh, checkStatus],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

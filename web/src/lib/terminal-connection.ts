@@ -21,6 +21,7 @@ export class TerminalConnection {
   private stopped = false;
   private size = { cols: 80, rows: 24 };
   private encoder = new TextEncoder();
+  private exited = false;
   state: ConnectionState = 'connecting';
 
   constructor(
@@ -61,6 +62,9 @@ export class TerminalConnection {
       try {
         const msg = JSON.parse(String(ev.data)) as { type: string; code?: number; message?: string };
         if (msg.type === 'exit') {
+          // O processo do terminal terminou (tmux detach/exit, ssh falhou, tmux ausente...).
+          // Não reconecta sozinho: o usuário decide com o botão "Reconectar".
+          this.exited = true;
           this.handlers.onExit?.(msg.code ?? 0);
         }
       } catch {
@@ -71,7 +75,10 @@ export class TerminalConnection {
       if (this.ws !== ws) return;
       this.ws = null;
       if (this.stopped) return;
-      // 1000 = pty saiu (ex.: usuário digitou "exit" ou tmux detach) — reconecta para reanexar.
+      if (this.exited) {
+        this.setState('closed');
+        return;
+      }
       // 1008/4001 = não autorizado — não insiste.
       if (ev.code === 1008 || ev.code === 4001) {
         this.setState('offline');
@@ -101,6 +108,7 @@ export class TerminalConnection {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.attempt = 0;
+    this.exited = false;
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;

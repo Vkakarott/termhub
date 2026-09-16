@@ -4,6 +4,7 @@ import type { Project, Tab } from '../lib/types';
 import { TabBar } from './TabBar';
 import { TerminalView } from './Terminal';
 import { ConfirmDialog } from './Modal';
+import { useData } from '../lib/data';
 
 interface Props {
   project: Project;
@@ -13,6 +14,9 @@ interface Props {
 const activeKey = (projectId: string) => `termhub:active-tab:${projectId}`;
 
 export function TerminalsView({ project, visible }: Props) {
+  const { machines, missingTmux } = useData();
+  const machine = machines.find((m) => m.id === project.machine_id);
+  const noTmux = !!missingTmux[project.machine_id];
   const [tabs, setTabs] = useState<Tab[] | null>(null);
   const [reachable, setReachable] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(activeKey(project.id)));
@@ -126,6 +130,12 @@ export function TerminalsView({ project, visible }: Props) {
           if (t) setClosing(t);
         }}
       />
+      {noTmux && (
+        <div className="border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">
+          <strong>{machine?.name}</strong> está online mas não tem <code className="font-mono">tmux</code> instalado. Instale (ex.:{' '}
+          <code className="font-mono">sudo apt install tmux</code>) para abrir terminais.
+        </div>
+      )}
       {!reachable && (
         <div className="border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">
           Não foi possível consultar as sessões tmux nesta máquina (offline?). Os terminais podem não conectar.

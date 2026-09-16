@@ -41,7 +41,7 @@ const STATE_LABEL: Record<ConnectionState, string> = {
   connected: 'Conectado',
   reconnecting: 'Reconectando…',
   offline: 'Offline',
-  closed: 'Encerrado',
+  closed: 'Sessão encerrada',
 };
 
 /** Atalhos globais que o xterm NÃO deve capturar (deixa subir para o app). */

@@ -63,10 +63,21 @@ export function runOnMachine(
 
 const tmux = () => config.terminal.tmuxPath;
 
-export async function machineOnline(machine: Machine): Promise<boolean> {
-  if (machine.type === 'local') return true;
-  const r = await runOnMachine(machine, { file: 'true', args: [] }, 'exit 0', 7000);
-  return r.code === 0;
+export interface MachineStatus {
+  online: boolean;
+  tmux: boolean;
+}
+
+/** Testa conectividade e se o tmux está disponível na máquina. */
+export async function machineStatus(machine: Machine): Promise<MachineStatus> {
+  const r = await runOnMachine(
+    machine,
+    { file: tmux(), args: ['-V'] },
+    'command -v tmux >/dev/null 2>&1 && echo TERMHUB_TMUX_OK; exit 0',
+    7000,
+  );
+  if (machine.type === 'local') return { online: true, tmux: r.code === 0 };
+  return { online: r.code === 0, tmux: r.code === 0 && r.stdout.includes('TERMHUB_TMUX_OK') };
 }
 
 /** Lista as sessões tmux ativas na máquina (vazio se o servidor tmux não está rodando). */

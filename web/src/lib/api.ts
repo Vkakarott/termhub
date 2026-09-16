@@ -58,7 +58,7 @@ export const api = {
     create: (input: Partial<Machine>) => request<{ machine: Machine }>('POST', '/machines', input),
     update: (id: string, input: Partial<Machine>) => request<{ machine: Machine }>('PATCH', `/machines/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}`),
-    status: (id: string) => request<{ id: string; online: boolean }>('GET', `/machines/${id}/status`),
+    status: (id: string) => request<{ id: string; online: boolean; tmux: boolean }>('GET', `/machines/${id}/status`),
   },
   projects: {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),

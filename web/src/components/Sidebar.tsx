@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', o
 
 export function Sidebar() {
   const { user, logout } = useAuth();
-  const { machines, projects, statuses, loading, deleteMachine, checkStatus } = useData();
+  const { machines, projects, statuses, missingTmux, loading, deleteMachine, checkStatus } = useData();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [machineForm, setMachineForm] = useState<{ open: boolean; machine?: Machine | null }>({ open: false });
@@ -63,6 +63,11 @@ export function Sidebar() {
                 <span className="truncate font-medium" title={m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'local'}>
                   {m.name}
                 </span>
+                {missingTmux[m.id] && (
+                  <span className="text-[10px] text-warn" title="tmux não está instalado nesta máquina">
+                    sem tmux
+                  </span>
+                )}
                 <span className="ml-auto hidden items-center gap-0.5 group-hover:flex">
                   <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" title="Novo projeto" onClick={() => setProjectForm(m.id)}>
                     +
