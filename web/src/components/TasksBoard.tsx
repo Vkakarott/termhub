@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useData } from '../lib/data';
-import { TASK_STATUS_LABEL, type Task, type TaskStatus } from '../lib/types';
+import { PROVIDER_LABEL, TASK_STATUS_LABEL, type Task, type TaskStatus } from '../lib/types';
 import { Modal } from './Modal';
 
-const COLUMNS: TaskStatus[] = ['todo', 'doing', 'done'];
+const COLUMNS: TaskStatus[] = ['backlog', 'todo', 'doing', 'done'];
+const NEXT: Partial<Record<TaskStatus, TaskStatus>> = { backlog: 'todo', todo: 'doing', doing: 'done' };
 
 interface Props {
   projectId: string;
@@ -18,6 +20,7 @@ interface DragState {
 
 export function TasksBoard({ projectId }: Props) {
   const { setOpenTasks } = useData();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
@@ -37,7 +40,7 @@ export function TasksBoard({ projectId }: Props) {
   }, [load]);
 
   useEffect(() => {
-    if (tasks) setOpenTasks(projectId, tasks.filter((t) => t.status !== 'done').length);
+    if (tasks) setOpenTasks(projectId, tasks.filter((t) => t.status === 'todo' || t.status === 'doing').length);
   }, [tasks, projectId, setOpenTasks]);
 
   const byStatus = (s: TaskStatus) => (tasks ?? []).filter((t) => t.status === s).sort((a, b) => a.position - b.position);
@@ -62,6 +65,30 @@ export function TasksBoard({ projectId }: Props) {
       await api.tasks.update(id, patch);
     } catch (e) {
       fail(e, 'Erro ao salvar task');
+    }
+  };
+
+  const replaceTask = (task: Task) => setTasks((t) => (t ?? []).map((x) => (x.id === task.id ? task : x)));
+
+  const openTerminal = async (id: string) => {
+    try {
+      const r = await api.tasks.openTerminal(id);
+      replaceTask(r.task);
+      setEditing(null);
+      navigate(`/projects/${projectId}?tab=${r.tab.id}`);
+    } catch (e) {
+      fail(e, 'Erro ao abrir terminal');
+    }
+  };
+
+  const pushStatus = async (id: string) => {
+    try {
+      const r = await api.tasks.pushStatus(id);
+      replaceTask(r.task);
+      return r.state;
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Erro ao atualizar no provedor');
+      return null;
     }
   };
 
@@ -127,7 +154,7 @@ export function TasksBoard({ projectId }: Props) {
           </button>
         </div>
       )}
-      <div className="grid min-h-0 flex-1 grid-cols-3 gap-3 overflow-x-auto p-3">
+      <div className="grid min-h-0 flex-1 grid-cols-4 gap-3 overflow-x-auto p-3">
         {COLUMNS.map((status) => {
           const items = byStatus(status);
           const isOver = drag?.overStatus === status;
@@ -142,7 +169,7 @@ export function TasksBoard({ projectId }: Props) {
               }}
             >
               <header className="flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-                <span className={`h-2 w-2 rounded-full ${status === 'todo' ? 'bg-fg-dim' : status === 'doing' ? 'bg-accent' : 'bg-ok'}`} />
+                <span className={`h-2 w-2 rounded-full ${status === 'backlog' ? 'bg-bg-4' : status === 'todo' ? 'bg-fg-dim' : status === 'doing' ? 'bg-accent' : 'bg-ok'}`} />
                 {TASK_STATUS_LABEL[status]}
                 <span className="ml-auto rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums">{items.length}</span>
               </header>
@@ -170,9 +197,8 @@ export function TasksBoard({ projectId }: Props) {
                       onDragEnd={() => setDrag(null)}
                       onOpen={() => setEditing(task)}
                       onRename={(title) => void update(task.id, { title })}
-                      onMoveNext={
-                        status !== 'done' ? () => void move(task.id, status === 'todo' ? 'doing' : 'done', 0) : undefined
-                      }
+                      onMoveNext={NEXT[status] ? () => void move(task.id, NEXT[status]!, 0) : undefined}
+                      terminalHref={task.tab_id ? `/projects/${projectId}?tab=${task.tab_id}` : null}
                     />
                   </li>
                 ))}
@@ -191,6 +217,9 @@ export function TasksBoard({ projectId }: Props) {
           onSave={(patch) => void update(editing.id, patch)}
           onStatus={(s) => void move(editing.id, s, 0)}
           onDelete={() => void remove(editing.id)}
+          onOpenTerminal={() => void openTerminal(editing.id)}
+          onPushStatus={() => pushStatus(editing.id)}
+          terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
         />
       )}
     </div>
@@ -233,9 +262,10 @@ interface CardProps {
   onOpen: () => void;
   onRename: (title: string) => void;
   onMoveNext?: () => void;
+  terminalHref: string | null;
 }
 
-function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, onMoveNext }: CardProps) {
+function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, onMoveNext, terminalHref }: CardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -298,6 +328,16 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
             )}
             {task.external_ref ? task.title.replace(task.external_ref.identifier, '').trim() : task.title}
           </span>
+          {terminalHref && (
+            <Link
+              to={terminalHref}
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0 rounded px-1 font-mono text-[11px] text-ok hover:bg-bg-4"
+              title="Terminal desta task (ir para a tab)"
+            >
+              ▮_
+            </Link>
+          )}
           <button
             className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
             title="Detalhes (descrição, status, excluir)"
@@ -322,6 +362,11 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
           )}
         </div>
       )}
+      {task.external_ref && !editing && task.external_ref.status !== task.status && (
+        <p className="mt-1 text-[10px] text-warn" title="Estado no provedor difere da coluna; use ⋯ → Atualizar para sincronizar">
+          {PROVIDER_LABEL[task.external_ref.provider]}: {task.external_ref.state}
+        </p>
+      )}
       {task.description && !editing && (
         <p
           className="mt-1 line-clamp-2 cursor-pointer text-xs text-fg-dim hover:text-fg-muted"
@@ -343,12 +388,17 @@ interface EditorProps {
   onSave: (patch: { title?: string; description?: string | null }) => void;
   onStatus: (s: TaskStatus) => void;
   onDelete: () => void;
+  onOpenTerminal: () => void;
+  onPushStatus: () => Promise<string | null>;
+  terminalHref: string | null;
 }
 
-function TaskEditor({ task, onClose, onSave, onStatus, onDelete }: EditorProps) {
+function TaskEditor({ task, onClose, onSave, onStatus, onDelete, onOpenTerminal, onPushStatus, terminalHref }: EditorProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pushing, setPushing] = useState<'idle' | 'busy' | string>('idle');
+  const ref = task.external_ref;
 
   const save = () => {
     const patch: { title?: string; description?: string | null } = {};
@@ -383,6 +433,46 @@ function TaskEditor({ task, onClose, onSave, onStatus, onDelete }: EditorProps) 
               </button>
             ))}
           </div>
+        </div>
+        {ref && (
+          <div className="rounded-md border border-line bg-bg p-3 text-xs">
+            <div className="flex items-center gap-2">
+              <a href={ref.url} target="_blank" rel="noreferrer" className="rounded bg-accent/15 px-1 font-mono text-accent hover:bg-accent/25">
+                {ref.identifier}
+              </a>
+              <span className="text-fg-muted">
+                {PROVIDER_LABEL[ref.provider]}: <strong className="text-fg">{ref.state}</strong>
+              </span>
+              {ref.status !== task.status && <span className="text-warn">≠ {TASK_STATUS_LABEL[task.status]} aqui</span>}
+              <button
+                type="button"
+                className="btn-ghost ml-auto border border-line px-2 py-0.5 text-[11px]"
+                disabled={pushing === 'busy'}
+                onClick={async () => {
+                  setPushing('busy');
+                  const st = await onPushStatus();
+                  setPushing(st ? `atualizado: ${st}` : 'idle');
+                }}
+                title="Muda o estado no provedor para refletir a coluna atual. Nada é enviado sem este clique."
+              >
+                {pushing === 'busy' ? 'atualizando…' : `Atualizar no ${PROVIDER_LABEL[ref.provider]}`}
+              </button>
+            </div>
+            {pushing !== 'idle' && pushing !== 'busy' && <p className="mt-1 text-ok">{pushing}</p>}
+            {ref.pushed_at && <p className="mt-1 text-fg-dim">último envio: {new Date(ref.pushed_at).toLocaleString('pt-BR')}</p>}
+          </div>
+        )}
+        <div className="flex items-center gap-2 text-xs">
+          {terminalHref ? (
+            <Link to={terminalHref} className="btn-ghost border border-line text-ok">
+              ▮_ Ir para o terminal
+            </Link>
+          ) : (
+            <button type="button" className="btn-ghost border border-line" onClick={onOpenTerminal}>
+              ▮_ Abrir terminal para esta task
+            </button>
+          )}
+          <span className="text-fg-dim">a tab fica ligada à task e aparece no card</span>
         </div>
         <div className="flex items-center justify-between pt-2 text-xs text-fg-dim">
           <span>criada em {new Date(task.created_at).toLocaleDateString('pt-BR')}</span>

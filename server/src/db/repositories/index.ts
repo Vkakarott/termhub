@@ -10,6 +10,7 @@ import { TasksRepository } from './tasks.js';
 import { NotesRepository } from './notes.js';
 import { IntegrationsRepository } from './integrations.js';
 import { ProjectSetupRepository } from './project-setup.js';
+import { TicketsRepository } from './tickets.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -23,6 +24,7 @@ export interface Repositories {
   notes: NotesRepository;
   integrations: IntegrationsRepository;
   projectSetup: ProjectSetupRepository;
+  tickets: TicketsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -38,6 +40,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     notes: new NotesRepository(db),
     integrations: new IntegrationsRepository(db),
     projectSetup: new ProjectSetupRepository(db),
+    tickets: new TicketsRepository(db),
   };
 }
 

@@ -35,6 +35,7 @@ export type ProjectStatus = (typeof ProjectStatus)[keyof typeof ProjectStatus]
 
 
 export const TaskStatus = {
+  backlog: 'backlog',
   todo: 'todo',
   doing: 'doing',
   done: 'done'

@@ -58,6 +58,7 @@ export const ModelName = {
   Machine: 'Machine',
   Project: 'Project',
   Tab: 'Tab',
+  Ticket: 'Ticket',
   Task: 'Task',
   Note: 'Note',
   Integration: 'Integration',
@@ -170,6 +171,27 @@ export const TabScalarFieldEnum = {
 export type TabScalarFieldEnum = (typeof TabScalarFieldEnum)[keyof typeof TabScalarFieldEnum]
 
 
+export const TicketScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  integrationId: 'integrationId',
+  provider: 'provider',
+  externalKey: 'externalKey',
+  identifier: 'identifier',
+  title: 'title',
+  description: 'description',
+  url: 'url',
+  state: 'state',
+  status: 'status',
+  meta: 'meta',
+  taskId: 'taskId',
+  syncedAt: 'syncedAt',
+  createdAt: 'createdAt'
+} as const
+
+export type TicketScalarFieldEnum = (typeof TicketScalarFieldEnum)[keyof typeof TicketScalarFieldEnum]
+
+
 export const TaskScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
@@ -180,7 +202,8 @@ export const TaskScalarFieldEnum = {
   externalRef: 'externalRef',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
-  externalKey: 'externalKey'
+  externalKey: 'externalKey',
+  tabId: 'tabId'
 } as const
 
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]

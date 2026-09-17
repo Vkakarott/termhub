@@ -6,10 +6,24 @@ export interface SyncResult {
   fetched: number;
   created: number;
   updated: number;
+  removed: number;
   synced_at: string;
 }
 
-/** Busca os tickets na fonte configurada e faz upsert no kanban do projeto. */
+/** id usado pela API do provedor, a partir da chave estável. */
+export function externalId(key: string, provider: string): string {
+  if (provider === 'github') return key.split('#').pop() ?? key;
+  return key.slice(key.indexOf(':') + 1);
+}
+
+export function ticketRef(t: { provider: string; id: string; identifier: string; url: string; state: string; status: string; updatedAt: string; meta?: Record<string, unknown> }, scope: string) {
+  return { provider: t.provider, id: t.id, identifier: t.identifier, url: t.url, state: t.state, status: t.status, scope, updated_at: t.updatedAt, ...(t.meta ?? {}) };
+}
+
+/**
+ * Busca os tickets na fonte e atualiza o staging (tabela tickets). Tasks já importadas
+ * só recebem o espelho do estado externo (external_ref) — coluna/título ficam como estão.
+ */
 export async function syncProjectTickets(repos: Repositories, projectId: string, source: TicketSourceConfig): Promise<SyncResult> {
   const integration = await repos.integrations.findById(source.integration_id);
   const secret = await repos.integrations.getSecret(source.integration_id);
@@ -23,17 +37,28 @@ export async function syncProjectTickets(repos: Repositories, projectId: string,
     throw new HttpError(502, `Falha ao consultar ${source.provider}: ${(e as Error).message}`, 'PROVIDER_ERROR');
   }
 
-  const r = await repos.tasks.upsertExternal(
+  const r = await repos.tickets.upsertMany(
     projectId,
     tickets.map((t) => ({
-      key: t.key,
-      title: `${t.identifier} ${t.title}`.trim(),
+      integration_id: source.integration_id,
+      provider: t.provider,
+      external_key: t.key,
+      identifier: t.identifier,
+      title: t.title,
       description: t.description,
+      url: t.url,
+      state: t.state,
       status: t.status,
-      ref: { provider: t.provider, id: t.id, identifier: t.identifier, url: t.url, state: t.state, status: t.status, updated_at: t.updatedAt, ...(t.meta ?? {}) },
+      meta: { ...(t.meta ?? {}), updated_at: t.updatedAt, scope: source.scope },
     })),
   );
-  return { fetched: tickets.length, ...r, synced_at: new Date().toISOString() };
+  for (const linked of r.linked) {
+    const src = tickets.find((t) => t.key === linked.external_key);
+    if (src && linked.task_id) await repos.tasks.setExternalRef(linked.task_id, ticketRef(src, source.scope));
+  }
+  // tickets que saíram do filtro/escopo e nunca foram importados somem da lista
+  const removed = await repos.tickets.pruneMissing(projectId, source.integration_id, tickets.map((t) => t.key));
+  return { fetched: tickets.length, created: r.created, updated: r.updated, removed, synced_at: new Date().toISOString() };
 }
 
 /** Sync periódico dos projetos com sync_minutes > 0. */

@@ -2,9 +2,10 @@ import type { ConnectionInfo, ExternalTicket, TicketProvider, TicketSourceConfig
 
 const API = 'https://api.github.com';
 
-async function gh<T>(token: string, path: string): Promise<T> {
+async function gh<T>(token: string, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'termhub' },
+    ...init,
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'termhub', 'content-type': 'application/json' },
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return (await res.json()) as T;
@@ -42,9 +43,16 @@ export const github: TicketProvider = {
         description: i.body,
         url: i.html_url,
         state: i.state,
-        status: i.state === 'closed' ? 'done' : i.assignee ? 'doing' : 'todo',
+        status: i.state === 'closed' ? 'done' : i.assignee ? 'doing' : 'backlog',
         updatedAt: i.updated_at,
         meta: { labels: i.labels.map((l) => l.name), assignee: i.assignee?.login ?? null },
       }));
+  },
+
+  async updateStatus(secret, _config, ticket, status) {
+    const [owner, repo] = ticket.scope.split('/');
+    const state = status === 'done' ? 'closed' : 'open';
+    await gh(secret, `/repos/${owner}/${repo}/issues/${ticket.id}`, { method: 'PATCH', body: JSON.stringify({ state }) });
+    return state;
   },
 };

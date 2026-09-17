@@ -19,6 +19,7 @@ import { noteRoutes } from './routes/notes.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { setupRoutes } from './routes/setup.js';
+import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { attachTerminalWebSocket } from './terminal/ws.js';
 import { seed } from './seed.js';
@@ -98,6 +99,8 @@ export async function buildApp(): Promise<App> {
       await api.register((a) => dashboardRoutes(a, repos), { prefix: '/dashboard' });
       await api.register((a) => integrationRoutes(a, repos), { prefix: '/integrations' });
       await api.register((a) => setupRoutes(a, repos), { prefix: '/projects' });
+      await api.register((a) => projectTicketRoutes(a, repos), { prefix: '/projects' });
+      await api.register((a) => taskTicketRoutes(a, repos), { prefix: '/tasks' });
       await api.register((a) => tabRoutes(a, repos), { prefix: '/tabs' });
       await api.register(systemRoutes, { prefix: '/system' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
@@ -109,7 +112,7 @@ export async function buildApp(): Promise<App> {
   // --- Frontend buildado (produção) ---
   const webDist = path.join(ROOT_DIR, 'web', 'dist');
   if (fs.existsSync(path.join(webDist, 'index.html'))) {
-    await fastify.register(fastifyStatic, { root: webDist, prefix: '/', wildcard: false, index: false });
+    await fastify.register(fastifyStatic, { root: webDist, prefix: '/', index: ['index.html'] });
     // SPA fallback: qualquer rota não-API devolve o index.html
     fastify.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api/') || request.url.startsWith('/ws/')) {

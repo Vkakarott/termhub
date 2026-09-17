@@ -53,6 +53,11 @@ export type Project = Prisma.ProjectModel
  */
 export type Tab = Prisma.TabModel
 /**
+ * Model Ticket
+ * Tickets sincronizados das integrações (staging). Só viram task quando o usuário manda pro backlog.
+ */
+export type Ticket = Prisma.TicketModel
+/**
  * Model Task
  * 
  */

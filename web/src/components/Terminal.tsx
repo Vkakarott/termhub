@@ -93,7 +93,15 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
       /* fallback para renderer DOM/canvas */
     }
     term.attachCustomKeyEventHandler((e) => !isAppShortcut(e));
-    fit.fit();
+    const safeFit = () => {
+      if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
+      try {
+        fit.fit();
+      } catch {
+        /* terminal ainda sem renderer (ex.: container oculto) */
+      }
+    };
+    safeFit();
 
     termRef.current = term;
     fitRef.current = fit;
@@ -116,9 +124,7 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
     let raf = 0;
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        if (el.offsetWidth > 0 && el.offsetHeight > 0) fit.fit();
-      });
+      raf = requestAnimationFrame(safeFit);
     });
     ro.observe(el);
 
@@ -143,7 +149,11 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
   useEffect(() => {
     if (!active) return;
     const id = requestAnimationFrame(() => {
-      fitRef.current?.fit();
+      try {
+        fitRef.current?.fit();
+      } catch {
+        /* container oculto */
+      }
       termRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);

@@ -109,6 +109,7 @@ model Project {
   tasks          Task[]
   note           Note?
   setup          ProjectSetup?
+  tickets        Ticket[]
 
   @@index([machineId])
   @@map("projects")
@@ -122,12 +123,41 @@ model Tab {
   position    Int      @default(0)
   createdAt   DateTime @default(now()) @map("created_at")
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks       Task[]
 
   @@index([projectId])
   @@map("tabs")
 }
 
+/// Tickets sincronizados das integrações (staging). Só viram task quando o usuário manda pro backlog.
+model Ticket {
+  id            String              @id
+  projectId     String              @map("project_id")
+  integrationId String              @map("integration_id")
+  provider      IntegrationProvider
+  /// "linear:<id>" | "jira:<KEY>" | "github:<owner/repo>#<n>"
+  externalKey   String              @map("external_key")
+  identifier    String
+  title         String
+  description   String?
+  url           String
+  /// estado bruto no provedor e o status mapeado
+  state         String
+  status        TaskStatus
+  meta          Json                @default("{}")
+  /// task criada a partir deste ticket (null = ainda não importado)
+  taskId        String?             @unique @map("task_id")
+  syncedAt      DateTime            @default(now()) @map("synced_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, externalKey])
+  @@index([projectId, integrationId])
+  @@map("tickets")
+}
+
 enum TaskStatus {
+  backlog
   todo
   doing
   done
@@ -148,6 +178,9 @@ model Task {
 
   /// chave estável do ticket externo ("linear:<id>", "jira:<key>") para upsert no sync
   externalKey String?    @map("external_key")
+  /// tab de terminal onde a task está sendo executada (run ou aberta manualmente)
+  tabId       String?    @map("tab_id")
+  tab         Tab?       @relation(fields: [tabId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, externalKey])
   @@index([projectId, status, position])

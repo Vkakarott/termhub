@@ -225,6 +225,7 @@ export type TabWhereInput = {
   position?: Prisma.IntFilter<"Tab"> | number
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
+  tasks?: Prisma.TaskListRelationFilter
 }
 
 export type TabOrderByWithRelationInput = {
@@ -235,6 +236,7 @@ export type TabOrderByWithRelationInput = {
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   project?: Prisma.ProjectOrderByWithRelationInput
+  tasks?: Prisma.TaskOrderByRelationAggregateInput
 }
 
 export type TabWhereUniqueInput = Prisma.AtLeast<{
@@ -248,6 +250,7 @@ export type TabWhereUniqueInput = Prisma.AtLeast<{
   position?: Prisma.IntFilter<"Tab"> | number
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
+  tasks?: Prisma.TaskListRelationFilter
 }, "id" | "tmuxSession">
 
 export type TabOrderByWithAggregationInput = {
@@ -283,6 +286,7 @@ export type TabCreateInput = {
   position?: number
   createdAt?: Date | string
   project: Prisma.ProjectCreateNestedOneWithoutTabsInput
+  tasks?: Prisma.TaskCreateNestedManyWithoutTabInput
 }
 
 export type TabUncheckedCreateInput = {
@@ -292,6 +296,7 @@ export type TabUncheckedCreateInput = {
   tmuxSession: string
   position?: number
   createdAt?: Date | string
+  tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
 }
 
 export type TabUpdateInput = {
@@ -301,6 +306,7 @@ export type TabUpdateInput = {
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
+  tasks?: Prisma.TaskUpdateManyWithoutTabNestedInput
 }
 
 export type TabUncheckedUpdateInput = {
@@ -310,6 +316,7 @@ export type TabUncheckedUpdateInput = {
   tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
 }
 
 export type TabCreateManyInput = {
@@ -383,6 +390,11 @@ export type TabSumOrderByAggregateInput = {
   position?: Prisma.SortOrder
 }
 
+export type TabNullableScalarRelationFilter = {
+  is?: Prisma.TabWhereInput | null
+  isNot?: Prisma.TabWhereInput | null
+}
+
 export type TabCreateNestedManyWithoutProjectInput = {
   create?: Prisma.XOR<Prisma.TabCreateWithoutProjectInput, Prisma.TabUncheckedCreateWithoutProjectInput> | Prisma.TabCreateWithoutProjectInput[] | Prisma.TabUncheckedCreateWithoutProjectInput[]
   connectOrCreate?: Prisma.TabCreateOrConnectWithoutProjectInput | Prisma.TabCreateOrConnectWithoutProjectInput[]
@@ -425,12 +437,29 @@ export type TabUncheckedUpdateManyWithoutProjectNestedInput = {
   deleteMany?: Prisma.TabScalarWhereInput | Prisma.TabScalarWhereInput[]
 }
 
+export type TabCreateNestedOneWithoutTasksInput = {
+  create?: Prisma.XOR<Prisma.TabCreateWithoutTasksInput, Prisma.TabUncheckedCreateWithoutTasksInput>
+  connectOrCreate?: Prisma.TabCreateOrConnectWithoutTasksInput
+  connect?: Prisma.TabWhereUniqueInput
+}
+
+export type TabUpdateOneWithoutTasksNestedInput = {
+  create?: Prisma.XOR<Prisma.TabCreateWithoutTasksInput, Prisma.TabUncheckedCreateWithoutTasksInput>
+  connectOrCreate?: Prisma.TabCreateOrConnectWithoutTasksInput
+  upsert?: Prisma.TabUpsertWithoutTasksInput
+  disconnect?: Prisma.TabWhereInput | boolean
+  delete?: Prisma.TabWhereInput | boolean
+  connect?: Prisma.TabWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TabUpdateToOneWithWhereWithoutTasksInput, Prisma.TabUpdateWithoutTasksInput>, Prisma.TabUncheckedUpdateWithoutTasksInput>
+}
+
 export type TabCreateWithoutProjectInput = {
   id: string
   name: string
   tmuxSession: string
   position?: number
   createdAt?: Date | string
+  tasks?: Prisma.TaskCreateNestedManyWithoutTabInput
 }
 
 export type TabUncheckedCreateWithoutProjectInput = {
@@ -439,6 +468,7 @@ export type TabUncheckedCreateWithoutProjectInput = {
   tmuxSession: string
   position?: number
   createdAt?: Date | string
+  tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
 }
 
 export type TabCreateOrConnectWithoutProjectInput = {
@@ -479,6 +509,58 @@ export type TabScalarWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
 }
 
+export type TabCreateWithoutTasksInput = {
+  id: string
+  name: string
+  tmuxSession: string
+  position?: number
+  createdAt?: Date | string
+  project: Prisma.ProjectCreateNestedOneWithoutTabsInput
+}
+
+export type TabUncheckedCreateWithoutTasksInput = {
+  id: string
+  projectId: string
+  name: string
+  tmuxSession: string
+  position?: number
+  createdAt?: Date | string
+}
+
+export type TabCreateOrConnectWithoutTasksInput = {
+  where: Prisma.TabWhereUniqueInput
+  create: Prisma.XOR<Prisma.TabCreateWithoutTasksInput, Prisma.TabUncheckedCreateWithoutTasksInput>
+}
+
+export type TabUpsertWithoutTasksInput = {
+  update: Prisma.XOR<Prisma.TabUpdateWithoutTasksInput, Prisma.TabUncheckedUpdateWithoutTasksInput>
+  create: Prisma.XOR<Prisma.TabCreateWithoutTasksInput, Prisma.TabUncheckedCreateWithoutTasksInput>
+  where?: Prisma.TabWhereInput
+}
+
+export type TabUpdateToOneWithWhereWithoutTasksInput = {
+  where?: Prisma.TabWhereInput
+  data: Prisma.XOR<Prisma.TabUpdateWithoutTasksInput, Prisma.TabUncheckedUpdateWithoutTasksInput>
+}
+
+export type TabUpdateWithoutTasksInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  position?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
+}
+
+export type TabUncheckedUpdateWithoutTasksInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  position?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
 export type TabCreateManyProjectInput = {
   id: string
   name: string
@@ -493,6 +575,7 @@ export type TabUpdateWithoutProjectInput = {
   tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tasks?: Prisma.TaskUpdateManyWithoutTabNestedInput
 }
 
 export type TabUncheckedUpdateWithoutProjectInput = {
@@ -501,6 +584,7 @@ export type TabUncheckedUpdateWithoutProjectInput = {
   tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
 }
 
 export type TabUncheckedUpdateManyWithoutProjectInput = {
@@ -512,6 +596,35 @@ export type TabUncheckedUpdateManyWithoutProjectInput = {
 }
 
 
+/**
+ * Count Type TabCountOutputType
+ */
+
+export type TabCountOutputType = {
+  tasks: number
+}
+
+export type TabCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  tasks?: boolean | TabCountOutputTypeCountTasksArgs
+}
+
+/**
+ * TabCountOutputType without action
+ */
+export type TabCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TabCountOutputType
+   */
+  select?: Prisma.TabCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * TabCountOutputType without action
+ */
+export type TabCountOutputTypeCountTasksArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TaskWhereInput
+}
+
 
 export type TabSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -521,6 +634,8 @@ export type TabSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   position?: boolean
   createdAt?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
+  tasks?: boolean | Prisma.Tab$tasksArgs<ExtArgs>
+  _count?: boolean | Prisma.TabCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["tab"]>
 
 export type TabSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -555,6 +670,8 @@ export type TabSelectScalar = {
 export type TabOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "name" | "tmuxSession" | "position" | "createdAt", ExtArgs["result"]["tab"]>
 export type TabInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
+  tasks?: boolean | Prisma.Tab$tasksArgs<ExtArgs>
+  _count?: boolean | Prisma.TabCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type TabIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
@@ -567,6 +684,7 @@ export type $TabPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   name: "Tab"
   objects: {
     project: Prisma.$ProjectPayload<ExtArgs>
+    tasks: Prisma.$TaskPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -970,6 +1088,7 @@ readonly fields: TabFieldRefs;
 export interface Prisma__TabClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   project<T extends Prisma.ProjectDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.ProjectDefaultArgs<ExtArgs>>): Prisma.Prisma__ProjectClient<runtime.Types.Result.GetResult<Prisma.$ProjectPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  tasks<T extends Prisma.Tab$tasksArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Tab$tasksArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TaskPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1403,6 +1522,30 @@ export type TabDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.InternalA
    * Limit how many Tabs to delete.
    */
   limit?: number
+}
+
+/**
+ * Tab.tasks
+ */
+export type Tab$tasksArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Task
+   */
+  select?: Prisma.TaskSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Task
+   */
+  omit?: Prisma.TaskOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TaskInclude<ExtArgs> | null
+  where?: Prisma.TaskWhereInput
+  orderBy?: Prisma.TaskOrderByWithRelationInput | Prisma.TaskOrderByWithRelationInput[]
+  cursor?: Prisma.TaskWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TaskScalarFieldEnum | Prisma.TaskScalarFieldEnum[]
 }
 
 /**

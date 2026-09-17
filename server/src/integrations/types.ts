@@ -1,4 +1,5 @@
 export type IntegrationProvider = 'github' | 'linear' | 'jira';
+export type KanbanStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
 /** Ticket normalizado vindo de Linear/Jira/GitHub. */
 export interface ExternalTicket {
@@ -14,7 +15,7 @@ export interface ExternalTicket {
   /** estado bruto do provedor */
   state: string;
   /** mapeado para o kanban */
-  status: 'todo' | 'doing' | 'done';
+  status: KanbanStatus;
   updatedAt: string;
   /** dados extras do provedor (prioridade, labels, assignee...) */
   meta?: Record<string, unknown>;
@@ -47,4 +48,9 @@ export interface TicketProvider {
   testConnection(secret: string, config: Record<string, unknown>): Promise<ConnectionInfo>;
   /** lista tickets do escopo configurado */
   listTickets(secret: string, config: Record<string, unknown>, source: TicketSourceConfig): Promise<ExternalTicket[]>;
+  /**
+   * Atualiza o estado do ticket no provedor para refletir a coluna do kanban.
+   * Só é chamado por ação explícita do usuário. Devolve o novo estado bruto.
+   */
+  updateStatus(secret: string, config: Record<string, unknown>, ticket: { id: string; identifier: string; scope: string }, status: KanbanStatus): Promise<string>;
 }

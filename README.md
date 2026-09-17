@@ -105,7 +105,7 @@ npm run create-user -- --email voce@exemplo.com --name "Seu Nome" [--password ..
 
 Cada projeto tem navegação interna: **Terminais | Tarefas | Notas | Configurações**.
 
-- **Tarefas:** kanban com três colunas (A fazer / Fazendo / Feito), arrastar e soltar entre colunas e para reordenar, criação rápida no topo de cada coluna (Enter), duplo clique renomeia, clique abre título/descrição/status/excluir. O contador de tasks abertas aparece na sidebar ao lado do projeto. O campo `external_ref` (JSON) fica reservado para integrações futuras (GitHub/Jira/Linear).
+- **Tarefas:** kanban com quatro colunas (Backlog / A fazer / Fazendo / Feito), arrastar e soltar entre colunas e para reordenar, criação rápida no topo de cada coluna (Enter), duplo clique renomeia, clique abre título/descrição/status/excluir. O contador de tasks abertas aparece na sidebar ao lado do projeto. O campo `external_ref` (JSON) fica reservado para integrações futuras (GitHub/Jira/Linear).
 - **Notas:** uma nota em markdown por projeto, com preview (GFM), modos editar / lado a lado / preview e autosave com debounce (⌘S força).
 - **Dashboard** (home): projetos ativos com máquina (online/offline), tasks em "Fazendo", total de abertas e último acesso a terminal — ordenado pelo terminal mais recente.
 - **Configurações:** renomear, editar `cwd`, descrição, status (ativo/pausado/arquivado) e excluir (encerra as sessões tmux das tabs).
@@ -114,7 +114,9 @@ Cada projeto tem navegação interna: **Terminais | Tarefas | Notas | Configura�
 
 - **Integrações** (sidebar → ⚙ Integrações): credenciais de **GitHub** (token), **Linear** (API key) e **Jira** (URL + e-mail + API token). Segredos criptografados com `ENCRYPTION_KEY` (AES-256-GCM); botão "Testar" valida e lista times/projetos/repos.
 - **Setup** (aba do projeto): repositório (integração GitHub, `owner/repo`, branch base, padrão de branch, PR draft), **tickets** (fonte Linear/Jira/GitHub + escopo + filtro + sync automático), **runner** (máquina onde a automação roda, cwd, comando de preparação, worktree), **agente** (comando, plugins, modelo), **verificação** (screenshot iOS/web/comando) e **aprovações** (cada decisão: pedir no dashboard ou automático).
-- **Sync de tickets** (`POST /api/projects/:id/tickets/sync` ou automático): cria/atualiza tasks no kanban com `external_ref` (`{provider, id, identifier, url, state}`); o estado do provedor mapeia para a coluna (Linear `started`→Fazendo, `completed`→Feito; Jira por `statusCategory`; GitHub fechado→Feito). Movimentações feitas no kanban são preservadas até o estado externo mudar.
+- **Tickets** (aba do projeto): o sync (`POST /api/projects/:id/tickets/sync` ou automático) alimenta uma **lista de tickets por integração** — nada entra no board sozinho. Você seleciona os que quer e clica em "Enviar para o backlog": viram tasks na coluna **Backlog** com `external_ref` (`{provider, id, identifier, url, state}`). Syncs seguintes só atualizam o espelho do estado externo; a coluna e o título no kanban são seus. Excluir a task devolve o ticket à lista.
+- **Nada volta para Linear/Jira/GitHub automaticamente**: na task (⋯) o botão "Atualizar no Linear/Jira" empurra a coluna atual para o provedor (Linear: estado do tipo correspondente no time; Jira: transição pela `statusCategory`; GitHub: open/closed). O card avisa quando o estado externo difere da coluna.
+- **Terminal por task**: "Abrir terminal para esta task" cria uma tab tmux com o nome do ticket e a vincula (`tasks.tab_id`); o card mostra `▮_` com link direto para a tab. É onde a run do agente vai aparecer.
 - O status das máquinas detecta SO e ferramentas (`claude`, `gh`, `git`, `node`, `xcodebuild`, `adb`…) — usado para escolher o runner.
 
 ## Variáveis de ambiente

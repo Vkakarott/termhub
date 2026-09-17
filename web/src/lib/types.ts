@@ -37,7 +37,7 @@ export interface Project {
   open_tasks?: number;
 }
 
-export type TaskStatus = 'todo' | 'doing' | 'done';
+export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
 export interface Task {
   id: string;
@@ -48,8 +48,27 @@ export interface Task {
   position: number;
   external_ref: ExternalRef | null;
   external_key: string | null;
+  tab_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Ticket {
+  id: string;
+  project_id: string;
+  integration_id: string;
+  provider: IntegrationProvider;
+  external_key: string;
+  identifier: string;
+  title: string;
+  description: string | null;
+  url: string;
+  state: string;
+  status: TaskStatus;
+  meta: Record<string, unknown> & { labels?: string[]; assignee?: string | null; priority?: unknown; updated_at?: string };
+  task_id: string | null;
+  synced_at: string;
+  created_at: string;
 }
 
 export interface ExternalRef {
@@ -59,6 +78,8 @@ export interface ExternalRef {
   url: string;
   state: string;
   status: TaskStatus;
+  scope?: string;
+  pushed_at?: string;
   updated_at?: string;
   priority?: unknown;
   assignee?: string | null;
@@ -140,6 +161,7 @@ export interface DashboardItem {
 }
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  backlog: 'Backlog',
   todo: 'A fazer',
   doing: 'Fazendo',
   done: 'Feito',

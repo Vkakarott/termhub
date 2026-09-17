@@ -24,8 +24,11 @@ async function jira<T>(config: Record<string, unknown>, token: string, path: str
 function mapCategory(key: string): ExternalTicket['status'] {
   if (key === 'indeterminate') return 'doing';
   if (key === 'done') return 'done';
-  return 'todo'; // new / undefined
+  return 'backlog'; // new / undefined
 }
+
+/** kanban → statusCategory do Jira (backlog e todo caem em "new"). */
+const CATEGORY: Record<string, string> = { backlog: 'new', todo: 'new', doing: 'indeterminate', done: 'done' };
 
 /** Descrição do Jira Cloud vem em ADF; extrai o texto puro. */
 function adfToText(node: unknown): string {
@@ -89,5 +92,22 @@ export const jiraProvider: TicketProvider = {
       updatedAt: i.fields.updated,
       meta: { priority: i.fields.priority?.name ?? null, assignee: i.fields.assignee?.displayName ?? null, labels: i.fields.labels ?? [] },
     }));
+  },
+
+  async updateStatus(secret, config, ticket, status) {
+    const { transitions } = await jira<{ transitions: { id: string; name: string; to: { name: string; statusCategory: { key: string } } }[] }>(
+      config,
+      secret,
+      `/rest/api/3/issue/${ticket.identifier}/transitions`,
+    );
+    const t = transitions.find((x) => x.to.statusCategory.key === CATEGORY[status]);
+    if (!t) throw new Error(`Jira: nenhuma transição disponível para a categoria ${CATEGORY[status]} (${transitions.map((x) => x.to.name).join(', ')})`);
+    const res = await fetch(`${base(config)}/rest/api/3/issue/${ticket.identifier}/transitions`, {
+      method: 'POST',
+      headers: { authorization: auth(config, secret), 'content-type': 'application/json' },
+      body: JSON.stringify({ transition: { id: t.id } }),
+    });
+    if (!res.ok) throw new Error(`Jira ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    return t.to.name;
   },
 };

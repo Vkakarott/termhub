@@ -6,12 +6,13 @@ import type {
   Tab as PrismaTab,
   Task as PrismaTask,
   Note as PrismaNote,
+  Ticket as PrismaTicket,
 } from '../../generated/prisma/client.js';
 
 export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
-export type TaskStatus = 'todo' | 'doing' | 'done';
+export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
 /**
  * Tipos expostos pela camada de dados (snake_case, datas em ISO string).
@@ -79,8 +80,27 @@ export interface Task {
   /** Ticket externo: { provider, id, identifier, url, state, meta } */
   external_ref: unknown | null;
   external_key: string | null;
+  tab_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Ticket {
+  id: string;
+  project_id: string;
+  integration_id: string;
+  provider: 'github' | 'linear' | 'jira';
+  external_key: string;
+  identifier: string;
+  title: string;
+  description: string | null;
+  url: string;
+  state: string;
+  status: TaskStatus;
+  meta: Record<string, unknown>;
+  task_id: string | null;
+  synced_at: string;
+  created_at: string;
 }
 
 export interface Note {
@@ -153,8 +173,27 @@ export const mapTask = (t: PrismaTask): Task => ({
   position: t.position,
   external_ref: t.externalRef ?? null,
   external_key: t.externalKey,
+  tab_id: t.tabId,
   created_at: t.createdAt.toISOString(),
   updated_at: t.updatedAt.toISOString(),
+});
+
+export const mapTicket = (t: PrismaTicket): Ticket => ({
+  id: t.id,
+  project_id: t.projectId,
+  integration_id: t.integrationId,
+  provider: t.provider,
+  external_key: t.externalKey,
+  identifier: t.identifier,
+  title: t.title,
+  description: t.description,
+  url: t.url,
+  state: t.state,
+  status: t.status,
+  meta: (t.meta ?? {}) as Record<string, unknown>,
+  task_id: t.taskId,
+  synced_at: t.syncedAt.toISOString(),
+  created_at: t.createdAt.toISOString(),
 });
 
 export const mapNote = (n: PrismaNote): Note => ({

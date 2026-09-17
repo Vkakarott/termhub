@@ -4,14 +4,16 @@ import { PROJECT_STATUS_LABEL } from '../lib/types';
 import { TerminalsView } from '../components/TerminalsView';
 import { TasksBoard } from '../components/TasksBoard';
 import { NotesEditor } from '../components/NotesEditor';
+import { TicketsView } from '../components/TicketsView';
 import { ProjectSettings } from '../components/ProjectSettings';
 import { FullScreenMessage } from '../components/Layout';
 
-export type ProjectSection = 'terminals' | 'tasks' | 'notes' | 'settings';
+export type ProjectSection = 'terminals' | 'tasks' | 'tickets' | 'notes' | 'settings';
 
 const SECTIONS: { key: ProjectSection; label: string; path: string }[] = [
   { key: 'terminals', label: 'Terminais', path: '' },
   { key: 'tasks', label: 'Tarefas', path: 'tasks' },
+  { key: 'tickets', label: 'Tickets', path: 'tickets' },
   { key: 'notes', label: 'Notas', path: 'notes' },
   { key: 'settings', label: 'Setup', path: 'settings' },
 ];
@@ -60,6 +62,7 @@ export function ProjectPage() {
         {/* Terminais ficam montados mesmo em outras seções: trocar de aba não reconecta. */}
         <TerminalsView key={`terminals-${project.id}`} project={project} visible={current === 'terminals'} />
         {current === 'tasks' && <TasksBoard key={`tasks-${project.id}`} projectId={project.id} />}
+        {current === 'tickets' && <TicketsView key={`tickets-${project.id}`} project={project} />}
         {current === 'notes' && <NotesEditor key={`notes-${project.id}`} projectId={project.id} />}
         {current === 'settings' && (
           <ProjectSettings key={`settings-${project.id}-${project.status}-${project.cwd}-${project.name}`} project={project} />

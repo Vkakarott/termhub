@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { Project, Tab } from '../lib/types';
 import { TabBar } from './TabBar';
@@ -15,12 +16,18 @@ const activeKey = (projectId: string) => `termhub:active-tab:${projectId}`;
 
 export function TerminalsView({ project, visible }: Props) {
   const { machines, missingTmux } = useData();
+  const [searchParams, setSearchParams] = useSearchParams();
   const machine = machines.find((m) => m.id === project.machine_id);
   const noTmux = !!missingTmux[project.machine_id];
   const [tabs, setTabs] = useState<Tab[] | null>(null);
   const [reachable, setReachable] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(activeKey(project.id)));
   const [closing, setClosing] = useState<Tab | null>(null);
+  // Terminais só montam depois da primeira vez visíveis (xterm não inicializa com display:none).
+  const [shown, setShown] = useState(visible);
+  useEffect(() => {
+    if (visible) setShown(true);
+  }, [visible]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -38,6 +45,18 @@ export function TerminalsView({ project, visible }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // ?tab=<id> (vindo do card da task) ativa a tab e limpa o parâmetro.
+  useEffect(() => {
+    const wanted = searchParams.get('tab');
+    if (!wanted || !tabs) return;
+    if (tabs.some((t) => t.id === wanted)) setActiveId(wanted);
+    else void load();
+    setSearchParams((p) => {
+      p.delete('tab');
+      return p;
+    }, { replace: true });
+  }, [searchParams, tabs, setSearchParams, load]);
 
   // Garante uma tab ativa válida.
   useEffect(() => {
@@ -159,11 +178,11 @@ export function TerminalsView({ project, visible }: Props) {
               Abrir terminal <kbd className="ml-1 rounded bg-black/30 px-1 text-[10px]">⌘T</kbd>
             </button>
           </div>
-        ) : (
+        ) : shown ? (
           tabs.map((t) => (
             <TerminalView key={t.id} tabId={t.id} active={visible && t.id === activeId} onConnected={() => markAlive(t.id)} />
           ))
-        )}
+        ) : null}
       </div>
       <ConfirmDialog
         open={!!closing}

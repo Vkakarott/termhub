@@ -17,8 +17,12 @@ async function gql<T>(apiKey: string, query: string, variables: Record<string, u
 function mapState(type: string): ExternalTicket['status'] {
   if (type === 'started') return 'doing';
   if (type === 'completed' || type === 'canceled') return 'done';
-  return 'todo'; // backlog, unstarted, triage
+  if (type === 'unstarted') return 'todo';
+  return 'backlog'; // backlog, triage
 }
+
+/** kanban → tipo de estado do Linear (o estado escolhido é o primeiro do tipo, por posição). */
+const STATE_TYPE: Record<string, string> = { backlog: 'backlog', todo: 'unstarted', doing: 'started', done: 'completed' };
 
 export const linear: TicketProvider = {
   provider: 'linear',
@@ -81,5 +85,20 @@ export const linear: TicketProvider = {
       updatedAt: i.updatedAt,
       meta: { priority: i.priority, assignee: i.assignee?.name ?? null, labels: i.labels.nodes.map((l) => l.name) },
     }));
+  },
+
+  async updateStatus(secret, _config, ticket, status) {
+    const data = await gql<{ workflowStates: { nodes: { id: string; name: string; type: string; position: number }[] } }>(
+      secret,
+      `query($key: String!) { workflowStates(filter: { team: { key: { eq: $key } } }, first: 50) { nodes { id name type position } } }`,
+      { key: ticket.scope },
+    );
+    const target = data.workflowStates.nodes.filter((s) => s.type === STATE_TYPE[status]).sort((a, b) => a.position - b.position)[0];
+    if (!target) throw new Error(`Linear: time ${ticket.scope} não tem estado do tipo ${STATE_TYPE[status]}`);
+    await gql(secret, `mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }`, {
+      id: ticket.id,
+      stateId: target.id,
+    });
+    return target.name;
   },
 };

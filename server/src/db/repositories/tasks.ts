@@ -105,50 +105,32 @@ export class TasksRepository {
     return true;
   }
 
-  /**
-   * Sincroniza tickets externos com o kanban do projeto.
-   * - novo ticket → cria task (no fim da coluna do status mapeado)
-   * - existente → atualiza título/descrição/external_ref; move de coluna só se o status externo mudou
-   *   desde o último sync (respeita movimentações feitas no kanban)
-   */
-  async upsertExternal(
-    projectId: string,
-    tickets: { key: string; title: string; description: string | null; status: TaskStatus; ref: Record<string, unknown> }[],
-  ): Promise<{ created: number; updated: number }> {
-    let created = 0;
-    let updated = 0;
-    for (const t of tickets) {
-      const existing = await this.db.task.findUnique({ where: { projectId_externalKey: { projectId, externalKey: t.key } } });
-      if (!existing) {
-        const agg = await this.db.task.aggregate({ where: { projectId, status: t.status }, _max: { position: true } });
-        await this.db.task.create({
-          data: {
-            id: newId(),
-            projectId,
-            title: t.title,
-            description: t.description,
-            status: t.status,
-            position: (agg._max.position ?? -1) + 1,
-            externalKey: t.key,
-            externalRef: t.ref as object,
-          },
-        });
-        created++;
-        continue;
-      }
-      const prevRef = (existing.externalRef ?? {}) as { status?: string };
-      const externalStatusChanged = prevRef.status !== t.status;
-      const changed =
-        existing.title !== t.title || (existing.description ?? null) !== (t.description ?? null) || externalStatusChanged || stableStringify(existing.externalRef) !== stableStringify(t.ref);
-      if (!changed) continue;
-      await this.db.task.update({
-        where: { id: existing.id },
-        data: { title: t.title, description: t.description, externalRef: t.ref as object },
-      });
-      if (externalStatusChanged && existing.status !== t.status) await this.move(existing.id, t.status, 0);
-      updated++;
-    }
-    return { created, updated };
+  /** Cria a task a partir de um ticket sincronizado (vai para o fim do backlog). */
+  async createFromTicket(projectId: string, ticket: { key: string; title: string; description: string | null; ref: Record<string, unknown> }): Promise<Task> {
+    const agg = await this.db.task.aggregate({ where: { projectId, status: 'backlog' }, _max: { position: true } });
+    const t = await this.db.task.create({
+      data: {
+        id: newId(),
+        projectId,
+        title: ticket.title,
+        description: ticket.description,
+        status: 'backlog',
+        position: (agg._max.position ?? -1) + 1,
+        externalKey: ticket.key,
+        externalRef: ticket.ref as object,
+      },
+    });
+    return mapTask(t);
+  }
+
+  /** Atualiza só o espelho do ticket externo (estado/meta), sem mexer em título, coluna ou descrição. */
+  async setExternalRef(id: string, ref: Record<string, unknown>): Promise<void> {
+    await this.db.task.updateMany({ where: { id }, data: { externalRef: ref as object } });
+  }
+
+  async setTab(id: string, tabId: string | null): Promise<Task | undefined> {
+    const t = await this.db.task.update({ where: { id }, data: { tabId } });
+    return mapTask(t);
   }
 
   /** Contagem de tasks abertas (todo + doing) por projeto. */

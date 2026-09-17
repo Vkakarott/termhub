@@ -4,7 +4,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import { notFound } from '../lib/errors.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
-const statusSchema = z.enum(['todo', 'doing', 'done']);
+const statusSchema = z.enum(['backlog', 'todo', 'doing', 'done']);
 
 const createBody = z.object({
   title: z.string().trim().min(1).max(300),
@@ -48,6 +48,7 @@ export async function taskRoutes(app: FastifyInstance, repos: Repositories) {
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
+    await repos.tickets.unlinkTask(id); // o ticket volta a aparecer como "não importado"
     if (!(await repos.tasks.delete(id))) throw notFound('Task não encontrada');
     return { ok: true };
   });

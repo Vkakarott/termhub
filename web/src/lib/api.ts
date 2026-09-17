@@ -1,4 +1,4 @@
-import type { AuthConfig, ConnectionInfo, DashboardItem, Integration, IntegrationProvider, Machine, Note, Project, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, User } from './types';
+import type { AuthConfig, ConnectionInfo, DashboardItem, Integration, IntegrationProvider, Machine, Note, Project, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, Ticket, User } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -78,6 +78,13 @@ export const api = {
       request<{ task: Task }>('PATCH', `/tasks/${id}`, input),
     move: (id: string, status: TaskStatus, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/move`, { status, position }),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/tasks/${id}`),
+    pushStatus: (id: string) => request<{ task: Task; state: string }>('POST', `/tasks/${id}/push-status`, {}),
+    openTerminal: (id: string) => request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, {}),
+    detachTerminal: (id: string) => request<{ task: Task }>('DELETE', `/tasks/${id}/terminal`),
+  },
+  tickets: {
+    list: (projectId: string) => request<{ tickets: Ticket[] }>('GET', `/projects/${projectId}/tickets`),
+    import: (projectId: string, ticketIds: string[]) => request<{ tasks: Task[] }>('POST', `/projects/${projectId}/tickets/import`, { ticket_ids: ticketIds }),
   },
   notes: {
     get: (projectId: string) => request<{ note: Note }>('GET', `/projects/${projectId}/note`),
@@ -97,7 +104,7 @@ export const api = {
     get: (projectId: string) => request<{ setup: ProjectSetup }>('GET', `/projects/${projectId}/setup`),
     save: (projectId: string, data: ProjectSetupData) => request<{ setup: ProjectSetup }>('PUT', `/projects/${projectId}/setup`, data),
     syncTickets: (projectId: string) =>
-      request<{ ok: true; fetched: number; created: number; updated: number; synced_at: string }>('POST', `/projects/${projectId}/tickets/sync`, {}),
+      request<{ ok: true; fetched: number; created: number; updated: number; removed: number; synced_at: string }>('POST', `/projects/${projectId}/tickets/sync`, {}),
   },
   system: {
     sshKey: () => request<{ public_key: string | null; file: string | null }>('GET', '/system/ssh-key'),

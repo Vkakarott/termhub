@@ -343,10 +343,6 @@ export type IntegrationMinOrderByAggregateInput = {
   updatedAt?: Prisma.SortOrder
 }
 
-export type EnumIntegrationProviderFieldUpdateOperationsInput = {
-  set?: $Enums.IntegrationProvider
-}
-
 
 
 export type IntegrationSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
