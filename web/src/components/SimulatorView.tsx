@@ -75,8 +75,14 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
   const [toast, setToast] = useState<string | null>(null);
   const [quality, setQuality] = useState<QualityKey>('lan');
   const frameCount = useRef(0);
+  const frameSeqRef = useRef(0);
+  const paintedSeqRef = useRef(0);
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
+  // Estado desejado de pausa/qualidade: usados como fonte da verdade para reenviar
+  // assim que a conexão fica pronta (o `send` é um no-op enquanto o socket não está OPEN).
+  const pausedRef = useRef(!(active && document.visibilityState === 'visible'));
+  const qualityRef = useRef<QualityKey>('lan');
 
   // Conexão: uma por tab+udid.
   useEffect(() => {
@@ -89,21 +95,35 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
     const conn = new SimulatorConnection(tab.id, {
       onFrame: (blob) => {
         frameCount.current += 1;
-        void createImageBitmap(blob).then((bmp) => {
-          if (!canvas || !ctx) return;
-          if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
-            canvas.width = bmp.width;
-            canvas.height = bmp.height;
-          }
-          ctx.drawImage(bmp, 0, 0);
-          bmp.close();
-        });
+        const seq = ++frameSeqRef.current;
+        void createImageBitmap(blob)
+          .then((bmp) => {
+            try {
+              if (canvas && ctx && seq > paintedSeqRef.current) {
+                if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+                  canvas.width = bmp.width;
+                  canvas.height = bmp.height;
+                }
+                ctx.drawImage(bmp, 0, 0);
+                paintedSeqRef.current = seq;
+              }
+            } finally {
+              bmp.close();
+            }
+          })
+          .catch(() => {});
       },
       onStatus: (s, m, t) => {
         setState(s);
         setMessage(m);
         setTail(t);
-        if (s === 'ready') onConnectedRef.current?.();
+        // Reenvia o estado desejado de pausa a cada status: garante que pause/resume
+        // não se perca se tiver sido mandado enquanto o socket ainda estava CONNECTING.
+        connRef.current?.send({ type: pausedRef.current ? 'pause' : 'resume' });
+        if (s === 'ready') {
+          connRef.current?.send({ type: 'settings', scale: QUALITY[qualityRef.current].scale, quality: QUALITY[qualityRef.current].quality });
+          onConnectedRef.current?.();
+        }
       },
       onScreen: (s) => {
         screenRef.current = s;
@@ -124,15 +144,17 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
     };
   }, [tab.id, tab.simulator_udid]);
 
-  // Aba escondida → pausa o stream.
+  // Aba escondida → pausa o stream. Atualiza o ref (fonte da verdade) e tenta mandar
+  // na hora; se o socket ainda não estiver OPEN, o onStatus acima reenvia ao conectar.
   useEffect(() => {
-    const conn = connRef.current;
-    if (!conn) return;
-    conn.send({ type: active && document.visibilityState === 'visible' ? 'resume' : 'pause' });
-    const onVis = () => conn.send({ type: active && document.visibilityState === 'visible' ? 'resume' : 'pause' });
-    document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
-  }, [active, state]);
+    const update = () => {
+      pausedRef.current = !(active && document.visibilityState === 'visible');
+      connRef.current?.send({ type: pausedRef.current ? 'pause' : 'resume' });
+    };
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, [active]);
 
   useEffect(() => {
     if (!toast) return;
@@ -142,13 +164,16 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
 
   const send = useCallback((msg: Parameters<SimulatorConnection['send']>[0]) => connRef.current?.send(msg), []);
 
-  // Canvas px → pontos lógicos.
+  // Canvas px → pontos lógicos, clampados aos limites da tela (evita swipes de borda
+  // terminando fora do dispositivo, o que a WDA rejeita).
   const toPoint = (e: { clientX: number; clientY: number }) => {
     const canvas = canvasRef.current;
     const scr = screenRef.current;
     if (!canvas || !scr) return null;
     const r = canvas.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * scr.width, y: ((e.clientY - r.top) / r.height) * scr.height };
+    const x = Math.max(0, Math.min(scr.width, ((e.clientX - r.left) / r.width) * scr.width));
+    const y = Math.max(0, Math.min(scr.height, ((e.clientY - r.top) / r.height) * scr.height));
+    return { x, y };
   };
 
   // Mouse: tap curto ou drag amostrado.
@@ -226,6 +251,7 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
 
   const changeQuality = (q: QualityKey) => {
     setQuality(q);
+    qualityRef.current = q;
     send({ type: 'settings', scale: QUALITY[q].scale, quality: QUALITY[q].quality });
   };
 
@@ -236,7 +262,7 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
   return (
     <div className={`absolute inset-0 flex flex-col ${active ? '' : 'hidden'}`}>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-bg-2 px-2 text-xs">
-        <DevicePicker machineId={machineId} value={tab.simulator_udid} onPick={(u) => void pickDevice(u)} />
+        {tab.simulator_udid && <DevicePicker machineId={machineId} value={tab.simulator_udid} onPick={(u) => void pickDevice(u)} />}
         <span className={`h-1.5 w-1.5 rounded-full ${ready ? 'bg-ok' : state === 'error' || state === 'offline' ? 'bg-danger' : 'bg-warn'}`} />
         <span className="text-fg-muted">{STATE_LABEL[state]}</span>
         {ready && <span className="text-fg-dim">{fps} fps</span>}
