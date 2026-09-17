@@ -3,8 +3,10 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { machineStatus } from '../terminal/machine-exec.js';
+import { browseMachine } from '../terminal/machine-fs.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
+const fsQuery = z.object({ path: z.string().max(4096).optional() });
 
 const machineBody = z
   .object({
@@ -60,5 +62,14 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const status = await machineStatus(machine);
     if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
     return { id, ...status, checked_at: new Date().toISOString() };
+  });
+
+  /** Navegador de diretórios: subpastas de ?path (padrão $HOME) + discos/mounts da máquina. */
+  app.get('/:id/fs', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const { path } = fsQuery.parse(request.query);
+    const machine = await repos.machines.findById(id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    return await browseMachine(machine, path);
   });
 }

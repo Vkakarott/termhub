@@ -24,6 +24,28 @@ export interface Machine {
   created_at: string;
 }
 
+export interface FsRoot {
+  kind: 'home' | 'disk';
+  label: string;
+  path: string;
+  source?: string;
+  size_kb?: number;
+  avail_kb?: number;
+}
+
+export interface FsEntry {
+  name: string;
+  path: string;
+}
+
+/** Resposta de GET /machines/:id/fs */
+export interface FsListing {
+  path: string;
+  parent: string | null;
+  entries: FsEntry[];
+  roots: FsRoot[];
+}
+
 export interface Project {
   id: string;
   machine_id: string;

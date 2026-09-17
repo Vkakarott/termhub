@@ -1,4 +1,4 @@
-import type { AuthConfig, ConnectionInfo, DashboardItem, Integration, IntegrationProvider, Machine, Note, Project, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, Ticket, User } from './types';
+import type { AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, Ticket, User } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -59,6 +59,8 @@ export const api = {
     update: (id: string, input: Partial<Machine>) => request<{ machine: Machine }>('PATCH', `/machines/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}`),
     status: (id: string) => request<{ id: string; online: boolean; tmux: boolean; os: string | null; capabilities: string[] }>('GET', `/machines/${id}/status`),
+    /** subpastas de `path` (padrão $HOME) + discos/mounts da máquina */
+    browse: (id: string, path?: string) => request<FsListing>('GET', `/machines/${id}/fs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   },
   projects: {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),

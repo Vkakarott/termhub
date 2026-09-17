@@ -103,7 +103,7 @@ npm run create-user -- --email voce@exemplo.com --name "Seu Nome" [--password ..
 
 - **Máquina local:** criada automaticamente. Terminais rodam `tmux new-session -A -s <sessão> -c <cwd>` direto.
 - **Máquina SSH:** na sidebar, "+ máquina" → tipo SSH, host, usuário e porta. Terminais rodam `ssh -tt ... "tmux new-session -A -s <sessão> -c '<cwd>'"`. Teste antes no servidor do termhub: `ssh -o BatchMode=yes usuario@host exit` deve funcionar sem pedir senha.
-- **Projeto:** passe o mouse sobre a máquina e clique em "+". Informe nome e o diretório absoluto na máquina de destino.
+- **Projeto:** passe o mouse sobre a máquina e clique em "+". Informe nome e o diretório absoluto na máquina de destino — ou clique em "Procurar…" para navegar pelas pastas da máquina: o navegador lista os discos/mounts (com espaço livre, via `df`) e o home como atalhos, permite filtrar e mostrar pastas ocultas, e preenche o nome do projeto com a pasta escolhida (`GET /api/machines/:id/fs?path=`).
 - **Tabs:** `⌘T` nova, duplo clique renomeia, `⌘W` fecha (com confirmação — mata a sessão tmux), `⌘1..9` troca. Como alguns navegadores capturam `⌘T`/`⌘W`, `Ctrl+Shift+T`/`Ctrl+Shift+W` funcionam como alternativa.
 - Sessões tmux têm o nome `termhub-<project_id>-<tab_id>`; você pode anexar por fora com `tmux attach -t <nome>`.
 
