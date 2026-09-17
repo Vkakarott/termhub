@@ -116,7 +116,7 @@ Cada projeto tem navegação interna: **Terminais | Tarefas | Notas | Configura�
 - **Tarefas:** kanban com quatro colunas (Backlog / A fazer / Fazendo / Feito), arrastar e soltar entre colunas e para reordenar, criação rápida no topo de cada coluna (Enter), duplo clique renomeia, clique abre título/descrição/status/excluir. O contador de tasks abertas aparece na sidebar ao lado do projeto. O campo `external_ref` (JSON) fica reservado para integrações futuras (GitHub/Jira/Linear).
 - **Notas:** uma nota em markdown por projeto, com preview (GFM), modos editar / lado a lado / preview e autosave com debounce (⌘S força).
 - **Dashboard** (home): projetos ativos com máquina (online/offline), tasks em "Fazendo", total de abertas e último acesso a terminal — ordenado pelo terminal mais recente.
-- **Configurações:** renomear, editar `cwd`, descrição, status (ativo/pausado/arquivado) e excluir (encerra as sessões tmux das tabs).
+- **Configurações:** renomear, editar `cwd`, descrição, status (ativo/pausado/arquivado) e excluir (encerra as sessões tmux das tabs). Na sidebar, passar o mouse sobre um projeto mostra ✎ (abre as Configurações) e ✕ (remove o projeto da lista — a pasta na máquina não é tocada).
 
 ## Integrações e Setup do projeto
 
