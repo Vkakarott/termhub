@@ -6,41 +6,57 @@ import type { Machine, WdaSetupState } from '../lib/types';
 const POLL_MS = 3000;
 
 export function SimulatorSetupCard({ machine }: { machine: Machine }) {
-  const { checkStatus } = useData();
+  const { machines, checkStatus } = useData();
+  // `machine` é um snapshot capturado quando o modal abriu; usamos a versão viva da lista
+  // para que `isMac`/`hasWda` reajam ao checkStatus (ex.: capabilities atualizadas após o setup).
+  const live = machines.find((m) => m.id === machine.id) ?? machine;
+
   const [setup, setSetup] = useState<WdaSetupState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelledRef = useRef(false);
+  const hasWdaRef = useRef(false);
 
-  const isMac = machine.os === 'macos' && machine.capabilities.includes('xcodebuild');
-  const hasWda = machine.capabilities.includes('wda');
+  const isMac = live.os === 'macos' && live.capabilities.includes('xcodebuild');
+  const hasWda = live.capabilities.includes('wda');
+  hasWdaRef.current = hasWda;
 
+  // Auto-rescheduling: cada `load` agenda o próximo `load` quando ainda está `running`, em vez
+  // de depender de um efeito reagir à mudança de `setup.state` (que não muda entre dois polls
+  // consecutivos que retornam "running", e por isso nunca reagendava o próximo timer).
   const load = useCallback(async () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
     try {
       const s = await api.machines.wdaSetup(machine.id);
+      if (cancelledRef.current) return;
       setSetup(s);
       setError(null);
-      if (s.state === 'ok') void checkStatus(machine.id);
+      if (s.state === 'running') {
+        timer.current = setTimeout(() => void load(), POLL_MS);
+      } else if (s.state === 'ok' && !hasWdaRef.current) {
+        void checkStatus(machine.id);
+      }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Erro ao consultar o setup');
+      if (!cancelledRef.current) setError(e instanceof ApiError ? e.message : 'Erro ao consultar o setup');
     }
   }, [machine.id, checkStatus]);
 
   useEffect(() => {
     if (!isMac) return;
+    cancelledRef.current = false;
     void load();
     return () => {
-      if (timer.current) clearTimeout(timer.current);
+      cancelledRef.current = true;
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
     };
-  }, [isMac, load]);
-
-  useEffect(() => {
-    if (!isMac || setup?.state !== 'running') return;
-    timer.current = setTimeout(load, POLL_MS);
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [isMac, setup?.state, load]);
+  }, [machine.id, isMac, load]);
 
   const start = async () => {
     setBusy(true);
