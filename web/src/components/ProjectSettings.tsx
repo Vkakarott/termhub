@@ -5,6 +5,7 @@ import { ApiError } from '../lib/api';
 import { PROJECT_STATUS_LABEL, type Project, type ProjectStatus } from '../lib/types';
 import { ConfirmDialog } from './Modal';
 import { SetupForm } from './SetupForm';
+import { DirectoryBrowser } from './DirectoryBrowser';
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'archived'];
 
@@ -18,6 +19,8 @@ export function ProjectSettings({ project }: { project: Project }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const [createDir, setCreateDir] = useState(false);
   const machine = machines.find((m) => m.id === project.machine_id);
 
   const dirty = name !== project.name || cwd !== project.cwd || (description || null) !== (project.description ?? null) || status !== project.status;
@@ -27,7 +30,8 @@ export function ProjectSettings({ project }: { project: Project }) {
     setBusy(true);
     setMsg(null);
     try {
-      await updateProject(project.id, { name, cwd, description: description || null, status });
+      const saved = await updateProject(project.id, { name, cwd, description: description || null, status, create_dir: createDir });
+      setCwd(saved.cwd);
       setMsg({ ok: true, text: 'Salvo.' });
     } catch (err) {
       setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'Erro ao salvar' });
@@ -46,7 +50,28 @@ export function ProjectSettings({ project }: { project: Project }) {
         </div>
         <div>
           <label className="label">Diretório em {machine?.name ?? 'máquina'}</label>
-          <input className="input font-mono" value={cwd} onChange={(e) => setCwd(e.target.value)} required />
+          <div className="flex gap-2">
+            <input className="input font-mono" value={cwd} onChange={(e) => setCwd(e.target.value)} required />
+            <button type="button" className="btn-ghost shrink-0 border border-line" onClick={() => setBrowsing((b) => !b)} title="Listar discos e pastas da máquina">
+              {browsing ? 'Ocultar' : 'Procurar…'}
+            </button>
+          </div>
+          <label className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-muted">
+            <input type="checkbox" checked={createDir} onChange={(e) => setCreateDir(e.target.checked)} /> criar a pasta na máquina se não existir
+          </label>
+          {browsing && (
+            <div className="mt-2">
+              <DirectoryBrowser
+                machineId={project.machine_id}
+                initialPath={cwd}
+                onSelect={(path) => {
+                  setCwd(path);
+                  setBrowsing(false);
+                }}
+                onClose={() => setBrowsing(false)}
+              />
+            </div>
+          )}
           <p className="mt-1 text-xs text-fg-dim">Vale para novas sessões tmux; tabs já abertas continuam onde estão.</p>
         </div>
         <div>

@@ -35,6 +35,9 @@ export function DirectoryBrowser({ machineId, initialPath, onSelect, onClose }: 
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [filter, setFilter] = useState('');
+  /** campo inline de "nova pasta" (null = fechado) */
+  const [newName, setNewName] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(
     async (path?: string) => {
@@ -58,6 +61,22 @@ export function DirectoryBrowser({ machineId, initialPath, onSelect, onClose }: 
     // só na abertura: navegação posterior é por clique
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machineId]);
+
+  const createFolder = async () => {
+    const name = (newName ?? '').trim();
+    if (!listing || !name || creating) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const { path } = await api.machines.mkdir(machineId, listing.path, name);
+      setNewName(null);
+      await load(path);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao criar a pasta');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const crumbs = listing ? listing.path.split('/').filter(Boolean) : [];
   const entries = (listing?.entries ?? []).filter((e) => (showHidden || !e.name.startsWith('.')) && (!filter || e.name.toLowerCase().includes(filter.toLowerCase())));
@@ -113,7 +132,37 @@ export function DirectoryBrowser({ machineId, initialPath, onSelect, onClose }: 
         <label className="flex shrink-0 items-center gap-1 text-xs text-fg-muted">
           <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> ocultas
         </label>
+        <button type="button" className="btn-ghost shrink-0 !py-1 text-xs" disabled={!listing} onClick={() => setNewName((n) => (n === null ? '' : null))} title="Criar uma subpasta na pasta atual">
+          + Nova pasta
+        </button>
       </div>
+      {newName !== null && (
+        <div className="flex items-center gap-2 border-b border-line bg-bg-2 px-2 py-1.5">
+          <span className="shrink-0 font-mono text-xs text-fg-dim">{listing?.path === '/' ? '/' : `${listing?.path}/`}</span>
+          <input
+            className="input !py-1 font-mono text-xs"
+            placeholder="nome-da-pasta"
+            value={newName}
+            autoFocus
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void createFolder();
+              } else if (e.key === 'Escape') {
+                e.stopPropagation();
+                setNewName(null);
+              }
+            }}
+          />
+          <button type="button" className="btn-primary shrink-0 !py-1 text-xs" disabled={creating || !newName.trim()} onClick={() => void createFolder()}>
+            {creating ? 'Criando…' : 'Criar'}
+          </button>
+          <button type="button" className="btn-ghost shrink-0 !py-1 text-xs" onClick={() => setNewName(null)}>
+            Cancelar
+          </button>
+        </div>
+      )}
 
       {/* lista */}
       <div className="max-h-64 overflow-y-auto">

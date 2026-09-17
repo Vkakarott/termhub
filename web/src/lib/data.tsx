@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
-import type { Machine, Project } from './types';
+import type { Machine, Project, ProjectInput } from './types';
 
 export type MachineStatus = 'checking' | 'online' | 'offline';
 
@@ -16,8 +16,8 @@ interface DataState {
   createMachine: (input: Partial<Machine>) => Promise<Machine>;
   updateMachine: (id: string, input: Partial<Machine>) => Promise<Machine>;
   deleteMachine: (id: string) => Promise<void>;
-  createProject: (input: Partial<Project>) => Promise<Project>;
-  updateProject: (id: string, input: Partial<Project>) => Promise<Project>;
+  createProject: (input: ProjectInput) => Promise<Project>;
+  updateProject: (id: string, input: ProjectInput) => Promise<Project>;
   deleteProject: (id: string) => Promise<void>;
   /** atualiza o contador de tasks abertas do projeto (sidebar) */
   setOpenTasks: (projectId: string, n: number) => void;

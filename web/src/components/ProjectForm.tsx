@@ -20,6 +20,7 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [browsing, setBrowsing] = useState(false);
+  const [createDir, setCreateDir] = useState(true);
   const machine = machines.find((m) => m.id === machineId);
 
   const submit = async (e: FormEvent) => {
@@ -27,7 +28,7 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const project = await createProject({ machine_id: machineId, name, cwd, description: description || null });
+      const project = await createProject({ machine_id: machineId, name, cwd, description: description || null, create_dir: createDir });
       onClose();
       navigate(`/projects/${project.id}`);
     } catch (err) {
@@ -52,6 +53,9 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
               {browsing ? 'Ocultar' : 'Procurar…'}
             </button>
           </div>
+          <label className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-muted">
+            <input type="checkbox" checked={createDir} onChange={(e) => setCreateDir(e.target.checked)} /> criar a pasta na máquina se não existir
+          </label>
           {browsing && (
             <div className="mt-2">
               <DirectoryBrowser

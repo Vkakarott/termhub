@@ -59,6 +59,9 @@ export interface Project {
   open_tasks?: number;
 }
 
+/** Corpo de criação/edição de projeto. `create_dir`: cria a pasta na máquina se não existir. */
+export type ProjectInput = Partial<Project> & { create_dir?: boolean };
+
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
 export interface Task {

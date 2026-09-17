@@ -1,5 +1,5 @@
 import type { Machine } from '../db/repositories/types.js';
-import { HttpError, badRequest, forbidden, notFound } from '../lib/errors.js';
+import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { runOnMachine, shellQuote } from './machine-exec.js';
 
 export interface FsRoot {
@@ -135,4 +135,77 @@ export async function browseMachine(machine: Machine, path: string | undefined):
     entries: out.dirs.map((name) => ({ name, path: `${base}/${name}` })),
     roots,
   };
+}
+
+const DIR_NAME_RE = /^[^/\\\0\n\r]{1,255}$/;
+/** Nome de pasta simples: sem separadores, sem "." ou "..", sem controle. */
+export function assertDirName(name: string): void {
+  if (!DIR_NAME_RE.test(name) || name === '.' || name === '..' || /[\x00-\x1f]/.test(name)) throw badRequest('Nome de pasta inválido');
+}
+
+/** Expansão de "~" feita na máquina de destino (o shell só expande fora de aspas). */
+const EXPAND_HOME = `case "$P" in "~") P=$HOME;; "~/"*) P="$HOME/\${P#\\~/}";; esac`;
+
+async function runFsScript(machine: Machine, script: string): Promise<string> {
+  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
+  if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
+  if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Máquina inacessível via SSH' : 'Falha ao acessar o sistema de arquivos');
+  return r.stdout;
+}
+
+function firstTag(stdout: string, tag: string): string | null {
+  const line = stdout.split('\n').find((l) => l.startsWith(tag + ':'));
+  return line ? line.slice(tag.length + 1).replace(/^\/{2,}/, '/') : null;
+}
+
+/** Cria `name` dentro de `parent` na máquina e devolve o caminho absoluto da nova pasta. */
+export async function makeDirectory(machine: Machine, parent: string, name: string): Promise<string> {
+  assertDirName(name);
+  const raw = parent.trim();
+  if (!raw.startsWith('/') && raw !== '~' && !raw.startsWith('~/')) throw badRequest('Informe um caminho absoluto');
+  const script = [
+    `P=${shellQuote(raw)}`,
+    EXPAND_HOME,
+    `cd -- "$P" 2>/dev/null || { echo "ERR:parent"; exit 0; }`,
+    `N=${shellQuote(name)}`,
+    `if [ -e "$N" ]; then echo "ERR:exists"; exit 0; fi`,
+    `mkdir -- "$N" 2>/dev/null || { echo "ERR:denied"; exit 0; }`,
+    `cd -- "$N" && echo "PWD:$(pwd)"`,
+    `exit 0`,
+  ].join('; ');
+  const out = await runFsScript(machine, script);
+  const err = firstTag(out, 'ERR');
+  if (err === 'parent') throw notFound('A pasta de destino não existe na máquina');
+  if (err === 'exists') throw conflict('Já existe um arquivo ou pasta com esse nome');
+  if (err === 'denied') throw forbidden('Sem permissão para criar a pasta');
+  const pwd = firstTag(out, 'PWD');
+  if (!pwd) throw new HttpError(502, 'Resposta inesperada da máquina');
+  return pwd;
+}
+
+/**
+ * Confere que `path` é um diretório na máquina (expande "~"), criando com mkdir -p se `create`.
+ * Devolve o caminho absoluto resolvido, que é o que deve ser gravado no projeto.
+ */
+export async function ensureDirectory(machine: Machine, path: string, create: boolean): Promise<{ path: string; created: boolean }> {
+  const raw = path.trim();
+  if (!raw.startsWith('/') && raw !== '~' && !raw.startsWith('~/')) throw badRequest('Informe um caminho absoluto');
+  const script = [
+    `P=${shellQuote(raw)}`,
+    EXPAND_HOME,
+    `if [ -d "$P" ]; then cd -- "$P" 2>/dev/null && echo "PWD:$(pwd)" || echo "ERR:denied"; exit 0; fi`,
+    `if [ -e "$P" ]; then echo "ERR:notdir"; exit 0; fi`,
+    create ? `mkdir -p -- "$P" 2>/dev/null && cd -- "$P" && echo "CREATED:$(pwd)" || echo "ERR:mkdir"` : `echo "ERR:notfound"`,
+    `exit 0`,
+  ].join('; ');
+  const out = await runFsScript(machine, script);
+  const err = firstTag(out, 'ERR');
+  if (err === 'notfound') throw new HttpError(400, 'A pasta não existe na máquina. Marque "criar a pasta" ou escolha outra.', 'DIR_NOT_FOUND');
+  if (err === 'notdir') throw badRequest('O caminho existe, mas não é uma pasta');
+  if (err === 'denied') throw forbidden('Sem permissão para acessar a pasta');
+  if (err === 'mkdir') throw forbidden('Não foi possível criar a pasta (permissão?)');
+  const created = firstTag(out, 'CREATED');
+  const pwd = created ?? firstTag(out, 'PWD');
+  if (!pwd) throw new HttpError(502, 'Resposta inesperada da máquina');
+  return { path: pwd, created: created != null };
 }

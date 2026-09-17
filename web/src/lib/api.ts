@@ -1,4 +1,4 @@
-import type { AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, Ticket, User } from './types';
+import type { AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, Ticket, User } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -62,13 +62,14 @@ export const api = {
     remove: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}`),
     status: (id: string) => request<{ id: string; online: boolean; tmux: boolean; os: string | null; capabilities: string[] }>('GET', `/machines/${id}/status`),
     /** subpastas de `path` (padrão $HOME) + discos/mounts da máquina */
+    mkdir: (id: string, parent: string, name: string) => request<{ path: string }>('POST', `/machines/${id}/fs/mkdir`, { parent, name }),
     browse: (id: string, path?: string) => request<FsListing>('GET', `/machines/${id}/fs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   },
   projects: {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),
     get: (id: string) => request<{ project: Project }>('GET', `/projects/${id}`),
-    create: (input: Partial<Project>) => request<{ project: Project }>('POST', '/projects', input),
-    update: (id: string, input: Partial<Project>) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
+    create: (input: ProjectInput) => request<{ project: Project }>('POST', '/projects', input),
+    update: (id: string, input: ProjectInput) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),
     createTab: (id: string, name?: string) => request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, name ? { name } : {}),
