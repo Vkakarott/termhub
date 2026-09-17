@@ -39,7 +39,7 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onRename, onClose }: P
               setEditing(t.id);
               setDraft(t.name);
             }}
-            title={`${t.name} — ${t.tmux_session}${i < 9 ? `  (⌘${i + 1})` : ''}`}
+            title={`${t.name} — ${t.tmux_session ?? ''}${i < 9 ? `  (⌘${i + 1})` : ''}`}
           >
             {active && <span className="absolute inset-x-0 top-0 h-px bg-accent" />}
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.alive ? 'bg-ok' : 'bg-fg-dim'}`} title={t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada'} />

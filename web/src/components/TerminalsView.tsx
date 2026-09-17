@@ -189,7 +189,7 @@ export function TerminalsView({ project, visible }: Props) {
         title="Fechar tab"
         message={
           <>
-            Fechar <strong>{closing?.name}</strong>? A sessão tmux <code className="font-mono text-xs">{closing?.tmux_session}</code> será
+            Fechar <strong>{closing?.name}</strong>? A sessão tmux <code className="font-mono text-xs">{closing?.tmux_session ?? ''}</code> será
             encerrada na máquina e o que estiver rodando nela será interrompido.
           </>
         }
