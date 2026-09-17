@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
+import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
@@ -18,9 +19,13 @@ const createBody = z.object({
 
 const patchBody = createBody.omit({ machine_id: true }).partial();
 
-const tabBody = z.object({ name: z.string().trim().min(1).max(60).optional() });
+const tabBody = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  kind: z.enum(['terminal', 'simulator']).optional(),
+  simulator_udid: z.string().regex(/^[A-Fa-f0-9-]{8,64}$/).optional(),
+});
 
-export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
+export async function projectRoutes(app: FastifyInstance, repos: Repositories, deps: { simulators: SimulatorSessionManager }) {
   app.get('/', async (request) => {
     const q = z.object({ status: z.enum(['active', 'paused', 'archived']).optional() }).parse(request.query);
     const [projects, openCounts] = await Promise.all([repos.projects.list({ status: q.status }), repos.tasks.openCountByProject()]);
@@ -72,19 +77,26 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
     const tabs = await repos.tabs.listByProject(id);
     let alive = new Set<string>();
     let reachable = false;
-    if (machine && tabs.length > 0) {
+    const terminalTabs = tabs.filter((t) => t.kind === 'terminal');
+    if (machine && terminalTabs.length > 0) {
       try {
         alive = await listTmuxSessions(machine);
         reachable = true;
       } catch {
         reachable = false;
       }
-    } else if (tabs.length === 0) {
+    } else {
       reachable = true;
     }
     return {
       reachable,
-      tabs: tabs.map((t) => ({ ...t, alive: !!t.tmux_session && alive.has(t.tmux_session) })),
+      tabs: tabs.map((t) => ({
+        ...t,
+        alive:
+          t.kind === 'simulator'
+            ? !!t.simulator_udid && !!machine && deps.simulators.isReady(machine.id, t.simulator_udid)
+            : !!t.tmux_session && alive.has(t.tmux_session),
+      })),
     };
   });
 
@@ -93,8 +105,15 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
     const project = await repos.projects.findById(id);
     if (!project) throw notFound('Projeto não encontrado');
     const body = tabBody.parse(request.body ?? {});
-    const name = body.name ?? `Terminal ${(await repos.tabs.listByProject(id)).length + 1}`;
-    const tab = await repos.tabs.create(id, name);
+    const kind = body.kind ?? 'terminal';
+    const existing = await repos.tabs.listByProject(id);
+    const count = existing.filter((t) => t.kind === kind).length + 1;
+    const name = body.name ?? (kind === 'simulator' ? `Simulador ${count}` : `Terminal ${count}`);
+    if (kind === 'simulator') {
+      const machine = await repos.machines.findById(project.machine_id);
+      if (!machine?.capabilities.includes('wda')) throw badRequest('Prepare o WDA nesta máquina antes de abrir um simulador');
+    }
+    const tab = await repos.tabs.create(id, name, { kind, simulator_udid: body.simulator_udid ?? null });
     return reply.code(201).send({ tab: { ...tab, alive: false } });
   });
 }

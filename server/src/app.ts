@@ -92,13 +92,19 @@ export async function buildApp(): Promise<App> {
 
   const simulators = new SimulatorSessionManager(realBackend, { log: (msg, meta) => fastify.log.info(meta ?? {}, msg) });
 
+  // --- WebSockets (terminais e simulador) — criados antes do bloco /api para que as rotas HTTP
+  // recebam `simulators` e `simWs.closeTab`. `fastify.server` já existe neste ponto.
+  const upgrades = createUpgradeRouter(fastify.server, { auth });
+  registerTerminalWs(upgrades, { repos, log: fastify.log });
+  const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
+
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
     async (api) => {
       api.addHook('preHandler', buildAuthHook(auth));
       await api.register((a) => authRoutes(a, auth), { prefix: '/auth' });
       await api.register((a) => machineRoutes(a, repos), { prefix: '/machines' });
-      await api.register((a) => projectRoutes(a, repos), { prefix: '/projects' });
+      await api.register((a) => projectRoutes(a, repos, { simulators }), { prefix: '/projects' });
       await api.register((a) => projectTaskRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => noteRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => taskRoutes(a, repos), { prefix: '/tasks' });
@@ -107,7 +113,7 @@ export async function buildApp(): Promise<App> {
       await api.register((a) => setupRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => projectTicketRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => taskTicketRoutes(a, repos), { prefix: '/tasks' });
-      await api.register((a) => tabRoutes(a, repos), { prefix: '/tabs' });
+      await api.register((a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), { prefix: '/tabs' });
       await api.register(systemRoutes, { prefix: '/system' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
@@ -129,12 +135,6 @@ export async function buildApp(): Promise<App> {
   } else {
     fastify.log.warn('web/dist não encontrado — rodando só a API (use "npm run build" para servir o frontend)');
   }
-
-  // --- WebSockets (terminais e simulador) ---
-  const upgrades = createUpgradeRouter(fastify.server, { auth });
-  registerTerminalWs(upgrades, { repos, log: fastify.log });
-  const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
-  void simWs; // usado pela Task 10 (rotas HTTP do simulador)
 
   // Limpeza periódica de sessões expiradas
   const purge = setInterval(() => void authService.purgeExpired().catch(() => {}), 60 * 60 * 1000);
