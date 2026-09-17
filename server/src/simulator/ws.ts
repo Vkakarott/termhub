@@ -104,13 +104,34 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
     },
   };
 
+  // Registrados ANTES do await: se o socket fechar enquanto `acquire` ainda está em voo, o
+  // viewer não pode ficar pendurado no refcount da sessão nem o timer de flush rodando pra sempre.
   let handle: SessionHandle | null = null;
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(flushTimer);
+    handle?.release();
+    handle = null;
+    log.info({ tabId: tab.id }, 'simulador desconectado');
+  };
+  ws.on('close', cleanup);
+  ws.on('error', cleanup);
+
   try {
     handle = await deps.manager.acquire(machine, udid, viewer);
   } catch (err) {
     clearInterval(flushTimer);
     log.warn({ tabId: tab.id, machineId: machine.id, udid, err: err instanceof Error ? err.message : err }, 'simulador não subiu');
     // status 'error' já foi enviado pelo manager
+    return;
+  }
+  if (closed) {
+    // o socket fechou enquanto esperávamos o acquire: libera o viewer na hora, não espera
+    // outro evento que já não vai mais disparar.
+    handle.release();
+    handle = null;
     return;
   }
   log.info({ tabId: tab.id, machineId: machine.id, udid }, 'simulador conectado');
@@ -130,42 +151,48 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
     const r = clientMessageSchema.safeParse(parsed);
     if (!r.success) return;
     const m = r.data;
-    const { client } = handle;
-    switch (m.type) {
-      case 'ping':
-        return send({ type: 'pong' });
-      case 'pause':
-        paused = true;
-        return;
-      case 'resume':
-        paused = false;
-        return flush();
-      case 'tap':
-        return void run(client.actions(tapActions(m)));
-      case 'drag':
-        return void run(client.actions(dragActions(m.points)));
-      case 'keys':
-        return void run(client.keys([...m.text]));
-      case 'key': {
-        const code = specialKeyToWda(m.name);
-        if (code) void run(client.keys([code]));
-        return;
+    const h = handle;
+    try {
+      const { client } = h;
+      switch (m.type) {
+        case 'ping':
+          send({ type: 'pong' });
+          return;
+        case 'pause':
+          paused = true;
+          return;
+        case 'resume':
+          paused = false;
+          flush();
+          return;
+        case 'tap':
+          void run(client.actions(tapActions(m)));
+          return;
+        case 'drag':
+          void run(client.actions(dragActions(m.points)));
+          return;
+        case 'keys':
+          void run(client.keys([...m.text]));
+          return;
+        case 'key': {
+          const code = specialKeyToWda(m.name);
+          if (code) void run(client.keys([code]));
+          return;
+        }
+        case 'button':
+          void run(client.pressButton(BUTTON_NAME[m.name]));
+          return;
+        case 'rotate':
+          void run(client.setOrientation(m.orientation).then(() => h.refreshScreen()));
+          return;
+        case 'settings':
+          void run(h.setSettings(m.scale, m.quality));
+          return;
       }
-      case 'button':
-        return void run(client.pressButton(BUTTON_NAME[m.name]));
-      case 'rotate':
-        return void run(client.setOrientation(m.orientation).then(() => handle!.refreshScreen()));
-      case 'settings':
-        return void run(handle.setSettings(m.scale, m.quality));
+    } catch (err) {
+      // Seguro barato: uma exceção síncrona aqui (ex.: montar as W3C actions) derrubaria o
+      // processo, já que é um listener de evento do `ws` — nunca deixa escapar, vira toast.
+      toast(err instanceof WdaError ? `WDA: ${err.message}` : err instanceof Error ? err.message : 'Comando falhou');
     }
   });
-
-  const cleanup = () => {
-    clearInterval(flushTimer);
-    handle?.release();
-    handle = null;
-    log.info({ tabId: tab.id }, 'simulador desconectado');
-  };
-  ws.on('close', cleanup);
-  ws.on('error', cleanup);
 }
