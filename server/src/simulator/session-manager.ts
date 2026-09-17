@@ -45,6 +45,7 @@ interface Options {
 const DEFAULT_SETTINGS = { mjpegServerFramerate: 30, mjpegScalingFactor: 50, mjpegServerScreenshotQuality: 40 };
 const RECOVER_ATTEMPTS = 3;
 const RECOVER_DELAY_MS = 2000;
+const DISPOSED_ERROR = 'sessão encerrada';
 
 interface Session {
   key: string;
@@ -59,8 +60,9 @@ interface Session {
   closeMjpeg: (() => void) | null;
   screen: Screen;
   idleTimer: ReturnType<typeof setTimeout> | null;
-  recovering: boolean;
+  recovering: Promise<void> | null;
   disposed: boolean;
+  disposing: Promise<void> | null;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -98,7 +100,13 @@ export class SimulatorSessionManager {
 
   async acquire(machine: Machine, udid: string, viewer: Viewer): Promise<SessionHandle> {
     const key = this.key(machine.id, udid);
+    // Uma sessão em processo de dispose ainda pode estar no mapa (só some quando o dispose termina,
+    // depois do stopRunner) — espera terminar e tenta de novo, para não reaproveitar nem duplicar o runner.
     let s = this.sessions.get(key);
+    while (s?.disposed) {
+      if (s.disposing) await s.disposing;
+      s = this.sessions.get(key);
+    }
     if (!s) {
       s = {
         key,
@@ -113,8 +121,9 @@ export class SimulatorSessionManager {
         closeMjpeg: null,
         screen: { width: 0, height: 0, orientation: 'portrait' },
         idleTimer: null,
-        recovering: false,
+        recovering: null,
         disposed: false,
+        disposing: null,
       };
       this.sessions.set(key, s);
       s.viewers.add(viewer);
@@ -126,21 +135,30 @@ export class SimulatorSessionManager {
       clearTimeout(s.idleTimer);
       s.idleTimer = null;
     }
-    if (s.starting) {
+    const pending = s.starting ?? s.recovering;
+    if (pending) {
       try {
-        await s.starting;
+        await pending;
       } catch (err) {
         s.viewers.delete(viewer);
         throw err;
       }
+      if (s.disposed) {
+        // A sessão não sobreviveu (start falhou de vez, ou a recuperação se esgotou): tenta de novo
+        // do zero para este viewer, o que cria uma sessão nova.
+        s.viewers.delete(viewer);
+        return this.acquire(machine, udid, viewer);
+      }
     } else if (s.ready) {
-      viewer.onStatus({ state: 'ready' });
-      viewer.onScreen(s.screen);
+      this.notify(viewer, (v) => v.onStatus({ state: 'ready' }));
+      this.notify(viewer, (v) => v.onScreen(s!.screen));
     }
     const session = s;
     let released = false;
     return {
-      client: session.client!,
+      get client() {
+        return session.client!;
+      },
       get screen() {
         return session.screen;
       },
@@ -161,14 +179,28 @@ export class SimulatorSessionManager {
     };
   }
 
-  private broadcast(s: Session, fn: (v: Viewer) => void) {
-    for (const v of s.viewers) {
-      try {
-        fn(v);
-      } catch {
-        /* viewer quebrado não derruba os outros */
-      }
+  private notify(viewer: Viewer, fn: (v: Viewer) => void) {
+    try {
+      fn(viewer);
+    } catch {
+      /* viewer quebrado não derruba os outros nem trava o refcount */
     }
+  }
+
+  private broadcast(s: Session, fn: (v: Viewer) => void) {
+    for (const v of s.viewers) this.notify(v, fn);
+  }
+
+  // Extraídos em métodos (em vez de "s.tunnel?.close(); s.tunnel = null;" inline repetido) para não
+  // depender da checagem de fluxo do TS sobre a propriedade através de awaits/chamadas.
+  private closeTunnel(s: Session) {
+    s.tunnel?.close();
+    s.tunnel = null;
+  }
+
+  private closeMjpegStream(s: Session) {
+    s.closeMjpeg?.();
+    s.closeMjpeg = null;
   }
 
   private async start(s: Session): Promise<void> {
@@ -176,16 +208,22 @@ export class SimulatorSessionManager {
     try {
       this.broadcast(s, (v) => v.onStatus({ state: 'booting' }));
       await this.backend.boot(s.machine, s.udid);
+      if (s.disposed) throw new Error(DISPOSED_ERROR);
       this.broadcast(s, (v) => v.onStatus({ state: 'starting' }));
       if (!(await this.backend.runnerAlive(s.machine, s.udid))) {
+        if (s.disposed) throw new Error(DISPOSED_ERROR);
         this.log('iniciando runner do WDA', meta);
         await this.backend.startRunner(s.machine, s.udid, s.ports);
       }
+      if (s.disposed) throw new Error(DISPOSED_ERROR);
       await this.connect(s);
       const client = s.client!;
       await client.createSession();
+      if (s.disposed) throw new Error(DISPOSED_ERROR);
       await client.setSettings(DEFAULT_SETTINGS);
+      if (s.disposed) throw new Error(DISPOSED_ERROR);
       const [size, orientation] = await Promise.all([client.windowSize(), client.orientation()]);
+      if (s.disposed) throw new Error(DISPOSED_ERROR);
       s.screen = { ...size, orientation };
       this.openStream(s);
       s.ready = true;
@@ -209,9 +247,13 @@ export class SimulatorSessionManager {
     }
   }
 
-  /** Abre o túnel e espera o /status do WDA ficar pronto. */
+  /** Abre o túnel e espera o /status do WDA ficar pronto; some com o que criou se a sessão for descartada no meio. */
   private async connect(s: Session): Promise<void> {
     const tunnel = await this.backend.openTunnel(s.machine, s.ports);
+    if (s.disposed) {
+      tunnel.close();
+      throw new Error(DISPOSED_ERROR);
+    }
     s.tunnel = tunnel;
     tunnel.onClose((err) => {
       if (s.tunnel !== tunnel || s.disposed) return;
@@ -220,13 +262,17 @@ export class SimulatorSessionManager {
     s.client = this.backend.createClient(`http://127.0.0.1:${tunnel.wdaPort}`);
     const deadline = Date.now() + this.readyTimeoutMs;
     for (;;) {
+      let ready = false;
       try {
-        if ((await s.client.status()).ready) return;
+        ready = (await s.client.status()).ready;
       } catch {
         /* ainda subindo */
       }
+      if (s.disposed) throw new Error(DISPOSED_ERROR);
+      if (ready) return;
       if (Date.now() >= deadline) throw new Error('WDA não ficou pronto a tempo');
       await sleep(this.pollMs);
+      if (s.disposed) throw new Error(DISPOSED_ERROR);
     }
   }
 
@@ -243,35 +289,61 @@ export class SimulatorSessionManager {
     s.closeMjpeg = close;
   }
 
-  /** Túnel ou stream caiu: reabre até RECOVER_ATTEMPTS vezes mantendo a sessão WDA. */
-  private async recover(s: Session, cause?: Error): Promise<void> {
-    if (s.recovering || s.disposed) return;
-    s.recovering = true;
+  /** Túnel ou stream caiu: reabre até RECOVER_ATTEMPTS vezes mantendo a sessão WDA. Reentrante-seguro. */
+  private recover(s: Session, cause?: Error): Promise<void> {
+    if (s.recovering) return s.recovering;
+    if (s.disposed) return Promise.resolve();
+    const p = this.doRecover(s, cause).finally(() => {
+      if (s.recovering === p) s.recovering = null;
+    });
+    s.recovering = p;
+    return p;
+  }
+
+  private async doRecover(s: Session, cause?: Error): Promise<void> {
     s.ready = false;
     const meta = { machineId: s.machine.id, udid: s.udid };
     this.log('túnel/stream caiu, tentando recuperar: ' + (cause?.message ?? ''), meta);
     this.broadcast(s, (v) => v.onStatus({ state: 'starting', message: 'Reconectando ao simulador…' }));
     const sessionId = s.client?.sessionId ?? null;
     for (let i = 1; i <= RECOVER_ATTEMPTS; i++) {
+      if (s.disposed) return;
       try {
-        s.closeMjpeg?.();
-        s.closeMjpeg = null;
-        s.tunnel?.close();
-        s.tunnel = null;
+        this.closeMjpegStream(s);
+        this.closeTunnel(s);
         await this.connect(s);
+        if (s.disposed) {
+          this.closeTunnel(s);
+          return;
+        }
         s.client!.sessionId = sessionId;
         this.openStream(s);
+        if (s.disposed) {
+          this.closeMjpegStream(s);
+          this.closeTunnel(s);
+          return;
+        }
         s.ready = true;
-        s.recovering = false;
         this.broadcast(s, (v) => v.onStatus({ state: 'ready' }));
         return;
       } catch (err) {
+        if (s.disposed) {
+          this.closeTunnel(s);
+          return;
+        }
         this.log(`recuperação ${i}/${RECOVER_ATTEMPTS} falhou: ${err instanceof Error ? err.message : err}`, meta);
         await sleep(RECOVER_DELAY_MS);
+        if (s.disposed) {
+          this.closeTunnel(s);
+          return;
+        }
       }
     }
-    s.recovering = false;
+    // Esgotou as tentativas: fecha o que sobrou (a última tentativa pode ter deixado um túnel aberto
+    // sem nunca ter ficado pronto) e apaga a sessão remota de fato, restaurando o sessionId salvo.
+    this.closeTunnel(s);
     this.broadcast(s, (v) => v.onStatus({ state: 'error', message: 'Conexão com o simulador perdida' }));
+    if (s.client) s.client.sessionId = sessionId;
     await this.dispose(s, { stopRunner: false });
   }
 
@@ -286,20 +358,28 @@ export class SimulatorSessionManager {
   }
 
   private async dispose(s: Session, opts: { stopRunner: boolean }): Promise<void> {
-    if (s.disposed) return;
+    if (s.disposed) {
+      if (s.disposing) await s.disposing;
+      return;
+    }
     s.disposed = true;
     s.ready = false;
     if (s.idleTimer) clearTimeout(s.idleTimer);
-    this.sessions.delete(s.key);
-    s.closeMjpeg?.();
-    s.closeMjpeg = null;
+    const p = this.doDispose(s, opts);
+    s.disposing = p;
+    await p;
+  }
+
+  /** Fecha tudo e só então tira a sessão do mapa (depois do stopRunner), para um acquire concorrente
+   *  não achar o runner "vivo" nem duplicar o stopRunner. */
+  private async doDispose(s: Session, opts: { stopRunner: boolean }): Promise<void> {
+    this.closeMjpegStream(s);
     try {
       await s.client?.deleteSession();
     } catch {
       /* WDA pode já ter morrido */
     }
-    s.tunnel?.close();
-    s.tunnel = null;
+    this.closeTunnel(s);
     if (opts.stopRunner) {
       try {
         await this.backend.stopRunner(s.machine, s.udid);
@@ -307,6 +387,7 @@ export class SimulatorSessionManager {
         /* máquina offline */
       }
     }
+    this.sessions.delete(s.key);
     this.log('sessão do simulador encerrada', { machineId: s.machine.id, udid: s.udid, stopRunner: opts.stopRunner });
   }
 
