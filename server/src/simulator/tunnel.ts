@@ -11,6 +11,12 @@ export interface Tunnel {
   onClose(cb: (err?: Error) => void): void;
 }
 
+/** Só para testes: troca o binário do ssh e o timeout de prontidão. */
+export interface OpenTunnelOptions {
+  sshBin?: string;
+  readyTimeoutMs?: number;
+}
+
 export function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = net.createServer();
@@ -26,8 +32,8 @@ export function findFreePort(): Promise<number> {
 const READY_TIMEOUT_MS = 10_000;
 const READY_POLL_MS = 300;
 
-/** Espera o ssh começar a aceitar conexões na porta local encaminhada. */
-function waitListening(port: number, proc: ChildProcess, stderr: () => string): Promise<void> {
+/** Espera o ssh começar a aceitar conexões na porta local encaminhada (ou falhar ao iniciar/sair). */
+function waitListening(port: number, proc: ChildProcess, stderr: () => string, timeoutMs = READY_TIMEOUT_MS): Promise<void> {
   return new Promise((resolve, reject) => {
     const started = Date.now();
     let done = false;
@@ -37,6 +43,7 @@ function waitListening(port: number, proc: ChildProcess, stderr: () => string): 
       err ? reject(err) : resolve();
     };
     proc.once('exit', (code) => finish(new Error(`ssh encerrou (código ${code}): ${stderr().trim()}`)));
+    proc.once('error', (e) => finish(new Error(`ssh falhou ao iniciar: ${e.message}`)));
     const attempt = () => {
       if (done) return;
       const sock = net.connect({ port, host: '127.0.0.1' });
@@ -46,7 +53,7 @@ function waitListening(port: number, proc: ChildProcess, stderr: () => string): 
       });
       sock.once('error', () => {
         sock.destroy();
-        if (Date.now() - started > READY_TIMEOUT_MS) finish(new Error(`túnel ssh não ficou pronto: ${stderr().trim()}`));
+        if (Date.now() - started > timeoutMs) finish(new Error(`túnel ssh não ficou pronto: ${stderr().trim()}`));
         else setTimeout(attempt, READY_POLL_MS);
       });
     };
@@ -54,10 +61,12 @@ function waitListening(port: number, proc: ChildProcess, stderr: () => string): 
   });
 }
 
-export async function openTunnel(machine: Machine, remote: WdaPorts): Promise<Tunnel> {
+export async function openTunnel(machine: Machine, remote: WdaPorts, opts: OpenTunnelOptions = {}): Promise<Tunnel> {
   if (machine.type === 'local') {
     return { wdaPort: remote.wdaPort, mjpegPort: remote.mjpegPort, close() {}, onClose() {} };
   }
+  const sshBin = opts.sshBin ?? 'ssh';
+  const readyTimeoutMs = opts.readyTimeoutMs ?? READY_TIMEOUT_MS;
   const [lp, lm] = await Promise.all([findFreePort(), findFreePort()]);
   const args = [
     '-N',
@@ -73,17 +82,33 @@ export async function openTunnel(machine: Machine, remote: WdaPorts): Promise<Tu
     '-L',
     `127.0.0.1:${lm}:127.0.0.1:${remote.mjpegPort}`,
   ];
-  const proc = spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'], env: process.env });
+  const proc = spawn(sshBin, args, { stdio: ['ignore', 'ignore', 'pipe'], env: process.env });
   let err = '';
   proc.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-4000)));
   const closeCbs: ((e?: Error) => void)[] = [];
   let closed = false;
-  proc.once('exit', (code) => {
+  const fail = (e: Error) => {
     if (closed) return;
     closed = true;
-    for (const cb of closeCbs) cb(new Error(`túnel ssh caiu (código ${code}): ${err.trim()}`));
-  });
-  await waitListening(lp, proc, () => err);
+    for (const cb of closeCbs) cb(e);
+  };
+  // Cobre tanto a queda do ssh depois do túnel pronto quanto a falha ao nem conseguir iniciar
+  // (ENOENT, EMFILE, sem permissão): sem isso, 'error' no ChildProcess sem listener derruba o processo todo.
+  proc.once('exit', (code) => fail(new Error(`túnel ssh caiu (código ${code}): ${err.trim()}`)));
+  proc.once('error', (e) => fail(new Error(`túnel ssh falhou ao iniciar: ${e.message}`)));
+  try {
+    await waitListening(lp, proc, () => err, readyTimeoutMs);
+  } catch (e) {
+    // Não deixa o ssh órfão rodando se a prontidão falhar/expirar.
+    try {
+      proc.kill('SIGTERM');
+    } catch {
+      /* já morreu */
+    }
+    const wrapped = e instanceof Error ? e : new Error(String(e));
+    (wrapped as Error & { pid?: number }).pid = proc.pid;
+    throw wrapped;
+  }
   return {
     wdaPort: lp,
     mjpegPort: lm,
