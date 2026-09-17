@@ -79,11 +79,9 @@ Logs no macOS: `data/logs/`. No Linux: `journalctl --user -u termhub -f` (use `l
 
 ### Cloudflare Tunnel
 
-O servidor só escuta em `127.0.0.1:3000`. Publique com `cloudflared`:
+No jarvis o termhub é publicado em **https://termhub.dev** pelo proxy existente (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, túnel "jarvis"). O overlay `docker-compose.proxy.yml` coloca o `app` na rede docker externa `proxy`; o vhost `nginx/conf.d/termhub.dev.conf` faz `proxy_pass http://termhub-app:3000` com upgrade de WebSocket; o hostname público é gerenciado no painel Zero Trust → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). Após um deploy que recria o container: `docker compose -f /mnt/hd2tb/proxy/docker-compose.yml exec nginx nginx -s reload`.
 
-```bash
-cloudflared tunnel --url http://127.0.0.1:3000
-```
+Em outro servidor, o caminho simples é `cloudflared tunnel --url http://127.0.0.1:3000`.
 
 Ajuste `PUBLIC_URL=https://termhub.seudominio.com` no `.env` (cookies `secure` + redirect do Google). Se proteger com **Cloudflare Access**, configure `AUTH_MODE=app,cloudflare`, `CF_TEAM_DOMAIN` e `CF_AUD` — o servidor valida o JWT `Cf-Access-Jwt-Assertion` em toda requisição além da sessão do app.
 
