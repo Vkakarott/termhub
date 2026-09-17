@@ -1,15 +1,10 @@
-import type { Server as HttpServer, IncomingMessage } from 'node:http';
-import type { Duplex } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
-import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
-import { parseCookies, resolveUser, type AuthContext } from '../auth/index.js';
+import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { PtySession } from './pty-session.js';
-
-const WS_PATH_RE = /^\/ws\/tabs\/([a-z0-9]+)\/?$/;
 
 const controlSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resize'), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(200) }),
@@ -18,55 +13,15 @@ const controlSchema = z.discriminatedUnion('type', [
 
 interface Deps {
   repos: Repositories;
-  auth: AuthContext;
   log: FastifyBaseLogger;
 }
 
-function rejectUpgrade(socket: Duplex, status: number, text: string) {
-  socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
-}
-
-/** Anti CSWSH: a origem do navegador precisa bater com o host servido ou o PUBLIC_URL. */
-function originAllowed(req: IncomingMessage): boolean {
-  const origin = req.headers.origin;
-  if (!origin) return true; // clientes não-navegador (curl, wscat) — já protegidos pela auth
-  let o: URL;
-  try {
-    o = new URL(origin);
-  } catch {
-    return false;
-  }
-  const host = req.headers.host;
-  if (host && o.host === host) return true;
-  try {
-    if (o.host === new URL(config.publicUrl).host) return true;
-  } catch {
-    /* ignore */
-  }
-  if (!config.isProd && (o.hostname === 'localhost' || o.hostname === '127.0.0.1')) return true;
-  return false;
-}
-
-export function attachTerminalWebSocket(server: HttpServer, deps: Deps): WebSocketServer {
+export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter>, deps: Deps): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const log = deps.log.child({ mod: 'ws' });
 
-  server.on('upgrade', async (req, socket, head) => {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    const match = url.pathname.match(WS_PATH_RE);
-    if (!match) return rejectUpgrade(socket, 404, 'Not Found');
-    if (!originAllowed(req)) return rejectUpgrade(socket, 403, 'Forbidden');
-
-    let user;
-    try {
-      user = await resolveUser(deps.auth, { headers: req.headers, cookies: parseCookies(req.headers.cookie) });
-    } catch {
-      user = null;
-    }
-    if (!user) return rejectUpgrade(socket, 401, 'Unauthorized');
-
-    const tabId = match[1];
+  router.add(/^\/ws\/tabs\/([a-z0-9]+)\/?$/, async ({ req, socket, head, url, params }) => {
+    const tabId = params[0];
     const tab = await deps.repos.tabs.findById(tabId);
     const project = tab && (await deps.repos.projects.findById(tab.project_id));
     const machine = project && (await deps.repos.machines.findById(project.machine_id));

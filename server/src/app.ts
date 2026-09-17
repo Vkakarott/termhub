@@ -21,7 +21,11 @@ import { integrationRoutes } from './routes/integrations.js';
 import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
-import { attachTerminalWebSocket } from './terminal/ws.js';
+import { registerTerminalWs } from './terminal/ws.js';
+import { createUpgradeRouter } from './ws/router.js';
+import { registerSimulatorWs } from './simulator/ws.js';
+import { SimulatorSessionManager } from './simulator/session-manager.js';
+import { realBackend } from './simulator/backend.js';
 import { seed } from './seed.js';
 
 
@@ -86,6 +90,8 @@ export async function buildApp(): Promise<App> {
     return reply.code(status).send({ error: status >= 500 ? 'Erro interno' : e.message, code: 'ERROR' });
   });
 
+  const simulators = new SimulatorSessionManager(realBackend, { log: (msg, meta) => fastify.log.info(meta ?? {}, msg) });
+
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
     async (api) => {
@@ -124,8 +130,11 @@ export async function buildApp(): Promise<App> {
     fastify.log.warn('web/dist não encontrado — rodando só a API (use "npm run build" para servir o frontend)');
   }
 
-  // --- WebSocket dos terminais ---
-  attachTerminalWebSocket(fastify.server, { repos, auth, log: fastify.log });
+  // --- WebSockets (terminais e simulador) ---
+  const upgrades = createUpgradeRouter(fastify.server, { auth });
+  registerTerminalWs(upgrades, { repos, log: fastify.log });
+  const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
+  void simWs; // usado pela Task 10 (rotas HTTP do simulador)
 
   // Limpeza periódica de sessões expiradas
   const purge = setInterval(() => void authService.purgeExpired().catch(() => {}), 60 * 60 * 1000);
@@ -133,6 +142,7 @@ export async function buildApp(): Promise<App> {
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
     stopSync();
+    await simulators.shutdownAll();
     await closePrisma();
   });
 
