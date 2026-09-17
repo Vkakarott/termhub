@@ -41,7 +41,7 @@ export function ProjectSettings({ project }: { project: Project }) {
   };
 
   return (
-    {/* sem padding inferior: a barra sticky do SetupForm cola no fundo real da área de rolagem e leva o espaçamento */}
+    // sem padding inferior: a barra sticky do SetupForm cola no fundo real da área de rolagem e leva o espaçamento
     <div className="h-full overflow-y-auto p-6 pb-0">
       <form onSubmit={submit} className="mb-8 max-w-2xl space-y-4 rounded-lg border border-line bg-bg-2 p-4">
         <h3 className="text-sm font-semibold">Geral</h3>
