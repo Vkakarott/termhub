@@ -86,3 +86,14 @@ export type Task = Prisma.TaskModel
  * 
  */
 export type Note = Prisma.NoteModel
+/**
+ * Model Integration
+ * Credenciais de serviços externos (nível conta). `secret` é criptografado (AES-256-GCM).
+ */
+export type Integration = Prisma.IntegrationModel
+/**
+ * Model ProjectSetup
+ * Setup do projeto: repositório, fonte de tickets, runner, agente, verificação, aprovações.
+ * Guardado como JSON versionado e validado no servidor (zod) — evita uma migration por campo.
+ */
+export type ProjectSetup = Prisma.ProjectSetupModel

@@ -42,6 +42,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const r = await api.machines.status(machineId);
       setStatuses((s) => ({ ...s, [machineId]: r.online ? 'online' : 'offline' }));
       setMissingTmux((m) => ({ ...m, [machineId]: r.online && !r.tmux }));
+      if (r.online) setMachines((ms) => ms.map((x) => (x.id === machineId ? { ...x, os: r.os, capabilities: r.capabilities } : x)));
     } catch {
       setStatuses((s) => ({ ...s, [machineId]: 'offline' }));
     }

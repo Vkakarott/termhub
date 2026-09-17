@@ -110,6 +110,13 @@ Cada projeto tem navegação interna: **Terminais | Tarefas | Notas | Configura�
 - **Dashboard** (home): projetos ativos com máquina (online/offline), tasks em "Fazendo", total de abertas e último acesso a terminal — ordenado pelo terminal mais recente.
 - **Configurações:** renomear, editar `cwd`, descrição, status (ativo/pausado/arquivado) e excluir (encerra as sessões tmux das tabs).
 
+## Integrações e Setup do projeto
+
+- **Integrações** (sidebar → ⚙ Integrações): credenciais de **GitHub** (token), **Linear** (API key) e **Jira** (URL + e-mail + API token). Segredos criptografados com `ENCRYPTION_KEY` (AES-256-GCM); botão "Testar" valida e lista times/projetos/repos.
+- **Setup** (aba do projeto): repositório (integração GitHub, `owner/repo`, branch base, padrão de branch, PR draft), **tickets** (fonte Linear/Jira/GitHub + escopo + filtro + sync automático), **runner** (máquina onde a automação roda, cwd, comando de preparação, worktree), **agente** (comando, plugins, modelo), **verificação** (screenshot iOS/web/comando) e **aprovações** (cada decisão: pedir no dashboard ou automático).
+- **Sync de tickets** (`POST /api/projects/:id/tickets/sync` ou automático): cria/atualiza tasks no kanban com `external_ref` (`{provider, id, identifier, url, state}`); o estado do provedor mapeia para a coluna (Linear `started`→Fazendo, `completed`→Feito; Jira por `statusCategory`; GitHub fechado→Feito). Movimentações feitas no kanban são preservadas até o estado externo mudar.
+- O status das máquinas detecta SO e ferramentas (`claude`, `gh`, `git`, `node`, `xcodebuild`, `adb`…) — usado para escolher o runner.
+
 ## Variáveis de ambiente
 
 Veja [.env.example](.env.example). Principais:
@@ -121,6 +128,7 @@ Veja [.env.example](.env.example). Principais:
 | `DATABASE_URL` | Postgres (`postgresql://user:pass@host:5432/db`) |
 | `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | envio do código de login |
 | `BIND_ADDR` | (compose) IP do host onde publicar as portas |
+| `ENCRYPTION_KEY` | base64 de 32 bytes (`openssl rand -base64 32`) para os segredos das integrações |
 | `TMUX_PATH` | caminho do tmux (útil como serviço, PATH mínimo) |
 | `LOCAL_SHELL` | shell dentro do tmux local (padrão `$SHELL`) |
 

@@ -18,6 +18,9 @@ export interface Machine {
   ssh_user: string | null;
   ssh_port: number;
   type: MachineType;
+  os: string | null;
+  capabilities: string[];
+  checked_at: string | null;
   created_at: string;
 }
 
@@ -43,10 +46,84 @@ export interface Task {
   description: string | null;
   status: TaskStatus;
   position: number;
-  external_ref: unknown | null;
+  external_ref: ExternalRef | null;
+  external_key: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export interface ExternalRef {
+  provider: IntegrationProvider;
+  id: string;
+  identifier: string;
+  url: string;
+  state: string;
+  status: TaskStatus;
+  updated_at?: string;
+  priority?: unknown;
+  assignee?: string | null;
+  labels?: string[];
+}
+
+export type IntegrationProvider = 'github' | 'linear' | 'jira';
+
+export interface Integration {
+  id: string;
+  provider: IntegrationProvider;
+  name: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConnectionInfo {
+  ok: boolean;
+  account?: string;
+  options?: Record<string, { id: string; name: string }[]>;
+  error?: string;
+}
+
+export type DecisionMode = 'ask' | 'auto';
+
+export interface ProjectSetupData {
+  repo: {
+    integration_id: string | null;
+    full_name: string | null;
+    base_branch: string;
+    branch_pattern: string;
+    draft_pr: boolean;
+  } | null;
+  tickets: {
+    provider: IntegrationProvider;
+    integration_id: string;
+    scope: string;
+    filter: string | null;
+    include_done: boolean;
+    sync_minutes: number;
+  } | null;
+  runner: { machine_id: string | null; cwd: string | null; setup_command: string | null; worktree: boolean };
+  agent: { command: string; plugins: string[]; model: string | null; extra_args: string | null };
+  verify: { type: 'none' | 'ios-simulator' | 'web-screenshot' | 'command'; target: string | null; build_command: string | null };
+  approvals: Record<'spec' | 'plan' | 'pr' | 'merge' | 'tool_permissions' | 'questions', DecisionMode>;
+}
+
+export interface ProjectSetup {
+  project_id: string;
+  version: number;
+  data: ProjectSetupData;
+  updated_at: string | null;
+}
+
+export const PROVIDER_LABEL: Record<IntegrationProvider, string> = { github: 'GitHub', linear: 'Linear', jira: 'Jira' };
+
+export const APPROVAL_LABEL: Record<keyof ProjectSetupData['approvals'], { label: string; hint: string }> = {
+  spec: { label: 'Aprovar a spec', hint: 'antes de o agente planejar' },
+  plan: { label: 'Aprovar o plano', hint: 'antes de implementar' },
+  pr: { label: 'Aprovar o PR', hint: 'com o screenshot/evidência' },
+  merge: { label: 'Fazer o merge', hint: 'após o PR aprovado' },
+  tool_permissions: { label: 'Permissões de ferramentas', hint: 'pedidos do Claude para rodar comandos/editar' },
+  questions: { label: 'Perguntas do agente', hint: 'dúvidas em aberto durante a run' },
+};
 
 export interface Note {
   id: string;

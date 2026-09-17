@@ -1,4 +1,4 @@
-import type { AuthConfig, DashboardItem, Machine, Note, Project, Tab, Task, TaskStatus, User } from './types';
+import type { AuthConfig, ConnectionInfo, DashboardItem, Integration, IntegrationProvider, Machine, Note, Project, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, User } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -58,7 +58,7 @@ export const api = {
     create: (input: Partial<Machine>) => request<{ machine: Machine }>('POST', '/machines', input),
     update: (id: string, input: Partial<Machine>) => request<{ machine: Machine }>('PATCH', `/machines/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}`),
-    status: (id: string) => request<{ id: string; online: boolean; tmux: boolean }>('GET', `/machines/${id}/status`),
+    status: (id: string) => request<{ id: string; online: boolean; tmux: boolean; os: string | null; capabilities: string[] }>('GET', `/machines/${id}/status`),
   },
   projects: {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),
@@ -82,6 +82,22 @@ export const api = {
   notes: {
     get: (projectId: string) => request<{ note: Note }>('GET', `/projects/${projectId}/note`),
     save: (projectId: string, content: string) => request<{ note: Note }>('PUT', `/projects/${projectId}/note`, { content }),
+  },
+  integrations: {
+    list: () => request<{ integrations: Integration[] }>('GET', '/integrations'),
+    create: (input: { provider: IntegrationProvider; name: string; config: Record<string, unknown>; secret: string }) =>
+      request<{ integration: Integration }>('POST', '/integrations', input),
+    update: (id: string, input: { name?: string; config?: Record<string, unknown>; secret?: string }) =>
+      request<{ integration: Integration }>('PATCH', `/integrations/${id}`, input),
+    remove: (id: string) => request<{ ok: true }>('DELETE', `/integrations/${id}`),
+    test: (input: { provider: IntegrationProvider; config: Record<string, unknown>; secret?: string; integration_id?: string }) =>
+      request<ConnectionInfo>('POST', '/integrations/test', input),
+  },
+  setup: {
+    get: (projectId: string) => request<{ setup: ProjectSetup }>('GET', `/projects/${projectId}/setup`),
+    save: (projectId: string, data: ProjectSetupData) => request<{ setup: ProjectSetup }>('PUT', `/projects/${projectId}/setup`, data),
+    syncTickets: (projectId: string) =>
+      request<{ ok: true; fetched: number; created: number; updated: number; synced_at: string }>('POST', `/projects/${projectId}/tickets/sync`, {}),
   },
   system: {
     sshKey: () => request<{ public_key: string | null; file: string | null }>('GET', '/system/ssh-key'),

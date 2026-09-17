@@ -1,0 +1,71 @@
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import type { Repositories } from '../db/repositories/index.js';
+import { badRequest, notFound } from '../lib/errors.js';
+import { encryptionAvailable } from '../lib/crypto.js';
+import { getProvider } from '../integrations/index.js';
+
+const idParam = z.object({ id: z.string().min(1).max(64) });
+const providerEnum = z.enum(['github', 'linear', 'jira']);
+
+const configSchema = z.record(z.string(), z.union([z.string().max(500), z.number(), z.boolean(), z.null()])).default({});
+
+const createBody = z.object({
+  provider: providerEnum,
+  name: z.string().trim().min(1).max(80),
+  config: configSchema,
+  secret: z.string().min(1).max(4096),
+});
+const patchBody = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  config: configSchema.optional(),
+  secret: z.string().min(1).max(4096).optional(),
+});
+const testBody = z.object({
+  provider: providerEnum,
+  config: configSchema,
+  secret: z.string().min(1).max(4096).optional(),
+  /** testar uma integração já salva (usa o segredo do banco) */
+  integration_id: z.string().min(1).max(64).optional(),
+});
+
+export async function integrationRoutes(app: FastifyInstance, repos: Repositories) {
+  app.addHook('preHandler', async () => {
+    if (!encryptionAvailable()) throw badRequest('ENCRYPTION_KEY não configurada no servidor (openssl rand -base64 32)');
+  });
+
+  app.get('/', async () => ({ integrations: await repos.integrations.list() }));
+
+  app.post('/', async (request, reply) => {
+    const body = createBody.parse(request.body);
+    const integration = await repos.integrations.create(body);
+    return reply.code(201).send({ integration });
+  });
+
+  app.patch('/:id', async (request) => {
+    const { id } = idParam.parse(request.params);
+    if (!(await repos.integrations.findById(id))) throw notFound('Integração não encontrada');
+    return { integration: await repos.integrations.update(id, patchBody.parse(request.body)) };
+  });
+
+  app.delete('/:id', async (request) => {
+    const { id } = idParam.parse(request.params);
+    if (!(await repos.integrations.delete(id))) throw notFound('Integração não encontrada');
+    return { ok: true };
+  });
+
+  /** Valida credenciais e devolve opções (times, projetos, repos) para o setup. */
+  app.post('/test', async (request) => {
+    const body = testBody.parse(request.body);
+    let secret = body.secret;
+    let config = body.config;
+    if (!secret && body.integration_id) {
+      const saved = await repos.integrations.findById(body.integration_id);
+      if (!saved) throw notFound('Integração não encontrada');
+      secret = await repos.integrations.getSecret(body.integration_id);
+      config = { ...saved.config, ...config } as typeof config;
+    }
+    if (!secret) throw badRequest('Informe o segredo ou integration_id');
+    return await getProvider(body.provider).testConnection(secret, config);
+  });
+}

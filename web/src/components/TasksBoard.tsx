@@ -283,7 +283,21 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
         />
       ) : (
         <div className="flex items-start gap-1">
-          <span className="flex-1 break-words">{task.title}</span>
+          <span className="flex-1 break-words">
+            {task.external_ref && (
+              <a
+                href={task.external_ref.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="mr-1.5 rounded bg-accent/15 px-1 font-mono text-[10px] text-accent hover:bg-accent/25"
+                title={`${task.external_ref.provider}: ${task.external_ref.state}`}
+              >
+                {task.external_ref.identifier}
+              </a>
+            )}
+            {task.external_ref ? task.title.replace(task.external_ref.identifier, '').trim() : task.title}
+          </span>
           <button
             className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
             title="Detalhes (descrição, status, excluir)"

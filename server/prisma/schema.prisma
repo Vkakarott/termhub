@@ -85,6 +85,10 @@ model Machine {
   sshUser   String?     @map("ssh_user")
   sshPort   Int         @default(22) @map("ssh_port")
   type      MachineType
+  /// Detectado no status: "macos" | "linux" | ... e ferramentas disponíveis (claude, gh, xcode, ...)
+  os           String?
+  capabilities Json      @default("[]")
+  checkedAt    DateTime? @map("checked_at")
   createdAt DateTime    @default(now()) @map("created_at")
   projects  Project[]
 
@@ -104,6 +108,7 @@ model Project {
   tabs           Tab[]
   tasks          Task[]
   note           Note?
+  setup          ProjectSetup?
 
   @@index([machineId])
   @@map("projects")
@@ -141,6 +146,10 @@ model Task {
   updatedAt   DateTime   @default(now()) @updatedAt @map("updated_at")
   project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  /// chave estável do ticket externo ("linear:<id>", "jira:<key>") para upsert no sync
+  externalKey String?    @map("external_key")
+
+  @@unique([projectId, externalKey])
   @@index([projectId, status, position])
   @@map("tasks")
 }
@@ -153,4 +162,36 @@ model Note {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("notes")
+}
+
+enum IntegrationProvider {
+  github
+  linear
+  jira
+}
+
+/// Credenciais de serviços externos (nível conta). `secret` é criptografado (AES-256-GCM).
+model Integration {
+  id        String              @id
+  provider  IntegrationProvider
+  name      String
+  /// Dados não sensíveis (ex.: Jira: { baseUrl, email }; GitHub: { login })
+  config    Json                @default("{}")
+  secret    String
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @default(now()) @updatedAt @map("updated_at")
+
+  @@map("integrations")
+}
+
+/// Setup do projeto: repositório, fonte de tickets, runner, agente, verificação, aprovações.
+/// Guardado como JSON versionado e validado no servidor (zod) — evita uma migration por campo.
+model ProjectSetup {
+  projectId String   @id @map("project_id")
+  version   Int      @default(1)
+  data      Json     @default("{}")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_setups")
 }

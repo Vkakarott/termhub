@@ -58,6 +58,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const machine = await repos.machines.findById(id);
     if (!machine) throw notFound('Máquina não encontrada');
     const status = await machineStatus(machine);
+    if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
     return { id, ...status, checked_at: new Date().toISOString() };
   });
 }

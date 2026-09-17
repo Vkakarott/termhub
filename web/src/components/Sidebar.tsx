@@ -60,9 +60,13 @@ export function Sidebar() {
                   title={`${STATUS_LABEL[status]} — clique para verificar`}
                   onClick={() => void checkStatus(m.id)}
                 />
-                <span className="truncate font-medium" title={m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'local'}>
+                <span
+                  className="truncate font-medium"
+                  title={`${m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'local'}${m.os ? ` · ${m.os}` : ''}${m.capabilities.length ? ` · ${m.capabilities.join(', ')}` : ''}`}
+                >
                   {m.name}
                 </span>
+                {m.os && <span className="text-[10px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
                 {missingTmux[m.id] && (
                   <span className="text-[10px] text-warn" title="tmux não está instalado nesta máquina">
                     sem tmux
@@ -123,6 +127,11 @@ export function Sidebar() {
         )}
       </nav>
 
+      <div className="border-t border-line px-3 py-1.5">
+        <NavLink to="/integrations" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
+          ⚙ Integrações
+        </NavLink>
+      </div>
       <div className="flex items-center gap-2 border-t border-line px-3 py-2">
         {user?.avatar_url ? (
           <img src={user.avatar_url} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />

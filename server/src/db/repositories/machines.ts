@@ -51,6 +51,11 @@ export class MachinesRepository {
     return mapMachine(m);
   }
 
+  /** Resultado da detecção feita no status (SO e ferramentas disponíveis). */
+  async setDetected(id: string, os: string | null, capabilities: string[]): Promise<void> {
+    await this.db.machine.updateMany({ where: { id }, data: { os, capabilities, checkedAt: new Date() } });
+  }
+
   async delete(id: string): Promise<boolean> {
     const r = await this.db.machine.deleteMany({ where: { id } });
     return r.count > 0;

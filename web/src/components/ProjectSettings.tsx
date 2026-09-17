@@ -4,6 +4,7 @@ import { useData } from '../lib/data';
 import { ApiError } from '../lib/api';
 import { PROJECT_STATUS_LABEL, type Project, type ProjectStatus } from '../lib/types';
 import { ConfirmDialog } from './Modal';
+import { SetupForm } from './SetupForm';
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'archived'];
 
@@ -37,7 +38,8 @@ export function ProjectSettings({ project }: { project: Project }) {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <form onSubmit={submit} className="max-w-xl space-y-4">
+      <form onSubmit={submit} className="mb-8 max-w-2xl space-y-4 rounded-lg border border-line bg-bg-2 p-4">
+        <h3 className="text-sm font-semibold">Geral</h3>
         <div>
           <label className="label">Nome</label>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
@@ -75,7 +77,9 @@ export function ProjectSettings({ project }: { project: Project }) {
         </div>
       </form>
 
-      <div className="mt-10 max-w-xl rounded-lg border border-danger/30 p-4">
+      <SetupForm project={project} />
+
+      <div className="mt-10 max-w-2xl rounded-lg border border-danger/30 p-4">
         <h3 className="text-sm font-semibold text-danger">Excluir projeto</h3>
         <p className="mt-1 text-xs text-fg-muted">
           Remove o projeto, suas tasks e notas, e encerra as sessões tmux das tabs em {machine?.name ?? 'máquina'}. Não apaga arquivos.

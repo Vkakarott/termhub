@@ -66,18 +66,41 @@ const tmux = () => config.terminal.tmuxPath;
 export interface MachineStatus {
   online: boolean;
   tmux: boolean;
+  os: string | null;
+  /** ferramentas encontradas no PATH de login: claude, gh, git, node, xcodebuild, ... */
+  capabilities: string[];
 }
 
-/** Testa conectividade e se o tmux está disponível na máquina. */
+/** Ferramentas que interessam para automação (detectadas no status). */
+export const DETECT_TOOLS = ['tmux', 'claude', 'gh', 'git', 'node', 'pnpm', 'xcodebuild', 'docker', 'adb', 'python3'] as const;
+
+const DETECT_SCRIPT = `echo OS:$(uname -s); for t in ${DETECT_TOOLS.join(' ')}; do command -v $t >/dev/null 2>&1 && echo CAP:$t; done; exit 0`;
+
+function parseDetect(stdout: string): { os: string | null; capabilities: string[] } {
+  let os: string | null = null;
+  const caps: string[] = [];
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('OS:')) {
+      const raw = line.slice(3).trim().toLowerCase();
+      os = raw === 'darwin' ? 'macos' : raw || null;
+    } else if (line.startsWith('CAP:')) caps.push(line.slice(4).trim());
+  }
+  return { os, capabilities: caps };
+}
+
+/** Testa conectividade, tmux, SO e ferramentas disponíveis na máquina. */
 export async function machineStatus(machine: Machine): Promise<MachineStatus> {
+  // Local: roda via shell de login para ter o PATH do usuário (claude em ~/.local/bin, brew...)
   const r = await runOnMachine(
     machine,
-    { file: tmux(), args: ['-V'] },
-    'command -v tmux >/dev/null 2>&1 && echo TERMHUB_TMUX_OK; exit 0',
-    7000,
+    { file: '/bin/sh', args: ['-lc', DETECT_SCRIPT] },
+    // Remoto: o ssh já usa shell de login; garante ~/.local/bin e brew no PATH
+    `export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ${DETECT_SCRIPT}`,
+    8000,
   );
-  if (machine.type === 'local') return { online: true, tmux: r.code === 0 };
-  return { online: r.code === 0, tmux: r.code === 0 && r.stdout.includes('TERMHUB_TMUX_OK') };
+  const online = machine.type === 'local' || r.code === 0;
+  const det = online ? parseDetect(r.stdout) : { os: null, capabilities: [] };
+  return { online, tmux: det.capabilities.includes('tmux'), ...det };
 }
 
 /** Lista as sessões tmux ativas na máquina (vazio se o servidor tmux não está rodando). */

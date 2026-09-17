@@ -43,6 +43,7 @@ export type TaskMinAggregateOutputType = {
   position: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  externalKey: string | null
 }
 
 export type TaskMaxAggregateOutputType = {
@@ -54,6 +55,7 @@ export type TaskMaxAggregateOutputType = {
   position: number | null
   createdAt: Date | null
   updatedAt: Date | null
+  externalKey: string | null
 }
 
 export type TaskCountAggregateOutputType = {
@@ -66,6 +68,7 @@ export type TaskCountAggregateOutputType = {
   externalRef: number
   createdAt: number
   updatedAt: number
+  externalKey: number
   _all: number
 }
 
@@ -87,6 +90,7 @@ export type TaskMinAggregateInputType = {
   position?: true
   createdAt?: true
   updatedAt?: true
+  externalKey?: true
 }
 
 export type TaskMaxAggregateInputType = {
@@ -98,6 +102,7 @@ export type TaskMaxAggregateInputType = {
   position?: true
   createdAt?: true
   updatedAt?: true
+  externalKey?: true
 }
 
 export type TaskCountAggregateInputType = {
@@ -110,6 +115,7 @@ export type TaskCountAggregateInputType = {
   externalRef?: true
   createdAt?: true
   updatedAt?: true
+  externalKey?: true
   _all?: true
 }
 
@@ -209,6 +215,7 @@ export type TaskGroupByOutputType = {
   externalRef: runtime.JsonValue | null
   createdAt: Date
   updatedAt: Date
+  externalKey: string | null
   _count: TaskCountAggregateOutputType | null
   _avg: TaskAvgAggregateOutputType | null
   _sum: TaskSumAggregateOutputType | null
@@ -244,6 +251,7 @@ export type TaskWhereInput = {
   externalRef?: Prisma.JsonNullableFilter<"Task">
   createdAt?: Prisma.DateTimeFilter<"Task"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Task"> | Date | string
+  externalKey?: Prisma.StringNullableFilter<"Task"> | string | null
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
 }
 
@@ -257,11 +265,13 @@ export type TaskOrderByWithRelationInput = {
   externalRef?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  externalKey?: Prisma.SortOrderInput | Prisma.SortOrder
   project?: Prisma.ProjectOrderByWithRelationInput
 }
 
 export type TaskWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  projectId_externalKey?: Prisma.TaskProjectIdExternalKeyCompoundUniqueInput
   AND?: Prisma.TaskWhereInput | Prisma.TaskWhereInput[]
   OR?: Prisma.TaskWhereInput[]
   NOT?: Prisma.TaskWhereInput | Prisma.TaskWhereInput[]
@@ -273,8 +283,9 @@ export type TaskWhereUniqueInput = Prisma.AtLeast<{
   externalRef?: Prisma.JsonNullableFilter<"Task">
   createdAt?: Prisma.DateTimeFilter<"Task"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Task"> | Date | string
+  externalKey?: Prisma.StringNullableFilter<"Task"> | string | null
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
-}, "id">
+}, "id" | "projectId_externalKey">
 
 export type TaskOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -286,6 +297,7 @@ export type TaskOrderByWithAggregationInput = {
   externalRef?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  externalKey?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.TaskCountOrderByAggregateInput
   _avg?: Prisma.TaskAvgOrderByAggregateInput
   _max?: Prisma.TaskMaxOrderByAggregateInput
@@ -306,6 +318,7 @@ export type TaskScalarWhereWithAggregatesInput = {
   externalRef?: Prisma.JsonNullableWithAggregatesFilter<"Task">
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Task"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Task"> | Date | string
+  externalKey?: Prisma.StringNullableWithAggregatesFilter<"Task"> | string | null
 }
 
 export type TaskCreateInput = {
@@ -317,6 +330,7 @@ export type TaskCreateInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  externalKey?: string | null
   project: Prisma.ProjectCreateNestedOneWithoutTasksInput
 }
 
@@ -330,6 +344,7 @@ export type TaskUncheckedCreateInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  externalKey?: string | null
 }
 
 export type TaskUpdateInput = {
@@ -341,6 +356,7 @@ export type TaskUpdateInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  externalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   project?: Prisma.ProjectUpdateOneRequiredWithoutTasksNestedInput
 }
 
@@ -354,6 +370,7 @@ export type TaskUncheckedUpdateInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  externalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type TaskCreateManyInput = {
@@ -366,6 +383,7 @@ export type TaskCreateManyInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  externalKey?: string | null
 }
 
 export type TaskUpdateManyMutationInput = {
@@ -377,6 +395,7 @@ export type TaskUpdateManyMutationInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  externalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type TaskUncheckedUpdateManyInput = {
@@ -389,6 +408,7 @@ export type TaskUncheckedUpdateManyInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  externalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type TaskListRelationFilter = {
@@ -401,6 +421,11 @@ export type TaskOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
+export type TaskProjectIdExternalKeyCompoundUniqueInput = {
+  projectId: string
+  externalKey: string
+}
+
 export type TaskCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
@@ -411,6 +436,7 @@ export type TaskCountOrderByAggregateInput = {
   externalRef?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  externalKey?: Prisma.SortOrder
 }
 
 export type TaskAvgOrderByAggregateInput = {
@@ -426,6 +452,7 @@ export type TaskMaxOrderByAggregateInput = {
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  externalKey?: Prisma.SortOrder
 }
 
 export type TaskMinOrderByAggregateInput = {
@@ -437,6 +464,7 @@ export type TaskMinOrderByAggregateInput = {
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  externalKey?: Prisma.SortOrder
 }
 
 export type TaskSumOrderByAggregateInput = {
@@ -498,6 +526,7 @@ export type TaskCreateWithoutProjectInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  externalKey?: string | null
 }
 
 export type TaskUncheckedCreateWithoutProjectInput = {
@@ -509,6 +538,7 @@ export type TaskUncheckedCreateWithoutProjectInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  externalKey?: string | null
 }
 
 export type TaskCreateOrConnectWithoutProjectInput = {
@@ -550,6 +580,7 @@ export type TaskScalarWhereInput = {
   externalRef?: Prisma.JsonNullableFilter<"Task">
   createdAt?: Prisma.DateTimeFilter<"Task"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Task"> | Date | string
+  externalKey?: Prisma.StringNullableFilter<"Task"> | string | null
 }
 
 export type TaskCreateManyProjectInput = {
@@ -561,6 +592,7 @@ export type TaskCreateManyProjectInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
+  externalKey?: string | null
 }
 
 export type TaskUpdateWithoutProjectInput = {
@@ -572,6 +604,7 @@ export type TaskUpdateWithoutProjectInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  externalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type TaskUncheckedUpdateWithoutProjectInput = {
@@ -583,6 +616,7 @@ export type TaskUncheckedUpdateWithoutProjectInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  externalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type TaskUncheckedUpdateManyWithoutProjectInput = {
@@ -594,6 +628,7 @@ export type TaskUncheckedUpdateManyWithoutProjectInput = {
   externalRef?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  externalKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 
@@ -608,6 +643,7 @@ export type TaskSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   externalRef?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  externalKey?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["task"]>
 
@@ -621,6 +657,7 @@ export type TaskSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   externalRef?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  externalKey?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["task"]>
 
@@ -634,6 +671,7 @@ export type TaskSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   externalRef?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  externalKey?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["task"]>
 
@@ -647,9 +685,10 @@ export type TaskSelectScalar = {
   externalRef?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  externalKey?: boolean
 }
 
-export type TaskOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "title" | "description" | "status" | "position" | "externalRef" | "createdAt" | "updatedAt", ExtArgs["result"]["task"]>
+export type TaskOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "title" | "description" | "status" | "position" | "externalRef" | "createdAt" | "updatedAt" | "externalKey", ExtArgs["result"]["task"]>
 export type TaskInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
 }
@@ -678,6 +717,10 @@ export type $TaskPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     externalRef: runtime.JsonValue | null
     createdAt: Date
     updatedAt: Date
+    /**
+     * chave estável do ticket externo ("linear:<id>", "jira:<key>") para upsert no sync
+     */
+    externalKey: string | null
   }, ExtArgs["result"]["task"]>
   composites: {}
 }
@@ -1111,6 +1154,7 @@ export interface TaskFieldRefs {
   readonly externalRef: Prisma.FieldRef<"Task", 'Json'>
   readonly createdAt: Prisma.FieldRef<"Task", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Task", 'DateTime'>
+  readonly externalKey: Prisma.FieldRef<"Task", 'String'>
 }
     
 

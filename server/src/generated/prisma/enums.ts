@@ -41,3 +41,12 @@ export const TaskStatus = {
 } as const
 
 export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus]
+
+
+export const IntegrationProvider = {
+  github: 'github',
+  linear: 'linear',
+  jira: 'jira'
+} as const
+
+export type IntegrationProvider = (typeof IntegrationProvider)[keyof typeof IntegrationProvider]

@@ -59,7 +59,9 @@ export const ModelName = {
   Project: 'Project',
   Tab: 'Tab',
   Task: 'Task',
-  Note: 'Note'
+  Note: 'Note',
+  Integration: 'Integration',
+  ProjectSetup: 'ProjectSetup'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -133,6 +135,9 @@ export const MachineScalarFieldEnum = {
   sshUser: 'sshUser',
   sshPort: 'sshPort',
   type: 'type',
+  os: 'os',
+  capabilities: 'capabilities',
+  checkedAt: 'checkedAt',
   createdAt: 'createdAt'
 } as const
 
@@ -174,7 +179,8 @@ export const TaskScalarFieldEnum = {
   position: 'position',
   externalRef: 'externalRef',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  externalKey: 'externalKey'
 } as const
 
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]
@@ -190,12 +196,42 @@ export const NoteScalarFieldEnum = {
 export type NoteScalarFieldEnum = (typeof NoteScalarFieldEnum)[keyof typeof NoteScalarFieldEnum]
 
 
+export const IntegrationScalarFieldEnum = {
+  id: 'id',
+  provider: 'provider',
+  name: 'name',
+  config: 'config',
+  secret: 'secret',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type IntegrationScalarFieldEnum = (typeof IntegrationScalarFieldEnum)[keyof typeof IntegrationScalarFieldEnum]
+
+
+export const ProjectSetupScalarFieldEnum = {
+  projectId: 'projectId',
+  version: 'version',
+  data: 'data',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ProjectSetupScalarFieldEnum = (typeof ProjectSetupScalarFieldEnum)[keyof typeof ProjectSetupScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
 } as const
 
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
+
+
+export const JsonNullValueInput = {
+  JsonNull: JsonNull
+} as const
+
+export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
 
 
 export const NullableJsonNullValueInput = {

@@ -43,6 +43,9 @@ export interface Machine {
   ssh_user: string | null;
   ssh_port: number;
   type: MachineType;
+  os: string | null;
+  capabilities: string[];
+  checked_at: string | null;
   created_at: string;
 }
 
@@ -73,8 +76,9 @@ export interface Task {
   description: string | null;
   status: TaskStatus;
   position: number;
-  /** Reservado para integrações futuras (GitHub/Jira/Linear). */
+  /** Ticket externo: { provider, id, identifier, url, state, meta } */
   external_ref: unknown | null;
+  external_key: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -114,6 +118,9 @@ export const mapMachine = (m: PrismaMachine): Machine => ({
   ssh_user: m.sshUser,
   ssh_port: m.sshPort,
   type: m.type,
+  os: m.os,
+  capabilities: Array.isArray(m.capabilities) ? (m.capabilities as string[]) : [],
+  checked_at: iso(m.checkedAt),
   created_at: m.createdAt.toISOString(),
 });
 
@@ -145,6 +152,7 @@ export const mapTask = (t: PrismaTask): Task => ({
   status: t.status,
   position: t.position,
   external_ref: t.externalRef ?? null,
+  external_key: t.externalKey,
   created_at: t.createdAt.toISOString(),
   updated_at: t.updatedAt.toISOString(),
 });

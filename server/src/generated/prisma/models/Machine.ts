@@ -41,6 +41,8 @@ export type MachineMinAggregateOutputType = {
   sshUser: string | null
   sshPort: number | null
   type: $Enums.MachineType | null
+  os: string | null
+  checkedAt: Date | null
   createdAt: Date | null
 }
 
@@ -51,6 +53,8 @@ export type MachineMaxAggregateOutputType = {
   sshUser: string | null
   sshPort: number | null
   type: $Enums.MachineType | null
+  os: string | null
+  checkedAt: Date | null
   createdAt: Date | null
 }
 
@@ -61,6 +65,9 @@ export type MachineCountAggregateOutputType = {
   sshUser: number
   sshPort: number
   type: number
+  os: number
+  capabilities: number
+  checkedAt: number
   createdAt: number
   _all: number
 }
@@ -81,6 +88,8 @@ export type MachineMinAggregateInputType = {
   sshUser?: true
   sshPort?: true
   type?: true
+  os?: true
+  checkedAt?: true
   createdAt?: true
 }
 
@@ -91,6 +100,8 @@ export type MachineMaxAggregateInputType = {
   sshUser?: true
   sshPort?: true
   type?: true
+  os?: true
+  checkedAt?: true
   createdAt?: true
 }
 
@@ -101,6 +112,9 @@ export type MachineCountAggregateInputType = {
   sshUser?: true
   sshPort?: true
   type?: true
+  os?: true
+  capabilities?: true
+  checkedAt?: true
   createdAt?: true
   _all?: true
 }
@@ -198,6 +212,9 @@ export type MachineGroupByOutputType = {
   sshUser: string | null
   sshPort: number
   type: $Enums.MachineType
+  os: string | null
+  capabilities: runtime.JsonValue
+  checkedAt: Date | null
   createdAt: Date
   _count: MachineCountAggregateOutputType | null
   _avg: MachineAvgAggregateOutputType | null
@@ -231,6 +248,9 @@ export type MachineWhereInput = {
   sshUser?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshPort?: Prisma.IntFilter<"Machine"> | number
   type?: Prisma.EnumMachineTypeFilter<"Machine"> | $Enums.MachineType
+  os?: Prisma.StringNullableFilter<"Machine"> | string | null
+  capabilities?: Prisma.JsonFilter<"Machine">
+  checkedAt?: Prisma.DateTimeNullableFilter<"Machine"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Machine"> | Date | string
   projects?: Prisma.ProjectListRelationFilter
 }
@@ -242,6 +262,9 @@ export type MachineOrderByWithRelationInput = {
   sshUser?: Prisma.SortOrderInput | Prisma.SortOrder
   sshPort?: Prisma.SortOrder
   type?: Prisma.SortOrder
+  os?: Prisma.SortOrderInput | Prisma.SortOrder
+  capabilities?: Prisma.SortOrder
+  checkedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   projects?: Prisma.ProjectOrderByRelationAggregateInput
 }
@@ -256,6 +279,9 @@ export type MachineWhereUniqueInput = Prisma.AtLeast<{
   sshUser?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshPort?: Prisma.IntFilter<"Machine"> | number
   type?: Prisma.EnumMachineTypeFilter<"Machine"> | $Enums.MachineType
+  os?: Prisma.StringNullableFilter<"Machine"> | string | null
+  capabilities?: Prisma.JsonFilter<"Machine">
+  checkedAt?: Prisma.DateTimeNullableFilter<"Machine"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Machine"> | Date | string
   projects?: Prisma.ProjectListRelationFilter
 }, "id">
@@ -267,6 +293,9 @@ export type MachineOrderByWithAggregationInput = {
   sshUser?: Prisma.SortOrderInput | Prisma.SortOrder
   sshPort?: Prisma.SortOrder
   type?: Prisma.SortOrder
+  os?: Prisma.SortOrderInput | Prisma.SortOrder
+  capabilities?: Prisma.SortOrder
+  checkedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.MachineCountOrderByAggregateInput
   _avg?: Prisma.MachineAvgOrderByAggregateInput
@@ -285,6 +314,9 @@ export type MachineScalarWhereWithAggregatesInput = {
   sshUser?: Prisma.StringNullableWithAggregatesFilter<"Machine"> | string | null
   sshPort?: Prisma.IntWithAggregatesFilter<"Machine"> | number
   type?: Prisma.EnumMachineTypeWithAggregatesFilter<"Machine"> | $Enums.MachineType
+  os?: Prisma.StringNullableWithAggregatesFilter<"Machine"> | string | null
+  capabilities?: Prisma.JsonWithAggregatesFilter<"Machine">
+  checkedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Machine"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Machine"> | Date | string
 }
 
@@ -295,6 +327,9 @@ export type MachineCreateInput = {
   sshUser?: string | null
   sshPort?: number
   type: $Enums.MachineType
+  os?: string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Date | string | null
   createdAt?: Date | string
   projects?: Prisma.ProjectCreateNestedManyWithoutMachineInput
 }
@@ -306,6 +341,9 @@ export type MachineUncheckedCreateInput = {
   sshUser?: string | null
   sshPort?: number
   type: $Enums.MachineType
+  os?: string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Date | string | null
   createdAt?: Date | string
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutMachineInput
 }
@@ -317,6 +355,9 @@ export type MachineUpdateInput = {
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
   type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   projects?: Prisma.ProjectUpdateManyWithoutMachineNestedInput
 }
@@ -328,6 +369,9 @@ export type MachineUncheckedUpdateInput = {
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
   type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutMachineNestedInput
 }
@@ -339,6 +383,9 @@ export type MachineCreateManyInput = {
   sshUser?: string | null
   sshPort?: number
   type: $Enums.MachineType
+  os?: string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Date | string | null
   createdAt?: Date | string
 }
 
@@ -349,6 +396,9 @@ export type MachineUpdateManyMutationInput = {
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
   type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -359,6 +409,9 @@ export type MachineUncheckedUpdateManyInput = {
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
   type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -369,6 +422,9 @@ export type MachineCountOrderByAggregateInput = {
   sshUser?: Prisma.SortOrder
   sshPort?: Prisma.SortOrder
   type?: Prisma.SortOrder
+  os?: Prisma.SortOrder
+  capabilities?: Prisma.SortOrder
+  checkedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -383,6 +439,8 @@ export type MachineMaxOrderByAggregateInput = {
   sshUser?: Prisma.SortOrder
   sshPort?: Prisma.SortOrder
   type?: Prisma.SortOrder
+  os?: Prisma.SortOrder
+  checkedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -393,6 +451,8 @@ export type MachineMinOrderByAggregateInput = {
   sshUser?: Prisma.SortOrder
   sshPort?: Prisma.SortOrder
   type?: Prisma.SortOrder
+  os?: Prisma.SortOrder
+  checkedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -430,6 +490,9 @@ export type MachineCreateWithoutProjectsInput = {
   sshUser?: string | null
   sshPort?: number
   type: $Enums.MachineType
+  os?: string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Date | string | null
   createdAt?: Date | string
 }
 
@@ -440,6 +503,9 @@ export type MachineUncheckedCreateWithoutProjectsInput = {
   sshUser?: string | null
   sshPort?: number
   type: $Enums.MachineType
+  os?: string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Date | string | null
   createdAt?: Date | string
 }
 
@@ -466,6 +532,9 @@ export type MachineUpdateWithoutProjectsInput = {
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
   type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -476,6 +545,9 @@ export type MachineUncheckedUpdateWithoutProjectsInput = {
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
   type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -517,6 +589,9 @@ export type MachineSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   sshUser?: boolean
   sshPort?: boolean
   type?: boolean
+  os?: boolean
+  capabilities?: boolean
+  checkedAt?: boolean
   createdAt?: boolean
   projects?: boolean | Prisma.Machine$projectsArgs<ExtArgs>
   _count?: boolean | Prisma.MachineCountOutputTypeDefaultArgs<ExtArgs>
@@ -529,6 +604,9 @@ export type MachineSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exten
   sshUser?: boolean
   sshPort?: boolean
   type?: boolean
+  os?: boolean
+  capabilities?: boolean
+  checkedAt?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["machine"]>
 
@@ -539,6 +617,9 @@ export type MachineSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exten
   sshUser?: boolean
   sshPort?: boolean
   type?: boolean
+  os?: boolean
+  capabilities?: boolean
+  checkedAt?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["machine"]>
 
@@ -549,10 +630,13 @@ export type MachineSelectScalar = {
   sshUser?: boolean
   sshPort?: boolean
   type?: boolean
+  os?: boolean
+  capabilities?: boolean
+  checkedAt?: boolean
   createdAt?: boolean
 }
 
-export type MachineOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "host" | "sshUser" | "sshPort" | "type" | "createdAt", ExtArgs["result"]["machine"]>
+export type MachineOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "host" | "sshUser" | "sshPort" | "type" | "os" | "capabilities" | "checkedAt" | "createdAt", ExtArgs["result"]["machine"]>
 export type MachineInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   projects?: boolean | Prisma.Machine$projectsArgs<ExtArgs>
   _count?: boolean | Prisma.MachineCountOutputTypeDefaultArgs<ExtArgs>
@@ -572,6 +656,12 @@ export type $MachinePayload<ExtArgs extends runtime.Types.Extensions.InternalArg
     sshUser: string | null
     sshPort: number
     type: $Enums.MachineType
+    /**
+     * Detectado no status: "macos" | "linux" | ... e ferramentas disponíveis (claude, gh, xcode, ...)
+     */
+    os: string | null
+    capabilities: runtime.JsonValue
+    checkedAt: Date | null
     createdAt: Date
   }, ExtArgs["result"]["machine"]>
   composites: {}
@@ -1003,6 +1093,9 @@ export interface MachineFieldRefs {
   readonly sshUser: Prisma.FieldRef<"Machine", 'String'>
   readonly sshPort: Prisma.FieldRef<"Machine", 'Int'>
   readonly type: Prisma.FieldRef<"Machine", 'MachineType'>
+  readonly os: Prisma.FieldRef<"Machine", 'String'>
+  readonly capabilities: Prisma.FieldRef<"Machine", 'Json'>
+  readonly checkedAt: Prisma.FieldRef<"Machine", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"Machine", 'DateTime'>
 }
     

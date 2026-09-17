@@ -8,6 +8,8 @@ import { ProjectsRepository } from './projects.js';
 import { TabsRepository } from './tabs.js';
 import { TasksRepository } from './tasks.js';
 import { NotesRepository } from './notes.js';
+import { IntegrationsRepository } from './integrations.js';
+import { ProjectSetupRepository } from './project-setup.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -19,6 +21,8 @@ export interface Repositories {
   tabs: TabsRepository;
   tasks: TasksRepository;
   notes: NotesRepository;
+  integrations: IntegrationsRepository;
+  projectSetup: ProjectSetupRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -32,7 +36,11 @@ export function createRepositories(db: PrismaClient): Repositories {
     tabs: new TabsRepository(db),
     tasks: new TasksRepository(db),
     notes: new NotesRepository(db),
+    integrations: new IntegrationsRepository(db),
+    projectSetup: new ProjectSetupRepository(db),
   };
 }
 
 export * from './types.js';
+export type { Integration, IntegrationProvider } from './integrations.js';
+export type { ProjectSetup } from './project-setup.js';

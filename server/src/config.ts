@@ -42,6 +42,9 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().default('termhub <termhub@localhost>'),
   LOGIN_CODE_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+
+  // Chave (base64, 32 bytes) para criptografar segredos das integrações. Gere com: openssl rand -base64 32
+  ENCRYPTION_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -113,6 +116,7 @@ export const config = {
     from: env.EMAIL_FROM,
   },
   seedLocalMachine: env.SEED_LOCAL_MACHINE === 'true',
+  encryptionKey: env.ENCRYPTION_KEY ?? null,
   terminal: {
     localShell: env.LOCAL_SHELL || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh'),
     tmuxPath: env.TMUX_PATH,

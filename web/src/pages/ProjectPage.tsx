@@ -13,7 +13,7 @@ const SECTIONS: { key: ProjectSection; label: string; path: string }[] = [
   { key: 'terminals', label: 'Terminais', path: '' },
   { key: 'tasks', label: 'Tarefas', path: 'tasks' },
   { key: 'notes', label: 'Notas', path: 'notes' },
-  { key: 'settings', label: 'Configurações', path: 'settings' },
+  { key: 'settings', label: 'Setup', path: 'settings' },
 ];
 
 export function ProjectPage() {

@@ -17,6 +17,9 @@ import { systemRoutes } from './routes/system.js';
 import { projectTaskRoutes, taskRoutes } from './routes/tasks.js';
 import { noteRoutes } from './routes/notes.js';
 import { dashboardRoutes } from './routes/dashboard.js';
+import { integrationRoutes } from './routes/integrations.js';
+import { setupRoutes } from './routes/setup.js';
+import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { attachTerminalWebSocket } from './terminal/ws.js';
 import { seed } from './seed.js';
 
@@ -50,6 +53,18 @@ export async function buildApp(): Promise<App> {
 
   await fastify.register(fastifyCookie);
 
+  // JSON tolerante a body vazio (POST sem corpo vira {}).
+  fastify.removeContentTypeParser('application/json');
+  fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const text = typeof body === 'string' ? body : body.toString();
+    if (!text.trim()) return done(null, {});
+    try {
+      done(null, JSON.parse(text));
+    } catch (err) {
+      done(Object.assign(err as Error, { statusCode: 400 }), undefined);
+    }
+  });
+
   // Cabeçalhos básicos de segurança
   fastify.addHook('onSend', async (_req, reply) => {
     reply.header('x-content-type-options', 'nosniff');
@@ -81,6 +96,8 @@ export async function buildApp(): Promise<App> {
       await api.register((a) => noteRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => taskRoutes(a, repos), { prefix: '/tasks' });
       await api.register((a) => dashboardRoutes(a, repos), { prefix: '/dashboard' });
+      await api.register((a) => integrationRoutes(a, repos), { prefix: '/integrations' });
+      await api.register((a) => setupRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => tabRoutes(a, repos), { prefix: '/tabs' });
       await api.register(systemRoutes, { prefix: '/system' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
@@ -109,8 +126,10 @@ export async function buildApp(): Promise<App> {
 
   // Limpeza periódica de sessões expiradas
   const purge = setInterval(() => void authService.purgeExpired().catch(() => {}), 60 * 60 * 1000);
+  const stopSync = startTicketSyncScheduler(repos, fastify.log);
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
+    stopSync();
     await closePrisma();
   });
 
