@@ -38,6 +38,9 @@ export interface SessionHandle {
 interface Options {
   idleMs?: number;
   readyTimeoutMs?: number;
+  /** Timeout de prontidão usado durante a recuperação (túnel/stream caiu), mais curto que o do start
+   *  inicial: o runner já deveria estar de pé, então não vale a pena esperar os mesmos 90s por tentativa. */
+  recoverReadyTimeoutMs?: number;
   pollMs?: number;
   log?: (msg: string, meta?: object) => void;
 }
@@ -72,6 +75,7 @@ export class SimulatorSessionManager {
   private sessions = new Map<string, Session>();
   private idleMs: number;
   private readyTimeoutMs: number;
+  private recoverReadyTimeoutMs: number;
   private pollMs: number;
   private log: (msg: string, meta?: object) => void;
 
@@ -81,6 +85,7 @@ export class SimulatorSessionManager {
   ) {
     this.idleMs = opts.idleMs ?? 5 * 60_000;
     this.readyTimeoutMs = opts.readyTimeoutMs ?? 90_000;
+    this.recoverReadyTimeoutMs = opts.recoverReadyTimeoutMs ?? 15_000;
     this.pollMs = opts.pollMs ?? 1000;
     this.log = opts.log ?? (() => {});
   }
@@ -216,7 +221,7 @@ export class SimulatorSessionManager {
         await this.backend.startRunner(s.machine, s.udid, s.ports);
       }
       if (s.disposed) throw new Error(DISPOSED_ERROR);
-      await this.connect(s);
+      await this.connect(s, this.readyTimeoutMs);
       const client = s.client!;
       await client.createSession();
       if (s.disposed) throw new Error(DISPOSED_ERROR);
@@ -248,7 +253,7 @@ export class SimulatorSessionManager {
   }
 
   /** Abre o túnel e espera o /status do WDA ficar pronto; some com o que criou se a sessão for descartada no meio. */
-  private async connect(s: Session): Promise<void> {
+  private async connect(s: Session, readyTimeoutMs: number): Promise<void> {
     const tunnel = await this.backend.openTunnel(s.machine, s.ports);
     if (s.disposed) {
       tunnel.close();
@@ -260,7 +265,7 @@ export class SimulatorSessionManager {
       void this.recover(s, err);
     });
     s.client = this.backend.createClient(`http://127.0.0.1:${tunnel.wdaPort}`);
-    const deadline = Date.now() + this.readyTimeoutMs;
+    const deadline = Date.now() + readyTimeoutMs;
     for (;;) {
       let ready = false;
       try {
@@ -308,10 +313,29 @@ export class SimulatorSessionManager {
     const sessionId = s.client?.sessionId ?? null;
     for (let i = 1; i <= RECOVER_ATTEMPTS; i++) {
       if (s.disposed) return;
+      // O runner pode ter morrido de vez na máquina (ex.: sessão tmux matada) — sem ele não adianta
+      // reabrir túnel algum; desiste na hora em vez de gastar até recoverReadyTimeoutMs por tentativa.
+      if (!(await this.backend.runnerAlive(s.machine, s.udid))) {
+        if (s.disposed) return;
+        let tail: string[] | undefined;
+        try {
+          tail = await this.backend.runnerTail(s.machine, s.udid);
+        } catch {
+          tail = undefined;
+        }
+        if (s.disposed) return;
+        this.log('runner do WDA morreu durante a recuperação', meta);
+        this.closeTunnel(s);
+        this.broadcast(s, (v) => v.onStatus({ state: 'error', message: 'Runner do WDA encerrou na máquina', tail }));
+        if (s.client) s.client.sessionId = sessionId;
+        await this.dispose(s, { stopRunner: false });
+        return;
+      }
+      if (s.disposed) return;
       try {
         this.closeMjpegStream(s);
         this.closeTunnel(s);
-        await this.connect(s);
+        await this.connect(s, this.recoverReadyTimeoutMs);
         if (s.disposed) {
           this.closeTunnel(s);
           return;

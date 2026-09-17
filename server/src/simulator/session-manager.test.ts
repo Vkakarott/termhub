@@ -25,9 +25,16 @@ function makeBackend(overrides: Partial<SimulatorBackend> = {}) {
   }) as unknown as typeof fetch;
   const createClientCalls: string[] = [];
   const createClientInstances: WdaClient[] = [];
+  // Falso só na 1ª chamada (o start inicial decide iniciar o runner); depois disso, "vivo" — como na
+  // vida real, onde o runner segue rodando em tmux até algo matá-lo. Testes que querem simular o
+  // runner morrendo (ex.: durante a recuperação) sobrescrevem runnerAlive explicitamente.
+  let runnerAliveCalls = 0;
   const backend: SimulatorBackend = {
     boot: vi.fn(async () => {}),
-    runnerAlive: vi.fn(async () => false),
+    runnerAlive: vi.fn(async () => {
+      runnerAliveCalls++;
+      return runnerAliveCalls > 1;
+    }),
     startRunner: vi.fn(async () => {}),
     stopRunner: vi.fn(async () => {}),
     runnerTail: vi.fn(async () => ['linha do runner']),
@@ -168,7 +175,8 @@ describe('SimulatorSessionManager', () => {
 
   it('status nunca pronto → error com o tail do runner e sessão descartada', async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ value: { ready: false } }))) as unknown as typeof fetch;
-    const b = makeBackend({ createClient: (baseUrl) => new WdaClient(baseUrl, fetchFn) });
+    // sempre "não vivo": cada acquire aqui é uma sessão nova de verdade, não a recuperação de uma existente
+    const b = makeBackend({ createClient: (baseUrl) => new WdaClient(baseUrl, fetchFn), runnerAlive: vi.fn(async () => false) });
     const mgr = new SimulatorSessionManager(b.backend, { readyTimeoutMs: 3000, pollMs: 1000 });
     const v = makeViewer();
     const p = mgr.acquire(machine, UDID, v);
@@ -236,6 +244,58 @@ describe('SimulatorSessionManager', () => {
     expect(mgr.isReady('m1', UDID)).toBe(false);
     expect(b.backend.stopRunner).not.toHaveBeenCalled();
     for (const close of b.tunnelCloses) expect(close).toHaveBeenCalled();
+  });
+
+  it('runner morto durante a recuperação desiste na hora, sem reabrir túnel', async () => {
+    // sempre "não vivo": simula o runner (sessão tmux) morto de vez na máquina
+    const b = makeBackend({ runnerAlive: vi.fn(async () => false) });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    const openTunnelCallsBefore = (b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.statuses.at(-1)).toBe('error');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Runner do WDA encerrou na máquina');
+    expect(v.fullStatuses.at(-1)?.tail).toEqual(['linha do runner']);
+    // não tentou reabrir túnel nenhuma vez: percebeu o runner morto antes de sequer tentar
+    expect((b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(openTunnelCallsBefore);
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
+    expect(mgr.isReady('m1', UDID)).toBe(false);
+
+    // uma sessão nova de verdade depois disso: começa o runner de novo
+    const v2 = makeViewer();
+    await mgr.acquire(machine, UDID, v2);
+    expect(b.backend.startRunner).toHaveBeenCalledTimes(2);
+  });
+
+  it('recuperação com runner vivo mas /status nunca pronto usa recoverReadyTimeoutMs, não readyTimeoutMs', async () => {
+    let statusReady = true;
+    const fetchFn = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = (json: unknown) => new Response(JSON.stringify(json), { status: 200 });
+      if (url.endsWith('/status')) return body({ value: { ready: statusReady } });
+      if (url.endsWith('/session') && init?.method === 'POST') return body({ sessionId: 'S1', value: {} });
+      if (url.endsWith('/window/size')) return body({ value: { width: 390, height: 844 } });
+      if (url.endsWith('/orientation')) return body({ value: 'PORTRAIT' });
+      return body({ value: null });
+    }) as unknown as typeof fetch;
+    // runner sempre vivo (não é isso que está falhando aqui, é o /status que nunca fica pronto)
+    const b = makeBackend({ createClient: (baseUrl) => new WdaClient(baseUrl, fetchFn), runnerAlive: vi.fn(async () => true) });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 50, recoverReadyTimeoutMs: 5000 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    statusReady = false;
+    const start = Date.now();
+    b.dropTunnel(new Error('caiu'));
+    await vi.runAllTimersAsync();
+    const elapsed = Date.now() - start;
+    // 3 tentativas de recoverReadyTimeoutMs (5000) + 2 esperas de RECOVER_DELAY_MS (2000) entre elas = 19s,
+    // bem menos que as 3×90s que o readyTimeoutMs padrão daria.
+    expect(elapsed).toBeGreaterThanOrEqual(3 * 5000 + 2 * 2000 - 250);
+    expect(elapsed).toBeLessThan(3 * 5000 + 2 * 2000 + 3000);
+    expect(v.fullStatuses.at(-1)?.message).toMatch(/perdida/);
+    expect(mgr.isReady('m1', UDID)).toBe(false);
   });
 
   it('acquire durante recover espera a recuperação e devolve client apontando para o túnel novo', async () => {
