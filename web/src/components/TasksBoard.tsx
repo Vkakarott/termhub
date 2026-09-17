@@ -256,11 +256,11 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
       draggable={!editing}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onDoubleClick={() => {
+      onClick={() => {
+        if (editing) return;
         setDraft(task.title);
         setEditing(true);
       }}
-      onClick={() => !editing && onOpen()}
       className={`group cursor-grab rounded-md border border-line bg-bg-3 px-2.5 py-2 text-sm hover:border-fg-dim active:cursor-grabbing ${
         dragging ? 'opacity-40' : ''
       } ${task.status === 'done' ? 'text-fg-muted line-through decoration-fg-dim' : ''}`}
@@ -282,8 +282,18 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-1">
           <span className="flex-1 break-words">{task.title}</span>
+          <button
+            className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
+            title="Detalhes (descrição, status, excluir)"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+          >
+            ⋯
+          </button>
           {onMoveNext && (
             <button
               className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
@@ -298,7 +308,17 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
           )}
         </div>
       )}
-      {task.description && !editing && <p className="mt-1 line-clamp-2 text-xs text-fg-dim">{task.description}</p>}
+      {task.description && !editing && (
+        <p
+          className="mt-1 line-clamp-2 cursor-pointer text-xs text-fg-dim hover:text-fg-muted"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+        >
+          {task.description}
+        </p>
+      )}
     </div>
   );
 }

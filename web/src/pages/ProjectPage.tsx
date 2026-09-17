@@ -58,10 +58,12 @@ export function ProjectPage() {
       </header>
       <div className="relative min-h-0 flex-1">
         {/* Terminais ficam montados mesmo em outras seções: trocar de aba não reconecta. */}
-        <TerminalsView key={project.id} project={project} visible={current === 'terminals'} />
-        {current === 'tasks' && <TasksBoard key={project.id} projectId={project.id} />}
-        {current === 'notes' && <NotesEditor key={project.id} projectId={project.id} />}
-        {current === 'settings' && <ProjectSettings key={project.id + project.status + project.cwd + project.name} project={project} />}
+        <TerminalsView key={`terminals-${project.id}`} project={project} visible={current === 'terminals'} />
+        {current === 'tasks' && <TasksBoard key={`tasks-${project.id}`} projectId={project.id} />}
+        {current === 'notes' && <NotesEditor key={`notes-${project.id}`} projectId={project.id} />}
+        {current === 'settings' && (
+          <ProjectSettings key={`settings-${project.id}-${project.status}-${project.cwd}-${project.name}`} project={project} />
+        )}
       </div>
     </div>
   );

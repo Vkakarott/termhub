@@ -47,6 +47,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Estável (não depende de state): usado em effects dos componentes sem causar re-render em cascata.
+  const setOpenTasks = useCallback((projectId: string, n: number) => {
+    setProjects((p) => {
+      const idx = p.findIndex((x) => x.id === projectId);
+      if (idx === -1 || p[idx].open_tasks === n) return p; // nada mudou: mantém a referência
+      const next = p.slice();
+      next[idx] = { ...p[idx], open_tasks: n };
+      return next;
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     const [m, p] = await Promise.all([api.machines.list(), api.projects.list()]);
     setMachines(m.machines);
@@ -105,11 +116,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         await api.projects.remove(id);
         setProjects((p) => p.filter((x) => x.id !== id));
       },
-      setOpenTasks(projectId, n) {
-        setProjects((p) => p.map((x) => (x.id === projectId && x.open_tasks !== n ? { ...x, open_tasks: n } : x)));
-      },
+      setOpenTasks,
     }),
-    [machines, projects, statuses, missingTmux, loading, refresh, checkStatus],
+    [machines, projects, statuses, missingTmux, loading, refresh, checkStatus, setOpenTasks],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
