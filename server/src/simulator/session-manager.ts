@@ -315,7 +315,16 @@ export class SimulatorSessionManager {
       if (s.disposed) return;
       // O runner pode ter morrido de vez na máquina (ex.: sessão tmux matada) — sem ele não adianta
       // reabrir túnel algum; desiste na hora em vez de gastar até recoverReadyTimeoutMs por tentativa.
-      if (!(await this.backend.runnerAlive(s.machine, s.udid))) {
+      // Uma rejeição aqui (máquina inacessível, etc.) conta como "não vivo": sem o try/catch ela
+      // escaparia de doRecover como unhandled rejection (chamado via "void this.recover(...)") e
+      // deixaria a sessão presa no mapa, com os viewers travados em "Reconectando…" para sempre.
+      let alive: boolean;
+      try {
+        alive = await this.backend.runnerAlive(s.machine, s.udid);
+      } catch {
+        alive = false;
+      }
+      if (!alive) {
         if (s.disposed) return;
         let tail: string[] | undefined;
         try {

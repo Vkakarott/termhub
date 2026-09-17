@@ -269,6 +269,31 @@ describe('SimulatorSessionManager', () => {
     expect(b.backend.startRunner).toHaveBeenCalledTimes(2);
   });
 
+  it('runnerAlive rejeitando na recuperação conta como runner morto (sem unhandled rejection)', async () => {
+    // 1ª chamada (start inicial): resolve false, manda iniciar o runner normalmente.
+    // Da 2ª chamada em diante (checagem da recuperação): rejeita, simulando a máquina inacessível.
+    let calls = 0;
+    const b = makeBackend({
+      runnerAlive: vi.fn(async () => {
+        calls++;
+        if (calls === 1) return false;
+        throw new Error('máquina inacessível');
+      }),
+    });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    const openTunnelCallsBefore = (b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.statuses.at(-1)).toBe('error');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Runner do WDA encerrou na máquina');
+    expect((b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(openTunnelCallsBefore);
+    expect(mgr.isReady('m1', UDID)).toBe(false);
+    // se a rejeição escapasse de doRecover (chamado via "void this.recover(...)"), o vitest reportaria
+    // um unhandled rejection e este teste (ou a suíte) falharia sozinho.
+  });
+
   it('recuperação com runner vivo mas /status nunca pronto usa recoverReadyTimeoutMs, não readyTimeoutMs', async () => {
     let statusReady = true;
     const fetchFn = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
