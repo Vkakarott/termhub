@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
-import type { Project, Tab } from '../lib/types';
+import type { Project, Tab, TabKind } from '../lib/types';
 import { TabBar } from './TabBar';
 import { TerminalView } from './Terminal';
+import { SimulatorView } from './SimulatorView';
 import { ConfirmDialog } from './Modal';
 import { useData } from '../lib/data';
 
@@ -19,6 +20,7 @@ export function TerminalsView({ project, visible }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
   const machine = machines.find((m) => m.id === project.machine_id);
   const noTmux = !!missingTmux[project.machine_id];
+  const canSimulator = !!machine?.capabilities.includes('wda');
   const [tabs, setTabs] = useState<Tab[] | null>(null);
   const [reachable, setReachable] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(activeKey(project.id)));
@@ -69,9 +71,9 @@ export function TerminalsView({ project, visible }: Props) {
     if (activeId) localStorage.setItem(activeKey(project.id), activeId);
   }, [activeId, project.id]);
 
-  const newTab = useCallback(async () => {
+  const newTab = useCallback(async (kind: TabKind = 'terminal') => {
     try {
-      const { tab } = await api.projects.createTab(project.id);
+      const { tab } = await api.projects.createTab(project.id, { kind });
       setTabs((t) => [...(t ?? []), tab]);
       setActiveId(tab.id);
     } catch (e) {
@@ -143,6 +145,8 @@ export function TerminalsView({ project, visible }: Props) {
         activeId={activeId}
         onSelect={setActiveId}
         onNew={() => void newTab()}
+        onNewSimulator={() => void newTab('simulator')}
+        canSimulator={canSimulator}
         onRename={(id, name) => void rename(id, name)}
         onClose={(id) => {
           const t = (tabs ?? []).find((x) => x.id === id);
@@ -179,19 +183,36 @@ export function TerminalsView({ project, visible }: Props) {
             </button>
           </div>
         ) : shown ? (
-          tabs.map((t) => (
-            <TerminalView key={t.id} tabId={t.id} active={visible && t.id === activeId} onConnected={() => markAlive(t.id)} />
-          ))
+          tabs.map((t) =>
+            t.kind === 'simulator' ? (
+              <SimulatorView
+                key={t.id}
+                tab={t}
+                machineId={project.machine_id}
+                active={visible && t.id === activeId}
+                onTabChange={(updated) => setTabs((list) => (list ?? []).map((x) => (x.id === updated.id ? { ...updated, alive: x.alive } : x)))}
+                onConnected={() => markAlive(t.id)}
+              />
+            ) : (
+              <TerminalView key={t.id} tabId={t.id} active={visible && t.id === activeId} onConnected={() => markAlive(t.id)} />
+            ),
+          )
         ) : null}
       </div>
       <ConfirmDialog
         open={!!closing}
         title="Fechar tab"
         message={
-          <>
-            Fechar <strong>{closing?.name}</strong>? A sessão tmux <code className="font-mono text-xs">{closing?.tmux_session ?? ''}</code> será
-            encerrada na máquina e o que estiver rodando nela será interrompido.
-          </>
+          closing?.kind === 'simulator' ? (
+            <>
+              Fechar <strong>{closing?.name}</strong>? O simulador continua ligado na máquina; só a aba é removida.
+            </>
+          ) : (
+            <>
+              Fechar <strong>{closing?.name}</strong>? A sessão tmux <code className="font-mono text-xs">{closing?.tmux_session}</code> será
+              encerrada na máquina e o que estiver rodando nela será interrompido.
+            </>
+          )
         }
         confirmLabel="Fechar tab"
         danger

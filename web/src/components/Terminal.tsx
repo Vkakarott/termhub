@@ -45,7 +45,7 @@ const STATE_LABEL: Record<ConnectionState, string> = {
 };
 
 /** Atalhos globais que o xterm NÃO deve capturar (deixa subir para o app). */
-function isAppShortcut(e: KeyboardEvent): boolean {
+export function isAppShortcut(e: KeyboardEvent): boolean {
   const mod = e.metaKey || e.ctrlKey;
   if (!mod || e.altKey) return false;
   if (e.metaKey && (e.key === 't' || e.key === 'w')) return true;

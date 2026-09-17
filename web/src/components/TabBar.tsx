@@ -6,11 +6,13 @@ interface Props {
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onNewSimulator?: () => void;
+  canSimulator: boolean;
   onRename: (id: string, name: string) => void;
   onClose: (id: string) => void;
 }
 
-export function TabBar({ tabs, activeId, onSelect, onNew, onRename, onClose }: Props) {
+export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSimulator, onRename, onClose }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,10 +41,18 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onRename, onClose }: P
               setEditing(t.id);
               setDraft(t.name);
             }}
-            title={`${t.name} — ${t.tmux_session ?? ''}${i < 9 ? `  (⌘${i + 1})` : ''}`}
+            title={`${t.name} — ${t.kind === 'simulator' ? 'simulador iOS' : t.tmux_session}${i < 9 ? `  (⌘${i + 1})` : ''}`}
           >
             {active && <span className="absolute inset-x-0 top-0 h-px bg-accent" />}
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.alive ? 'bg-ok' : 'bg-fg-dim'}`} title={t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada'} />
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.alive ? 'bg-ok' : 'bg-fg-dim'}`}
+              title={t.kind === 'simulator' ? (t.alive ? 'simulador conectado' : 'simulador desconectado') : t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada'}
+            />
+            {t.kind === 'simulator' && (
+              <span className="text-[10px]" aria-hidden>
+                📱
+              </span>
+            )}
             {editing === t.id ? (
               <input
                 ref={inputRef}
@@ -76,6 +86,11 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onRename, onClose }: P
       <button className="px-3 text-sm text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onNew} title="Nova tab (⌘T)" aria-label="Nova tab">
         +
       </button>
+      {canSimulator && (
+        <button className="px-2 text-sm text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onNewSimulator} title="Novo simulador iOS" aria-label="Novo simulador iOS">
+          📱
+        </button>
+      )}
     </div>
   );
 }
