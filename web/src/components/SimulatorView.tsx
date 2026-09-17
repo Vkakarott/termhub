@@ -207,14 +207,41 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
     if (last.t - first.t < TAP_MAX_MS && dist < TAP_MAX_PX) send({ type: 'tap', x: first.x, y: first.y });
     else send({ type: 'drag', points: g.points });
   };
-  const onWheel = (e: React.WheelEvent) => {
-    const p = toPoint(e);
-    if (!p) return;
-    e.preventDefault();
-    const dy = Math.max(-200, Math.min(200, -e.deltaY));
-    const t = performance.now();
-    send({ type: 'drag', points: [{ x: p.x, y: p.y, t }, { x: p.x, y: p.y + dy / 2, t: t + 40 }, { x: p.x, y: p.y + dy, t: t + 80 }] });
-  };
+  // Roda do mouse: acumula deltaY (clampado) e manda no máximo um `drag` a cada ~100 ms,
+  // em vez de um por evento (trackpad dispara dezenas por segundo, com momentum). Listener
+  // nativo não-passivo porque o onWheel do React é passivo (preventDefault vira no-op).
+  const wheelAccum = useRef(0);
+  const wheelPoint = useRef<{ x: number; y: number } | null>(null);
+  const wheelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const flush = () => {
+      wheelTimer.current = null;
+      const p = wheelPoint.current;
+      const dy = wheelAccum.current;
+      wheelAccum.current = 0;
+      if (!p || dy === 0) return;
+      const t = performance.now();
+      send({ type: 'drag', points: [{ x: p.x, y: p.y, t }, { x: p.x, y: p.y + dy / 2, t: t + 40 }, { x: p.x, y: p.y + dy, t: t + 80 }] });
+    };
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const p = toPoint(e);
+      if (!p) return;
+      wheelPoint.current = p;
+      wheelAccum.current = Math.max(-400, Math.min(400, wheelAccum.current - e.deltaY));
+      if (!wheelTimer.current) wheelTimer.current = setTimeout(flush, 100);
+    };
+    canvas.addEventListener('wheel', handler, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', handler);
+      if (wheelTimer.current) {
+        clearTimeout(wheelTimer.current);
+        wheelTimer.current = null;
+      }
+    };
+  }, [tab.id, tab.simulator_udid, send]);
 
   // Teclado: caracteres em lote, especiais na hora.
   const keyBatch = useRef('');
@@ -311,7 +338,6 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseUp}
-              onWheel={onWheel}
               onKeyDown={onKeyDown}
               onContextMenu={(e) => e.preventDefault()}
             />

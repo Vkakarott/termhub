@@ -337,6 +337,8 @@ describe('SimulatorSessionManager', () => {
     expect(h1.client).toBe(h2.client);
     expect(h1.client).not.toBe(clientAntes);
     expect(h1.client.sessionId).toBe('S1');
+    expect(v2.screens.length).toBeGreaterThan(0);
+    expect(v2.screens.at(-1)).toEqual(h2.screen);
   });
 
   it('disposal no meio do start fecha tudo sem vazar túnel/stream', async () => {

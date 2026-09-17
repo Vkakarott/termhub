@@ -357,7 +357,10 @@ export class SimulatorSessionManager {
           return;
         }
         s.ready = true;
-        this.broadcast(s, (v) => v.onStatus({ state: 'ready' }));
+        this.broadcast(s, (v) => {
+          v.onStatus({ state: 'ready' });
+          v.onScreen(s.screen);
+        });
         return;
       } catch (err) {
         if (s.disposed) {
