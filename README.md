@@ -79,7 +79,7 @@ Logs no macOS: `data/logs/`. No Linux: `journalctl --user -u termhub -f` (use `l
 
 ### Cloudflare Tunnel
 
-No jarvis o termhub é publicado em **https://termhub.dev** pelo proxy existente (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, túnel "jarvis"). O overlay `docker-compose.proxy.yml` coloca o `app` na rede docker externa `proxy`; o vhost `nginx/conf.d/termhub.dev.conf` faz `proxy_pass http://termhub-app:3000` com upgrade de WebSocket; o hostname público é gerenciado no painel Zero Trust → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). Após um deploy que recria o container: `docker compose -f /mnt/hd2tb/proxy/docker-compose.yml exec nginx nginx -s reload`.
+No jarvis o termhub é publicado em **https://termhub.dev** pelo proxy existente (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, túnel "jarvis"). O overlay `docker-compose.proxy.yml` coloca o `app` na rede docker externa `proxy`; o vhost `nginx/conf.d/termhub.dev.conf` faz `proxy_pass http://termhub-app:3000` com upgrade de WebSocket; o hostname público é gerenciado no painel Zero Trust → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). O workflow recarrega o nginx após cada deploy (container novo = IP novo). Para rodar o compose à mão no jarvis, exporte `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (o `env_file` dos serviços usa essa variável).
 
 Em outro servidor, o caminho simples é `cloudflared tunnel --url http://127.0.0.1:3000`.
 

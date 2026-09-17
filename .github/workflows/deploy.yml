@@ -74,6 +74,8 @@ jobs:
           done
           docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod logs --tail=100 app
           exit 1
+      - name: Recarregar nginx do proxy (container novo = IP novo)
+        run: docker exec proxy-nginx nginx -s reload
       - name: Conferir migrations aplicadas
         run: |
           cid=$(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod ps -q app)
