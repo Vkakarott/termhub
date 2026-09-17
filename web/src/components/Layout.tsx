@@ -1,21 +1,43 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Navigate, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { Sidebar } from './Sidebar';
 
+const SIDEBAR_KEY = 'termhub:sidebar-collapsed';
+
 export function Layout() {
   const { user, loading } = useAuth();
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1');
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+  }, [collapsed]);
+
   if (loading) return <FullScreenMessage>Carregando…</FullScreenMessage>;
   if (!user) return <Navigate to="/login" replace />;
   return (
     <DataProvider>
       <div className="flex h-full">
-        <Sidebar />
+        {collapsed ? <SidebarRail onExpand={() => setCollapsed(false)} /> : <Sidebar onCollapse={() => setCollapsed(true)} />}
         <main className="relative min-w-0 flex-1">
           <Outlet />
         </main>
       </div>
     </DataProvider>
+  );
+}
+
+/** Sidebar recolhida: uma faixa estreita com o logo e o botão de expandir (o terminal ganha o espaço). */
+function SidebarRail({ onExpand }: { onExpand: () => void }) {
+  return (
+    <aside className="flex h-full w-9 shrink-0 flex-col items-center border-r border-line bg-bg-2">
+      <NavLink to="/" className="flex h-11 w-full items-center justify-center border-b border-line text-sm font-semibold text-accent" title="termhub — início">
+        ▮
+      </NavLink>
+      <button className="mt-1 rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onExpand} title="Mostrar sidebar" aria-label="Mostrar sidebar">
+        »
+      </button>
+    </aside>
   );
 }
 

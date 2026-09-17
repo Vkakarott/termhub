@@ -14,7 +14,7 @@ const STATUS_DOT: Record<MachineStatus, string> = {
 };
 const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', online: 'online', offline: 'offline' };
 
-export function Sidebar() {
+export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout } = useAuth();
   const { machines, projects, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
   const navigate = useNavigate();
@@ -36,9 +36,16 @@ export function Sidebar() {
         <NavLink to="/" className="text-sm font-semibold tracking-tight">
           <span className="text-accent">▮</span> termhub
         </NavLink>
-        <button className="btn-ghost px-2 py-1 text-xs" title="Nova máquina" onClick={() => setMachineForm({ open: true, machine: null })}>
-          + máquina
-        </button>
+        <span className="flex items-center gap-0.5">
+          <button className="btn-ghost px-2 py-1 text-xs" title="Nova máquina" onClick={() => setMachineForm({ open: true, machine: null })}>
+            + máquina
+          </button>
+          {onCollapse && (
+            <button className="rounded px-1.5 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onCollapse} title="Recolher sidebar" aria-label="Recolher sidebar">
+              «
+            </button>
+          )}
+        </span>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto py-2">
