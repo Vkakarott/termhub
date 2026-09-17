@@ -3,6 +3,7 @@
 #   docker compose --env-file <env> -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build
 services:
   app:
+    container_name: termhub-app
     networks:
       - default
       - proxy
