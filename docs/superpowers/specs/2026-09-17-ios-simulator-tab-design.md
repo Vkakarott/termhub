@@ -16,6 +16,11 @@ Fora de escopo nesta versão: compilar ou instalar o app do projeto no simulador
 - **Interação**: toque, arrastar/scroll, teclado, Home, Bloquear, volume, girar e download de screenshot PNG.
 - **Topologia**: servidor como proxy. Runner do WDA em tmux na máquina, túnel `ssh -N -L` do container até as portas do WDA, WebSocket novo entre navegador e servidor carregando frames e comandos. Nada do WDA exposto fora do túnel.
 
+## Limitações conhecidas (verificado em 2026-09-17)
+
+- **Girar a tela**: o WDA 16.12.8 devolve "Unable To Rotate Device" no iPhone 16e com iOS 26.3 / Xcode 26.4, mesmo chamado direto por curl. O botão Girar fica na barra e a falha aparece como toast; a sessão continua.
+- **Medido no Mac mini (máquina local, sem túnel)**: 25 fps com escala 50/qualidade 40 (~160 KB/frame, 585×1266); 17 fps com escala 25/qualidade 30 (~59 KB/frame, 292×633).
+
 ## Modelo de dados
 
 Migration Prisma, sem impacto nas abas existentes:
