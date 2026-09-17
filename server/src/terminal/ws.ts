@@ -71,6 +71,7 @@ export function attachTerminalWebSocket(server: HttpServer, deps: Deps): WebSock
     const project = tab && (await deps.repos.projects.findById(tab.project_id));
     const machine = project && (await deps.repos.machines.findById(project.machine_id));
     if (!tab || !project || !machine) return rejectUpgrade(socket, 404, 'Not Found');
+    if (tab.kind !== 'terminal') return rejectUpgrade(socket, 404, 'Not Found');
 
     const cols = Number(url.searchParams.get('cols')) || 80;
     const rows = Number(url.searchParams.get('rows')) || 24;

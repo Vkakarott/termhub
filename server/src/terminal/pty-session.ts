@@ -30,6 +30,7 @@ function localCwd(cwd: string): string {
 
 /** Monta o comando que anexa (ou cria) a sessão tmux da tab na máquina de destino. */
 export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file: string; args: string[]; cwd?: string } {
+  if (tab.kind !== 'terminal' || !tab.tmux_session) throw new Error('Tab não é um terminal');
   assertSessionName(tab.tmux_session);
   if (machine.type === 'local') {
     return {

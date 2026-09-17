@@ -163,7 +163,9 @@ export const TabScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
   name: 'name',
+  kind: 'kind',
   tmuxSession: 'tmuxSession',
+  simulatorUdid: 'simulatorUdid',
   position: 'position',
   createdAt: 'createdAt'
 } as const

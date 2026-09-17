@@ -38,7 +38,9 @@ export type TabMinAggregateOutputType = {
   id: string | null
   projectId: string | null
   name: string | null
+  kind: $Enums.TabKind | null
   tmuxSession: string | null
+  simulatorUdid: string | null
   position: number | null
   createdAt: Date | null
 }
@@ -47,7 +49,9 @@ export type TabMaxAggregateOutputType = {
   id: string | null
   projectId: string | null
   name: string | null
+  kind: $Enums.TabKind | null
   tmuxSession: string | null
+  simulatorUdid: string | null
   position: number | null
   createdAt: Date | null
 }
@@ -56,7 +60,9 @@ export type TabCountAggregateOutputType = {
   id: number
   projectId: number
   name: number
+  kind: number
   tmuxSession: number
+  simulatorUdid: number
   position: number
   createdAt: number
   _all: number
@@ -75,7 +81,9 @@ export type TabMinAggregateInputType = {
   id?: true
   projectId?: true
   name?: true
+  kind?: true
   tmuxSession?: true
+  simulatorUdid?: true
   position?: true
   createdAt?: true
 }
@@ -84,7 +92,9 @@ export type TabMaxAggregateInputType = {
   id?: true
   projectId?: true
   name?: true
+  kind?: true
   tmuxSession?: true
+  simulatorUdid?: true
   position?: true
   createdAt?: true
 }
@@ -93,7 +103,9 @@ export type TabCountAggregateInputType = {
   id?: true
   projectId?: true
   name?: true
+  kind?: true
   tmuxSession?: true
+  simulatorUdid?: true
   position?: true
   createdAt?: true
   _all?: true
@@ -189,7 +201,9 @@ export type TabGroupByOutputType = {
   id: string
   projectId: string
   name: string
-  tmuxSession: string
+  kind: $Enums.TabKind
+  tmuxSession: string | null
+  simulatorUdid: string | null
   position: number
   createdAt: Date
   _count: TabCountAggregateOutputType | null
@@ -221,7 +235,9 @@ export type TabWhereInput = {
   id?: Prisma.StringFilter<"Tab"> | string
   projectId?: Prisma.StringFilter<"Tab"> | string
   name?: Prisma.StringFilter<"Tab"> | string
-  tmuxSession?: Prisma.StringFilter<"Tab"> | string
+  kind?: Prisma.EnumTabKindFilter<"Tab"> | $Enums.TabKind
+  tmuxSession?: Prisma.StringNullableFilter<"Tab"> | string | null
+  simulatorUdid?: Prisma.StringNullableFilter<"Tab"> | string | null
   position?: Prisma.IntFilter<"Tab"> | number
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
@@ -232,7 +248,9 @@ export type TabOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  tmuxSession?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
+  tmuxSession?: Prisma.SortOrderInput | Prisma.SortOrder
+  simulatorUdid?: Prisma.SortOrderInput | Prisma.SortOrder
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   project?: Prisma.ProjectOrderByWithRelationInput
@@ -247,6 +265,8 @@ export type TabWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.TabWhereInput | Prisma.TabWhereInput[]
   projectId?: Prisma.StringFilter<"Tab"> | string
   name?: Prisma.StringFilter<"Tab"> | string
+  kind?: Prisma.EnumTabKindFilter<"Tab"> | $Enums.TabKind
+  simulatorUdid?: Prisma.StringNullableFilter<"Tab"> | string | null
   position?: Prisma.IntFilter<"Tab"> | number
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
@@ -257,7 +277,9 @@ export type TabOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  tmuxSession?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
+  tmuxSession?: Prisma.SortOrderInput | Prisma.SortOrder
+  simulatorUdid?: Prisma.SortOrderInput | Prisma.SortOrder
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.TabCountOrderByAggregateInput
@@ -274,7 +296,9 @@ export type TabScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"Tab"> | string
   projectId?: Prisma.StringWithAggregatesFilter<"Tab"> | string
   name?: Prisma.StringWithAggregatesFilter<"Tab"> | string
-  tmuxSession?: Prisma.StringWithAggregatesFilter<"Tab"> | string
+  kind?: Prisma.EnumTabKindWithAggregatesFilter<"Tab"> | $Enums.TabKind
+  tmuxSession?: Prisma.StringNullableWithAggregatesFilter<"Tab"> | string | null
+  simulatorUdid?: Prisma.StringNullableWithAggregatesFilter<"Tab"> | string | null
   position?: Prisma.IntWithAggregatesFilter<"Tab"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Tab"> | Date | string
 }
@@ -282,7 +306,9 @@ export type TabScalarWhereWithAggregatesInput = {
 export type TabCreateInput = {
   id: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
   project: Prisma.ProjectCreateNestedOneWithoutTabsInput
@@ -293,7 +319,9 @@ export type TabUncheckedCreateInput = {
   id: string
   projectId: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
@@ -302,7 +330,9 @@ export type TabUncheckedCreateInput = {
 export type TabUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
@@ -313,7 +343,9 @@ export type TabUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
@@ -323,7 +355,9 @@ export type TabCreateManyInput = {
   id: string
   projectId: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
 }
@@ -331,7 +365,9 @@ export type TabCreateManyInput = {
 export type TabUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -340,7 +376,9 @@ export type TabUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -359,7 +397,9 @@ export type TabCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
   tmuxSession?: Prisma.SortOrder
+  simulatorUdid?: Prisma.SortOrder
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -372,7 +412,9 @@ export type TabMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
   tmuxSession?: Prisma.SortOrder
+  simulatorUdid?: Prisma.SortOrder
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -381,7 +423,9 @@ export type TabMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  kind?: Prisma.SortOrder
   tmuxSession?: Prisma.SortOrder
+  simulatorUdid?: Prisma.SortOrder
   position?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -437,6 +481,10 @@ export type TabUncheckedUpdateManyWithoutProjectNestedInput = {
   deleteMany?: Prisma.TabScalarWhereInput | Prisma.TabScalarWhereInput[]
 }
 
+export type EnumTabKindFieldUpdateOperationsInput = {
+  set?: $Enums.TabKind
+}
+
 export type TabCreateNestedOneWithoutTasksInput = {
   create?: Prisma.XOR<Prisma.TabCreateWithoutTasksInput, Prisma.TabUncheckedCreateWithoutTasksInput>
   connectOrCreate?: Prisma.TabCreateOrConnectWithoutTasksInput
@@ -456,7 +504,9 @@ export type TabUpdateOneWithoutTasksNestedInput = {
 export type TabCreateWithoutProjectInput = {
   id: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
   tasks?: Prisma.TaskCreateNestedManyWithoutTabInput
@@ -465,7 +515,9 @@ export type TabCreateWithoutProjectInput = {
 export type TabUncheckedCreateWithoutProjectInput = {
   id: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
@@ -504,7 +556,9 @@ export type TabScalarWhereInput = {
   id?: Prisma.StringFilter<"Tab"> | string
   projectId?: Prisma.StringFilter<"Tab"> | string
   name?: Prisma.StringFilter<"Tab"> | string
-  tmuxSession?: Prisma.StringFilter<"Tab"> | string
+  kind?: Prisma.EnumTabKindFilter<"Tab"> | $Enums.TabKind
+  tmuxSession?: Prisma.StringNullableFilter<"Tab"> | string | null
+  simulatorUdid?: Prisma.StringNullableFilter<"Tab"> | string | null
   position?: Prisma.IntFilter<"Tab"> | number
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
 }
@@ -512,7 +566,9 @@ export type TabScalarWhereInput = {
 export type TabCreateWithoutTasksInput = {
   id: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
   project: Prisma.ProjectCreateNestedOneWithoutTabsInput
@@ -522,7 +578,9 @@ export type TabUncheckedCreateWithoutTasksInput = {
   id: string
   projectId: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
 }
@@ -546,7 +604,9 @@ export type TabUpdateToOneWithWhereWithoutTasksInput = {
 export type TabUpdateWithoutTasksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
@@ -556,7 +616,9 @@ export type TabUncheckedUpdateWithoutTasksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -564,7 +626,9 @@ export type TabUncheckedUpdateWithoutTasksInput = {
 export type TabCreateManyProjectInput = {
   id: string
   name: string
-  tmuxSession: string
+  kind?: $Enums.TabKind
+  tmuxSession?: string | null
+  simulatorUdid?: string | null
   position?: number
   createdAt?: Date | string
 }
@@ -572,7 +636,9 @@ export type TabCreateManyProjectInput = {
 export type TabUpdateWithoutProjectInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUpdateManyWithoutTabNestedInput
@@ -581,7 +647,9 @@ export type TabUpdateWithoutProjectInput = {
 export type TabUncheckedUpdateWithoutProjectInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
@@ -590,7 +658,9 @@ export type TabUncheckedUpdateWithoutProjectInput = {
 export type TabUncheckedUpdateManyWithoutProjectInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  tmuxSession?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.EnumTabKindFieldUpdateOperationsInput | $Enums.TabKind
+  tmuxSession?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  simulatorUdid?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   position?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -630,7 +700,9 @@ export type TabSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   id?: boolean
   projectId?: boolean
   name?: boolean
+  kind?: boolean
   tmuxSession?: boolean
+  simulatorUdid?: boolean
   position?: boolean
   createdAt?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
@@ -642,7 +714,9 @@ export type TabSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   id?: boolean
   projectId?: boolean
   name?: boolean
+  kind?: boolean
   tmuxSession?: boolean
+  simulatorUdid?: boolean
   position?: boolean
   createdAt?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
@@ -652,7 +726,9 @@ export type TabSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   id?: boolean
   projectId?: boolean
   name?: boolean
+  kind?: boolean
   tmuxSession?: boolean
+  simulatorUdid?: boolean
   position?: boolean
   createdAt?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
@@ -662,12 +738,14 @@ export type TabSelectScalar = {
   id?: boolean
   projectId?: boolean
   name?: boolean
+  kind?: boolean
   tmuxSession?: boolean
+  simulatorUdid?: boolean
   position?: boolean
   createdAt?: boolean
 }
 
-export type TabOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "name" | "tmuxSession" | "position" | "createdAt", ExtArgs["result"]["tab"]>
+export type TabOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "name" | "kind" | "tmuxSession" | "simulatorUdid" | "position" | "createdAt", ExtArgs["result"]["tab"]>
 export type TabInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
   tasks?: boolean | Prisma.Tab$tasksArgs<ExtArgs>
@@ -690,7 +768,9 @@ export type $TabPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
     id: string
     projectId: string
     name: string
-    tmuxSession: string
+    kind: $Enums.TabKind
+    tmuxSession: string | null
+    simulatorUdid: string | null
     position: number
     createdAt: Date
   }, ExtArgs["result"]["tab"]>
@@ -1121,7 +1201,9 @@ export interface TabFieldRefs {
   readonly id: Prisma.FieldRef<"Tab", 'String'>
   readonly projectId: Prisma.FieldRef<"Tab", 'String'>
   readonly name: Prisma.FieldRef<"Tab", 'String'>
+  readonly kind: Prisma.FieldRef<"Tab", 'TabKind'>
   readonly tmuxSession: Prisma.FieldRef<"Tab", 'String'>
+  readonly simulatorUdid: Prisma.FieldRef<"Tab", 'String'>
   readonly position: Prisma.FieldRef<"Tab", 'Int'>
   readonly createdAt: Prisma.FieldRef<"Tab", 'DateTime'>
 }

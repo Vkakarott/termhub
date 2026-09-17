@@ -13,6 +13,7 @@ export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
+export type TabKind = 'terminal' | 'simulator';
 
 /**
  * Tipos expostos pela camada de dados (snake_case, datas em ISO string).
@@ -65,7 +66,9 @@ export interface Tab {
   id: string;
   project_id: string;
   name: string;
-  tmux_session: string;
+  kind: TabKind;
+  tmux_session: string | null;
+  simulator_udid: string | null;
   position: number;
   created_at: string;
 }
@@ -159,7 +162,9 @@ export const mapTab = (t: PrismaTab): Tab => ({
   id: t.id,
   project_id: t.projectId,
   name: t.name,
+  kind: t.kind,
   tmux_session: t.tmuxSession,
+  simulator_udid: t.simulatorUdid,
   position: t.position,
   created_at: t.createdAt.toISOString(),
 });

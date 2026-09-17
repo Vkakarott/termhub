@@ -22,7 +22,7 @@ export async function tabRoutes(app: FastifyInstance, repos: Repositories) {
     const project = await repos.projects.findById(tab.project_id);
     const machine = project && (await repos.machines.findById(project.machine_id));
     let killed = false;
-    if (machine) {
+    if (machine && tab.tmux_session) {
       try {
         killed = await killTmuxSession(machine, tab.tmux_session);
       } catch {

@@ -55,7 +55,9 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
     const machine = await repos.machines.findById(project.machine_id);
     // Melhor esforço: mata as sessões tmux das tabs antes de apagar (máquina pode estar offline).
     if (machine) {
-      await Promise.allSettled((await repos.tabs.listByProject(id)).map((t) => killTmuxSession(machine, t.tmux_session)));
+      await Promise.allSettled(
+        (await repos.tabs.listByProject(id)).filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)),
+      );
     }
     await repos.projects.delete(id);
     return { ok: true };
@@ -82,7 +84,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories) {
     }
     return {
       reachable,
-      tabs: tabs.map((t) => ({ ...t, alive: alive.has(t.tmux_session) })),
+      tabs: tabs.map((t) => ({ ...t, alive: !!t.tmux_session && alive.has(t.tmux_session) })),
     };
   });
 
