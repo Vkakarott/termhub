@@ -1,0 +1,92 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, ApiError } from '../lib/api';
+import { useData } from '../lib/data';
+import type { Machine, WdaSetupState } from '../lib/types';
+
+const POLL_MS = 3000;
+
+export function SimulatorSetupCard({ machine }: { machine: Machine }) {
+  const { checkStatus } = useData();
+  const [setup, setSetup] = useState<WdaSetupState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isMac = machine.os === 'macos' && machine.capabilities.includes('xcodebuild');
+  const hasWda = machine.capabilities.includes('wda');
+
+  const load = useCallback(async () => {
+    try {
+      const s = await api.machines.wdaSetup(machine.id);
+      setSetup(s);
+      setError(null);
+      if (s.state === 'ok') void checkStatus(machine.id);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Erro ao consultar o setup');
+    }
+  }, [machine.id, checkStatus]);
+
+  useEffect(() => {
+    if (!isMac) return;
+    void load();
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [isMac, load]);
+
+  useEffect(() => {
+    if (!isMac || setup?.state !== 'running') return;
+    timer.current = setTimeout(load, POLL_MS);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [isMac, setup?.state, load]);
+
+  const start = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.machines.startWdaSetup(machine.id);
+      setSetup((cur) => ({ state: 'running', tail: [], version: cur?.version ?? null }));
+      void load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Erro ao iniciar o setup');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!isMac) {
+    return (
+      <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
+        <p className="mb-0.5 font-medium text-fg-muted">Simulador iOS</p>
+        <p>Indisponível: precisa ser um Mac com Xcode instalado (detectado no status da máquina).</p>
+      </div>
+    );
+  }
+
+  const state = setup?.state ?? (hasWda ? 'ok' : 'idle');
+  return (
+    <div className="rounded-md border border-line bg-bg p-2 text-xs">
+      <div className="flex items-center gap-2">
+        <p className="font-medium text-fg-muted">Simulador iOS</p>
+        <span className="text-fg-dim">
+          {state === 'running' && 'preparando…'}
+          {state === 'ok' && `pronto${setup?.version ? ` · WDA ${setup.version}` : ''}`}
+          {state === 'failed' && <span className="text-danger">falhou</span>}
+          {state === 'idle' && 'não preparado'}
+        </span>
+        <button type="button" className="btn-ghost ml-auto px-2 py-0.5" onClick={() => void start()} disabled={busy || state === 'running'}>
+          {state === 'ok' ? 'Atualizar' : state === 'failed' ? 'Tentar de novo' : 'Preparar'}
+        </button>
+      </div>
+      <p className="mt-1 text-fg-dim">
+        Clona e compila o WebDriverAgent em <code className="font-mono">~/.termhub/WebDriverAgent</code> (leva alguns minutos na primeira vez).
+      </p>
+      {error && <p className="mt-1 text-danger">{error}</p>}
+      {setup && setup.tail.length > 0 && (state === 'running' || state === 'failed') && (
+        <pre className="mt-1 max-h-32 overflow-auto rounded bg-bg-2 p-1.5 font-mono text-[10px] text-fg-dim">{setup.tail.join('\n')}</pre>
+      )}
+    </div>
+  );
+}
