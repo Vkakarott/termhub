@@ -16,6 +16,9 @@
 # gera sua própria chave SSH no primeiro boot (volume "sshkeys"); a chave pública
 # aparece na tela de nova máquina e em: docker compose exec app cat /home/app/.ssh/id_ed25519.pub
 
+# Nome fixo: volumes/containers ficam "termhub_*" independentemente do diretório (CI faz checkout em outro lugar).
+name: termhub
+
 services:
   db:
     image: postgres:16-alpine
@@ -55,7 +58,7 @@ services:
     ports:
       - "3000:3000"
       - "5173:5173"
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     environment:
       NODE_ENV: development
       HOST: 0.0.0.0
@@ -91,7 +94,7 @@ services:
     restart: unless-stopped
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${PORT:-3000}:3000"
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0

@@ -35,10 +35,18 @@ docker compose --profile dev up --build
 ## Produção (Docker)
 
 ```bash
-cp .env.example .env        # ajuste: HOST/BIND_ADDR, PUBLIC_URL, POSTGRES_PASSWORD, SMTP_*
+cp .env.example .env        # ajuste: HOST/BIND_ADDR, PUBLIC_URL, POSTGRES_PASSWORD, SMTP_*, ENCRYPTION_KEY
 docker compose --profile prod up -d --build
 docker compose exec app node server/dist/cli/create-user.js voce@exemplo.com "Seu Nome"
 ```
+
+### CI/CD (GitHub Actions → jarvis)
+
+`.github/workflows/deploy.yml`: em todo push na `main` (e em PRs) roda o job **check** no GitHub (npm ci, typecheck server/web, build, `prisma migrate deploy` + `migrate diff --exit-code` num Postgres efêmero — garante que as migrations batem com o schema). Se passar e for push na `main`, o job **deploy** roda no **runner self-hosted do jarvis** (`/mnt/hd2tb/github-runner-termhub`, labels `jarvis,termhub`): checkout → `docker compose --env-file /mnt/hd2tb/projetos/termhub/.env --profile prod up -d --build` → espera o healthcheck → `prisma migrate status`.
+
+O `.env` de produção **fica só no servidor** (`/mnt/hd2tb/projetos/termhub/.env`, chmod 600); nenhum segredo passa pelo GitHub. Para mudar uma variável: edite o arquivo lá e rode o workflow de novo (ou `docker compose --env-file ... --profile prod up -d`). O compose tem `name: termhub` fixo, então volumes (`termhub_pgdata`, `termhub_sshkeys`) não dependem do diretório de checkout.
+
+Runner como serviço (uma vez, precisa de sudo): `cd /mnt/hd2tb/github-runner-termhub && sudo ./svc.sh install pedrogoiania && sudo ./svc.sh start`.
 
 O `Dockerfile` gera uma imagem enxuta (tmux + ssh) e o entrypoint roda `prisma migrate deploy` a cada boot. Principais variáveis:
 

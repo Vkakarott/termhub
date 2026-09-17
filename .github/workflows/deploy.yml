@@ -1,0 +1,83 @@
+name: CI e Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Verificação: typecheck + build (GitHub-hosted) ─────────────────
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Gerar Prisma Client
+        run: npm run prisma:generate
+      - name: Typecheck server
+        run: npm run typecheck -w server
+      - name: Typecheck + build web
+        run: npm run build -w web
+      - name: Build server
+        run: npm run build -w server
+      - name: Migrations aplicadas batem com o schema (sem drift)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/termhub
+        run: |
+          cd server
+          npx prisma migrate deploy
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: termhub
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
+
+  # ── Deploy no jarvis (runner self-hosted) ──────────────────────────
+  deploy:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, termhub]
+    timeout-minutes: 30
+    env:
+      # .env de produção vive só no servidor (segredos não passam pelo GitHub)
+      ENV_FILE: /mnt/hd2tb/projetos/termhub/.env
+    steps:
+      - uses: actions/checkout@v4
+      - name: Conferir .env do servidor
+        run: test -f "$ENV_FILE" || { echo "faltando $ENV_FILE (copie de .env.example)"; exit 1; }
+      - name: Build + up (perfil prod)
+        run: docker compose --env-file "$ENV_FILE" --profile prod up -d --build --remove-orphans
+      - name: Aguardar app saudável
+        run: |
+          cid=$(docker compose --env-file "$ENV_FILE" --profile prod ps -q app)
+          for i in $(seq 1 40); do
+            st=$(docker inspect --format='{{.State.Health.Status}}' "$cid")
+            echo "tentativa $i: app = $st"
+            [ "$st" = "healthy" ] && exit 0
+            sleep 5
+          done
+          docker compose --env-file "$ENV_FILE" --profile prod logs --tail=100 app
+          exit 1
+      - name: Conferir migrations aplicadas
+        run: |
+          cid=$(docker compose --env-file "$ENV_FILE" --profile prod ps -q app)
+          docker exec "$cid" npx --prefix server prisma migrate status --config server/prisma.config.ts
+      - name: Limpar imagens antigas
+        if: always()
+        run: docker image prune -f

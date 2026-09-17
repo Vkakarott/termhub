@@ -20,8 +20,7 @@
     "create-user": "tsx server/src/cli/create-user.ts",
     "install-service": "node scripts/install-service.mjs",
     "uninstall-service": "node scripts/install-service.mjs --uninstall",
-    "postinstall": "node scripts/postinstall.mjs",
-    "deploy": "bash scripts/deploy.sh"
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
