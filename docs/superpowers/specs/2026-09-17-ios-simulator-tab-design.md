@@ -82,7 +82,7 @@ Cliente → servidor (todos JSON, validados com zod):
 
 - `{ type: 'tap', x, y }` → W3C actions: `pointerMove`, `pointerDown`, `pause 80`, `pointerUp`.
 - `{ type: 'drag', points: [{ x, y, t }] }` → W3C actions com `pointerMove` entre pontos usando as diferenças de `t` como `duration`.
-- `{ type: 'keys', text }` → `POST /wda/keys` com `value: [...]`. Teclas especiais chegam como códigos W3C (`` Enter, `` Backspace, setas ``..``, `` Tab).
+- `{ type: 'keys', text }` → `POST /wda/keys` com `value: [...]` (texto imprimível). `{ type: 'key', name }` para teclas especiais (Enter, Backspace, Tab, Escape, Delete, setas), mapeadas no servidor para os códigos W3C (`\uE007` Enter, `\uE003` Backspace, setas `\uE012`..`\uE015`, `\uE004` Tab).
 - `{ type: 'button', name: 'home' | 'lock' | 'volumeUp' | 'volumeDown' }` → `POST /wda/pressButton`.
 - `{ type: 'rotate', orientation: 'portrait' | 'landscape' }` → `POST /orientation`; depois o servidor reemite `screen`.
 - `{ type: 'settings', scale: number, quality: number }` → settings do WDA.
