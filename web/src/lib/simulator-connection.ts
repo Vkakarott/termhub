@@ -73,7 +73,7 @@ export class SimulatorConnection {
       if (msg.type === 'status' && msg.state) {
         if (msg.state === 'error') this.halted = true;
         this.setState(msg.state, msg.message, msg.tail);
-      } else if (msg.type === 'screen' && msg.width && msg.height && msg.orientation) {
+      } else if (msg.type === 'screen' && typeof msg.width === 'number' && typeof msg.height === 'number' && msg.orientation) {
         this.handlers.onScreen({ width: msg.width, height: msg.height, orientation: msg.orientation });
       } else if (msg.type === 'toast' && msg.message) {
         this.handlers.onToast(msg.message);
@@ -83,18 +83,19 @@ export class SimulatorConnection {
       if (this.ws !== ws) return;
       this.ws = null;
       if (this.stopped) return;
+      if (ev.code === 4100) {
+        // servidor fechou porque a tab trocou de aparelho: reconecta já, mesmo que um status 'error' tenha chegado antes
+        this.attempt = 0;
+        this.halted = false;
+        this.open();
+        return;
+      }
       if (this.halted) {
         this.setState('error');
         return;
       }
       if (ev.code === 1008 || ev.code === 4001) {
         this.setState('offline');
-        return;
-      }
-      if (ev.code === 4100) {
-        // servidor fechou porque a tab trocou de aparelho: reconecta já
-        this.attempt = 0;
-        this.open();
         return;
       }
       this.scheduleReconnect();
