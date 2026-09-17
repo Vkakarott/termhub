@@ -322,7 +322,7 @@ export function SetupForm({ project }: Props) {
         </ul>
       </Card>
 
-      <div className="sticky bottom-0 flex items-center gap-3 border-t border-line bg-bg py-3">
+      <div className="sticky bottom-0 flex items-center gap-3 border-t border-line bg-bg pb-6 pt-3">
         <button type="button" className="btn-primary" onClick={() => void save()} disabled={busy || !dirty}>
           Salvar setup
         </button>
