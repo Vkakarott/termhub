@@ -3,15 +3,15 @@ import { SPECIAL_KEY_NAMES, specialKeyToWda } from './keys.js';
 
 describe('specialKeyToWda', () => {
   it('mapeia as teclas de controle para os códigos W3C', () => {
-    expect(specialKeyToWda('Enter')).toBe('');
-    expect(specialKeyToWda('Backspace')).toBe('');
-    expect(specialKeyToWda('Tab')).toBe('');
-    expect(specialKeyToWda('Escape')).toBe('');
-    expect(specialKeyToWda('Delete')).toBe('');
-    expect(specialKeyToWda('ArrowLeft')).toBe('');
-    expect(specialKeyToWda('ArrowUp')).toBe('');
-    expect(specialKeyToWda('ArrowRight')).toBe('');
-    expect(specialKeyToWda('ArrowDown')).toBe('');
+    expect(specialKeyToWda('Enter')).toBe('\uE007');
+    expect(specialKeyToWda('Backspace')).toBe('\uE003');
+    expect(specialKeyToWda('Tab')).toBe('\uE004');
+    expect(specialKeyToWda('Escape')).toBe('\uE00C');
+    expect(specialKeyToWda('Delete')).toBe('\uE017');
+    expect(specialKeyToWda('ArrowLeft')).toBe('\uE012');
+    expect(specialKeyToWda('ArrowUp')).toBe('\uE013');
+    expect(specialKeyToWda('ArrowRight')).toBe('\uE014');
+    expect(specialKeyToWda('ArrowDown')).toBe('\uE015');
   });
 
   it('desconhecida devolve null', () => {
