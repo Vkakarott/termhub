@@ -52,14 +52,22 @@ export async function listSimulators(machine: Machine): Promise<Simulator[]> {
   return parseSimctlList(r.stdout);
 }
 
+/** `xcrun simctl boot` já bootado devolve "current state: Booted" (sucesso); trata como falha só os demais casos. */
+export function isBootFailure(output: string): boolean {
+  const out = output.toLowerCase();
+  if (out.includes('current state: booted')) return false;
+  return out.includes('unable to boot') || out.includes('invalid device') || out.includes('invalid device state');
+}
+
 export async function bootSimulator(machine: Machine, udid: string): Promise<void> {
   assertUdid(udid);
   const r = await runScript(machine, `xcrun simctl boot ${udid} 2>&1 || true`, 60_000);
-  const out = (r.stdout + r.stderr).toLowerCase();
-  if (out.includes('unable to boot') || out.includes('invalid device')) throw new Error(`simctl boot falhou: ${(r.stdout + r.stderr).trim()}`);
+  const out = r.stdout + r.stderr;
+  if (isBootFailure(out)) throw new Error(`simctl boot falhou: ${out.trim()}`);
 }
 
 export async function runnerAlive(machine: Machine, udid: string): Promise<boolean> {
+  assertUdid(udid);
   const name = runnerSessionName(udid);
   const r = await runScript(machine, `tmux has-session -t '=${name}' 2>/dev/null && echo yes || echo no`);
   return r.stdout.includes('yes');
@@ -76,10 +84,12 @@ export async function startRunner(machine: Machine, udid: string, ports: WdaPort
 }
 
 export async function stopRunner(machine: Machine, udid: string): Promise<void> {
+  assertUdid(udid);
   await killTmuxSession(machine, runnerSessionName(udid));
 }
 
 export async function runnerTail(machine: Machine, udid: string, lines = 30): Promise<string[]> {
+  assertUdid(udid);
   const name = runnerSessionName(udid);
   const r = await runScript(machine, `tmux capture-pane -p -t '=${name}' 2>/dev/null | grep -v '^$' | tail -n ${lines}`);
   return r.stdout.split('\n').filter((l) => l.trim());

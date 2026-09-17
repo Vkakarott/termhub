@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSimctlList } from './machine.js';
+import { isBootFailure, parseSimctlList } from './machine.js';
 
 const sample = JSON.stringify({
   devices: {
@@ -22,5 +22,23 @@ describe('parseSimctlList', () => {
 
   it('JSON inválido devolve lista vazia', () => {
     expect(parseSimctlList('nope')).toEqual([]);
+  });
+});
+
+describe('isBootFailure', () => {
+  it('saída vazia não é falha', () => {
+    expect(isBootFailure('')).toBe(false);
+  });
+
+  it('já bootado ("current state: Booted") não é falha', () => {
+    expect(isBootFailure('Unable to boot device in current state: Booted')).toBe(false);
+  });
+
+  it('"current state: Shutting Down" é falha', () => {
+    expect(isBootFailure('Unable to boot device in current state: Shutting Down')).toBe(true);
+  });
+
+  it('"Invalid device" é falha', () => {
+    expect(isBootFailure('Invalid device: XYZ')).toBe(true);
   });
 });
