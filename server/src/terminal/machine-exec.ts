@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { config } from '../config.js';
 import type { Machine } from '../db/repositories/types.js';
 
@@ -58,6 +58,47 @@ export function runOnMachine(
         timedOut: !!e?.killed || e?.signal === 'SIGTERM',
       });
     });
+  });
+}
+
+/**
+ * Como runOnMachine, mas envia `input` pelo stdin do processo (local ou do ssh).
+ * Usado para copiar arquivos para a máquina sem depender de scp.
+ */
+export function runOnMachineWithInput(
+  machine: Machine,
+  local: { file: string; args: string[] },
+  remoteCommand: string,
+  input: Buffer,
+  timeoutMs = 30000,
+): Promise<ExecResult> {
+  const [file, args] =
+    machine.type === 'local' ? [local.file, local.args] : ['ssh', [...sshBaseArgs(machine, 10), '--', remoteCommand]];
+
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    let timedOut = false;
+    let settled = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, timeoutMs);
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8'), timedOut });
+    };
+    child.stdout.on('data', (d: Buffer) => out.push(d));
+    child.stderr.on('data', (d: Buffer) => err.push(d));
+    child.on('error', () => finish(null));
+    child.on('close', (code) => finish(code));
+    child.stdin.on('error', () => {
+      /* EPIPE se o remoto fechar antes: 'close' reporta o código */
+    });
+    child.stdin.end(input);
   });
 }
 

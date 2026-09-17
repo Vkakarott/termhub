@@ -106,6 +106,7 @@ npm run create-user -- --email voce@exemplo.com --name "Seu Nome" [--password ..
 - **Projeto:** passe o mouse sobre a máquina e clique em "+". Informe nome e o diretório absoluto na máquina de destino — ou clique em "Procurar…" para navegar pelas pastas da máquina: o navegador lista os discos/mounts (com espaço livre, via `df`) e o home como atalhos, permite filtrar e mostrar pastas ocultas, e preenche o nome do projeto com a pasta escolhida (`GET /api/machines/:id/fs?path=`).
 - **Tabs:** `⌘T` nova, duplo clique renomeia, `⌘W` fecha (com confirmação — mata a sessão tmux), `⌘1..9` troca. Como alguns navegadores capturam `⌘T`/`⌘W`, `Ctrl+Shift+T`/`Ctrl+Shift+W` funcionam como alternativa.
 - **Copiar:** selecionar texto copia automaticamente ao soltar o mouse (aviso "Copiado" na barra de status). Quando o programa em execução liga o mouse tracking (Claude Code, vim, htop…), o arrasto vai para ele; segure `⌥` (Mac) ou `Shift` (Linux/Windows) ao arrastar para selecionar — a barra de status avisa quando isso está ativo.
+- **Colar imagem:** `Cmd+V` com uma imagem na área de transferência envia o arquivo para `~/.cache/termhub/paste/` na máquina da tab (até 20 MB; PNG, JPEG, GIF ou WebP; arquivos com mais de 7 dias são apagados a cada novo upload) e cola o caminho no terminal — para o Claude Code é como arrastar o arquivo; a barra de status mostra o progresso. Texto continua colando normalmente.
 - Sessões tmux têm o nome `termhub-<project_id>-<tab_id>`; você pode anexar por fora com `tmux attach -t <nome>`.
 
 ## Gestão dos projetos

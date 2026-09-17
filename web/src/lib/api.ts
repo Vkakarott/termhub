@@ -18,7 +18,9 @@ function readCookie(name: string): string | undefined {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
-  if (body !== undefined) headers['content-type'] = 'application/json';
+  const raw = body instanceof Blob;
+  if (raw) headers['content-type'] = body.type || 'application/octet-stream';
+  else if (body !== undefined) headers['content-type'] = 'application/json';
   if (method !== 'GET' && method !== 'HEAD') {
     const csrf = readCookie('termhub_csrf');
     if (csrf) headers['x-csrf-token'] = csrf;
@@ -26,7 +28,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const res = await fetch(`/api${path}`, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined,
     credentials: 'same-origin',
   });
   const text = await res.text();
@@ -114,5 +116,7 @@ export const api = {
   tabs: {
     rename: (id: string, name: string) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, { name }),
     remove: (id: string) => request<{ ok: true; killed: boolean }>('DELETE', `/tabs/${id}`),
+    /** grava a imagem em ~/.cache/termhub/paste/ na máquina da tab e devolve o caminho */
+    pasteImage: (id: string, image: Blob) => request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-image`, image),
   },
 };

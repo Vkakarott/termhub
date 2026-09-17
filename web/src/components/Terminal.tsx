@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalConnection, type ConnectionState } from '../lib/terminal-connection';
+import { api, ApiError } from '../lib/api';
 
 interface Props {
   tabId: string;
@@ -48,6 +49,21 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 /** Modificador que força a seleção do xterm quando o app está usando o mouse. */
 const SELECT_MODIFIER = IS_MAC ? '⌥' : 'Shift';
 
+function formatBytes(n: number): string {
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+/** Primeira imagem da área de transferência (Cmd+V com imagem ou arquivo de imagem copiado). */
+function imageFromClipboard(data: DataTransfer | null): File | null {
+  if (!data) return null;
+  for (const item of Array.from(data.items)) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) return item.getAsFile();
+  }
+  return null;
+}
+
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -79,6 +95,9 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
   const [mouseApp, setMouseApp] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef(0);
+  /** aviso do upload de imagem colada: texto + tom */
+  const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'ok' | 'danger' } | null>(null);
+  const noticeTimer = useRef(0);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const onConnectedRef = useRef(onConnected);
@@ -136,6 +155,35 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
     };
     window.addEventListener('mouseup', copySelection);
 
+    // Cmd+V com imagem: envia para a máquina da tab e cola o caminho no terminal (o Claude Code lê o arquivo).
+    const showNotice = (text: string, tone: 'info' | 'ok' | 'danger', ms?: number) => {
+      window.clearTimeout(noticeTimer.current);
+      setNotice({ text, tone });
+      if (ms) noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
+    };
+    let uploading = false;
+    const onPaste = (e: ClipboardEvent) => {
+      const file = imageFromClipboard(e.clipboardData);
+      if (!file) return; // texto: o xterm cola normalmente
+      e.preventDefault();
+      e.stopPropagation();
+      if (uploading) return;
+      uploading = true;
+      showNotice(`Enviando imagem… ${formatBytes(file.size)}`, 'info');
+      void api.tabs
+        .pasteImage(tabId, file)
+        .then((img) => {
+          term.paste(`${img.path} `);
+          showNotice('Imagem anexada', 'ok', 2500);
+        })
+        .catch((err) => showNotice(err instanceof ApiError ? err.message : 'Falha ao enviar a imagem', 'danger', 5000))
+        .finally(() => {
+          uploading = false;
+        });
+    };
+    // capture: roda antes do listener de paste do xterm (na textarea interna)
+    el.addEventListener('paste', onPaste, true);
+
     // Detecta quando o app liga/desliga o mouse tracking (DECSET/DECRST ?1000/?1002/?1003) para mostrar a dica.
     const syncMouseMode = () => setMouseApp(term.modes.mouseTrackingMode !== 'none');
     const onPrivateMode = (params: (number | number[])[]) => {
@@ -188,6 +236,8 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('mouseup', copySelection);
       selSub.dispose();
+      el.removeEventListener('paste', onPaste, true);
+      window.clearTimeout(noticeTimer.current);
       for (const sub of modeSubs) sub.dispose();
       window.clearTimeout(copiedTimer.current);
       ro.disconnect();
@@ -236,7 +286,9 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
             Reconectar
           </button>
         )}
-        {copied ? (
+        {notice ? (
+          <span className={notice.tone === 'ok' ? 'text-ok' : notice.tone === 'danger' ? 'text-danger' : 'text-fg-muted'}>{notice.text}</span>
+        ) : copied ? (
           <span className="text-ok">Copiado</span>
         ) : mouseApp ? (
           <span title={`O programa em execução está usando o mouse. Segure ${SELECT_MODIFIER} ao arrastar para selecionar texto; a seleção é copiada ao soltar.`}>
