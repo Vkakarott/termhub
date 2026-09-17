@@ -44,6 +44,19 @@ const STATE_LABEL: Record<ConnectionState, string> = {
   closed: 'Sessão encerrada',
 };
 
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+/** Modificador que força a seleção do xterm quando o app está usando o mouse. */
+const SELECT_MODIFIER = IS_MAC ? '⌥' : 'Shift';
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Atalhos globais que o xterm NÃO deve capturar (deixa subir para o app). */
 function isAppShortcut(e: KeyboardEvent): boolean {
   const mod = e.metaKey || e.ctrlKey;
@@ -62,10 +75,16 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
   const connRef = useRef<TerminalConnection | null>(null);
   const [state, setState] = useState<ConnectionState>('connecting');
   const [attempt, setAttempt] = useState(0);
+  /** o app em foco ligou o mouse tracking (cliques/arrasto vão para ele) */
+  const [mouseApp, setMouseApp] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef(0);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -81,6 +100,8 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
       scrollback: 5000,
       allowProposedApi: true,
       macOptionIsMeta: true,
+      // Apps que ligam mouse tracking (claude, vim, htop...) recebem o arrasto; ⌥ no Mac (Shift no resto) força a seleção do xterm.
+      macOptionClickForcesSelection: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -93,6 +114,38 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
       /* fallback para renderer DOM/canvas */
     }
     term.attachCustomKeyEventHandler((e) => !isAppShortcut(e));
+
+    // Cópia automática: ao soltar o mouse com texto selecionado. Escuta no window porque o arrasto pode
+    // terminar fora do terminal; só copia se a seleção mudou desde o último mouseup (evita recopiar uma
+    // seleção antiga em cliques fora do terminal) e se esta é a tab ativa.
+    let selectionDirty = false;
+    const selSub = term.onSelectionChange(() => {
+      selectionDirty = true;
+    });
+    const copySelection = () => {
+      if (!activeRef.current || !selectionDirty) return;
+      selectionDirty = false;
+      const text = term.getSelection();
+      if (!text) return;
+      void copyToClipboard(text).then((ok) => {
+        if (!ok) return;
+        setCopied(true);
+        window.clearTimeout(copiedTimer.current);
+        copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
+      });
+    };
+    window.addEventListener('mouseup', copySelection);
+
+    // Detecta quando o app liga/desliga o mouse tracking (DECSET/DECRST ?1000/?1002/?1003) para mostrar a dica.
+    const syncMouseMode = () => setMouseApp(term.modes.mouseTrackingMode !== 'none');
+    const onPrivateMode = (params: (number | number[])[]) => {
+      if (params.some((p) => p === 1000 || p === 1002 || p === 1003)) queueMicrotask(syncMouseMode);
+      return false; // deixa o xterm processar normalmente
+    };
+    const modeSubs = [
+      term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, onPrivateMode),
+      term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, onPrivateMode),
+    ];
     const safeFit = () => {
       if (el.offsetWidth === 0 || el.offsetHeight === 0) return;
       try {
@@ -133,6 +186,10 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
 
     return () => {
       window.removeEventListener('online', onOnline);
+      window.removeEventListener('mouseup', copySelection);
+      selSub.dispose();
+      for (const sub of modeSubs) sub.dispose();
+      window.clearTimeout(copiedTimer.current);
       ro.disconnect();
       cancelAnimationFrame(raf);
       dataSub.dispose();
@@ -179,6 +236,13 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
             Reconectar
           </button>
         )}
+        {copied ? (
+          <span className="text-ok">Copiado</span>
+        ) : mouseApp ? (
+          <span title={`O programa em execução está usando o mouse. Segure ${SELECT_MODIFIER} ao arrastar para selecionar texto; a seleção é copiada ao soltar.`}>
+            app usa o mouse · {SELECT_MODIFIER} + arrastar seleciona
+          </span>
+        ) : null}
         <span className="ml-auto font-mono">tmux</span>
       </div>
     </div>
