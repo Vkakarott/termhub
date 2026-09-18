@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
-import { machineStatus } from '../terminal/machine-exec.js';
+import { diagnoseSsh, machineStatus } from '../terminal/machine-exec.js';
 import { listSimulators } from '../simulator/machine.js';
 import { startWdaSetup, wdaSetupState } from '../simulator/setup.js';
 import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
@@ -23,7 +23,19 @@ const machineBody = z
     if (m.type === 'ssh' && !m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'host é obrigatório para SSH' });
   });
 
+const testBody = z.object({
+  host: z.string().trim().min(1).max(253),
+  ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
+  ssh_port: z.coerce.number().int().min(1).max(65535).optional(),
+});
+
 export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
+  /** Connection test for the machine form (before saving): explains refused / unreachable / auth / missing tmux. */
+  app.post('/test', async (request) => {
+    const b = testBody.parse(request.body);
+    return await diagnoseSsh({ host: b.host, ssh_user: b.ssh_user ?? null, ssh_port: b.ssh_port ?? 22 });
+  });
+
   app.get('/', async () => ({ machines: await repos.machines.list() }));
 
   app.post('/', async (request, reply) => {

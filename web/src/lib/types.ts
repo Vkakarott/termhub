@@ -268,3 +268,16 @@ export interface AiAccountUsage {
 }
 
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini' };
+
+export type SshProblem = 'unreachable' | 'refused' | 'auth' | 'hostkey' | 'timeout' | 'no_tmux' | 'unknown';
+
+/** Result of POST /machines/test */
+export interface SshDiagnosis {
+  ok: boolean;
+  connected: boolean;
+  tmux: boolean;
+  os: string | null;
+  problem: SshProblem | null;
+  hint: string | null;
+  detail: string | null;
+}
