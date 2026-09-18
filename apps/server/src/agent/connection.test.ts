@@ -162,3 +162,69 @@ describe('AgentConnection — fix round 1', () => {
     );
   });
 });
+
+// Final fix wave — C1: channel close is a handshake, not a fire-and-forget delete.
+describe('AgentConnection — channel close handshake', () => {
+  it('stream data arriving after a local close is ignored and the number is freed only after the ack', async () => {
+    const { s, c } = connected();
+    const onData = vi.fn();
+    const onExit = vi.fn();
+    const opening = c.openPty({ session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 }, { onData, onExit });
+    s.recvControl({ type: 'opened', ch: 1 });
+    const ch = await opening;
+
+    ch.close();
+    expect(s.control().at(-1)).toEqual({ type: 'close', ch: 1 });
+
+    // In-flight output from the agent (tmux's "[lost tty]", resets, …) for the channel we
+    // just closed: must be dropped silently — neither a violation nor delivered to the handler.
+    s.recvStream(1, Buffer.from('late output'));
+    expect(s.closed).toBeNull();
+    expect(onData).not.toHaveBeenCalled();
+
+    // The number stays reserved until the agent acks: a new open gets a different one.
+    const opening2 = c.openPty({ session: 'th-b', cwd: '/tmp', cols: 80, rows: 24 }, { onData() {}, onExit() {} });
+    const open2 = s.control().filter((m) => m.type === 'open').at(-1);
+    expect(open2.ch).toBe(2);
+    s.recvControl({ type: 'opened', ch: 2 });
+    await opening2;
+
+    // The ack frees the number without reporting an exit for a channel we closed ourselves.
+    s.recvControl({ type: 'closed', ch: 1, code: null });
+    expect(onExit).not.toHaveBeenCalled();
+    expect(s.closed).toBeNull();
+
+    const opening3 = c.openPty({ session: 'th-c', cwd: '/tmp', cols: 80, rows: 24 }, { onData() {}, onExit() {} });
+    const open3 = s.control().filter((m) => m.type === 'open').at(-1);
+    expect(open3.ch).toBe(1);
+    s.recvControl({ type: 'opened', ch: 1 });
+    await opening3;
+  });
+
+  it('stream data for a timed-out (tombstoned) open is ignored, not a violation', async () => {
+    vi.useFakeTimers();
+    try {
+      const { s, c } = connected();
+      const onData = vi.fn();
+      const opening = c.openPty({ session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 }, { onData, onExit() {} });
+      vi.advanceTimersByTime(10_001);
+      await expect(opening).rejects.toBeInstanceOf(AgentTimeoutError);
+      s.recvStream(1, Buffer.from('late'));
+      expect(s.closed).toBeNull();
+      expect(onData).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a socket close after a local channel close does not report an exit for that channel', async () => {
+    const { s, c } = connected();
+    const onExit = vi.fn();
+    const opening = c.openPty({ session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 }, { onData() {}, onExit });
+    s.recvControl({ type: 'opened', ch: 1 });
+    const ch = await opening;
+    ch.close();
+    s.close(1006, '');
+    expect(onExit).not.toHaveBeenCalled();
+  });
+});

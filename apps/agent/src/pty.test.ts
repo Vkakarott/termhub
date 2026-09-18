@@ -107,19 +107,37 @@ describe('createPtyManager', () => {
     expect(fake.resize).toHaveBeenCalledWith(500, 2);
   });
 
-  it('sends closed with the exit code exactly once, even after close() was called', async () => {
+  it('close() kills the pty, acks with exactly one closed {code: null} and forwards no data after it', async () => {
+    const fake = makeFakePty();
+    const spawn = vi.fn<SpawnFn>(() => fake.proc);
+    const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
+    const { socket, sendControl, sendStream } = makeSocket();
+
+    await manager.open(6, openParams, socket);
+    sendControl.mockClear();
+    manager.close(6);
+    // Whatever tmux still emits after the kill ("[lost tty]", resets, in-flight output) must
+    // not reach the server: it already dropped its side of the channel.
+    fake.emitData('[lost tty]');
+    fake.emitExit(0);
+
+    expect(fake.kill).toHaveBeenCalledTimes(1);
+    expect(sendStream).not.toHaveBeenCalled();
+    const closedMsgs = sendControl.mock.calls.map((c) => c[0]).filter((m: { type: string }) => m.type === 'closed');
+    expect(closedMsgs).toEqual([{ type: 'closed', ch: 6, code: null }]);
+  });
+
+  it('close() acks the server even when the pty never reports an exit', async () => {
     const fake = makeFakePty();
     const spawn = vi.fn<SpawnFn>(() => fake.proc);
     const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
     const { socket, sendControl } = makeSocket();
 
-    await manager.open(6, openParams, socket);
+    await manager.open(7, openParams, socket);
     sendControl.mockClear();
-    manager.close(6);
-    fake.emitExit(0);
+    manager.close(7);
 
-    expect(fake.kill).toHaveBeenCalledTimes(1);
-    expect(sendControl).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'closed' }));
+    expect(sendControl).toHaveBeenCalledWith({ type: 'closed', ch: 7, code: null });
   });
 
   it('sends closed with the exit code when the process exits on its own', async () => {

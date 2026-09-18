@@ -71,8 +71,16 @@ function isEnoent(err: unknown): boolean {
  * (`apps/server/src/terminal/pty-session.ts`'s `local` branch of `buildSpawn`): same argv
  * (`-u new-session -A -s <session> -c <cwd>`), same UTF-8 env, same HOME cwd fallback.
  */
+interface ChannelProc {
+  proc: PtyLike;
+  /** Set (before the kill) by close()/closeAll(): output the pty still emits is dropped. */
+  closed: boolean;
+  /** Sends `closed` to the server at most once, whichever of close()/onExit gets there first. */
+  sendClosed(code: number | null): void;
+}
+
 export function createPtyManager(deps: PtyManagerDeps): PtyManager {
-  const procs = new Map<number, PtyLike>();
+  const procs = new Map<number, ChannelProc>();
   const tmux = deps.tmuxPath ?? tmuxPath();
   let spawnFn: SpawnFn | undefined = deps.spawn;
 
@@ -117,10 +125,27 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
         return;
       }
 
-      procs.set(ch, proc);
+      let closedSent = false;
+      const entry: ChannelProc = {
+        proc,
+        closed: false,
+        sendClosed: (code) => {
+          if (closedSent) return;
+          closedSent = true;
+          try {
+            socket.sendControl({ type: 'closed', ch, code });
+          } catch (err) {
+            deps.log('pty closed send failed', { ch, error: err instanceof Error ? err.message : String(err) });
+          }
+        },
+      };
+      procs.set(ch, entry);
       deps.log('pty opened', { ch, session: params.session, cols, rows });
 
       proc.onData((data) => {
+        // After close() the server has already dropped its side of the channel: whatever tmux
+        // still emits on the way out ("[lost tty]", resets) must not be forwarded.
+        if (entry.closed) return;
         try {
           socket.sendStream(ch, Buffer.from(data, 'utf8'));
         } catch (err) {
@@ -128,17 +153,12 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
         }
       });
       proc.onExit(({ exitCode }) => {
-        // If close() already deleted (or a later open() replaced) this entry, `closed` was
-        // already sent — don't send it twice for the same channel.
-        if (procs.get(ch) !== proc) return;
-        procs.delete(ch);
+        // A later open() may have replaced this entry (close() already dropped it); only the
+        // live entry owns the map slot. `closed` is deduped by sendClosed either way.
+        if (procs.get(ch) === entry) procs.delete(ch);
         const code = exitCode ?? null;
         deps.log('pty exited', { ch, code });
-        try {
-          socket.sendControl({ type: 'closed', ch, code });
-        } catch (err) {
-          deps.log('pty closed send failed', { ch, error: err instanceof Error ? err.message : String(err) });
-        }
+        entry.sendClosed(code);
       });
 
       try {
@@ -149,40 +169,47 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
     },
 
     write(ch, data): void {
-      const proc = procs.get(ch);
-      if (!proc) return;
-      proc.write(data.toString('utf8'));
+      const entry = procs.get(ch);
+      if (!entry) return;
+      entry.proc.write(data.toString('utf8'));
     },
 
     resize(ch, cols, rows): void {
-      const proc = procs.get(ch);
-      if (!proc) return;
+      const entry = procs.get(ch);
+      if (!entry) return;
       const size = clampSize({ cols, rows });
       try {
-        proc.resize(size.cols, size.rows);
+        entry.proc.resize(size.cols, size.rows);
       } catch {
         /* pty already exited */
       }
     },
 
     close(ch): void {
-      const proc = procs.get(ch);
-      if (!proc) return;
-      // Delete before kill so the onExit handler (fired sync or async by the kill) sees the
-      // channel as already closed and skips sending a second `closed`.
+      const entry = procs.get(ch);
+      if (!entry) return;
+      // Mark closed and drop the slot before the kill, so output/exit the kill triggers (sync
+      // or async) is treated as the tail of this close, not as live traffic.
+      entry.closed = true;
       procs.delete(ch);
       try {
-        proc.kill();
+        entry.proc.kill();
       } catch {
         /* ignore */
       }
+      // Always ack: the server keeps the channel number reserved until it sees `closed`.
+      // node-pty may report the exit later (or never, if the kill fails) — the ack must not
+      // depend on it; sendClosed dedupes so the later onExit doesn't send a second one.
+      entry.sendClosed(null);
     },
 
     closeAll(): void {
-      for (const [ch, proc] of procs) {
+      // Session is over (socket gone): no acks to send, just stop forwarding and kill.
+      for (const [ch, entry] of procs) {
+        entry.closed = true;
         procs.delete(ch);
         try {
-          proc.kill();
+          entry.proc.kill();
         } catch {
           /* ignore */
         }

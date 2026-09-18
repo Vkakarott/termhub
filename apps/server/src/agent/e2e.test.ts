@@ -132,22 +132,28 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
       created_at: new Date().toISOString(),
     } as unknown as Project;
 
-    const tab: Tab = {
-      id: 't1',
-      project_id: 'p1',
-      name: 'main',
-      kind: 'terminal',
-      tmux_session: 'thtest-e2e',
-      simulator_udid: null,
-      position: 0,
-      created_at: new Date().toISOString(),
-    } as unknown as Tab;
+    const tabs: Record<string, Tab> = {};
+    for (const [id, name, session, position] of [
+      ['t1', 'main', 'thtest-e2e', 0],
+      ['t2', 'second', 'thtest-e2e-2', 1],
+    ] as const) {
+      tabs[id] = {
+        id,
+        project_id: 'p1',
+        name,
+        kind: 'terminal',
+        tmux_session: session,
+        simulator_udid: null,
+        position,
+        created_at: new Date().toISOString(),
+      } as unknown as Tab;
+    }
 
     resolveUserMock.mockResolvedValue({ id: 'u1' });
     canAccessMock.mockResolvedValue(true);
 
     const repos = {
-      tabs: { findById: vi.fn(async () => tab) },
+      tabs: { findById: vi.fn(async (id: string) => tabs[id]) },
       projects: {
         findById: vi.fn(async () => project),
         touchTerminal: vi.fn(async () => {}),
@@ -198,47 +204,85 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
     else process.env.TMUX_PATH = prevTmuxPath;
   });
 
+  interface BrowserTab {
+    ws: WebSocket;
+    /** Everything the pty streamed so far (test-only buffer; never logged). */
+    output(): string;
+  }
+
+  /** Opens the browser-side socket for `tabId` and resolves once the server reports `ready`. */
+  async function openTab(tabId: string): Promise<BrowserTab> {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/tabs/${tabId}?cols=80&rows=24`);
+    let received = '';
+    const ready = new Promise<void>((resolve, reject) => {
+      ws.once('error', reject);
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) {
+          received += Buffer.from(data as Buffer).toString('utf8');
+          return;
+        }
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'ready') resolve();
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    await ready;
+    return { ws, output: () => received };
+  }
+
+  /**
+   * Types `echo <marker>` and waits for the marker to show up twice: the pty echoes the typed
+   * command first, then the shell prints the real output line — passing on the input echo
+   * alone would prove nothing about the shell.
+   */
+  async function expectEcho(tab: BrowserTab, marker: string): Promise<void> {
+    tab.ws.send(Buffer.from(`echo ${marker}\n`), { binary: true });
+    await vi.waitFor(
+      () => {
+        const occurrences = tab.output().split(marker).length - 1;
+        expect(occurrences).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 15_000, interval: 100 },
+    );
+  }
+
   it(
     'echoes a command through a real tmux session on the agent side',
     { timeout: 30_000 },
     async () => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/tabs/t1?cols=80&rows=24`);
-      let received = '';
-      const ready = new Promise<void>((resolve, reject) => {
-        ws.once('error', reject);
-        ws.on('message', (data, isBinary) => {
-          if (isBinary) {
-            received += Buffer.from(data as Buffer).toString('utf8');
-            return;
-          }
-          const msg = JSON.parse(data.toString());
-          if (msg.type === 'ready') resolve();
-        });
-      });
-
-      await new Promise<void>((resolve, reject) => {
-        ws.once('open', resolve);
-        ws.once('error', reject);
-      });
-      await ready;
-
-      ws.send(Buffer.from('echo E2E_OK\n'), { binary: true });
-
-      // The typed command is echoed by the pty first, then the shell prints the actual
-      // output line — wait for the marker to show up twice (input echo + real output) so we
-      // don't pass on the input echo alone.
-      await vi.waitFor(
-        () => {
-          const occurrences = received.split('E2E_OK').length - 1;
-          expect(occurrences).toBeGreaterThanOrEqual(2);
-        },
-        { timeout: 15_000, interval: 100 },
-      );
+      const tab = await openTab('t1');
+      await expectEcho(tab, 'E2E_OK');
 
       const screen = await captureScreen(machine, 'thtest-e2e', 50);
       expect(screen).toContain('E2E_OK');
 
-      ws.close();
+      tab.ws.close();
+    },
+  );
+
+  it(
+    'closing one tab keeps the agent connection and the other tab alive',
+    { timeout: 30_000 },
+    async () => {
+      // Two tabs → two tmux sessions over the same agent connection.
+      const tabA = await openTab('t1');
+      const tabB = await openTab('t2');
+      await expectEcho(tabB, 'E2E_B_BEFORE');
+
+      // Closing tab A's browser socket makes the server close its channel; the agent kills
+      // that pty (tmux emits "[lost tty]" and friends on the way out). None of that may tear
+      // down the whole agent connection — before the close handshake, it did.
+      tabA.ws.close();
+      await new Promise((r) => setTimeout(r, 500));
+
+      expect(agents.isOnline('m1')).toBe(true);
+      expect(tabB.ws.readyState).toBe(WebSocket.OPEN);
+      await expectEcho(tabB, 'E2E_B_AFTER');
+
+      tabB.ws.close();
     },
   );
 });

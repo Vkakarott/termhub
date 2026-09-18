@@ -72,6 +72,11 @@ interface ChannelEntry {
    *  until the agent acknowledges with `closed`/`open_error`, so it can't be handed to a
    *  new openPty() while a stale `opened` for this attempt might still be in flight. */
   timedOut: boolean;
+  /** Set by channel.close(): we told the agent to close this pty and are waiting for its
+   *  `closed` ack. Until then the number stays reserved and any stream frame the agent still
+   *  emits for it (tmux's "[lost tty]", resets, in-flight output) is dropped silently — it is
+   *  the expected tail of a close handshake, not a protocol violation. */
+  closing: boolean;
 }
 
 export class AgentConnection extends EventEmitter {
@@ -155,7 +160,7 @@ export class AgentConnection extends EventEmitter {
     }
     const ch = this.nextChannel();
     return new Promise((resolve, reject) => {
-      const entry: ChannelEntry = { handlers, open: null, openTimer: null, timedOut: false };
+      const entry: ChannelEntry = { handlers, open: null, openTimer: null, timedOut: false, closing: false };
       const timer = setTimeout(() => {
         // We gave up locally, but the agent may still reply to the original 'open' — keep
         // the channel number reserved (tombstoned) and tell the agent to close it, instead
@@ -247,6 +252,12 @@ export class AgentConnection extends EventEmitter {
     const entry = this.channels.get(frame.ch);
     if (!entry) {
       this.violation(`unknown channel ${frame.ch}`);
+      return;
+    }
+    if (entry.closing || entry.timedOut) {
+      // Tail of a close handshake (or of an open we gave up on): the agent hasn't acked yet
+      // and may still flush output. Never log the bytes — metadata only.
+      this.log.debug?.({ machineId: this.machineId, ch: frame.ch, bytes: frame.payload.length }, 'stream frame for a closing channel dropped');
       return;
     }
     entry.handlers.onData(frame.payload);
@@ -348,6 +359,12 @@ export class AgentConnection extends EventEmitter {
       this.sendControl({ type: 'close', ch });
       return;
     }
+    if (entry.closing) {
+      // Can't happen for a well-behaved agent (we only close channels that already opened),
+      // but a stray `opened` while we wait for the ack is harmless: drop it.
+      this.log.debug?.({ machineId: this.machineId, ch }, 'opened for a closing channel ignored');
+      return;
+    }
     if (!entry.open) {
       this.violation(`opened for unknown channel ${ch}`);
       return;
@@ -362,8 +379,9 @@ export class AgentConnection extends EventEmitter {
       this.violation(`open_error for unknown channel ${ch}`);
       return;
     }
-    if (entry.timedOut) {
-      // The agent acknowledged the close we sent after our local timeout: free the number.
+    if (entry.timedOut || entry.closing) {
+      // The agent acknowledged the close we sent (after our local timeout, or from
+      // channel.close()): free the number. Nothing to notify — the caller already moved on.
       this.channels.delete(ch);
       return;
     }
@@ -380,8 +398,10 @@ export class AgentConnection extends EventEmitter {
       this.violation(`closed for unknown channel ${ch}`);
       return;
     }
-    if (entry.timedOut) {
-      // The agent acknowledged the close we sent after our local timeout: free the number.
+    if (entry.timedOut || entry.closing) {
+      // The agent acknowledged the close we sent (after our local timeout, or from
+      // channel.close()): free the number. A locally closed channel never reports an exit —
+      // its owner asked for the close and has already let go of the session.
       this.channels.delete(ch);
       return;
     }
@@ -407,8 +427,15 @@ export class AgentConnection extends EventEmitter {
         this.sendControl({ type: 'resize', ch, cols, rows });
       },
       close: () => {
+        const entry = this.channels.get(ch);
+        // Already closed locally (double kill), acked by the agent, or the socket is gone.
+        if (!entry || entry.closing) return;
+        // Handshake: the entry stays in the map (like the timedOut tombstone) until the
+        // agent acks with `closed`/`open_error`. Deleting it here would turn the output tmux
+        // still flushes for this pty into an "unknown channel" violation that tears down the
+        // whole connection — every other tab on the machine with it.
+        entry.closing = true;
         this.sendControl({ type: 'close', ch });
-        this.channels.delete(ch);
       },
     };
   }
@@ -433,8 +460,9 @@ export class AgentConnection extends EventEmitter {
 
     for (const entry of this.channels.values()) {
       if (entry.openTimer) clearTimeout(entry.openTimer);
-      if (entry.timedOut) {
-        // Already settled (rejected) locally when the open timeout fired; nothing to notify.
+      if (entry.timedOut || entry.closing) {
+        // Already settled locally (open timeout rejected the caller / channel.close() was
+        // the caller's own doing); nothing to notify.
         continue;
       }
       if (entry.open) {
