@@ -91,6 +91,97 @@ function Numbers() {
   );
 }
 
+/** Any CLI agent works because a tab is a real terminal: names only, no third-party logos. */
+function Agents() {
+  const { t } = useLang();
+  const ref = useReveal<HTMLDivElement>();
+  return (
+    <section id="agentes" className="mx-auto max-w-page px-4 py-20 md:px-6">
+      <h2 className="text-heading-lg">{t.agents.title}</h2>
+      <p className="mt-4 max-w-2xl text-subheading text-frost">{t.agents.lead}</p>
+      <div ref={ref} className="reveal mt-10">
+        <ul className="flex flex-wrap gap-3">
+          {t.agents.items.map((name) => (
+            <li key={name} className="rounded-field border border-border-2 bg-surface px-4 py-2 font-mono text-body-sm text-white hover:border-border/40">
+              {name}
+            </li>
+          ))}
+          <li className="rounded-field border border-dashed border-border-2 px-4 py-2 font-mono text-body-sm text-accent">+ {t.agents.any}</li>
+        </ul>
+        <p className="mt-6 max-w-2xl text-body-sm text-frost">{t.agents.note}</p>
+      </div>
+    </section>
+  );
+}
+
+type CompareCell = 'yes' | 'no' | 'partial';
+const COMPARE_MARK: Record<CompareCell, string> = { yes: '✓', no: '—', partial: '◐' };
+const COMPARE_TONE: Record<CompareCell, string> = { yes: 'text-accent', no: 'text-muted', partial: 'text-frost' };
+
+function Compare() {
+  const { t } = useLang();
+  const ref = useReveal<HTMLDivElement>();
+  return (
+    <section id="comparar" className="mx-auto max-w-page px-4 py-20 md:px-6">
+      <h2 className="text-heading-lg">{t.compare.title}</h2>
+      <p className="mt-4 max-w-2xl text-subheading text-frost">{t.compare.lead}</p>
+      <div ref={ref} className="reveal mt-10 overflow-x-auto rounded-card border border-border-2 bg-surface">
+        <table className="w-full min-w-[640px] border-collapse text-body-sm">
+          <thead>
+            <tr className="border-b border-border-2">
+              <th scope="col" className="p-4 text-left font-normal text-muted" />
+              {t.compare.columns.map((c, i) => (
+                <th key={c.name} scope="col" className={`p-4 text-center align-bottom ${i === 0 ? 'text-white' : 'font-normal text-frost'}`}>
+                  <span className="block">{c.name}</span>
+                  {c.hint && <span className="block text-caption text-muted">{c.hint}</span>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {t.compare.rows.map((r) => (
+              <tr key={r.label} className="border-b border-border-2 last:border-b-0">
+                <th scope="row" className="p-4 text-left font-normal text-frost">{r.label}</th>
+                {r.cells.map((cell, i) => (
+                  <td key={i} className={`p-4 text-center ${i === 0 ? 'bg-canvas/40' : ''}`}>
+                    <span className={`text-body ${COMPARE_TONE[cell as CompareCell]}`} aria-hidden="true">{COMPARE_MARK[cell as CompareCell]}</span>
+                    <span className="sr-only">{t.compare.legend[cell as CompareCell]}</span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-4 text-caption text-muted">
+        <span className="text-accent">✓</span> {t.compare.legend.yes} · <span className="text-frost">◐</span> {t.compare.legend.partial} · <span>—</span> {t.compare.legend.no}. {t.compare.note}
+      </p>
+    </section>
+  );
+}
+
+/** Native <details> keeps the FAQ keyboard-accessible; the FAQPage JSON-LD in index.html mirrors the pt copy. */
+function Faq() {
+  const { t } = useLang();
+  const ref = useReveal<HTMLDivElement>();
+  return (
+    <section id="faq" className="mx-auto max-w-page px-4 py-20 md:px-6">
+      <h2 className="text-heading-lg">{t.faq.title}</h2>
+      <div ref={ref} className="reveal mt-10 grid gap-3 md:max-w-3xl">
+        {t.faq.items.map((item) => (
+          <details key={item.q} className="group rounded-card border border-border-2 bg-surface open:border-border/40">
+            <summary className="hover-tint flex cursor-pointer list-none items-center justify-between gap-4 rounded-card p-5 text-body text-white [&::-webkit-details-marker]:hidden">
+              {item.q}
+              <span aria-hidden="true" className="text-muted transition-transform group-open:rotate-90">›</span>
+            </summary>
+            <p className="px-5 pb-5 text-body-sm text-frost">{item.a}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function FinalCta() {
   const { t } = useLang();
   const ref = useReveal<HTMLDivElement>();
@@ -121,9 +212,12 @@ function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
           </a>
           <nav className="ml-6 hidden items-center gap-1 md:flex">
             <a href="#recursos" className="nav-link">{t.nav.features}</a>
+            <a href="#agentes" className="nav-link">{t.nav.agents}</a>
             <a href="#como-funciona" className="nav-link">{t.nav.how}</a>
+            <a href="#comparar" className="nav-link hidden lg:inline-flex">{t.nav.compare}</a>
             <a href="#cloud" className="nav-link">{t.nav.cloud}</a>
-            <a href={REPO_URL} className="nav-link">{t.nav.github}</a>
+            <a href="#faq" className="nav-link hidden lg:inline-flex">{t.nav.faq}</a>
+            <a href={REPO_URL} className="nav-link hidden lg:inline-flex">{t.nav.github}</a>
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <LangSwitch />
@@ -173,6 +267,8 @@ function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
           </div>
         </section>
 
+        <Agents />
+
         {/* how it works */}
         <section id="como-funciona" className="mx-auto max-w-page px-4 py-20 md:px-6">
           <SectionLink href={`${REPO_URL}#production-docker`}>{t.how.link}</SectionLink>
@@ -187,6 +283,8 @@ function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
             <p className="text-body-sm text-frost">{t.how.stack}</p>
           </div>
         </section>
+
+        <Compare />
 
         {/* cloud + waitlist */}
         <section id="cloud">
@@ -212,6 +310,8 @@ function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
             </div>
           </div>
         </section>
+
+        <Faq />
 
         <FinalCta />
       </main>
