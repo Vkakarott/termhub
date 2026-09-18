@@ -2,8 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { Modal } from './Modal';
 import { SimulatorSetupCard } from './SimulatorSetupCard';
+import { AgentEnrollment } from './AgentEnrollment';
 import { useData } from '../lib/data';
-import type { Machine, SshDiagnosis, User } from '../lib/types';
+import type { Machine, MachineType, SshDiagnosis, User } from '../lib/types';
 import { api, ApiError } from '../lib/api';
 
 interface Props {
@@ -21,6 +22,12 @@ function authorizeCommand(publicKey: string): string {
   const key = publicKey.trim().replace(/'/g, `'\\''`);
   return `mkdir -p ~/.ssh && chmod 700 ~/.ssh && { [ -d ~/.ssh/authorized_keys ] && rmdir ~/.ssh/authorized_keys; true; } && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && { grep -qF '${key}' ~/.ssh/authorized_keys || echo '${key}' >> ~/.ssh/authorized_keys; }`;
 }
+
+const TYPE_OPTIONS: { key: MachineType; label: string }[] = [
+  { key: 'agent', label: 'Agente (recomendado)' },
+  { key: 'ssh', label: 'SSH (legado)' },
+  { key: 'local', label: 'Local' },
+];
 
 type TargetOs = 'macos' | 'linux';
 
@@ -78,7 +85,7 @@ function setupSteps(os: TargetOs, publicKey: string | null): SetupStep[] {
   ];
 }
 
-function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -96,14 +103,14 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function MachineForm({ open, onClose, machine }: Props) {
-  const { createMachine, updateMachine } = useData();
+  const { createMachine, updateMachine, refresh } = useData();
   const { user: me } = useAuth();
   const isAdmin = !!me?.role_info?.is_admin;
   // Owner transfer: admins editing an existing machine can hand it to another user.
   const [owners, setOwners] = useState<User[] | null>(null);
   const [ownerId, setOwnerId] = useState<string>(machine?.owner_id ?? '');
   const [name, setName] = useState(machine?.name ?? '');
-  const [type, setType] = useState<'local' | 'ssh'>(machine?.type ?? 'ssh');
+  const [type, setType] = useState<MachineType>(machine?.type ?? 'agent');
   const [host, setHost] = useState(machine?.host ?? '');
   const [sshUser, setSshUser] = useState(machine?.ssh_user ?? '');
   const [sshPort, setSshPort] = useState(String(machine?.ssh_port ?? 22));
@@ -115,6 +122,10 @@ export function MachineForm({ open, onClose, machine }: Props) {
   /** which setup step is expanded (accordion); null = all collapsed */
   const [openStep, setOpenStep] = useState<number | null>(machine ? null : 0);
   const [diag, setDiag] = useState<SshDiagnosis | null>(null);
+  const [rotating, setRotating] = useState(false);
+  // Set once a fresh agent token is minted (new agent machine, or a token rotation): swaps the
+  // form body for the enrollment steps. The token is shown only this once.
+  const [enrollment, setEnrollment] = useState<{ machine: Machine; token: string } | null>(null);
 
   const runTest = async () => {
     setTesting(true);
@@ -149,6 +160,15 @@ export function MachineForm({ open, onClose, machine }: Props) {
     setBusy(true);
     setError(null);
     try {
+      if (!machine && type === 'agent') {
+        // Bypass the data context here: we need the one-time `agent_token` from the raw
+        // response, not just the created Machine it returns.
+        const res = await api.machines.create({ name, type: 'agent' });
+        await refresh();
+        if (res.agent_token) setEnrollment({ machine: res.machine, token: res.agent_token });
+        else onClose();
+        return;
+      }
       const input: Partial<Machine> = {
         name,
         type,
@@ -167,6 +187,36 @@ export function MachineForm({ open, onClose, machine }: Props) {
     }
   };
 
+  const rotateToken = async () => {
+    if (!machine) return;
+    if (!window.confirm('Gerar um novo token? O agente atual será desconectado.')) return;
+    setRotating(true);
+    setError(null);
+    try {
+      const { agent_token } = await api.machines.rotateAgentToken(machine.id);
+      setEnrollment({ machine, token: agent_token });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao gerar token');
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  if (enrollment) {
+    return (
+      <Modal title={enrollment.machine.name} open={open} onClose={onClose}>
+        <div className="space-y-3">
+          <AgentEnrollment machine={enrollment.machine} token={enrollment.token} onConnected={() => void refresh()} />
+          <div className="flex justify-end pt-2">
+            <button type="button" className="btn-primary" onClick={onClose}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal title={machine ? 'Editar máquina' : 'Nova máquina'} open={open} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
@@ -177,18 +227,31 @@ export function MachineForm({ open, onClose, machine }: Props) {
         <div>
           <label className="label">Tipo</label>
           <div className="flex gap-2">
-            {(['ssh', 'local'] as const).map((t) => (
+            {TYPE_OPTIONS.map(({ key, label }) => (
               <button
-                key={t}
+                key={key}
                 type="button"
-                onClick={() => setType(t)}
-                className={`btn flex-1 border ${type === t ? 'border-accent bg-accent/15 text-fg' : 'border-line text-fg-muted hover:bg-bg-3'}`}
+                disabled={!!machine}
+                onClick={() => setType(key)}
+                className={`btn flex-1 border ${type === key ? 'border-accent bg-accent/15 text-fg' : 'border-line text-fg-muted hover:bg-bg-3'} disabled:cursor-not-allowed disabled:opacity-60`}
               >
-                {t === 'ssh' ? 'SSH' : 'Local'}
+                {label}
               </button>
             ))}
           </div>
         </div>
+        {type === 'agent' && (
+          <p className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
+            Um cliente leve roda na máquina e conecta ao termhub. Nada de SSH, nada de portas abertas.
+          </p>
+        )}
+        {machine && machine.type === 'agent' && (
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-ghost border border-line px-2 py-1 text-xs" disabled={rotating} onClick={() => void rotateToken()}>
+              {rotating ? 'Gerando…' : 'Rotacionar token'}
+            </button>
+          </div>
+        )}
         {type === 'ssh' && (
           <>
             <div>

@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useData, type MachineStatus } from '../lib/data';
 import type { Machine, Project } from '../lib/types';
+import { relativeTime } from '../lib/time';
 import { MachineForm } from './MachineForm';
 import { ProjectForm } from './ProjectForm';
 import { ConfirmDialog } from './Modal';
@@ -14,6 +15,16 @@ const STATUS_DOT: Record<MachineStatus, string> = {
   offline: 'bg-danger',
 };
 const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', online: 'online', offline: 'offline' };
+
+/** Tooltip for a machine row: connection info (host, or "agente" with no host) + os/capabilities + last-seen when offline. */
+function machineTitle(m: Machine, status: MachineStatus): string {
+  const base = m.type === 'agent' ? 'agente' : m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'local';
+  let title = base;
+  if (m.os) title += ` · ${m.os}`;
+  if (m.capabilities.length) title += ` · ${m.capabilities.join(', ')}`;
+  if (m.type === 'agent' && status === 'offline' && m.agent_last_seen_at) title += ` · visto há ${relativeTime(m.agent_last_seen_at)}`;
+  return title;
+}
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can, viewAs } = useAuth();
@@ -73,13 +84,15 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                   title={`${STATUS_LABEL[status]} — clique para verificar`}
                   onClick={() => void checkStatus(m.id)}
                 />
-                <span
-                  className="truncate font-medium"
-                  title={`${m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'local'}${m.os ? ` · ${m.os}` : ''}${m.capabilities.length ? ` · ${m.capabilities.join(', ')}` : ''}`}
-                >
+                <span className="truncate font-medium" title={machineTitle(m, status)}>
                   {m.name}
                 </span>
                 {m.os && <span className="text-[10px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
+                {m.type === 'agent' && m.agent_version && (
+                  <span className="text-[10px] text-fg-dim" title={`agente v${m.agent_version}`}>
+                    v{m.agent_version}
+                  </span>
+                )}
                 {viewAs === 'all' && (
                   <span className="truncate text-[10px] text-fg-dim" title={m.owner_name ? `Dono: ${m.owner_name}` : 'Sem dono'}>
                     {m.owner_name ?? 'sem dono'}
