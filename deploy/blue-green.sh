@@ -55,20 +55,28 @@ run() {
   fi
 }
 
+# Make sure the directory that holds the state file (and the rendered
+# vhost/backup, see switch_proxy) exists before anything tries to write to it.
+run "ensure state dir exists" mkdir -p "$STATE_DIR"
+
 # Source of truth, in order: (1) which container the live nginx vhost points
 # at — that's what's actually serving traffic; (2) the last color this
 # script wrote; (3) docker ps, as a last resort (e.g. before the vhost or
 # state file exist at all). Prints blue / green / legacy / none.
+#
+# Anchored to the `proxy_pass` directive (and comment lines stripped first)
+# so a color name mentioned in a comment elsewhere in the file can never be
+# mistaken for the active one.
 detect_active() {
   local match
 
   if [ -f "$PROXY_CONF" ]; then
-    match="$(grep -oE 'termhub-app-(blue|green)' "$PROXY_CONF" 2>/dev/null | head -n1 || true)"
+    match="$(grep -vE '^[[:space:]]*#' "$PROXY_CONF" 2>/dev/null | grep -oE 'proxy_pass[[:space:]]+https?://termhub-app-(blue|green)' | grep -oE '(blue|green)$' | head -n1 || true)"
     if [ -n "$match" ]; then
-      echo "${match#termhub-app-}"
+      echo "$match"
       return
     fi
-    if grep -q 'termhub-app:3000' "$PROXY_CONF" 2>/dev/null; then
+    if grep -vE '^[[:space:]]*#' "$PROXY_CONF" 2>/dev/null | grep -qE 'proxy_pass[[:space:]]+https?://termhub-app:3000'; then
       echo legacy
       return
     fi

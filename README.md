@@ -65,13 +65,15 @@ docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node ser
 
 The production `.env` **lives only on the server** (`/mnt/hd2tb/projetos/termhub/.env`, chmod 600); no secret goes through GitHub. To change a variable: edit the file there and re-run the workflow (or `bash deploy/blue-green.sh` by hand). The compose file has a fixed `name: termhub`, so volumes (`termhub_pgdata`, `termhub_sshkeys`) do not depend on the checkout directory.
 
+**Rollback:** `bash deploy/blue-green.sh --rollback` starts the other, stopped color and switches the vhost back to it — but only once a color has been active at least once. Right after the very first blue/green deploy there's no stopped color yet; the only fallback then is the retired legacy container (`termhub-app-legacy`, renamed and stopped, not removed) — roll back to it by hand: `docker start termhub-app-legacy`, point the vhost's `proxy_pass` at `http://termhub-app-legacy:3000;`, `docker exec proxy-nginx nginx -t && docker exec proxy-nginx nginx -s reload`, then stop the color the deploy started.
+
 Runner as a service (once, needs sudo): `cd /mnt/hd2tb/github-runner-termhub && sudo ./svc.sh install pedrogoiania && sudo ./svc.sh start`.
 
 The `Dockerfile` produces a slim image (tmux + ssh) and the entrypoint runs `prisma migrate deploy` on every boot. Main variables:
 
 | Variable | Value |
 | --- | --- |
-| `BIND_ADDR` | `127.0.0.1` (Cloudflare Tunnel only) or `0.0.0.0` (direct access by LAN IP) |
+| `BIND_ADDR` | host IP that publishes Mailpit's UI port (`127.0.0.1` or `0.0.0.0`) — the prod app itself publishes no host port, it's reached through the proxy nginx (see below) |
 | `PUBLIC_URL` | `http://192.168.x.x:3000` or `https://termhub.yourdomain.com` |
 | `SMTP_HOST` | `mailpit` (local inbox, UI on `:8025`) or a real SMTP server (Mailgun etc.) |
 | `SEED_LOCAL_MACHINE` | `false` — inside Docker, "local" would be the container |
@@ -167,7 +169,7 @@ See [.env.example](.env.example). Main ones:
 | `PUBLIC_URL` | public URL (secure cookies and OAuth redirect) |
 | `DATABASE_URL` | Postgres (`postgresql://user:pass@host:5432/db`) |
 | `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | login code delivery |
-| `BIND_ADDR` | (compose) host IP to publish the ports on |
+| `BIND_ADDR` | (compose) host IP that publishes Mailpit's UI port; the prod app has no host port of its own (proxy nginx only) |
 | `ENCRYPTION_KEY` | base64 of 32 bytes (`openssl rand -base64 32`) for integration secrets |
 | `TMUX_PATH` | path to tmux (useful as a service, minimal PATH) |
 | `LOCAL_SHELL` | shell inside local tmux (default `$SHELL`) |
