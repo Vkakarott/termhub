@@ -1,6 +1,6 @@
 import { WebSocketServer } from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
-import { CLOSE, MAX_PASTE_FRAME, PROTOCOL_VERSION } from '@termhub/agent-protocol';
+import { CLOSE, MAX_FRAME, PROTOCOL_VERSION } from '@termhub/agent-protocol';
 import type { Repositories } from '../db/repositories/index.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { AGENT_TOKEN_RE, hashAgentToken } from './token.js';
@@ -20,7 +20,9 @@ interface Deps {
 /** Upgrades `/agent/ws`: agents authenticate with `Authorization: Bearer thb_ag_…`, not a cookie. */
 export function registerAgentWs(router: ReturnType<typeof createUpgradeRouter>, deps: Deps): WebSocketServer {
   const registry = deps.registry ?? agents;
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PASTE_FRAME });
+  // Agent → server frames are pty output and small JSON control messages: 1 MiB is plenty.
+  // Only server → agent `file.paste` is large (MAX_PASTE_FRAME), and that bound is the agent's.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
   const log = deps.log.child({ mod: 'agent-ws' });
 
   router.addPublic(/^\/agent\/ws\/?$/, async ({ req, socket, head }) => {

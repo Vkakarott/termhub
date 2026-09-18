@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { buildFsListScript, buildMkdirScript } from './fs-script.js';
 
 describe('buildFsListScript', () => {
-  it('rejects unreadable/unexecutable directories right after the notfound check', () => {
+  it('checks notfound, then notdir, then eperm — so a readable regular file is "not a directory", not "no access"', () => {
     const s = buildFsListScript("''");
     expect(s).toContain('ERR:notfound');
+    expect(s).toContain('ERR:notdir');
     expect(s).toContain('ERR:eperm');
-    expect(s.indexOf('ERR:notfound')).toBeLessThan(s.indexOf('ERR:eperm'));
+    expect(s.indexOf('ERR:notfound')).toBeLessThan(s.indexOf('ERR:notdir'));
+    expect(s.indexOf('ERR:notdir')).toBeLessThan(s.indexOf('ERR:eperm'));
   });
 });
 

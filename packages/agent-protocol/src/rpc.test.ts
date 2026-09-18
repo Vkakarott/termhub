@@ -27,6 +27,7 @@ describe('rpc catalog', () => {
     expect(RPC['file.paste'].timeoutMs).toBe(60_000);
     expect(RPC['hw.probe'].timeoutMs).toBe(15_000);
     expect(RPC['tmux.list'].timeoutMs).toBe(8_000);
+    expect(RPC['ai.credential'].timeoutMs).toBe(10_000); // same as the ssh path's credential read
   });
   it('shapes rpc errors', () => {
     expect(rpcErrorSchema.parse({ code: 'eperm', message: 'x', path: '/v' }).code).toBe('eperm');

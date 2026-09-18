@@ -119,7 +119,7 @@ Exit codes: 0 ok; 78 (`EX_CONFIG`) on revoked token (3 consecutive 4401), protoc
 
 ### 5.2 Config
 
-`~/.termhub/agent.json` (dir 0700, file 0600): `{ "url", "token", "machine_id", "machine_name", "created_at" }`. `TERMHUB_AGENT_HOME` overrides the directory.
+`~/.termhub/config.json` (dir 0700, file 0600): `{ "url", "token", "machine_id", "machine_name", "created_at" }`. `TERMHUB_AGENT_HOME` overrides the directory.
 
 ### 5.3 Runtime modules
 

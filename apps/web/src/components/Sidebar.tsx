@@ -17,12 +17,12 @@ const STATUS_DOT: Record<MachineStatus, string> = {
 const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', online: 'online', offline: 'offline' };
 
 /** Tooltip for a machine row: connection info (host, or "agente" with no host) + os/capabilities + last-seen when offline. */
-function machineTitle(m: Machine, status: MachineStatus): string {
+export function machineTitle(m: Machine, status: MachineStatus): string {
   const base = m.type === 'agent' ? 'agente' : m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'local';
   let title = base;
   if (m.os) title += ` · ${m.os}`;
   if (m.capabilities.length) title += ` · ${m.capabilities.join(', ')}`;
-  if (m.type === 'agent' && status === 'offline' && m.agent_last_seen_at) title += ` · visto há ${relativeTime(m.agent_last_seen_at)}`;
+  if (m.type === 'agent' && status === 'offline' && m.agent_last_seen_at) title += ` · visto ${relativeTime(m.agent_last_seen_at)}`;
   return title;
 }
 

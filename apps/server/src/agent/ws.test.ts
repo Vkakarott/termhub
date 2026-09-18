@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
-import { CLOSE, CONTROL_CHANNEL, PROTOCOL_VERSION, encodeFrame } from '@termhub/agent-protocol';
+import { CLOSE, CONTROL_CHANNEL, MAX_FRAME, PROTOCOL_VERSION, encodeFrame } from '@termhub/agent-protocol';
 import type { AuthContext } from '../auth/index.js';
 import { createUpgradeRouter } from '../ws/router.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -230,6 +230,24 @@ describe('registerAgentWs', () => {
     expect(closed.code).toBe(CLOSE.CONFLICT);
     expect(closed.reason).toBe('protocol');
     expect(registry.isOnline('m1')).toBe(false);
+  });
+
+  it('an agent frame above MAX_FRAME (1 MiB) is refused by ws with 1009; one at the limit reaches the protocol layer', async () => {
+    await start();
+    // Both frames target an unknown channel, so a frame that *is* delivered ends in the
+    // protocol layer's 1008 — which is how we tell "accepted by ws" from "1009 too big".
+    const attempt = async (payloadBytes: number) => {
+      const ws = (await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` })).ws!;
+      ws.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify(goodHello)));
+      await vi.waitFor(() => expect(registry.isOnline('m1')).toBe(true));
+      const closed = waitClose(ws);
+      ws.send(encodeFrame(42, Buffer.alloc(payloadBytes, 0x20)));
+      const info = await closed;
+      await vi.waitFor(() => expect(registry.isOnline('m1')).toBe(false));
+      return info.code;
+    };
+    expect(await attempt(MAX_FRAME - 4)).toBe(CLOSE.VIOLATION); // exactly 1 MiB on the wire: delivered
+    expect(await attempt(MAX_FRAME - 3)).toBe(1009); // one byte more: ws "Max payload size exceeded"
   });
 
   it('connection closing while the initial touch() is still in flight leaves no dangling interval', async () => {

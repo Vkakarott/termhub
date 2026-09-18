@@ -13,8 +13,10 @@ export function buildFsListScript(quotedPath: string): string {
     // discos: fonte, tamanho, livre e mount point (mount pode ter espaços: fica no fim da linha)
     `df -Pk 2>/dev/null | tail -n +2 | while IFS= read -r line; do set -- $line; src=$1; size=$2; avail=$4; shift 5; [ -d "$*" ] && printf 'MNT:%s\\t%s\\t%s\\t%s\\n' "$src" "$size" "$avail" "$*"; done`,
     `if [ ! -e "$P" ]; then echo "ERR:notfound"; exit 0; fi`,
-    `if [ ! -r "$P" ] || [ ! -x "$P" ]; then echo "ERR:eperm"; exit 0; fi`,
+    // notdir before eperm: a readable regular file fails `-x`, and "sem acesso" would be the
+    // wrong diagnosis for it — "não é um diretório" is.
     `if [ ! -d "$P" ]; then echo "ERR:notdir"; exit 0; fi`,
+    `if [ ! -r "$P" ] || [ ! -x "$P" ]; then echo "ERR:eperm"; exit 0; fi`,
     `cd -- "$P" 2>/dev/null || { echo "ERR:denied"; exit 0; }`,
     `echo "PWD:$(pwd)"`,
     `ls -1Ap 2>/dev/null | grep '/$' | sed 's#/$##' | while IFS= read -r n; do echo "DIR:$n"; done`,
