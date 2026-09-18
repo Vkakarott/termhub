@@ -16,6 +16,10 @@ export interface AiUsageResult {
   /** human-readable failure and a hint on how to fix it (never contains the token) */
   error: string | null;
   hint: string | null;
+  /** the provider rate-limited the usage query itself (HTTP 429): back off, keep the last reading */
+  rate_limited?: boolean;
+  /** provider-suggested wait before asking again (Retry-After), when given */
+  retry_after_ms?: number | null;
 }
 
 export interface AiCredential {

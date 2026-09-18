@@ -138,7 +138,12 @@ function AccountCard({
         )}
       </div>
 
-      {usage && <div className="mt-3 border-t border-line pt-2 text-[11px] text-fg-dim">atualizado {relative(usage.fetched_at, now)}</div>}
+      {usage && (
+        <div className="mt-3 border-t border-line pt-2 text-[11px] text-fg-dim">
+          atualizado {relative(usage.fetched_at, now)}
+          {usage.stale && <span className="text-warn"> · limite de consultas do provedor; mostrando a última leitura</span>}
+        </div>
+      )}
     </li>
   );
 }
@@ -219,7 +224,8 @@ function AccountForm({ account, onClose, onSaved }: { account: AiAccount | null;
   );
 }
 
-const POLL_MS = 60_000;
+// the server caches each account for 5 min and backs off on 429, so polling faster only re-reads the cache
+const POLL_MS = 5 * 60_000;
 
 export function AiAccountsView() {
   const { machines } = useData();
