@@ -1,5 +1,5 @@
 import type { AiCredential, AiProviderAdapter, AiUsageResult, AiUsageWindow } from './types.js';
-import { httpJson, isObj, num, str, toIso, windowLabel } from './credentials.js';
+import { httpJson, isObj, num, retryAfterMs, str, toIso, windowLabel } from './credentials.js';
 
 /**
  * ChatGPT (Plus / Pro / Team subscription).
@@ -44,6 +44,7 @@ export const chatgptAdapter: AiProviderAdapter = {
     if (cred.extra.account_id) headers['chatgpt-account-id'] = cred.extra.account_id;
     const r = await httpJson(USAGE_URL, { headers });
     if (r.status === 401 || r.status === 403) return { ...base, error: `OpenAI rejected the token (${r.status})`, hint: 'Run `codex` on that machine once to refresh the login.' };
+    if (r.status === 429) return { ...base, error: 'OpenAI rate-limited the usage query', hint: 'Showing the last reading; retrying in a few minutes.', rate_limited: true, retry_after_ms: retryAfterMs(r.headers) };
     if (r.status >= 400 || !isObj(r.body)) return { ...base, error: `Unexpected response from OpenAI (${r.status})`, hint: r.text.slice(0, 200) || null };
 
     const plan = str(r.body.plan_type) ?? str(r.body.plan) ?? null;

@@ -329,6 +329,8 @@ export interface AiAccountUsage {
   windows: AiUsageWindow[];
   error: string | null;
   hint: string | null;
+  /** last good reading, shown because the provider is rate-limiting the usage query */
+  stale?: boolean;
 }
 
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', antigravity: 'Antigravity' };
