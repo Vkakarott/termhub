@@ -4,7 +4,7 @@ import type { Screen, SimStatus, SimulatorBackend, Viewer } from './session-mana
 import { SimulatorSessionManager } from './session-manager.js';
 import { WdaClient } from './wda-client.js';
 
-const machine: Machine = { id: 'm1', name: 'mac', host: 'mac.local', ssh_user: 'u', ssh_port: 22, type: 'ssh', os: 'macos', capabilities: ['wda'], checked_at: null, created_at: '' };
+const machine: Machine = { id: 'm1', name: 'mac', host: 'mac.local', ssh_user: 'u', ssh_port: 22, type: 'ssh', os: 'macos', capabilities: ['wda'], checked_at: null, owner_id: null, owner_name: null, created_at: '' };
 const UDID = 'BAE07EB5-8CA8-4C6E-819A-A0240342FF00';
 
 function makeBackend(overrides: Partial<SimulatorBackend> = {}) {

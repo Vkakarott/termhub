@@ -2,8 +2,9 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { toPublicUser, type User } from '../db/repositories/types.js';
-import { permissionsOf } from './permissions.js';
-import { HttpError, badRequest, unauthorized } from '../lib/errors.js';
+import { isAdmin, permissionsOf } from './permissions.js';
+import { VIEW_AS_ALL, VIEW_AS_COOKIE, type Scope } from './scope.js';
+import { HttpError, badRequest, forbidden, unauthorized } from '../lib/errors.js';
 import type { AuthContext } from './middleware.js';
 import { buildAuthorizationUrl, exchangeCode, isGoogleEnabled } from './google.js';
 import { CSRF_COOKIE, OAUTH_COOKIE, SESSION_COOKIE } from './tokens.js';
@@ -35,7 +36,18 @@ function setSessionCookies(reply: FastifyReply, token: string, csrf: string, exp
 function clearSessionCookies(reply: FastifyReply) {
   reply.clearCookie(SESSION_COOKIE, { path: '/' });
   reply.clearCookie(CSRF_COOKIE, { path: '/' });
+  reply.clearCookie(VIEW_AS_COOKIE, { path: '/' });
 }
+
+/** What the client shows in the "view as" switch: null (self), "all", or the impersonated user. */
+function viewAsOf(scope: Scope | undefined) {
+  if (!scope || scope.viewAs.kind === 'self') return null;
+  if (scope.viewAs.kind === 'all') return 'all' as const;
+  const u = scope.viewAs.user;
+  return { id: u.id, name: u.name, email: u.email, avatar_url: u.avatar_url };
+}
+
+const viewAsSchema = z.object({ user_id: z.string().min(1).max(64).nullable() });
 
 export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
   /** Public user + role summary + flat permission list: what the client needs to gate its UI. */
@@ -59,7 +71,31 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
 
   app.get('/me', { config: { public: true } }, async (request) => {
     if (!request.user) throw unauthorized();
-    return { user: await withRole(request.user) };
+    return { user: await withRole(request.user), view_as: viewAsOf(request.scope) };
+  });
+
+  /**
+   * Admin-only data scope switch: see the app as another user (their machines, projects, tabs…),
+   * as "all" (user_id "*") or back as yourself (null). Stored in a cookie so WebSockets follow too.
+   */
+  app.post('/view-as', async (request, reply) => {
+    if (!request.user) throw unauthorized();
+    if (!(await isAdmin(ctx.repos, request.user))) throw forbidden('Só administradores podem ver como outro usuário');
+    const { user_id } = viewAsSchema.parse(request.body);
+    const base = { path: '/', sameSite: 'lax' as const, secure: config.auth.cookieSecure, httpOnly: true };
+    if (!user_id || user_id === request.user.id) {
+      reply.clearCookie(VIEW_AS_COOKIE, { path: '/' });
+      return { view_as: null };
+    }
+    if (user_id === VIEW_AS_ALL) {
+      reply.setCookie(VIEW_AS_COOKIE, VIEW_AS_ALL, base);
+      return { view_as: 'all' as const };
+    }
+    const target = await ctx.repos.users.findById(user_id);
+    if (!target) throw badRequest('Usuário inexistente');
+    reply.setCookie(VIEW_AS_COOKIE, target.id, base);
+    request.log.info({ adminId: request.user.id, viewAs: target.id }, 'view-as set');
+    return { view_as: { id: target.id, name: target.name, email: target.email, avatar_url: target.avatar_url } };
   });
 
   app.post('/login', { config: { public: true } }, async (request, reply) => {

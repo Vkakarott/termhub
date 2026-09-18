@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { badRequest, forbidden } from '../lib/errors.js';
+import { scoped } from '../auth/scope.js';
+import { isAdmin } from '../auth/permissions.js';
 import { diagnoseSsh, machineStatus } from '../terminal/machine-exec.js';
 import { listSimulators } from '../simulator/machine.js';
 import { startWdaSetup, wdaSetupState } from '../simulator/setup.js';
@@ -24,6 +26,8 @@ const machineBody = z
     if (m.type === 'ssh' && !m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'host é obrigatório para SSH' });
   });
 
+const ownerPatch = z.object({ owner_id: z.string().min(1).max(64).nullable().optional() });
+
 const testBody = z.object({
   host: z.string().trim().min(1).max(253),
   ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
@@ -37,33 +41,36 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     return await diagnoseSsh({ host: b.host, ssh_user: b.ssh_user ?? null, ssh_port: b.ssh_port ?? 22 });
   });
 
-  app.get('/', async () => ({ machines: await repos.machines.list() }));
+  /** Machines in the caller's scope (own, or the "view as" target / all for admins). */
+  app.get('/', async (request) => ({ machines: await repos.machines.list(request.scope.ownerId) }));
 
   app.post('/', async (request, reply) => {
     const body = machineBody.parse(request.body);
-    const machine = await repos.machines.create(body);
+    const machine = await repos.machines.create({ ...body, owner_id: request.scope.createAs });
     return reply.code(201).send({ machine });
   });
 
   app.get('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
-    return { machine };
+    return { machine: await scoped(repos, request).machine(id) };
   });
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const current = await repos.machines.findById(id);
-    if (!current) throw notFound('Máquina não encontrada');
+    const current = await scoped(repos, request).machine(id);
     const merged = machineBody.parse({ ...current, ...(request.body as object) });
-    return { machine: await repos.machines.update(id, merged) };
+    // owner transfer is an admin-only field (any admin scope, including "all")
+    const { owner_id } = ownerPatch.parse(request.body ?? {});
+    if (owner_id !== undefined) {
+      if (!(await isAdmin(repos, request.user))) throw forbidden('Só administradores transferem máquinas');
+      if (owner_id && !(await repos.users.findById(owner_id))) throw badRequest('Usuário inexistente');
+    }
+    return { machine: await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) }) };
   });
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    await scoped(repos, request).machine(id);
     if ((await repos.projects.list({ machine_id: id })).length > 0) {
       throw badRequest('Remova os projetos desta máquina antes de excluí-la');
     }
@@ -73,8 +80,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
 
   app.get('/:id/status', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    const machine = await scoped(repos, request).machine(id);
     const status = await machineStatus(machine);
     if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
     return { id, ...status, checked_at: new Date().toISOString() };
@@ -86,16 +92,14 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
 
   app.get('/:id/simulators', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    const machine = await scoped(repos, request).machine(id);
     requireMac(machine);
     return { simulators: await listSimulators(machine) };
   });
 
   app.get('/:id/simulator/setup', async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    const machine = await scoped(repos, request).machine(id);
     const state = await wdaSetupState(machine);
     if (state.state === 'ok' && !machine.capabilities.includes('wda')) {
       const status = await machineStatus(machine);
@@ -106,8 +110,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
 
   app.post('/:id/simulator/setup', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    const machine = await scoped(repos, request).machine(id);
     requireMac(machine);
     await startWdaSetup(machine);
     return reply.code(202).send({ ok: true });
@@ -117,8 +120,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/:id/fs', async (request) => {
     const { id } = idParam.parse(request.params);
     const { path } = fsQuery.parse(request.query);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    const machine = await scoped(repos, request).machine(id);
     return await browseMachine(machine, path);
   });
 
@@ -126,8 +128,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.post('/:id/fs/mkdir', async (request, reply) => {
     const { id } = idParam.parse(request.params);
     const { parent, name } = mkdirBody.parse(request.body);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    const machine = await scoped(repos, request).machine(id);
     const path = await makeDirectory(machine, parent, name);
     return reply.code(201).send({ path });
   });
@@ -138,8 +139,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
    */
   app.get('/:id/hardware', { config: { resource: 'hardware', action: 'read' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    const machine = await repos.machines.findById(id);
-    if (!machine) throw notFound('Máquina não encontrada');
+    const machine = await scoped(repos, request).machine(id);
     return { hardware: await collectHardware(machine) };
   });
 }

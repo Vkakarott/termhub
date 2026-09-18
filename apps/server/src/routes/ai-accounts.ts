@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { badRequest } from '../lib/errors.js';
+import { scoped } from '../auth/scope.js';
 import { forgetAccountUsage, getAccountUsage } from '../ai/index.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
@@ -15,27 +16,34 @@ const accountBody = z.object({
 });
 
 export async function aiAccountRoutes(app: FastifyInstance, repos: Repositories) {
-  app.get('/', async () => ({ accounts: await repos.aiAccounts.list() }));
+  app.get('/', async (request) => ({ accounts: await repos.aiAccounts.list(request.scope.ownerId) }));
 
   app.post('/', async (request, reply) => {
     const body = accountBody.parse(request.body);
-    if (!(await repos.machines.findById(body.machine_id))) throw badRequest('Machine does not exist');
+    await scoped(repos, request).machine(body.machine_id).catch(() => {
+      throw badRequest('Machine does not exist');
+    });
     const account = await repos.aiAccounts.create({ ...body, config_dir: body.config_dir || null });
     return reply.code(201).send({ account });
   });
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.aiAccounts.findById(id))) throw notFound('Account not found');
+    const s = scoped(repos, request);
+    await s.aiAccount(id);
     const patch = accountBody.omit({ provider: true }).partial().parse(request.body);
-    if (patch.machine_id && !(await repos.machines.findById(patch.machine_id))) throw badRequest('Machine does not exist');
+    if (patch.machine_id) {
+      await s.machine(patch.machine_id).catch(() => {
+        throw badRequest('Machine does not exist');
+      });
+    }
     forgetAccountUsage(id);
     return { account: await repos.aiAccounts.update(id, { ...patch, config_dir: patch.config_dir === undefined ? undefined : patch.config_dir || null }) };
   });
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.aiAccounts.findById(id))) throw notFound('Account not found');
+    await scoped(repos, request).aiAccount(id);
     await repos.aiAccounts.delete(id);
     forgetAccountUsage(id);
     return { ok: true };
@@ -44,7 +52,7 @@ export async function aiAccountRoutes(app: FastifyInstance, repos: Repositories)
   /** Usage of every account (cached 60 s; ?refresh=1 forces a new read). Accounts are queried in parallel. */
   app.get('/usage', async (request) => {
     const { refresh } = usageQuery.parse(request.query);
-    const [accounts, machines] = await Promise.all([repos.aiAccounts.list(), repos.machines.list()]);
+    const [accounts, machines] = await Promise.all([repos.aiAccounts.list(request.scope.ownerId), repos.machines.list(request.scope.ownerId)]);
     const byId = new Map(machines.map((m) => [m.id, m]));
     const usage = await Promise.all(accounts.map((a) => getAccountUsage(a, byId.get(a.machine_id), !!refresh)));
     return { usage };
@@ -53,9 +61,7 @@ export async function aiAccountRoutes(app: FastifyInstance, repos: Repositories)
   app.get('/:id/usage', async (request) => {
     const { id } = idParam.parse(request.params);
     const { refresh } = usageQuery.parse(request.query);
-    const account = await repos.aiAccounts.findById(id);
-    if (!account) throw notFound('Account not found');
-    const machine = await repos.machines.findById(account.machine_id);
+    const { account, machine } = await scoped(repos, request).aiAccount(id);
     return { usage: await getAccountUsage(account, machine, !!refresh) };
   });
 }

@@ -3,11 +3,12 @@ import type { Repositories } from '../db/repositories/index.js';
 
 /** Visão "o que estou fazendo agora": projetos ativos + máquina + tasks em andamento + último terminal. */
 export async function dashboardRoutes(app: FastifyInstance, repos: Repositories) {
-  app.get('/', async () => {
+  app.get('/', async (request) => {
+    const owner = request.scope.ownerId;
     const [projects, machines, doing, openCounts] = await Promise.all([
-      repos.projects.list({ status: 'active' }),
-      repos.machines.list(),
-      repos.tasks.listDoing(),
+      repos.projects.list({ status: 'active', owner }),
+      repos.machines.list(owner),
+      repos.tasks.listDoing(owner),
       repos.tasks.openCountByProject(),
     ]);
     const machineById = new Map(machines.map((m) => [m.id, m]));

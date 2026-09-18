@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
+import { Scoped } from '../auth/scope.js';
 import { PtySession } from './pty-session.js';
 
 const controlSchema = z.discriminatedUnion('type', [
@@ -20,13 +21,12 @@ export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const log = deps.log.child({ mod: 'ws' });
 
-  router.add(/^\/ws\/tabs\/([a-z0-9]+)\/?$/, async ({ req, socket, head, url, params }) => {
+  router.add(/^\/ws\/tabs\/([a-z0-9]+)\/?$/, async ({ req, socket, head, url, params, scope }) => {
     const tabId = params[0];
-    const tab = await deps.repos.tabs.findById(tabId);
-    const project = tab && (await deps.repos.projects.findById(tab.project_id));
-    const machine = project && (await deps.repos.machines.findById(project.machine_id));
-    if (!tab || !project || !machine) return rejectUpgrade(socket, 404, 'Not Found');
-    if (tab.kind !== 'terminal') return rejectUpgrade(socket, 404, 'Not Found');
+    // ownership: a tab outside the caller's scope is a 404, like a missing one
+    const found = await new Scoped(deps.repos, scope).tab(tabId).catch(() => null);
+    if (!found || found.tab.kind !== 'terminal') return rejectUpgrade(socket, 404, 'Not Found');
+    const { tab, project, machine } = found;
 
     const cols = Number(url.searchParams.get('cols')) || 80;
     const rows = Number(url.searchParams.get('rows')) || 24;
