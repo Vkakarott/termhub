@@ -106,10 +106,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./server/src:/app/server/src
-      - ./server/prisma:/app/server/prisma
-      - ./web/src:/app/web/src
-      - ./web/index.html:/app/web/index.html
+      - ./apps/server/src:/app/apps/server/src
+      - ./apps/server/prisma:/app/apps/server/prisma
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/index.html:/app/apps/web/index.html
       - sshkeys-dev:/root/.ssh
     depends_on:
       db:
@@ -127,6 +127,20 @@ services:
 
   app-green:
     <<: *app
+
+  # ── Prod: landing page (termhub.dev), static nginx built from apps/landing ──
+  landing:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: apps/landing/Dockerfile
+    image: termhub-landing
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:

@@ -2,7 +2,7 @@
  * Cria um usuário via CLI. Uso:
  *   npm run create-user -- --email you@example.com --name "Seu Nome" [--password ...] [--role owner|member]
  *   npm run create-user -- you@example.com "Seu Nome"
- *   (Docker, prod blue/green) docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node server/dist/cli/create-user.js you@example.com "Seu Nome"
+ *   (Docker, prod blue/green) docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node apps/server/dist/cli/create-user.js you@example.com "Seu Nome"
  * A senha é opcional: sem ela, o usuário entra pelo código enviado por e-mail (ou Google).
  * O primeiro usuário criado vira "owner".
  */

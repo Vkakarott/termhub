@@ -7,8 +7,9 @@ WORKDIR /app
 FROM base AS deps
 RUN apk add --no-cache python3 make g++ openssl
 COPY package.json package-lock.json ./
-COPY server/package.json server/
-COPY web/package.json web/
+COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
+COPY apps/landing/package.json apps/landing/
 COPY scripts/postinstall.mjs scripts/
 RUN npm ci
 
@@ -28,11 +29,11 @@ RUN apk add --no-cache tmux openssh-client bash tini \
  && mkdir -p /home/app/.ssh && chown app:app /home/app/.ssh && chmod 700 /home/app/.ssh
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/package.json ./
-COPY --from=build --chown=app:app /app/server/package.json ./server/
-COPY --from=build --chown=app:app /app/server/dist ./server/dist
-COPY --from=build --chown=app:app /app/server/prisma ./server/prisma
-COPY --from=build --chown=app:app /app/server/prisma.config.ts ./server/
-COPY --from=build --chown=app:app /app/web/dist ./web/dist
+COPY --from=build --chown=app:app /app/apps/server/package.json ./apps/server/
+COPY --from=build --chown=app:app /app/apps/server/dist ./apps/server/dist
+COPY --from=build --chown=app:app /app/apps/server/prisma ./apps/server/prisma
+COPY --from=build --chown=app:app /app/apps/server/prisma.config.ts ./apps/server/
+COPY --from=build --chown=app:app /app/apps/web/dist ./apps/web/dist
 COPY --chown=app:app docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod +x /app/docker/entrypoint.sh
 USER app
