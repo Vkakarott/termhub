@@ -128,7 +128,12 @@ export function initAnalytics(lang: Lang): void {
   }
   pending = new Promise<Analytics | null>((resolve) => {
     whenIdle(() => {
-      void load().then(resolve);
+      // `pending` must always settle: anything the SDK throws past the import would
+      // otherwise leave track()/setLang()/setCollection() waiting on it forever
+      void load().then(resolve, (err) => {
+        console.debug('[analytics] init failed', err);
+        resolve(null);
+      });
     });
   });
 }
