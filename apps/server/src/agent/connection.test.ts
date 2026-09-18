@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { CLOSE, CONTROL_CHANNEL, decodeFrame, encodeFrame, PROTOCOL_VERSION } from '@termhub/agent-protocol';
-import { AgentConnection, AgentTimeoutError } from './connection.js';
+import { AgentClosedError, AgentConnection, AgentTimeoutError } from './connection.js';
 
 class FakeSocket extends EventEmitter {
   sent: Buffer[] = [];
@@ -100,5 +100,65 @@ describe('AgentConnection', () => {
     const { s, c } = connected();
     c.heartbeat(); s.emit('pong'); c.heartbeat(); c.heartbeat();
     expect(s.closed?.code).toBe(1006);
+  });
+});
+
+// Fix round 1 — regression tests for the 4 Important review findings.
+describe('AgentConnection — fix round 1', () => {
+  it('rejects the pending rpc (not just a violation) when rpc_result is not ok and has no error', async () => {
+    const { s, c } = connected();
+    const pending = c.rpc('tmux.list', {});
+    const [msg] = s.control().filter((m) => m.type === 'rpc');
+    s.recvControl({ type: 'rpc_result', id: msg.id, ok: false });
+    await expect(pending).rejects.toThrow();
+    expect(s.closed?.code).toBe(CLOSE.VIOLATION);
+  });
+
+  it('rejects openPty (and never calls onExit) when closed arrives before opened', async () => {
+    const { s, c } = connected();
+    const onData = vi.fn();
+    const onExit = vi.fn();
+    const opening = c.openPty({ session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 }, { onData, onExit });
+    const [open] = s.control().filter((m) => m.type === 'open');
+    s.recvControl({ type: 'closed', ch: open.ch, code: 1 });
+    await expect(opening).rejects.toThrow(/closed before opened/);
+    expect(onExit).not.toHaveBeenCalled();
+    expect(s.closed).toBeNull();
+  });
+
+  it('tombstones a timed-out open so a late "opened" cannot resolve a new openPty on the reused number', async () => {
+    vi.useFakeTimers();
+    const { s, c } = connected();
+    const onExit1 = vi.fn();
+    const opening1 = c.openPty({ session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 }, { onData() {}, onExit: onExit1 });
+    const [open1] = s.control().filter((m) => m.type === 'open');
+    vi.advanceTimersByTime(10_001);
+    await expect(opening1).rejects.toBeInstanceOf(AgentTimeoutError);
+
+    const onData2 = vi.fn();
+    const onExit2 = vi.fn();
+    const opening2 = c.openPty({ session: 'th-b', cwd: '/tmp', cols: 80, rows: 24 }, { onData: onData2, onExit: onExit2 });
+    const opens = s.control().filter((m) => m.type === 'open');
+    const open2 = opens[opens.length - 1];
+    expect(open2.ch).not.toBe(open1.ch);
+
+    // Late reply for the timed-out attempt: must not resolve/violate, and must not touch channel 2.
+    s.recvControl({ type: 'opened', ch: open1.ch });
+    expect(s.closed).toBeNull();
+    expect(onExit1).not.toHaveBeenCalled();
+
+    s.recvControl({ type: 'opened', ch: open2.ch });
+    const ch2 = await opening2;
+    expect(ch2.ch).toBe(open2.ch);
+    vi.useRealTimers();
+  });
+
+  it('rejects rpc/openPty immediately once the connection is closing, without waiting out the timeout', async () => {
+    const { c } = connected();
+    c.close(1000, 'bye');
+    await expect(c.rpc('tmux.list', {})).rejects.toBeInstanceOf(AgentClosedError);
+    await expect(c.openPty({ session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 }, { onData() {}, onExit() {} })).rejects.toBeInstanceOf(
+      AgentClosedError,
+    );
   });
 });

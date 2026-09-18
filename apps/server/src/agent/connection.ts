@@ -68,6 +68,10 @@ interface ChannelEntry {
   handlers: PtyHandlers;
   open: { resolve(ch: AgentPtyChannel): void; reject(err: Error): void } | null;
   openTimer: ReturnType<typeof setTimeout> | null;
+  /** Set when our local open timeout fired first: the number stays reserved (tombstoned)
+   *  until the agent acknowledges with `closed`/`open_error`, so it can't be handed to a
+   *  new openPty() while a stale `opened` for this attempt might still be in flight. */
+  timedOut: boolean;
 }
 
 export class AgentConnection extends EventEmitter {
@@ -87,6 +91,11 @@ export class AgentConnection extends EventEmitter {
   private readonly channels = new Map<number, ChannelEntry>();
 
   private alive = true;
+  /** True as soon as a close has been initiated locally (close()/violation()) or the
+   *  socket's 'close' event has fired — gates new rpc()/openPty() calls and incoming
+   *  frame processing immediately, without waiting for the (possibly async) 'close' event. */
+  private closing = false;
+  /** True once onClose()'s cleanup has fully run; guards that cleanup from running twice. */
   private closed = false;
 
   constructor(socket: SocketLike, opts: { machineId: string; log: LoggerLike; now?: () => number }) {
@@ -116,6 +125,9 @@ export class AgentConnection extends EventEmitter {
   }
 
   rpc<M extends RpcMethod>(method: M, params: RpcParams<M>, timeoutMs?: number): Promise<RpcResult<M>> {
+    if (this.closing) {
+      return Promise.reject(new AgentClosedError('agent connection closed'));
+    }
     const id = `r${++this.seq}`;
     const effectiveTimeout = timeoutMs ?? RPC[method].timeoutMs;
     return new Promise((resolve, reject) => {
@@ -135,14 +147,23 @@ export class AgentConnection extends EventEmitter {
   }
 
   openPty(params: PtyOpenParams, handlers: PtyHandlers): Promise<AgentPtyChannel> {
+    if (this.closing) {
+      return Promise.reject(new AgentClosedError('agent connection closed'));
+    }
     if (this.channels.size >= MAX_CHANNELS) {
       return Promise.reject(new Error('too many channels'));
     }
     const ch = this.nextChannel();
     return new Promise((resolve, reject) => {
-      const entry: ChannelEntry = { handlers, open: null, openTimer: null };
+      const entry: ChannelEntry = { handlers, open: null, openTimer: null, timedOut: false };
       const timer = setTimeout(() => {
-        this.channels.delete(ch);
+        // We gave up locally, but the agent may still reply to the original 'open' — keep
+        // the channel number reserved (tombstoned) and tell the agent to close it, instead
+        // of freeing the number for a late 'opened'/'open_error' to land on a new request.
+        entry.timedOut = true;
+        entry.open = null;
+        entry.openTimer = null;
+        this.sendControl({ type: 'close', ch });
         reject(new AgentTimeoutError(`agent open timeout: ch ${ch}`));
       }, OPEN_TIMEOUT_MS);
       entry.openTimer = timer;
@@ -165,6 +186,7 @@ export class AgentConnection extends EventEmitter {
   }
 
   close(code: number, reason?: string): void {
+    this.closing = true;
     this.socket.close(code, reason);
   }
 
@@ -191,6 +213,7 @@ export class AgentConnection extends EventEmitter {
   }
 
   private violation(reason: string): void {
+    this.closing = true;
     this.log.warn({ machineId: this.machineId, reason }, 'agent protocol violation');
     for (const w of this.helloWaiters) w.reject(new Error(`protocol violation: ${reason}`));
     this.helloWaiters = [];
@@ -202,7 +225,7 @@ export class AgentConnection extends EventEmitter {
   }
 
   private onMessage(data: Buffer): void {
-    if (this.closed) return;
+    if (this.closing) return;
     let frame: { ch: number; payload: Buffer };
     try {
       frame = decodeFrame(data);
@@ -302,6 +325,10 @@ export class AgentConnection extends EventEmitter {
     }
 
     if (!msg.error) {
+      // The pending entry is already removed from `this.pending`, so onClose()'s cleanup
+      // loop can no longer find it — reject it here or the original caller's promise would
+      // never settle.
+      entry.reject(new Error(`protocol violation: rpc_result not ok without error for ${entry.method}`));
       this.violation('rpc_result not ok without error');
       return;
     }
@@ -311,7 +338,17 @@ export class AgentConnection extends EventEmitter {
 
   private onOpened(ch: number): void {
     const entry = this.channels.get(ch);
-    if (!entry || !entry.open) {
+    if (!entry) {
+      this.violation(`opened for unknown channel ${ch}`);
+      return;
+    }
+    if (entry.timedOut) {
+      // Late reply to a request we already gave up on locally: tell the agent (again) to
+      // close it and ignore — not a violation, the agent just raced our local timeout.
+      this.sendControl({ type: 'close', ch });
+      return;
+    }
+    if (!entry.open) {
       this.violation(`opened for unknown channel ${ch}`);
       return;
     }
@@ -321,7 +358,16 @@ export class AgentConnection extends EventEmitter {
 
   private onOpenError(ch: number, error: RpcError): void {
     const entry = this.channels.get(ch);
-    if (!entry || !entry.open) {
+    if (!entry) {
+      this.violation(`open_error for unknown channel ${ch}`);
+      return;
+    }
+    if (entry.timedOut) {
+      // The agent acknowledged the close we sent after our local timeout: free the number.
+      this.channels.delete(ch);
+      return;
+    }
+    if (!entry.open) {
       this.violation(`open_error for unknown channel ${ch}`);
       return;
     }
@@ -332,6 +378,19 @@ export class AgentConnection extends EventEmitter {
     const entry = this.channels.get(ch);
     if (!entry) {
       this.violation(`closed for unknown channel ${ch}`);
+      return;
+    }
+    if (entry.timedOut) {
+      // The agent acknowledged the close we sent after our local timeout: free the number.
+      this.channels.delete(ch);
+      return;
+    }
+    if (entry.open) {
+      // The agent closed the pty before ever confirming it opened: settle the openPty()
+      // promise as a failure, never as an exit — the caller never got a channel object.
+      if (entry.openTimer) clearTimeout(entry.openTimer);
+      this.channels.delete(ch);
+      entry.open.reject(new Error('pty closed before opened'));
       return;
     }
     this.channels.delete(ch);
@@ -357,6 +416,7 @@ export class AgentConnection extends EventEmitter {
   private onClose(code: number, reason: string): void {
     if (this.closed) return;
     this.closed = true;
+    this.closing = true;
 
     for (const w of this.helloWaiters) w.reject(new AgentClosedError('agent connection closed'));
     this.helloWaiters = [];
@@ -373,6 +433,10 @@ export class AgentConnection extends EventEmitter {
 
     for (const entry of this.channels.values()) {
       if (entry.openTimer) clearTimeout(entry.openTimer);
+      if (entry.timedOut) {
+        // Already settled (rejected) locally when the open timeout fired; nothing to notify.
+        continue;
+      }
       if (entry.open) {
         entry.open.reject(new AgentClosedError('agent connection closed'));
       } else {
