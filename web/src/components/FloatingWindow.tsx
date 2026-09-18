@@ -23,6 +23,7 @@ export function FloatingWindow({ rect, title, onMove, onResize, onDock, onFocus,
 
   const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    e.stopPropagation();
     onFocus();
     drag.current = { dx: e.clientX - rect.x, dy: e.clientY - rect.y };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -74,6 +75,15 @@ export function FloatingWindow({ rect, title, onMove, onResize, onDock, onFocus,
         <span className="truncate text-fg">{title}</span>
         <button className="ml-auto rounded px-1 hover:bg-bg-4 hover:text-fg" onPointerDown={(e) => e.stopPropagation()} onClick={onDock} title="Encaixar no painel focado">
           Encaixar
+        </button>
+        <button
+          className="rounded px-1 hover:bg-bg-4 hover:text-fg"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onDock}
+          title="Encaixar (fechar a janela)"
+          aria-label="Encaixar"
+        >
+          ✕
         </button>
       </div>
       <div className="relative min-h-0 flex-1">{children}</div>
