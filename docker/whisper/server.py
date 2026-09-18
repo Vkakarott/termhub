@@ -40,10 +40,17 @@ def physical_cores() -> int:
     return len(cores) or (os.cpu_count() or 4)
 
 
-MODEL = os.environ.get("WHISPER_MODEL", "small")
+MODEL = os.environ.get("WHISPER_MODEL", "medium")
 THREADS = int(os.environ.get("WHISPER_THREADS", "0")) or physical_cores()
 DEFAULT_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "pt")
 BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "5"))
+# Style hint: whisper mimics the prompt's punctuation and casing. Measured on pt-BR audio, "medium"
+# with this prompt beat every larger model (large-v3/turbo drop punctuation in Portuguese).
+DEFAULT_PROMPTS = {
+    "pt": "Olá, tudo bem? Hoje vamos revisar o código do projeto. Primeiro, abra o arquivo principal; depois, rode os testes.",
+    "en": "Hi, how are you? Today we will review the project's code. First, open the main file; then, run the tests.",
+}
+INITIAL_PROMPT = os.environ.get("WHISPER_INITIAL_PROMPT") or DEFAULT_PROMPTS.get(DEFAULT_LANGUAGE)
 PORT = int(os.environ.get("PORT", "8000"))
 MAX_BYTES = 64 * 1024 * 1024
 
@@ -72,6 +79,7 @@ def transcribe(data: bytes, language: str | None) -> dict:
             io.BytesIO(data),
             language=language or None,
             beam_size=BEAM_SIZE,
+            initial_prompt=INITIAL_PROMPT,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
             condition_on_previous_text=False,

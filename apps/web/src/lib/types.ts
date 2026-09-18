@@ -268,6 +268,10 @@ export interface Transcription {
   /** audio length in seconds */
   duration?: number;
   error?: string;
+  /** pending only: estimated seconds until the text is ready */
+  eta_seconds?: number;
+  /** pending only: 0..1 share of the estimated time already elapsed */
+  progress?: number;
 }
 
 export interface Simulator {
