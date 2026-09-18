@@ -8,7 +8,7 @@ const idParam = z.object({ id: z.string().min(1).max(64) });
 const usageQuery = z.object({ refresh: z.coerce.boolean().optional() });
 
 const accountBody = z.object({
-  provider: z.enum(['claude', 'chatgpt', 'gemini']),
+  provider: z.enum(['claude', 'chatgpt', 'gemini', 'antigravity']),
   label: z.string().trim().min(1).max(60),
   machine_id: z.string().min(1).max(64),
   config_dir: z.string().trim().max(512).nullable().optional(),

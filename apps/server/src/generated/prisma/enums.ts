@@ -64,7 +64,8 @@ export type IntegrationProvider = (typeof IntegrationProvider)[keyof typeof Inte
 export const AiProvider = {
   claude: 'claude',
   chatgpt: 'chatgpt',
-  gemini: 'gemini'
+  gemini: 'gemini',
+  antigravity: 'antigravity'
 } as const
 
 export type AiProvider = (typeof AiProvider)[keyof typeof AiProvider]
