@@ -9,6 +9,8 @@ import { api, ApiError } from '../lib/api';
 interface Props {
   tabId: string;
   active: boolean;
+  /** true when this is the tab that should own keyboard focus right now (the focused cell/floating window) */
+  focused?: boolean;
   onConnected?: () => void;
   onExit?: () => void;
 }
@@ -84,7 +86,7 @@ export function isAppShortcut(e: KeyboardEvent): boolean {
   return false;
 }
 
-export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
+export function TerminalView({ tabId, active, focused, onConnected, onExit }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -252,7 +254,8 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
     };
   }, [tabId]);
 
-  // Ao ativar a tab: reajusta tamanho e foca.
+  // Ao ativar a tab: reajusta tamanho (não mexe no foco do teclado — isso é o `focused` abaixo,
+  // senão a última tab montada rouba o foco de quem está de fato na célula focada).
   useEffect(() => {
     if (!active) return;
     const id = requestAnimationFrame(() => {
@@ -261,10 +264,17 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
       } catch {
         /* container oculto */
       }
-      termRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
   }, [active]);
+
+  // Foco do teclado segue a célula focada (ou a janela flutuante), não a simples transição
+  // active=false→true de toda tab montada.
+  useEffect(() => {
+    if (!focused) return;
+    const id = requestAnimationFrame(() => termRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [focused]);
 
   const badge =
     state === 'connected'
@@ -274,7 +284,7 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
         : 'bg-warn/15 text-warn';
 
   return (
-    <div className={`absolute inset-0 flex flex-col ${active ? '' : 'invisible'}`}>
+    <div className="absolute inset-0 flex flex-col">
       <div ref={containerRef} className="min-h-0 flex-1 bg-bg" onClick={() => termRef.current?.focus()} />
       <div className="flex h-6 shrink-0 items-center gap-2 border-t border-line bg-bg-2 px-2 text-[11px] text-fg-dim">
         <span className={`rounded px-1.5 py-px font-medium ${badge}`}>
