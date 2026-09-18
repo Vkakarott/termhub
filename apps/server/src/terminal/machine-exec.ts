@@ -2,6 +2,8 @@ import { execFile, spawn } from 'node:child_process';
 import { config } from '../config.js';
 import type { Machine } from '../db/repositories/types.js';
 import { DETECT_SCRIPT, REMOTE_PATH_PREFIX, assertSessionName, parseDetect } from '@termhub/machine-ops';
+import { agentRpc, toHttpError } from '../agent/errors.js';
+import { AgentOfflineError, agents } from '../agent/registry.js';
 
 export { DETECT_TOOLS, REMOTE_PATH_PREFIX, assertSessionName, shellQuote } from '@termhub/machine-ops';
 
@@ -110,8 +112,11 @@ export interface MachineStatus {
 
 /** Testa conectividade, tmux, SO e ferramentas disponíveis na máquina. */
 export async function machineStatus(machine: Machine): Promise<MachineStatus> {
-  // Agent: no shell exec here; status comes from the agent's own connection (Task 8).
-  if (machine.type === 'agent') return { online: false, tmux: false, os: null, capabilities: [] };
+  // Agent: status comes from the registry's own connection state, never a shell exec.
+  if (machine.type === 'agent') {
+    const info = agents.info(machine.id);
+    return { online: agents.isOnline(machine.id), tmux: info?.tools.includes('tmux') ?? false, os: machine.os, capabilities: machine.capabilities };
+  }
   // Local: roda via shell de login para ter o PATH do usuário (claude em ~/.local/bin, brew...)
   const r = await runOnMachine(
     machine,
@@ -127,6 +132,16 @@ export async function machineStatus(machine: Machine): Promise<MachineStatus> {
 
 /** Lista as sessões tmux ativas na máquina (vazio se o servidor tmux não está rodando). */
 export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
+  if (machine.type === 'agent') {
+    try {
+      const { sessions } = await agents.rpc(machine.id, 'tmux.list', {});
+      return new Set(sessions);
+    } catch (err) {
+      // Same behaviour as the shell path returning a non-zero exit: no sessions, no error.
+      if (err instanceof AgentOfflineError) return new Set();
+      throw toHttpError(err);
+    }
+  }
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['list-sessions', '-F', '#{session_name}'] },
@@ -143,6 +158,10 @@ export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
 
 export async function killTmuxSession(machine: Machine, session: string): Promise<boolean> {
   assertSessionName(session);
+  if (machine.type === 'agent') {
+    const { killed } = await agentRpc(machine, 'tmux.kill', { session });
+    return killed;
+  }
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['kill-session', '-t', `=${session}`] },

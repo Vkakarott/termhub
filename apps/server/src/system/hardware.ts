@@ -1,4 +1,5 @@
 import { HARDWARE_SCRIPT } from '@termhub/machine-ops';
+import { agentRpc } from '../agent/errors.js';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { REMOTE_PATH_PREFIX, runOnMachine } from '../terminal/machine-exec.js';
@@ -195,10 +196,16 @@ function parse(stdout: string): HardwareSnapshot {
 }
 
 export async function collectHardware(machine: Machine): Promise<HardwareSnapshot> {
-  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', HARDWARE_SCRIPT] }, `${REMOTE_PATH_PREFIX}${HARDWARE_SCRIPT}`, 15000);
-  if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
-  if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Máquina inacessível via SSH' : 'Falha ao coletar o hardware');
-  const snap = parse(r.stdout);
+  let stdout: string;
+  if (machine.type === 'agent') {
+    ({ stdout } = await agentRpc(machine, 'hw.probe', {}));
+  } else {
+    const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', HARDWARE_SCRIPT] }, `${REMOTE_PATH_PREFIX}${HARDWARE_SCRIPT}`, 15000);
+    if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
+    if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Máquina inacessível via SSH' : 'Falha ao coletar o hardware');
+    stdout = r.stdout;
+  }
+  const snap = parse(stdout);
   if (!snap.os) throw new HttpError(502, 'Resposta inesperada da máquina');
   return snap;
 }
