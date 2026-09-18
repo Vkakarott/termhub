@@ -117,6 +117,8 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
         const spawn = await resolveSpawn();
         proc = spawn(tmux, ['-u', 'new-session', '-A', '-s', params.session, '-c', cwd], { name: 'xterm-256color', cols, rows, cwd, env });
       } catch (err) {
+        // The wire message stays generic; the local log keeps the real reason (no PTY bytes here).
+        deps.log('pty open failed', { ch, session: params.session, tmux, cwd: params.cwd, error: err instanceof Error ? err.message : String(err) });
         socket.sendControl({
           type: 'open_error',
           ch,

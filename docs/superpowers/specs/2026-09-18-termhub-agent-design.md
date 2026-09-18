@@ -108,7 +108,7 @@ The registry is process-local. With blue/green there is one active container; ag
 
 ### 5.1 CLI
 
-- `termhub-agent connect --url <https://app…> [--token <thb_ag_…>]` — prompts for the token when omitted (never in shell history); performs a real connect + `hello`; on success writes the config and stays connected in foreground (Ctrl-C exits). Re-running replaces the config.
+- `termhub-agent connect --url <https://app…> [--token <thb_ag_…>]` — prompts for the token when omitted (never in shell history); performs a real connect + `hello`; on success writes the config, prints the next steps and exits (0.1.1: it used to stay in the foreground, which made users type the next command into the running agent). Re-running replaces the config.
 - `termhub-agent run` — connect using the saved config; foreground; what the service runs.
 - `termhub-agent status` — prints server, machine name/id, connected/disconnected (with a probe hello — `probe: true` — that the server validates and answers by closing 1000 `probe-ok` without attaching, so the live session is never replaced), version.
 - `termhub-agent disconnect` — deletes the local config (revocation happens in the app).
