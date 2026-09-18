@@ -301,3 +301,20 @@ export interface HardwareSnapshot {
   processes: { cpu: number; mem: number; command: string }[];
   collected_at: string;
 }
+
+/** Cloud waitlist sign-up (GET /waitlist) */
+export interface WaitlistEntry {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_country: string;
+  phone_area: string;
+  phone_number: string;
+  phone: string;
+  linkedin: string | null;
+  github: string | null;
+  locale: string;
+  source: string;
+  created_at: string;
+}

@@ -260,3 +260,27 @@ model AiAccount {
   @@index([machineId])
   @@map("ai_accounts")
 }
+
+/// Cloud waitlist sign-ups from the landing page (public form). Managed from the app.
+model WaitlistEntry {
+  id           String   @id
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  email        String   @unique
+  /// country calling code without "+", e.g. "55"
+  phoneCountry String   @map("phone_country")
+  /// area code, e.g. "62"
+  phoneArea    String   @map("phone_area")
+  phoneNumber  String   @map("phone_number")
+  /// normalized E.164, e.g. "+5562999999999"
+  phone        String
+  linkedin     String?
+  github       String?
+  /// "pt" | "en": language the form was filled in
+  locale       String   @default("pt")
+  source       String   @default("landing")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("waitlist_entries")
+}

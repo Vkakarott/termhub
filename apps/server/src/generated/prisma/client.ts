@@ -109,3 +109,8 @@ export type ProjectSetup = Prisma.ProjectSetupModel
  * (Claude Code, Codex CLI, Gemini CLI or Antigravity CLI login) and never persisted or logged.
  */
 export type AiAccount = Prisma.AiAccountModel
+/**
+ * Model WaitlistEntry
+ * Cloud waitlist sign-ups from the landing page (public form). Managed from the app.
+ */
+export type WaitlistEntry = Prisma.WaitlistEntryModel

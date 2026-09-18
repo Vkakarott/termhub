@@ -63,7 +63,8 @@ export const ModelName = {
   Note: 'Note',
   Integration: 'Integration',
   ProjectSetup: 'ProjectSetup',
-  AiAccount: 'AiAccount'
+  AiAccount: 'AiAccount',
+  WaitlistEntry: 'WaitlistEntry'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -255,6 +256,25 @@ export const AiAccountScalarFieldEnum = {
 } as const
 
 export type AiAccountScalarFieldEnum = (typeof AiAccountScalarFieldEnum)[keyof typeof AiAccountScalarFieldEnum]
+
+
+export const WaitlistEntryScalarFieldEnum = {
+  id: 'id',
+  firstName: 'firstName',
+  lastName: 'lastName',
+  email: 'email',
+  phoneCountry: 'phoneCountry',
+  phoneArea: 'phoneArea',
+  phoneNumber: 'phoneNumber',
+  phone: 'phone',
+  linkedin: 'linkedin',
+  github: 'github',
+  locale: 'locale',
+  source: 'source',
+  createdAt: 'createdAt'
+} as const
+
+export type WaitlistEntryScalarFieldEnum = (typeof WaitlistEntryScalarFieldEnum)[keyof typeof WaitlistEntryScalarFieldEnum]
 
 
 export const SortOrder = {
