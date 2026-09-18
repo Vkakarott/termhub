@@ -28,6 +28,8 @@ export interface ClientOptions {
    * `connectOnce()` callers and tests that don't care about this can omit it.
    */
   onDisconnect?(): void;
+  /** Liveness ping period (default 20 s); a ping left unanswered by the next tick terminates the socket. Tests shorten it. */
+  pingIntervalMs?: number;
 }
 
 export interface AgentSocket {
@@ -58,6 +60,7 @@ export class UpgradeRejectedError extends Error {
 }
 
 const DEFAULT_BACKOFF = { minMs: 1_000, maxMs: 30_000 };
+const DEFAULT_PING_INTERVAL_MS = 20_000;
 const DEFAULT_MAX_UNAUTHORIZED = 3;
 /** A session shorter than this (and with no server message) doesn't count as "successful" for backoff/unauthorized resets. */
 const SESSION_OK_MS = 5_000;
@@ -115,8 +118,20 @@ export function connectOnce(
       resolveClosed = res;
     });
 
+    // Liveness from our side too: the server pings every 20 s, but a half-open TCP path (NAT
+    // timeout, laptop lid, Wi-Fi hop) can leave this end believing it is connected for the
+    // kernel's full keepalive window while the server has already marked the machine offline.
+    // A ping that the next tick finds unanswered means the path is dead: terminate, so
+    // runForever() reconnects right away instead of minutes later.
+    let liveness: ReturnType<typeof setInterval> | undefined;
+    let pongSeen = true;
+    ws.on('pong', () => {
+      pongSeen = true;
+    });
+
     ws.on('close', (code: number, reasonBuf: Buffer) => {
       stopWatchingAbort();
+      if (liveness) clearInterval(liveness);
       const info = { code, reason: reasonBuf.toString() };
       resolveClosed(info);
       if (!opened) reject(new Error(`connection closed before open (code ${code})`));
@@ -141,6 +156,15 @@ export function connectOnce(
 
     ws.on('open', () => {
       opened = true;
+      liveness = setInterval(() => {
+        if (!pongSeen) {
+          opts.log('agent liveness ping unanswered, terminating');
+          ws.terminate();
+          return;
+        }
+        pongSeen = false;
+        ws.ping();
+      }, opts.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
       socket = {
         sendControl: (msg) => ws.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify(msg))),
         sendStream: (ch, data) => ws.send(encodeFrame(ch, data)),

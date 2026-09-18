@@ -186,6 +186,64 @@ describe('connectOnce', () => {
   });
 });
 
+describe('connectOnce — liveness ping', () => {
+  let srv: TestServer | undefined;
+
+  afterEach(async () => {
+    await srv?.stop();
+    srv = undefined;
+  });
+
+  it('terminates the socket when two pings in a row go unanswered', async () => {
+    let serverSawClose: Promise<number> | undefined;
+    srv = await startServer({
+      onConnection: (ws) => {
+        // ws auto-answers pings with pongs from its receiver via the public pong(); a server
+        // whose pong never leaves (dead TCP path, half-open NAT) looks exactly like this.
+        ws.pong = () => {};
+        serverSawClose = new Promise((res) => ws.on('close', (code) => res(code)));
+      },
+    });
+
+    const { closed } = await connectOnce({
+      url: base(srv),
+      token: TOKEN,
+      hello: baseHello,
+      onServerMessage: () => {},
+      onStream: () => {},
+      log: noopLog(),
+      pingIntervalMs: 50,
+    });
+
+    const startedAt = Date.now();
+    const info = await closed;
+    expect(info.code).toBe(1006);
+    // Two intervals: the first ping goes out, the second tick finds no pong and terminates.
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(90);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+    await expect(serverSawClose!).resolves.toEqual(expect.any(Number));
+  });
+
+  it('keeps the socket open while pongs keep coming back', async () => {
+    srv = await startServer({});
+    let settled = false;
+    const { closed } = await connectOnce({
+      url: base(srv),
+      token: TOKEN,
+      hello: baseHello,
+      onServerMessage: () => {},
+      onStream: () => {},
+      log: noopLog(),
+      pingIntervalMs: 30,
+    });
+    void closed.then(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 200)); // > 6 ping intervals
+    expect(settled).toBe(false);
+  });
+});
+
 describe('runForever', () => {
   let srv: TestServer | undefined;
 

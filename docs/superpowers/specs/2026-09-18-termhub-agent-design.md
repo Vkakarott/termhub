@@ -123,7 +123,7 @@ Exit codes: 0 ok; 78 (`EX_CONFIG`) on revoked token (3 consecutive 4401), protoc
 
 ### 5.3 Runtime modules
 
-- `client.ts` — outbound WebSocket, sends `hello`, WebSocket ping/pong, reconnect with backoff 1 s → 30 s (×2, ±20 % jitter), forever; counts consecutive 4401 and exits 78 at 3.
+- `client.ts` — outbound WebSocket, sends `hello`, WebSocket ping/pong (answers the server's pings and sends its own every 20 s — one left unanswered by the next tick terminates the socket so the reconnect starts at once), reconnect with backoff 1 s → 30 s (×2, ±20 % jitter), forever; counts consecutive 4401 and exits 78 at 3.
 - `dispatch.ts` — routes control messages: `rpc` → handler by method (unknown → `rpc_result ok:false code:'invalid'`), `open` → `pty.ts`, `resize`/`close` → channel.
 - `rpc/tmux.ts`, `rpc/tools.ts`, `rpc/hw.ts`, `rpc/fs.ts`, `rpc/ai.ts`, `rpc/paste.ts` — one pure `(params) => Promise<result>` each. Every process is started with `execFile(file, args)`; fixed scripts from `@termhub/machine-ops` run as `execFile('/bin/sh', ['-c', SCRIPT])` — the script text is a compile-time constant, params reach it only through the environment (`P=<path>`) or argv, never string-interpolated.
 - `pty.ts` — node-pty per channel; same env rules as the server's local PTY today.
