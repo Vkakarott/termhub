@@ -152,13 +152,13 @@ export class SimulatorSessionManager {
       try {
         await pending;
       } catch (err) {
-        s.viewers.delete(viewer);
+        this.detachViewer(s, viewer);
         throw err;
       }
       if (s.disposed) {
         // A sessão não sobreviveu (start falhou de vez, ou a recuperação se esgotou): tenta de novo
         // do zero para este viewer, o que cria uma sessão nova.
-        s.viewers.delete(viewer);
+        this.detachViewer(s, viewer);
         return this.acquire(machine, udid, viewer);
       }
     } else if (s.ready) {
@@ -216,8 +216,11 @@ export class SimulatorSessionManager {
   }
 
   private closeMjpegStream(s: Session) {
-    s.closeMjpeg?.();
+    // Nula antes de chamar: um backend cujo close() dispara onEnd de forma síncrona não pode
+    // passar pela guarda "s.closeMjpeg !== close" em openStream e disparar uma recuperação espúria.
+    const close = s.closeMjpeg;
     s.closeMjpeg = null;
+    close?.();
   }
 
   /** Marca o viewer como ativo (não pausado); reabre o stream se ele era o único ativo e a sessão
@@ -233,6 +236,13 @@ export class SimulatorSessionManager {
   private deactivateViewer(s: Session, viewer: Viewer) {
     if (!s.activeViewers.delete(viewer)) return;
     if (s.activeViewers.size === 0 && s.ready) this.closeMjpegStream(s);
+  }
+
+  /** Tira o viewer dos dois conjuntos (viewers + activeViewers) — usado em toda saída de um viewer:
+   *  release() normal e os dois caminhos de falha do acquire (pending rejeitou / sessão não sobreviveu). */
+  private detachViewer(s: Session, viewer: Viewer) {
+    s.viewers.delete(viewer);
+    this.deactivateViewer(s, viewer);
   }
 
   private async start(s: Session): Promise<void> {
@@ -411,8 +421,7 @@ export class SimulatorSessionManager {
   }
 
   private release(s: Session, viewer: Viewer) {
-    s.viewers.delete(viewer);
-    this.deactivateViewer(s, viewer);
+    this.detachViewer(s, viewer);
     if (s.viewers.size > 0 || s.disposed) return;
     if (s.idleTimer) clearTimeout(s.idleTimer);
     s.idleTimer = setTimeout(() => {
