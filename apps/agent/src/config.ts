@@ -8,8 +8,11 @@ const CONFIG_FILE = 'config.json';
 export const agentConfigSchema = z.object({
   url: z.string().min(1),
   token: z.string().min(1),
-  machine_id: z.string().min(1),
-  machine_name: z.string().min(1),
+  // The server does not hand the agent its machine id/name in v1 (see task-13); `connect`
+  // stores '' for both until a later protocol version fills them in, so these can't require
+  // min(1) like the other fields.
+  machine_id: z.string(),
+  machine_name: z.string(),
   created_at: z.string().min(1),
 });
 
@@ -21,7 +24,8 @@ export function agentHome(): string {
   return override && override.length > 0 ? override : path.join(os.homedir(), '.termhub');
 }
 
-function configPath(): string {
+/** Full path to the config file — exposed for `doctor.ts`, which reports it without reading it itself. */
+export function configPath(): string {
   return path.join(agentHome(), CONFIG_FILE);
 }
 

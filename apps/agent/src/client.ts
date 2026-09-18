@@ -21,6 +21,13 @@ export interface ClientOptions {
   log: (msg: string, meta?: object) => void;
   backoff?: { minMs: number; maxMs: number };
   maxUnauthorized?: number;
+  /**
+   * Called by `runForever()` once per session, right after `closed` resolves (or the connect
+   * attempt itself fails) — before the next reconnect attempt. Used by the CLI (`run.ts`) to
+   * drop any PTY channels left over from the ended session (`pty.closeAll()`); optional so
+   * `connectOnce()` callers and tests that don't care about this can omit it.
+   */
+  onDisconnect?(): void;
 }
 
 export interface AgentSocket {
@@ -239,6 +246,8 @@ export async function runForever(opts: ClientOptions, signal?: AbortSignal): Pro
         opts.log('agent connect failed', { error: (err as Error).message });
       }
     }
+
+    opts.onDisconnect?.();
 
     if (closeInfo?.code === CLOSE.UNAUTHORIZED || upgradeRejectedStatus === 401) {
       unauthorized += 1;
