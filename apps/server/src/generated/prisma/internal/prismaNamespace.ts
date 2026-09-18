@@ -1740,6 +1740,10 @@ export const MachineScalarFieldEnum = {
   os: 'os',
   capabilities: 'capabilities',
   checkedAt: 'checkedAt',
+  agentTokenHash: 'agentTokenHash',
+  agentTokenCreatedAt: 'agentTokenCreatedAt',
+  agentVersion: 'agentVersion',
+  agentLastSeenAt: 'agentLastSeenAt',
   ownerId: 'ownerId',
   createdAt: 'createdAt'
 } as const
