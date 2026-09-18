@@ -258,6 +258,14 @@ describe('ensureVisibleTab', () => {
     const l = L({ floating: { tabId: 's', x: 0, y: 0, w: 300, h: 400 } });
     expect(ensureVisibleTab(l, ['a', 's'])).toEqual(l);
   });
+
+  it('aplicado depois de reduce: columns [null, "b"] -> single não fica em branco (usa a primeira aba)', () => {
+    const l = ensureVisibleTab(
+      reduce({ preset: 'columns', cells: [null, 'b'], focusedCell: 0, floating: null }, { type: 'setPreset', preset: 'single' }, AREA),
+      ['a', 'b'],
+    );
+    expect(l.cells).toEqual(['a']);
+  });
 });
 
 describe('load/save', () => {

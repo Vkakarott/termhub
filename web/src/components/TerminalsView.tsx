@@ -91,7 +91,12 @@ export function TerminalsView({ project, visible }: Props) {
     if (loadedFor.current === project.id) saveLayout(project.id, layout);
   }, [layout, project.id]);
 
-  const dispatch = useCallback((action: Action) => setLayout((l) => reduce(l, action, area)), [area]);
+  // `tabIds` is read inside the updater (not a dep) so `dispatch`'s identity stays stable across
+  // tab list changes; ensureVisibleTab keeps every dispatch from leaving the area blank (e.g.
+  // switching `columns [null, 'b']` to `single` would otherwise strand `cells: [null]`).
+  const tabIdsRef = useRef(tabIds);
+  tabIdsRef.current = tabIds;
+  const dispatch = useCallback((action: Action) => setLayout((l) => ensureVisibleTab(reduce(l, action, area), tabIdsRef.current)), [area]);
 
   const rects = useMemo(() => (area ? cellRects(layout.preset, area.width, area.height) : []), [area, layout.preset]);
   const headerH = layout.preset === 'single' ? 0 : PANE_HEADER_HEIGHT;
