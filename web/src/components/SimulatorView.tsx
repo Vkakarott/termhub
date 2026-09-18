@@ -3,6 +3,7 @@ import { api, ApiError } from '../lib/api';
 import { SimulatorConnection, type SimState } from '../lib/simulator-connection';
 import type { Screen, Simulator, Tab } from '../lib/types';
 import { isAppShortcut } from './Terminal';
+import { DropdownMenu, type MenuItem } from './DropdownMenu';
 
 interface Props {
   tab: Tab;
@@ -67,7 +68,9 @@ function DevicePicker({ machineId, value, onPick }: { machineId: string; value: 
   );
 }
 
-export function SimulatorView({ tab, machineId, active, focused, floating, onDetach, onDock, onTabChange, onConnected }: Props) {
+// `onDock` stays in `Props` for the caller's API (the floating window's own title bar handles
+// docking now), but this component no longer renders a docking control, so it's not destructured.
+export function SimulatorView({ tab, machineId, active, focused, floating, onDetach, onTabChange, onConnected }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const connRef = useRef<SimulatorConnection | null>(null);
@@ -298,47 +301,39 @@ export function SimulatorView({ tab, machineId, active, focused, floating, onDet
   const portrait = !screen || screen.orientation === 'portrait';
   const aspect = screen ? `${screen.width} / ${screen.height}` : portrait ? '9 / 19.5' : '19.5 / 9';
 
+  const menuItems: MenuItem[] = [
+    { kind: 'item', label: 'Home', disabled: !ready, onSelect: () => send({ type: 'button', name: 'home' }) },
+    { kind: 'item', label: 'Bloquear', disabled: !ready, onSelect: () => send({ type: 'button', name: 'lock' }) },
+    { kind: 'item', label: 'Girar', disabled: !ready, onSelect: () => send({ type: 'rotate', orientation: portrait ? 'landscape' : 'portrait' }) },
+    { kind: 'item', label: 'Screenshot', href: api.tabs.screenshotUrl(tab.id), download: true, disabled: !ready, onSelect: () => {} },
+    { kind: 'separator' },
+    { kind: 'heading', label: 'Qualidade' },
+    { kind: 'radio', label: QUALITY.lan.label, checked: quality === 'lan', onSelect: () => changeQuality('lan') },
+    { kind: 'radio', label: QUALITY.remote.label, checked: quality === 'remote', onSelect: () => changeQuality('remote') },
+    ...(floating
+      ? []
+      : ([
+          { kind: 'separator' },
+          { kind: 'item', label: 'Destacar', onSelect: () => onDetach?.(screen ? screen.width / screen.height : 9 / 19.5) },
+        ] satisfies MenuItem[])),
+  ];
+
   return (
     <div className="absolute inset-0 flex flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-bg-2 px-2 text-xs">
-        {tab.simulator_udid && <DevicePicker machineId={machineId} value={tab.simulator_udid} onPick={(u) => void pickDevice(u)} />}
-        <span className={`h-1.5 w-1.5 rounded-full ${ready ? 'bg-ok' : state === 'error' || state === 'offline' ? 'bg-danger' : 'bg-warn'}`} />
-        <span className="text-fg-muted">{STATE_LABEL[state]}</span>
-        {ready && <span className="text-fg-dim">{fps} fps</span>}
-        <span className="ml-auto flex items-center gap-1">
-          {floating ? (
-            <button className="btn-ghost px-2 py-0.5" onClick={onDock} title="Encaixar no painel focado">
-              Encaixar
-            </button>
-          ) : (
-            <button className="btn-ghost px-2 py-0.5" onClick={() => onDetach?.(screen ? screen.width / screen.height : 9 / 19.5)} title="Destacar em janela flutuante">
-              Destacar
-            </button>
-          )}
-          <button className="btn-ghost px-2 py-0.5" disabled={!ready} onClick={() => send({ type: 'button', name: 'home' })} title="Home">
-            Home
-          </button>
-          <button className="btn-ghost px-2 py-0.5" disabled={!ready} onClick={() => send({ type: 'button', name: 'lock' })} title="Bloquear">
-            Bloquear
-          </button>
-          <button className="btn-ghost px-2 py-0.5" disabled={!ready} onClick={() => send({ type: 'rotate', orientation: portrait ? 'landscape' : 'portrait' })} title="Girar">
-            Girar
-          </button>
-          <a className={`btn-ghost px-2 py-0.5 ${ready ? '' : 'pointer-events-none opacity-50'}`} href={api.tabs.screenshotUrl(tab.id)} download title="Baixar screenshot PNG">
-            Screenshot
-          </a>
-          <select className="input h-7 py-0 text-xs" value={quality} onChange={(e) => changeQuality(e.target.value as QualityKey)} disabled={!ready} title="Qualidade do stream">
-            {(Object.keys(QUALITY) as QualityKey[]).map((k) => (
-              <option key={k} value={k}>
-                {QUALITY[k].label}
-              </option>
-            ))}
-          </select>
+      <div className="flex h-9 shrink-0 items-center gap-2 overflow-visible border-b border-line bg-bg-2 px-2 text-xs">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+          {tab.simulator_udid && <DevicePicker machineId={machineId} value={tab.simulator_udid} onPick={(u) => void pickDevice(u)} />}
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ready ? 'bg-ok' : state === 'error' || state === 'offline' ? 'bg-danger' : 'bg-warn'}`} />
+          <span className="truncate text-fg-muted">{STATE_LABEL[state]}</span>
+          {ready && <span className="shrink-0 whitespace-nowrap text-fg-dim">{fps} fps</span>}
+        </div>
+        <span className="flex shrink-0 items-center gap-1">
           {(state === 'error' || state === 'offline' || state === 'closed') && (
             <button className="btn-primary px-2 py-0.5" onClick={() => connRef.current?.retryNow()}>
               Reconectar
             </button>
           )}
+          <DropdownMenu title="Ações" items={menuItems} />
         </span>
       </div>
       {toast && <div className="border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">{toast}</div>}
