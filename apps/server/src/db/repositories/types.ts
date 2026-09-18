@@ -26,7 +26,9 @@ export interface User {
   avatar_url: string | null;
   password_hash: string | null;
   google_id: string | null;
+  /** DEPRECATED legacy flag; use role_id */
   role: UserRole;
+  role_id: string | null;
   created_at: string;
 }
 
@@ -123,6 +125,7 @@ export const mapUser = (u: PrismaUser): User => ({
   password_hash: u.passwordHash,
   google_id: u.googleId,
   role: u.role,
+  role_id: u.roleId,
   created_at: u.createdAt.toISOString(),
 });
 

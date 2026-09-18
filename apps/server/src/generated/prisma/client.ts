@@ -47,6 +47,16 @@ export { Prisma }
  */
 export type User = Prisma.UserModel
 /**
+ * Model Role
+ * Role = a named set of permissions. isAdmin bypasses every check; isSystem cannot be deleted.
+ */
+export type Role = Prisma.RoleModel
+/**
+ * Model Permission
+ * One (resource, action) grant for a role. Resources and actions are a fixed catalog in code.
+ */
+export type Permission = Prisma.PermissionModel
+/**
  * Model Session
  * 
  */

@@ -134,9 +134,9 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
 
   /**
    * Hardware snapshot (CPU, memory, disks, temps, GPU, top processes) for the Home "Hardware" tab.
-   * TODO(users): when the user system lands, only super admins may call this — reject everyone else here.
+   * Guarded as hardware:read (route config below).
    */
-  app.get('/:id/hardware', async (request) => {
+  app.get('/:id/hardware', { config: { resource: 'hardware', action: 'read' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const machine = await repos.machines.findById(id);
     if (!machine) throw notFound('Máquina não encontrada');

@@ -29,5 +29,6 @@ npm workspaces: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), 
 
 - Routes never import Prisma directly; go through `apps/server/src/db/repositories`.
 - Every request input is validated with zod.
+- Authorization is role-based (`apps/server/src/auth/permissions.ts`): register new route plugins through `guarded(resource, plugin, prefix)` in `app.ts`, add new resources to the `RESOURCES` catalog, and never check roles by name in handlers — check `resource:action` grants (admins bypass).
 - Anything executed on a machine goes through `runOnMachine` / `runOnMachineWithInput` in `apps/server/src/terminal/machine-exec.ts`; shell-quote every user-provided value with `shellQuote`, and never interpolate user input into a script unquoted.
 - Terminal content is never logged; log only metadata (tab id, machine id, sizes).

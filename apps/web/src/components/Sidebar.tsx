@@ -15,7 +15,7 @@ const STATUS_DOT: Record<MachineStatus, string> = {
 const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', online: 'online', offline: 'offline' };
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const { machines, projects, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
   const navigate = useNavigate();
   const location = useLocation();
@@ -37,9 +37,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
           <span className="text-accent">▮</span> termhub
         </NavLink>
         <span className="flex items-center gap-0.5">
-          <button className="btn-ghost px-2 py-1 text-xs" title="Nova máquina" onClick={() => setMachineForm({ open: true, machine: null })}>
-            + máquina
-          </button>
+          {can('machines', 'create') && (
+            <button className="btn-ghost px-2 py-1 text-xs" title="Nova máquina" onClick={() => setMachineForm({ open: true, machine: null })}>
+              + máquina
+            </button>
+          )}
           {onCollapse && (
             <button className="rounded px-1.5 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onCollapse} title="Recolher sidebar" aria-label="Recolher sidebar">
               «
@@ -154,9 +156,16 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       </nav>
 
       <div className="border-t border-line px-3 py-1.5">
-        <NavLink to="/integrations" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-          ⚙ Integrações
-        </NavLink>
+        {can('integrations') && (
+          <NavLink to="/integrations" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
+            ⚙ Integrações
+          </NavLink>
+        )}
+        {(can('users') || can('roles')) && (
+          <NavLink to="/settings" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
+            ⚙ Configurações
+          </NavLink>
+        )}
       </div>
       <div className="flex items-center gap-2 border-t border-line px-3 py-2">
         {user?.avatar_url ? (

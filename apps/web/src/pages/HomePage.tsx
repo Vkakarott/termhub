@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useData } from '../lib/data';
+import { useAuth } from '../lib/auth';
 import type { DashboardItem } from '../lib/types';
 import { AiAccountsView } from '../components/AiAccountsView';
 import { HardwareView } from '../components/HardwareView';
@@ -20,20 +21,23 @@ function relative(iso: string | null): string {
   return new Date(iso).toLocaleDateString('pt-BR');
 }
 
-// TODO(users): when the user system lands, the Hardware tab is for super admins only — filter it out for other roles.
-const TABS = [
-  { path: '/', label: 'Projetos' },
-  { path: '/ai', label: 'Contas de IA' },
-  { path: '/hardware', label: 'Hardware' },
-  { path: '/waitlist', label: 'Waitlist' },
+/** Home tabs; each one is shown only when the user's role grants its resource. */
+const TABS: { path: string; label: string; resource: string }[] = [
+  { path: '/', label: 'Projetos', resource: 'projects' },
+  { path: '/ai', label: 'Contas de IA', resource: 'ai_accounts' },
+  { path: '/hardware', label: 'Hardware', resource: 'hardware' },
+  { path: '/waitlist', label: 'Waitlist', resource: 'waitlist' },
 ];
 
 export function HomePage() {
   const { pathname } = useLocation();
+  const { can } = useAuth();
+  const tabs = TABS.filter((t) => t.resource === 'projects' || can(t.resource));
+  const allowed = tabs.some((t) => t.path === pathname);
   return (
     <div className="flex h-full flex-col">
       <nav className="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-bg-2 px-4">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <NavLink
             key={t.path}
             to={t.path}
@@ -44,7 +48,7 @@ export function HomePage() {
           </NavLink>
         ))}
       </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">{pathname === '/ai' ? <AiAccountsView /> : pathname === '/hardware' ? <HardwareView /> : pathname === '/waitlist' ? <WaitlistView /> : <Dashboard />}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">{!allowed ? <p className="text-sm text-fg-dim">Sem permissão para esta aba.</p> : pathname === '/ai' ? <AiAccountsView /> : pathname === '/hardware' ? <HardwareView /> : pathname === '/waitlist' ? <WaitlistView /> : <Dashboard />}</div>
     </div>
   );
 }

@@ -10,6 +10,8 @@ interface AuthState {
   sendCode: (email: string) => Promise<number>;
   verifyCode: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** true when the signed-in user's role grants resource:action (admins: always) */
+  can: (resource: string, action?: 'create' | 'read' | 'update' | 'delete') => boolean;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -44,6 +46,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const can = useCallback(
+    (resource: string, action: 'create' | 'read' | 'update' | 'delete' = 'read') => {
+      if (!user) return false;
+      if (user.role_info?.is_admin) return true;
+      return (user.permissions ?? []).includes(`${resource}:${action}`);
+    },
+    [user],
+  );
+
   const login = useCallback(async (email: string, password: string) => {
     const { user } = await api.auth.login(email, password);
     setUser(user);
@@ -64,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, config, login, sendCode, verifyCode, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, config, login, sendCode, verifyCode, logout, can }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

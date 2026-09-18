@@ -71,7 +71,7 @@ export async function tabRoutes(
    * File pasted (Cmd+V) or dropped on the terminal: written to ~/.cache/termhub/paste/ on the tab's
    * machine; the returned path is what the frontend pastes into the terminal as text.
    */
-  app.post('/:id/paste-file', { bodyLimit: PASTE_MAX_BYTES }, async (request) => {
+  app.post('/:id/paste-file', { bodyLimit: PASTE_MAX_BYTES, config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const { name } = pasteQuery.parse(request.query);
     const tab = await repos.tabs.findById(id);

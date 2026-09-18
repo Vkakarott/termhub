@@ -52,6 +52,8 @@ export const AnyNull = runtime.AnyNull
 
 export const ModelName = {
   User: 'User',
+  Role: 'Role',
+  Permission: 'Permission',
   Session: 'Session',
   LoginCode: 'LoginCode',
   LoginAttempt: 'LoginAttempt',
@@ -91,10 +93,35 @@ export const UserScalarFieldEnum = {
   passwordHash: 'passwordHash',
   googleId: 'googleId',
   role: 'role',
+  roleId: 'roleId',
   createdAt: 'createdAt'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
+
+
+export const RoleScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  label: 'label',
+  description: 'description',
+  isSystem: 'isSystem',
+  isAdmin: 'isAdmin',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type RoleScalarFieldEnum = (typeof RoleScalarFieldEnum)[keyof typeof RoleScalarFieldEnum]
+
+
+export const PermissionScalarFieldEnum = {
+  id: 'id',
+  resource: 'resource',
+  action: 'action',
+  roleId: 'roleId'
+} as const
+
+export type PermissionScalarFieldEnum = (typeof PermissionScalarFieldEnum)[keyof typeof PermissionScalarFieldEnum]
 
 
 export const SessionScalarFieldEnum = {

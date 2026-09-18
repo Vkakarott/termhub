@@ -2,6 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { config } from '../config.js';
 import { parseCookies, resolveUser, type AuthContext } from '../auth/index.js';
+import { canAccess } from '../auth/permissions.js';
 import type { User } from '../db/repositories/types.js';
 
 export interface UpgradeContext {
@@ -55,6 +56,8 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
       user = null;
     }
     if (!user) return rejectUpgrade(socket, 401, 'Unauthorized');
+    // every WebSocket is a terminal or simulator stream: needs terminals:read
+    if (!(await canAccess(deps.auth.repos, user, 'terminals', 'read'))) return rejectUpgrade(socket, 403, 'Forbidden');
     try {
       await route.r.handler({ req, socket, head, url, params: route.m.slice(1), user });
     } catch {
