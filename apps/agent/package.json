@@ -1,13 +1,25 @@
 {
   "name": "@termhub/agent",
   "version": "0.1.0",
+  "description": "Agente do termhub: conecta esta máquina ao servidor por WebSocket de saída (sem SSH) e expõe os terminais tmux no navegador.",
   "license": "MIT",
-  "private": true,
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/engenhariainversa/termhub.git",
+    "directory": "apps/agent"
+  },
+  "homepage": "https://termhub.dev",
   "type": "module",
   "bin": {
     "termhub-agent": "./dist/cli.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit -p tsconfig.json",
