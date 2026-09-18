@@ -12,10 +12,19 @@ import { HttpError, notFound } from '../lib/errors.js';
 
 const digits = (max: number) => z.string().trim().regex(/^\d+$/, 'only digits').max(max);
 
-const signupBody = z.object({
+/** Exported for the unit test: the public form's payload contract. */
+export const signupBody = z.object({
   first_name: z.string().trim().min(1).max(80),
   last_name: z.string().trim().min(1).max(80),
-  email: z.string().trim().toLowerCase().email().max(200),
+  // the address is added to Cloudflare Access, and Access signs people in with Google,
+  // so only Gmail addresses can be invited
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email()
+    .max(200)
+    .refine((e) => /^[^@\s]+@gmail\.com$/.test(e), { message: 'gmail_only' }),
   phone_country: digits(4).transform((s) => s.replace(/^0+/, '')).refine((s) => s.length >= 1, 'required'),
   phone_area: digits(5),
   phone_number: digits(12).refine((s) => s.length >= 6, 'too short'),
