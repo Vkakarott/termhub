@@ -10,6 +10,7 @@ const fileParams = z.object({ machineId: z.string().min(1).max(64), name: z.stri
 export interface UploadMachineStatus {
   id: string;
   name: string;
+  owner_id: string | null;
   owner_name: string | null;
   ok: boolean;
   error?: string;
@@ -42,11 +43,11 @@ export async function uploadRoutes(app: FastifyInstance, repos: Repositories) {
         const listing = await listPasteDir(m);
         const known = new Map((byMachine.get(m.id) ?? []).map((r) => [r.name, r]));
         if (!listing.ok) {
-          statuses.push({ id: m.id, name: m.name, owner_name: m.owner_name, ok: false, error: listing.error });
+          statuses.push({ id: m.id, name: m.name, owner_id: m.owner_id, owner_name: m.owner_name, ok: false, error: listing.error });
           for (const r of known.values()) files.push({ machine_id: m.id, name: r.name, bytes: r.bytes, modified_at: r.created_at, on_disk: false, upload: view(r) });
           return;
         }
-        statuses.push({ id: m.id, name: m.name, owner_name: m.owner_name, ok: true });
+        statuses.push({ id: m.id, name: m.name, owner_id: m.owner_id, owner_name: m.owner_name, ok: true });
         for (const f of listing.files) {
           const r = known.get(f.name);
           files.push({ ...f, machine_id: m.id, on_disk: true, upload: r ? view(r) : null });

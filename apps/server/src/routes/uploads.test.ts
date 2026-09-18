@@ -14,8 +14,8 @@ vi.mock('../terminal/uploads.js', async (importOriginal) => ({
 }));
 
 const machines = [
-  { id: 'm1', name: 'jarvis', owner_name: 'Ana', type: 'local' },
-  { id: 'm2', name: 'mac', owner_name: 'Ana', type: 'ssh' },
+  { id: 'm1', name: 'jarvis', owner_id: 'ana', owner_name: 'Ana', type: 'local' },
+  { id: 'm2', name: 'mac', owner_id: 'ana', owner_name: 'Ana', type: 'ssh' },
 ];
 const row = (over: Partial<Upload>): Upload => ({
   id: 'u1', user_id: 'ana', user_name: 'Ana', user_email: 'ana@x.com', machine_id: 'm1', project_id: null, tab_id: null,
@@ -61,6 +61,7 @@ describe('GET /api/uploads', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.machines.map((m: { id: string; ok: boolean }) => [m.id, m.ok])).toEqual([['m1', true], ['m2', true]]);
+    expect(body.machines[0]).toMatchObject({ owner_id: 'ana', owner_name: 'Ana' });
     expect(body.files).toHaveLength(2);
     const attributed = body.files.find((f: { name: string }) => f.name.endsWith('report.pdf'));
     expect(attributed).toMatchObject({ machine_id: 'm1', bytes: 120, on_disk: true, upload: { user_name: 'Ana', mime: 'application/pdf' } });

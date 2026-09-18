@@ -406,14 +406,16 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     clockTimer.current = 0;
   };
 
-  /** Pastes the text at the prompt and forgets the stored clip. */
+  /** Pastes the text at the prompt, submits it with Enter and forgets the stored clip. */
   const deliver = useCallback(
     (text: string) => {
       const term = termRef.current;
       if (!term) return;
       if (text) {
         term.paste(text);
-        showNotice('Texto ditado inserido', 'ok', 2500);
+        // Enter goes as a separate write after the (possibly bracketed) paste so the app takes it as submit, not as pasted text
+        window.setTimeout(() => connRef.current?.send('\r'), 80);
+        showNotice('Texto ditado enviado', 'ok', 2500);
       } else {
         showNotice('Nenhuma fala reconhecida', 'info', 3000);
       }

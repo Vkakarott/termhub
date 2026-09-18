@@ -49,8 +49,25 @@ function formatDate(iso: string): string {
 }
 
 const UNKNOWN_USER = '__unknown__';
-const userKey = (f: UploadEntry) => f.upload?.user_id ?? UNKNOWN_USER;
-const userLabel = (f: UploadEntry) => f.upload?.user_name ?? f.upload?.user_email ?? 'Sem registro';
+
+/**
+ * Who sent a file: the upload record when there is one; otherwise the machine's owner, since only
+ * they can paste into it (files older than the uploads table, or whose sender was deleted).
+ */
+interface Sender {
+  key: string;
+  label: string;
+  email: string | null;
+  /** true when taken from the machine owner rather than a record */
+  inferred: boolean;
+}
+
+function senderOf(f: UploadEntry, machines: Map<string, UploadMachineStatus>): Sender {
+  if (f.upload?.user_id) return { key: f.upload.user_id, label: f.upload.user_name ?? f.upload.user_email ?? f.upload.user_id, email: f.upload.user_email, inferred: false };
+  const m = machines.get(f.machine_id);
+  if (m?.owner_id) return { key: m.owner_id, label: m.owner_name ?? 'Dono da máquina', email: null, inferred: true };
+  return { key: UNKNOWN_USER, label: 'Sem registro', email: null, inferred: false };
+}
 
 interface Totals {
   key: string;
@@ -103,8 +120,10 @@ export function UploadsView() {
   }, [load]);
 
   const machineName = useMemo(() => new Map(machines.map((m) => [m.id, m.name])), [machines]);
+  const machineById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
   const all = files ?? [];
-  const byUser = useMemo(() => totalsBy(all, userKey, userLabel), [all]);
+  const userKey = useCallback((f: UploadEntry) => senderOf(f, machineById).key, [machineById]);
+  const byUser = useMemo(() => totalsBy(all, userKey, (f) => senderOf(f, machineById).label), [all, userKey, machineById]);
   const byKind = useMemo(() => totalsBy(all, kindOf, (f) => KIND_LABEL[kindOf(f)]).sort((a, b) => KIND_ORDER.indexOf(a.key as Kind) - KIND_ORDER.indexOf(b.key as Kind)), [all]);
   const totalBytes = all.reduce((n, f) => n + f.bytes, 0);
   const visible = all.filter((f) => (!userFilter || userKey(f) === userFilter) && (!kindFilter || kindOf(f) === kindFilter) && (!machineFilter || f.machine_id === machineFilter));
@@ -267,13 +286,21 @@ export function UploadsView() {
                       <td className="px-3 py-2 text-fg-muted">{KIND_LABEL[kindOf(f)]}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{formatBytes(f.bytes)}</td>
                       <td className="px-3 py-2">
-                        {f.upload?.user_name ? (
-                          <span title={f.upload.user_email ?? undefined}>{f.upload.user_name}</span>
-                        ) : (
-                          <span className="text-fg-dim" title="Enviado antes do registro de uploads, ou o usuário foi excluído">
-                            Sem registro
-                          </span>
-                        )}
+                        {(() => {
+                          const s = senderOf(f, machineById);
+                          if (s.key === UNKNOWN_USER)
+                            return (
+                              <span className="text-fg-dim" title="Enviado antes do registro de uploads e a máquina não tem dono">
+                                Sem registro
+                              </span>
+                            );
+                          return (
+                            <span title={s.inferred ? 'Sem registro do envio: atribuído ao dono da máquina, o único que cola nela' : (s.email ?? undefined)}>
+                              {s.label}
+                              {s.inferred && <span className="ml-1 text-[10px] text-fg-dim">(dono da máquina)</span>}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2 text-fg-muted">{machineName.get(f.machine_id) ?? f.machine_id}</td>
                       <td className="px-3 py-2 text-xs text-fg-muted">{formatDate(f.upload?.created_at ?? f.modified_at)}</td>

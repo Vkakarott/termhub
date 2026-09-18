@@ -283,6 +283,8 @@ export interface UploadEntry {
 export interface UploadMachineStatus {
   id: string;
   name: string;
+  /** files with no upload record are attributed to the owner (only they can paste into the machine) */
+  owner_id: string | null;
   owner_name: string | null;
   ok: boolean;
   error?: string;
