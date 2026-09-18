@@ -84,8 +84,20 @@ describe('formatDoctor', () => {
     server: { ok: true },
     tmux: { ok: true, path: '/usr/bin/tmux' },
     nodePty: { ok: true },
+    spawnHelper: { ok: true, path: '/g/node-pty/prebuilds/darwin-arm64/spawn-helper', repaired: false },
     paths: [],
   };
+
+  it('tells the user when the spawn-helper could not be made executable', () => {
+    const text = formatDoctor({ ...baseReport, spawnHelper: { ok: false, path: '/g/spawn-helper', repaired: false, error: 'EACCES' } }, { platform: 'darwin' });
+    expect(text).toContain('✗ spawn-helper do node-pty sem permissão de execução: EACCES');
+    expect(text).toContain('chmod +x "/g/spawn-helper"');
+  });
+
+  it('mentions when the spawn-helper was just repaired', () => {
+    const text = formatDoctor({ ...baseReport, spawnHelper: { ok: true, path: '/g/spawn-helper', repaired: true } }, { platform: 'darwin' });
+    expect(text).toContain('permissão de execução corrigida agora');
+  });
 
   it('marks every ok check with ✓ and includes the config path', () => {
     const text = formatDoctor(baseReport, { platform: 'linux' });

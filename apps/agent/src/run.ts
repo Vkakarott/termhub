@@ -5,6 +5,7 @@ import { connectOnce, runForever, RevokedError, ProtocolMismatchError, UpgradeRe
 import type { AgentConfig } from './config.js';
 import { createDispatcher } from './dispatch.js';
 import { createPtyManager } from './pty.js';
+import { ensureSpawnHelperExecutable } from './pty-health.js';
 import { handlers } from './rpc/index.js';
 import { stopRestartLoop } from './service/launchd.js';
 import { AGENT_VERSION } from './version.js';
@@ -121,6 +122,10 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
   }
 
   const hello = await buildHello(osName);
+  // Repair node-pty's spawn-helper before the first tab opens (see pty-health.ts).
+  const helper = ensureSpawnHelperExecutable();
+  if (helper.repaired) opts.log('spawn-helper exec bit repaired', { path: helper.path });
+  else if (!helper.executable) opts.log('spawn-helper is not executable and could not be fixed', { path: helper.path, error: helper.error });
   const pty = createPtyManager({ log: opts.log });
   const dispatch = createDispatcher({ handlers, pty, log: opts.log });
 
