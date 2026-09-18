@@ -324,7 +324,7 @@ export function SimulatorView({ tab, machineId, active, focused, floating, onDet
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           {tab.simulator_udid && <DevicePicker machineId={machineId} value={tab.simulator_udid} onPick={(u) => void pickDevice(u)} />}
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ready ? 'bg-ok' : state === 'error' || state === 'offline' ? 'bg-danger' : 'bg-warn'}`} />
-          <span className="truncate text-fg-muted">{STATE_LABEL[state]}</span>
+          <span className="min-w-0 truncate text-fg-muted">{STATE_LABEL[state]}</span>
           {ready && <span className="shrink-0 whitespace-nowrap text-fg-dim">{fps} fps</span>}
         </div>
         <span className="flex shrink-0 items-center gap-1">

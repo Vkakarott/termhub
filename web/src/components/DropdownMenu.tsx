@@ -24,13 +24,22 @@ export function DropdownMenu({ label = '⋯', title, align = 'right', items }: P
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Flip above the trigger when the popover would overflow the bottom of the viewport.
+  // Reset to the 'bottom' baseline whenever the menu closes, so the next open's overflow
+  // measurement always starts from a known position instead of the previous open's flipped
+  // one (otherwise a flip to 'top' can make the next open measure as "no overflow" and flip
+  // back to 'bottom', which then overflows again).
+  useEffect(() => {
+    if (!open) setPlacement('bottom');
+  }, [open]);
+
+  // Flip above the trigger when the popover, rendered at the 'bottom' baseline, would
+  // overflow the bottom of the viewport.
   useLayoutEffect(() => {
     if (!open) return;
     const el = menuRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    setPlacement(rect.bottom > window.innerHeight ? 'top' : 'bottom');
+    if (rect.bottom > window.innerHeight) setPlacement('top');
   }, [open]);
 
   // Outside click/pointerdown and Escape close the menu. Listener registered only while open.
