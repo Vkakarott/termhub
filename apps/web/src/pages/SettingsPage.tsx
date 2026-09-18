@@ -4,17 +4,19 @@ import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, User } from '../lib/types';
 import { ConfirmDialog, Modal } from '../components/Modal';
+import { UploadsView } from '../components/UploadsView';
 
 /**
  * Settings: users, roles and the permission matrix (resource × create/read/update/delete).
  * Same model as the engenhariainversa CMS: admin roles bypass everything, system roles cannot be deleted.
  */
 
-type Section = 'users' | 'roles' | 'permissions';
+type Section = 'users' | 'roles' | 'permissions' | 'uploads';
 const SECTIONS: { key: Section; label: string; resource: string }[] = [
   { key: 'users', label: 'Usuários', resource: 'users' },
   { key: 'roles', label: 'Roles', resource: 'roles' },
   { key: 'permissions', label: 'Permissões', resource: 'roles' },
+  { key: 'uploads', label: 'Arquivos', resource: 'uploads' },
 ];
 const ACTION_LABELS: Record<PermissionAction, string> = { create: 'Criar', read: 'Ver', update: 'Editar', delete: 'Excluir' };
 const ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete'];
@@ -39,6 +41,7 @@ export function SettingsPage() {
         {current === 'users' && <UsersSection />}
         {current === 'roles' && <RolesSection />}
         {current === 'permissions' && <PermissionsSection />}
+        {current === 'uploads' && <UploadsView />}
         {!current && <p className="text-sm text-fg-dim">Sem permissão para ver as configurações.</p>}
       </div>
     </div>
