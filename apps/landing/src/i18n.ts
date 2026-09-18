@@ -23,13 +23,55 @@ const pt = {
     badge: 'self-hosted · open source · MIT',
     title_a: 'Os terminais das suas máquinas, ',
     title_b: 'no navegador',
-    lead: 'Máquinas, projetos e tabs. Cada tab é uma sessão tmux que sobrevive ao navegador. Pensado para quem passa o dia em terminais com agentes de IA.',
-    cta: 'Entrar no app →',
+    lead: 'Cada tab é uma sessão tmux. Sobrevive ao navegador e à troca de computador. Self-hosted, MIT.',
+    cta: 'Entrar no app',
     repo: 'Ver no GitHub',
     keys: { tab: 'nova tab', switch: 'alterna', paste: 'cola imagem no Claude' },
   },
   mock: { prompt: 'corrige o bug do login e abre o PR', status: 'Conectado', hint: 'app usa o mouse · ⌥ + arrastar seleciona' },
+  carousel: {
+    label: 'O que você vê no termhub',
+    tabs: ['Terminal', 'Hardware', 'Simulador iOS', 'Kanban'],
+    hardware: {
+      caption: 'jarvis · atualizado a cada 5 s',
+      kpis: [
+        { label: 'CPU', value: '23%', pct: 23 },
+        { label: 'Memória', value: '11,2 / 32 GB', pct: 35 },
+        { label: 'Disco', value: '412 GB livres', pct: 58 },
+        { label: 'Temp', value: '46 °C', pct: 46 },
+      ],
+      procs_head: ['processo', 'cpu', 'mem'],
+      procs: [
+        { name: 'node server.js', cpu: '12,4%', mem: '820 MB' },
+        { name: 'claude', cpu: '6,1%', mem: '540 MB' },
+        { name: 'postgres', cpu: '3,8%', mem: '310 MB' },
+        { name: 'tmux: server', cpu: '1,2%', mem: '48 MB' },
+        { name: 'sshd', cpu: '0,4%', mem: '12 MB' },
+      ],
+    },
+    ios: {
+      screen_title: 'Ajustes',
+      rows: ['Rede', 'Notificações', 'Privacidade'],
+      button: 'Continuar',
+      actions: ['Toque e gestos', 'Teclado', 'Home · Bloquear · Volume', 'Screenshot'],
+      caption: 'iPhone 16e · WDA · 25 fps na LAN',
+    },
+    kanban: {
+      columns: [
+        { title: 'Backlog', cards: [{ text: 'Retry de SSH', chip: '' }, { text: 'Exportar notas', chip: '' }] },
+        { title: 'A fazer', cards: [{ text: 'Sync de tickets', chip: 'LIN-42' }, { text: 'Atalhos de tab', chip: '' }] },
+        { title: 'Fazendo', cards: [{ text: 'Simulador iOS', chip: '' }] },
+        { title: 'Feito', cards: [{ text: 'Colar imagem', chip: '' }, { text: 'Kanban por projeto', chip: '' }, { text: 'Login por e-mail', chip: '' }] },
+      ],
+    },
+  },
+  numbers: [
+    { value: '1', label: 'docker compose para subir tudo' },
+    { value: '3', label: 'passos até o primeiro terminal' },
+    { value: '0', label: 'tokens de IA armazenados' },
+  ],
   features: {
+    link: 'Ver recursos',
     title: 'Um lugar para o seu dia de terminal',
     lead: 'Tudo o que você abre de novo toda manhã, já aberto.',
     items: [
@@ -42,6 +84,7 @@ const pt = {
     ],
   },
   how: {
+    link: 'Ver como instalar',
     title: 'Como funciona',
     steps: [
       { title: 'Suba com Docker', text: 'docker compose --profile prod up -d. Postgres, e-mail de login e o app. Publique pela LAN ou por um Cloudflare Tunnel.' },
@@ -88,13 +131,55 @@ const en: typeof pt = {
     badge: 'self-hosted · open source · MIT',
     title_a: 'Your machines’ terminals, ',
     title_b: 'in the browser',
-    lead: 'Machines, projects and tabs. Every tab is a tmux session that outlives the browser. Built for people who spend the day in terminals with AI agents.',
-    cta: 'Open the app →',
+    lead: 'Every tab is a tmux session. It survives the browser and switching computers. Self-hosted, MIT.',
+    cta: 'Open the app',
     repo: 'View on GitHub',
     keys: { tab: 'new tab', switch: 'switch', paste: 'paste an image into Claude' },
   },
   mock: { prompt: 'fix the login bug and open the PR', status: 'Connected', hint: 'app owns the mouse · ⌥ + drag selects' },
+  carousel: {
+    label: 'What you see in termhub',
+    tabs: ['Terminal', 'Hardware', 'iOS Simulator', 'Kanban'],
+    hardware: {
+      caption: 'jarvis · refreshed every 5 s',
+      kpis: [
+        { label: 'CPU', value: '23%', pct: 23 },
+        { label: 'Memory', value: '11.2 / 32 GB', pct: 35 },
+        { label: 'Disk', value: '412 GB free', pct: 58 },
+        { label: 'Temp', value: '46 °C', pct: 46 },
+      ],
+      procs_head: ['process', 'cpu', 'mem'],
+      procs: [
+        { name: 'node server.js', cpu: '12.4%', mem: '820 MB' },
+        { name: 'claude', cpu: '6.1%', mem: '540 MB' },
+        { name: 'postgres', cpu: '3.8%', mem: '310 MB' },
+        { name: 'tmux: server', cpu: '1.2%', mem: '48 MB' },
+        { name: 'sshd', cpu: '0.4%', mem: '12 MB' },
+      ],
+    },
+    ios: {
+      screen_title: 'Settings',
+      rows: ['Network', 'Notifications', 'Privacy'],
+      button: 'Continue',
+      actions: ['Tap and gestures', 'Keyboard', 'Home · Lock · Volume', 'Screenshot'],
+      caption: 'iPhone 16e · WDA · 25 fps on the LAN',
+    },
+    kanban: {
+      columns: [
+        { title: 'Backlog', cards: [{ text: 'SSH retry', chip: '' }, { text: 'Export notes', chip: '' }] },
+        { title: 'To do', cards: [{ text: 'Ticket sync', chip: 'LIN-42' }, { text: 'Tab shortcuts', chip: '' }] },
+        { title: 'Doing', cards: [{ text: 'iOS simulator', chip: '' }] },
+        { title: 'Done', cards: [{ text: 'Paste an image', chip: '' }, { text: 'Kanban per project', chip: '' }, { text: 'E-mail sign-in', chip: '' }] },
+      ],
+    },
+  },
+  numbers: [
+    { value: '1', label: 'docker compose to bring everything up' },
+    { value: '3', label: 'steps to your first terminal' },
+    { value: '0', label: 'AI tokens stored' },
+  ],
   features: {
+    link: 'See features',
     title: 'One place for your terminal day',
     lead: 'Everything you reopen every morning, already open.',
     items: [
@@ -107,6 +192,7 @@ const en: typeof pt = {
     ],
   },
   how: {
+    link: 'See how to install',
     title: 'How it works',
     steps: [
       { title: 'Run it with Docker', text: 'docker compose --profile prod up -d. Postgres, login e-mail and the app. Publish on your LAN or through a Cloudflare Tunnel.' },
