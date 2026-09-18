@@ -1,0 +1,45 @@
+name: Publish @termhub/agent
+
+# Publishes apps/agent to npm when a tag agent-vX.Y.Z is pushed (the tag must match the
+# version in apps/agent/package.json). Uses npm trusted publishing (OIDC): no npm token is
+# stored in GitHub — the package's "Trusted publisher" on npmjs.com must point at this
+# repository and this workflow file. Provenance is attached automatically.
+on:
+  push:
+    tags: ['agent-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Atualizar npm (trusted publishing precisa de npm >= 11.5)
+        run: npm install -g npm@latest && npm --version
+      - name: Instalar dependências
+        run: npm ci
+      - name: Build dos pacotes compartilhados e do agente
+        run: npm run build:packages && npm run build -w @termhub/agent
+      - name: Testes do agente
+        run: npm test -w @termhub/agent
+      - name: Tag bate com a versão do pacote
+        if: github.ref_type == 'tag'
+        run: |
+          v=$(node -p 'require("./apps/agent/package.json").version')
+          [ "${GITHUB_REF_NAME#agent-v}" = "$v" ] || { echo "tag $GITHUB_REF_NAME != package version $v"; exit 1; }
+      - name: Manifesto publicado não depende de @termhub/*
+        run: node -e 'const d=Object.keys(require("./apps/agent/package.json").dependencies||{});if(d.some(x=>x.startsWith("@termhub/"))){console.error("workspace dependency in dependencies:",d);process.exit(1)}'
+      - name: Conteúdo do tarball
+        run: npm pack -w @termhub/agent --dry-run
+      - name: Publicar
+        run: npm publish -w @termhub/agent --access public --provenance
