@@ -27,6 +27,7 @@ import { userRoutes } from './routes/users.js';
 import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { registerTerminalWs } from './terminal/ws.js';
+import { registerAgentWs } from './agent/ws.js';
 import { createUpgradeRouter } from './ws/router.js';
 import { registerSimulatorWs } from './simulator/ws.js';
 import { SimulatorSessionManager } from './simulator/session-manager.js';
@@ -92,6 +93,7 @@ export async function buildApp(): Promise<App> {
   // recebam `simulators` e `simWs.closeTab`. `fastify.server` já existe neste ponto.
   const upgrades = createUpgradeRouter(fastify.server, { auth });
   registerTerminalWs(upgrades, { repos, log: fastify.log });
+  registerAgentWs(upgrades, { repos, log: fastify.log });
   const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
 
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---

@@ -17,6 +17,16 @@ export interface UpgradeContext {
 }
 export type UpgradeHandler = (ctx: UpgradeContext) => void | Promise<void>;
 
+/** Public upgrade routes authenticate themselves (e.g. bearer token): no cookie user/scope. */
+export interface PublicUpgradeContext {
+  req: IncomingMessage;
+  socket: Duplex;
+  head: Buffer;
+  url: URL;
+  params: string[];
+}
+export type PublicUpgradeHandler = (ctx: PublicUpgradeContext) => void | Promise<void>;
+
 export function rejectUpgrade(socket: Duplex, status: number, text: string) {
   socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
   socket.destroy();
@@ -46,8 +56,23 @@ function originAllowed(req: IncomingMessage): boolean {
 /** Um único listener de `upgrade`: casa o path, checa origem e auth, e delega ao handler. */
 export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContext }) {
   const routes: { pattern: RegExp; handler: UpgradeHandler }[] = [];
+  const publicRoutes: { pattern: RegExp; handler: PublicUpgradeHandler }[] = [];
   server.on('upgrade', async (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
+
+    // Public routes match first and authenticate themselves (bearer token, not cookie):
+    // they skip originAllowed() too — agents send no Origin, and a browser can't set
+    // Authorization on a WebSocket, so cross-site WebSocket hijacking doesn't apply here.
+    const pub = publicRoutes.map((r) => ({ r, m: url.pathname.match(r.pattern) })).find((x) => x.m);
+    if (pub?.m) {
+      try {
+        await pub.r.handler({ req, socket, head, url, params: pub.m.slice(1) });
+      } catch {
+        rejectUpgrade(socket, 500, 'Internal Server Error');
+      }
+      return;
+    }
+
     const route = routes.map((r) => ({ r, m: url.pathname.match(r.pattern) })).find((x) => x.m);
     if (!route?.m) return rejectUpgrade(socket, 404, 'Not Found');
     if (!originAllowed(req)) return rejectUpgrade(socket, 403, 'Forbidden');
@@ -71,6 +96,9 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
   return {
     add(pattern: RegExp, handler: UpgradeHandler) {
       routes.push({ pattern, handler });
+    },
+    addPublic(pattern: RegExp, handler: PublicUpgradeHandler) {
+      publicRoutes.push({ pattern, handler });
     },
   };
 }
