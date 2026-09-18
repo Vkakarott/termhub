@@ -100,7 +100,15 @@ Logs on macOS: `data/logs/`. On Linux: `journalctl --user -u termhub -f` (use `l
 
 ### Cloudflare Tunnel
 
-On jarvis, the app is published at **https://app.termhub.dev** and the landing page at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one, so there is no 502 window. The public hostnames are managed in the Zero Trust dashboard → Tunnels → jarvis (`app.termhub.dev` and `termhub.dev` → HTTP → `proxy-nginx:80`; the vhost template `deploy/nginx/termhub.dev.conf.tmpl` sends `termhub.dev` to the `termhub-landing` container and `app.termhub.dev` to the active app color; the tunnel is dashboard-managed, so `cloudflared tunnel route dns` alone is not enough: it only creates the DNS record, and it uses the zone `~/.cloudflared/cert.pem` was logged into). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
+On jarvis, the app is published at **https://app.termhub.dev** and the landing page at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one, so there is no 502 window. The public hostnames are managed in the Zero Trust dashboard → Tunnels → jarvis (`app.termhub.dev` and `termhub.dev` → HTTP → `proxy-nginx:80`; the vhost template `deploy/nginx/termhub.dev.conf.tmpl` sends `termhub.dev` to the `termhub-landing` container and `app.termhub.dev` to the active app color; the tunnel is dashboard-managed, so `cloudflared tunnel route dns` alone is not enough: it only creates the DNS record, and it uses the zone `~/.cloudflared/cert.pem` was logged into). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` **and pass that same file as `--env-file`**: `ENV_FILE` only feeds the services' `env_file:` (the variables the containers see at runtime), while `--env-file` feeds compose's own interpolation (`${VAR}` in the compose file, including `build.args`).
+
+That distinction matters for the landing: its `VITE_FIREBASE_*` values are interpolated into `build.args` and baked into the static bundle **at build time**, so they are only picked up from `--env-file` or the shell — never from `env_file:` — and the image has to be rebuilt whenever they change:
+
+```bash
+docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps landing
+```
+
+Leaving `--env-file` out rebuilds the landing with all seven args empty, which silently ships a landing without analytics and reports no error. The deploy workflow already passes it.
 
 On another server, the simple path is `cloudflared tunnel --url http://127.0.0.1:3000`.
 
@@ -157,7 +165,7 @@ The home page's **Hardware** tab shows a machine's CPU usage and load, RAM and s
 
 ## Cloud waitlist
 
-The landing page (PT/EN, switch in the header, `?lang=pt|en` for links) has a **termhub Cloud** section with a waitlist form: first and last name, e-mail, phone (country code, area code, number) and optional LinkedIn/GitHub. Entries go to the `waitlist_entries` table through `POST /api/waitlist`, a public route (rate-limited per IP: 30 attempts and 5 sign-ups per hour, honeypot field, e-mail de-duplicated). The proxy forwards `termhub.dev/api/waitlist` to the app so the form is same-origin and outside Cloudflare Access. Sign-ups are listed on the home page's **Waitlist** tab (filter, CSV export, remove) via `GET/DELETE /api/waitlist`. Shown to roles granted `waitlist:read`.
+The landing page (PT/EN, switch in the header, `?lang=pt|en` for links) has a **termhub Cloud** section with a waitlist form: first and last name, e-mail, phone (country code, area code, number) and optional LinkedIn/GitHub. Entries go to the `waitlist_entries` table through `POST /api/waitlist`, a public route (rate-limited per IP: 30 attempts and 5 sign-ups per hour, honeypot field, e-mail de-duplicated). The proxy forwards `termhub.dev/api/waitlist` to the app so the form is same-origin and outside Cloudflare Access. Sign-ups are listed on the home page's **Waitlist** tab (filter, CSV export, remove) via `GET/DELETE /api/waitlist`. Shown to roles granted `waitlist:read`. Google Analytics (Firebase SDK) is loaded only after the visitor accepts the cookie banner, and only when the `VITE_FIREBASE_*` build args are set; the footer "Cookies" button reopens the banner to change the choice.
 
 ## AI accounts (usage limits)
 
@@ -190,6 +198,7 @@ See [.env.example](.env.example). Main ones:
 | `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | login code delivery |
 | `BIND_ADDR` | (compose) host IP that publishes Mailpit's UI port; the prod app has no host port of its own (proxy nginx only) |
 | `ENCRYPTION_KEY` | base64 of 32 bytes (`openssl rand -base64 32`) for integration secrets |
+| `VITE_FIREBASE_*` | Firebase Analytics for the landing page; build args of the landing image, empty = no analytics |
 | `TMUX_PATH` | path to tmux (useful as a service, minimal PATH) |
 | `LOCAL_SHELL` | shell inside local tmux (default `$SHELL`) |
 

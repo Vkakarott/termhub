@@ -1,4 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { ANALYTICS_ENABLED, disableAnalytics, initAnalytics, setLang as setAnalyticsLang, track } from './analytics';
+import { CookieBanner } from './CookieBanner';
+import { readConsent, subscribeConsent } from './consent';
 import { HeroCarousel } from './HeroCarousel';
 import { DICT, LANG_KEY, LangContext, detectLang, useLang, type Lang } from './i18n';
 import { useReveal } from './useReveal';
@@ -12,6 +15,9 @@ const FEATURE_ICONS = ['▮_', '⌂', '✦', '▦', '◔', '◫'];
 
 /** Tiles fade up in sequence, capped so the last one never feels late. */
 const revealDelay = (index: number) => ({ transitionDelay: `${Math.min(index * 60, 300)}ms` });
+
+/** Click handler for the page's calls to action; the navigation itself is untouched. */
+const trackCta = (target: string, location: string) => () => track('cta_click', { target, location });
 
 function Logo({ className = 'h-10' }: { className?: string }) {
   return <img src="/logo.svg" alt="termhub" className={className} />;
@@ -96,15 +102,15 @@ function FinalCta() {
           <p className="mt-1 max-w-2xl text-body text-frost">{t.cta.lead}</p>
         </div>
         <div className="flex flex-wrap gap-3 md:ml-auto md:shrink-0">
-          <a href={`${REPO_URL}#production-docker`} className="btn-primary">{t.cta.install}</a>
-          <a href={APP_URL} className="btn-ghost">{t.cta.app}</a>
+          <a href={`${REPO_URL}#production-docker`} className="btn-primary" onClick={trackCta('install', 'cta')}>{t.cta.install}</a>
+          <a href={APP_URL} className="btn-ghost" onClick={trackCta('app', 'cta')}>{t.cta.app}</a>
         </div>
       </div>
     </section>
   );
 }
 
-function Page() {
+function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
   const { t } = useLang();
   return (
     <div className="min-h-full">
@@ -121,8 +127,8 @@ function Page() {
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <LangSwitch />
-            <a href={REPO_URL} className="btn-ghost hidden px-4 py-1.5 text-body-sm md:inline-flex">{t.hero.repo}</a>
-            <a href={APP_URL} className="btn-primary px-4 py-1.5 text-body-sm">{t.nav.app}</a>
+            <a href={REPO_URL} className="btn-ghost hidden px-4 py-1.5 text-body-sm md:inline-flex" onClick={trackCta('github', 'nav')}>{t.hero.repo}</a>
+            <a href={APP_URL} className="btn-primary px-4 py-1.5 text-body-sm" onClick={trackCta('app', 'nav')}>{t.nav.app}</a>
           </div>
         </div>
       </header>
@@ -140,8 +146,8 @@ function Page() {
             </h1>
             <p className="mt-5 max-w-xl text-subheading text-frost">{t.hero.lead}</p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <a href={APP_URL} className="btn-primary">{t.hero.cta}</a>
-              <a href={REPO_URL} className="btn-ghost">
+              <a href={APP_URL} className="btn-primary" onClick={trackCta('app', 'hero')}>{t.hero.cta}</a>
+              <a href={REPO_URL} className="btn-ghost" onClick={trackCta('github', 'hero')}>
                 {t.hero.repo} <Chevron />
               </a>
             </div>
@@ -216,6 +222,11 @@ function Page() {
           <a href={REPO_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">GitHub</a>
           <a href={`${REPO_URL}/blob/main/README.md`} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.docs}</a>
           <a href={COFFEE_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.coffee}</a>
+          {ANALYTICS_ENABLED && (
+            <button type="button" onClick={onOpenCookies} className="hover-tint px-1.5 py-0.5 hover:text-frost">
+              {t.footer.cookies}
+            </button>
+          )}
           <span className="ml-auto">{t.footer.made}</span>
         </div>
       </footer>
@@ -225,7 +236,13 @@ function Page() {
 
 export function App() {
   const [lang, setLangState] = useState<Lang>(detectLang);
+  // open until the visitor answers; the footer "Cookies" button reopens it to change the choice
+  const [cookiesOpen, setCookiesOpen] = useState(() => ANALYTICS_ENABLED && readConsent() === null);
   const setLang = (l: Lang) => {
+    if (l !== lang) {
+      setAnalyticsLang(l);
+      track('lang_switch', { lang: l });
+    }
     setLangState(l);
     try {
       localStorage.setItem(LANG_KEY, l);
@@ -237,5 +254,20 @@ export function App() {
     document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
     document.title = DICT[lang].meta.title;
   }, [lang]);
-  return <LangContext.Provider value={{ lang, t: DICT[lang], setLang }}>{<Page />}</LangContext.Provider>;
+  // analytics starts only with a stored "granted"; withdrawing it stops collection at once,
+  // without waiting for the next page load
+  useEffect(() => {
+    if (readConsent() === 'granted') initAnalytics(lang);
+    return subscribeConsent((consent) => {
+      setCookiesOpen(false);
+      if (consent === 'granted') initAnalytics(lang);
+      else disableAnalytics();
+    });
+  }, [lang]);
+  return (
+    <LangContext.Provider value={{ lang, t: DICT[lang], setLang }}>
+      <Page onOpenCookies={() => setCookiesOpen(true)} />
+      {ANALYTICS_ENABLED && <CookieBanner open={cookiesOpen} />}
+    </LangContext.Provider>
+  );
 }

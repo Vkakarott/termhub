@@ -125,7 +125,13 @@ const pt = {
     },
   },
   cta: { title: 'Rode na sua rede hoje', lead: 'Um docker compose, um usuário criado pela CLI, e os terminais das suas máquinas no navegador.', install: 'Instalar', app: 'Entrar no app' },
-  footer: { docs: 'Documentação', coffee: '☕ Buy me a coffee', made: 'feito em Goiânia' },
+  cookies: {
+    title: 'Cookies',
+    text: 'Usamos o Google Analytics para medir as visitas a este site. Ele só é carregado se você aceitar.',
+    accept: 'Aceitar',
+    decline: 'Recusar',
+  },
+  footer: { docs: 'Documentação', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'feito em Goiânia' },
 };
 
 const en: typeof pt = {
@@ -237,7 +243,13 @@ const en: typeof pt = {
     },
   },
   cta: { title: 'Run it on your network today', lead: 'One docker compose, one user created from the CLI, and your machines’ terminals in the browser.', install: 'Install', app: 'Open the app' },
-  footer: { docs: 'Documentation', coffee: '☕ Buy me a coffee', made: 'made in Goiânia' },
+  cookies: {
+    title: 'Cookies',
+    text: 'We use Google Analytics to measure visits to this site. It only loads if you accept.',
+    accept: 'Accept',
+    decline: 'Decline',
+  },
+  footer: { docs: 'Documentation', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'made in Goiânia' },
 };
 
 export const DICT: Record<Lang, typeof pt> = { pt, en };

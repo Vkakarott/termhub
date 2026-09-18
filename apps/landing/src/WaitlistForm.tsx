@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { track } from './analytics';
 import { useLang } from './i18n';
 
 /** The failure is stored as a reason, not as a string, so switching language re-renders it. */
@@ -62,6 +63,8 @@ export function WaitlistForm() {
         throw new Error(badEmail ? 'email' : 'generic');
       }
       setState({ kind: 'done', already: !!data.already });
+      // only new sign-ups count; the locale is the whole payload, never the person's data
+      if (!data.already) track('waitlist_submit', { locale: lang });
     } catch (err) {
       const badEmail = err instanceof Error && err.message === 'email';
       setState({ kind: 'error', reason: badEmail ? 'email' : 'generic' });
