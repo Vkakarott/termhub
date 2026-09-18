@@ -6,6 +6,7 @@ import type { AgentConfig } from './config.js';
 import { createDispatcher } from './dispatch.js';
 import { createPtyManager } from './pty.js';
 import { handlers } from './rpc/index.js';
+import { stopRestartLoop } from './service/launchd.js';
 import { AGENT_VERSION } from './version.js';
 
 export type SupportedOs = 'macos' | 'linux';
@@ -93,12 +94,24 @@ export interface RunAgentOptions {
 }
 
 /**
+ * Prints a pt-BR reason, stops the service manager from restarting us and exits 78
+ * (`EX_CONFIG`). systemd honours `RestartPreventExitStatus=78` on its own; launchd does not
+ * (`KeepAlive.SuccessfulExit=false` restarts on any failure), so the job is booted out first.
+ * The message goes out before the bootout, which may SIGTERM this very process.
+ */
+export async function exitWithoutRestart(message: string): Promise<never> {
+  console.error(message);
+  await stopRestartLoop();
+  process.exit(78);
+}
+
+/**
  * Runs the agent in the foreground until `signal` aborts (or forever, if none is given):
  * builds `hello`, wires the PTY manager + dispatcher into `runForever()`, and drops every PTY
  * channel (`pty.closeAll()`) on each disconnect so a reconnect never inherits a stale session.
  *
- * `RevokedError`/`ProtocolMismatchError` print a pt-BR message to stderr and `process.exit(78)`
- * — matching sysvinit/launchd/systemd "don't restart me" conventions (see `service/*.ts`).
+ * `RevokedError`/`ProtocolMismatchError` end in `exitWithoutRestart()` (pt-BR message, exit 78,
+ * service manager told not to restart — see `service/*.ts`).
  */
 export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Promise<void> {
   const osName = detectOs();
@@ -126,12 +139,10 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
     );
   } catch (err) {
     if (err instanceof RevokedError) {
-      console.error('Token revogado. Rode: termhub-agent connect --url <url>');
-      process.exit(78);
+      await exitWithoutRestart('Token revogado. Rode: termhub-agent connect --url <url>');
     }
     if (err instanceof ProtocolMismatchError) {
-      console.error(UPGRADE_MESSAGE);
-      process.exit(78);
+      await exitWithoutRestart(UPGRADE_MESSAGE);
     }
     throw err;
   }

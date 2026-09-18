@@ -111,12 +111,14 @@ describe('cli main()', () => {
     expect(process.exitCode).toBe(2);
   });
 
-  it('"run" without a config exits 78 (EX_CONFIG) so a service manager stops restarting it', async () => {
+  it('"run" without a config stops the launchd restart loop and exits 78 (EX_CONFIG)', async () => {
     // Tests runCommand() directly (not through main()) so the mocked process.exit()'s thrown
     // sentinel is observed here, rather than being swallowed by main()'s catch-all around
     // command dispatch — a real process.exit() never returns, so that catch never sees it in
     // production; only the mock makes it throw.
     const { runCommand } = await import('./commands/run.js');
+    const launchd = await import('./service/launchd.js');
+    const stopRestartLoop = vi.spyOn(launchd, 'stopRestartLoop').mockResolvedValue(undefined);
     const exitCodes: (number | undefined)[] = [];
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       exitCodes.push(code);
@@ -127,6 +129,8 @@ describe('cli main()', () => {
 
     expect(exitCodes).toEqual([78]);
     expect(errors.join('\n')).toContain('Nenhuma configuração. Rode: termhub-agent connect --url <url>');
+    // launchd's KeepAlive restarts on any non-zero exit, so the job must be booted out first.
+    expect(stopRestartLoop).toHaveBeenCalledTimes(1);
   });
 
   it('main(["run"]) without a config calls process.exit(78)', async () => {

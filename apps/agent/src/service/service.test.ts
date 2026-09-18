@@ -9,7 +9,7 @@ vi.mock('../exec.js', async () => {
   return { ...actual, agentEnv: () => ({ PATH: '/usr/local/bin:/usr/bin:/bin' }) };
 });
 
-const { renderPlist, install: launchdInstall, uninstall: launchdUninstall, status: launchdStatus, LABEL } = await import('./launchd.js');
+const { renderPlist, install: launchdInstall, uninstall: launchdUninstall, status: launchdStatus, stopRestartLoop, LABEL } = await import('./launchd.js');
 const { renderUnit, install: systemdInstall, uninstall: systemdUninstall, status: systemdStatus, UNIT_NAME } = await import('./systemd.js');
 const { serviceFileOptions } = await import('./index.js');
 
@@ -145,6 +145,35 @@ describe('launchd install/uninstall/status', () => {
     await expect(launchdStatus({ run: runOk as never })).resolves.toBe(true);
     const runFail = vi.fn(async () => fail());
     await expect(launchdStatus({ run: runFail as never })).resolves.toBe(false);
+  });
+});
+
+describe('launchd stopRestartLoop (exit 78)', () => {
+  const uid = process.getuid ? process.getuid() : 0;
+
+  it('on darwin boots the agent job out so KeepAlive stops restarting it', async () => {
+    const run = vi.fn(async () => ok());
+    await stopRestartLoop({ run, platform: 'darwin' });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith('launchctl', ['bootout', `gui/${uid}/${LABEL}`]);
+  });
+
+  it('on linux does nothing (systemd honours RestartPreventExitStatus=78 by itself)', async () => {
+    const run = vi.fn(async () => ok());
+    await stopRestartLoop({ run, platform: 'linux' });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('never throws: a failing or missing launchctl is ignored', async () => {
+    await expect(stopRestartLoop({ run: vi.fn(async () => fail('no such job')), platform: 'darwin' })).resolves.toBeUndefined();
+    await expect(
+      stopRestartLoop({
+        run: vi.fn(async () => {
+          throw new Error('spawn failed');
+        }),
+        platform: 'darwin',
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 

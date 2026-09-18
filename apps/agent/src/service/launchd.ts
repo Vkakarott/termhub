@@ -95,6 +95,25 @@ export async function uninstall(deps: LaunchdDeps = {}): Promise<void> {
   }
 }
 
+/**
+ * Called right before `process.exit(78)` (revoked token, protocol mismatch, no config).
+ * launchd's `KeepAlive.SuccessfulExit=false` restarts the job on ANY non-zero exit — unlike
+ * systemd's `RestartPreventExitStatus=78` there is no per-code opt-out — so a revoked token
+ * would loop forever (3×401 every backoff). Booting the job out unloads it until the user
+ * runs `connect`/`service install` again. Best-effort: failures (not under launchd, job not
+ * loaded, launchctl missing) are ignored; a no-op off macOS.
+ */
+export async function stopRestartLoop(deps: LaunchdDeps & { platform?: NodeJS.Platform } = {}): Promise<void> {
+  const platform = deps.platform ?? process.platform;
+  if (platform !== 'darwin') return;
+  const runFn = deps.run ?? run;
+  try {
+    await runFn('launchctl', ['bootout', `${gui()}/${LABEL}`]);
+  } catch {
+    /* best effort */
+  }
+}
+
 /** True when launchd currently has the agent's service loaded. */
 export async function status(deps: LaunchdDeps = {}): Promise<boolean> {
   const runFn = deps.run ?? run;
