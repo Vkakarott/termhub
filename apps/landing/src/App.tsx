@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ANALYTICS_ENABLED, initAnalytics, setLang as setAnalyticsLang, track } from './analytics';
+import { ANALYTICS_ENABLED, disableAnalytics, initAnalytics, setLang as setAnalyticsLang, track } from './analytics';
 import { CookieBanner } from './CookieBanner';
 import { readConsent, subscribeConsent } from './consent';
 import { HeroCarousel } from './HeroCarousel';
@@ -254,12 +254,14 @@ export function App() {
     document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
     document.title = DICT[lang].meta.title;
   }, [lang]);
-  // analytics starts only with a stored "granted", and right away when the banner grants it
+  // analytics starts only with a stored "granted"; withdrawing it stops collection at once,
+  // without waiting for the next page load
   useEffect(() => {
     if (readConsent() === 'granted') initAnalytics(lang);
     return subscribeConsent((consent) => {
       setCookiesOpen(false);
       if (consent === 'granted') initAnalytics(lang);
+      else disableAnalytics();
     });
   }, [lang]);
   return (
