@@ -1,3 +1,4 @@
+import { credentialScript } from '@termhub/machine-ops';
 import type { AiCredential, AiProviderAdapter, AiUsageResult } from './types.js';
 import { isObj, num, str } from './credentials.js';
 import { fetchCodeAssistUsage } from './code-assist.js';
@@ -12,7 +13,7 @@ export const geminiAdapter: AiProviderAdapter = {
   loginHint: 'Run `gemini` on that machine and sign in with Google (API-key logins have no quota to show).',
 
   credentialScript() {
-    return `if [ -f "$D/oauth_creds.json" ]; then cat "$D/oauth_creds.json"; fi`;
+    return credentialScript('gemini');
   },
 
   parseCredential(stdout) {

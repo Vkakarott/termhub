@@ -1,3 +1,4 @@
+import { HARDWARE_SCRIPT } from '@termhub/machine-ops';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { REMOTE_PATH_PREFIX, runOnMachine } from '../terminal/machine-exec.js';
@@ -50,44 +51,6 @@ export interface HardwareSnapshot {
   processes: HardwareProcess[];
   collected_at: string;
 }
-
-const LINUX = [
-  `echo "OS:linux"`,
-  `echo "HOST:$(hostname 2>/dev/null)"`,
-  `echo "CPUMODEL:$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ *//')"`,
-  `echo "NCPU:$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)"`,
-  `echo "UPTIME:$(cut -d' ' -f1 /proc/uptime)"`,
-  `echo "LOAD:$(cut -d' ' -f1-3 /proc/loadavg)"`,
-  `echo "STAT1:$(head -1 /proc/stat)"`,
-  `sleep 1`,
-  `echo "STAT2:$(head -1 /proc/stat)"`,
-  `grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo | sed 's/^/MEM:/'`,
-  `df -Pk 2>/dev/null | tail -n +2 | awk '{ for (i = 6; i <= NF; i++) if ($i ~ /^\\//) { m = $i; for (j = i + 1; j <= NF; j++) m = m " " $j; printf "DISK:%s\\t%s\\t%s\\t%s\\t%s\\n", $1, $2, $3, $4, m; break } }'`,
-  `for z in /sys/class/thermal/thermal_zone*; do [ -f "$z/temp" ] && printf 'TEMP:%s\\t%s\\n' "$(cat "$z/type" 2>/dev/null)" "$(cat "$z/temp" 2>/dev/null)"; done`,
-  `for h in /sys/class/hwmon/hwmon*; do n=$(cat "$h/name" 2>/dev/null); for t in "$h"/temp*_input; do [ -f "$t" ] && printf 'TEMP:%s\\t%s\\n' "$n $(cat "\${t%_input}_label" 2>/dev/null)" "$(cat "$t" 2>/dev/null)"; done; done`,
-  `command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | sed 's/^/GPU:/'`,
-  `ps -eo pcpu,pmem,comm --sort=-pcpu 2>/dev/null | tail -n +2 | head -7 | sed 's/^ *//;s/^/PROC:/'`,
-  `exit 0`,
-].join('; ');
-
-const DARWIN = [
-  `echo "OS:macos"`,
-  `echo "HOST:$(hostname 2>/dev/null)"`,
-  `echo "CPUMODEL:$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"`,
-  `echo "NCPU:$(sysctl -n hw.ncpu)"`,
-  `echo "BOOT:$(sysctl -n kern.boottime | sed 's/^{ sec = \\([0-9]*\\),.*/\\1/')"`,
-  `echo "NOW:$(date +%s)"`,
-  `echo "LOAD:$(sysctl -n vm.loadavg | tr -d '{}')"`,
-  `echo "MEMSIZE:$(sysctl -n hw.memsize)"`,
-  `vm_stat | sed 's/^/VMSTAT:/'`,
-  `echo "SWAPUSAGE:$(sysctl -n vm.swapusage)"`,
-  `top -l 2 -s 1 -n 0 2>/dev/null | grep 'CPU usage' | tail -1 | sed 's/^/CPUUSAGE:/'`,
-  `df -Pk 2>/dev/null | tail -n +2 | awk '{ for (i = 6; i <= NF; i++) if ($i ~ /^\\//) { m = $i; for (j = i + 1; j <= NF; j++) m = m " " $j; printf "DISK:%s\\t%s\\t%s\\t%s\\t%s\\n", $1, $2, $3, $4, m; break } }'`,
-  `ps -A -o pcpu,pmem,comm -r 2>/dev/null | tail -n +2 | head -7 | sed 's/^ *//;s/^/PROC:/'`,
-  `exit 0`,
-].join('; ');
-
-const SCRIPT = `if [ "$(uname -s)" = Darwin ]; then ${DARWIN}; else ${LINUX}; fi`;
 
 const PSEUDO_FS = new Set(['tmpfs', 'devtmpfs', 'udev', 'overlay', 'squashfs', 'devfs', 'map', 'none', 'shm', 'efivarfs', 'autofs']);
 const SKIP_MOUNTS = ['/boot', '/snap', '/run', '/dev', '/sys', '/proc', '/System/Volumes/VM', '/System/Volumes/Preboot', '/System/Volumes/Update', '/System/Volumes/xarts', '/System/Volumes/iSCPreboot', '/System/Volumes/Hardware', '/private/var/vm', '/var/lib/docker', '/Library/Developer/CoreSimulator'];
@@ -232,7 +195,7 @@ function parse(stdout: string): HardwareSnapshot {
 }
 
 export async function collectHardware(machine: Machine): Promise<HardwareSnapshot> {
-  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', SCRIPT] }, `${REMOTE_PATH_PREFIX}${SCRIPT}`, 15000);
+  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', HARDWARE_SCRIPT] }, `${REMOTE_PATH_PREFIX}${HARDWARE_SCRIPT}`, 15000);
   if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
   if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Máquina inacessível via SSH' : 'Falha ao coletar o hardware');
   const snap = parse(r.stdout);

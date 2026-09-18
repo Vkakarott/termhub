@@ -1,3 +1,4 @@
+import { EXPAND_HOME, buildFsListScript, buildMkdirScript } from '@termhub/machine-ops';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { runOnMachine, shellQuote } from './machine-exec.js';
@@ -46,26 +47,6 @@ function diskLabel(mount: string): string {
   return last ?? mount;
 }
 
-/**
- * Script sh portátil (Linux/macOS). Sai sempre com 0; erros de diretório viram linhas ERR:.
- * O caminho já vem escapado com shellQuote; "~" e "~/x" são expandidos na máquina de destino.
- */
-function buildScript(quotedPath: string): string {
-  return [
-    `P=${quotedPath}`,
-    `case "$P" in ""|"~") P=$HOME;; "~/"*) P="$HOME/\${P#\\~/}";; esac`,
-    `echo "HOME:$HOME"`,
-    // discos: fonte, tamanho, livre e mount point (mount pode ter espaços: fica no fim da linha)
-    `df -Pk 2>/dev/null | tail -n +2 | while IFS= read -r line; do set -- $line; src=$1; size=$2; avail=$4; shift 5; [ -d "$*" ] && printf 'MNT:%s\\t%s\\t%s\\t%s\\n' "$src" "$size" "$avail" "$*"; done`,
-    `if [ ! -e "$P" ]; then echo "ERR:notfound"; exit 0; fi`,
-    `if [ ! -d "$P" ]; then echo "ERR:notdir"; exit 0; fi`,
-    `cd -- "$P" 2>/dev/null || { echo "ERR:denied"; exit 0; }`,
-    `echo "PWD:$(pwd)"`,
-    `ls -1Ap 2>/dev/null | grep '/$' | sed 's#/$##' | while IFS= read -r n; do echo "DIR:$n"; done`,
-    `exit 0`,
-  ].join('; ');
-}
-
 function parseOutput(stdout: string): { home: string | null; pwd: string | null; err: string | null; dirs: string[]; mounts: FsRoot[] } {
   let home: string | null = null;
   let pwd: string | null = null;
@@ -107,13 +88,14 @@ export async function browseMachine(machine: Machine, path: string | undefined):
   if (raw.includes('\0') || raw.includes('\n')) throw badRequest('Caminho inválido');
   if (raw && raw !== '~' && !raw.startsWith('~/') && !raw.startsWith('/')) throw badRequest('Informe um caminho absoluto');
 
-  const script = buildScript(shellQuote(raw));
+  const script = buildFsListScript(shellQuote(raw));
   const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
   if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
   if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Máquina inacessível via SSH' : 'Falha ao listar diretórios');
 
   const out = parseOutput(r.stdout);
   if (out.err === 'notfound') throw notFound('Diretório não existe na máquina');
+  if (out.err === 'eperm') throw forbidden('Sem acesso à pasta na máquina');
   if (out.err === 'notdir') throw badRequest('O caminho não é um diretório');
   if (out.err === 'denied') throw forbidden('Sem permissão para acessar o diretório');
   if (!out.pwd) throw new HttpError(502, 'Resposta inesperada da máquina');
@@ -143,9 +125,6 @@ export function assertDirName(name: string): void {
   if (!DIR_NAME_RE.test(name) || name === '.' || name === '..' || /[\x00-\x1f]/.test(name)) throw badRequest('Nome de pasta inválido');
 }
 
-/** Expansão de "~" feita na máquina de destino (o shell só expande fora de aspas). */
-const EXPAND_HOME = `case "$P" in "~") P=$HOME;; "~/"*) P="$HOME/\${P#\\~/}";; esac`;
-
 async function runFsScript(machine: Machine, script: string): Promise<string> {
   const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
   if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
@@ -163,16 +142,7 @@ export async function makeDirectory(machine: Machine, parent: string, name: stri
   assertDirName(name);
   const raw = parent.trim();
   if (!raw.startsWith('/') && raw !== '~' && !raw.startsWith('~/')) throw badRequest('Informe um caminho absoluto');
-  const script = [
-    `P=${shellQuote(raw)}`,
-    EXPAND_HOME,
-    `cd -- "$P" 2>/dev/null || { echo "ERR:parent"; exit 0; }`,
-    `N=${shellQuote(name)}`,
-    `if [ -e "$N" ]; then echo "ERR:exists"; exit 0; fi`,
-    `mkdir -- "$N" 2>/dev/null || { echo "ERR:denied"; exit 0; }`,
-    `cd -- "$N" && echo "PWD:$(pwd)"`,
-    `exit 0`,
-  ].join('; ');
+  const script = buildMkdirScript(shellQuote(raw), shellQuote(name));
   const out = await runFsScript(machine, script);
   const err = firstTag(out, 'ERR');
   if (err === 'parent') throw notFound('A pasta de destino não existe na máquina');

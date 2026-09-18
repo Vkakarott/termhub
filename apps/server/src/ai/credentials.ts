@@ -1,5 +1,6 @@
+import { configDirPrefix } from '@termhub/machine-ops';
 import type { Machine } from '../db/repositories/types.js';
-import { runOnMachine, shellQuote } from '../terminal/machine-exec.js';
+import { runOnMachine } from '../terminal/machine-exec.js';
 import type { AiCredential, AiProviderAdapter } from './types.js';
 
 export class CredentialError extends Error {
@@ -11,20 +12,17 @@ export class CredentialError extends Error {
   }
 }
 
-/** "~" and "~/x" are expanded on the target machine, never here. */
-function expandDir(configDir: string | null, defaultDir: string): string {
-  const raw = (configDir ?? '').trim();
-  if (!raw) return defaultDir;
-  if (raw.includes('\0') || raw.includes('\n')) throw new CredentialError('Invalid config dir');
-  return `P=${shellQuote(raw)}; case "$P" in "~") P=$HOME;; "~/"*) P="$HOME/\${P#\\~/}";; esac; D="$P"`;
-}
-
 /**
  * Reads the CLI credential from the machine and parses it. The raw output is
  * never logged; only the parsed token lives in memory for the duration of the request.
  */
 export async function readCredential(machine: Machine, adapter: AiProviderAdapter, configDir: string | null, defaultDir: string): Promise<AiCredential> {
-  const setD = expandDir(configDir, `D="$HOME/${defaultDir}"`);
+  let setD: string;
+  try {
+    setD = configDirPrefix(configDir, defaultDir);
+  } catch (err) {
+    throw new CredentialError(err instanceof Error ? err.message : 'Invalid config dir');
+  }
   const script = `${setD}; ${adapter.credentialScript(configDir)}`;
   const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
   if (r.timedOut) throw new CredentialError('Machine did not answer in time');

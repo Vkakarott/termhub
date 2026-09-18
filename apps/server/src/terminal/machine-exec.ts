@@ -1,22 +1,15 @@
 import { execFile, spawn } from 'node:child_process';
 import { config } from '../config.js';
 import type { Machine } from '../db/repositories/types.js';
+import { DETECT_SCRIPT, REMOTE_PATH_PREFIX, assertSessionName, parseDetect } from '@termhub/machine-ops';
+
+export { DETECT_TOOLS, REMOTE_PATH_PREFIX, assertSessionName, shellQuote } from '@termhub/machine-ops';
 
 export interface ExecResult {
   code: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
-}
-
-/** Escapa para uso dentro de aspas simples no shell remoto. */
-export function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-const SESSION_RE = /^[A-Za-z0-9_-]+$/;
-export function assertSessionName(name: string): void {
-  if (!SESSION_RE.test(name)) throw new Error(`Nome de sessão tmux inválido: ${name}`);
 }
 
 export function sshBaseArgs(machine: Machine, connectTimeout = 5): string[] {
@@ -104,36 +97,12 @@ export function runOnMachineWithInput(
 
 const tmux = () => config.terminal.tmuxPath;
 
-/**
- * Non-interactive SSH commands get the sshd default PATH (on macOS just /usr/bin:/bin:...),
- * which misses Homebrew and ~/.local/bin. Every remote command is prefixed with this.
- */
-export const REMOTE_PATH_PREFIX = 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
-
 export interface MachineStatus {
   online: boolean;
   tmux: boolean;
   os: string | null;
   /** ferramentas encontradas no PATH de login: claude, gh, git, node, xcodebuild, ... */
   capabilities: string[];
-}
-
-/** Ferramentas que interessam para automação (detectadas no status). */
-export const DETECT_TOOLS = ['tmux', 'claude', 'gh', 'git', 'node', 'pnpm', 'xcodebuild', 'docker', 'adb', 'python3'] as const;
-
-const WDA_RUNNER_APP = '$HOME/.termhub/WebDriverAgent/DerivedData/Build/Products/Debug-iphonesimulator/WebDriverAgentRunner-Runner.app';
-const DETECT_SCRIPT = `echo OS:$(uname -s); for t in ${DETECT_TOOLS.join(' ')}; do command -v $t >/dev/null 2>&1 && echo CAP:$t; done; [ -d "${WDA_RUNNER_APP}" ] && echo CAP:wda; exit 0`;
-
-function parseDetect(stdout: string): { os: string | null; capabilities: string[] } {
-  let os: string | null = null;
-  const caps: string[] = [];
-  for (const line of stdout.split('\n')) {
-    if (line.startsWith('OS:')) {
-      const raw = line.slice(3).trim().toLowerCase();
-      os = raw === 'darwin' ? 'macos' : raw || null;
-    } else if (line.startsWith('CAP:')) caps.push(line.slice(4).trim());
-  }
-  return { os, capabilities: caps };
 }
 
 /** Testa conectividade, tmux, SO e ferramentas disponíveis na máquina. */

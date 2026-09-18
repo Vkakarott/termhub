@@ -1,3 +1,4 @@
+import { credentialScript } from '@termhub/machine-ops';
 import type { AiCredential, AiProviderAdapter, AiUsageResult } from './types.js';
 import { isObj, str } from './credentials.js';
 import { fetchCodeAssistUsage } from './code-assist.js';
@@ -12,7 +13,7 @@ export const antigravityAdapter: AiProviderAdapter = {
   loginHint: 'Run `agy` on that machine and sign in with Google (API-key logins have no quota to show).',
 
   credentialScript() {
-    return `if [ -f "$D/antigravity-cli/antigravity-oauth-token" ]; then cat "$D/antigravity-cli/antigravity-oauth-token"; fi`;
+    return credentialScript('antigravity');
   },
 
   parseCredential(stdout) {

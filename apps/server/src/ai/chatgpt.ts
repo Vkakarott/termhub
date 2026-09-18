@@ -1,3 +1,4 @@
+import { credentialScript } from '@termhub/machine-ops';
 import type { AiCredential, AiProviderAdapter, AiUsageResult, AiUsageWindow } from './types.js';
 import { httpJson, isObj, num, str, toIso, windowLabel } from './credentials.js';
 
@@ -13,7 +14,7 @@ export const chatgptAdapter: AiProviderAdapter = {
   loginHint: 'Run `codex` on that machine and sign in with ChatGPT (or set the config dir if you use CODEX_HOME).',
 
   credentialScript() {
-    return `if [ -f "$D/auth.json" ]; then cat "$D/auth.json"; fi`;
+    return credentialScript('chatgpt');
   },
 
   parseCredential(stdout) {

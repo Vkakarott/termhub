@@ -35,6 +35,8 @@ jobs:
         run: npm test -w @termhub/web
       - name: Testes protocolo do agente
         run: npm test -w @termhub/agent-protocol
+      - name: Testes machine-ops
+        run: npm test -w @termhub/machine-ops
       - name: Typecheck server
         run: npm run typecheck -w @termhub/server
       - name: Typecheck + build web

@@ -1,5 +1,6 @@
 import * as pty from 'node-pty';
 import fs from 'node:fs';
+import { UTF8_LOCALE, clampSize, ptyEnv } from '@termhub/machine-ops';
 import { config } from '../config.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { REMOTE_PATH_PREFIX, assertSessionName, shellQuote, sshBaseArgs } from './machine-exec.js';
@@ -14,12 +15,6 @@ export interface PtySessionHandlers {
   onExit: (code: number, signal?: number) => void;
 }
 
-function clampSize(size: Partial<PtySize>): PtySize {
-  const cols = Math.min(Math.max(Math.floor(size.cols ?? 80), 2), 500);
-  const rows = Math.min(Math.max(Math.floor(size.rows ?? 24), 2), 200);
-  return { cols, rows };
-}
-
 function localCwd(cwd: string): string {
   try {
     return fs.statSync(cwd).isDirectory() ? cwd : process.env.HOME || '/';
@@ -27,9 +22,6 @@ function localCwd(cwd: string): string {
     return process.env.HOME || '/';
   }
 }
-
-/** Locale forced on target machines when the SSH session brings none (or a non-UTF-8 one). */
-const UTF8_LOCALE = 'en_US.UTF-8';
 
 /** Monta o comando que anexa (ou cria) a sessão tmux da tab na máquina de destino. */
 export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file: string; args: string[]; cwd?: string } {
@@ -69,15 +61,7 @@ export class PtySession {
       cols,
       rows,
       cwd: cwd ?? process.env.HOME ?? '/',
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        LANG: /utf-?8/i.test(process.env.LANG ?? '') ? (process.env.LANG as string) : UTF8_LOCALE,
-        LC_ALL: /utf-?8/i.test(process.env.LC_ALL ?? '') ? (process.env.LC_ALL as string) : UTF8_LOCALE,
-        SHELL: config.terminal.localShell,
-        TERMHUB: '1',
-      } as Record<string, string>,
+      env: ptyEnv(process.env, config.terminal.localShell),
     });
     this.proc.onData(handlers.onData);
     this.proc.onExit(({ exitCode, signal }) => {
