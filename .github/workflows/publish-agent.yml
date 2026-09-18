@@ -19,11 +19,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      # No registry-url here: with it, setup-node writes an _authToken placeholder into .npmrc
+      # and npm takes the token path instead of the OIDC exchange ("OIDC permission denied").
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-          registry-url: https://registry.npmjs.org
       - name: Atualizar npm (trusted publishing precisa de npm >= 11.5)
         run: npm install -g npm@latest && npm --version
       - name: Instalar dependências
@@ -43,5 +44,7 @@ jobs:
         run: |
           npm pack -w @termhub/agent --pack-destination /tmp >/dev/null
           tar -xOf /tmp/termhub-agent-*.tgz package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const b=JSON.parse(s).bin||{};if(b["termhub-agent"]!=="dist/cli.js"){console.error("bin missing in tarball:",b);process.exit(1)}console.log("bin ok:",b)})'
-      - name: Publicar
+      - name: Publicar (trusted publishing / OIDC)
+        env:
+          NODE_AUTH_TOKEN: ''
         run: npm publish -w @termhub/agent --access public --provenance
