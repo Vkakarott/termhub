@@ -38,7 +38,7 @@ export async function taskRoutes(app: FastifyInstance, repos: Repositories) {
     return { task };
   });
 
-  app.post('/:id/move', async (request) => {
+  app.post('/:id/move', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const body = moveBody.parse(request.body);
     const task = await repos.tasks.move(id, body.status, body.position);

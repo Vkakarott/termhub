@@ -5,6 +5,7 @@ import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 export function App() {
   return (
@@ -18,6 +19,8 @@ export function App() {
             <Route path="/hardware" element={<HomePage />} />
             <Route path="/waitlist" element={<HomePage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/:section" element={<SettingsPage />} />
             <Route path="/projects/:id" element={<ProjectPage />} />
             <Route path="/projects/:id/:section" element={<ProjectPage />} />
           </Route>

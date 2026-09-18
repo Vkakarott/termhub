@@ -113,14 +113,23 @@ On jarvis, `app.termhub.dev` sits behind a Cloudflare Access self-hosted applica
 There is no public sign-up. Create users through the CLI:
 
 ```bash
-npm run create-user -- --email you@example.com --name "Your Name" [--password ...] [--role owner|member]
+npm run create-user -- --email you@example.com --name "Your Name" [--password ...] [--role ADMIN|MANAGER|AUTHENTICATED]
 # Docker (prod blue/green): docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node apps/server/dist/cli/create-user.js you@example.com "Your Name"
 ```
 
 - **E-mail code (default):** enter the e-mail, receive a 6-digit code (expires in `LOGIN_CODE_TTL_MINUTES`, 5 attempts, max 3 sends every 10 min). Unknown e-mails get the same response, with no e-mail sent.
 - **Password:** optional (`--password`); "Sign in with password" button on the login screen.
-- The first user becomes `owner`.
-- **Google:** only e-mails already registered can sign in; on the first sign-in the `google_id` is linked. Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and register `<PUBLIC_URL>/api/auth/google/callback` as an authorized redirect URI in the Google Cloud Console.
+- The first user gets the `ADMIN` role; later ones `AUTHENTICATED` unless `--role` says otherwise.
+- **Google:** set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and register `<PUBLIC_URL>/api/auth/google/callback` as an authorized redirect URI in the Google Cloud Console. By default only e-mails already registered can sign in (the `google_id` is linked on first sign-in). With `AUTH_GOOGLE_SIGNUP=true`, an unknown Google account creates the user with the `AUTH_DEFAULT_ROLE` role (default `AUTHENTICATED`) — sensible behind Cloudflare Access, which already gates who reaches the app.
+
+### Roles and permissions
+
+Same model as the engenhariainversa CMS: a **role** is a named set of permissions, a **permission** is one `resource:action` grant (`create` / `read` / `update` / `delete`), roles flagged `is_admin` bypass every check, and system roles cannot be deleted. Resources: `machines`, `projects`, `terminals`, `tasks`, `notes`, `tickets`, `integrations`, `ai_accounts`, `hardware`, `waitlist`, `users`, `roles`.
+
+- System roles: **ADMIN** (everything), **MANAGER** (the workspace plus the AI accounts, hardware and waitlist tabs, read-only users) and **AUTHENTICATED** (machines, projects, terminals, tasks, notes, tickets, integrations). Grants are editable in the app: sidebar → ⚙ Configurações → Usuários / Roles / Permissões (matrix resource × action).
+- Every API plugin is registered under a resource; the auth hook derives the action from the HTTP method (GET read, POST create, PATCH/PUT update, DELETE delete) unless the route sets its own (`config: { resource, action }`). WebSockets need `terminals:read`. Grants are cached per role for 30 s and invalidated on change.
+- The client gets `role_info` and a flat `permissions` list from `/api/auth/me` and hides tabs/links it cannot use; the server is the source of truth.
+- Safety rails: the last admin cannot be demoted or deleted; you cannot delete yourself; roles with users cannot be deleted.
 
 ## Machines and projects
 
@@ -144,11 +153,11 @@ Each project has internal navigation: **Terminals | Tasks | Notes | Settings**.
 
 ## Hardware tab
 
-The home page's **Hardware** tab shows a machine's CPU usage and load, RAM and swap, disks with free space, temperatures (Linux sensors), GPU (when `nvidia-smi` exists) and the top processes, refreshed every 5 s while the tab is visible. Pick any registered machine; the termhub host is the default. Data comes from a portable `sh` script run over the same local/SSH channel as the terminals (`GET /api/machines/:id/hardware`). macOS exposes no temperature sensors without extra tools. **Access note:** this tab is meant for super admins once the user system exists (see the `TODO(users)` comments).
+The home page's **Hardware** tab shows a machine's CPU usage and load, RAM and swap, disks with free space, temperatures (Linux sensors), GPU (when `nvidia-smi` exists) and the top processes, refreshed every 5 s while the tab is visible. Pick any registered machine; the termhub host is the default. Data comes from a portable `sh` script run over the same local/SSH channel as the terminals (`GET /api/machines/:id/hardware`). macOS exposes no temperature sensors without extra tools. Shown to roles granted `hardware:read` (admins and, by default, managers).
 
 ## Cloud waitlist
 
-The landing page (PT/EN, switch in the header, `?lang=pt|en` for links) has a **termhub Cloud** section with a waitlist form: first and last name, e-mail, phone (country code, area code, number) and optional LinkedIn/GitHub. Entries go to the `waitlist_entries` table through `POST /api/waitlist`, a public route (rate-limited per IP: 30 attempts and 5 sign-ups per hour, honeypot field, e-mail de-duplicated). The proxy forwards `termhub.dev/api/waitlist` to the app so the form is same-origin and outside Cloudflare Access. Sign-ups are listed on the home page's **Waitlist** tab (filter, CSV export, remove) via `GET/DELETE /api/waitlist`. *Super-admin only once the user system exists (`TODO(users)`).*
+The landing page (PT/EN, switch in the header, `?lang=pt|en` for links) has a **termhub Cloud** section with a waitlist form: first and last name, e-mail, phone (country code, area code, number) and optional LinkedIn/GitHub. Entries go to the `waitlist_entries` table through `POST /api/waitlist`, a public route (rate-limited per IP: 30 attempts and 5 sign-ups per hour, honeypot field, e-mail de-duplicated). The proxy forwards `termhub.dev/api/waitlist` to the app so the form is same-origin and outside Cloudflare Access. Sign-ups are listed on the home page's **Waitlist** tab (filter, CSV export, remove) via `GET/DELETE /api/waitlist`. Shown to roles granted `waitlist:read`.
 
 ## AI accounts (usage limits)
 

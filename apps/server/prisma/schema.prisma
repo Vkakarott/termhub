@@ -39,11 +39,43 @@ model User {
   avatarUrl    String?   @map("avatar_url")
   passwordHash String?   @map("password_hash")
   googleId     String?   @unique @map("google_id")
+  /// DEPRECATED: replaced by roleId (kept one release for the blue/green window; drop next)
   role         UserRole  @default(member)
+  roleId       String?   @map("role_id")
+  roleRef      Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
   createdAt    DateTime  @default(now()) @map("created_at")
   sessions     Session[]
 
+  @@index([roleId])
   @@map("users")
+}
+
+/// Role = a named set of permissions. isAdmin bypasses every check; isSystem cannot be deleted.
+model Role {
+  id          String       @id
+  name        String       @unique
+  label       String
+  description String?
+  isSystem    Boolean      @default(false) @map("is_system")
+  isAdmin     Boolean      @default(false) @map("is_admin")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at")
+  users       User[]
+  permissions Permission[]
+
+  @@map("roles")
+}
+
+/// One (resource, action) grant for a role. Resources and actions are a fixed catalog in code.
+model Permission {
+  id       String @id
+  resource String
+  action   String
+  roleId   String @map("role_id")
+  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([resource, action, roleId])
+  @@map("permissions")
 }
 
 model Session {

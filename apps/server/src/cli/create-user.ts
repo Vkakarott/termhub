@@ -1,6 +1,6 @@
 /**
  * Cria um usuário via CLI. Uso:
- *   npm run create-user -- --email you@example.com --name "Seu Nome" [--password ...] [--role owner|member]
+ *   npm run create-user -- --email you@example.com --name "Seu Nome" [--password ...] [--role ADMIN|MANAGER|AUTHENTICATED]
  *   npm run create-user -- you@example.com "Seu Nome"
  *   (Docker, prod blue/green) docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node apps/server/dist/cli/create-user.js you@example.com "Seu Nome"
  * A senha é opcional: sem ela, o usuário entra pelo código enviado por e-mail (ou Google).
@@ -57,7 +57,8 @@ const schema = z.object({
   email: z.string().email(),
   name: z.string().trim().min(1).max(80),
   password: z.string().min(8, 'senha precisa ter ao menos 8 caracteres').max(1024).optional(),
-  role: z.enum(['owner', 'member']).optional(),
+  /** role name (ADMIN, MANAGER, AUTHENTICATED or a custom one); "owner"/"member" still accepted */
+  role: z.string().trim().min(1).max(60).optional(),
 });
 
 async function main() {
@@ -79,14 +80,21 @@ async function main() {
     console.error(`Já existe um usuário com o e-mail ${input.email}.`);
     process.exit(1);
   }
-  const role = input.role ?? ((await repos.users.count()) === 0 ? 'owner' : 'member');
+  const legacy: Record<string, string> = { owner: 'ADMIN', member: 'AUTHENTICATED' };
+  const wanted = input.role ? (legacy[input.role.toLowerCase()] ?? input.role.toUpperCase()) : (await repos.users.count()) === 0 ? 'ADMIN' : 'AUTHENTICATED';
+  const role = await repos.roles.findByName(wanted);
+  if (!role) {
+    console.error(`Role "${wanted}" não existe. Roles: ${(await repos.roles.list()).map((r) => r.name).join(', ')}`);
+    process.exit(1);
+  }
   const user = await repos.users.create({
     email: input.email,
     name: input.name,
     password_hash: input.password ? await hashPassword(input.password) : null,
-    role,
+    role_id: role.id,
+    role: role.is_admin ? 'owner' : 'member',
   });
-  console.log(`Usuário criado: ${user.email} (${user.role}) — id ${user.id}${input.password ? '' : ' — login por código de e-mail'}`);
+  console.log(`Usuário criado: ${user.email} (${role.name}) — id ${user.id}${input.password ? '' : ' — login por código de e-mail'}`);
   await closePrisma();
 }
 

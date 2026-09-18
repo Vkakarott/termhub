@@ -6,6 +6,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import { unauthorized, forbidden } from '../lib/errors.js';
 import type { AuthService } from './service.js';
 import { CF_HEADER, verifyCloudflareJwt } from './cloudflare.js';
+import { actionForMethod, canAccess } from './permissions.js';
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, safeEqual } from './tokens.js';
 
 declare module 'fastify' {
@@ -81,11 +82,19 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 /** Hook global: autentica todas as rotas, exceto as marcadas como públicas. */
 export function buildAuthHook(ctx: AuthContext) {
   return async function authHook(request: FastifyRequest, reply: FastifyReply) {
-    const routeConfig = (request.routeOptions?.config ?? {}) as { public?: boolean };
+    const routeConfig = (request.routeOptions?.config ?? {}) as { public?: boolean; resource?: string; action?: string };
     request.user = await resolveUser(ctx, { headers: request.headers, cookies: request.cookies as Record<string, string> });
 
     if (routeConfig.public) return;
     if (!request.user) throw unauthorized();
+
+    // Resource guard: routes registered under a guarded plugin carry { resource, action } (see guarded() in app.ts).
+    if (routeConfig.resource) {
+      const action = routeConfig.action ?? actionForMethod(request.method);
+      if (!(await canAccess(ctx.repos, request.user, routeConfig.resource, action))) {
+        throw forbidden(`Sem permissão: ${routeConfig.resource}:${action}`);
+      }
+    }
 
     // CSRF (double submit): mutações precisam do header igual ao cookie.
     if (config.auth.modes.has('app') && !SAFE_METHODS.has(request.method)) {

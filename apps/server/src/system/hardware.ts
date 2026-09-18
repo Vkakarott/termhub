@@ -6,8 +6,7 @@ import { REMOTE_PATH_PREFIX, runOnMachine } from '../terminal/machine-exec.js';
  * Hardware snapshot of a machine (CPU, memory, disks, temperatures, GPU, top processes),
  * collected with a portable sh script over the same channel the terminals use.
  *
- * TODO(users): when the user system lands, this data is for super admins only —
- * gate the /machines/:id/hardware route and hide the Home "Hardware" tab for everyone else.
+ * Guarded by the "hardware" permission resource (admins, plus roles granted hardware:read).
  */
 
 export interface HardwareDisk {

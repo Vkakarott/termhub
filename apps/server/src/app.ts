@@ -22,6 +22,9 @@ import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
+import { roleRoutes } from './routes/roles.js';
+import { userRoutes } from './routes/users.js';
+import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { registerTerminalWs } from './terminal/ws.js';
 import { createUpgradeRouter } from './ws/router.js';
@@ -104,21 +107,40 @@ export async function buildApp(): Promise<App> {
   await fastify.register(
     async (api) => {
       api.addHook('preHandler', buildAuthHook(auth));
+
+      /**
+       * Registers a route plugin under a permission resource: every route gets
+       * config.resource = <resource> and, unless the route sets its own, an action
+       * derived from the HTTP method (GET read, POST create, PATCH/PUT update, DELETE delete).
+       * The auth hook then checks the user's role grants. Public routes are untouched.
+       */
+      const guarded = (resource: Resource, plugin: (a: FastifyInstance) => Promise<void>, prefix: string) =>
+        api.register(async (a) => {
+          a.addHook('onRoute', (route) => {
+            const cfg = (route.config ?? {}) as { public?: boolean; resource?: string; action?: string };
+            if (cfg.public) return;
+            route.config = { ...cfg, resource: cfg.resource ?? resource, action: cfg.action ?? actionForMethod(String(route.method)) };
+          });
+          await plugin(a);
+        }, { prefix });
+
       await api.register((a) => authRoutes(a, auth), { prefix: '/auth' });
-      await api.register((a) => machineRoutes(a, repos), { prefix: '/machines' });
-      await api.register((a) => projectRoutes(a, repos, { simulators }), { prefix: '/projects' });
-      await api.register((a) => projectTaskRoutes(a, repos), { prefix: '/projects' });
-      await api.register((a) => noteRoutes(a, repos), { prefix: '/projects' });
-      await api.register((a) => taskRoutes(a, repos), { prefix: '/tasks' });
-      await api.register((a) => dashboardRoutes(a, repos), { prefix: '/dashboard' });
-      await api.register((a) => integrationRoutes(a, repos), { prefix: '/integrations' });
-      await api.register((a) => setupRoutes(a, repos), { prefix: '/projects' });
-      await api.register((a) => projectTicketRoutes(a, repos), { prefix: '/projects' });
-      await api.register((a) => taskTicketRoutes(a, repos), { prefix: '/tasks' });
-      await api.register((a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), { prefix: '/tabs' });
-      await api.register((a) => aiAccountRoutes(a, repos), { prefix: '/ai-accounts' });
-      await api.register((a) => waitlistRoutes(a, repos), { prefix: '/waitlist' });
-      await api.register(systemRoutes, { prefix: '/system' });
+      await guarded('machines', (a) => machineRoutes(a, repos), '/machines');
+      await guarded('projects', (a) => projectRoutes(a, repos, { simulators }), '/projects');
+      await guarded('tasks', (a) => projectTaskRoutes(a, repos), '/projects');
+      await guarded('notes', (a) => noteRoutes(a, repos), '/projects');
+      await guarded('tasks', (a) => taskRoutes(a, repos), '/tasks');
+      await guarded('projects', (a) => dashboardRoutes(a, repos), '/dashboard');
+      await guarded('integrations', (a) => integrationRoutes(a, repos), '/integrations');
+      await guarded('projects', (a) => setupRoutes(a, repos), '/projects');
+      await guarded('tickets', (a) => projectTicketRoutes(a, repos), '/projects');
+      await guarded('tickets', (a) => taskTicketRoutes(a, repos), '/tasks');
+      await guarded('terminals', (a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), '/tabs');
+      await guarded('ai_accounts', (a) => aiAccountRoutes(a, repos), '/ai-accounts');
+      await guarded('waitlist', (a) => waitlistRoutes(a, repos), '/waitlist');
+      await guarded('roles', (a) => roleRoutes(a, repos), '/roles');
+      await guarded('users', (a) => userRoutes(a, repos), '/users');
+      await guarded('machines', systemRoutes, '/system');
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },
