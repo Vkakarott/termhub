@@ -11,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-function readCookie(name: string): string | undefined {
+export function readCookie(name: string): string | undefined {
   const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
   return m ? decodeURIComponent(m[1]) : undefined;
 }
@@ -38,12 +38,47 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch {
     data = null;
   }
-  if (!res.ok) {
-    const d = (data ?? {}) as { error?: string; code?: string; issues?: unknown };
-    if (res.status === 401) window.dispatchEvent(new CustomEvent('termhub:unauthorized'));
-    throw new ApiError(res.status, d.error ?? `Erro ${res.status}`, d.code, d.issues);
-  }
+  if (!res.ok) throw errorFrom(res.status, data);
   return data as T;
+}
+
+function errorFrom(status: number, data: unknown): ApiError {
+  const d = (data ?? {}) as { error?: string; code?: string; issues?: unknown };
+  if (status === 401) window.dispatchEvent(new CustomEvent('termhub:unauthorized'));
+  return new ApiError(status, d.error ?? `Erro ${status}`, d.code, d.issues);
+}
+
+/**
+ * POST of a binary body with upload progress (fetch has none): used for dictation clips, whose upload
+ * on a slow uplink is long enough to deserve a percentage. Same cookies/CSRF/error shape as request().
+ */
+function upload<T>(path: string, body: Blob, onProgress?: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api${path}`);
+    xhr.withCredentials = true;
+    xhr.responseType = 'text';
+    xhr.setRequestHeader('accept', 'application/json');
+    xhr.setRequestHeader('content-type', body.type || 'application/octet-stream');
+    const csrf = readCookie('termhub_csrf');
+    if (csrf) xhr.setRequestHeader('x-csrf-token', csrf);
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && onProgress) onProgress(ev.loaded / ev.total);
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'Sem conexão com o servidor', 'NETWORK'));
+    xhr.onabort = () => reject(new ApiError(0, 'Envio cancelado', 'ABORTED'));
+    xhr.onload = () => {
+      let data: unknown = null;
+      try {
+        data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        data = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
+      else reject(errorFrom(xhr.status, data));
+    };
+    xhr.send(body);
+  });
 }
 
 export const api = {
@@ -164,8 +199,12 @@ export const api = {
   },
   transcriptions: {
     config: () => request<{ enabled: boolean }>('GET', '/transcriptions/config'),
-    /** the blob keeps its recorder mime type (audio/webm, audio/mp4...) so the server can decode it */
-    create: (audio: Blob) => request<{ transcription: Transcription }>('POST', '/transcriptions', audio),
+    /**
+     * The blob keeps its recorder mime type (audio/webm, audio/mp4...) so the server can decode it;
+     * `seconds` is the recorded length, which the server turns into a time estimate.
+     */
+    create: (audio: Blob, seconds: number, onProgress?: (fraction: number) => void) =>
+      upload<{ transcription: Transcription }>(`/transcriptions?seconds=${Math.round(seconds)}`, audio, onProgress),
     get: (id: string) => request<{ transcription: Transcription }>('GET', `/transcriptions/${id}`),
   },
 };

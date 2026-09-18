@@ -5,7 +5,8 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalConnection, type ConnectionState } from '../lib/terminal-connection';
 import { api, ApiError } from '../lib/api';
-import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, transcribeClip } from '../lib/voice-recorder';
+import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, resumeTranscription, transcribeClip, type Clip, type TranscribePhase } from '../lib/voice-recorder';
+import { voiceStore } from '../lib/voice-store';
 
 interface Props {
   tabId: string;
@@ -53,8 +54,15 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 const SELECT_MODIFIER = IS_MAC ? '⌥' : 'Shift';
 const VOICE_SHORTCUT = IS_MAC ? '⌘⇧M' : 'Ctrl+Shift+M';
 
-/** Voice input: off (server has no whisper / browser can't record), idle, recording a clip, waiting for the text. */
-type VoiceState = 'off' | 'idle' | 'recording' | 'transcribing';
+/** Voice input: off (server has no whisper / browser can't record), idle, recording a clip, sending it, waiting for the text. */
+type VoiceState = 'off' | 'idle' | 'recording' | 'uploading' | 'transcribing';
+/** A clip that has not been turned into text yet (upload failed, or the page was refreshed mid-way). */
+interface PendingClip extends Clip {
+  /** server job accepted before the refresh, if any */
+  jobId?: string;
+}
+/** Below this size (~0.3 s of opus) there is nothing to transcribe. */
+const MIN_CLIP_BYTES = 2048;
 type NoticeTone = 'info' | 'ok' | 'danger';
 
 /** Whether the server transcribes audio — asked once per page load, shared by every terminal. */
@@ -169,8 +177,12 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     setVoiceState(v);
   }, []);
   const toggleVoiceRef = useRef<() => void>(() => {});
-  /** seconds recorded so far (shown in the status bar) */
+  /** seconds recorded so far (shown in the pill) */
   const [recorded, setRecorded] = useState(0);
+  /** upload/transcription progress for the pill */
+  const [phase, setPhase] = useState<TranscribePhase | null>(null);
+  /** clip waiting for the user's decision after a failure or a refresh */
+  const [pending, setPending] = useState<PendingClip | null>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const clockTimer = useRef(0);
   /** a file drag is hovering the terminal */
@@ -394,41 +406,76 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     clockTimer.current = 0;
   };
 
-  const stopVoice = useCallback(async () => {
-    const rec = recorderRef.current;
-    if (!rec || voiceRef.current !== 'recording') return;
-    stopClock();
-    setVoice('transcribing');
-    recorderRef.current = null;
-    const clip = await rec.stop();
-    if (clip.size < 2048) {
-      // ~0.3 s of opus: nothing to transcribe
-      showNotice('Gravação muito curta', 'info', 2500);
-      setVoice('idle');
-      return;
-    }
-    showNotice('Transcrevendo…', 'info');
-    try {
-      const result = await transcribeClip(clip);
+  /** Pastes the text at the prompt and forgets the stored clip. */
+  const deliver = useCallback(
+    (text: string) => {
       const term = termRef.current;
       if (!term) return;
-      if (result.text) {
-        term.paste(result.text);
+      if (text) {
+        term.paste(text);
         showNotice('Texto ditado inserido', 'ok', 2500);
       } else {
         showNotice('Nenhuma fala reconhecida', 'info', 3000);
       }
       term.focus();
-    } catch (err) {
-      showNotice(err instanceof Error ? err.message : 'Falha ao transcrever o áudio', 'danger', 6000);
-    } finally {
+      void voiceStore.clear(tabId);
+    },
+    [showNotice, tabId],
+  );
+
+  /**
+   * Uploads and waits for a clip (or resumes its job after a refresh). On failure the clip stays
+   * in IndexedDB and is offered back as `pending`, so nothing recorded is lost.
+   */
+  const runTranscription = useCallback(
+    async (clip: PendingClip) => {
+      setPending(null);
+      setVoice(clip.jobId ? 'transcribing' : 'uploading');
+      setPhase(clip.jobId ? { phase: 'transcribing', eta: null, progress: 0 } : { phase: 'uploading', fraction: 0 });
+      const onPhase = (p: TranscribePhase) => {
+        setPhase(p);
+        setVoice(p.phase);
+      };
+      try {
+        let result = clip.jobId ? await resumeTranscription(clip.jobId, onPhase) : null;
+        if (!result) {
+          // no job yet, or the server forgot it (restart/deploy): send the audio (again)
+          await voiceStore.update(tabId, { jobId: undefined });
+          result = await transcribeClip(tabId, clip, onPhase);
+        }
+        deliver(result.text ?? '');
+      } catch (err) {
+        showNotice(err instanceof Error ? err.message : 'Falha ao transcrever o áudio', 'danger', 6000);
+        setPending({ audio: clip.audio, seconds: clip.seconds });
+      } finally {
+        setPhase(null);
+        setVoice('idle');
+      }
+    },
+    [deliver, setVoice, showNotice, tabId],
+  );
+
+  const stopVoice = useCallback(async () => {
+    const rec = recorderRef.current;
+    if (!rec || voiceRef.current !== 'recording') return;
+    stopClock();
+    setVoice('uploading');
+    setPhase({ phase: 'uploading', fraction: 0 });
+    recorderRef.current = null;
+    const clip = await rec.stop();
+    if (clip.audio.size < MIN_CLIP_BYTES) {
+      showNotice('Gravação muito curta', 'info', 2500);
+      void voiceStore.clear(tabId);
       setVoice('idle');
+      return;
     }
-  }, [setVoice, showNotice]);
+    await runTranscription(clip);
+  }, [runTranscription, setVoice, showNotice, tabId]);
 
   const startVoice = useCallback(async () => {
     if (voiceRef.current !== 'idle') return;
-    const rec = new VoiceRecorder({ onAutoStop: () => void stopVoice() });
+    setPending(null);
+    const rec = new VoiceRecorder(tabId, { onAutoStop: () => void stopVoice() });
     recorderRef.current = rec;
     voiceRef.current = 'recording'; // block a second start while the mic prompt is open
     try {
@@ -445,7 +492,7 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     stopClock();
     clockTimer.current = window.setInterval(() => setRecorded(Math.floor((Date.now() - startedAt) / 1000)), 500);
     showNotice(`Gravando… fale e clique em Parar (${VOICE_SHORTCUT})`, 'info');
-  }, [setVoice, showNotice, stopVoice]);
+  }, [setVoice, showNotice, stopVoice, tabId]);
 
   const cancelVoice = useCallback(() => {
     recorderRef.current?.cancel();
@@ -456,15 +503,52 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     termRef.current?.focus();
   }, [setVoice, showNotice]);
 
+  const discardPending = useCallback(() => {
+    setPending(null);
+    void voiceStore.clear(tabId);
+    termRef.current?.focus();
+  }, [tabId]);
+
   toggleVoiceRef.current = () => {
     if (voiceRef.current === 'idle') void startVoice();
     else if (voiceRef.current === 'recording') void stopVoice();
   };
 
-  // Unmount (tab closed) while recording: drop the clip and free the mic.
+  // Page opened with a clip left behind (refresh while recording/transcribing): resume its job, or offer it back.
+  useEffect(() => {
+    let alive = true;
+    void voiceStore.load(tabId).then((stored) => {
+      if (!alive || !stored) return;
+      if (stored.audio.size < MIN_CLIP_BYTES) {
+        void voiceStore.clear(tabId);
+        return;
+      }
+      const clip: PendingClip = { audio: stored.audio, seconds: stored.clip.seconds, jobId: stored.clip.jobId };
+      if (clip.jobId) void runTranscription(clip); // the upload already went through: just wait for the text
+      else setPending(clip);
+    });
+    return () => {
+      alive = false;
+    };
+    // runs once per tab: the recovery decision belongs to the mount, not to callback identity
+  }, [tabId]);
+
+  // Refresh/close while recording or transcribing: the browser asks first (the clip is in IndexedDB anyway).
+  useEffect(() => {
+    if (voice !== 'recording' && voice !== 'uploading' && voice !== 'transcribing') return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [voice]);
+
+  // Unmount while recording (tab closed or the layout remounted it): free the mic but keep the audio
+  // in IndexedDB, so the next mount of this tab offers it back.
   useEffect(
     () => () => {
-      recorderRef.current?.cancel();
+      recorderRef.current?.cancel(true);
       recorderRef.current = null;
       stopClock();
     },
@@ -508,9 +592,20 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
             Solte para anexar ao terminal
           </div>
         )}
-        {/* Dictation: floats over the terminal (bottom right, clear of the scrollbar); expands into a pill while recording. */}
+        {/* Dictation: floats over the terminal (bottom right, clear of the scrollbar); expands into a pill while busy. */}
         {voice !== 'off' && (
           <div className="absolute bottom-3 right-5 z-10 flex items-center gap-2 text-[11px]" onMouseDown={(e) => e.preventDefault()}>
+            {voice === 'idle' && pending && (
+              <div className="flex h-8 items-center gap-2 rounded-full border border-warn/50 bg-bg-2/95 pl-3 pr-1 shadow-lg backdrop-blur">
+                <span className="text-fg">Gravação de {formatClock(Math.round(pending.seconds))} não transcrita</span>
+                <button className="rounded-full bg-accent px-2.5 py-1 font-medium text-white hover:bg-accent-hover" onClick={() => void runTranscription(pending)}>
+                  Transcrever
+                </button>
+                <button className="rounded-full px-2 py-1 text-fg-muted hover:bg-bg-3 hover:text-fg" onClick={discardPending}>
+                  Descartar
+                </button>
+              </div>
+            )}
             {voice === 'idle' && (
               <button
                 className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-bg-2/90 text-fg-muted shadow-lg backdrop-blur hover:border-accent hover:bg-bg-3 hover:text-fg"
@@ -535,10 +630,24 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
                 </button>
               </div>
             )}
-            {voice === 'transcribing' && (
-              <div className="flex h-8 items-center gap-2 rounded-full border border-line bg-bg-2/95 px-3 text-fg-muted shadow-lg backdrop-blur">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden="true" />
-                Transcrevendo…
+            {(voice === 'uploading' || voice === 'transcribing') && (
+              <div className="relative flex h-8 items-center gap-2 overflow-hidden rounded-full border border-line bg-bg-2/95 px-3 text-fg-muted shadow-lg backdrop-blur">
+                {/* progress fill behind the label: upload percentage, then the server's time estimate */}
+                <span
+                  className="absolute inset-y-0 left-0 bg-accent/20 transition-[width] duration-500 ease-linear"
+                  style={{ width: `${Math.round((phase?.phase === 'uploading' ? phase.fraction : phase?.phase === 'transcribing' ? phase.progress : 0) * 100)}%` }}
+                  aria-hidden="true"
+                />
+                <span className="relative h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden="true" />
+                <span className="relative text-fg">
+                  {phase?.phase === 'uploading'
+                    ? `Enviando áudio… ${Math.round(phase.fraction * 100)}%`
+                    : phase?.phase === 'transcribing' && phase.eta !== null
+                      ? phase.eta > 0
+                        ? `Transcrevendo… ~${phase.eta} s`
+                        : 'Transcrevendo… quase lá'
+                      : 'Transcrevendo…'}
+                </span>
               </div>
             )}
           </div>

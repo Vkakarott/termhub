@@ -93,8 +93,9 @@ services:
     image: termhub-whisper
     restart: unless-stopped
     environment:
-      # small: ~10x realtime on 6 cores, good pt-BR; medium: ~3x realtime, noticeably better on names
-      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      # medium: ~3x realtime on 6 cores, best pt-BR (punctuation, names); small: ~10x realtime, rougher.
+      # large-v3/turbo were measured worse in Portuguese (no punctuation, skipped passages) and slower.
+      WHISPER_MODEL: ${WHISPER_MODEL:-medium}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
       # 0 = one thread per physical core (hyperthreads slow CTranslate2 down)
       WHISPER_THREADS: ${WHISPER_THREADS:-0}
