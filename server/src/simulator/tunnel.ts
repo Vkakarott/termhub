@@ -42,7 +42,7 @@ function waitListening(port: number, proc: ChildProcess, stderr: () => string, t
       done = true;
       err ? reject(err) : resolve();
     };
-    proc.once('exit', (code) => finish(new Error(`ssh encerrou (código ${code}): ${stderr().trim()}`)));
+    proc.once('close', (code) => finish(new Error(`ssh encerrou (código ${code}): ${stderr().trim()}`)));
     proc.once('error', (e) => finish(new Error(`ssh falhou ao iniciar: ${e.message}`)));
     const attempt = () => {
       if (done) return;
@@ -94,7 +94,7 @@ export async function openTunnel(machine: Machine, remote: WdaPorts, opts: OpenT
   };
   // Cobre tanto a queda do ssh depois do túnel pronto quanto a falha ao nem conseguir iniciar
   // (ENOENT, EMFILE, sem permissão): sem isso, 'error' no ChildProcess sem listener derruba o processo todo.
-  proc.once('exit', (code) => fail(new Error(`túnel ssh caiu (código ${code}): ${err.trim()}`)));
+  proc.once('close', (code) => fail(new Error(`túnel ssh caiu (código ${code}): ${err.trim()}`)));
   proc.once('error', (e) => fail(new Error(`túnel ssh falhou ao iniciar: ${e.message}`)));
   try {
     await waitListening(lp, proc, () => err, readyTimeoutMs);
