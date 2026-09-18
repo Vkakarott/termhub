@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMonitor } from '../lib/monitor';
+import { useData } from '../lib/data';
 import { ApiError } from '../lib/api';
 import { NEEDS_YOU, TAB_STATE_LABEL, type MonitorItem, type TabState } from '../lib/types';
 
@@ -33,7 +34,7 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { tab, project, machine } = item;
+  const { tab, project } = item;
   const waiting = !!tab.state && NEEDS_YOU.includes(tab.state);
 
   const send = async (e: FormEvent, value = text) => {
@@ -61,9 +62,7 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
           › {tab.name}
           {tab.state_tool ? ` · ${tab.state_tool}` : ''}
         </span>
-        <span className="ml-auto shrink-0 text-[11px] text-fg-dim">
-          {machine.name} · {since(tab.state_at, now)}
-        </span>
+        <span className="ml-auto shrink-0 text-[11px] text-fg-dim">{since(tab.state_at, now)}</span>
       </div>
       {tab.state_text && <p className="mt-2 whitespace-pre-wrap break-words rounded bg-bg-3 px-2 py-1.5 text-xs text-fg">{tab.state_text}</p>}
       {waiting && (
@@ -90,11 +89,94 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
   );
 }
 
-/** Home: tabs whose tool is waiting for the person first, then the ones that just finished. */
+interface MachineGroup {
+  machine: MonitorItem['machine'];
+  waiting: MonitorItem[];
+  finished: MonitorItem[];
+  working: number;
+}
+
+/** One accordion per machine: the ones with someone waiting open (and first), the rest collapsed. */
+function groupByMachine(items: MonitorItem[]): MachineGroup[] {
+  const groups = new Map<string, MachineGroup>();
+  for (const item of items) {
+    let g = groups.get(item.machine.id);
+    if (!g) {
+      g = { machine: item.machine, waiting: [], finished: [], working: 0 };
+      groups.set(item.machine.id, g);
+    }
+    const st = item.tab.state;
+    if (st && NEEDS_YOU.includes(st)) g.waiting.push(item);
+    else if (st === 'idle' || st === 'error') g.finished.push(item);
+    else g.working += 1;
+  }
+  const oldestWaiting = (g: MachineGroup) => (g.waiting.length ? Math.min(...g.waiting.map((i) => new Date(i.tab.state_at ?? 0).getTime())) : Number.POSITIVE_INFINITY);
+  return [...groups.values()].sort((a, b) => oldestWaiting(a) - oldestWaiting(b) || a.machine.name.localeCompare(b.machine.name));
+}
+
+const OPEN_KEY = 'termhub:needs-you-open';
+
+function readOpen(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(OPEN_KEY) ?? '{}') as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+function MachineSection({ group, now, open, onToggle }: { group: MachineGroup; now: number; open: boolean; onToggle: () => void }) {
+  const { statuses } = useData();
+  const { machine, waiting, finished, working } = group;
+  const st = statuses[machine.id] ?? 'checking';
+  const summary = [
+    waiting.length ? `${waiting.length} esperando` : null,
+    finished.length ? `${finished.length} terminou` : null,
+    working ? `${working} trabalhando` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <li className={`rounded-lg border bg-bg-2 ${waiting.length ? 'border-accent/50' : 'border-line'}`}>
+      <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-bg-3" onClick={onToggle} aria-expanded={open}>
+        <span className={`text-[10px] text-fg-dim transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
+          ▶
+        </span>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${st === 'online' ? 'bg-ok' : st === 'offline' ? 'bg-danger' : 'bg-warn'}`} title={st} />
+        <span className="font-medium">{machine.name}</span>
+        {waiting.length > 0 && <span className="rounded bg-accent/15 px-1.5 text-[11px] font-semibold text-accent">{waiting.length}</span>}
+        <span className="ml-auto truncate text-xs text-fg-dim">{summary || 'sem atividade'}</span>
+      </button>
+      {open && (waiting.length > 0 || finished.length > 0) && (
+        <ul className="space-y-2 border-t border-line p-2">
+          {waiting.map((i) => (
+            <Item key={i.tab.id} item={i} now={now} />
+          ))}
+          {finished.slice(0, 6).map((i) => (
+            <Item key={i.tab.id} item={i} now={now} />
+          ))}
+        </ul>
+      )}
+      {open && waiting.length === 0 && finished.length === 0 && <p className="border-t border-line px-3 py-2 text-xs text-fg-dim">Nenhuma tab esperando você aqui.</p>}
+    </li>
+  );
+}
+
+/** Home: one accordion per machine; machines with someone waiting come first and start open. */
 export function NeedsYouList({ now }: { now: number }) {
   const { items, needsYou, connected } = useMonitor();
-  const finished = items.filter((i) => i.tab.state === 'idle').slice(0, 6);
+  const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
+  const groups = useMemo(() => groupByMachine(items), [items]);
   if (items.length === 0) return null;
+  const isOpen = (g: MachineGroup) => open[g.machine.id] ?? g.waiting.length > 0;
+  const toggle = (g: MachineGroup) => {
+    const next = { ...open, [g.machine.id]: !isOpen(g) };
+    setOpen(next);
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode: the choice just does not persist */
+    }
+  };
   return (
     <section className="mb-6">
       <div className="mb-2 flex items-center gap-2">
@@ -103,11 +185,8 @@ export function NeedsYouList({ now }: { now: number }) {
         {!connected && <span className="ml-auto text-[11px] text-warn">reconectando…</span>}
       </div>
       <ul className="space-y-2">
-        {needsYou.map((i) => (
-          <Item key={i.tab.id} item={i} now={now} />
-        ))}
-        {finished.map((i) => (
-          <Item key={i.tab.id} item={i} now={now} />
+        {groups.map((g) => (
+          <MachineSection key={g.machine.id} group={g} now={now} open={isOpen(g)} onToggle={() => toggle(g)} />
         ))}
       </ul>
     </section>
