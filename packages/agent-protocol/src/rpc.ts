@@ -25,7 +25,15 @@ export const RPC = {
   'tools.detect': def(z.object({}), z.object({ os: z.string().nullable(), tools: z.array(z.string().max(32)) })),
   'hw.probe': def(z.object({}), z.object({ stdout: z.string() }), 15_000),
   'fs.list': def(z.object({ path: machinePath }), z.object({ stdout: z.string() })),
-  'fs.mkdir': def(z.object({ parent: machinePath, name: z.string().min(1).max(255).regex(/^[^/\\\0\n\r]+$/) }), z.object({ stdout: z.string() })),
+  'fs.mkdir': def(
+    z.object({
+      parent: machinePath,
+      name: z.string().min(1).max(255).regex(/^[^/\\\0\n\r]+$/),
+      /** `mkdir -p`: create missing parents too (ensureDirectory parity with the ssh/local branch). Default: leaf only. */
+      recursive: z.boolean().optional(),
+    }),
+    z.object({ stdout: z.string() }),
+  ),
   'ai.credential': def(z.object({ provider: aiProvider, config_dir: machinePath.nullable() }), z.object({ stdout: z.string() })),
   'file.paste': def(z.object({ name: pasteName, data_b64: z.string().min(1).max(28 * 1024 * 1024) }), z.object({ path: z.string() }), 60_000),
 } as const;

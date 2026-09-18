@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFsListScript } from './fs-script.js';
+import { buildFsListScript, buildMkdirScript } from './fs-script.js';
 
 describe('buildFsListScript', () => {
   it('rejects unreadable/unexecutable directories right after the notfound check', () => {
@@ -7,5 +7,25 @@ describe('buildFsListScript', () => {
     expect(s).toContain('ERR:notfound');
     expect(s).toContain('ERR:eperm');
     expect(s.indexOf('ERR:notfound')).toBeLessThan(s.indexOf('ERR:eperm'));
+  });
+});
+
+describe('buildMkdirScript', () => {
+  it('creates only the leaf by default (parent must already exist)', () => {
+    const s = buildMkdirScript("'/tmp'", "'new'");
+    expect(s).toContain('mkdir -- "$N"');
+    expect(s).not.toContain('mkdir -p');
+    expect(s).toContain('ERR:parent');
+  });
+
+  it('recursive: uses mkdir -p on the full path, so a missing parent is created too', () => {
+    const s = buildMkdirScript("'/tmp/a/b'", "'c'", { recursive: true });
+    expect(s).toContain('mkdir -p -- "$P/$N"');
+    expect(s).toContain('ERR:exists');
+    expect(s).toContain('ERR:denied');
+  });
+
+  it('recursive: false is byte-identical to the default', () => {
+    expect(buildMkdirScript("'/tmp'", "'new'", { recursive: false })).toBe(buildMkdirScript("'/tmp'", "'new'"));
   });
 });

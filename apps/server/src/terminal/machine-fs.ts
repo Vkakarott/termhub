@@ -175,6 +175,23 @@ export async function makeDirectory(machine: Machine, parent: string, name: stri
   return pwd;
 }
 
+/** ensureDirectory's error vocabulary — one table for both the ssh/local script and the agent branch. */
+const ENSURE_ERRORS = {
+  notfound: () => new HttpError(400, 'A pasta não existe na máquina. Marque "criar a pasta" ou escolha outra.', 'DIR_NOT_FOUND'),
+  notdir: () => badRequest('O caminho existe, mas não é uma pasta'),
+  denied: () => forbidden('Sem permissão para acessar a pasta'),
+  mkdir: () => forbidden('Não foi possível criar a pasta (permissão?)'),
+} as const;
+
+function throwEnsureError(err: string | null): void {
+  if (err === null) return;
+  // fs.list reports an unreadable/unsearchable directory as `eperm`; the ssh script has no
+  // such probe and reports the same situation as `denied` (its `cd` fails) — same answer.
+  const key = err === 'eperm' ? 'denied' : err;
+  const make = (ENSURE_ERRORS as Record<string, () => HttpError>)[key];
+  if (make) throw make();
+}
+
 /**
  * Confere que `path` é um diretório na máquina (expande "~"), criando com mkdir -p se `create`.
  * Devolve o caminho absoluto resolvido, que é o que deve ser gravado no projeto.
@@ -186,26 +203,19 @@ export async function ensureDirectory(machine: Machine, path: string, create: bo
   if (machine.type === 'agent') {
     // No dedicated RPC for "ensure": both branches start with fs.list to check the path exists,
     // matching the ssh/local script's own "already a directory -> created:false" short-circuit.
-    if (!create) {
-      const { stdout } = await agentRpc(machine, 'fs.list', { path: raw });
-      const out = parseOutput(stdout);
-      throwFsListError(out.err);
-      return { path: out.pwd ?? raw, created: false };
-    }
-
-    // create === true: an existing directory succeeds with created:false, just like the
-    // ssh/local path — fs.mkdir only runs when fs.list reports the path missing. Any other
-    // fs.list error (notdir/eperm/denied) throws right away instead of attempting to mkdir.
+    // Errors use the same statuses/messages as the script below (DIR_NOT_FOUND drives the
+    // "criar a pasta" hint in the UI).
     const listed = await agentRpc(machine, 'fs.list', { path: raw });
     const listOut = parseOutput(listed.stdout);
     if (!listOut.err) return { path: listOut.pwd ?? raw, created: false };
-    if (listOut.err !== 'notfound') throwFsListError(listOut.err);
+    if (listOut.err !== 'notfound' || !create) throwEnsureError(listOut.err);
 
-    const { stdout } = await agentRpc(machine, 'fs.mkdir', { parent: dirname(raw), name: basename(raw) });
+    // Missing and create === true: `recursive` is the agent-side `mkdir -p`, so a nested new
+    // path (`~/code/new-org/new-repo`) is created the same way the script below creates it.
+    const { stdout } = await agentRpc(machine, 'fs.mkdir', { parent: dirname(raw), name: basename(raw), recursive: true });
     const err = firstTag(stdout, 'ERR');
-    if (err === 'parent') throw notFound('A pasta de destino não existe na máquina');
     if (err === 'exists') throw conflict('Já existe um arquivo ou pasta com esse nome');
-    if (err === 'denied') throw forbidden('Sem permissão para criar a pasta');
+    if (err === 'parent' || err === 'denied') throw ENSURE_ERRORS.mkdir();
     const pwd = firstTag(stdout, 'PWD');
     if (!pwd) throw new HttpError(502, 'Resposta inesperada da máquina');
     return { path: pwd, created: true };
@@ -220,11 +230,7 @@ export async function ensureDirectory(machine: Machine, path: string, create: bo
     `exit 0`,
   ].join('; ');
   const out = await runFsScript(machine, script);
-  const err = firstTag(out, 'ERR');
-  if (err === 'notfound') throw new HttpError(400, 'A pasta não existe na máquina. Marque "criar a pasta" ou escolha outra.', 'DIR_NOT_FOUND');
-  if (err === 'notdir') throw badRequest('O caminho existe, mas não é uma pasta');
-  if (err === 'denied') throw forbidden('Sem permissão para acessar a pasta');
-  if (err === 'mkdir') throw forbidden('Não foi possível criar a pasta (permissão?)');
+  throwEnsureError(firstTag(out, 'ERR'));
   const created = firstTag(out, 'CREATED');
   const pwd = created ?? firstTag(out, 'PWD');
   if (!pwd) throw new HttpError(502, 'Resposta inesperada da máquina');

@@ -146,8 +146,34 @@ describe('agent machine operations use named RPCs', () => {
     const result = await ensureDirectory(machine, '~/proj', true);
     expect(result).toEqual({ path: '/home/u/proj', created: true });
     expect(conn.rpc).toHaveBeenNthCalledWith(1, 'fs.list', { path: '~/proj' }, undefined);
-    expect(conn.rpc).toHaveBeenNthCalledWith(2, 'fs.mkdir', { parent: '~', name: 'proj' }, undefined);
+    // recursive: the ssh/local branch does `mkdir -p`, so a nested new path must work here too.
+    expect(conn.rpc).toHaveBeenNthCalledWith(2, 'fs.mkdir', { parent: '~', name: 'proj', recursive: true }, undefined);
     expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('ensureDirectory(create: false) on a missing directory answers 400 DIR_NOT_FOUND like the ssh branch', async () => {
+    const machine = agentMachine();
+    attachFakeConn(machine.id, () => ({ stdout: 'ERR:notfound\n' }));
+    await expect(ensureDirectory(machine, '~/nope', false)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'DIR_NOT_FOUND',
+      message: 'A pasta não existe na máquina. Marque "criar a pasta" ou escolha outra.',
+    });
+  });
+
+  it('ensureDirectory(create: true) maps a failed mkdir to the ssh branch message', async () => {
+    const machine = agentMachine();
+    attachFakeConn(machine.id, (method) => (method === 'fs.list' ? { stdout: 'ERR:notfound\n' } : { stdout: 'ERR:denied\n' }));
+    await expect(ensureDirectory(machine, '/srv/x', true)).rejects.toMatchObject({ statusCode: 403, message: 'Não foi possível criar a pasta (permissão?)' });
+  });
+
+  it('ensureDirectory uses the ssh branch wording for notdir and denied', async () => {
+    const machine = agentMachine();
+    attachFakeConn(machine.id, () => ({ stdout: 'ERR:notdir\n' }));
+    await expect(ensureDirectory(machine, '~/file.txt', false)).rejects.toMatchObject({ statusCode: 400, message: 'O caminho existe, mas não é uma pasta' });
+    agents.reset();
+    attachFakeConn(machine.id, () => ({ stdout: 'ERR:denied\n' }));
+    await expect(ensureDirectory(machine, '~/locked', true)).rejects.toMatchObject({ statusCode: 403, message: 'Sem permissão para acessar a pasta' });
   });
 
   it('ensureDirectory(create: false) rejects a path that exists but is not a directory', async () => {

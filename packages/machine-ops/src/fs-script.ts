@@ -22,8 +22,29 @@ export function buildFsListScript(quotedPath: string): string {
   ].join('; ');
 }
 
-/** Cria `quotedName` dentro de `quotedParent` na máquina; ambos já vêm escapados com shellQuote. */
-export function buildMkdirScript(quotedParent: string, quotedName: string): string {
+export interface MkdirOptions {
+  /** `mkdir -p` on `parent/name`: missing parents are created too and `ERR:parent` never fires. */
+  recursive?: boolean;
+}
+
+/**
+ * Creates `quotedName` inside `quotedParent` on the machine; both already shell-quoted.
+ * Default (leaf only): the parent must exist (`ERR:parent`). `recursive` mirrors the
+ * `mkdir -p` the ssh/local `ensureDirectory` runs, so a nested new project path works the
+ * same on an agent machine. The non-recursive script is unchanged (shared by `makeDirectory`).
+ */
+export function buildMkdirScript(quotedParent: string, quotedName: string, opts: MkdirOptions = {}): string {
+  if (opts.recursive) {
+    return [
+      `P=${quotedParent}`,
+      EXPAND_HOME,
+      `N=${quotedName}`,
+      `if [ -e "$P/$N" ]; then echo "ERR:exists"; exit 0; fi`,
+      `mkdir -p -- "$P/$N" 2>/dev/null || { echo "ERR:denied"; exit 0; }`,
+      `cd -- "$P/$N" && echo "PWD:$(pwd)"`,
+      `exit 0`,
+    ].join('; ');
+  }
   return [
     `P=${quotedParent}`,
     EXPAND_HOME,

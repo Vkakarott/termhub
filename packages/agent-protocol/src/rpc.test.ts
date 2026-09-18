@@ -15,6 +15,12 @@ describe('rpc catalog', () => {
     expect(RPC['fs.list'].params.safeParse({ path: 'relative' }).success).toBe(false);
     expect(RPC['fs.list'].params.safeParse({ path: '/a\nb' }).success).toBe(false);
   });
+  it('fs.mkdir takes an optional recursive flag', () => {
+    expect(RPC['fs.mkdir'].params.safeParse({ parent: '/a', name: 'b' }).success).toBe(true);
+    expect(RPC['fs.mkdir'].params.safeParse({ parent: '/a', name: 'b', recursive: true }).success).toBe(true);
+    expect(RPC['fs.mkdir'].params.safeParse({ parent: '/a', name: 'b', recursive: 'yes' }).success).toBe(false);
+    expect(RPC['fs.mkdir'].params.safeParse({ parent: '/a', name: 'b/c' }).success).toBe(false);
+  });
   it('bounds file.paste', () => {
     expect(RPC['file.paste'].params.safeParse({ name: 'paste-1.png', data_b64: 'AAAA' }).success).toBe(true);
     expect(RPC['file.paste'].params.safeParse({ name: '../x', data_b64: 'AAAA' }).success).toBe(false);

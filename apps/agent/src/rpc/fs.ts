@@ -23,7 +23,7 @@ export async function list(params: RpcParams<'fs.list'>): Promise<RpcResult<'fs.
 }
 
 export async function mkdir(params: RpcParams<'fs.mkdir'>): Promise<RpcResult<'fs.mkdir'>> {
-  const r = await sh(buildMkdirScript(shellQuote(params.parent), shellQuote(params.name)));
+  const r = await sh(buildMkdirScript(shellQuote(params.parent), shellQuote(params.name), { recursive: params.recursive === true }));
   const failure = processFailure('fs.mkdir', r);
   if (failure) throw failure;
   return { stdout: r.stdout };

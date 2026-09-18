@@ -43,6 +43,13 @@ describe('fs.mkdir', () => {
     expect(sh).toHaveBeenCalledWith(buildMkdirScript(shellQuote('/tmp'), shellQuote('new')));
   });
 
+  it('passes recursive: true through to buildMkdirScript', async () => {
+    sh.mockResolvedValue({ code: 0, stdout: 'PWD:/tmp/a/b\n', stderr: '', timedOut: false });
+    await expect(mkdir({ parent: '/tmp/a', name: 'b', recursive: true })).resolves.toEqual({ stdout: 'PWD:/tmp/a/b\n' });
+    expect(sh).toHaveBeenCalledWith(buildMkdirScript(shellQuote('/tmp/a'), shellQuote('b'), { recursive: true }));
+    expect((sh.mock.calls[0] as string[])[0]).toContain('mkdir -p');
+  });
+
   it('passes an ERR:exists stdout through unchanged', async () => {
     sh.mockResolvedValue({ code: 0, stdout: 'ERR:exists\n', stderr: '', timedOut: false });
     await expect(mkdir({ parent: '/tmp', name: 'new' })).resolves.toEqual({ stdout: 'ERR:exists\n' });
