@@ -43,6 +43,13 @@ const envSchema = z.object({
   /** name of the allow policy whose include list holds the e-mails */
   CF_ACCESS_POLICY_NAME: z.string().default('allowlist'),
 
+  /**
+   * Where the machines' hook scripts post monitor events. Must be reachable from the machines
+   * without a browser session: in production the landing host forwards this one path to the
+   * app outside Cloudflare Access (https://termhub.dev/api/hooks/events). Default: PUBLIC_URL.
+   */
+  HOOKS_URL: z.string().url().optional(),
+
   LOCAL_SHELL: z.string().optional(),
   TMUX_PATH: z.string().default('tmux'),
   SEED_LOCAL_MACHINE: z.enum(['true', 'false']).default('true'),
@@ -107,6 +114,7 @@ export const config = {
   host: env.HOST,
   databaseUrl: env.DATABASE_URL,
   publicUrl: env.PUBLIC_URL.replace(/\/$/, ''),
+  hooksUrl: env.HOOKS_URL ?? `${env.PUBLIC_URL.replace(/\/$/, '')}/api/hooks/events`,
   auth: {
     modes: authModes,
     sessionTtlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
