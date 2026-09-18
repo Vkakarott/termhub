@@ -163,7 +163,7 @@ your own user, that opens one outbound WebSocket to the termhub server and attac
 the agent to run a fixed set of named operations (RPCs — start a shell, list tmux sessions, read a
 directory…), never a shell command.
 
-- **Install:** `npm i -g @termhub/agent` (Node 20+ and `tmux` on that machine).
+- **Install:** `npm i -g @termhub/agent && termhub-agent --version` (Node 20+ and `tmux` on that machine). `command not found` right after: with asdf run `asdf reshim nodejs`; otherwise npm's global bin dir is not on `PATH` (`export PATH="$(npm prefix -g)/bin:$PATH"`).
 - **Enroll:** in the app, "+ machine" → **Agente (recomendado)** → copy the generated
   `termhub-agent connect --url … --token …` and run it on the target machine. The card polls and
   turns green once the agent is online.

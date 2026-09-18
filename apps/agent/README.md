@@ -8,7 +8,7 @@ sleeping.
 ## Install
 
 ```bash
-npm i -g @termhub/agent
+npm i -g @termhub/agent && termhub-agent --version
 ```
 
 Requires Node 20+ and `tmux` on the machine you're pairing.
@@ -54,6 +54,14 @@ Full Disk Access: **Ajustes → Privacidade e Segurança → Acesso Total ao Dis
 `node` binary path `doctor` printed.
 
 ## Troubleshooting
+
+- **`termhub-agent: command not found` right after `npm i -g`**:
+  - **asdf**: asdf only creates shims for new global binaries after `asdf reshim nodejs` — run it once
+    and the command appears (same after every `npm i -g` of a new package).
+  - Otherwise npm's global bin directory is not on your `PATH` (common with Node from `n`, Volta, a
+    custom `npm config set prefix`, or distro packages): `export PATH="$(npm prefix -g)/bin:$PATH"`
+    and add it to `~/.zshrc`/`~/.bashrc`.
+  - Or skip the PATH entirely: `npx -y @termhub/agent connect --url … --token …`.
 
 - **Terminals fail to open with `posix_spawnp failed.`** (visible in `~/.termhub/agent.log`): node-pty's
   prebuilt `spawn-helper` lost its exec bit — npm 11 skips the postinstall that sets it unless the
