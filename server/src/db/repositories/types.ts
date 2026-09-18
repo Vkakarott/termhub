@@ -210,3 +210,18 @@ export function toPublicUser(u: User): PublicUser {
   const { password_hash, google_id, ...rest } = u;
   return { ...rest, has_password: !!password_hash, has_google: !!google_id };
 }
+
+export type AiProvider = 'claude' | 'chatgpt' | 'gemini';
+
+export interface AiAccount {
+  id: string;
+  provider: AiProvider;
+  label: string;
+  machine_id: string;
+  config_dir: string | null;
+  created_at: string;
+}
+
+export function mapAiAccount(a: { id: string; provider: AiProvider; label: string; machineId: string; configDir: string | null; createdAt: Date }): AiAccount {
+  return { id: a.id, provider: a.provider, label: a.label, machine_id: a.machineId, config_dir: a.configDir, created_at: a.createdAt.toISOString() };
+}

@@ -102,3 +102,10 @@ export type Integration = Prisma.IntegrationModel
  * Guardado como JSON versionado e validado no servidor (zod) — evita uma migration por campo.
  */
 export type ProjectSetup = Prisma.ProjectSetupModel
+/**
+ * Model AiAccount
+ * AI subscription account whose usage limits are shown on the home page.
+ * No token is stored: the CLI credential is read from the machine on demand
+ * (Claude Code, Codex CLI or Gemini CLI login) and never persisted or logged.
+ */
+export type AiAccount = Prisma.AiAccountModel

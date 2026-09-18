@@ -1,4 +1,4 @@
-import type { AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, Ticket, User } from './types';
+import type { AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Tab, Task, TaskStatus, Ticket, User } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -110,6 +110,15 @@ export const api = {
     save: (projectId: string, data: ProjectSetupData) => request<{ setup: ProjectSetup }>('PUT', `/projects/${projectId}/setup`, data),
     syncTickets: (projectId: string) =>
       request<{ ok: true; fetched: number; created: number; updated: number; removed: number; synced_at: string }>('POST', `/projects/${projectId}/tickets/sync`, {}),
+  },
+  aiAccounts: {
+    list: () => request<{ accounts: AiAccount[] }>('GET', '/ai-accounts'),
+    create: (input: { provider: AiProvider; label: string; machine_id: string; config_dir?: string | null }) =>
+      request<{ account: AiAccount }>('POST', '/ai-accounts', input),
+    update: (id: string, input: { label?: string; machine_id?: string; config_dir?: string | null }) => request<{ account: AiAccount }>('PATCH', `/ai-accounts/${id}`, input),
+    remove: (id: string) => request<{ ok: true }>('DELETE', `/ai-accounts/${id}`),
+    usage: (refresh = false) => request<{ usage: AiAccountUsage[] }>('GET', `/ai-accounts/usage${refresh ? '?refresh=1' : ''}`),
+    usageOf: (id: string, refresh = false) => request<{ usage: AiAccountUsage }>('GET', `/ai-accounts/${id}/usage${refresh ? '?refresh=1' : ''}`),
   },
   system: {
     sshKey: () => request<{ public_key: string | null; file: string | null }>('GET', '/system/ssh-key'),

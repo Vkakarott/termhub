@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useData } from '../lib/data';
 import type { DashboardItem } from '../lib/types';
+import { AiAccountsView } from '../components/AiAccountsView';
 
 function relative(iso: string | null): string {
   if (!iso) return 'nunca';
@@ -17,7 +18,33 @@ function relative(iso: string | null): string {
   return new Date(iso).toLocaleDateString('pt-BR');
 }
 
+const TABS = [
+  { path: '/', label: 'Projetos' },
+  { path: '/ai', label: 'Contas de IA' },
+];
+
 export function HomePage() {
+  const { pathname } = useLocation();
+  return (
+    <div className="flex h-full flex-col">
+      <nav className="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-bg-2 px-4">
+        {TABS.map((t) => (
+          <NavLink
+            key={t.path}
+            to={t.path}
+            end
+            className={({ isActive }) => `rounded px-3 py-1 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}
+          >
+            {t.label}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">{pathname === '/ai' ? <AiAccountsView /> : <Dashboard />}</div>
+    </div>
+  );
+}
+
+function Dashboard() {
   const { statuses, projects } = useData();
   const [items, setItems] = useState<DashboardItem[] | null>(null);
   const [error, setError] = useState(false);
@@ -37,7 +64,7 @@ export function HomePage() {
   const totalOpen = items?.reduce((n, i) => n + i.open_tasks, 0) ?? 0;
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div>
       <div className="mb-5 flex items-end gap-4">
         <div>
           <h1 className="text-lg font-semibold">O que estou fazendo</h1>

@@ -214,3 +214,34 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   paused: 'Pausado',
   archived: 'Arquivado',
 };
+
+export type AiProvider = 'claude' | 'chatgpt' | 'gemini';
+
+export interface AiAccount {
+  id: string;
+  provider: AiProvider;
+  label: string;
+  machine_id: string;
+  config_dir: string | null;
+  created_at: string;
+}
+
+export interface AiUsageWindow {
+  key: string;
+  label: string;
+  /** 0..100 */
+  utilization: number;
+  resets_at: string | null;
+}
+
+export interface AiAccountUsage {
+  account_id: string;
+  fetched_at: string;
+  ok: boolean;
+  plan: string | null;
+  windows: AiUsageWindow[];
+  error: string | null;
+  hint: string | null;
+}
+
+export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini' };

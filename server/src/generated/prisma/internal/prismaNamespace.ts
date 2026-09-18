@@ -408,7 +408,8 @@ export const ModelName = {
   Task: 'Task',
   Note: 'Note',
   Integration: 'Integration',
-  ProjectSetup: 'ProjectSetup'
+  ProjectSetup: 'ProjectSetup',
+  AiAccount: 'AiAccount'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -424,7 +425,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "tab" | "ticket" | "task" | "note" | "integration" | "projectSetup"
+    modelProps: "user" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "tab" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1316,6 +1317,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    AiAccount: {
+      payload: Prisma.$AiAccountPayload<ExtArgs>
+      fields: Prisma.AiAccountFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.AiAccountFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.AiAccountFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>
+        }
+        findFirst: {
+          args: Prisma.AiAccountFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.AiAccountFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>
+        }
+        findMany: {
+          args: Prisma.AiAccountFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>[]
+        }
+        create: {
+          args: Prisma.AiAccountCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>
+        }
+        createMany: {
+          args: Prisma.AiAccountCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.AiAccountCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>[]
+        }
+        delete: {
+          args: Prisma.AiAccountDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>
+        }
+        update: {
+          args: Prisma.AiAccountUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>
+        }
+        deleteMany: {
+          args: Prisma.AiAccountDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.AiAccountUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.AiAccountUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>[]
+        }
+        upsert: {
+          args: Prisma.AiAccountUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AiAccountPayload>
+        }
+        aggregate: {
+          args: Prisma.AiAccountAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateAiAccount>
+        }
+        groupBy: {
+          args: Prisma.AiAccountGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AiAccountGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.AiAccountCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AiAccountCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1516,6 +1591,18 @@ export const ProjectSetupScalarFieldEnum = {
 export type ProjectSetupScalarFieldEnum = (typeof ProjectSetupScalarFieldEnum)[keyof typeof ProjectSetupScalarFieldEnum]
 
 
+export const AiAccountScalarFieldEnum = {
+  id: 'id',
+  provider: 'provider',
+  label: 'label',
+  machineId: 'machineId',
+  configDir: 'configDir',
+  createdAt: 'createdAt'
+} as const
+
+export type AiAccountScalarFieldEnum = (typeof AiAccountScalarFieldEnum)[keyof typeof AiAccountScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1697,6 +1784,20 @@ export type ListEnumTaskStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$P
 
 
 /**
+ * Reference to a field of type 'AiProvider'
+ */
+export type EnumAiProviderFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AiProvider'>
+    
+
+
+/**
+ * Reference to a field of type 'AiProvider[]'
+ */
+export type ListEnumAiProviderFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AiProvider[]'>
+    
+
+
+/**
  * Reference to a field of type 'Float'
  */
 export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
@@ -1872,6 +1973,7 @@ export type GlobalOmitConfig = {
   note?: Prisma.NoteOmit
   integration?: Prisma.IntegrationOmit
   projectSetup?: Prisma.ProjectSetupOmit
+  aiAccount?: Prisma.AiAccountOmit
 }
 
 /* Types for Logging */

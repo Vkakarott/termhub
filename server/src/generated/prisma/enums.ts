@@ -51,3 +51,12 @@ export const IntegrationProvider = {
 } as const
 
 export type IntegrationProvider = (typeof IntegrationProvider)[keyof typeof IntegrationProvider]
+
+
+export const AiProvider = {
+  claude: 'claude',
+  chatgpt: 'chatgpt',
+  gemini: 'gemini'
+} as const
+
+export type AiProvider = (typeof AiProvider)[keyof typeof AiProvider]

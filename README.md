@@ -136,6 +136,16 @@ Each project has internal navigation: **Terminals | Tasks | Notes | Settings**.
 - **Dashboard** (home): active projects with machine (online/offline), tasks in "Doing", total open tasks and last terminal access — ordered by most recent terminal.
 - **Settings:** rename, edit `cwd`, description, status (active/paused/archived) and delete (ends the tabs' tmux sessions). In the sidebar, hovering a project shows ✎ (opens Settings) and ✕ (removes the project from the list — the folder on the machine is not touched).
 
+## AI accounts (usage limits)
+
+The home page has a second tab, **Contas de IA**, that shows the rate-limit windows of your AI subscriptions (Claude, ChatGPT, Gemini) with utilization bars and reset countdowns, refreshed every minute.
+
+- No token is stored in termhub. Each account points at a **machine** where the provider's CLI is signed in; on every read the server fetches the CLI credential from that machine (over the same local/SSH channel the terminals use), calls the provider's usage endpoint, and keeps only the percentages. The token is never logged or sent to the browser.
+- **Claude:** Claude Code login (`~/.claude/.credentials.json` on Linux, the "Claude Code-credentials" keychain item on macOS). For a second account (e.g. a Claude Enterprise seat), sign in once with `CLAUDE_CONFIG_DIR=~/.claude-work claude` and set that directory in the account's *config dir*.
+- **ChatGPT:** Codex CLI login (`~/.codex/auth.json`, "Sign in with ChatGPT"). **Gemini:** Gemini CLI login (`~/.gemini/oauth_creds.json`, Google account). API-key logins have no subscription limits to show.
+- The usage endpoints are the ones the CLIs themselves use for `/usage`, `/status` and `/stats`; they are not documented by the providers and may change. Failures show the provider's answer on the card so the adapter can be fixed.
+- Routes: `GET/POST /api/ai-accounts`, `PATCH/DELETE /api/ai-accounts/:id`, `GET /api/ai-accounts/usage?refresh=1` (60 s cache).
+
 ## Integrations and project Setup
 
 - **Integrations** (sidebar → ⚙ Integrations): credentials for **GitHub** (token), **Linear** (API key) and **Jira** (URL + e-mail + API token). Secrets encrypted with `ENCRYPTION_KEY` (AES-256-GCM); the "Test" button validates and lists teams/projects/repos.
