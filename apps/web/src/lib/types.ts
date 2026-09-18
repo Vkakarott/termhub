@@ -261,6 +261,15 @@ export interface Tab {
   alive: boolean;
 }
 
+export interface Transcription {
+  id: string;
+  status: 'pending' | 'done' | 'error';
+  text?: string;
+  /** audio length in seconds */
+  duration?: number;
+  error?: string;
+}
+
 export interface Simulator {
   udid: string;
   name: string;
