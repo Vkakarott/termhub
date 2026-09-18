@@ -9,7 +9,7 @@ import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { collectHardware } from '../system/hardware.js';
 import { killTmuxSession, listTmuxSessions, runOnMachine } from '../terminal/machine-exec.js';
-import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
+import { browseMachine, ensureDirectory, makeDirectory } from '../terminal/machine-fs.js';
 import { saveFileOnMachine } from '../terminal/paste-file.js';
 import type { AgentConnection } from './connection.js';
 import { AgentClosedError, AgentRpcError, AgentTimeoutError } from './connection.js';
@@ -120,6 +120,33 @@ describe('agent machine operations use named RPCs', () => {
     const path = await makeDirectory(machine, '~', 'new');
     expect(path).toBe('/home/u/new');
     expect(conn.rpc).toHaveBeenCalledWith('fs.mkdir', { parent: '~', name: 'new' }, undefined);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('ensureDirectory(create: true) on an existing directory succeeds without calling fs.mkdir', async () => {
+    const machine = agentMachine();
+    const conn = attachFakeConn(machine.id, (method) => {
+      if (method === 'fs.list') return { stdout: 'HOME:/home/u\nPWD:/home/u/proj\n' };
+      throw new Error(`unexpected rpc: ${method}`);
+    });
+    const result = await ensureDirectory(machine, '~/proj', true);
+    expect(result).toEqual({ path: '/home/u/proj', created: false });
+    expect(conn.rpc).toHaveBeenCalledWith('fs.list', { path: '~/proj' }, undefined);
+    expect(conn.rpc).toHaveBeenCalledTimes(1);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('ensureDirectory(create: true) on a missing directory calls fs.mkdir and reports created:true', async () => {
+    const machine = agentMachine();
+    const conn = attachFakeConn(machine.id, (method) => {
+      if (method === 'fs.list') return { stdout: 'ERR:notfound\n' };
+      if (method === 'fs.mkdir') return { stdout: 'PWD:/home/u/proj\n' };
+      throw new Error(`unexpected rpc: ${method}`);
+    });
+    const result = await ensureDirectory(machine, '~/proj', true);
+    expect(result).toEqual({ path: '/home/u/proj', created: true });
+    expect(conn.rpc).toHaveBeenNthCalledWith(1, 'fs.list', { path: '~/proj' }, undefined);
+    expect(conn.rpc).toHaveBeenNthCalledWith(2, 'fs.mkdir', { parent: '~', name: 'proj' }, undefined);
     expect(execFile).not.toHaveBeenCalled();
   });
 

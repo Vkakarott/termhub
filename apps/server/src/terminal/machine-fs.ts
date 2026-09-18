@@ -175,8 +175,8 @@ export async function ensureDirectory(machine: Machine, path: string, create: bo
   if (!raw.startsWith('/') && raw !== '~' && !raw.startsWith('~/')) throw badRequest('Informe um caminho absoluto');
 
   if (machine.type === 'agent') {
-    // No dedicated RPC for "ensure": create===false reuses fs.list to check the path exists;
-    // create===true reuses fs.mkdir (like makeDirectory), splitting `raw` into parent + name.
+    // No dedicated RPC for "ensure": both branches start with fs.list to check the path exists,
+    // matching the ssh/local script's own "already a directory -> created:false" short-circuit.
     if (!create) {
       const { stdout } = await agentRpc(machine, 'fs.list', { path: raw });
       const out = parseOutput(stdout);
@@ -184,14 +184,15 @@ export async function ensureDirectory(machine: Machine, path: string, create: bo
       if (out.err === 'eperm') throw forbidden('Sem permissão para acessar a pasta');
       return { path: out.pwd ?? raw, created: false };
     }
-    if (raw === '~' || raw === '/') {
-      const { stdout } = await agentRpc(machine, 'fs.list', { path: raw });
-      const out = parseOutput(stdout);
-      return { path: out.pwd ?? raw, created: false };
-    }
-    const parent = dirname(raw);
-    const name = basename(raw);
-    const { stdout } = await agentRpc(machine, 'fs.mkdir', { parent, name });
+
+    // create === true: an existing directory succeeds with created:false, just like the
+    // ssh/local path — fs.mkdir only runs when fs.list reports the path missing.
+    const listed = await agentRpc(machine, 'fs.list', { path: raw });
+    const listOut = parseOutput(listed.stdout);
+    if (!listOut.err) return { path: listOut.pwd ?? raw, created: false };
+    if (listOut.err === 'eperm') throw forbidden('Sem permissão para acessar a pasta');
+
+    const { stdout } = await agentRpc(machine, 'fs.mkdir', { parent: dirname(raw), name: basename(raw) });
     const err = firstTag(stdout, 'ERR');
     if (err === 'parent') throw notFound('A pasta de destino não existe na máquina');
     if (err === 'exists') throw conflict('Já existe um arquivo ou pasta com esse nome');
