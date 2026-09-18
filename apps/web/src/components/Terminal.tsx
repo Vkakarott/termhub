@@ -88,9 +88,9 @@ function micErrorMessage(err: unknown): string {
   return 'Não foi possível acessar o microfone';
 }
 
-function MicIcon() {
+function MicIcon({ size = 11 }: { size?: number }) {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="9" y="2" width="6" height="12" rx="3" />
       <path d="M5 10a7 7 0 0 0 14 0" />
       <path d="M12 17v4M8 21h8" />
@@ -508,6 +508,41 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
             Solte para anexar ao terminal
           </div>
         )}
+        {/* Dictation: floats over the terminal (bottom right, clear of the scrollbar); expands into a pill while recording. */}
+        {voice !== 'off' && (
+          <div className="absolute bottom-3 right-5 z-10 flex items-center gap-2 text-[11px]" onMouseDown={(e) => e.preventDefault()}>
+            {voice === 'idle' && (
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-bg-2/90 text-fg-muted shadow-lg backdrop-blur hover:border-accent hover:bg-bg-3 hover:text-fg"
+                title={`Ditar: grava até ${MAX_RECORDING_MS / 60000} minutos e cola o texto no terminal (${VOICE_SHORTCUT})`}
+                aria-label="Ditar"
+                onClick={() => void startVoice()}
+              >
+                <MicIcon size={14} />
+              </button>
+            )}
+            {voice === 'recording' && (
+              <div className="flex h-8 items-center gap-2 rounded-full border border-danger/40 bg-bg-2/95 pl-3 pr-1 shadow-lg backdrop-blur">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-danger" aria-hidden="true" />
+                <span className="font-mono text-fg">
+                  {formatClock(recorded)} / {formatClock(MAX_RECORDING_MS / 1000)}
+                </span>
+                <button className="rounded-full bg-accent px-2.5 py-1 font-medium text-white hover:bg-accent-hover" onClick={() => void stopVoice()}>
+                  Parar
+                </button>
+                <button className="rounded-full px-2 py-1 text-fg-muted hover:bg-bg-3 hover:text-fg" onClick={cancelVoice}>
+                  Cancelar
+                </button>
+              </div>
+            )}
+            {voice === 'transcribing' && (
+              <div className="flex h-8 items-center gap-2 rounded-full border border-line bg-bg-2/95 px-3 text-fg-muted shadow-lg backdrop-blur">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden="true" />
+                Transcrevendo…
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="flex h-6 shrink-0 items-center gap-2 border-t border-line bg-bg-2 px-2 text-[11px] text-fg-dim">
         <span className={`rounded px-1.5 py-px font-medium ${badge}`}>
@@ -528,41 +563,7 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
             app usa o mouse · {SELECT_MODIFIER} + arrastar seleciona
           </span>
         ) : null}
-        {voice !== 'off' && (
-          <span className="ml-auto flex items-center gap-2">
-            {voice === 'idle' && (
-              <button
-                className="flex items-center gap-1 rounded px-1 text-fg-muted hover:bg-bg-3 hover:text-fg"
-                title={`Ditar: grava até ${MAX_RECORDING_MS / 60000} minutos e cola o texto no terminal (${VOICE_SHORTCUT})`}
-                onClick={() => void startVoice()}
-              >
-                <MicIcon />
-                Ditar
-              </button>
-            )}
-            {voice === 'recording' && (
-              <>
-                <span className="h-2 w-2 animate-pulse rounded-full bg-danger" aria-hidden="true" />
-                <span className="font-mono text-fg">
-                  {formatClock(recorded)} / {formatClock(MAX_RECORDING_MS / 1000)}
-                </span>
-                <button className="rounded bg-accent px-1.5 font-medium text-white hover:bg-accent-hover" onClick={() => void stopVoice()}>
-                  Parar
-                </button>
-                <button className="text-fg-muted hover:text-fg hover:underline" onClick={cancelVoice}>
-                  Cancelar
-                </button>
-              </>
-            )}
-            {voice === 'transcribing' && (
-              <span className="flex items-center gap-1 text-fg-muted">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden="true" />
-                Transcrevendo…
-              </span>
-            )}
-          </span>
-        )}
-        <span className={voice === 'off' ? 'ml-auto font-mono' : 'font-mono'}>tmux</span>
+        <span className="ml-auto font-mono">tmux</span>
       </div>
     </div>
   );
