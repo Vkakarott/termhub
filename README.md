@@ -12,6 +12,7 @@
   <a href="https://nodejs.org/"><img alt="Node.js 20+" src="https://img.shields.io/badge/node-%3E%3D%2020-3fb950?logo=node.js&logoColor=white"></a>
   <a href="https://www.typescriptlang.org/"><img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-4f8cff?logo=typescript&logoColor=white"></a>
   <a href="#production-docker"><img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-9aa1b1"></a>
   <a href="https://github.com/engenhariainversa/termhub/pulls"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-bc8cff"></a>
   <a href="https://buymeacoffee.com/pedrogoiania"><img alt="Buy me a coffee" src="https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-FFDD00?logo=buymeacoffee&logoColor=black"></a>
 </p>
@@ -189,3 +190,7 @@ web/src
 termhub is built in the open, evenings and weekends. If it saves you time, a coffee keeps the lights on:
 
 <a href="https://buymeacoffee.com/pedrogoiania"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"></a>
+
+## License
+
+[MIT](LICENSE) © Pedro Duarte
