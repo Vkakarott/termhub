@@ -63,6 +63,17 @@ export type Project = Prisma.ProjectModel
  */
 export type Tab = Prisma.TabModel
 /**
+ * Model TabEvent
+ * One monitor event for a tab (hook from Claude Code / Codex, or the tmux fallback).
+ * `text` is the tool's own message (question, permission prompt), capped — never terminal content.
+ */
+export type TabEvent = Prisma.TabEventModel
+/**
+ * Model MachineHook
+ * Hook install on a machine: the token its hook script posts with (sha256 only). Row = installed.
+ */
+export type MachineHook = Prisma.MachineHookModel
+/**
  * Model Ticket
  * Tickets sincronizados das integrações (staging). Só viram task quando o usuário manda pro backlog.
  */

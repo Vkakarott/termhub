@@ -1,6 +1,6 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
-import { mapTab, type Tab, type TabKind } from './types.js';
+import { mapTab, mapTabEvent, type Tab, type TabEvent, type TabKind, type TabState } from './types.js';
 
 export class TabsRepository {
   constructor(private db: PrismaClient) {}
@@ -13,6 +13,41 @@ export class TabsRepository {
   async findById(id: string): Promise<Tab | undefined> {
     const t = await this.db.tab.findUnique({ where: { id } });
     return t ? mapTab(t) : undefined;
+  }
+
+  /** Tab by tmux session name, restricted to the machine that reported it (session names are unique anyway). */
+  async findByTmuxSession(machineId: string, session: string): Promise<Tab | undefined> {
+    const t = await this.db.tab.findFirst({ where: { tmuxSession: session, project: { machineId } } });
+    return t ? mapTab(t) : undefined;
+  }
+
+  /** Tabs whose tool reported a state (monitor list). `owner`: only tabs on that user's machines (null = all). */
+  async listWithState(owner: string | null = null): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({
+      where: { state: { not: null }, ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
+      orderBy: [{ stateAt: 'desc' }],
+    });
+    return rows.map(mapTab);
+  }
+
+  /** Monitor: records the event and makes it the tab's current state. */
+  async recordEvent(tabId: string, event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown> }): Promise<{ tab: Tab; event: TabEvent }> {
+    const at = new Date();
+    const [e, t] = await this.db.$transaction([
+      this.db.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } }),
+      this.db.tab.update({ where: { id: tabId }, data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at } }),
+    ]);
+    return { tab: mapTab(t), event: mapTabEvent(e) };
+  }
+
+  async listEvents(tabId: string, limit = 50): Promise<TabEvent[]> {
+    const rows = await this.db.tabEvent.findMany({ where: { tabId }, orderBy: { createdAt: 'desc' }, take: limit });
+    return rows.map(mapTabEvent);
+  }
+
+  /** Clears the monitor state (e.g. the tmux session is gone). */
+  async clearState(tabId: string): Promise<void> {
+    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null } });
   }
 
   async create(projectId: string, name: string, opts: { kind?: TabKind; simulator_udid?: string | null } = {}): Promise<Tab> {

@@ -257,8 +257,43 @@ export interface Tab {
   tmux_session: string | null;
   simulator_udid: string | null;
   position: number;
+  /** monitor: what the tool in the tab is doing (from its hooks); null = never reported */
+  state: TabState | null;
+  /** the tool's pending question / notification */
+  state_text: string | null;
+  state_tool: string | null;
+  state_at: string | null;
   created_at: string;
   alive: boolean;
+}
+
+export type TabState = 'working' | 'waiting_input' | 'waiting_permission' | 'idle' | 'error';
+
+export const TAB_STATE_LABEL: Record<TabState, string> = {
+  working: 'trabalhando',
+  waiting_input: 'esperando resposta',
+  waiting_permission: 'pedindo permissão',
+  idle: 'terminou',
+  error: 'erro',
+};
+
+/** States in which the tool is waiting for the person. */
+export const NEEDS_YOU: readonly TabState[] = ['waiting_input', 'waiting_permission'];
+
+export interface TabEvent {
+  id: string;
+  tab_id: string;
+  kind: TabState;
+  tool: string;
+  text: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface MonitorItem {
+  tab: Tab;
+  project: Project;
+  machine: Machine;
 }
 
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */

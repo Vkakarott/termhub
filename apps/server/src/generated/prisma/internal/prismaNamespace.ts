@@ -406,6 +406,8 @@ export const ModelName = {
   Machine: 'Machine',
   Project: 'Project',
   Tab: 'Tab',
+  TabEvent: 'TabEvent',
+  MachineHook: 'MachineHook',
   Ticket: 'Ticket',
   Task: 'Task',
   Note: 'Note',
@@ -429,7 +431,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "tab" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1096,6 +1098,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.TabCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.TabCountAggregateOutputType> | number
+        }
+      }
+    }
+    TabEvent: {
+      payload: Prisma.$TabEventPayload<ExtArgs>
+      fields: Prisma.TabEventFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TabEventFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TabEventFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>
+        }
+        findFirst: {
+          args: Prisma.TabEventFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TabEventFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>
+        }
+        findMany: {
+          args: Prisma.TabEventFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>[]
+        }
+        create: {
+          args: Prisma.TabEventCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>
+        }
+        createMany: {
+          args: Prisma.TabEventCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TabEventCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>[]
+        }
+        delete: {
+          args: Prisma.TabEventDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>
+        }
+        update: {
+          args: Prisma.TabEventUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>
+        }
+        deleteMany: {
+          args: Prisma.TabEventDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TabEventUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TabEventUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>[]
+        }
+        upsert: {
+          args: Prisma.TabEventUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TabEventPayload>
+        }
+        aggregate: {
+          args: Prisma.TabEventAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTabEvent>
+        }
+        groupBy: {
+          args: Prisma.TabEventGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TabEventGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TabEventCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TabEventCountAggregateOutputType> | number
+        }
+      }
+    }
+    MachineHook: {
+      payload: Prisma.$MachineHookPayload<ExtArgs>
+      fields: Prisma.MachineHookFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.MachineHookFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.MachineHookFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>
+        }
+        findFirst: {
+          args: Prisma.MachineHookFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.MachineHookFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>
+        }
+        findMany: {
+          args: Prisma.MachineHookFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>[]
+        }
+        create: {
+          args: Prisma.MachineHookCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>
+        }
+        createMany: {
+          args: Prisma.MachineHookCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.MachineHookCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>[]
+        }
+        delete: {
+          args: Prisma.MachineHookDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>
+        }
+        update: {
+          args: Prisma.MachineHookUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>
+        }
+        deleteMany: {
+          args: Prisma.MachineHookDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.MachineHookUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.MachineHookUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>[]
+        }
+        upsert: {
+          args: Prisma.MachineHookUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$MachineHookPayload>
+        }
+        aggregate: {
+          args: Prisma.MachineHookAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateMachineHook>
+        }
+        groupBy: {
+          args: Prisma.MachineHookGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.MachineHookGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.MachineHookCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.MachineHookCountAggregateOutputType> | number
         }
       }
     }
@@ -1844,10 +1994,36 @@ export const TabScalarFieldEnum = {
   tmuxSession: 'tmuxSession',
   simulatorUdid: 'simulatorUdid',
   position: 'position',
+  state: 'state',
+  stateText: 'stateText',
+  stateTool: 'stateTool',
+  stateAt: 'stateAt',
   createdAt: 'createdAt'
 } as const
 
 export type TabScalarFieldEnum = (typeof TabScalarFieldEnum)[keyof typeof TabScalarFieldEnum]
+
+
+export const TabEventScalarFieldEnum = {
+  id: 'id',
+  tabId: 'tabId',
+  kind: 'kind',
+  tool: 'tool',
+  text: 'text',
+  meta: 'meta',
+  createdAt: 'createdAt'
+} as const
+
+export type TabEventScalarFieldEnum = (typeof TabEventScalarFieldEnum)[keyof typeof TabEventScalarFieldEnum]
+
+
+export const MachineHookScalarFieldEnum = {
+  machineId: 'machineId',
+  tokenHash: 'tokenHash',
+  installedAt: 'installedAt'
+} as const
+
+export type MachineHookScalarFieldEnum = (typeof MachineHookScalarFieldEnum)[keyof typeof MachineHookScalarFieldEnum]
 
 
 export const TicketScalarFieldEnum = {
@@ -2143,6 +2319,20 @@ export type ListEnumTabKindFieldRefInput<$PrismaModel> = FieldRefInputType<$Pris
 
 
 /**
+ * Reference to a field of type 'TabState'
+ */
+export type EnumTabStateFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TabState'>
+    
+
+
+/**
+ * Reference to a field of type 'TabState[]'
+ */
+export type ListEnumTabStateFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TabState[]'>
+    
+
+
+/**
  * Reference to a field of type 'IntegrationProvider'
  */
 export type EnumIntegrationProviderFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'IntegrationProvider'>
@@ -2357,6 +2547,8 @@ export type GlobalOmitConfig = {
   machine?: Prisma.MachineOmit
   project?: Prisma.ProjectOmit
   tab?: Prisma.TabOmit
+  tabEvent?: Prisma.TabEventOmit
+  machineHook?: Prisma.MachineHookOmit
   ticket?: Prisma.TicketOmit
   task?: Prisma.TaskOmit
   note?: Prisma.NoteOmit

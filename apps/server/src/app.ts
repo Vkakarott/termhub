@@ -23,6 +23,9 @@ import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
+import { hooksRoutes } from './routes/hooks.js';
+import { monitorRoutes } from './routes/monitor.js';
+import { registerMonitorWs } from './monitor/ws.js';
 import { roleRoutes } from './routes/roles.js';
 import { userRoutes } from './routes/users.js';
 import { uploadRoutes } from './routes/uploads.js';
@@ -98,6 +101,7 @@ export async function buildApp(): Promise<App> {
   const upgrades = createUpgradeRouter(fastify.server, { auth });
   registerTerminalWs(upgrades, { repos, log: fastify.log });
   const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
+  registerMonitorWs(upgrades, { log: fastify.log });
 
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
@@ -133,6 +137,8 @@ export async function buildApp(): Promise<App> {
       await guarded('tickets', (a) => taskTicketRoutes(a, repos), '/tasks');
       await guarded('terminals', (a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), '/tabs');
       await guarded('terminals', (a) => transcriptionRoutes(a, { transcriptions }), '/transcriptions');
+      await guarded('terminals', (a) => monitorRoutes(a, repos), '/monitor');
+      await guarded('terminals', (a) => hooksRoutes(a, repos), '/hooks');
       await guarded('ai_accounts', (a) => aiAccountRoutes(a, repos), '/ai-accounts');
       await guarded('waitlist', (a) => waitlistRoutes(a, repos), '/waitlist');
       await guarded('roles', (a) => roleRoutes(a, repos), '/roles');

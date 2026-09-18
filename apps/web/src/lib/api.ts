@@ -1,4 +1,4 @@
-import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState } from './types';
+import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MonitorItem, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -119,6 +119,9 @@ export const api = {
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
+  monitor: {
+    tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
+  },
   tasks: {
     list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),
     create: (projectId: string, input: { title: string; description?: string | null; status?: TaskStatus }) =>
@@ -193,6 +196,9 @@ export const api = {
     remove: (id: string) => request<{ ok: true; killed: boolean }>('DELETE', `/tabs/${id}`),
     update: (id: string, input: { name?: string; simulator_udid?: string | null }) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, input),
     screenshotUrl: (id: string) => `/api/tabs/${id}/simulator/screenshot`,
+    /** types text into the tab's tmux session (and presses Enter) — no terminal attached needed */
+    input: (id: string, text: string, enter = true) => request<{ ok: true; tab: Tab }>('POST', `/tabs/${id}/input`, { text, enter }),
+    events: (id: string, limit = 50) => request<{ events: TabEvent[] }>('GET', `/tabs/${id}/events?limit=${limit}`),
     /** writes the file to ~/.cache/termhub/paste/ on the tab's machine and returns its path */
     pasteFile: (id: string, file: Blob, name?: string) =>
       request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-file${name ? `?name=${encodeURIComponent(name)}` : ''}`, new Blob([file], { type: 'application/octet-stream' })),

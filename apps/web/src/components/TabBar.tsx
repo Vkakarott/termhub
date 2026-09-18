@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PRESETS, type Preset } from '../lib/layout';
-import type { Tab } from '../lib/types';
+import { NEEDS_YOU, TAB_STATE_LABEL, type Tab } from '../lib/types';
+import { useMonitor } from '../lib/monitor';
 
 interface Props {
   tabs: Tab[];
@@ -57,6 +58,7 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const { tabState } = useMonitor();
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -96,6 +98,17 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
                   📱
                 </span>
               )}
+              {(() => {
+                const st = tabState(t.id)?.state;
+                if (!st || st === 'working') return null;
+                const needs = NEEDS_YOU.includes(st);
+                return (
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${needs ? 'animate-pulse bg-accent' : st === 'error' ? 'bg-danger' : 'bg-fg-dim'}`}
+                    title={TAB_STATE_LABEL[st]}
+                  />
+                );
+              })()}
               {editing === t.id ? (
                 <input
                   ref={inputRef}
