@@ -458,4 +458,100 @@ describe('SimulatorSessionManager', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(b.backend.stopRunner).toHaveBeenCalledWith(machine, UDID);
   });
+
+  it('setPaused fecha e reabre o stream MJPEG mantendo runner/túnel de pé', async () => {
+    const b = makeBackend();
+    const mgr = new SimulatorSessionManager(b.backend);
+    const v = makeViewer();
+    const h = await mgr.acquire(machine, UDID, v);
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(1);
+    const closeFn = (b.backend.openMjpeg as unknown as ReturnType<typeof vi.fn>).mock.results[0]!.value;
+
+    h.setPaused(true);
+    expect(closeFn).toHaveBeenCalledTimes(1);
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(1);
+
+    h.setPaused(false);
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(2);
+    b.emitFrame(Buffer.from('depois-do-resume'));
+    expect(v.frames.at(-1)).toEqual(Buffer.from('depois-do-resume'));
+
+    expect(b.backend.startRunner).toHaveBeenCalledTimes(1);
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(1);
+  });
+
+  it('duas viewers: pausar uma mantém o stream aberto, pausar as duas fecha, retomar uma reabre', async () => {
+    const b = makeBackend();
+    const mgr = new SimulatorSessionManager(b.backend);
+    const v1 = makeViewer();
+    const v2 = makeViewer();
+    const h1 = await mgr.acquire(machine, UDID, v1);
+    const h2 = await mgr.acquire(machine, UDID, v2);
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(1);
+    const closeFn = (b.backend.openMjpeg as unknown as ReturnType<typeof vi.fn>).mock.results[0]!.value;
+
+    h1.setPaused(true);
+    expect(closeFn).not.toHaveBeenCalled();
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(1);
+
+    h2.setPaused(true);
+    expect(closeFn).toHaveBeenCalledTimes(1);
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(1);
+
+    h2.setPaused(false);
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(2);
+  });
+
+  it('último release fecha o stream na hora; stopRunner/tunnel.close só depois de idleMs', async () => {
+    const b = makeBackend();
+    const mgr = new SimulatorSessionManager(b.backend, { idleMs: 5000 });
+    const v = makeViewer();
+    const h = await mgr.acquire(machine, UDID, v);
+    const closeFn = (b.backend.openMjpeg as unknown as ReturnType<typeof vi.fn>).mock.results[0]!.value;
+
+    h.release();
+    expect(closeFn).toHaveBeenCalledTimes(1);
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
+    expect(b.tunnelCloses[0]).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5001);
+    expect(b.backend.stopRunner).toHaveBeenCalledWith(machine, UDID);
+    expect(b.tunnelCloses[0]).toHaveBeenCalled();
+  });
+
+  it('acquire numa sessão ociosa-mas-viva (sem viewers, stream fechado) reabre o stream sem recriar runner/túnel', async () => {
+    const b = makeBackend();
+    const mgr = new SimulatorSessionManager(b.backend, { idleMs: 5000 });
+    const v1 = makeViewer();
+    const h1 = await mgr.acquire(machine, UDID, v1);
+    h1.release();
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(1);
+
+    const v2 = makeViewer();
+    const h2 = await mgr.acquire(machine, UDID, v2);
+    expect(v2.statuses.at(-1)).toBe('ready');
+    expect(b.backend.openMjpeg).toHaveBeenCalledTimes(2);
+    expect(b.backend.startRunner).toHaveBeenCalledTimes(1);
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(1);
+
+    b.emitFrame(Buffer.from('f'));
+    expect(v2.frames).toHaveLength(1);
+    void h2;
+  });
+
+  it('fechar o stream de propósito (pause) não dispara recuperação', async () => {
+    const b = makeBackend();
+    const mgr = new SimulatorSessionManager(b.backend);
+    const v = makeViewer();
+    const h = await mgr.acquire(machine, UDID, v);
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(1);
+
+    h.setPaused(true);
+    // simula o onEnd do reader chegando depois do close intencional (fecho de rede real, atrasado)
+    b.endStream(new Error('encerrado'));
+    await vi.runAllTimersAsync();
+
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(1);
+    expect(v.statuses).toEqual(['booting', 'starting', 'ready']);
+  });
 });

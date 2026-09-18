@@ -160,9 +160,11 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
           return;
         case 'pause':
           paused = true;
+          h.setPaused(true);
           return;
         case 'resume':
           paused = false;
+          h.setPaused(false);
           flush();
           return;
         case 'tap':
