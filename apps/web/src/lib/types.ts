@@ -290,6 +290,12 @@ export interface TabEvent {
   created_at: string;
 }
 
+/** Monitor hooks on a machine (GET /machines/:id/hooks). */
+export interface MachineHooks {
+  installed_at: string | null;
+  hooks_url: string;
+}
+
 export interface MonitorItem {
   tab: Tab;
   project: Project;

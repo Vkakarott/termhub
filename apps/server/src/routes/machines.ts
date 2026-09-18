@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
-import { badRequest, forbidden } from '../lib/errors.js';
+import { badRequest, conflict, forbidden } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
 import { isAdmin } from '../auth/permissions.js';
 import { diagnoseSsh, machineStatus } from '../terminal/machine-exec.js';
@@ -9,6 +9,9 @@ import { listSimulators } from '../simulator/machine.js';
 import { startWdaSetup, wdaSetupState } from '../simulator/setup.js';
 import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
 import { collectHardware } from '../system/hardware.js';
+import { config } from '../config.js';
+import { installHooks, uninstallHooks } from '../monitor/install.js';
+import { newHookToken } from '../monitor/token.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
@@ -114,6 +117,48 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     requireMac(machine);
     await startWdaSetup(machine);
     return reply.code(202).send({ ok: true });
+  });
+
+  /** Monitor hooks on the machine: installed or not, and where they post. */
+  app.get('/:id/hooks', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await scoped(repos, request).machine(id);
+    const hook = await repos.machineHooks.findByMachine(machine.id);
+    return { installed_at: hook?.installed_at ?? null, hooks_url: config.hooksUrl };
+  });
+
+  /**
+   * Installs (or reinstalls with a fresh token) the monitor hooks on the machine: the script under
+   * ~/.termhub/bin, the entries in ~/.claude/settings.json and, when Codex is there, config.toml.
+   * Only the token's hash is kept here; the plain token lives in ~/.termhub/hook.env on the machine.
+   */
+  app.post('/:id/hooks', { config: { action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await scoped(repos, request).machine(id);
+    const { token, hash } = newHookToken();
+    let report;
+    try {
+      report = await installHooks(machine, token, config.hooksUrl);
+    } catch (err) {
+      throw conflict(err instanceof Error ? err.message : 'Instalação falhou');
+    }
+    const hook = await repos.machineHooks.upsert(machine.id, hash);
+    request.log.info({ machineId: machine.id, claude: report.claude, codex: report.codex }, 'monitor: hooks installed');
+    return { installed_at: hook.installed_at, hooks_url: report.hooks_url, claude: report.claude, codex: report.codex };
+  });
+
+  /** Removes the hooks from the machine and revokes its token. */
+  app.delete('/:id/hooks', { config: { action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await scoped(repos, request).machine(id);
+    try {
+      await uninstallHooks(machine);
+    } catch (err) {
+      throw conflict(err instanceof Error ? err.message : 'Remoção falhou');
+    }
+    await repos.machineHooks.delete(machine.id);
+    request.log.info({ machineId: machine.id }, 'monitor: hooks removed');
+    return { ok: true };
   });
 
   /** Navegador de diretórios: subpastas de ?path (padrão $HOME) + discos/mounts da máquina. */

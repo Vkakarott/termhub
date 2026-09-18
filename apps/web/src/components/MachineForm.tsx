@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { Modal } from './Modal';
 import { SimulatorSetupCard } from './SimulatorSetupCard';
+import { MonitorHooksCard } from './MonitorHooksCard';
 import { useData } from '../lib/data';
 import type { Machine, SshDiagnosis, User } from '../lib/types';
 import { api, ApiError } from '../lib/api';
@@ -283,6 +284,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
             <p className="mt-1 text-[11px] text-fg-dim">Projetos, tabs, tarefas, notas e contas de IA desta máquina passam a ser vistos pelo novo dono.</p>
           </div>
         )}
+        {machine && <MonitorHooksCard machine={machine} />}
         {machine && <SimulatorSetupCard machine={machine} />}
         {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
