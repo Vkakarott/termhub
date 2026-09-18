@@ -104,6 +104,12 @@ export function runOnMachineWithInput(
 
 const tmux = () => config.terminal.tmuxPath;
 
+/**
+ * Non-interactive SSH commands get the sshd default PATH (on macOS just /usr/bin:/bin:...),
+ * which misses Homebrew and ~/.local/bin. Every remote command is prefixed with this.
+ */
+export const REMOTE_PATH_PREFIX = 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
+
 export interface MachineStatus {
   online: boolean;
   tmux: boolean;
@@ -137,7 +143,7 @@ export async function machineStatus(machine: Machine): Promise<MachineStatus> {
     machine,
     { file: '/bin/sh', args: ['-lc', DETECT_SCRIPT] },
     // Remoto: o ssh já usa shell de login; garante ~/.local/bin e brew no PATH
-    `export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ${DETECT_SCRIPT}`,
+    `${REMOTE_PATH_PREFIX}${DETECT_SCRIPT}`,
     8000,
   );
   const online = machine.type === 'local' || r.code === 0;
@@ -150,7 +156,7 @@ export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['list-sessions', '-F', '#{session_name}'] },
-    `tmux list-sessions -F '#{session_name}' 2>/dev/null || true`,
+    `${REMOTE_PATH_PREFIX}tmux list-sessions -F '#{session_name}' 2>/dev/null || true`,
   );
   const set = new Set<string>();
   if (r.code !== 0) return set;
@@ -166,7 +172,7 @@ export async function killTmuxSession(machine: Machine, session: string): Promis
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['kill-session', '-t', `=${session}`] },
-    `tmux kill-session -t '=${session}' 2>/dev/null || true`,
+    `${REMOTE_PATH_PREFIX}tmux kill-session -t '=${session}' 2>/dev/null || true`,
   );
   return r.code === 0;
 }
@@ -220,7 +226,7 @@ export async function diagnoseSsh(target: { host: string; ssh_user: string | nul
     checked_at: null,
     created_at: '',
   };
-  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', 'exit 1'] }, `export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ${DETECT_SCRIPT}`, 12000);
+  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', 'exit 1'] }, `${REMOTE_PATH_PREFIX}${DETECT_SCRIPT}`, 12000);
   const detail = r.stderr.trim().split('\n').filter((l) => !l.startsWith('Warning: Permanently added')).pop() ?? null;
   if (r.timedOut) return { ok: false, connected: false, tmux: false, os: null, problem: 'timeout', hint: HINTS.timeout, detail };
   if (r.code !== 0) {

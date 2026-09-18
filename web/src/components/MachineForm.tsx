@@ -106,6 +106,8 @@ export function MachineForm({ open, onClose, machine }: Props) {
   const [sshKey, setSshKey] = useState<string | null>(null);
   const [targetOs, setTargetOs] = useState<TargetOs>(machine?.os === 'linux' ? 'linux' : 'macos');
   const [testing, setTesting] = useState(false);
+  /** which setup step is expanded (accordion); null = all collapsed */
+  const [openStep, setOpenStep] = useState<number | null>(machine ? null : 0);
   const [diag, setDiag] = useState<SshDiagnosis | null>(null);
 
   const runTest = async () => {
@@ -199,26 +201,39 @@ export function MachineForm({ open, onClose, machine }: Props) {
                   ))}
                 </span>
               </div>
-              <ol className="space-y-2">
-                {setupSteps(targetOs, sshKey).map((step, i) => (
-                  <li key={step.title} className="flex gap-2">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-bg-4 text-[10px] font-semibold text-fg">{i + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-fg">{step.title}</p>
-                      <p className="mt-0.5">{step.text}</p>
-                      {step.command ? (
-                        <div className="mt-1">
-                          <code className="block max-h-20 select-all overflow-auto whitespace-pre-wrap break-all rounded bg-bg-2 px-1.5 py-1 font-mono text-[10px] text-fg-muted">{step.command}</code>
-                          <div className="mt-0.5 flex justify-end">
-                            <CopyButton text={step.command} />
-                          </div>
+              <ol className="divide-y divide-line rounded border border-line">
+                {setupSteps(targetOs, sshKey).map((step, i) => {
+                  const expanded = openStep === i;
+                  return (
+                    <li key={step.title}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-bg-3"
+                        onClick={() => setOpenStep(expanded ? null : i)}
+                        aria-expanded={expanded}
+                      >
+                        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-bg-4 text-[10px] font-semibold text-fg">{i + 1}</span>
+                        <span className="flex-1 text-fg">{step.title}</span>
+                        <span className="text-[10px] text-fg-dim">{expanded ? '▾' : '▸'}</span>
+                      </button>
+                      {expanded && (
+                        <div className="px-2 pb-2 pl-8">
+                          <p>{step.text}</p>
+                          {step.command ? (
+                            <div className="mt-1">
+                              <code className="block max-h-20 select-all overflow-auto whitespace-pre-wrap break-all rounded bg-bg-2 px-1.5 py-1 font-mono text-[10px] text-fg-muted">{step.command}</code>
+                              <div className="mt-0.5 flex justify-end">
+                                <CopyButton text={step.command} />
+                              </div>
+                            </div>
+                          ) : (
+                            i === 2 && <p className="mt-1 text-warn">Nenhuma chave pública encontrada no servidor do termhub (~/.ssh).</p>
+                          )}
                         </div>
-                      ) : (
-                        i === 2 && <p className="mt-1 text-warn">Nenhuma chave pública encontrada no servidor do termhub (~/.ssh).</p>
                       )}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ol>
               <div className="mt-2 flex items-center gap-2 border-t border-line pt-2">
                 <button type="button" className="btn-ghost border border-line px-2 py-1 text-xs" disabled={testing || !host.trim()} onClick={() => void runTest()}>

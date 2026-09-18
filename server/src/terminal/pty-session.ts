@@ -2,7 +2,7 @@ import * as pty from 'node-pty';
 import fs from 'node:fs';
 import { config } from '../config.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
-import { assertSessionName, shellQuote, sshBaseArgs } from './machine-exec.js';
+import { REMOTE_PATH_PREFIX, assertSessionName, shellQuote, sshBaseArgs } from './machine-exec.js';
 
 export interface PtySize {
   cols: number;
@@ -39,7 +39,8 @@ export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file
       cwd: localCwd(project.cwd),
     };
   }
-  const remote = `tmux new-session -A -s ${tab.tmux_session} -c ${shellQuote(project.cwd)}`;
+  // PATH prefix: Homebrew's tmux is not on the sshd default PATH on macOS
+  const remote = `${REMOTE_PATH_PREFIX}exec tmux new-session -A -s ${tab.tmux_session} -c ${shellQuote(project.cwd)}`;
   return { file: 'ssh', args: ['-tt', ...sshBaseArgs(machine), remote] };
 }
 
