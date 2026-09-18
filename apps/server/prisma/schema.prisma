@@ -139,6 +139,8 @@ model Machine {
   agentTokenCreatedAt DateTime? @map("agent_token_created_at")
   agentVersion        String?   @map("agent_version")
   agentLastSeenAt     DateTime? @map("agent_last_seen_at")
+  /// The user's own computer (an agent machine): browsers other than the one that added it hide it
+  isLocal             Boolean   @default(false) @map("is_local")
   /// Owner: everything under the machine (projects, tabs, tasks, notes, AI accounts) is visible only to
   /// them (and to admins viewing as them or as "all"). Null = orphan (previous owner deleted / seeded).
   ownerId   String?     @map("owner_id")

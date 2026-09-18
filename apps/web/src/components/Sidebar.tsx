@@ -18,7 +18,7 @@ const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', o
 
 /** Tooltip for a machine row: connection info (host, or "agente" with no host) + os/capabilities + last-seen when offline. */
 export function machineTitle(m: Machine, status: MachineStatus): string {
-  const base = m.type === 'agent' ? 'agente' : m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'local';
+  const base = m.type === 'agent' ? (m.is_local ? 'este computador (agente)' : 'agente') : m.type === 'ssh' ? `${m.ssh_user ? m.ssh_user + '@' : ''}${m.host}:${m.ssh_port}` : 'servidor do termhub';
   let title = base;
   if (m.os) title += ` · ${m.os}`;
   if (m.capabilities.length) title += ` · ${m.capabilities.join(', ')}`;
@@ -28,7 +28,7 @@ export function machineTitle(m: Machine, status: MachineStatus): string {
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can, viewAs } = useAuth();
-  const { machines, projects, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
+  const { machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -64,7 +64,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
       <nav className="min-h-0 flex-1 overflow-y-auto py-2">
         {loading && <p className="px-3 py-2 text-xs text-fg-dim">Carregando…</p>}
-        {!loading && machines.length === 0 && <p className="px-3 py-2 text-xs text-fg-dim">Nenhuma máquina cadastrada.</p>}
+        {!loading && machines.length === 0 && hiddenLocal.length === 0 && <p className="px-3 py-2 text-xs text-fg-dim">Nenhuma máquina cadastrada.</p>}
         {machines.map((m) => {
           const status = statuses[m.id] ?? 'checking';
           const mProjects = visibleProjects.filter((p) => p.machine_id === m.id);
@@ -87,6 +87,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                 <span className="truncate font-medium" title={machineTitle(m, status)}>
                   {m.name}
                 </span>
+                {m.is_local && (
+                  <span className="text-[10px] text-fg-dim" title="O computador que você está usando; aparece só neste navegador">
+                    este pc
+                  </span>
+                )}
                 {m.os && <span className="text-[10px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
                 {m.type === 'agent' && m.agent_version && (
                   <span className="text-[10px] text-fg-dim" title={`agente v${m.agent_version}`}>
@@ -110,11 +115,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                   <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" title="Editar" onClick={() => setMachineForm({ open: true, machine: m })}>
                     ✎
                   </button>
-                  {m.type !== 'local' && (
-                    <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-danger" title="Excluir" onClick={() => setDeleting(m)}>
-                      ✕
-                    </button>
-                  )}
+                  <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-danger" title="Excluir" onClick={() => setDeleting(m)}>
+                    ✕
+                  </button>
                 </span>
               </div>
               {!isCollapsed && (
@@ -167,6 +170,23 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             </div>
           );
         })}
+        {hiddenLocal.length > 0 && (
+          <div className="mt-2 px-3 text-xs text-fg-dim">
+            <p title="Máquinas marcadas como “o computador que estou usando” em outro navegador. Se esta for a máquina onde você está, clique para vê-la aqui.">
+              {hiddenLocal.length === 1 ? '1 máquina local de outro computador' : `${hiddenLocal.length} máquinas locais de outros computadores`}
+            </p>
+            <ul className="mt-0.5">
+              {hiddenLocal.map((m) => (
+                <li key={m.id} className="flex items-center gap-2">
+                  <span className="truncate">{m.name}</span>
+                  <button className="hover:text-fg" title="Mostrar neste navegador (é o computador que estou usando)" onClick={() => claimLocal(m.id)}>
+                    é este pc
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {hasArchived && (
           <button className="mt-2 px-3 text-xs text-fg-dim hover:text-fg" onClick={() => setShowArchived((v) => !v)}>
             {showArchived ? 'Ocultar arquivados' : 'Mostrar arquivados'}

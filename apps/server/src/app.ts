@@ -14,7 +14,6 @@ import { machineRoutes } from './routes/machines.js';
 import { projectRoutes } from './routes/projects.js';
 import { transcriptionRoutes } from './routes/transcriptions.js';
 import { tabRoutes } from './routes/tabs.js';
-import { systemRoutes } from './routes/system.js';
 import { projectTaskRoutes, taskRoutes } from './routes/tasks.js';
 import { noteRoutes } from './routes/notes.js';
 import { dashboardRoutes } from './routes/dashboard.js';
@@ -146,7 +145,6 @@ export async function buildApp(): Promise<App> {
       await guarded('roles', (a) => roleRoutes(a, repos), '/roles');
       await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
       await guarded('uploads', (a) => uploadRoutes(a, repos), '/uploads');
-      await guarded('machines', systemRoutes, '/system');
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },

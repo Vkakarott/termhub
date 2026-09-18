@@ -24,6 +24,7 @@ function makeMachine(overrides: Partial<Machine> & { type: MachineType }): Machi
     checked_at: null,
     agent_version: null,
     agent_last_seen_at: null,
+    is_local: false,
     owner_id: 'u1',
     owner_name: null,
     created_at: '',
@@ -48,6 +49,7 @@ function buildApp(store: Record<string, Machine>) {
       host: input.host ?? null,
       ssh_user: input.ssh_user ?? null,
       ssh_port: input.ssh_port ?? 22,
+      is_local: input.is_local ?? false,
       owner_id: input.owner_id ?? null,
     });
     store[m.id] = m;
@@ -127,11 +129,21 @@ describe('POST /api/machines (agent enrollment)', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('still creates a plain ssh machine without an agent_token', async () => {
+  it('rejects the legacy ssh and local transports (400)', async () => {
     ({ app } = buildApp(store));
-    const res = await app.inject({ method: 'POST', url: '/api/machines', payload: { name: 'ssh-box', type: 'ssh', host: 'example.com' } });
+    for (const payload of [{ name: 'ssh-box', type: 'ssh', host: 'example.com' }, { name: 'this-pc', type: 'local' }]) {
+      const res = await app.inject({ method: 'POST', url: '/api/machines', payload });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().agent_token).toBeUndefined();
+    }
+  });
+
+  it('stores is_local for the user\'s own computer', async () => {
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines', payload: { name: 'this-pc', type: 'agent', is_local: true } });
     expect(res.statusCode).toBe(201);
-    expect(res.json().agent_token).toBeUndefined();
+    expect(res.json().machine.is_local).toBe(true);
   });
 });
 

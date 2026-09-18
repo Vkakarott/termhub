@@ -61,6 +61,8 @@ export interface Machine {
   agent_version: string | null;
   /** last time the agent connected/heartbeat (null for local/ssh) */
   agent_last_seen_at: string | null;
+  /** the user's own computer: the web app shows it only in the browser that added it */
+  is_local: boolean;
   /** null = orphan (only visible to admins viewing "all") */
   owner_id: string | null;
   /** owner's display name (list/detail convenience for the "all" view) */
@@ -182,6 +184,7 @@ export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null 
   checked_at: iso(m.checkedAt),
   agent_version: m.agentVersion ?? null,
   agent_last_seen_at: m.agentLastSeenAt?.toISOString() ?? null,
+  is_local: m.isLocal,
   owner_id: m.ownerId,
   owner_name: m.owner?.name ?? null,
   created_at: m.createdAt.toISOString(),

@@ -81,7 +81,7 @@ The `Dockerfile` produces a slim image (tmux + ssh) and the entrypoint runs `pri
 | `SMTP_HOST` | `mailpit` (local inbox, UI on `:8025`) or a real SMTP server (Mailgun etc.) |
 | `SEED_LOCAL_MACHINE` | `false` — inside Docker, "local" would be the container |
 
-**Inside Docker, the host itself must be registered as an SSH machine.** The container generates a key on first boot (`sshkeys` volume); the public key shows up in the new-machine form and in the log (dev: `docker compose logs app-dev | grep key`; prod blue/green: `docker logs termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) | grep key`). Authorize it on the host and register `host.docker.internal` as the host (with the host's SSH user and port). Install `tmux` on the host.
+**Inside Docker, the host itself is just another machine: run the agent on it** (see "Connect a machine with the agent"). The container still generates an SSH key on first boot (`sshkeys` volume) for legacy SSH machines registered before the agent existed.
 
 ### Without Docker (Node on the host)
 
@@ -152,8 +152,8 @@ Same model as the engenhariainversa CMS: a **role** is a named set of permission
 
 ## Machines and projects
 
-- **Local machine:** created automatically. Terminals run `tmux new-session -A -s <session> -c <cwd>` directly.
-- **SSH machine:** in the sidebar, "+ machine" → type SSH, host, user and port. The form lists the setup steps per OS (enable the SSH server, install tmux, authorize termhub's key with a ready-to-paste command, find the IP) and has a **Test connection** button (`POST /api/machines/test`) that explains failures in plain words: SSH server off (connection refused), wrong IP (unreachable / timeout), key not authorized (permission denied), changed host key, or tmux missing. Terminals run `ssh -tt ... "tmux new-session -A -s <session> -c '<cwd>'"`.
+- **New machines use the agent** (below). The two legacy transports still work for rows that already exist, but cannot be added anymore (`POST /api/machines` answers 400 for `ssh`/`local`): a *local* machine is the termhub server's own host (terminals run `tmux new-session -A -s <session> -c <cwd>` directly; created only when `SEED_LOCAL_MACHINE=true`, i.e. outside Docker), and an *SSH* machine runs `ssh -tt ... "tmux new-session -A -s <session> -c '<cwd>'"`.
+- **Your own computer:** enroll it with the agent and tick **"É o computador que estou usando agora"** (`is_local`). The server cannot tell which computer a browser is on, so the browser that added the machine remembers it (`localStorage`, `termhub:local-machines`) and other browsers hide it and its projects — the sidebar lists those as "máquina local de outro computador" with an **é este pc** action to claim one on the computer it belongs to.
 
 ### Connect a machine with the agent
 
@@ -164,7 +164,7 @@ the agent to run a fixed set of named operations (RPCs — start a shell, list t
 directory…), never a shell command.
 
 - **Install:** `npm i -g @termhub/agent && termhub-agent --version` (Node 20+ and `tmux` on that machine). `command not found` right after: with asdf run `asdf reshim nodejs`; otherwise npm's global bin dir is not on `PATH` (`export PATH="$(npm prefix -g)/bin:$PATH"`).
-- **Enroll:** in the app, "+ machine" → **Agente (recomendado)** → copy the generated
+- **Enroll:** in the app, "+ machine" → name it → copy the generated
   `termhub-agent connect --url … --token …` and run it on the target machine. The card polls and
   turns green once the agent is online.
 - **Run as a service:** `termhub-agent service install` sets up a per-user service (`launchd` on

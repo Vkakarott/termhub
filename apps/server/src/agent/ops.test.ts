@@ -30,6 +30,7 @@ function agentMachine(id = 'm1'): Machine {
     checked_at: null,
     agent_version: '0.1.0',
     agent_last_seen_at: null,
+    is_local: false,
     owner_id: null,
     owner_name: null,
     created_at: '',

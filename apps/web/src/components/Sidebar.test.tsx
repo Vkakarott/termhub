@@ -15,6 +15,7 @@ function agentMachine(overrides: Partial<Machine> = {}): Machine {
     checked_at: null,
     agent_version: '0.1.0',
     agent_last_seen_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+    is_local: false,
     owner_id: 'u1',
     owner_name: null,
     created_at: new Date().toISOString(),
@@ -31,6 +32,10 @@ describe('machineTitle', () => {
 
   it('omits the last-seen part while the agent is online', () => {
     expect(machineTitle(agentMachine(), 'online')).toBe('agente · macos · tmux');
+  });
+
+  it('names the user\'s own computer', () => {
+    expect(machineTitle(agentMachine({ is_local: true }), 'online')).toBe('este computador (agente) · macos · tmux');
   });
 
   it('describes ssh machines by user@host:port', () => {
