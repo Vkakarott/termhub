@@ -1,4 +1,4 @@
-import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, Transcription, TaskStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -159,5 +159,11 @@ export const api = {
     /** writes the file to ~/.cache/termhub/paste/ on the tab's machine and returns its path */
     pasteFile: (id: string, file: Blob, name?: string) =>
       request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-file${name ? `?name=${encodeURIComponent(name)}` : ''}`, new Blob([file], { type: 'application/octet-stream' })),
+  },
+  transcriptions: {
+    config: () => request<{ enabled: boolean }>('GET', '/transcriptions/config'),
+    /** the blob keeps its recorder mime type (audio/webm, audio/mp4...) so the server can decode it */
+    create: (audio: Blob) => request<{ transcription: Transcription }>('POST', '/transcriptions', audio),
+    get: (id: string) => request<{ transcription: Transcription }>('GET', `/transcriptions/${id}`),
   },
 };

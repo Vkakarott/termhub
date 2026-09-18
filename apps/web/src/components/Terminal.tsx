@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalConnection, type ConnectionState } from '../lib/terminal-connection';
 import { api, ApiError } from '../lib/api';
+import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, transcribeClip } from '../lib/voice-recorder';
 
 interface Props {
   tabId: string;
@@ -50,6 +51,52 @@ const STATE_LABEL: Record<ConnectionState, string> = {
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 /** Modificador que força a seleção do xterm quando o app está usando o mouse. */
 const SELECT_MODIFIER = IS_MAC ? '⌥' : 'Shift';
+const VOICE_SHORTCUT = IS_MAC ? '⌘⇧M' : 'Ctrl+Shift+M';
+
+/** Voice input: off (server has no whisper / browser can't record), idle, recording a clip, waiting for the text. */
+type VoiceState = 'off' | 'idle' | 'recording' | 'transcribing';
+type NoticeTone = 'info' | 'ok' | 'danger';
+
+/** Whether the server transcribes audio — asked once per page load, shared by every terminal. */
+let voiceEnabled: Promise<boolean> | null = null;
+function isVoiceEnabled(): Promise<boolean> {
+  if (!canRecordVoice()) return Promise.resolve(false);
+  voiceEnabled ??= api.transcriptions
+    .config()
+    .then((c) => c.enabled)
+    .catch(() => false);
+  return voiceEnabled;
+}
+
+/** Ctrl/Cmd+Shift+M starts or stops dictation in the focused terminal. */
+function isVoiceShortcut(e: KeyboardEvent): boolean {
+  return (e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'M' || e.key === 'm');
+}
+
+function formatClock(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** User-facing message for a getUserMedia failure. */
+function micErrorMessage(err: unknown): string {
+  const name = err instanceof Error ? err.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Permissão do microfone negada';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Nenhum microfone encontrado';
+  if (name === 'NotReadableError') return 'O microfone está em uso por outro app';
+  return 'Não foi possível acessar o microfone';
+}
+
+function MicIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0" />
+      <path d="M12 17v4M8 21h8" />
+    </svg>
+  );
+}
 
 function formatBytes(n: number): string {
   if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
@@ -106,9 +153,26 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
   const [mouseApp, setMouseApp] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef(0);
-  /** aviso do upload de imagem colada: texto + tom */
-  const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'ok' | 'danger' } | null>(null);
+  /** aviso do upload de imagem colada / ditado: texto + tom */
+  const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(null);
   const noticeTimer = useRef(0);
+  const showNotice = useCallback((text: string, tone: NoticeTone, ms?: number) => {
+    window.clearTimeout(noticeTimer.current);
+    setNotice({ text, tone });
+    if (ms) noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
+  }, []);
+  const [voice, setVoiceState] = useState<VoiceState>('off');
+  /** mirrors `voice` for the closures (key handler, recorder callbacks) */
+  const voiceRef = useRef<VoiceState>('off');
+  const setVoice = useCallback((v: VoiceState) => {
+    voiceRef.current = v;
+    setVoiceState(v);
+  }, []);
+  const toggleVoiceRef = useRef<() => void>(() => {});
+  /** seconds recorded so far (shown in the status bar) */
+  const [recorded, setRecorded] = useState(0);
+  const recorderRef = useRef<VoiceRecorder | null>(null);
+  const clockTimer = useRef(0);
   /** a file drag is hovering the terminal */
   const [dragging, setDragging] = useState(false);
   const onExitRef = useRef(onExit);
@@ -145,7 +209,13 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     } catch {
       /* fallback para renderer DOM/canvas */
     }
-    term.attachCustomKeyEventHandler((e) => !isAppShortcut(e));
+    term.attachCustomKeyEventHandler((e) => {
+      if (isVoiceShortcut(e)) {
+        if (e.type === 'keydown') toggleVoiceRef.current();
+        return false;
+      }
+      return !isAppShortcut(e);
+    });
 
     // Cópia automática: ao soltar o mouse com texto selecionado. Escuta no window porque o arrasto pode
     // terminar fora do terminal; só copia se a seleção mudou desde o último mouseup (evita recopiar uma
@@ -169,11 +239,6 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     window.addEventListener('mouseup', copySelection);
 
     // Cmd+V com imagem: envia para a máquina da tab e cola o caminho no terminal (o Claude Code lê o arquivo).
-    const showNotice = (text: string, tone: 'info' | 'ok' | 'danger', ms?: number) => {
-      window.clearTimeout(noticeTimer.current);
-      setNotice({ text, tone });
-      if (ms) noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
-    };
     // Uploads files (paste or drop) to the tab's machine one by one and pastes their paths into the prompt.
     let uploading = false;
     const attachFiles = async (files: File[]) => {
@@ -311,7 +376,100 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
       fitRef.current = null;
       connRef.current = null;
     };
-  }, [tabId]);
+  }, [tabId, showNotice]);
+
+  // ── Voice input: record a clip, send it to the server for transcription, paste the text at the prompt ──
+  useEffect(() => {
+    let alive = true;
+    void isVoiceEnabled().then((ok) => {
+      if (alive && ok && voiceRef.current === 'off') setVoice('idle');
+    });
+    return () => {
+      alive = false;
+    };
+  }, [setVoice]);
+
+  const stopClock = () => {
+    window.clearInterval(clockTimer.current);
+    clockTimer.current = 0;
+  };
+
+  const stopVoice = useCallback(async () => {
+    const rec = recorderRef.current;
+    if (!rec || voiceRef.current !== 'recording') return;
+    stopClock();
+    setVoice('transcribing');
+    recorderRef.current = null;
+    const clip = await rec.stop();
+    if (clip.size < 2048) {
+      // ~0.3 s of opus: nothing to transcribe
+      showNotice('Gravação muito curta', 'info', 2500);
+      setVoice('idle');
+      return;
+    }
+    showNotice('Transcrevendo…', 'info');
+    try {
+      const result = await transcribeClip(clip);
+      const term = termRef.current;
+      if (!term) return;
+      if (result.text) {
+        term.paste(result.text);
+        showNotice('Texto ditado inserido', 'ok', 2500);
+      } else {
+        showNotice('Nenhuma fala reconhecida', 'info', 3000);
+      }
+      term.focus();
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Falha ao transcrever o áudio', 'danger', 6000);
+    } finally {
+      setVoice('idle');
+    }
+  }, [setVoice, showNotice]);
+
+  const startVoice = useCallback(async () => {
+    if (voiceRef.current !== 'idle') return;
+    const rec = new VoiceRecorder({ onAutoStop: () => void stopVoice() });
+    recorderRef.current = rec;
+    voiceRef.current = 'recording'; // block a second start while the mic prompt is open
+    try {
+      await rec.start();
+    } catch (err) {
+      recorderRef.current = null;
+      voiceRef.current = 'idle';
+      showNotice(micErrorMessage(err), 'danger', 5000);
+      return;
+    }
+    setVoice('recording');
+    setRecorded(0);
+    const startedAt = Date.now();
+    stopClock();
+    clockTimer.current = window.setInterval(() => setRecorded(Math.floor((Date.now() - startedAt) / 1000)), 500);
+    showNotice(`Gravando… fale e clique em Parar (${VOICE_SHORTCUT})`, 'info');
+  }, [setVoice, showNotice, stopVoice]);
+
+  const cancelVoice = useCallback(() => {
+    recorderRef.current?.cancel();
+    recorderRef.current = null;
+    stopClock();
+    setVoice('idle');
+    showNotice('Gravação descartada', 'info', 2000);
+    termRef.current?.focus();
+  }, [setVoice, showNotice]);
+
+  toggleVoiceRef.current = () => {
+    if (voiceRef.current === 'idle') void startVoice();
+    else if (voiceRef.current === 'recording') void stopVoice();
+  };
+
+  // Unmount (tab closed) while recording: drop the clip and free the mic.
+  useEffect(
+    () => () => {
+      recorderRef.current?.cancel();
+      recorderRef.current = null;
+      stopClock();
+    },
+    [],
+  );
 
   // Ao ativar a tab: reajusta tamanho (não mexe no foco do teclado — isso é o `focused` abaixo,
   // senão a última tab montada rouba o foco de quem está de fato na célula focada).
@@ -370,7 +528,41 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
             app usa o mouse · {SELECT_MODIFIER} + arrastar seleciona
           </span>
         ) : null}
-        <span className="ml-auto font-mono">tmux</span>
+        {voice !== 'off' && (
+          <span className="ml-auto flex items-center gap-2">
+            {voice === 'idle' && (
+              <button
+                className="flex items-center gap-1 rounded px-1 text-fg-muted hover:bg-bg-3 hover:text-fg"
+                title={`Ditar: grava até ${MAX_RECORDING_MS / 60000} minutos e cola o texto no terminal (${VOICE_SHORTCUT})`}
+                onClick={() => void startVoice()}
+              >
+                <MicIcon />
+                Ditar
+              </button>
+            )}
+            {voice === 'recording' && (
+              <>
+                <span className="h-2 w-2 animate-pulse rounded-full bg-danger" aria-hidden="true" />
+                <span className="font-mono text-fg">
+                  {formatClock(recorded)} / {formatClock(MAX_RECORDING_MS / 1000)}
+                </span>
+                <button className="rounded bg-accent px-1.5 font-medium text-white hover:bg-accent-hover" onClick={() => void stopVoice()}>
+                  Parar
+                </button>
+                <button className="text-fg-muted hover:text-fg hover:underline" onClick={cancelVoice}>
+                  Cancelar
+                </button>
+              </>
+            )}
+            {voice === 'transcribing' && (
+              <span className="flex items-center gap-1 text-fg-muted">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-accent" aria-hidden="true" />
+                Transcrevendo…
+              </span>
+            )}
+          </span>
+        )}
+        <span className={voice === 'off' ? 'ml-auto font-mono' : 'font-mono'}>tmux</span>
       </div>
     </div>
   );

@@ -58,6 +58,11 @@ const envSchema = z.object({
 
   // Chave (base64, 32 bytes) para criptografar segredos das integrações. Gere com: openssl rand -base64 32
   ENCRYPTION_KEY: z.string().optional(),
+
+  // Speech-to-text service (docker/whisper) for voice input in the terminals. Unset = feature off.
+  WHISPER_URL: z.string().url().optional(),
+  /** language hint passed to whisper ("auto" = detect) */
+  WHISPER_LANGUAGE: z.string().default('pt'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -141,6 +146,7 @@ export const config = {
   },
   seedLocalMachine: env.SEED_LOCAL_MACHINE === 'true',
   encryptionKey: env.ENCRYPTION_KEY ?? null,
+  transcription: env.WHISPER_URL ? { url: env.WHISPER_URL.replace(/\/$/, ''), language: env.WHISPER_LANGUAGE } : null,
   terminal: {
     localShell: env.LOCAL_SHELL || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh'),
     tmuxPath: env.TMUX_PATH,
