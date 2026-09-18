@@ -24,6 +24,10 @@ const envSchema = z.object({
     .enum(['true', 'false', 'auto'])
     .default('auto'),
 
+  /** create users on first Google sign-in (default role); sensible behind Cloudflare Access */
+  AUTH_GOOGLE_SIGNUP: z.enum(['true', 'false']).default('false'),
+  /** role name given to users created by Google sign-up */
+  AUTH_DEFAULT_ROLE: z.string().default('AUTHENTICATED'),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
 
@@ -94,6 +98,8 @@ export const config = {
     sessionTtlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
     cookieSecure:
       env.COOKIE_SECURE === 'auto' ? env.PUBLIC_URL.startsWith('https://') : env.COOKIE_SECURE === 'true',
+    googleSignup: env.AUTH_GOOGLE_SIGNUP === 'true',
+    defaultRole: env.AUTH_DEFAULT_ROLE,
     google:
       env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
         ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET }

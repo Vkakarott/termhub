@@ -20,9 +20,10 @@ export class UsersRepository {
     return u ? mapUser(u) : undefined;
   }
 
-  /** Primeiro owner (ou primeiro usuário criado). Usado em AUTH_MODE=disabled. */
+  /** First admin (or first user created). Used in AUTH_MODE=disabled. */
   async findFirstOwner(): Promise<User | undefined> {
     const u =
+      (await this.db.user.findFirst({ where: { roleRef: { isAdmin: true } }, orderBy: { createdAt: 'asc' } })) ??
       (await this.db.user.findFirst({ where: { role: 'owner' }, orderBy: { createdAt: 'asc' } })) ??
       (await this.db.user.findFirst({ orderBy: { createdAt: 'asc' } }));
     return u ? mapUser(u) : undefined;
@@ -32,11 +33,25 @@ export class UsersRepository {
     return this.db.user.count();
   }
 
+  async list(): Promise<User[]> {
+    return (await this.db.user.findMany({ orderBy: { createdAt: 'asc' } })).map(mapUser);
+  }
+
+  async countByRole(roleId: string): Promise<number> {
+    return this.db.user.count({ where: { roleId } });
+  }
+
+  async countAdmins(): Promise<number> {
+    return this.db.user.count({ where: { roleRef: { isAdmin: true } } });
+  }
+
   async create(input: {
     email: string;
     name: string;
     password_hash?: string | null;
+    /** DEPRECATED legacy flag, derived from the role when omitted */
     role?: UserRole;
+    role_id: string;
     avatar_url?: string | null;
   }): Promise<User> {
     const u = await this.db.user.create({
@@ -46,10 +61,20 @@ export class UsersRepository {
         name: input.name.trim(),
         passwordHash: input.password_hash ?? null,
         role: input.role ?? 'member',
+        roleId: input.role_id,
         avatarUrl: input.avatar_url ?? null,
       },
     });
     return mapUser(u);
+  }
+
+  async setRole(userId: string, roleId: string, legacy: UserRole): Promise<User | undefined> {
+    const u = await this.db.user.update({ where: { id: userId }, data: { roleId, role: legacy } });
+    return mapUser(u);
+  }
+
+  async delete(userId: string): Promise<boolean> {
+    return (await this.db.user.deleteMany({ where: { id: userId } })).count > 0;
   }
 
   async linkGoogle(userId: string, googleId: string, avatarUrl?: string | null): Promise<void> {

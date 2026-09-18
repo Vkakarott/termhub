@@ -25,7 +25,7 @@ export async function setupRoutes(app: FastifyInstance, repos: Repositories) {
     return { setup: await repos.projectSetup.save(id, data) };
   });
 
-  app.post('/:id/tickets/sync', async (request) => {
+  app.post('/:id/tickets/sync', { config: { resource: 'tickets', action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     if (!(await repos.projects.findById(id))) throw notFound('Projeto não encontrado');
     const setup = await repos.projectSetup.get(id);

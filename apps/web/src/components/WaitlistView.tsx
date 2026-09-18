@@ -5,7 +5,7 @@ import { ConfirmDialog } from './Modal';
 
 /**
  * Home "Waitlist" tab: sign-ups from the landing page's Cloud section.
- * TODO(users): when the user system lands, this tab is for super admins only — hide it for everyone else.
+ * Shown only to roles granted waitlist:read (see HomePage).
  */
 
 function csv(entries: WaitlistEntry[]): string {

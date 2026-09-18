@@ -1,14 +1,42 @@
 export type MachineType = 'local' | 'ssh';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 
+export interface RoleInfo {
+  id: string;
+  name: string;
+  label: string;
+  is_admin: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
   avatar_url: string | null;
+  /** legacy flag; use role_info */
   role: 'owner' | 'member';
+  role_info: RoleInfo | null;
+  /** "resource:action" grants (admins get the whole catalog) */
+  permissions: string[];
   has_password: boolean;
   has_google: boolean;
+}
+
+export interface Role extends RoleInfo {
+  description: string | null;
+  is_system: boolean;
+  created_at: string;
+  users?: number;
+}
+
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete';
+export interface ResourcePermissions {
+  resource: string;
+  label: string;
+  create: boolean;
+  read: boolean;
+  update: boolean;
+  delete: boolean;
 }
 
 export interface Machine {

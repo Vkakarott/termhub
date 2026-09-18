@@ -18,7 +18,7 @@ export async function projectTicketRoutes(app: FastifyInstance, repos: Repositor
   });
 
   /** Manda tickets escolhidos para o backlog (cria tasks vinculadas). */
-  app.post('/:id/tickets/import', async (request) => {
+  app.post('/:id/tickets/import', { config: { resource: 'tasks', action: 'create' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     if (!(await repos.projects.findById(id))) throw notFound('Projeto não encontrado');
     const { ticket_ids } = importBody.parse(request.body);
@@ -45,7 +45,7 @@ export async function projectTicketRoutes(app: FastifyInstance, repos: Repositor
 /** Montado em /tasks: ações que ligam a task ao ticket externo e ao terminal. */
 export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories) {
   /** Empurra a coluna atual da task para o provedor (ação explícita). */
-  app.post('/:id/push-status', async (request) => {
+  app.post('/:id/push-status', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const task = await repos.tasks.findById(id);
     if (!task) throw notFound('Task não encontrada');
@@ -74,7 +74,7 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
   });
 
   /** Abre (ou reaproveita) uma tab de terminal para a task e a vincula. */
-  app.post('/:id/terminal', async (request) => {
+  app.post('/:id/terminal', { config: { resource: 'terminals', action: 'create' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const task = await repos.tasks.findById(id);
     if (!task) throw notFound('Task não encontrada');
@@ -89,7 +89,7 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
     return { task: updated, tab, created: true };
   });
 
-  app.delete('/:id/terminal', async (request) => {
+  app.delete('/:id/terminal', { config: { resource: 'tasks', action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     if (!(await repos.tasks.findById(id))) throw notFound('Task não encontrada');
     return { task: await repos.tasks.setTab(id, null) };

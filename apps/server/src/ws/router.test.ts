@@ -5,12 +5,15 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { AuthContext } from '../auth/index.js';
 import { createUpgradeRouter } from './router.js';
 
-const { resolveUserMock } = vi.hoisted(() => ({ resolveUserMock: vi.fn() }));
+const { resolveUserMock, canAccessMock } = vi.hoisted(() => ({ resolveUserMock: vi.fn(), canAccessMock: vi.fn() }));
 
 // `resolveUser` de fato bate no banco/serviço de sessão — para o roteador só interessa o
 // resultado (User | null), então mockamos o módulo inteiro e controlamos o retorno por teste.
 // `parseCookies` fica com uma implementação real mínima (não é usada pelas rotas deste teste,
 // mas o roteador chama incondicionalmente antes de resolveUser).
+// The permission check hits the roles repository; the router only cares that it is consulted.
+vi.mock('../auth/permissions.js', () => ({ canAccess: (...args: unknown[]) => canAccessMock(...args) }));
+
 vi.mock('../auth/index.js', () => ({
   parseCookies: (header?: string) => {
     const out: Record<string, string> = {};
@@ -79,6 +82,8 @@ describe('createUpgradeRouter', () => {
 
   beforeEach(async () => {
     resolveUserMock.mockReset();
+    canAccessMock.mockReset();
+    canAccessMock.mockResolvedValue(true);
     server = http.createServer();
     const router = createUpgradeRouter(server, { auth: {} as AuthContext });
     wss = new WebSocketServer({ noServer: true });
@@ -112,6 +117,14 @@ describe('createUpgradeRouter', () => {
   it('origem malformada → 403', async () => {
     const outcome = await attempt(`ws://127.0.0.1:${port}/ws/ok/abc123`, { headers: { Origin: 'not a url' } });
     expect(outcome.statusCode).toBe(403);
+  });
+
+  it('usuário sem terminals:read → 403', async () => {
+    resolveUserMock.mockResolvedValue({ id: 'u1' });
+    canAccessMock.mockResolvedValue(false);
+    const outcome = await attempt(`ws://127.0.0.1:${port}/ws/ok/abc123`, { headers: { Origin: `http://127.0.0.1:${port}` } });
+    expect(outcome.statusCode).toBe(403);
+    expect(canAccessMock).toHaveBeenCalledWith(undefined, { id: 'u1' }, 'terminals', 'read');
   });
 
   it('origem válida, resolveUser sem usuário → 401', async () => {

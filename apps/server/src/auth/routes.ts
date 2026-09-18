@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { toPublicUser } from '../db/repositories/types.js';
+import { toPublicUser, type User } from '../db/repositories/types.js';
+import { permissionsOf } from './permissions.js';
 import { HttpError, badRequest, unauthorized } from '../lib/errors.js';
 import type { AuthContext } from './middleware.js';
 import { buildAuthorizationUrl, exchangeCode, isGoogleEnabled } from './google.js';
@@ -37,6 +38,16 @@ function clearSessionCookies(reply: FastifyReply) {
 }
 
 export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
+  /** Public user + role summary + flat permission list: what the client needs to gate its UI. */
+  const withRole = async (u: User) => {
+    const role = u.role_id ? await ctx.repos.roles.findById(u.role_id) : undefined;
+    return {
+      ...toPublicUser(u),
+      role_info: role ? { id: role.id, name: role.name, label: role.label, is_admin: role.is_admin } : null,
+      permissions: await permissionsOf(ctx.repos, u),
+    };
+  };
+
   const { service } = ctx;
 
   app.get('/config', { config: { public: true } }, async () => ({
@@ -48,7 +59,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
 
   app.get('/me', { config: { public: true } }, async (request) => {
     if (!request.user) throw unauthorized();
-    return { user: toPublicUser(request.user) };
+    return { user: await withRole(request.user) };
   });
 
   app.post('/login', { config: { public: true } }, async (request, reply) => {
@@ -64,7 +75,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
     }
     const { token, csrf, expiresAt } = await service.createSession(result.user.id);
     setSessionCookies(reply, token, csrf, expiresAt);
-    return { user: toPublicUser(result.user) };
+    return { user: await withRole(result.user) };
   });
 
   // --- Login por código enviado por e-mail ---
@@ -95,7 +106,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
     }
     const { token, csrf, expiresAt } = await service.createSession(result.user.id);
     setSessionCookies(reply, token, csrf, expiresAt);
-    return { user: toPublicUser(result.user) };
+    return { user: await withRole(result.user) };
   });
 
   app.post('/logout', async (request, reply) => {

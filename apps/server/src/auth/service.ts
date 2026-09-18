@@ -130,12 +130,27 @@ export class AuthService {
   // ---------- Google ----------
 
   /** Google só entra se o e-mail já estiver cadastrado. Vincula google_id na primeira vez. */
-  async loginWithGoogle(profile: { sub: string; email: string; emailVerified: boolean; picture?: string }): Promise<User | null> {
+  async loginWithGoogle(profile: { sub: string; email: string; emailVerified: boolean; picture?: string; name?: string }): Promise<User | null> {
     if (!profile.emailVerified) return null;
     const byGoogle = await this.repos.users.findByGoogleId(profile.sub);
     if (byGoogle) return byGoogle;
     const byEmail = await this.repos.users.findByEmail(profile.email);
-    if (!byEmail) return null;
+    if (!byEmail) {
+      // First sign-in with an unknown Google account: create the user with the default role when
+      // AUTH_GOOGLE_SIGNUP=true (sensible behind Cloudflare Access, which already gates who gets here).
+      if (!config.auth.googleSignup) return null;
+      const role = (await this.repos.roles.findByName(config.auth.defaultRole)) ?? (await this.repos.roles.findByName('AUTHENTICATED'));
+      if (!role) return null;
+      const created = await this.repos.users.create({
+        email: profile.email,
+        name: profile.name?.trim() || profile.email.split('@')[0],
+        role_id: role.id,
+        role: role.is_admin ? 'owner' : 'member',
+        avatar_url: profile.picture ?? null,
+      });
+      await this.repos.users.linkGoogle(created.id, profile.sub, profile.picture);
+      return (await this.repos.users.findById(created.id)) ?? null;
+    }
     if (byEmail.google_id && byEmail.google_id !== profile.sub) return null;
     await this.repos.users.linkGoogle(byEmail.id, profile.sub, profile.picture);
     return (await this.repos.users.findById(byEmail.id)) ?? null;

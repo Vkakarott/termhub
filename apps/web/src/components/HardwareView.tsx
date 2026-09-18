@@ -5,7 +5,7 @@ import type { HardwareSnapshot } from '../lib/types';
 
 /**
  * Home "Hardware" tab: live CPU / memory / disks / temps / GPU / top processes of a machine.
- * TODO(users): when the user system lands, this tab is for super admins only — hide it for everyone else.
+ * Shown only to roles granted hardware:read (see HomePage).
  */
 
 const POLL_MS = 5000;

@@ -7,7 +7,7 @@ import { HttpError, notFound } from '../lib/errors.js';
  * Cloud waitlist. POST is public: the landing at termhub.dev posts here through the proxy
  * (nginx forwards termhub.dev/api/waitlist to the app), so no CORS and no Cloudflare Access
  * in the way. GET/DELETE are for the app's Waitlist tab.
- * TODO(users): when the user system lands, GET/DELETE are for super admins only.
+ * GET/DELETE are guarded by the "waitlist" resource (admins and roles granted it).
  */
 
 const digits = (max: number) => z.string().trim().regex(/^\d+$/, 'only digits').max(max);

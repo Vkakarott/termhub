@@ -1,4 +1,4 @@
-import type { WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -126,6 +126,20 @@ export const api = {
     remove: (id: string) => request<{ ok: true }>('DELETE', `/ai-accounts/${id}`),
     usage: (refresh = false) => request<{ usage: AiAccountUsage[] }>('GET', `/ai-accounts/usage${refresh ? '?refresh=1' : ''}`),
     usageOf: (id: string, refresh = false) => request<{ usage: AiAccountUsage }>('GET', `/ai-accounts/${id}/usage${refresh ? '?refresh=1' : ''}`),
+  },
+  roles: {
+    list: () => request<{ roles: Role[] }>('GET', '/roles'),
+    resources: () => request<{ resources: { key: string; label: string }[]; actions: PermissionAction[] }>('GET', '/roles/resources'),
+    create: (input: { name: string; label: string; description?: string | null; is_admin?: boolean }) => request<{ role: Role }>('POST', '/roles', input),
+    update: (id: string, input: { label?: string; description?: string | null; is_admin?: boolean }) => request<{ role: Role }>('PATCH', `/roles/${id}`, input),
+    remove: (id: string) => request<{ ok: true }>('DELETE', `/roles/${id}`),
+    permissions: (id: string) => request<{ role: Role; permissions: ResourcePermissions[] }>('GET', `/roles/${id}/permissions`),
+    toggle: (id: string, resource: string, action: PermissionAction) => request<{ granted: boolean }>('POST', `/roles/${id}/permissions/toggle`, { resource, action }),
+  },
+  users: {
+    list: () => request<{ users: User[] }>('GET', '/users'),
+    setRole: (id: string, role_id: string) => request<{ user: User }>('PATCH', `/users/${id}`, { role_id }),
+    remove: (id: string) => request<{ ok: true }>('DELETE', `/users/${id}`),
   },
   waitlist: {
     list: () => request<{ entries: WaitlistEntry[] }>('GET', '/waitlist'),
