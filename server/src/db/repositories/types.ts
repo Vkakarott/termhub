@@ -216,7 +216,7 @@ export function toPublicUser(u: User): PublicUser {
   return { ...rest, has_password: !!password_hash, has_google: !!google_id };
 }
 
-export type AiProvider = 'claude' | 'chatgpt' | 'gemini';
+export type AiProvider = 'claude' | 'chatgpt' | 'gemini' | 'antigravity';
 
 export interface AiAccount {
   id: string;

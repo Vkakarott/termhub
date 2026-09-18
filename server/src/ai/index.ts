@@ -2,15 +2,16 @@ import type { AiAccount, AiProvider, Machine } from '../db/repositories/types.js
 import { claudeAdapter } from './claude.js';
 import { chatgptAdapter } from './chatgpt.js';
 import { geminiAdapter } from './gemini.js';
+import { antigravityAdapter } from './antigravity.js';
 import { CredentialError, readCredential } from './credentials.js';
 import type { AiProviderAdapter, AiUsageResult } from './types.js';
 
 export type { AiUsageResult, AiUsageWindow } from './types.js';
 
-const ADAPTERS: Record<AiProvider, AiProviderAdapter> = { claude: claudeAdapter, chatgpt: chatgptAdapter, gemini: geminiAdapter };
+const ADAPTERS: Record<AiProvider, AiProviderAdapter> = { claude: claudeAdapter, chatgpt: chatgptAdapter, gemini: geminiAdapter, antigravity: antigravityAdapter };
 
 /** Default CLI config dir (relative to $HOME) per provider. */
-const DEFAULT_DIRS: Record<AiProvider, string> = { claude: '.claude', chatgpt: '.codex', gemini: '.gemini' };
+const DEFAULT_DIRS: Record<AiProvider, string> = { claude: '.claude', chatgpt: '.codex', gemini: '.gemini', antigravity: '.gemini' };
 
 export interface AiAccountUsage extends AiUsageResult {
   account_id: string;

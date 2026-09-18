@@ -241,6 +241,7 @@ enum AiProvider {
   claude
   chatgpt
   gemini
+  antigravity
 }
 
 /// AI subscription account whose usage limits are shown on the home page.
