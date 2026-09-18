@@ -88,6 +88,7 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
   let machine: Machine;
   let prevTmuxTmpDir: string | undefined;
   let prevTmuxPath: string | undefined;
+  let prevTmux: string | undefined;
 
   beforeAll(async () => {
     tmuxTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'thtest-tmux-'));
@@ -97,10 +98,15 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
     // build their env from process.env at call time, so this keeps the real tmux server the
     // dev/CI machine might have running completely out of reach. Saved so afterAll can put the
     // process env back the way it found it (other test files in the same worker may care).
+    // $TMUX (set inside any tmux pane) names the socket of the server that pane belongs to and
+    // takes precedence over TMUX_TMPDIR, so with it in the env every tmux call — including the
+    // kill-server in afterAll — would hit the developer's real server instead of the sandbox.
     prevTmuxTmpDir = process.env.TMUX_TMPDIR;
     prevTmuxPath = process.env.TMUX_PATH;
+    prevTmux = process.env.TMUX;
     process.env.TMUX_TMPDIR = tmuxTmpDir;
     delete process.env.TMUX_PATH;
+    delete process.env.TMUX;
 
     const { token, hash } = newAgentToken();
 
@@ -191,7 +197,7 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
     agentController?.abort();
     await agentRunPromise?.catch(() => {});
     try {
-      execFileSync('tmux', ['kill-server'], { env: { ...process.env, TMUX_TMPDIR: tmuxTmpDir } });
+      execFileSync('tmux', ['kill-server'], { env: { ...process.env, TMUX_TMPDIR: tmuxTmpDir, TMUX: undefined } });
     } catch {
       /* no session left, or tmux server already gone — fine */
     }
@@ -203,6 +209,8 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
     else process.env.TMUX_TMPDIR = prevTmuxTmpDir;
     if (prevTmuxPath === undefined) delete process.env.TMUX_PATH;
     else process.env.TMUX_PATH = prevTmuxPath;
+    if (prevTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = prevTmux;
   });
 
   interface BrowserTab {
