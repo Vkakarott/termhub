@@ -8,6 +8,13 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /**
+   * Set when `code` is `null` for a reason other than a timeout/signal: `'enoent'` when
+   * `file` itself could not be spawned (binary missing), `'maxbuffer'` when stdout/stderr
+   * exceeded the 8 MiB cap. Callers that used to treat every `code: null` as "binary missing"
+   * must check this instead — a maxBuffer overflow is not the same failure as ENOENT.
+   */
+  error?: 'enoent' | 'maxbuffer';
 }
 
 export interface RunOptions {
@@ -73,9 +80,15 @@ export function run(file: string, args: string[], opts: RunOptions = {}): Promis
           stdout: String(stdout ?? ''),
           stderr: String(stderr ?? ''),
           timedOut: !!e?.killed || e?.signal === 'SIGTERM',
+          error: e?.code === 'ENOENT' ? 'enoent' : e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? 'maxbuffer' : undefined,
         });
       },
     );
+    // Without this listener, a child that exits before reading stdin (e.g. a script whose
+    // first line fails and hits `exit 1` before `cat`-ing stdin) raises an EPIPE on this
+    // stream that — unhandled — throws and takes down the whole agent process. The execFile
+    // callback above still reports the real exit code from `err`/`code`; this is a no-op.
+    child.stdin?.on('error', () => {});
     if (input !== undefined) child.stdin?.end(input);
     else child.stdin?.end();
   });

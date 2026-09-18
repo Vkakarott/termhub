@@ -28,13 +28,23 @@ describe('tmux rpc handlers', () => {
     await expect(list({})).resolves.toEqual({ sessions: [] });
   });
 
-  it('tmux.list raises no_tmux when the binary could not be spawned', async () => {
-    run.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: false });
+  it('tmux.list raises no_tmux when the binary could not be spawned (ENOENT)', async () => {
+    run.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: false, error: 'enoent' });
     await expect(list({})).rejects.toMatchObject({ code: 'no_tmux' });
+  });
+
+  it('tmux.list raises internal (not no_tmux) on a maxBuffer overflow', async () => {
+    run.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: false, error: 'maxbuffer' });
+    await expect(list({})).rejects.toMatchObject({ code: 'internal' });
   });
 
   it('tmux.list raises timeout when the process is killed on the deadline', async () => {
     run.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: true });
+    await expect(list({})).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('tmux.list prefers timeout over a stray error marker (defensive ordering)', async () => {
+    run.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: true, error: 'enoent' });
     await expect(list({})).rejects.toMatchObject({ code: 'timeout' });
   });
 
@@ -58,6 +68,11 @@ describe('tmux rpc handlers', () => {
   it('tmux.capture raises notfound on a non-zero exit', async () => {
     run.mockResolvedValue({ code: 1, stdout: '', stderr: "can't find session th-a", timedOut: false });
     await expect(capture({ session: 'th-a', lines: 200 })).rejects.toMatchObject({ code: 'notfound' });
+  });
+
+  it('tmux.capture raises internal (not notfound) on a maxBuffer overflow', async () => {
+    run.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: false, error: 'maxbuffer' });
+    await expect(capture({ session: 'th-a', lines: 5000 })).rejects.toMatchObject({ code: 'internal' });
   });
 
   it('respects a TMUX_PATH override for every method', async () => {

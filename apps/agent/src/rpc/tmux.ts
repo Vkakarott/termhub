@@ -1,14 +1,17 @@
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
-import { RpcFailure, run, tmuxPath } from '../exec.js';
+import { RpcFailure, run, tmuxPath, type RunResult } from '../exec.js';
 
 /**
- * Turns a process-level tmux failure into the right RpcFailure: a timeout is always a timeout,
- * and — once that's ruled out — `code === null` means execFile could not even spawn the binary
- * (ENOENT), which we report as `no_tmux` rather than a generic internal error.
+ * Turns a process-level tmux failure into the right RpcFailure: a timeout is always a timeout;
+ * `error: 'enoent'` means execFile could not even spawn the binary, which we report as
+ * `no_tmux`; `error: 'maxbuffer'` means tmux ran but produced more output than the 8 MiB cap
+ * (e.g. an enormous `capture-pane`) — a real (if unusual) failure, but not "tmux missing", so
+ * it gets `internal` instead of being folded into `no_tmux` alongside ENOENT.
  */
-function processFailure(r: { code: number | null; timedOut: boolean }): RpcFailure | null {
+function processFailure(r: Pick<RunResult, 'error' | 'timedOut'>): RpcFailure | null {
   if (r.timedOut) return new RpcFailure('timeout', 'tmux timed out');
-  if (r.code === null) return new RpcFailure('no_tmux', 'tmux not found');
+  if (r.error === 'enoent') return new RpcFailure('no_tmux', 'tmux not found');
+  if (r.error === 'maxbuffer') return new RpcFailure('internal', 'output too large');
   return null;
 }
 
