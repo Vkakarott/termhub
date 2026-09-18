@@ -108,6 +108,10 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
   // viewer não pode ficar pendurado no refcount da sessão nem o timer de flush rodando pra sempre.
   let handle: SessionHandle | null = null;
   let closed = false;
+  // pause/resume podem chegar do browser antes do `acquire` resolver; guarda a intenção aqui e
+  // aplica no handle assim que ele existir (senão o `handle?.setPaused` abaixo é um no-op silencioso
+  // e o viewer fica "ativo" — com o stream aberto — mesmo tendo pedido pause).
+  let wantPaused = false;
   const cleanup = () => {
     if (closed) return;
     closed = true;
@@ -119,29 +123,12 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
   ws.on('close', cleanup);
   ws.on('error', cleanup);
 
-  try {
-    handle = await deps.manager.acquire(machine, udid, viewer);
-  } catch (err) {
-    clearInterval(flushTimer);
-    log.warn({ tabId: tab.id, machineId: machine.id, udid, err: err instanceof Error ? err.message : err }, 'simulador não subiu');
-    // status 'error' já foi enviado pelo manager
-    return;
-  }
-  if (closed) {
-    // o socket fechou enquanto esperávamos o acquire: libera o viewer na hora, não espera
-    // outro evento que já não vai mais disparar.
-    handle.release();
-    handle = null;
-    return;
-  }
-  log.info({ tabId: tab.id, machineId: machine.id, udid }, 'simulador conectado');
-
   const toast = (message: string) => send({ type: 'toast', message });
   const run = (p: Promise<unknown>) =>
     p.catch((err) => toast(err instanceof WdaError ? `WDA: ${err.message}` : err instanceof Error ? err.message : 'Comando falhou'));
 
   ws.on('message', (raw, isBinary) => {
-    if (isBinary || !handle) return;
+    if (isBinary) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw.toString());
@@ -151,19 +138,26 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
     const r = clientMessageSchema.safeParse(parsed);
     if (!r.success) return;
     const m = r.data;
+    if (m.type === 'pause') {
+      wantPaused = true;
+      paused = true;
+      handle?.setPaused(true);
+      return;
+    }
+    if (m.type === 'resume') {
+      wantPaused = false;
+      paused = false;
+      handle?.setPaused(false);
+      flush();
+      return;
+    }
+    if (!handle) return;
     const h = handle;
     try {
       const { client } = h;
       switch (m.type) {
         case 'ping':
           send({ type: 'pong' });
-          return;
-        case 'pause':
-          paused = true;
-          return;
-        case 'resume':
-          paused = false;
-          flush();
           return;
         case 'tap':
           void run(client.actions(tapActions(m)));
@@ -195,4 +189,25 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
       toast(err instanceof WdaError ? `WDA: ${err.message}` : err instanceof Error ? err.message : 'Comando falhou');
     }
   });
+
+  try {
+    handle = await deps.manager.acquire(machine, udid, viewer);
+  } catch (err) {
+    clearInterval(flushTimer);
+    log.warn({ tabId: tab.id, machineId: machine.id, udid, err: err instanceof Error ? err.message : err }, 'simulador não subiu');
+    // status 'error' já foi enviado pelo manager
+    return;
+  }
+  if (closed) {
+    // o socket fechou enquanto esperávamos o acquire: libera o viewer na hora, não espera
+    // outro evento que já não vai mais disparar.
+    handle.release();
+    handle = null;
+    return;
+  }
+  // aplica agora qualquer pause/resume que chegou enquanto o acquire estava em voo (acima os
+  // `handle?.setPaused` foram no-op porque `handle` ainda era null).
+  handle.setPaused(wantPaused);
+  paused = wantPaused;
+  log.info({ tabId: tab.id, machineId: machine.id, udid }, 'simulador conectado');
 }

@@ -32,6 +32,7 @@ export interface SessionHandle {
   readonly screen: Screen;
   setSettings(scale: number, quality: number): Promise<void>;
   refreshScreen(): Promise<Screen>;
+  setPaused(paused: boolean): void;
   release(): void;
 }
 
@@ -56,6 +57,9 @@ interface Session {
   udid: string;
   ports: WdaPorts;
   viewers: Set<Viewer>;
+  /** Subconjunto de `viewers` que não está pausado — o stream MJPEG fica aberto sse a sessão está
+   *  pronta e este conjunto não está vazio (ver `activateViewer`/`deactivateViewer`). */
+  activeViewers: Set<Viewer>;
   starting: Promise<void> | null;
   ready: boolean;
   client: WdaClient | null;
@@ -119,6 +123,7 @@ export class SimulatorSessionManager {
         udid,
         ports: wdaPorts(udid),
         viewers: new Set(),
+        activeViewers: new Set(),
         starting: null,
         ready: false,
         client: null,
@@ -132,9 +137,11 @@ export class SimulatorSessionManager {
       };
       this.sessions.set(key, s);
       s.viewers.add(viewer);
+      this.activateViewer(s, viewer);
       s.starting = this.start(s).finally(() => (s!.starting = null));
     } else {
       s.viewers.add(viewer);
+      this.activateViewer(s, viewer);
     }
     if (s.idleTimer) {
       clearTimeout(s.idleTimer);
@@ -145,13 +152,13 @@ export class SimulatorSessionManager {
       try {
         await pending;
       } catch (err) {
-        s.viewers.delete(viewer);
+        this.detachViewer(s, viewer);
         throw err;
       }
       if (s.disposed) {
         // A sessão não sobreviveu (start falhou de vez, ou a recuperação se esgotou): tenta de novo
         // do zero para este viewer, o que cria uma sessão nova.
-        s.viewers.delete(viewer);
+        this.detachViewer(s, viewer);
         return this.acquire(machine, udid, viewer);
       }
     } else if (s.ready) {
@@ -175,6 +182,11 @@ export class SimulatorSessionManager {
         session.screen = { ...size, orientation };
         this.broadcast(session, (v) => v.onScreen(session.screen));
         return session.screen;
+      },
+      setPaused: (paused) => {
+        if (released) return;
+        if (paused) this.deactivateViewer(session, viewer);
+        else this.activateViewer(session, viewer);
       },
       release: () => {
         if (released) return;
@@ -204,8 +216,33 @@ export class SimulatorSessionManager {
   }
 
   private closeMjpegStream(s: Session) {
-    s.closeMjpeg?.();
+    // Nula antes de chamar: um backend cujo close() dispara onEnd de forma síncrona não pode
+    // passar pela guarda "s.closeMjpeg !== close" em openStream e disparar uma recuperação espúria.
+    const close = s.closeMjpeg;
     s.closeMjpeg = null;
+    close?.();
+  }
+
+  /** Marca o viewer como ativo (não pausado); reabre o stream se ele era o único ativo e a sessão
+   *  já está pronta. Enquanto a sessão ainda está subindo/recuperando, `start`/`doRecover` decidem
+   *  sozinhos, ao terminar, se abrem o stream (olhando `activeViewers.size` naquele momento). */
+  private activateViewer(s: Session, viewer: Viewer) {
+    if (s.activeViewers.has(viewer)) return;
+    s.activeViewers.add(viewer);
+    if (s.activeViewers.size === 1 && s.ready) this.openStream(s);
+  }
+
+  /** Marca o viewer como pausado; fecha o stream se ele era o último ativo e a sessão está pronta. */
+  private deactivateViewer(s: Session, viewer: Viewer) {
+    if (!s.activeViewers.delete(viewer)) return;
+    if (s.activeViewers.size === 0 && s.ready) this.closeMjpegStream(s);
+  }
+
+  /** Tira o viewer dos dois conjuntos (viewers + activeViewers) — usado em toda saída de um viewer:
+   *  release() normal e os dois caminhos de falha do acquire (pending rejeitou / sessão não sobreviveu). */
+  private detachViewer(s: Session, viewer: Viewer) {
+    s.viewers.delete(viewer);
+    this.deactivateViewer(s, viewer);
   }
 
   private async start(s: Session): Promise<void> {
@@ -230,7 +267,7 @@ export class SimulatorSessionManager {
       const [size, orientation] = await Promise.all([client.windowSize(), client.orientation()]);
       if (s.disposed) throw new Error(DISPOSED_ERROR);
       s.screen = { ...size, orientation };
-      this.openStream(s);
+      if (s.activeViewers.size > 0) this.openStream(s);
       s.ready = true;
       this.log('simulador pronto', meta);
       this.broadcast(s, (v) => {
@@ -350,7 +387,7 @@ export class SimulatorSessionManager {
           return;
         }
         s.client!.sessionId = sessionId;
-        this.openStream(s);
+        if (s.activeViewers.size > 0) this.openStream(s);
         if (s.disposed) {
           this.closeMjpegStream(s);
           this.closeTunnel(s);
@@ -384,7 +421,7 @@ export class SimulatorSessionManager {
   }
 
   private release(s: Session, viewer: Viewer) {
-    s.viewers.delete(viewer);
+    this.detachViewer(s, viewer);
     if (s.viewers.size > 0 || s.disposed) return;
     if (s.idleTimer) clearTimeout(s.idleTimer);
     s.idleTimer = setTimeout(() => {
