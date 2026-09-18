@@ -4,17 +4,80 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0f101a" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap" />
+
     <title>termhub — os terminais das suas máquinas, no navegador</title>
-    <meta name="description" content="Acesse os terminais de todas as suas máquinas pelo navegador, organizados em máquinas, projetos e tabs. Cada tab é uma sessão tmux que sobrevive ao navegador. Self-hosted, open source (MIT)." />
-    <meta property="og:title" content="termhub" />
-    <meta property="og:description" content="Os terminais das suas máquinas, no navegador. Self-hosted, open source." />
+    <meta name="description" content="Terminais de todas as suas máquinas no navegador, organizados por máquina, projeto e tab. Cada tab é uma sessão tmux persistente. Self-hosted e open source (MIT)." />
+    <link rel="canonical" href="https://termhub.dev/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="author" content="termhub" />
+
+    <!-- Open Graph (WhatsApp, LinkedIn, Slack, Discord, Facebook) -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://termhub.dev" />
-    <meta property="og:image" content="https://termhub.dev/logo.svg" />
+    <meta property="og:site_name" content="termhub" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:url" content="https://termhub.dev/" />
+    <meta property="og:title" content="termhub — os terminais das suas máquinas, no navegador" />
+    <meta property="og:description" content="Cada tab é uma sessão tmux que sobrevive ao navegador. Self-hosted, open source (MIT)." />
+    <meta property="og:image" content="https://termhub.dev/og-image.png" />
+    <meta property="og:image:secure_url" content="https://termhub.dev/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="termhub — os terminais das suas máquinas, no navegador" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="termhub — os terminais das suas máquinas, no navegador" />
+    <meta name="twitter:description" content="Cada tab é uma sessão tmux que sobrevive ao navegador. Self-hosted, open source (MIT)." />
+    <meta name="twitter:image" content="https://termhub.dev/og-image.png" />
+    <meta name="twitter:image:alt" content="termhub — os terminais das suas máquinas, no navegador" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://termhub.dev/#website",
+          "url": "https://termhub.dev/",
+          "name": "termhub",
+          "inLanguage": ["pt-BR", "en"]
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://termhub.dev/#app",
+          "name": "termhub",
+          "url": "https://termhub.dev/",
+          "image": "https://termhub.dev/og-image.png",
+          "description": "Terminais de todas as suas máquinas no navegador, organizados por máquina, projeto e tab. Cada tab é uma sessão tmux persistente. Self-hosted e open source (MIT).",
+          "applicationCategory": "DeveloperApplication",
+          "operatingSystem": "Linux, macOS",
+          "browserRequirements": "Requires a modern web browser",
+          "license": "https://opensource.org/licenses/MIT",
+          "isAccessibleForFree": true,
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "BRL" },
+          "sameAs": ["https://github.com/engenhariainversa/termhub"]
+        },
+        {
+          "@type": "SoftwareSourceCode",
+          "@id": "https://termhub.dev/#source",
+          "name": "termhub",
+          "codeRepository": "https://github.com/engenhariainversa/termhub",
+          "programmingLanguage": "TypeScript",
+          "license": "https://opensource.org/licenses/MIT",
+          "targetProduct": { "@id": "https://termhub.dev/#app" }
+        }
+      ]
+    }
+    </script>
   </head>
   <body class="bg-canvas text-frost">
     <div id="root"></div>
