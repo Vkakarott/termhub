@@ -1,4 +1,5 @@
 import type { Machine } from '../db/repositories/types.js';
+import { conflict } from '../lib/errors.js';
 import { killTmuxSession, runOnMachine, shellQuote, type ExecResult } from '../terminal/machine-exec.js';
 import { runnerSessionName, type WdaPorts } from './ports.js';
 
@@ -47,6 +48,7 @@ function assertUdid(udid: string): void {
 }
 
 export async function listSimulators(machine: Machine): Promise<Simulator[]> {
+  if (machine.type === 'agent') throw conflict('Simulador indisponível em máquinas com agente');
   const r = await runScript(machine, 'xcrun simctl list devices -j');
   if (r.code !== 0) throw new Error(r.stderr.trim() || 'falha ao listar simuladores');
   return parseSimctlList(r.stdout);
