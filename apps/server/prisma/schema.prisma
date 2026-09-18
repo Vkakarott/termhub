@@ -51,6 +51,7 @@ model User {
   sessions     Session[]
   machines     Machine[]     @relation("MachineOwner")
   integrations Integration[] @relation("IntegrationOwner")
+  uploads      Upload[]
 
   @@index([roleId])
   @@map("users")
@@ -139,6 +140,7 @@ model Machine {
   createdAt DateTime    @default(now()) @map("created_at")
   projects   Project[]
   aiAccounts AiAccount[]
+  uploads    Upload[]
 
   @@index([ownerId])
   @@map("machines")
@@ -330,4 +332,28 @@ model WaitlistEntry {
 
   @@index([createdAt])
   @@map("waitlist_entries")
+}
+
+/// A file pasted/dropped on a terminal and written to ~/.cache/termhub/paste/ on the machine.
+/// Attribution only (who sent what, when): the file itself lives on the machine and may be gone
+/// (7-day cleanup, manual rm) — Settings → Arquivos reconciles rows with the directory listing.
+model Upload {
+  id        String   @id
+  userId    String?  @map("user_id")
+  machineId String   @map("machine_id")
+  projectId String?  @map("project_id")
+  tabId     String?  @map("tab_id")
+  /// file name on the machine (paste-<stamp>-<sanitized original>)
+  name      String
+  /// absolute path on the machine
+  path      String
+  mime      String
+  bytes     Int
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@unique([machineId, name])
+  @@index([userId])
+  @@map("uploads")
 }

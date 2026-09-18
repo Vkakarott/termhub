@@ -12,6 +12,7 @@ export const RESOURCES = [
   { key: 'integrations', label: 'Integrações' },
   { key: 'ai_accounts', label: 'Contas de IA' },
   { key: 'hardware', label: 'Hardware' },
+  { key: 'uploads', label: 'Arquivos enviados' },
   { key: 'waitlist', label: 'Waitlist' },
   { key: 'users', label: 'Usuários' },
   { key: 'roles', label: 'Roles e permissões' },

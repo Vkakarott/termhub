@@ -66,7 +66,8 @@ export const ModelName = {
   Integration: 'Integration',
   ProjectSetup: 'ProjectSetup',
   AiAccount: 'AiAccount',
-  WaitlistEntry: 'WaitlistEntry'
+  WaitlistEntry: 'WaitlistEntry',
+  Upload: 'Upload'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -306,6 +307,22 @@ export const WaitlistEntryScalarFieldEnum = {
 } as const
 
 export type WaitlistEntryScalarFieldEnum = (typeof WaitlistEntryScalarFieldEnum)[keyof typeof WaitlistEntryScalarFieldEnum]
+
+
+export const UploadScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  machineId: 'machineId',
+  projectId: 'projectId',
+  tabId: 'tabId',
+  name: 'name',
+  path: 'path',
+  mime: 'mime',
+  bytes: 'bytes',
+  createdAt: 'createdAt'
+} as const
+
+export type UploadScalarFieldEnum = (typeof UploadScalarFieldEnum)[keyof typeof UploadScalarFieldEnum]
 
 
 export const SortOrder = {

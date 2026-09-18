@@ -1,4 +1,4 @@
-import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, Transcription, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -196,6 +196,10 @@ export const api = {
     /** writes the file to ~/.cache/termhub/paste/ on the tab's machine and returns its path */
     pasteFile: (id: string, file: Blob, name?: string) =>
       request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-file${name ? `?name=${encodeURIComponent(name)}` : ''}`, new Blob([file], { type: 'application/octet-stream' })),
+  },
+  uploads: {
+    list: () => request<{ machines: UploadMachineStatus[]; files: UploadEntry[] }>('GET', '/uploads'),
+    remove: (machineId: string, name: string) => request<{ ok: true; existed: boolean }>('DELETE', `/uploads/${machineId}/${encodeURIComponent(name)}`),
   },
   transcriptions: {
     config: () => request<{ enabled: boolean }>('GET', '/transcriptions/config'),

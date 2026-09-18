@@ -261,6 +261,33 @@ export interface Tab {
   alive: boolean;
 }
 
+/** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
+export interface UploadEntry {
+  machine_id: string;
+  name: string;
+  bytes: number;
+  modified_at: string;
+  /** false = the machine could not be listed; the entry comes from the DB and the file may be gone */
+  on_disk: boolean;
+  upload: {
+    id: string;
+    user_id: string | null;
+    user_name: string | null;
+    user_email: string | null;
+    mime: string;
+    project_id: string | null;
+    created_at: string;
+  } | null;
+}
+
+export interface UploadMachineStatus {
+  id: string;
+  name: string;
+  owner_name: string | null;
+  ok: boolean;
+  error?: string;
+}
+
 export interface Transcription {
   id: string;
   status: 'pending' | 'done' | 'error';

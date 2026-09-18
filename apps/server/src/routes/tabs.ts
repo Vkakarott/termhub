@@ -70,10 +70,16 @@ export async function tabRoutes(
   app.post('/:id/paste-file', { bodyLimit: PASTE_MAX_BYTES, config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const { name } = pasteQuery.parse(request.query);
-    const { machine } = await scoped(repos, request).tab(id);
+    const { project, machine } = await scoped(repos, request).tab(id);
     if (!Buffer.isBuffer(request.body)) throw badRequest('Envie o arquivo como corpo binário (content-type application/octet-stream)');
     const file = await saveFileOnMachine(machine, request.body, name);
     request.log.info({ tabId: id, machineId: machine.id, bytes: file.bytes, mime: file.mime }, 'file pasted');
+    // attribution for Settings → Arquivos; the paste itself already succeeded, so a DB hiccup only logs
+    try {
+      await repos.uploads.create({ user_id: request.user?.id ?? null, machine_id: machine.id, project_id: project.id, tab_id: id, name: file.name, path: file.path, mime: file.mime, bytes: file.bytes });
+    } catch (err) {
+      request.log.warn({ err, tabId: id }, 'could not record the upload');
+    }
     return file;
   });
 }
