@@ -7,6 +7,7 @@ import { config, ROOT_DIR } from './config.js';
 import { getPrisma, closePrisma } from './db/prisma.js';
 import { createRepositories, type Repositories } from './db/repositories/index.js';
 import { createMailer } from './email/mailer.js';
+import { createAccessAllowlist } from './cloudflare/access.js';
 import { AuthService, authRoutes, buildAuthHook, type AuthContext } from './auth/index.js';
 import { applyErrorHandler } from './lib/errors.js';
 import { machineRoutes } from './routes/machines.js';
@@ -57,6 +58,8 @@ export async function buildApp(): Promise<App> {
   await seed(repos, (m) => fastify.log.info(m));
 
   const mailer = createMailer((m) => fastify.log.info(m));
+  const access = createAccessAllowlist(config.cloudflareAccess);
+  if (config.cloudflareAccess) fastify.log.info({ domain: config.cloudflareAccess.appDomain, policy: config.cloudflareAccess.policyName }, 'cloudflare access allowlist sync enabled');
   const authService = new AuthService(repos, mailer);
   const auth: AuthContext = { service: authService, repos };
 
@@ -127,7 +130,7 @@ export async function buildApp(): Promise<App> {
       await guarded('ai_accounts', (a) => aiAccountRoutes(a, repos), '/ai-accounts');
       await guarded('waitlist', (a) => waitlistRoutes(a, repos), '/waitlist');
       await guarded('roles', (a) => roleRoutes(a, repos), '/roles');
-      await guarded('users', (a) => userRoutes(a, repos), '/users');
+      await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
       await guarded('machines', systemRoutes, '/system');
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));

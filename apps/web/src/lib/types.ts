@@ -20,6 +20,26 @@ export interface User {
   permissions: string[];
   has_password: boolean;
   has_google: boolean;
+  /** set when the user was created by an invite */
+  invited_at: string | null;
+  /** last successful sign-in; null = never (invite pending) */
+  last_login_at: string | null;
+}
+
+/** Side effects of an invite (the user row is created regardless). */
+export interface InviteResult {
+  user: User;
+  access: { configured: boolean; synced: boolean; error?: string };
+  mail: { sent: boolean; error?: string };
+}
+
+/** Cloudflare Access allowlist as the server sees it. */
+export interface AccessStatus {
+  configured: boolean;
+  domain?: string;
+  policy?: string;
+  emails: string[];
+  error?: string;
 }
 
 export interface Role extends RoleInfo {

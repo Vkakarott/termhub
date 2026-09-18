@@ -53,6 +53,7 @@ export class UsersRepository {
     role?: UserRole;
     role_id: string;
     avatar_url?: string | null;
+    invited_at?: Date | null;
   }): Promise<User> {
     const u = await this.db.user.create({
       data: {
@@ -63,9 +64,14 @@ export class UsersRepository {
         role: input.role ?? 'member',
         roleId: input.role_id,
         avatarUrl: input.avatar_url ?? null,
+        invitedAt: input.invited_at ?? null,
       },
     });
     return mapUser(u);
+  }
+
+  async touchLogin(userId: string): Promise<void> {
+    await this.db.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
   }
 
   async setRole(userId: string, roleId: string, legacy: UserRole): Promise<User | undefined> {
