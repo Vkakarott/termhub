@@ -1,5 +1,6 @@
 import os from 'node:os';
 import type { HelloMessage } from '@termhub/agent-protocol';
+import { CLOSE } from '@termhub/agent-protocol';
 import { connectOnce, runForever, RevokedError, ProtocolMismatchError, UpgradeRejectedError } from './client.js';
 import type { AgentConfig } from './config.js';
 import { createDispatcher } from './dispatch.js';
@@ -37,10 +38,14 @@ export async function buildHello(osName: SupportedOs): Promise<HelloFields> {
   };
 }
 
+export const REVOKED_MESSAGE = 'Token inválido ou revogado';
+export const UPGRADE_MESSAGE = 'Atualize o agente: npm i -g @termhub/agent';
+
 /**
- * A short-lived `connectOnce()` used by `status`/`doctor` to check reachability without joining
- * a real session: resolves the socket, then aborts immediately (or after `timeoutMs`, whichever
- * comes first) — never leaves a connection open.
+ * Reachability check used by `status`/`doctor`: a `hello` with `probe: true`, which the server
+ * validates (token, protocol) and answers by closing 1000 `probe-ok` without attaching — so a
+ * probe never replaces the live session the service holds on this machine. Any other outcome
+ * (401 upgrade, 4401/4409 close, no answer within `timeoutMs`) is "not connected".
  */
 export async function checkServerConnection(
   config: Pick<AgentConfig, 'url' | 'token'>,
@@ -48,24 +53,32 @@ export async function checkServerConnection(
 ): Promise<{ ok: boolean; error?: string }> {
   const osName = detectOs() ?? 'linux';
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   try {
     const { closed } = await connectOnce(
       {
         url: config.url,
         token: config.token,
-        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [] },
+        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [], probe: true },
         onServerMessage: () => {},
         onStream: () => {},
         log: () => {},
       },
       controller.signal,
     );
-    closed.catch(() => {});
-    return { ok: true };
+    const info = await closed;
+    if (info.code === 1000 && info.reason === 'probe-ok') return { ok: true };
+    if (info.code === CLOSE.UNAUTHORIZED) return { ok: false, error: REVOKED_MESSAGE };
+    if (info.code === CLOSE.CONFLICT && info.reason === 'protocol') return { ok: false, error: UPGRADE_MESSAGE };
+    if (timedOut) return { ok: false, error: 'O servidor não respondeu' };
+    return { ok: false, error: `Conexão encerrada (${info.code}${info.reason ? ` ${info.reason}` : ''})` };
   } catch (err) {
     if (err instanceof UpgradeRejectedError && err.status === 401) {
-      return { ok: false, error: 'Token inválido ou revogado' };
+      return { ok: false, error: REVOKED_MESSAGE };
     }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   } finally {
@@ -117,7 +130,7 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
       process.exit(78);
     }
     if (err instanceof ProtocolMismatchError) {
-      console.error('Atualize o agente: npm i -g @termhub/agent');
+      console.error(UPGRADE_MESSAGE);
       process.exit(78);
     }
     throw err;

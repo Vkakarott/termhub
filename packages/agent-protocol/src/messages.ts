@@ -16,6 +16,10 @@ export const helloMessage = z.object({
   hostname: z.string().max(255),
   tmux: z.boolean(),
   tools: z.array(z.string().max(32)).max(64),
+  /** `status`/`doctor` reachability check: the server validates the token and protocol as
+   *  usual but does not attach — it answers by closing 1000 `probe-ok`, so a probe never
+   *  replaces the machine's live session. */
+  probe: z.boolean().optional(),
 });
 
 // zod's discriminatedUnion rejects two members with the same 'type' literal, so the

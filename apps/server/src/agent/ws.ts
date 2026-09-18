@@ -35,6 +35,13 @@ export function registerAgentWs(router: ReturnType<typeof createUpgradeRouter>, 
       conn.waitHello(deps.helloTimeoutMs).then(
         async (hello) => {
           if (hello.protocol > PROTOCOL_VERSION) return conn.close(CLOSE.CONFLICT, 'protocol');
+          if (hello.probe === true) {
+            // `termhub-agent status`/`doctor`: token and protocol already checked out, answer
+            // and hang up without attaching — attaching would replace (4409) the live session
+            // the service is running on the same machine.
+            log.info({ machineId: machine.id, agentVersion: hello.agent_version }, 'agent probe ok');
+            return conn.close(1000, 'probe-ok');
+          }
           registry.attach(machine.id, conn);
 
           // Register the close listener before the first `await`: if the agent disconnects

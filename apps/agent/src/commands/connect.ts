@@ -74,8 +74,10 @@ export async function connectCommand(values: ConnectValues, log: Logger): Promis
   const hello = await buildHello(osName);
   const controller = new AbortController();
   try {
-    await connectOnce({ url, token, hello, onServerMessage: () => {}, onStream: () => {}, log }, controller.signal);
-    // The check succeeded — close this probe connection; runForegroundUntilSignal() below opens
+    // `probe: true`: the server validates the token and hangs up (1000 probe-ok) without
+    // attaching, so re-pairing on a machine whose service is still running never bumps it.
+    await connectOnce({ url, token, hello: { ...hello, probe: true }, onServerMessage: () => {}, onStream: () => {}, log }, controller.signal);
+    // The check succeeded — drop this probe connection; runForegroundUntilSignal() below opens
     // the real long-lived one via runAgent()/runForever().
     controller.abort();
   } catch (err) {

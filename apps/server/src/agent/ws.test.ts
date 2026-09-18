@@ -180,6 +180,58 @@ describe('registerAgentWs', () => {
     expect(registry.isOnline('m1')).toBe(false);
   });
 
+  const goodHello = {
+    type: 'hello',
+    protocol: PROTOCOL_VERSION,
+    agent_version: '0.1.0',
+    os: 'linux',
+    arch: 'x64',
+    hostname: 'box',
+    tmux: true,
+    tools: ['tmux'],
+  };
+
+  it('probe hello is answered with close 1000 "probe-ok" without attaching or touching', async () => {
+    await start();
+    const res = await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` });
+    const ws = res.ws!;
+    ws.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify({ ...goodHello, probe: true })));
+    const closed = await waitClose(ws);
+    expect(closed).toEqual({ code: 1000, reason: 'probe-ok' });
+    expect(registry.isOnline('m1')).toBe(false);
+    expect(repos.machines.touchAgent).not.toHaveBeenCalled();
+  });
+
+  it('a live attached connection survives a probe from the same token', async () => {
+    await start();
+    const live = (await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` })).ws!;
+    const liveClosed = waitClose(live);
+    live.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify(goodHello)));
+    await vi.waitFor(() => expect(registry.isOnline('m1')).toBe(true));
+
+    const probe = (await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` })).ws!;
+    probe.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify({ ...goodHello, probe: true })));
+    expect(await waitClose(probe)).toEqual({ code: 1000, reason: 'probe-ok' });
+
+    // The probe must not have replaced (4409) the real session.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(registry.isOnline('m1')).toBe(true);
+    expect(live.readyState).toBe(WebSocket.OPEN);
+    live.terminate();
+    await liveClosed;
+  });
+
+  it('probe hello with a newer protocol version is still refused with 4409 "protocol"', async () => {
+    await start();
+    const res = await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` });
+    const ws = res.ws!;
+    ws.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify({ ...goodHello, protocol: 99, probe: true })));
+    const closed = await waitClose(ws);
+    expect(closed.code).toBe(CLOSE.CONFLICT);
+    expect(closed.reason).toBe('protocol');
+    expect(registry.isOnline('m1')).toBe(false);
+  });
+
   it('connection closing while the initial touch() is still in flight leaves no dangling interval', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     try {
