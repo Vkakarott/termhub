@@ -10,6 +10,9 @@ COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY apps/landing/package.json apps/landing/
+COPY apps/agent/package.json apps/agent/
+COPY packages/agent-protocol/package.json packages/agent-protocol/
+COPY packages/machine-ops/package.json packages/machine-ops/
 COPY scripts/postinstall.mjs scripts/
 RUN npm ci
 
@@ -34,6 +37,13 @@ COPY --from=build --chown=app:app /app/apps/server/dist ./apps/server/dist
 COPY --from=build --chown=app:app /app/apps/server/prisma ./apps/server/prisma
 COPY --from=build --chown=app:app /app/apps/server/prisma.config.ts ./apps/server/
 COPY --from=build --chown=app:app /app/apps/web/dist ./apps/web/dist
+# @termhub/server imports these at runtime through the node_modules/@termhub/* workspace symlinks
+# (copied above with node_modules), which point at ../../packages/<name> — the targets must exist
+# at that same relative path in the runner stage.
+COPY --from=build --chown=app:app /app/packages/agent-protocol/package.json ./packages/agent-protocol/
+COPY --from=build --chown=app:app /app/packages/agent-protocol/dist ./packages/agent-protocol/dist
+COPY --from=build --chown=app:app /app/packages/machine-ops/package.json ./packages/machine-ops/
+COPY --from=build --chown=app:app /app/packages/machine-ops/dist ./packages/machine-ops/dist
 COPY --chown=app:app docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod +x /app/docker/entrypoint.sh
 USER app

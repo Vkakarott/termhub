@@ -94,10 +94,17 @@ export const api = {
   },
   machines: {
     list: () => request<{ machines: Machine[] }>('GET', '/machines'),
-    create: (input: Partial<Machine>) => request<{ machine: Machine }>('POST', '/machines', input),
+    /** for `type: 'agent'`, the response also carries `agent_token` (the plaintext token, shown only once) */
+    create: (input: Partial<Machine>) => request<{ machine: Machine; agent_token?: string }>('POST', '/machines', input),
     update: (id: string, input: Partial<Machine>) => request<{ machine: Machine }>('PATCH', `/machines/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}`),
-    status: (id: string) => request<{ id: string; online: boolean; tmux: boolean; os: string | null; capabilities: string[] }>('GET', `/machines/${id}/status`),
+    status: (id: string) =>
+      request<{ id: string; online: boolean; tmux: boolean; os: string | null; capabilities: string[]; agent_version?: string | null; last_seen_at?: string | null }>(
+        'GET',
+        `/machines/${id}/status`,
+      ),
+    /** issues a new agent token, invalidating the previous one */
+    rotateAgentToken: (id: string) => request<{ agent_token: string }>('POST', `/machines/${id}/agent-token`, {}),
     /** SSH connection test for the form (unsaved values) with a human-readable diagnosis */
     test: (input: { host: string; ssh_user?: string | null; ssh_port?: number }) => request<SshDiagnosis>('POST', '/machines/test', input),
     simulators: (id: string) => request<{ simulators: Simulator[] }>('GET', `/machines/${id}/simulators`),

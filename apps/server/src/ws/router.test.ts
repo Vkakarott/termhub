@@ -152,4 +152,49 @@ describe('createUpgradeRouter', () => {
     expect(outcome.opened).toBe(true);
     expect(outcome.firstMessage).toBe('abc123');
   });
+
+  describe('addPublic', () => {
+    let pubServer: http.Server;
+    let pubWss: WebSocketServer;
+    let pubPort: number;
+
+    beforeEach(async () => {
+      pubServer = http.createServer();
+      const router = createUpgradeRouter(pubServer, { auth: {} as AuthContext });
+      pubWss = new WebSocketServer({ noServer: true });
+      router.addPublic(/^\/agent\/ok\/?$/, ({ req, socket, head }) => {
+        pubWss.handleUpgrade(req, socket, head, (ws) => {
+          pubWss.emit('connection', ws, req);
+          ws.send('public-ok');
+        });
+      });
+      router.add(/^\/ws\/ok\/([a-z0-9]+)$/, ({ req, socket, head, params }) => {
+        pubWss.handleUpgrade(req, socket, head, (ws) => {
+          pubWss.emit('connection', ws, req);
+          ws.send(params[0]);
+        });
+      });
+      pubPort = await listen(pubServer);
+    });
+
+    afterEach(async () => {
+      pubWss.close();
+      await shutdown(pubServer);
+    });
+
+    it('rota pública: alcançável sem cookie/usuário, sem checar origem nem terminals:read', async () => {
+      resolveUserMock.mockResolvedValue(null);
+      const outcome = await attempt(`ws://127.0.0.1:${pubPort}/agent/ok`, { headers: { Origin: 'https://evil.example' } });
+      expect(outcome.opened).toBe(true);
+      expect(outcome.firstMessage).toBe('public-ok');
+      expect(resolveUserMock).not.toHaveBeenCalled();
+      expect(canAccessMock).not.toHaveBeenCalled();
+    });
+
+    it('rota autenticada continua exigindo cookie mesmo com uma rota pública registrada', async () => {
+      resolveUserMock.mockResolvedValue(null);
+      const outcome = await attempt(`ws://127.0.0.1:${pubPort}/ws/ok/abc123`, { headers: { Origin: `http://127.0.0.1:${pubPort}` } });
+      expect(outcome.statusCode).toBe(401);
+    });
+  });
 });

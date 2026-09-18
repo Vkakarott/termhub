@@ -11,7 +11,7 @@ import type {
 } from '../../generated/prisma/client.js';
 
 export type UserRole = 'owner' | 'member';
-export type MachineType = 'local' | 'ssh';
+export type MachineType = 'local' | 'ssh' | 'agent';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 export type TabKind = 'terminal' | 'simulator';
@@ -57,6 +57,10 @@ export interface Machine {
   os: string | null;
   capabilities: string[];
   checked_at: string | null;
+  /** last agent version reported on hello (null for local/ssh, or an agent that never connected) */
+  agent_version: string | null;
+  /** last time the agent connected/heartbeat (null for local/ssh) */
+  agent_last_seen_at: string | null;
   /** null = orphan (only visible to admins viewing "all") */
   owner_id: string | null;
   /** owner's display name (list/detail convenience for the "all" view) */
@@ -176,6 +180,8 @@ export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null 
   os: m.os,
   capabilities: Array.isArray(m.capabilities) ? (m.capabilities as string[]) : [],
   checked_at: iso(m.checkedAt),
+  agent_version: m.agentVersion ?? null,
+  agent_last_seen_at: m.agentLastSeenAt?.toISOString() ?? null,
   owner_id: m.ownerId,
   owner_name: m.owner?.name ?? null,
   created_at: m.createdAt.toISOString(),

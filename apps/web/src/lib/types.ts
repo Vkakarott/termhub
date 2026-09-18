@@ -1,4 +1,4 @@
-export type MachineType = 'local' | 'ssh';
+export type MachineType = 'local' | 'ssh' | 'agent';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 
 export interface RoleInfo {
@@ -69,6 +69,10 @@ export interface Machine {
   os: string | null;
   capabilities: string[];
   checked_at: string | null;
+  /** null when never reported (SSH/local machines, or an agent that never connected) */
+  agent_version: string | null;
+  /** last time the agent machine was seen online */
+  agent_last_seen_at: string | null;
   /** null = orphan (visible only to admins viewing "all") */
   owner_id: string | null;
   owner_name: string | null;

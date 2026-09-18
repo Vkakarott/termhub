@@ -1,6 +1,11 @@
 import { execFile, spawn } from 'node:child_process';
 import { config } from '../config.js';
 import type { Machine } from '../db/repositories/types.js';
+import { DETECT_SCRIPT, REMOTE_PATH_PREFIX, assertSessionName, parseDetect } from '@termhub/machine-ops';
+import { agentRpc, toHttpError } from '../agent/errors.js';
+import { AgentOfflineError, agents } from '../agent/registry.js';
+
+export { DETECT_TOOLS, REMOTE_PATH_PREFIX, assertSessionName, shellQuote } from '@termhub/machine-ops';
 
 export interface ExecResult {
   code: number | null;
@@ -9,17 +14,8 @@ export interface ExecResult {
   timedOut: boolean;
 }
 
-/** Escapa para uso dentro de aspas simples no shell remoto. */
-export function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-const SESSION_RE = /^[A-Za-z0-9_-]+$/;
-export function assertSessionName(name: string): void {
-  if (!SESSION_RE.test(name)) throw new Error(`Nome de sessão tmux inválido: ${name}`);
-}
-
 export function sshBaseArgs(machine: Machine, connectTimeout = 5): string[] {
+  if (machine.type === 'agent') throw new Error('Máquina do tipo agente não executa shell');
   if (machine.type !== 'ssh' || !machine.host) throw new Error('Máquina não é SSH');
   const target = machine.ssh_user ? `${machine.ssh_user}@${machine.host}` : machine.host;
   return [
@@ -45,6 +41,7 @@ export function runOnMachine(
   remoteCommand: string,
   timeoutMs = 8000,
 ): Promise<ExecResult> {
+  if (machine.type === 'agent') throw new Error('Máquina do tipo agente não executa shell');
   const [file, args] =
     machine.type === 'local' ? [local.file, local.args] : ['ssh', [...sshBaseArgs(machine), '--', remoteCommand]];
 
@@ -72,6 +69,7 @@ export function runOnMachineWithInput(
   input: Buffer,
   timeoutMs = 30000,
 ): Promise<ExecResult> {
+  if (machine.type === 'agent') throw new Error('Máquina do tipo agente não executa shell');
   const [file, args] =
     machine.type === 'local' ? [local.file, local.args] : ['ssh', [...sshBaseArgs(machine, 10), '--', remoteCommand]];
 
@@ -104,12 +102,6 @@ export function runOnMachineWithInput(
 
 const tmux = () => config.terminal.tmuxPath;
 
-/**
- * Non-interactive SSH commands get the sshd default PATH (on macOS just /usr/bin:/bin:...),
- * which misses Homebrew and ~/.local/bin. Every remote command is prefixed with this.
- */
-export const REMOTE_PATH_PREFIX = 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
-
 export interface MachineStatus {
   online: boolean;
   tmux: boolean;
@@ -118,26 +110,13 @@ export interface MachineStatus {
   capabilities: string[];
 }
 
-/** Ferramentas que interessam para automação (detectadas no status). */
-export const DETECT_TOOLS = ['tmux', 'claude', 'gh', 'git', 'node', 'pnpm', 'xcodebuild', 'docker', 'adb', 'python3'] as const;
-
-const WDA_RUNNER_APP = '$HOME/.termhub/WebDriverAgent/DerivedData/Build/Products/Debug-iphonesimulator/WebDriverAgentRunner-Runner.app';
-const DETECT_SCRIPT = `echo OS:$(uname -s); for t in ${DETECT_TOOLS.join(' ')}; do command -v $t >/dev/null 2>&1 && echo CAP:$t; done; [ -d "${WDA_RUNNER_APP}" ] && echo CAP:wda; exit 0`;
-
-function parseDetect(stdout: string): { os: string | null; capabilities: string[] } {
-  let os: string | null = null;
-  const caps: string[] = [];
-  for (const line of stdout.split('\n')) {
-    if (line.startsWith('OS:')) {
-      const raw = line.slice(3).trim().toLowerCase();
-      os = raw === 'darwin' ? 'macos' : raw || null;
-    } else if (line.startsWith('CAP:')) caps.push(line.slice(4).trim());
-  }
-  return { os, capabilities: caps };
-}
-
 /** Testa conectividade, tmux, SO e ferramentas disponíveis na máquina. */
 export async function machineStatus(machine: Machine): Promise<MachineStatus> {
+  // Agent: status comes from the registry's own connection state, never a shell exec.
+  if (machine.type === 'agent') {
+    const info = agents.info(machine.id);
+    return { online: agents.isOnline(machine.id), tmux: info?.tools.includes('tmux') ?? false, os: machine.os, capabilities: machine.capabilities };
+  }
   // Local: roda via shell de login para ter o PATH do usuário (claude em ~/.local/bin, brew...)
   const r = await runOnMachine(
     machine,
@@ -153,6 +132,16 @@ export async function machineStatus(machine: Machine): Promise<MachineStatus> {
 
 /** Lista as sessões tmux ativas na máquina (vazio se o servidor tmux não está rodando). */
 export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
+  if (machine.type === 'agent') {
+    try {
+      const { sessions } = await agents.rpc(machine.id, 'tmux.list', {});
+      return new Set(sessions);
+    } catch (err) {
+      // Same behaviour as the shell path returning a non-zero exit: no sessions, no error.
+      if (err instanceof AgentOfflineError) return new Set();
+      throw toHttpError(err);
+    }
+  }
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['list-sessions', '-F', '#{session_name}'] },
@@ -169,6 +158,10 @@ export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
 
 export async function killTmuxSession(machine: Machine, session: string): Promise<boolean> {
   assertSessionName(session);
+  if (machine.type === 'agent') {
+    const { killed } = await agentRpc(machine, 'tmux.kill', { session });
+    return killed;
+  }
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['kill-session', '-t', `=${session}`] },
@@ -224,6 +217,8 @@ export async function diagnoseSsh(target: { host: string; ssh_user: string | nul
     os: null,
     capabilities: [],
     checked_at: null,
+    agent_version: null,
+    agent_last_seen_at: null,
     owner_id: null,
     owner_name: null,
     created_at: '',

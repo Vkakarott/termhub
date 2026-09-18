@@ -1,3 +1,4 @@
+import { DEFAULT_CONFIG_DIRS } from '@termhub/machine-ops';
 import type { AiAccount, AiProvider, Machine } from '../db/repositories/types.js';
 import { claudeAdapter } from './claude.js';
 import { chatgptAdapter } from './chatgpt.js';
@@ -9,9 +10,6 @@ import type { AiProviderAdapter, AiUsageResult } from './types.js';
 export type { AiUsageResult, AiUsageWindow } from './types.js';
 
 const ADAPTERS: Record<AiProvider, AiProviderAdapter> = { claude: claudeAdapter, chatgpt: chatgptAdapter, gemini: geminiAdapter, antigravity: antigravityAdapter };
-
-/** Default CLI config dir (relative to $HOME) per provider. */
-const DEFAULT_DIRS: Record<AiProvider, string> = { claude: '.claude', chatgpt: '.codex', gemini: '.gemini', antigravity: '.gemini' };
 
 export interface AiAccountUsage extends AiUsageResult {
   account_id: string;
@@ -59,7 +57,7 @@ export async function getAccountUsage(account: AiAccount, machine: Machine | und
   else {
     const adapter = ADAPTERS[account.provider];
     try {
-      const cred = await readCredential(machine, adapter, account.config_dir, DEFAULT_DIRS[account.provider]);
+      const cred = await readCredential(machine, adapter, account.config_dir, DEFAULT_CONFIG_DIRS[account.provider]);
       const usage = await adapter.fetchUsage(cred);
       result = { account_id: account.id, fetched_at, ...usage };
     } catch (err) {

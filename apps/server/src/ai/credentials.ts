@@ -1,5 +1,9 @@
+import { configDirPrefix } from '@termhub/machine-ops';
+import { AgentClosedError, AgentRpcError, AgentTimeoutError } from '../agent/connection.js';
+import { toHttpError } from '../agent/errors.js';
+import { AgentOfflineError, agents } from '../agent/registry.js';
 import type { Machine } from '../db/repositories/types.js';
-import { runOnMachine, shellQuote } from '../terminal/machine-exec.js';
+import { runOnMachine } from '../terminal/machine-exec.js';
 import type { AiCredential, AiProviderAdapter } from './types.js';
 
 export class CredentialError extends Error {
@@ -11,20 +15,38 @@ export class CredentialError extends Error {
   }
 }
 
-/** "~" and "~/x" are expanded on the target machine, never here. */
-function expandDir(configDir: string | null, defaultDir: string): string {
-  const raw = (configDir ?? '').trim();
-  if (!raw) return defaultDir;
-  if (raw.includes('\0') || raw.includes('\n')) throw new CredentialError('Invalid config dir');
-  return `P=${shellQuote(raw)}; case "$P" in "~") P=$HOME;; "~/"*) P="$HOME/\${P#\\~/}";; esac; D="$P"`;
-}
-
 /**
  * Reads the CLI credential from the machine and parses it. The raw output is
  * never logged; only the parsed token lives in memory for the duration of the request.
  */
 export async function readCredential(machine: Machine, adapter: AiProviderAdapter, configDir: string | null, defaultDir: string): Promise<AiCredential> {
-  const setD = expandDir(configDir, `D="$HOME/${defaultDir}"`);
+  if (machine.type === 'agent') {
+    let stdout: string;
+    try {
+      ({ stdout } = await agents.rpc(machine.id, 'ai.credential', { provider: adapter.provider, config_dir: configDir }));
+    } catch (err) {
+      if (err instanceof AgentOfflineError || err instanceof AgentClosedError) throw new CredentialError('Agente desconectado');
+      if (err instanceof AgentTimeoutError) throw new CredentialError('Machine did not answer in time');
+      // Never forward the agent-supplied rpcError.message (up to 2000 chars, may echo a path):
+      // route it through the same fixed per-code mapping every other RPC caller uses.
+      if (err instanceof AgentRpcError) throw new CredentialError(toHttpError(err).message);
+      throw err;
+    }
+    const out = stdout.trim();
+    if (!out) throw new CredentialError('No credential found on the machine', adapter.loginHint);
+    try {
+      return adapter.parseCredential(out);
+    } catch (err) {
+      throw new CredentialError(err instanceof Error ? err.message : 'Could not parse the credential', adapter.loginHint);
+    }
+  }
+
+  let setD: string;
+  try {
+    setD = configDirPrefix(configDir, defaultDir);
+  } catch (err) {
+    throw new CredentialError(err instanceof Error ? err.message : 'Invalid config dir');
+  }
   const script = `${setD}; ${adapter.credentialScript(configDir)}`;
   const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
   if (r.timedOut) throw new CredentialError('Machine did not answer in time');

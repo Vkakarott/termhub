@@ -1,3 +1,4 @@
+import { credentialScript } from '@termhub/machine-ops';
 import type { AiCredential, AiProviderAdapter, AiUsageResult, AiUsageWindow } from './types.js';
 import { httpJson, isObj, num, retryAfterMs, str, toIso } from './credentials.js';
 
@@ -64,12 +65,7 @@ export const claudeAdapter: AiProviderAdapter = {
   loginHint: 'Run `claude` on that machine and sign in (or set the config dir if you use CLAUDE_CONFIG_DIR).',
 
   credentialScript() {
-    // file first (Linux, and macOS when keychain is disabled); then the macOS keychain
-    return [
-      `if [ -f "$D/.credentials.json" ]; then cat "$D/.credentials.json"`,
-      `elif [ "$(uname -s)" = Darwin ]; then security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true`,
-      `fi`,
-    ].join('; ');
+    return credentialScript('claude');
   },
 
   parseCredential(stdout) {

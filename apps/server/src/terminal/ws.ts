@@ -5,7 +5,8 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { Scoped } from '../auth/scope.js';
-import { PtySession } from './pty-session.js';
+import { AgentOfflineError } from '../agent/registry.js';
+import { createPtySession, type PtySession } from './pty-session.js';
 
 const controlSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resize'), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(200) }),
@@ -33,7 +34,7 @@ export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
-      handleConnection(ws, { tab, project, machine, cols, rows }, deps, log);
+      void handleConnection(ws, { tab, project, machine, cols, rows }, deps, log);
     });
   });
 
@@ -54,7 +55,7 @@ export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter
   return wss;
 }
 
-function handleConnection(
+async function handleConnection(
   ws: WebSocket,
   ctx: { tab: Tab; project: Project; machine: Machine; cols: number; rows: number },
   deps: Deps,
@@ -68,9 +69,21 @@ function handleConnection(
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
 
+  // createPtySession() can take a while for an agent machine (up to the agent's own open
+  // timeout) — register close/error listeners *before* the await so a client that disconnects
+  // mid-open isn't lost: without this, the 'close' event fires with no listener attached and,
+  // once the await resolves, the just-opened session is never killed (leaks a channel toward
+  // the agent's MAX_CHANNELS instead of being torn down).
+  let clientGone = false;
+  const onEarlyDisconnect = () => {
+    clientGone = true;
+  };
+  ws.once('close', onEarlyDisconnect);
+  ws.once('error', onEarlyDisconnect);
+
   let session: PtySession;
   try {
-    session = new PtySession(
+    session = await createPtySession(
       ctx.machine,
       ctx.project,
       ctx.tab,
@@ -86,9 +99,27 @@ function handleConnection(
       },
     );
   } catch (err) {
+    ws.off('close', onEarlyDisconnect);
+    ws.off('error', onEarlyDisconnect);
+    if (clientGone) return; // the client is already gone — no one to notify
+    if (err instanceof AgentOfflineError) {
+      log.info({ tabId: ctx.tab.id, machineId: ctx.machine.id }, 'agente desconectado');
+      send({ type: 'error', message: 'Agente desconectado' });
+      ws.close(1011, 'agent offline');
+      return;
+    }
     log.error({ err, tabId: ctx.tab.id }, 'falha ao iniciar pty');
     send({ type: 'error', message: 'Falha ao iniciar terminal' });
     ws.close(1011, 'pty spawn failed');
+    return;
+  }
+
+  ws.off('close', onEarlyDisconnect);
+  ws.off('error', onEarlyDisconnect);
+  if (clientGone) {
+    // The browser socket closed while the PTY was still opening: kill the just-opened
+    // session instead of leaking it.
+    session.kill();
     return;
   }
 

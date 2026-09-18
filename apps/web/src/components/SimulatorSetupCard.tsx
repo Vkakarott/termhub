@@ -72,6 +72,14 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
     }
   };
 
+  if (machine.type === 'agent') {
+    return (
+      <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
+        <p className="font-medium text-fg-muted">Simulador iOS: disponível em breve para agentes</p>
+      </div>
+    );
+  }
+
   if (!isMac) {
     return (
       <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">

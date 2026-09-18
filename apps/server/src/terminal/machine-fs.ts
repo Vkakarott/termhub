@@ -1,3 +1,6 @@
+import { EXPAND_HOME, buildFsListScript, buildMkdirScript } from '@termhub/machine-ops';
+import { basename, dirname } from 'node:path';
+import { agentRpc } from '../agent/errors.js';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { runOnMachine, shellQuote } from './machine-exec.js';
@@ -46,26 +49,6 @@ function diskLabel(mount: string): string {
   return last ?? mount;
 }
 
-/**
- * Script sh portátil (Linux/macOS). Sai sempre com 0; erros de diretório viram linhas ERR:.
- * O caminho já vem escapado com shellQuote; "~" e "~/x" são expandidos na máquina de destino.
- */
-function buildScript(quotedPath: string): string {
-  return [
-    `P=${quotedPath}`,
-    `case "$P" in ""|"~") P=$HOME;; "~/"*) P="$HOME/\${P#\\~/}";; esac`,
-    `echo "HOME:$HOME"`,
-    // discos: fonte, tamanho, livre e mount point (mount pode ter espaços: fica no fim da linha)
-    `df -Pk 2>/dev/null | tail -n +2 | while IFS= read -r line; do set -- $line; src=$1; size=$2; avail=$4; shift 5; [ -d "$*" ] && printf 'MNT:%s\\t%s\\t%s\\t%s\\n' "$src" "$size" "$avail" "$*"; done`,
-    `if [ ! -e "$P" ]; then echo "ERR:notfound"; exit 0; fi`,
-    `if [ ! -d "$P" ]; then echo "ERR:notdir"; exit 0; fi`,
-    `cd -- "$P" 2>/dev/null || { echo "ERR:denied"; exit 0; }`,
-    `echo "PWD:$(pwd)"`,
-    `ls -1Ap 2>/dev/null | grep '/$' | sed 's#/$##' | while IFS= read -r n; do echo "DIR:$n"; done`,
-    `exit 0`,
-  ].join('; ');
-}
-
 function parseOutput(stdout: string): { home: string | null; pwd: string | null; err: string | null; dirs: string[]; mounts: FsRoot[] } {
   let home: string | null = null;
   let pwd: string | null = null;
@@ -101,21 +84,37 @@ function parentOf(path: string): string | null {
   return idx <= 0 ? '/' : path.slice(0, idx);
 }
 
+/**
+ * Maps a `fs.list`/buildFsListScript ERR: tag to the HTTP error, the same way in every
+ * caller (browseMachine, ensureDirectory) so a non-directory or inaccessible path never
+ * silently passes through as a valid one. No-op when `err` is null (no error reported).
+ */
+function throwFsListError(err: string | null): void {
+  if (err === 'notfound') throw notFound('Diretório não existe na máquina');
+  if (err === 'eperm') throw forbidden('Sem acesso à pasta na máquina');
+  if (err === 'notdir') throw badRequest('O caminho não é um diretório');
+  if (err === 'denied') throw forbidden('Sem permissão para acessar o diretório');
+}
+
 /** Lista subdiretórios de `path` (padrão: $HOME) e os discos/mounts da máquina. */
 export async function browseMachine(machine: Machine, path: string | undefined): Promise<FsListing> {
   const raw = (path ?? '').trim();
   if (raw.includes('\0') || raw.includes('\n')) throw badRequest('Caminho inválido');
   if (raw && raw !== '~' && !raw.startsWith('~/') && !raw.startsWith('/')) throw badRequest('Informe um caminho absoluto');
 
-  const script = buildScript(shellQuote(raw));
-  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
-  if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
-  if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Máquina inacessível via SSH' : 'Falha ao listar diretórios');
+  let stdout: string;
+  if (machine.type === 'agent') {
+    ({ stdout } = await agentRpc(machine, 'fs.list', { path: raw || '~' }));
+  } else {
+    const script = buildFsListScript(shellQuote(raw));
+    const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
+    if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
+    if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Máquina inacessível via SSH' : 'Falha ao listar diretórios');
+    stdout = r.stdout;
+  }
 
-  const out = parseOutput(r.stdout);
-  if (out.err === 'notfound') throw notFound('Diretório não existe na máquina');
-  if (out.err === 'notdir') throw badRequest('O caminho não é um diretório');
-  if (out.err === 'denied') throw forbidden('Sem permissão para acessar o diretório');
+  const out = parseOutput(stdout);
+  throwFsListError(out.err);
   if (!out.pwd) throw new HttpError(502, 'Resposta inesperada da máquina');
 
   const roots: FsRoot[] = [];
@@ -143,9 +142,6 @@ export function assertDirName(name: string): void {
   if (!DIR_NAME_RE.test(name) || name === '.' || name === '..' || /[\x00-\x1f]/.test(name)) throw badRequest('Nome de pasta inválido');
 }
 
-/** Expansão de "~" feita na máquina de destino (o shell só expande fora de aspas). */
-const EXPAND_HOME = `case "$P" in "~") P=$HOME;; "~/"*) P="$HOME/\${P#\\~/}";; esac`;
-
 async function runFsScript(machine: Machine, script: string): Promise<string> {
   const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', script] }, script, 10000);
   if (r.timedOut) throw new HttpError(504, 'A máquina demorou para responder');
@@ -163,17 +159,13 @@ export async function makeDirectory(machine: Machine, parent: string, name: stri
   assertDirName(name);
   const raw = parent.trim();
   if (!raw.startsWith('/') && raw !== '~' && !raw.startsWith('~/')) throw badRequest('Informe um caminho absoluto');
-  const script = [
-    `P=${shellQuote(raw)}`,
-    EXPAND_HOME,
-    `cd -- "$P" 2>/dev/null || { echo "ERR:parent"; exit 0; }`,
-    `N=${shellQuote(name)}`,
-    `if [ -e "$N" ]; then echo "ERR:exists"; exit 0; fi`,
-    `mkdir -- "$N" 2>/dev/null || { echo "ERR:denied"; exit 0; }`,
-    `cd -- "$N" && echo "PWD:$(pwd)"`,
-    `exit 0`,
-  ].join('; ');
-  const out = await runFsScript(machine, script);
+  let out: string;
+  if (machine.type === 'agent') {
+    ({ stdout: out } = await agentRpc(machine, 'fs.mkdir', { parent: raw, name }));
+  } else {
+    const script = buildMkdirScript(shellQuote(raw), shellQuote(name));
+    out = await runFsScript(machine, script);
+  }
   const err = firstTag(out, 'ERR');
   if (err === 'parent') throw notFound('A pasta de destino não existe na máquina');
   if (err === 'exists') throw conflict('Já existe um arquivo ou pasta com esse nome');
@@ -183,6 +175,23 @@ export async function makeDirectory(machine: Machine, parent: string, name: stri
   return pwd;
 }
 
+/** ensureDirectory's error vocabulary — one table for both the ssh/local script and the agent branch. */
+const ENSURE_ERRORS = {
+  notfound: () => new HttpError(400, 'A pasta não existe na máquina. Marque "criar a pasta" ou escolha outra.', 'DIR_NOT_FOUND'),
+  notdir: () => badRequest('O caminho existe, mas não é uma pasta'),
+  denied: () => forbidden('Sem permissão para acessar a pasta'),
+  mkdir: () => forbidden('Não foi possível criar a pasta (permissão?)'),
+} as const;
+
+function throwEnsureError(err: string | null): void {
+  if (err === null) return;
+  // fs.list reports an unreadable/unsearchable directory as `eperm`; the ssh script has no
+  // such probe and reports the same situation as `denied` (its `cd` fails) — same answer.
+  const key = err === 'eperm' ? 'denied' : err;
+  const make = (ENSURE_ERRORS as Record<string, () => HttpError>)[key];
+  if (make) throw make();
+}
+
 /**
  * Confere que `path` é um diretório na máquina (expande "~"), criando com mkdir -p se `create`.
  * Devolve o caminho absoluto resolvido, que é o que deve ser gravado no projeto.
@@ -190,6 +199,28 @@ export async function makeDirectory(machine: Machine, parent: string, name: stri
 export async function ensureDirectory(machine: Machine, path: string, create: boolean): Promise<{ path: string; created: boolean }> {
   const raw = path.trim();
   if (!raw.startsWith('/') && raw !== '~' && !raw.startsWith('~/')) throw badRequest('Informe um caminho absoluto');
+
+  if (machine.type === 'agent') {
+    // No dedicated RPC for "ensure": both branches start with fs.list to check the path exists,
+    // matching the ssh/local script's own "already a directory -> created:false" short-circuit.
+    // Errors use the same statuses/messages as the script below (DIR_NOT_FOUND drives the
+    // "criar a pasta" hint in the UI).
+    const listed = await agentRpc(machine, 'fs.list', { path: raw });
+    const listOut = parseOutput(listed.stdout);
+    if (!listOut.err) return { path: listOut.pwd ?? raw, created: false };
+    if (listOut.err !== 'notfound' || !create) throwEnsureError(listOut.err);
+
+    // Missing and create === true: `recursive` is the agent-side `mkdir -p`, so a nested new
+    // path (`~/code/new-org/new-repo`) is created the same way the script below creates it.
+    const { stdout } = await agentRpc(machine, 'fs.mkdir', { parent: dirname(raw), name: basename(raw), recursive: true });
+    const err = firstTag(stdout, 'ERR');
+    if (err === 'exists') throw conflict('Já existe um arquivo ou pasta com esse nome');
+    if (err === 'parent' || err === 'denied') throw ENSURE_ERRORS.mkdir();
+    const pwd = firstTag(stdout, 'PWD');
+    if (!pwd) throw new HttpError(502, 'Resposta inesperada da máquina');
+    return { path: pwd, created: true };
+  }
+
   const script = [
     `P=${shellQuote(raw)}`,
     EXPAND_HOME,
@@ -199,11 +230,7 @@ export async function ensureDirectory(machine: Machine, path: string, create: bo
     `exit 0`,
   ].join('; ');
   const out = await runFsScript(machine, script);
-  const err = firstTag(out, 'ERR');
-  if (err === 'notfound') throw new HttpError(400, 'A pasta não existe na máquina. Marque "criar a pasta" ou escolha outra.', 'DIR_NOT_FOUND');
-  if (err === 'notdir') throw badRequest('O caminho existe, mas não é uma pasta');
-  if (err === 'denied') throw forbidden('Sem permissão para acessar a pasta');
-  if (err === 'mkdir') throw forbidden('Não foi possível criar a pasta (permissão?)');
+  throwEnsureError(firstTag(out, 'ERR'));
   const created = firstTag(out, 'CREATED');
   const pwd = created ?? firstTag(out, 'PWD');
   if (!pwd) throw new HttpError(502, 'Resposta inesperada da máquina');

@@ -16,6 +16,7 @@ vi.mock('../terminal/uploads.js', async (importOriginal) => ({
 const machines = [
   { id: 'm1', name: 'jarvis', owner_id: 'ana', owner_name: 'Ana', type: 'local' },
   { id: 'm2', name: 'mac', owner_id: 'ana', owner_name: 'Ana', type: 'ssh' },
+  { id: 'm3', name: 'pi', owner_id: 'ana', owner_name: 'Ana', type: 'agent' },
 ];
 const row = (over: Partial<Upload>): Upload => ({
   id: 'u1', user_id: 'ana', user_name: 'Ana', user_email: 'ana@x.com', machine_id: 'm1', project_id: null, tab_id: null,
@@ -60,7 +61,7 @@ describe('GET /api/uploads', () => {
     const res = await buildApp().inject({ method: 'GET', url: '/api/uploads' });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.machines.map((m: { id: string; ok: boolean }) => [m.id, m.ok])).toEqual([['m1', true], ['m2', true]]);
+    expect(body.machines.map((m: { id: string; ok: boolean }) => [m.id, m.ok])).toEqual([['m1', true], ['m2', true], ['m3', true]]);
     expect(body.machines[0]).toMatchObject({ owner_id: 'ana', owner_name: 'Ana' });
     expect(body.files).toHaveLength(2);
     const attributed = body.files.find((f: { name: string }) => f.name.endsWith('report.pdf'));
@@ -97,6 +98,14 @@ describe('DELETE /api/uploads/:machineId/:name', () => {
       expect(res.statusCode, name).toBe(400);
     }
     expect(deletePasteFile).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 for an agent machine before touching it', async () => {
+    const res = await buildApp().inject({ method: 'DELETE', url: '/api/uploads/m3/paste-20260918-100000-abc123-report.pdf' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('Remoção de arquivos ainda não disponível em máquinas com agente');
+    expect(deletePasteFile).not.toHaveBeenCalled();
+    expect(deleteByName).not.toHaveBeenCalled();
   });
 
   it('answers 502 with the machine error when the rm fails', async () => {

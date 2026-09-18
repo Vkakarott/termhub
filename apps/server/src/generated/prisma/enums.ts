@@ -19,7 +19,8 @@ export type UserRole = (typeof UserRole)[keyof typeof UserRole]
 
 export const MachineType = {
   local: 'local',
-  ssh: 'ssh'
+  ssh: 'ssh',
+  agent: 'agent'
 } as const
 
 export type MachineType = (typeof MachineType)[keyof typeof MachineType]

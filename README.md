@@ -29,6 +29,7 @@ Self-hosted web app to reach the terminals of the machines on your local network
 - Docker + Docker Compose (Postgres, Mailpit and, optionally, the app)
 - To run the app on the host: Node.js 20+ and `tmux`
 - On every SSH machine: `tmux` installed and termhub's public key in `~/.ssh/authorized_keys`
+- On every agent machine: `tmux` and Node.js 20+ (for `@termhub/agent`)
 
 ## Development
 
@@ -153,6 +154,31 @@ Same model as the engenhariainversa CMS: a **role** is a named set of permission
 
 - **Local machine:** created automatically. Terminals run `tmux new-session -A -s <session> -c <cwd>` directly.
 - **SSH machine:** in the sidebar, "+ machine" → type SSH, host, user and port. The form lists the setup steps per OS (enable the SSH server, install tmux, authorize termhub's key with a ready-to-paste command, find the IP) and has a **Test connection** button (`POST /api/machines/test`) that explains failures in plain words: SSH server off (connection refused), wrong IP (unreachable / timeout), key not authorized (permission denied), changed host key, or tmux missing. Terminals run `ssh -tt ... "tmux new-session -A -s <session> -c '<cwd>'"`.
+
+### Connect a machine with the agent
+
+The agent (`@termhub/agent`) is an alternative to SSH: a small CLI you run on your own machine, as
+your own user, that opens one outbound WebSocket to the termhub server and attaches PTY sessions to
+`tmux` — same session survival as SSH. No inbound port, no SSH server, no sudo: the server only asks
+the agent to run a fixed set of named operations (RPCs — start a shell, list tmux sessions, read a
+directory…), never a shell command.
+
+- **Install:** `npm i -g @termhub/agent` (Node 20+ and `tmux` on that machine).
+- **Enroll:** in the app, "+ machine" → **Agente (recomendado)** → copy the generated
+  `termhub-agent connect --url … --token …` and run it on the target machine. The card polls and
+  turns green once the agent is online.
+- **Run as a service:** `termhub-agent service install` sets up a per-user service (`launchd` on
+  macOS, `systemd --user` on Linux) that starts at login/boot and restarts on failure; on Linux run
+  `loginctl enable-linger $USER` once so it keeps running after you log out.
+- **Diagnose:** `termhub-agent doctor` checks the config, server reachability, `tmux`, `node-pty` and
+  access to `$HOME`/`Documents`/`Desktop` (and `/Volumes` on macOS). On macOS, TCC can silently block
+  folder access even though the agent has no special privileges — grant the printed `node` binary
+  Full Disk Access under **Ajustes → Privacidade e Segurança → Acesso Total ao Disco**.
+- **Manage:** `termhub-agent status` shows the paired server and connectivity, `termhub-agent
+  disconnect` clears the local config; the machine card has a **Rotacionar token** action that mints
+  a new token and disconnects the old one.
+- SSH machines keep working unchanged ("SSH (legado)" in the sidebar tooltip); the two connection
+  types are just different ways to reach `tmux` on a machine.
 - **Project:** hover the machine and click "+". Enter a name and the absolute directory on the target machine — or click "Browse…" to navigate the machine's folders: the browser lists disks/mounts (with free space, via `df`) and the home directory as shortcuts, lets you filter and show hidden folders, and fills the project name with the chosen folder (`GET /api/machines/:id/fs?path=`). "+ New folder" creates a subfolder in the current folder (`POST /api/machines/:id/fs/mkdir`). On save, the server checks the folder on the machine and resolves `~` to the absolute path; with "create the folder if it doesn't exist" checked it runs `mkdir -p`; unchecked, it refuses with an error instead of letting tmux fall back to the home directory.
 - **Sidebar:** the `«` button at the top collapses the sidebar to a narrow rail to give the terminal more room (`»` expands it back); the choice is saved in the browser.
 - **Tabs:** `⌘T` new, double-click renames, `⌘W` closes (with confirmation — kills the tmux session), `⌘1..9` switches. Since some browsers capture `⌘T`/`⌘W`, `Ctrl+Shift+T`/`Ctrl+Shift+W` work as alternatives.
@@ -222,10 +248,13 @@ See [.env.example](.env.example). Main ones:
 
 ## Structure
 
-npm workspaces monorepo: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`) and `apps/landing` (`@termhub/landing`, the static site at termhub.dev). Run a workspace script with `npm run <script> -w @termhub/<name>`.
+npm workspaces monorepo: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), `apps/landing` (`@termhub/landing`, the static site at termhub.dev) and `apps/agent` (`@termhub/agent`, the CLI machines run — not part of the server image), plus shared `packages/*`. Run a workspace script with `npm run <script> -w @termhub/<name>`.
 
 ```
 apps/landing       marketing site (Vite + React), built into a static nginx image (apps/landing/Dockerfile)
+apps/agent         @termhub/agent CLI: connect, service install, doctor (Task 13's README)
+packages/agent-protocol  frames/messages/RPC definitions shared by server and agent
+packages/machine-ops     PTY/fs/detect/paste helpers shared by server and agent
 apps/server/prisma schema.prisma + migrations (npm run prisma:migrate -- --name <name>)
 apps/server/src
   auth/          providers (password, google, cloudflare), session, CSRF, middleware
@@ -234,6 +263,7 @@ apps/server/src
   cli/           create-user
   routes/        REST routes (zod on every input)
   terminal/      exec on machines (local/ssh), PTY, WebSocket
+  agent/         agent connection registry, ws upgrade, token hashing, pty/screen bridging
 apps/web/src
   components/    Sidebar, TabBar, Terminal (xterm), forms
   pages/         Login, Home, Project
@@ -246,7 +276,10 @@ apps/web/src
 - CSRF double-submit (`termhub_csrf` + `x-csrf-token` header) on every mutation
 - Progressive login lockout (per e-mail and per IP)
 - WebSocket: authentication on upgrade + `Origin` check
-- Terminal content is never logged
+- Agent token: 256-bit random (`thb_ag_...`), shown once; only its sha256 hash is stored. The
+  server only ever asks the agent to run named RPCs (start a shell, list tmux sessions…) — it
+  never sends the agent shell text.
+- Terminal content is never logged, on either the SSH or the agent path
 
 ## Support
 

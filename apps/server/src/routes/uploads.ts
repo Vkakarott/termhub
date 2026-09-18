@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Upload } from '../db/repositories/uploads.js';
-import { HttpError, notFound } from '../lib/errors.js';
+import { HttpError, conflict, notFound } from '../lib/errors.js';
 import { assertUploadName, deletePasteFile, listPasteDir, type DiskFile } from '../terminal/uploads.js';
 
 const fileParams = z.object({ machineId: z.string().min(1).max(64), name: z.string().min(1).max(160) });
@@ -65,6 +65,8 @@ export async function uploadRoutes(app: FastifyInstance, repos: Repositories) {
     assertUploadName(name);
     const machine = await repos.machines.findById(machineId);
     if (!machine) throw notFound('Máquina não encontrada');
+    // deletePasteFile runs shell on the machine; agents only answer named RPCs and have none for this yet
+    if (machine.type === 'agent') throw conflict('Remoção de arquivos ainda não disponível em máquinas com agente');
     let existed: boolean;
     try {
       existed = await deletePasteFile(machine, name);

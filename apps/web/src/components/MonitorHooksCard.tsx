@@ -8,8 +8,11 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // Installing runs shell on the machine, which agents do not do yet (the server answers 409): no fetch, no buttons.
+  const isAgent = machine.type === 'agent';
 
   useEffect(() => {
+    if (isAgent) return;
     let cancelled = false;
     api.machines
       .hooks(machine.id)
@@ -18,7 +21,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
     return () => {
       cancelled = true;
     };
-  }, [machine.id]);
+  }, [machine.id, isAgent]);
 
   const install = async () => {
     setBusy(true);
@@ -49,6 +52,14 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
       setBusy(false);
     }
   };
+
+  if (isAgent) {
+    return (
+      <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
+        <p className="font-medium text-fg-muted">Hooks do monitor: disponíveis em breve para agentes</p>
+      </div>
+    );
+  }
 
   const installed = !!hooks?.installed_at;
   return (

@@ -42,7 +42,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const r = await api.machines.status(machineId);
       setStatuses((s) => ({ ...s, [machineId]: r.online ? 'online' : 'offline' }));
       setMissingTmux((m) => ({ ...m, [machineId]: r.online && !r.tmux }));
-      if (r.online) setMachines((ms) => ms.map((x) => (x.id === machineId ? { ...x, os: r.os, capabilities: r.capabilities } : x)));
+      setMachines((ms) =>
+        ms.map((x) => {
+          if (x.id !== machineId) return x;
+          const next = r.online ? { ...x, os: r.os, capabilities: r.capabilities } : x;
+          return {
+            ...next,
+            agent_version: r.agent_version !== undefined ? r.agent_version : next.agent_version,
+            agent_last_seen_at: r.last_seen_at !== undefined ? r.last_seen_at : next.agent_last_seen_at,
+          };
+        }),
+      );
     } catch {
       setStatuses((s) => ({ ...s, [machineId]: 'offline' }));
     }

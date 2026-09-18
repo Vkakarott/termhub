@@ -25,6 +25,8 @@ export function assertUploadName(name: string): void {
  * PASTE_DIR is a constant and the glob is fixed — nothing from the client enters the script.
  */
 export async function listPasteDir(machine: Machine): Promise<DirListing> {
+  // runOnMachine throws for agents (named RPCs only, none lists this directory yet): report it as a machine error instead
+  if (machine.type === 'agent') return { ok: false, error: 'Listagem de arquivos ainda não disponível em máquinas com agente' };
   const script = [
     `d="$HOME/${PASTE_DIR}"`,
     `[ -d "$d" ] || exit 0`,
