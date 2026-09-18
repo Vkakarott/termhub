@@ -3,9 +3,11 @@
 #
 # Builds and starts the inactive color, waits for it to report healthy, then
 # switches the proxy nginx vhost to it and retires the previously active
-# container. Any failure before the nginx switch (build, health check, or a
-# bad nginx config) leaves the previously active container serving traffic —
-# there is no window where nothing answers requests.
+# container after a grace period. Any failure before the nginx switch
+# (build, health check, or a bad nginx config) leaves the previously active
+# container serving traffic — there is no window where nothing answers
+# requests. Open terminal WebSockets pinned to the old container reconnect
+# (to the new one) when it is finally stopped.
 #
 # Usage:
 #   bash deploy/blue-green.sh              # deploy: build + switch to the inactive color
@@ -13,8 +15,9 @@
 #
 # Env vars (all have production defaults for jarvis; override for local runs):
 #   ENV_FILE         .env passed to docker compose (default: .env)
-#   STATE_FILE       records the active color (default: /mnt/hd2tb/projetos/termhub/active-color)
-#   PROXY_CONF       nginx vhost file to render (default: /mnt/hd2tb/proxy/nginx/conf.d/termhub.dev.conf)
+#   STATE_FILE       records the active color; its directory also holds the
+#                    rendered vhost + backup (default: /mnt/hd2tb/projetos/termhub/active-color)
+#   PROXY_CONF       nginx vhost file to render in place (default: /mnt/hd2tb/proxy/nginx/conf.d/termhub.dev.conf)
 #   PROXY_CONTAINER  nginx container name (default: proxy-nginx)
 #   DRY_RUN          when 1, print the command sequence instead of running it (default: 0)
 set -euo pipefail
@@ -29,6 +32,7 @@ PROXY_CONF="${PROXY_CONF:-/mnt/hd2tb/proxy/nginx/conf.d/termhub.dev.conf}"
 PROXY_CONTAINER="${PROXY_CONTAINER:-proxy-nginx}"
 DRY_RUN="${DRY_RUN:-0}"
 VHOST_TEMPLATE="$REPO_ROOT/deploy/nginx/termhub.dev.conf.tmpl"
+STATE_DIR="$(dirname "$STATE_FILE")"
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod)
 
@@ -51,9 +55,33 @@ run() {
   fi
 }
 
-# Prints blue / green / legacy / none. blue/green take priority over the
-# legacy single container; legacy is only reported when neither is running.
+# Source of truth, in order: (1) which container the live nginx vhost points
+# at — that's what's actually serving traffic; (2) the last color this
+# script wrote; (3) docker ps, as a last resort (e.g. before the vhost or
+# state file exist at all). Prints blue / green / legacy / none.
 detect_active() {
+  local match
+
+  if [ -f "$PROXY_CONF" ]; then
+    match="$(grep -oE 'termhub-app-(blue|green)' "$PROXY_CONF" 2>/dev/null | head -n1 || true)"
+    if [ -n "$match" ]; then
+      echo "${match#termhub-app-}"
+      return
+    fi
+    if grep -q 'termhub-app:3000' "$PROXY_CONF" 2>/dev/null; then
+      echo legacy
+      return
+    fi
+  fi
+
+  if [ -f "$STATE_FILE" ]; then
+    match="$(cat "$STATE_FILE" 2>/dev/null || true)"
+    if [ -n "$match" ]; then
+      echo "$match"
+      return
+    fi
+  fi
+
   local names
   names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
   if grep -qx 'termhub-app-blue' <<<"$names"; then
@@ -67,21 +95,44 @@ detect_active() {
   fi
 }
 
-# Polls the target's healthcheck for up to 40 x 5s. On failure, prints the
-# target's last 100 log lines, stops only the target (the previously active
-# container is never touched), and exits 1.
+# A color container running but NOT the one nginx currently serves is a
+# leftover from an earlier interrupted run. Stop it before doing anything
+# else — never build/recreate over it blindly, and never treat it as if it
+# were the serving container.
+cleanup_leftover() {
+  local active="$1"
+  local names other
+  names="$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
+  for other in blue green; do
+    if [ "$other" != "$active" ] && grep -qx "termhub-app-$other" <<<"$names"; then
+      log "leftover: termhub-app-$other is running but nginx currently serves '$active'"
+      run "stop leftover app-$other" "${COMPOSE[@]}" stop "app-$other"
+    fi
+  done
+}
+
+# Polls the target's healthcheck for up to 40 x 5s. Fails fast if the
+# container isn't even running (crashed on start) instead of waiting out
+# the full timeout. On failure, prints the target's last 100 log lines,
+# stops only the target (the previously active container is never touched),
+# and exits 1.
 wait_healthy() {
   local target="$1"
   local container="termhub-app-$target"
 
   if [ "$DRY_RUN" = "1" ]; then
-    log "DRY_RUN: poll up to 40x5s: docker inspect --format '{{.State.Health.Status}}' $container"
+    log "DRY_RUN: poll up to 40x5s (fail fast if not running): docker inspect --format '{{.State.Health.Status}}' $container"
     return 0
   fi
 
-  local i st
+  local i st running
   for i in $(seq 1 40); do
-    st="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo "starting")"
+    running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || echo false)"
+    if [ "$running" != "true" ]; then
+      log "attempt $i: $container is not running; failing fast"
+      break
+    fi
+    st="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo starting)"
     log "attempt $i: $container = $st"
     if [ "$st" = "healthy" ]; then
       return 0
@@ -89,27 +140,30 @@ wait_healthy() {
     sleep 5
   done
 
-  log "$container did not become healthy in time; last 100 log lines:"
+  log "$container did not become healthy; last 100 log lines:"
   docker logs --tail=100 "$container" || true
   "${COMPOSE[@]}" stop "app-$target"
   log "stopped app-$target; the previously active container keeps serving"
   exit 1
 }
 
-# Renders the vhost template for $target, tests it with nginx -t, and reloads
-# nginx on success. On failure, restores the previous conf from the .bak
-# taken right before the switch and exits 1 — the previous vhost (and thus
-# the previously active container) keeps serving.
+# Renders the vhost template for $target, tests it with nginx -t, and
+# reloads nginx on success. The rendered file and backup live in
+# $STATE_DIR (not conf.d) so no stray .new/.bak ever sits next to the
+# vhosts nginx's *.conf include glob loads; PROXY_CONF itself is only ever
+# overwritten in place with cp (mv would not be atomic across directories).
+# On failure, restores PROXY_CONF from the backup and exits 1 — the
+# previous vhost (and thus the previously active container) keeps serving.
 switch_proxy() {
   local target="$1"
   local container="termhub-app-$target"
-  local rendered="$PROXY_CONF.new"
-  local backup="$PROXY_CONF.bak"
+  local rendered="$STATE_DIR/termhub.dev.conf.new"
+  local backup="$STATE_DIR/termhub.dev.conf.bak"
 
   if [ "$DRY_RUN" = "1" ]; then
     log "DRY_RUN: sed 's/__APP_HOST__/$container/' $VHOST_TEMPLATE > $rendered"
     log "DRY_RUN: cp $PROXY_CONF $backup"
-    log "DRY_RUN: mv $rendered $PROXY_CONF"
+    log "DRY_RUN: cp $rendered $PROXY_CONF"
     log "DRY_RUN: docker exec $PROXY_CONTAINER nginx -t"
     log "DRY_RUN: docker exec $PROXY_CONTAINER nginx -s reload"
     return 0
@@ -118,11 +172,11 @@ switch_proxy() {
   log "rendering vhost for $container"
   sed "s/__APP_HOST__/$container/" "$VHOST_TEMPLATE" > "$rendered"
   cp "$PROXY_CONF" "$backup"
-  mv "$rendered" "$PROXY_CONF"
+  cp "$rendered" "$PROXY_CONF"
 
   if ! docker exec "$PROXY_CONTAINER" nginx -t; then
     log "nginx -t failed for $container; restoring previous vhost"
-    mv "$backup" "$PROXY_CONF"
+    cp "$backup" "$PROXY_CONF"
     exit 1
   fi
 
@@ -130,17 +184,20 @@ switch_proxy() {
   docker exec "$PROXY_CONTAINER" nginx -s reload
 }
 
-# 5s grace period, then stops (color) or stops+removes (legacy) the
-# previously active container. Colors are only stopped, never removed, so a
-# rollback is a plain `docker start`.
+# 30s grace period (lets in-flight requests and long-lived terminal
+# WebSockets on the old container drain/reconnect), then stops (color) or
+# renames+stops (legacy) the previously active container. Colors are only
+# stopped, never removed, so a rollback is a plain `docker start`; legacy is
+# renamed to termhub-app-legacy and stopped (not removed) so a manual
+# rollback to it stays possible after the very first run.
 retire_old() {
   local old="$1"
 
   if [ "$DRY_RUN" = "1" ]; then
-    log "DRY_RUN: sleep 5 (grace period before retiring $old)"
+    log "DRY_RUN: sleep 30 (grace period before retiring $old)"
   else
-    log "grace period: sleeping 5s before retiring $old"
-    sleep 5
+    log "grace period: sleeping 30s before retiring $old"
+    sleep 30
   fi
 
   case "$old" in
@@ -148,13 +205,23 @@ retire_old() {
       run "stop app-$old (kept for rollback)" "${COMPOSE[@]}" stop "app-$old"
       ;;
     legacy)
-      run "stop legacy termhub-app" docker stop termhub-app
-      run "remove legacy termhub-app" docker rm termhub-app
+      run "rename legacy termhub-app -> termhub-app-legacy" docker rename termhub-app termhub-app-legacy
+      run "stop termhub-app-legacy (kept for manual rollback)" docker stop termhub-app-legacy
       ;;
     none)
       log "no previously active container to retire"
       ;;
   esac
+
+  # A termhub-app-legacy left over from an earlier first-run deploy is no
+  # longer needed once a later deploy has succeeded; clean it up quietly.
+  if [ "$old" != "legacy" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      log "DRY_RUN: docker rm -f termhub-app-legacy (if present)"
+    else
+      docker rm -f termhub-app-legacy >/dev/null 2>&1 || true
+    fi
+  fi
 }
 
 write_state() {
@@ -169,6 +236,8 @@ write_state() {
 deploy() {
   local active target
   active="$(detect_active)"
+  cleanup_leftover "$active"
+
   case "$active" in
     blue) target=green ;;
     *) target=blue ;;
@@ -178,20 +247,16 @@ deploy() {
   run "build + start app-$target" "${COMPOSE[@]}" up -d --build --no-deps "app-$target"
   wait_healthy "$target"
   switch_proxy "$target"
-  retire_old "$active"
   write_state "$target"
+  retire_old "$active"
 
   log "active: $target, retired: $active"
 }
 
 rollback() {
   local current target target_container
-
-  if [ -f "$STATE_FILE" ]; then
-    current="$(cat "$STATE_FILE")"
-  else
-    current="$(detect_active)"
-  fi
+  current="$(detect_active)"
+  cleanup_leftover "$current"
 
   case "$current" in
     blue) target=green ;;
@@ -219,8 +284,8 @@ rollback() {
   run "start $target_container" docker start "$target_container"
   wait_healthy "$target"
   switch_proxy "$target"
-  run "stop app-$current (previously active)" "${COMPOSE[@]}" stop "app-$current"
   write_state "$target"
+  run "stop app-$current (previously active)" "${COMPOSE[@]}" stop "app-$current"
 
   log "active: $target, stopped: $current"
 }

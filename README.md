@@ -53,15 +53,17 @@ docker compose --profile dev up --build
 
 ```bash
 cp .env.example .env        # adjust: HOST/BIND_ADDR, PUBLIC_URL, POSTGRES_PASSWORD, SMTP_*, ENCRYPTION_KEY
-docker compose --profile prod up -d --build
-docker compose exec app node server/dist/cli/create-user.js you@example.com "Your Name"
+bash deploy/blue-green.sh   # builds the image and switches the active blue/green container (see deploy/blue-green.sh)
+docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node server/dist/cli/create-user.js you@example.com "Your Name"
 ```
+
+`app-blue`/`app-green` publish no host port on their own — the proxy nginx reaches whichever one is active over the external `proxy` docker network. Without that proxy, publish a port yourself (e.g. a local compose override with `ports: ["127.0.0.1:3000:3000"]`) before running a single color directly.
 
 ### CI/CD (GitHub Actions → jarvis)
 
-`.github/workflows/deploy.yml`: on every push to `main` (and on PRs) the **check** job runs on GitHub (npm ci, server/web typecheck, build, `prisma migrate deploy` + `migrate diff --exit-code` against an ephemeral Postgres — guarantees the migrations match the schema). If it passes and the event is a push to `main`, the **deploy** job runs on the **self-hosted runner on jarvis** (`/mnt/hd2tb/github-runner-termhub`, labels `jarvis,termhub`): checkout → `docker compose --env-file /mnt/hd2tb/projetos/termhub/.env --profile prod up -d --build` → wait for the healthcheck → `prisma migrate status`.
+`.github/workflows/deploy.yml`: on every push to `main` (and on PRs) the **check** job runs on GitHub (npm ci, server/web typecheck, build, `prisma migrate deploy` + `migrate diff --exit-code` against an ephemeral Postgres — guarantees the migrations match the schema). If it passes and the event is a push to `main`, the **deploy** job runs on the **self-hosted runner on jarvis** (`/mnt/hd2tb/github-runner-termhub`, labels `jarvis,termhub`): checkout → `bash deploy/blue-green.sh` (builds and healthchecks the inactive blue/green color, switches the proxy nginx vhost to it, then retires the old container — no downtime) → `prisma migrate status` against the now-active container.
 
-The production `.env` **lives only on the server** (`/mnt/hd2tb/projetos/termhub/.env`, chmod 600); no secret goes through GitHub. To change a variable: edit the file there and re-run the workflow (or `docker compose --env-file ... --profile prod up -d`). The compose file has a fixed `name: termhub`, so volumes (`termhub_pgdata`, `termhub_sshkeys`) do not depend on the checkout directory.
+The production `.env` **lives only on the server** (`/mnt/hd2tb/projetos/termhub/.env`, chmod 600); no secret goes through GitHub. To change a variable: edit the file there and re-run the workflow (or `bash deploy/blue-green.sh` by hand). The compose file has a fixed `name: termhub`, so volumes (`termhub_pgdata`, `termhub_sshkeys`) do not depend on the checkout directory.
 
 Runner as a service (once, needs sudo): `cd /mnt/hd2tb/github-runner-termhub && sudo ./svc.sh install pedrogoiania && sudo ./svc.sh start`.
 
@@ -74,7 +76,7 @@ The `Dockerfile` produces a slim image (tmux + ssh) and the entrypoint runs `pri
 | `SMTP_HOST` | `mailpit` (local inbox, UI on `:8025`) or a real SMTP server (Mailgun etc.) |
 | `SEED_LOCAL_MACHINE` | `false` — inside Docker, "local" would be the container |
 
-**Inside Docker, the host itself must be registered as an SSH machine.** The container generates a key on first boot (`sshkeys` volume); the public key shows up in the new-machine form and in the log (`docker compose logs app | grep key`). Authorize it on the host and register `host.docker.internal` as the host (with the host's SSH user and port). Install `tmux` on the host.
+**Inside Docker, the host itself must be registered as an SSH machine.** The container generates a key on first boot (`sshkeys` volume); the public key shows up in the new-machine form and in the log (dev: `docker compose logs app-dev | grep key`; prod blue/green: `docker logs termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) | grep key`). Authorize it on the host and register `host.docker.internal` as the host (with the host's SSH user and port). Install `tmux` on the host.
 
 ### Without Docker (Node on the host)
 
@@ -108,7 +110,7 @@ There is no public sign-up. Create users through the CLI:
 
 ```bash
 npm run create-user -- --email you@example.com --name "Your Name" [--password ...] [--role owner|member]
-# Docker: docker compose exec app node server/dist/cli/create-user.js you@example.com "Your Name"
+# Docker (prod blue/green): docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node server/dist/cli/create-user.js you@example.com "Your Name"
 ```
 
 - **E-mail code (default):** enter the e-mail, receive a 6-digit code (expires in `LOGIN_CODE_TTL_MINUTES`, 5 attempts, max 3 sends every 10 min). Unknown e-mails get the same response, with no e-mail sent.

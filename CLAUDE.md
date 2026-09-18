@@ -16,7 +16,7 @@
     sh -c 'npm run typecheck -w server && npm run build -w web'
   rm -rf .npm   # cache the container leaves behind
   ```
-- A push to `main` deploys to production (GitHub Actions → self-hosted runner on jarvis) via `deploy/blue-green.sh`: it builds and healthchecks the inactive color (blue/green), switches the proxy nginx vhost to it, then retires the old container — the previous container keeps serving until the switch succeeds, so there is no 502 window. A broken `check` job blocks the deploy, but do not rely on it: verify locally first.
+- A push to `main` deploys to production (GitHub Actions → self-hosted runner on jarvis) via `deploy/blue-green.sh`: it builds and healthchecks the inactive color (blue/green), switches the proxy nginx vhost to it, then retires the old container after a grace period — the previous container keeps serving until the switch succeeds, so there is no HTTP 502 window; open terminal WebSockets pinned to the old container reconnect (to the new one) when it stops. A broken `check` job blocks the deploy, but do not rely on it: verify locally first.
 - Migrations must stay backward compatible with the previous release: the old container keeps serving requests while the new one runs `prisma migrate deploy` and becomes healthy.
 - After a deploy, confirm with `docker ps --filter name=termhub-app` (shows the active color, healthy) and `curl -s -o /dev/null -w '%{http_code}' https://termhub.dev/`.
 - To roll back on jarvis: `bash deploy/blue-green.sh --rollback` (starts the other, stopped color and switches the vhost back to it).

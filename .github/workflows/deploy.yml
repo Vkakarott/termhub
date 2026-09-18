@@ -63,6 +63,7 @@ jobs:
     env:
       # .env de produção vive só no servidor (segredos não passam pelo GitHub)
       ENV_FILE: /mnt/hd2tb/projetos/termhub/.env
+      STATE_FILE: /mnt/hd2tb/projetos/termhub/active-color
     steps:
       - uses: actions/checkout@v4
       - name: Conferir .env do servidor
@@ -70,7 +71,7 @@ jobs:
       - name: Deploy blue-green (build, healthcheck, switch nginx, retire old)
         run: bash deploy/blue-green.sh
       - name: Conferir migrations aplicadas
-        run: docker exec "termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color)" npx --prefix server prisma migrate status --config server/prisma.config.ts
+        run: docker exec "termhub-app-$(cat "$STATE_FILE")" npx --prefix server prisma migrate status --config server/prisma.config.ts
       - name: Limpar imagens antigas
         if: always()
         run: docker image prune -f
