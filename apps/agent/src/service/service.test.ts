@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunResult } from '../exec.js';
 
 vi.mock('../exec.js', async () => {
@@ -8,6 +11,7 @@ vi.mock('../exec.js', async () => {
 
 const { renderPlist, install: launchdInstall, uninstall: launchdUninstall, status: launchdStatus, LABEL } = await import('./launchd.js');
 const { renderUnit, install: systemdInstall, uninstall: systemdUninstall, status: systemdStatus, UNIT_NAME } = await import('./systemd.js');
+const { serviceFileOptions } = await import('./index.js');
 
 function ok(stdout = ''): RunResult {
   return { code: 0, stdout, stderr: '', timedOut: false };
@@ -173,5 +177,40 @@ describe('systemd install/uninstall/status', () => {
     await expect(systemdStatus({ run: runOk as never })).resolves.toBe(true);
     const runFail = vi.fn(async () => fail('inactive'));
     await expect(systemdStatus({ run: runFail as never })).resolves.toBe(false);
+  });
+});
+
+describe('serviceFileOptions()', () => {
+  let dir: string;
+  let realTarget: string;
+  let symlink: string;
+  const originalArgv1 = process.argv[1];
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-service-paths-'));
+    realTarget = path.join(dir, 'dist', 'cli.js');
+    fs.mkdirSync(path.dirname(realTarget), { recursive: true });
+    fs.writeFileSync(realTarget, '// fake dist/cli.js\n', 'utf8');
+    // Mirrors `npm i -g`: the global bin dir gets a symlink pointing at dist/cli.js, so
+    // process.argv[1] is the symlink, not the real file, when the installed CLI runs.
+    symlink = path.join(dir, 'bin', 'termhub-agent');
+    fs.mkdirSync(path.dirname(symlink), { recursive: true });
+    fs.symlinkSync(realTarget, symlink);
+  });
+
+  afterEach(() => {
+    process.argv[1] = originalArgv1;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('resolves script through the npm-global-bin symlink to the real dist/cli.js path — a plist/unit built from argv[1] as-is would point at a symlink that breaks on reinstall', () => {
+    process.argv[1] = symlink;
+    const opts = serviceFileOptions();
+    expect(opts.script).toBe(fs.realpathSync(realTarget));
+    expect(opts.script).not.toBe(symlink);
+
+    // And renderPlist/renderUnit faithfully carry that resolved path into the service file.
+    expect(renderPlist({ label: LABEL, node: '/n/node', script: opts.script, logPath: '/l/agent.log' })).toContain(`<string>${opts.script}</string>`);
+    expect(renderUnit({ node: '/n/node', script: opts.script })).toContain(`ExecStart=/n/node ${opts.script} run`);
   });
 });

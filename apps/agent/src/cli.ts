@@ -1,5 +1,4 @@
 import { parseArgs } from 'node:util';
-import { pathToFileURL } from 'node:url';
 import { connectCommand } from './commands/connect.js';
 import { disconnectCommand } from './commands/disconnect.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -7,6 +6,7 @@ import { runCommand } from './commands/run.js';
 import { serviceCommand } from './commands/service.js';
 import { statusCommand } from './commands/status.js';
 import type { Logger } from './commands/types.js';
+import { isMainModule } from './paths.js';
 import { AGENT_VERSION } from './version.js';
 
 /** English, metadata-only (never terminal bytes) — piped to stderr, which `service install` redirects to `agent.log`. */
@@ -113,7 +113,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 }
 
 // Only run when this module is the entry point (`node dist/cli.js`, or `tsx src/cli.ts` in
-// dev) — not when `cli.test.ts` imports `main` directly to drive it with fake argv.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// dev, or — the case that matters most — `termhub-agent` resolved through the symlink
+// `npm i -g` drops in the global bin dir) — not when `cli.test.ts` imports `main` directly to
+// drive it with fake argv. isMainModule() resolves symlinks so the global-install case matches.
+if (isMainModule(import.meta.url, process.argv[1])) {
   void main();
 }

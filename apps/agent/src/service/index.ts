@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { agentHome } from '../config.js';
+import { resolveScriptPath } from '../paths.js';
 import * as launchd from './launchd.js';
 import * as systemd from './systemd.js';
 
@@ -14,12 +15,16 @@ export interface ServiceFileOptions {
  * the CLI into a single file, so `import.meta.url` inside any module of that bundle already
  * points at the bundle itself, but `process.argv[1]` is the more direct source of truth for
  * "the file node was invoked with" and works the same whether this runs from `dist/cli.js` or
- * (in dev) `tsx src/cli.ts`.
+ * (in dev) `tsx src/cli.ts`. Resolved through `resolveScriptPath()` (realpath, following
+ * symlinks) rather than a plain `path.resolve()`: when the agent is installed via
+ * `npm i -g`, `process.argv[1]` is the symlink npm drops in the global bin dir, and a launchd
+ * plist / systemd unit pointing at that symlink instead of the real `dist/cli.js` would break
+ * the moment the global package is reinstalled/upgraded and the symlink is recreated.
  */
 export function serviceFileOptions(): ServiceFileOptions {
   return {
     node: process.execPath,
-    script: path.resolve(process.argv[1] ?? ''),
+    script: resolveScriptPath(process.argv[1]),
     logPath: path.join(agentHome(), 'agent.log'),
   };
 }

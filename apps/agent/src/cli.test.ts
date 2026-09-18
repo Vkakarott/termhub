@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isMainModule } from './paths.js';
 import { AGENT_VERSION } from './version.js';
 
 let home: string;
@@ -11,6 +13,36 @@ const ORIGINAL_ENV = process.env.TERMHUB_AGENT_HOME;
 async function freshCli() {
   return import('./cli.js');
 }
+
+// cli.ts's bottom-of-file "am I the entry point?" guard (`isMainModule(import.meta.url,
+// process.argv[1])`) is exactly what makes `termhub-agent`'s global-bin symlink case a no-op if
+// it compares raw (non-realpath'd) paths — see paths.test.ts for the full symlink coverage;
+// this reproduces the exact expression cli.ts evaluates, standing in for "run through the npm
+// global bin symlink".
+describe('cli.ts entry-point guard (npm global bin symlink)', () => {
+  let dir: string;
+  let realTarget: string;
+  let symlink: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-cli-guard-'));
+    realTarget = path.join(dir, 'dist', 'cli.js');
+    fs.mkdirSync(path.dirname(realTarget), { recursive: true });
+    fs.writeFileSync(realTarget, '// fake dist/cli.js\n', 'utf8');
+    symlink = path.join(dir, 'bin', 'termhub-agent');
+    fs.mkdirSync(path.dirname(symlink), { recursive: true });
+    fs.symlinkSync(realTarget, symlink);
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('matches when argv[1] is the npm-global-bin symlink and import.meta.url is the real dist/cli.js it points at', () => {
+    const importMetaUrl = pathToFileURL(realTarget).href;
+    expect(isMainModule(importMetaUrl, symlink)).toBe(true);
+  });
+});
 
 describe('cli main()', () => {
   let logs: string[];
