@@ -88,7 +88,7 @@ export function FloatingWindow({ rect, title, onMove, onResize, onDock, onFocus,
       </div>
       <div className="relative min-h-0 flex-1">{children}</div>
       <div
-        className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
+        className="absolute bottom-0 right-0 z-30 h-4 w-4 cursor-nwse-resize"
         style={{ background: 'linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.25) 50%)' }}
         onPointerDown={startResize}
         onPointerMove={moveResize}

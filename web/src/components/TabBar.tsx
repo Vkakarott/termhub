@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { PRESETS, type Preset } from '../lib/layout';
 import type { Tab } from '../lib/types';
 
 interface Props {
@@ -10,9 +11,49 @@ interface Props {
   canSimulator: boolean;
   onRename: (id: string, name: string) => void;
   onClose: (id: string) => void;
+  preset: Preset;
+  onPreset: (p: Preset) => void;
+  /** whether the tab is currently on screen (in a cell or floating) */
+  onScreen: (tabId: string) => boolean;
 }
 
-export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSimulator, onRename, onClose }: Props) {
+/** 16×12 glyph of the preset's cell arrangement. */
+function PresetIcon({ preset }: { preset: Preset }) {
+  const cells: [number, number, number, number][] =
+    preset === 'single'
+      ? [[0, 0, 16, 12]]
+      : preset === 'columns'
+        ? [
+            [0, 0, 7.5, 12],
+            [8.5, 0, 7.5, 12],
+          ]
+        : preset === 'rows'
+          ? [
+              [0, 0, 16, 5.5],
+              [0, 6.5, 16, 5.5],
+            ]
+          : preset === 'stack-left'
+            ? [
+                [0, 0, 7.5, 5.5],
+                [0, 6.5, 7.5, 5.5],
+                [8.5, 0, 7.5, 12],
+              ]
+            : [
+                [0, 0, 7.5, 5.5],
+                [0, 6.5, 7.5, 5.5],
+                [8.5, 0, 7.5, 5.5],
+                [8.5, 6.5, 7.5, 5.5],
+              ];
+  return (
+    <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden>
+      {cells.map(([x, y, w, h], i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} rx="1" fill="currentColor" />
+      ))}
+    </svg>
+  );
+}
+
+export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSimulator, onRename, onClose, preset, onPreset, onScreen }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,6 +71,7 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
     <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-line bg-bg-2">
       {tabs.map((t, i) => {
         const active = t.id === activeId;
+        const shown = onScreen(t.id);
         return (
           <div
             key={t.id}
@@ -43,7 +85,7 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
             }}
             title={`${t.name} — ${t.kind === 'simulator' ? 'simulador iOS' : t.tmux_session}${i < 9 ? `  (⌘${i + 1})` : ''}`}
           >
-            {active && <span className="absolute inset-x-0 top-0 h-px bg-accent" />}
+            {(active || shown) && <span className={`absolute inset-x-0 top-0 h-px ${active ? 'bg-accent' : 'bg-accent/40'}`} />}
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.alive ? 'bg-ok' : 'bg-fg-dim'}`}
               title={t.kind === 'simulator' ? (t.alive ? 'simulador conectado' : 'simulador desconectado') : t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada'}
@@ -91,6 +133,20 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
           📱
         </button>
       )}
+      <div className="ml-auto flex items-center gap-0.5 px-2" role="radiogroup" aria-label="Arranjo dos painéis">
+        {PRESETS.map((p) => (
+          <button
+            key={p.key}
+            role="radio"
+            aria-checked={preset === p.key}
+            className={`rounded p-0.5 ${preset === p.key ? 'bg-bg-4 text-fg' : 'text-fg-dim hover:bg-bg-3 hover:text-fg'}`}
+            onClick={() => onPreset(p.key)}
+            title={p.label}
+          >
+            <PresetIcon preset={p.key} />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

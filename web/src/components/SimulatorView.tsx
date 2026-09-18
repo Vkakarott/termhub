@@ -8,6 +8,9 @@ interface Props {
   tab: Tab;
   machineId: string;
   active: boolean;
+  floating?: boolean;
+  onDetach?: (aspect: number) => void;
+  onDock?: () => void;
   onTabChange: (tab: Tab) => void;
   onConnected?: () => void;
 }
@@ -62,7 +65,7 @@ function DevicePicker({ machineId, value, onPick }: { machineId: string; value: 
   );
 }
 
-export function SimulatorView({ tab, machineId, active, onTabChange, onConnected }: Props) {
+export function SimulatorView({ tab, machineId, active, floating, onDetach, onDock, onTabChange, onConnected }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const connRef = useRef<SimulatorConnection | null>(null);
@@ -287,13 +290,22 @@ export function SimulatorView({ tab, machineId, active, onTabChange, onConnected
   const aspect = screen ? `${screen.width} / ${screen.height}` : portrait ? '9 / 19.5' : '19.5 / 9';
 
   return (
-    <div className={`absolute inset-0 flex flex-col ${active ? '' : 'hidden'}`}>
+    <div className="absolute inset-0 flex flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-bg-2 px-2 text-xs">
         {tab.simulator_udid && <DevicePicker machineId={machineId} value={tab.simulator_udid} onPick={(u) => void pickDevice(u)} />}
         <span className={`h-1.5 w-1.5 rounded-full ${ready ? 'bg-ok' : state === 'error' || state === 'offline' ? 'bg-danger' : 'bg-warn'}`} />
         <span className="text-fg-muted">{STATE_LABEL[state]}</span>
         {ready && <span className="text-fg-dim">{fps} fps</span>}
         <span className="ml-auto flex items-center gap-1">
+          {floating ? (
+            <button className="btn-ghost px-2 py-0.5" onClick={onDock} title="Encaixar no painel focado">
+              Encaixar
+            </button>
+          ) : (
+            <button className="btn-ghost px-2 py-0.5" onClick={() => onDetach?.(screen ? screen.width / screen.height : 9 / 19.5)} title="Destacar em janela flutuante">
+              Destacar
+            </button>
+          )}
           <button className="btn-ghost px-2 py-0.5" disabled={!ready} onClick={() => send({ type: 'button', name: 'home' })} title="Home">
             Home
           </button>
