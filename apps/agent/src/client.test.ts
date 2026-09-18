@@ -3,7 +3,15 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { CLOSE, CONTROL_CHANNEL, PROTOCOL_VERSION, decodeFrame, encodeFrame, helloMessage } from '@termhub/agent-protocol';
-import { connectOnce, nextBackoff, runForever, RevokedError, ProtocolMismatchError, type ClientOptions } from './client.js';
+import {
+  connectOnce,
+  nextBackoff,
+  runForever,
+  RevokedError,
+  ProtocolMismatchError,
+  UpgradeRejectedError,
+  type ClientOptions,
+} from './client.js';
 
 const TOKEN = 'thb_ag_' + 'a'.repeat(43);
 
@@ -35,15 +43,23 @@ interface TestServer {
 
 function startServer(opts: {
   acceptAll?: boolean;
+  /** When set, always rejects the upgrade with this HTTP status, ignoring the token (simulates the real server's 401 on a bad/unknown token). */
+  rejectStatus?: number;
   capture?: AuthCapture;
   onConnection?: (ws: WebSocket) => void;
+  onVerify?: () => void;
 }): Promise<TestServer> {
   return new Promise((resolve) => {
     const server = http.createServer();
     const wss = new WebSocketServer({
       server,
       verifyClient: (info, done) => {
+        opts.onVerify?.();
         if (opts.capture) opts.capture.value = info.req.headers.authorization;
+        if (opts.rejectStatus !== undefined) {
+          done(false, opts.rejectStatus, http.STATUS_CODES[opts.rejectStatus] ?? 'Rejected');
+          return;
+        }
         if (opts.acceptAll) {
           done(true);
           return;
@@ -109,18 +125,21 @@ describe('connectOnce', () => {
     expect(msg).toMatchObject({ type: 'hello', protocol: PROTOCOL_VERSION, ...baseHello });
   });
 
-  it('rejects when the server rejects the upgrade (bad token)', async () => {
+  it('rejects with UpgradeRejectedError(401) when the server rejects the upgrade (bad token)', async () => {
     srv = await startServer({});
-    await expect(
-      connectOnce({
-        url: base(srv),
-        token: 'thb_ag_' + 'z'.repeat(43),
-        hello: baseHello,
-        onServerMessage: () => {},
-        onStream: () => {},
-        log: noopLog(),
-      }),
-    ).rejects.toThrow();
+    const attempt = connectOnce({
+      url: base(srv),
+      token: 'thb_ag_' + 'z'.repeat(43),
+      hello: baseHello,
+      onServerMessage: () => {},
+      onStream: () => {},
+      log: noopLog(),
+    });
+    await expect(attempt).rejects.toThrow(UpgradeRejectedError);
+    await attempt.catch((err) => {
+      expect(err).toBeInstanceOf(UpgradeRejectedError);
+      expect((err as UpgradeRejectedError).status).toBe(401);
+    });
   });
 
   it('closed resolves {code: 4401} when the server closes with 4401', async () => {
@@ -181,6 +200,31 @@ describe('runForever', () => {
       onConnection: (ws) => {
         attempts += 1;
         ws.close(CLOSE.UNAUTHORIZED, 'revoked');
+      },
+    });
+
+    await expect(
+      runForever({
+        url: base(srv),
+        token: TOKEN,
+        hello: baseHello,
+        onServerMessage: () => {},
+        onStream: () => {},
+        log: noopLog(),
+        backoff: { minMs: 5, maxMs: 20 },
+        maxUnauthorized: 3,
+      }),
+    ).rejects.toThrow(RevokedError);
+
+    expect(attempts).toBe(3);
+  });
+
+  it('rejects with RevokedError after exactly maxUnauthorized consecutive HTTP 401 upgrade rejections', async () => {
+    let attempts = 0;
+    srv = await startServer({
+      rejectStatus: 401,
+      onVerify: () => {
+        attempts += 1;
       },
     });
 
@@ -280,6 +324,40 @@ describe('runForever', () => {
     const attemptsAtAbort = attempts;
     await new Promise((r) => setTimeout(r, 40));
     expect(attempts).toBe(attemptsAtAbort);
+  });
+
+  it('aborts a live (never-closed-by-server) session promptly instead of waiting for the server', async () => {
+    let resolveServerSawClose!: (code: number) => void;
+    const serverSawClose = new Promise<number>((res) => (resolveServerSawClose = res));
+    srv = await startServer({
+      onConnection: (ws) => {
+        // The server never closes this connection on its own — only an aborted client should end it.
+        ws.on('close', (code) => resolveServerSawClose(code));
+      },
+    });
+
+    const controller = new AbortController();
+    const done = runForever(
+      {
+        url: base(srv),
+        token: TOKEN,
+        hello: baseHello,
+        onServerMessage: () => {},
+        onStream: () => {},
+        log: noopLog(),
+        backoff: { minMs: 5, maxMs: 20 },
+      },
+      controller.signal,
+    );
+
+    // Give the WebSocket time to open and the hello to go out before aborting mid-session.
+    await new Promise((r) => setTimeout(r, 50));
+    const abortedAt = Date.now();
+    controller.abort();
+
+    await expect(done).resolves.toBeUndefined();
+    expect(Date.now() - abortedAt).toBeLessThan(500);
+    await expect(serverSawClose).resolves.toEqual(expect.any(Number));
   });
 });
 

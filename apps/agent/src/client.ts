@@ -39,6 +39,17 @@ export class RevokedError extends Error {}
 /** Thrown by runForever() when the server closes 4409 with reason 'protocol' — versions cannot talk. */
 export class ProtocolMismatchError extends Error {}
 
+/**
+ * connectOnce() rejects with this when the server refuses the WebSocket upgrade itself (an
+ * HTTP-level `unexpected-response`, e.g. 401 for a bad/unknown token before any hello — the
+ * real server only sends a WS close 4401 for a token revoked *after* it was already connected).
+ */
+export class UpgradeRejectedError extends Error {
+  constructor(public readonly status: number) {
+    super(`upgrade rejected: HTTP ${status}`);
+  }
+}
+
 const DEFAULT_BACKOFF = { minMs: 1_000, maxMs: 30_000 };
 const DEFAULT_MAX_UNAUTHORIZED = 3;
 /** A session shorter than this (and with no server message) doesn't count as "successful" for backoff/unauthorized resets. */
@@ -62,16 +73,35 @@ function toBuffer(data: RawData): Buffer {
 
 /**
  * Connects once; resolves with the socket after the WebSocket opens and the hello frame is
- * sent. Rejects if the handshake itself fails (bad-status upgrade response, network error) —
- * once open, later outcomes (including a 4401/4409 close) are reported via `closed`, not by
- * rejecting this promise.
+ * sent. Rejects if the handshake itself fails (bad-status upgrade response — surfaced as
+ * `UpgradeRejectedError` — or a network error) — once open, later outcomes (including a
+ * 4401/4409 close) are reported via `closed`, not by rejecting this promise.
+ *
+ * `signal`, if given, tears the connection down immediately (graceful close if already open,
+ * `terminate()` otherwise) instead of waiting for the server — used by runForever() so an
+ * abort mid-session doesn't have to wait for the far end to close first.
  */
-export function connectOnce(opts: ClientOptions): Promise<{ socket: AgentSocket; closed: Promise<CloseInfo> }> {
+export function connectOnce(
+  opts: ClientOptions,
+  signal?: AbortSignal,
+): Promise<{ socket: AgentSocket; closed: Promise<CloseInfo> }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+
     const wsUrl = deriveWsUrl(opts.url);
     const ws = new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${opts.token}` } });
     let opened = false;
     let socket: AgentSocket | undefined;
+
+    const onAbort = () => {
+      if (opened) ws.close(1000, 'aborted');
+      else ws.terminate();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const stopWatchingAbort = () => signal?.removeEventListener('abort', onAbort);
 
     let resolveClosed!: (info: CloseInfo) => void;
     const closed = new Promise<CloseInfo>((res) => {
@@ -79,21 +109,27 @@ export function connectOnce(opts: ClientOptions): Promise<{ socket: AgentSocket;
     });
 
     ws.on('close', (code: number, reasonBuf: Buffer) => {
+      stopWatchingAbort();
       const info = { code, reason: reasonBuf.toString() };
       resolveClosed(info);
       if (!opened) reject(new Error(`connection closed before open (code ${code})`));
     });
 
     ws.on('unexpected-response', (_req, res) => {
-      const statusCode = res.statusCode;
+      stopWatchingAbort();
+      const statusCode = res.statusCode ?? 0;
       res.resume();
       ws.terminate();
-      reject(new Error(`unexpected upgrade response: ${statusCode}`));
+      reject(new UpgradeRejectedError(statusCode));
     });
 
     ws.on('error', (err: Error) => {
-      if (!opened) reject(err);
-      else opts.log('agent socket error', { error: err.message });
+      if (!opened) {
+        stopWatchingAbort();
+        reject(err);
+      } else {
+        opts.log('agent socket error', { error: err.message });
+      }
     });
 
     ws.on('open', () => {
@@ -179,6 +215,7 @@ export async function runForever(opts: ClientOptions, signal?: AbortSignal): Pro
   while (!signal?.aborted) {
     let sessionOk = false;
     let closeInfo: CloseInfo | undefined;
+    let upgradeRejectedStatus: number | undefined;
 
     const innerOpts: ClientOptions = {
       ...opts,
@@ -189,16 +226,21 @@ export async function runForever(opts: ClientOptions, signal?: AbortSignal): Pro
     };
 
     try {
-      const { closed } = await connectOnce(innerOpts);
+      const { closed } = await connectOnce(innerOpts, signal);
       const startedAt = Date.now();
       closeInfo = await closed;
       if (Date.now() - startedAt > SESSION_OK_MS) sessionOk = true;
       opts.log('agent connection closed', { code: closeInfo.code, reason: closeInfo.reason });
     } catch (err) {
-      opts.log('agent connect failed', { error: (err as Error).message });
+      if (err instanceof UpgradeRejectedError) {
+        upgradeRejectedStatus = err.status;
+        opts.log('agent upgrade rejected', { status: err.status });
+      } else {
+        opts.log('agent connect failed', { error: (err as Error).message });
+      }
     }
 
-    if (closeInfo?.code === CLOSE.UNAUTHORIZED) {
+    if (closeInfo?.code === CLOSE.UNAUTHORIZED || upgradeRejectedStatus === 401) {
       unauthorized += 1;
       opts.log('agent unauthorized', { attempt: unauthorized, maxUnauthorized });
       if (unauthorized >= maxUnauthorized) {
