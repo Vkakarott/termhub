@@ -26,6 +26,7 @@ export const geminiAdapter: AiProviderAdapter = {
     return fetchCodeAssistUsage(cred, {
       expired: 'Run `gemini` on that machine once; it refreshes the token on use.',
       refresh: 'Run `gemini` on that machine once to refresh the login.',
+      ide: 'gemini',
     });
   },
 };
