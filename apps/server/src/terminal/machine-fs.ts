@@ -84,6 +84,18 @@ function parentOf(path: string): string | null {
   return idx <= 0 ? '/' : path.slice(0, idx);
 }
 
+/**
+ * Maps a `fs.list`/buildFsListScript ERR: tag to the HTTP error, the same way in every
+ * caller (browseMachine, ensureDirectory) so a non-directory or inaccessible path never
+ * silently passes through as a valid one. No-op when `err` is null (no error reported).
+ */
+function throwFsListError(err: string | null): void {
+  if (err === 'notfound') throw notFound('Diretório não existe na máquina');
+  if (err === 'eperm') throw forbidden('Sem acesso à pasta na máquina');
+  if (err === 'notdir') throw badRequest('O caminho não é um diretório');
+  if (err === 'denied') throw forbidden('Sem permissão para acessar o diretório');
+}
+
 /** Lista subdiretórios de `path` (padrão: $HOME) e os discos/mounts da máquina. */
 export async function browseMachine(machine: Machine, path: string | undefined): Promise<FsListing> {
   const raw = (path ?? '').trim();
@@ -102,10 +114,7 @@ export async function browseMachine(machine: Machine, path: string | undefined):
   }
 
   const out = parseOutput(stdout);
-  if (out.err === 'notfound') throw notFound('Diretório não existe na máquina');
-  if (out.err === 'eperm') throw forbidden('Sem acesso à pasta na máquina');
-  if (out.err === 'notdir') throw badRequest('O caminho não é um diretório');
-  if (out.err === 'denied') throw forbidden('Sem permissão para acessar o diretório');
+  throwFsListError(out.err);
   if (!out.pwd) throw new HttpError(502, 'Resposta inesperada da máquina');
 
   const roots: FsRoot[] = [];
@@ -180,17 +189,17 @@ export async function ensureDirectory(machine: Machine, path: string, create: bo
     if (!create) {
       const { stdout } = await agentRpc(machine, 'fs.list', { path: raw });
       const out = parseOutput(stdout);
-      if (out.err === 'notfound') throw new HttpError(400, 'A pasta não existe na máquina. Marque "criar a pasta" ou escolha outra.', 'DIR_NOT_FOUND');
-      if (out.err === 'eperm') throw forbidden('Sem permissão para acessar a pasta');
+      throwFsListError(out.err);
       return { path: out.pwd ?? raw, created: false };
     }
 
     // create === true: an existing directory succeeds with created:false, just like the
-    // ssh/local path — fs.mkdir only runs when fs.list reports the path missing.
+    // ssh/local path — fs.mkdir only runs when fs.list reports the path missing. Any other
+    // fs.list error (notdir/eperm/denied) throws right away instead of attempting to mkdir.
     const listed = await agentRpc(machine, 'fs.list', { path: raw });
     const listOut = parseOutput(listed.stdout);
     if (!listOut.err) return { path: listOut.pwd ?? raw, created: false };
-    if (listOut.err === 'eperm') throw forbidden('Sem permissão para acessar a pasta');
+    if (listOut.err !== 'notfound') throwFsListError(listOut.err);
 
     const { stdout } = await agentRpc(machine, 'fs.mkdir', { parent: dirname(raw), name: basename(raw) });
     const err = firstTag(stdout, 'ERR');

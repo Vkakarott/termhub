@@ -1,5 +1,6 @@
 import { configDirPrefix } from '@termhub/machine-ops';
 import { AgentClosedError, AgentRpcError, AgentTimeoutError } from '../agent/connection.js';
+import { toHttpError } from '../agent/errors.js';
 import { AgentOfflineError, agents } from '../agent/registry.js';
 import type { Machine } from '../db/repositories/types.js';
 import { runOnMachine } from '../terminal/machine-exec.js';
@@ -26,7 +27,9 @@ export async function readCredential(machine: Machine, adapter: AiProviderAdapte
     } catch (err) {
       if (err instanceof AgentOfflineError || err instanceof AgentClosedError) throw new CredentialError('Agente desconectado');
       if (err instanceof AgentTimeoutError) throw new CredentialError('Machine did not answer in time');
-      if (err instanceof AgentRpcError) throw new CredentialError(err.rpcError.message);
+      // Never forward the agent-supplied rpcError.message (up to 2000 chars, may echo a path):
+      // route it through the same fixed per-code mapping every other RPC caller uses.
+      if (err instanceof AgentRpcError) throw new CredentialError(toHttpError(err).message);
       throw err;
     }
     const out = stdout.trim();

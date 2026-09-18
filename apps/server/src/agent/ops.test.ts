@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
 
 import { claudeAdapter } from '../ai/claude.js';
-import { readCredential } from '../ai/credentials.js';
+import { CredentialError, readCredential } from '../ai/credentials.js';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { collectHardware } from '../system/hardware.js';
@@ -150,6 +150,22 @@ describe('agent machine operations use named RPCs', () => {
     expect(execFile).not.toHaveBeenCalled();
   });
 
+  it('ensureDirectory(create: false) rejects a path that exists but is not a directory', async () => {
+    const machine = agentMachine();
+    attachFakeConn(machine.id, () => ({ stdout: 'ERR:notdir\n' }));
+    await expect(ensureDirectory(machine, '~/file.txt', false)).rejects.toMatchObject({ statusCode: 400 });
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('ensureDirectory(create: true) rejects a path that exists but is not a directory', async () => {
+    const machine = agentMachine();
+    const conn = attachFakeConn(machine.id, () => ({ stdout: 'ERR:notdir\n' }));
+    await expect(ensureDirectory(machine, '~/file.txt', true)).rejects.toMatchObject({ statusCode: 400 });
+    // must not attempt fs.mkdir on a path that's a regular file
+    expect(conn.rpc).toHaveBeenCalledTimes(1);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
   it('readCredential calls ai.credential and parses the result via the adapter', async () => {
     const machine = agentMachine();
     const credJson = JSON.stringify({ claudeAiOauth: { accessToken: 'tok123', expiresAt: 999, subscriptionType: 'max' } });
@@ -158,6 +174,39 @@ describe('agent machine operations use named RPCs', () => {
     expect(cred.token).toBe('tok123');
     expect(conn.rpc).toHaveBeenCalledWith('ai.credential', { provider: 'claude', config_dir: null }, undefined);
     expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('readCredential maps an offline agent to a CredentialError with the offline message', async () => {
+    const machine = agentMachine('offline-cred');
+    await expect(readCredential(machine, claudeAdapter, null, '.claude')).rejects.toBeInstanceOf(CredentialError);
+    await expect(readCredential(machine, claudeAdapter, null, '.claude')).rejects.toMatchObject({ message: 'Agente desconectado' });
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('readCredential maps an agent RPC timeout to a CredentialError with the timeout message', async () => {
+    const machine = agentMachine();
+    attachFakeConn(machine.id, () => {
+      throw new AgentTimeoutError('agent rpc timeout: ai.credential');
+    });
+    await expect(readCredential(machine, claudeAdapter, null, '.claude')).rejects.toBeInstanceOf(CredentialError);
+    await expect(readCredential(machine, claudeAdapter, null, '.claude')).rejects.toMatchObject({ message: 'Machine did not answer in time' });
+  });
+
+  it('readCredential never forwards the raw AgentRpcError message, only the fixed per-code mapping', async () => {
+    const machine = agentMachine();
+    const leaky = 'no access to /Users/someone/.claude/.credentials.json';
+    attachFakeConn(machine.id, () => {
+      throw new AgentRpcError({ code: 'eperm', message: leaky });
+    });
+    let caught: unknown;
+    try {
+      await readCredential(machine, claudeAdapter, null, '.claude');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(CredentialError);
+    expect((caught as CredentialError).message).not.toBe(leaky);
+    expect((caught as CredentialError).message).toBe('Sem acesso à pasta na máquina (Acesso Total ao Disco?)');
   });
 
   it('saveFileOnMachine calls file.paste with base64 data', async () => {
