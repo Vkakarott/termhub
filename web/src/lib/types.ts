@@ -238,7 +238,7 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   archived: 'Arquivado',
 };
 
-export type AiProvider = 'claude' | 'chatgpt' | 'gemini';
+export type AiProvider = 'claude' | 'chatgpt' | 'gemini' | 'antigravity';
 
 export interface AiAccount {
   id: string;
@@ -267,7 +267,7 @@ export interface AiAccountUsage {
   hint: string | null;
 }
 
-export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini' };
+export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', antigravity: 'Antigravity' };
 
 export type SshProblem = 'unreachable' | 'refused' | 'auth' | 'hostkey' | 'timeout' | 'no_tmux' | 'unknown';
 

@@ -4,18 +4,27 @@ import { useData } from '../lib/data';
 import { AI_PROVIDER_LABEL, type AiAccount, type AiAccountUsage, type AiProvider, type AiUsageWindow } from '../lib/types';
 import { ConfirmDialog, Modal } from './Modal';
 
-const PROVIDERS: AiProvider[] = ['claude', 'chatgpt', 'gemini'];
+const PROVIDERS: AiProvider[] = ['claude', 'chatgpt', 'gemini', 'antigravity'];
 
 const PROVIDER_HINT: Record<AiProvider, string> = {
   claude: 'Lê o login do Claude Code na máquina (~/.claude). Para uma segunda conta (ex.: a da empresa), faça login com CLAUDE_CONFIG_DIR=~/.claude-work claude e informe o diretório aqui.',
   chatgpt: 'Lê o login do Codex CLI na máquina (~/.codex). Entre com "Sign in with ChatGPT" — login por API key não tem limite de plano.',
   gemini: 'Lê o login do Gemini CLI na máquina (~/.gemini). Entre com a conta Google — login por API key não tem cota de plano.',
+  antigravity: 'Lê o login do Antigravity CLI na máquina (~/.gemini/antigravity-cli). Rode `agy` e entre com a conta Google do plano AI Pro/Ultra — login por API key não tem cota de plano.',
 };
 
 const PROVIDER_STYLE: Record<AiProvider, string> = {
   claude: 'bg-[#d97757]/15 text-[#e8956f]',
   chatgpt: 'bg-[#10a37f]/15 text-[#3fcfa5]',
   gemini: 'bg-[#4f8cff]/15 text-[#79c0ff]',
+  antigravity: 'bg-[#a78bfa]/15 text-[#c4b5fd]',
+};
+
+const PROVIDER_DIR: Record<AiProvider, string> = {
+  claude: '~/.claude',
+  chatgpt: '~/.codex',
+  gemini: '~/.gemini',
+  antigravity: '~/.gemini',
 };
 
 function countdown(iso: string | null, now: number): string | null {
@@ -194,7 +203,7 @@ function AccountForm({ account, onClose, onSaved }: { account: AiAccount | null;
         </div>
         <div>
           <label className="label">Diretório de config (opcional)</label>
-          <input className="input font-mono" value={configDir} onChange={(e) => setConfigDir(e.target.value)} placeholder={provider === 'claude' ? '~/.claude' : provider === 'chatgpt' ? '~/.codex' : '~/.gemini'} />
+          <input className="input font-mono" value={configDir} onChange={(e) => setConfigDir(e.target.value)} placeholder={PROVIDER_DIR[provider]} />
         </div>
         {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
@@ -281,7 +290,7 @@ export function AiAccountsView() {
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       {accounts && accounts.length === 0 && (
-        <p className="text-sm text-fg-dim">Nenhuma conta cadastrada. Adicione uma conta apontando para a máquina onde o Claude Code, Codex ou Gemini CLI está logado.</p>
+        <p className="text-sm text-fg-dim">Nenhuma conta cadastrada. Adicione uma conta apontando para a máquina onde o Claude Code, Codex, Gemini CLI ou Antigravity CLI está logado.</p>
       )}
 
       <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
