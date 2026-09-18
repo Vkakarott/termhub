@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { useData } from '../lib/data';
 import type { DashboardItem } from '../lib/types';
 import { AiAccountsView } from '../components/AiAccountsView';
+import { HardwareView } from '../components/HardwareView';
 
 function relative(iso: string | null): string {
   if (!iso) return 'nunca';
@@ -18,9 +19,11 @@ function relative(iso: string | null): string {
   return new Date(iso).toLocaleDateString('pt-BR');
 }
 
+// TODO(users): when the user system lands, the Hardware tab is for super admins only — filter it out for other roles.
 const TABS = [
   { path: '/', label: 'Projetos' },
   { path: '/ai', label: 'Contas de IA' },
+  { path: '/hardware', label: 'Hardware' },
 ];
 
 export function HomePage() {
@@ -39,7 +42,7 @@ export function HomePage() {
           </NavLink>
         ))}
       </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">{pathname === '/ai' ? <AiAccountsView /> : <Dashboard />}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">{pathname === '/ai' ? <AiAccountsView /> : pathname === '/hardware' ? <HardwareView /> : <Dashboard />}</div>
     </div>
   );
 }

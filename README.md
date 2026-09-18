@@ -100,7 +100,7 @@ Logs on macOS: `data/logs/`. On Linux: `journalctl --user -u termhub -f` (use `l
 
 ### Cloudflare Tunnel
 
-On jarvis, termhub is published at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one — no downtime. The public hostname is managed in the Zero Trust dashboard → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
+On jarvis, termhub is published at **https://app.termhub.dev** (and, until the landing page exists, also at **https://termhub.dev**) through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one, so there is no 502 window. The public hostnames are managed in the Zero Trust dashboard → Tunnels → jarvis (`app.termhub.dev` and `termhub.dev` → HTTP → `proxy-nginx:80`; the tunnel is dashboard-managed, so `cloudflared tunnel route dns` alone is not enough: it only creates the DNS record, and it uses the zone `~/.cloudflared/cert.pem` was logged into). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
 
 On another server, the simple path is `cloudflared tunnel --url http://127.0.0.1:3000`.
 
@@ -139,6 +139,10 @@ Each project has internal navigation: **Terminals | Tasks | Notes | Settings**.
 - **Notes:** one markdown note per project, with preview (GFM), edit / side-by-side / preview modes and debounced autosave (⌘S forces it).
 - **Dashboard** (home): active projects with machine (online/offline), tasks in "Doing", total open tasks and last terminal access — ordered by most recent terminal.
 - **Settings:** rename, edit `cwd`, description, status (active/paused/archived) and delete (ends the tabs' tmux sessions). In the sidebar, hovering a project shows ✎ (opens Settings) and ✕ (removes the project from the list — the folder on the machine is not touched).
+
+## Hardware tab
+
+The home page's **Hardware** tab shows a machine's CPU usage and load, RAM and swap, disks with free space, temperatures (Linux sensors), GPU (when `nvidia-smi` exists) and the top processes, refreshed every 5 s while the tab is visible. Pick any registered machine; the termhub host is the default. Data comes from a portable `sh` script run over the same local/SSH channel as the terminals (`GET /api/machines/:id/hardware`). macOS exposes no temperature sensors without extra tools. **Access note:** this tab is meant for super admins once the user system exists (see the `TODO(users)` comments).
 
 ## AI accounts (usage limits)
 

@@ -1,4 +1,4 @@
-import type { AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -67,6 +67,7 @@ export const api = {
     wdaSetup: (id: string) => request<WdaSetupState>('GET', `/machines/${id}/simulator/setup`),
     startWdaSetup: (id: string) => request<{ ok: true }>('POST', `/machines/${id}/simulator/setup`, {}),
     /** subpastas de `path` (padrão $HOME) + discos/mounts da máquina */
+    hardware: (id: string) => request<{ hardware: HardwareSnapshot }>('GET', `/machines/${id}/hardware`),
     mkdir: (id: string, parent: string, name: string) => request<{ path: string }>('POST', `/machines/${id}/fs/mkdir`, { parent, name }),
     browse: (id: string, path?: string) => request<FsListing>('GET', `/machines/${id}/fs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   },

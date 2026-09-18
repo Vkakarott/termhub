@@ -6,6 +6,7 @@ import { diagnoseSsh, machineStatus } from '../terminal/machine-exec.js';
 import { listSimulators } from '../simulator/machine.js';
 import { startWdaSetup, wdaSetupState } from '../simulator/setup.js';
 import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
+import { collectHardware } from '../system/hardware.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
@@ -129,5 +130,16 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     if (!machine) throw notFound('Máquina não encontrada');
     const path = await makeDirectory(machine, parent, name);
     return reply.code(201).send({ path });
+  });
+
+  /**
+   * Hardware snapshot (CPU, memory, disks, temps, GPU, top processes) for the Home "Hardware" tab.
+   * TODO(users): when the user system lands, only super admins may call this — reject everyone else here.
+   */
+  app.get('/:id/hardware', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await repos.machines.findById(id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    return { hardware: await collectHardware(machine) };
   });
 }

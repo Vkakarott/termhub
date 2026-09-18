@@ -15,6 +15,7 @@ export function App() {
           <Route element={<Layout />}>
             <Route path="/" element={<HomePage />} />
             <Route path="/ai" element={<HomePage />} />
+            <Route path="/hardware" element={<HomePage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/projects/:id" element={<ProjectPage />} />
             <Route path="/projects/:id/:section" element={<ProjectPage />} />

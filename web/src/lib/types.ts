@@ -281,3 +281,23 @@ export interface SshDiagnosis {
   hint: string | null;
   detail: string | null;
 }
+
+/** GET /machines/:id/hardware */
+export interface HardwareSnapshot {
+  os: string | null;
+  hostname: string | null;
+  cpu_model: string | null;
+  ncpu: number | null;
+  uptime_s: number | null;
+  load: [number, number, number] | null;
+  cpu_pct: number | null;
+  mem_total_kb: number | null;
+  mem_used_kb: number | null;
+  swap_total_kb: number | null;
+  swap_used_kb: number | null;
+  disks: { mount: string; source: string; size_kb: number; used_kb: number; avail_kb: number }[];
+  temps: { label: string; c: number }[];
+  gpus: { name: string; utilization: number | null; mem_used_mb: number | null; mem_total_mb: number | null; temp_c: number | null }[];
+  processes: { cpu: number; mem: number; command: string }[];
+  collected_at: string;
+}

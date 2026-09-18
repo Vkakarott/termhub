@@ -2,7 +2,8 @@
 # is swapped for the active color's container.
 server {
     listen 80;
-    server_name termhub.dev www.termhub.dev;
+    # app.termhub.dev is the app's home; termhub.dev keeps serving it until the landing page exists
+    server_name app.termhub.dev termhub.dev www.termhub.dev;
     location / {
         proxy_pass http://__APP_HOST__:3000;
         proxy_http_version 1.1;

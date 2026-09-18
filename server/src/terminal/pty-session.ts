@@ -28,6 +28,9 @@ function localCwd(cwd: string): string {
   }
 }
 
+/** Locale forced on target machines when the SSH session brings none (or a non-UTF-8 one). */
+const UTF8_LOCALE = 'en_US.UTF-8';
+
 /** Monta o comando que anexa (ou cria) a sessão tmux da tab na máquina de destino. */
 export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file: string; args: string[]; cwd?: string } {
   if (tab.kind !== 'terminal' || !tab.tmux_session) throw new Error('Tab não é um terminal');
@@ -35,12 +38,21 @@ export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file
   if (machine.type === 'local') {
     return {
       file: config.terminal.tmuxPath,
-      args: ['new-session', '-A', '-s', tab.tmux_session, '-c', localCwd(project.cwd)],
+      // -u: treat the client terminal as UTF-8 regardless of the locale tmux was started with
+      args: ['-u', 'new-session', '-A', '-s', tab.tmux_session, '-c', localCwd(project.cwd)],
       cwd: localCwd(project.cwd),
     };
   }
-  // PATH prefix: Homebrew's tmux is not on the sshd default PATH on macOS
-  const remote = `${REMOTE_PATH_PREFIX}exec tmux new-session -A -s ${tab.tmux_session} -c ${shellQuote(project.cwd)}`;
+  // PATH prefix: Homebrew's tmux is not on the sshd default PATH on macOS.
+  // Locale: a non-interactive SSH session may come with no LANG at all (macOS), which makes
+  // zsh and TUIs fall back to ASCII. Fix a UTF-8 locale, push it into a tmux server that is
+  // already running (new windows inherit it), and attach with -u.
+  const remote = [
+    REMOTE_PATH_PREFIX.trim().replace(/;$/, ''),
+    `export LANG="\${LANG:-${UTF8_LOCALE}}"; case "$LANG" in *[Uu][Tt][Ff]*) ;; *) LANG=${UTF8_LOCALE};; esac; export LC_ALL="$LANG" LC_CTYPE="$LANG"`,
+    `tmux set-environment -g LANG "$LANG" 2>/dev/null; tmux set-environment -g LC_ALL "$LANG" 2>/dev/null`,
+    `exec tmux -u new-session -A -s ${tab.tmux_session} -c ${shellQuote(project.cwd)}`,
+  ].join('; ');
   return { file: 'ssh', args: ['-tt', ...sshBaseArgs(machine), remote] };
 }
 
@@ -61,7 +73,8 @@ export class PtySession {
         ...process.env,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
-        LANG: process.env.LANG || 'en_US.UTF-8',
+        LANG: /utf-?8/i.test(process.env.LANG ?? '') ? (process.env.LANG as string) : UTF8_LOCALE,
+        LC_ALL: /utf-?8/i.test(process.env.LC_ALL ?? '') ? (process.env.LC_ALL as string) : UTF8_LOCALE,
         SHELL: config.terminal.localShell,
         TERMHUB: '1',
       } as Record<string, string>,
