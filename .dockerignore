@@ -7,4 +7,4 @@ data
 !.env.example
 .git
 *.log
-server/src/generated
+apps/server/src/generated

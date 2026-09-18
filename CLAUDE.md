@@ -8,22 +8,26 @@
 - The **UI copy stays in Portuguese (pt-BR)** — it is the product language. Do not translate labels, messages or e-mail templates.
 - Conversation with the user may be in Portuguese; that does not change the rules above.
 
+## Layout
+
+npm workspaces: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), `apps/landing` (`@termhub/landing`, static site for termhub.dev). Always address workspaces by package name (`-w @termhub/server`), never by path.
+
 ## Verifying before pushing
 
 - The host that holds this checkout (jarvis) has no Node. Run typecheck/build through Docker, and only push if it passes:
   ```bash
   docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/w" -w /w node:20 \
-    sh -c 'npm run typecheck -w server && npm run build -w web'
+    sh -c 'npm run typecheck -w @termhub/server && npm run build -w @termhub/web && npm run build -w @termhub/landing'
   rm -rf .npm   # cache the container leaves behind
   ```
 - A push to `main` deploys to production (GitHub Actions → self-hosted runner on jarvis) via `deploy/blue-green.sh`: it builds and healthchecks the inactive color (blue/green), switches the proxy nginx vhost to it, then retires the old container after a grace period — the previous container keeps serving until the switch succeeds, so there is no HTTP 502 window; open terminal WebSockets pinned to the old container reconnect (to the new one) when it stops. A broken `check` job blocks the deploy, but do not rely on it: verify locally first.
 - Migrations must stay backward compatible with the previous release: the old container keeps serving requests while the new one runs `prisma migrate deploy` and becomes healthy.
-- After a deploy, confirm with `docker ps --filter name=termhub-app` (shows the active color, healthy) and `curl -s -o /dev/null -w '%{http_code}' https://termhub.dev/`.
+- After a deploy, confirm with `docker ps --filter name=termhub-app` (shows the active color, healthy) and `curl -s -o /dev/null -w '%{http_code}' https://app.termhub.dev/` (app) and `https://termhub.dev/` (landing).
 - To roll back on jarvis: `bash deploy/blue-green.sh --rollback` starts the other, stopped color and switches the vhost back to it — but only once a color has been active at least once. **Right after the very first blue/green deploy**, there is no stopped color yet; the only fallback is the retired legacy container (`termhub-app-legacy`, renamed and stopped, not removed). Roll back to it by hand: `docker start termhub-app-legacy`, edit `proxy_pass` in the vhost (`/mnt/hd2tb/proxy/nginx/conf.d/termhub.dev.conf`) to `http://termhub-app-legacy:3000;`, `docker exec proxy-nginx nginx -t && docker exec proxy-nginx nginx -s reload`, then stop the color that `deploy/blue-green.sh` started (`docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod stop app-<color>`).
 
 ## Architecture rules
 
-- Routes never import Prisma directly; go through `server/src/db/repositories`.
+- Routes never import Prisma directly; go through `apps/server/src/db/repositories`.
 - Every request input is validated with zod.
-- Anything executed on a machine goes through `runOnMachine` / `runOnMachineWithInput` in `server/src/terminal/machine-exec.ts`; shell-quote every user-provided value with `shellQuote`, and never interpolate user input into a script unquoted.
+- Anything executed on a machine goes through `runOnMachine` / `runOnMachineWithInput` in `apps/server/src/terminal/machine-exec.ts`; shell-quote every user-provided value with `shellQuote`, and never interpolate user input into a script unquoted.
 - Terminal content is never logged; log only metadata (tab id, machine id, sizes).

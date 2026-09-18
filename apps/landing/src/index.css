@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { scroll-behavior: smooth; }
+body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+@layer components {
+  .btn { @apply inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors; }
+  .btn-primary { @apply btn bg-accent text-white hover:bg-accent-hover; }
+  .btn-ghost { @apply btn border border-line text-fg-muted hover:bg-bg-3 hover:text-fg; }
+  .kbd { @apply rounded border border-line bg-bg-3 px-1.5 py-0.5 font-mono text-[11px] text-fg-muted; }
+}

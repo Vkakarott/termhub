@@ -124,7 +124,7 @@ export async function buildApp(): Promise<App> {
   );
 
   // --- Frontend buildado (produção) ---
-  const webDist = path.join(ROOT_DIR, 'web', 'dist');
+  const webDist = path.join(ROOT_DIR, 'apps', 'web', 'dist');
   if (fs.existsSync(path.join(webDist, 'index.html'))) {
     await fastify.register(fastifyStatic, { root: webDist, prefix: '/', index: ['index.html'] });
     // SPA fallback: qualquer rota não-API devolve o index.html
@@ -135,7 +135,7 @@ export async function buildApp(): Promise<App> {
       return reply.sendFile('index.html');
     });
   } else {
-    fastify.log.warn('web/dist não encontrado — rodando só a API (use "npm run build" para servir o frontend)');
+    fastify.log.warn('apps/web/dist não encontrado — rodando só a API (use "npm run build" para servir o frontend)');
   }
 
   // Limpeza periódica de sessões expiradas

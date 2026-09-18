@@ -5,7 +5,7 @@ import { defineConfig } from 'prisma/config';
 
 // Carrega o .env da raiz do monorepo (mesma regra do src/config.ts).
 const here = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: [path.join(here, '..', '.env'), path.join(here, '.env')] });
+dotenv.config({ path: [path.join(here, '..', '..', '.env'), path.join(here, '.env')] });
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',

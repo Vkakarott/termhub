@@ -12,6 +12,6 @@ fi
 echo "[termhub] SSH public key: $(cat "$SSH_DIR/id_ed25519.pub")"
 
 echo "[termhub] applying migrations..."
-npx --prefix server prisma migrate deploy --config server/prisma.config.ts
+npx --prefix apps/server prisma migrate deploy --config apps/server/prisma.config.ts
 echo "[termhub] starting server"
-exec node server/dist/index.js
+exec node apps/server/dist/index.js
