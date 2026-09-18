@@ -274,7 +274,7 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
         : 'bg-warn/15 text-warn';
 
   return (
-    <div className={`absolute inset-0 flex flex-col ${active ? '' : 'invisible'}`}>
+    <div className="absolute inset-0 flex flex-col">
       <div ref={containerRef} className="min-h-0 flex-1 bg-bg" onClick={() => termRef.current?.focus()} />
       <div className="flex h-6 shrink-0 items-center gap-2 border-t border-line bg-bg-2 px-2 text-[11px] text-fg-dim">
         <span className={`rounded px-1.5 py-px font-medium ${badge}`}>
