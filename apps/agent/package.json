@@ -15,7 +15,7 @@
   "homepage": "https://termhub.dev",
   "type": "module",
   "bin": {
-    "termhub-agent": "./dist/cli.js"
+    "termhub-agent": "dist/cli.js"
   },
   "files": [
     "dist"

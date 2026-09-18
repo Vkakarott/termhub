@@ -39,7 +39,9 @@ jobs:
           [ "${GITHUB_REF_NAME#agent-v}" = "$v" ] || { echo "tag $GITHUB_REF_NAME != package version $v"; exit 1; }
       - name: Manifesto publicado não depende de @termhub/*
         run: node -e 'const d=Object.keys(require("./apps/agent/package.json").dependencies||{});if(d.some(x=>x.startsWith("@termhub/"))){console.error("workspace dependency in dependencies:",d);process.exit(1)}'
-      - name: Conteúdo do tarball
-        run: npm pack -w @termhub/agent --dry-run
+      - name: Tarball mantém o bin termhub-agent
+        run: |
+          npm pack -w @termhub/agent --pack-destination /tmp >/dev/null
+          tar -xOf /tmp/termhub-agent-*.tgz package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const b=JSON.parse(s).bin||{};if(b["termhub-agent"]!=="dist/cli.js"){console.error("bin missing in tarball:",b);process.exit(1)}console.log("bin ok:",b)})'
       - name: Publicar
         run: npm publish -w @termhub/agent --access public --provenance
