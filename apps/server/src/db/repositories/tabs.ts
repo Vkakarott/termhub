@@ -2,6 +2,9 @@ import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
 import { mapTab, mapTabEvent, type Tab, type TabEvent, type TabKind, type TabState } from './types.js';
 
+/** A flood of hook events cannot grow the log without bound: only this many are kept per tab. */
+const EVENTS_KEPT_PER_TAB = 200;
+
 export class TabsRepository {
   constructor(private db: PrismaClient) {}
 
@@ -30,12 +33,13 @@ export class TabsRepository {
     return rows.map(mapTab);
   }
 
-  /** Monitor: records the event and makes it the tab's current state. */
+  /** Monitor: records the event and makes it the tab's current state; keeps only the newest events per tab. */
   async recordEvent(tabId: string, event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown> }): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
     const [e, t] = await this.db.$transaction([
       this.db.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } }),
       this.db.tab.update({ where: { id: tabId }, data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at } }),
+      this.db.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`,
     ]);
     return { tab: mapTab(t), event: mapTabEvent(e) };
   }

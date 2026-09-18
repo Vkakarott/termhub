@@ -36,9 +36,9 @@ describe('interpretHookEvent — claude', () => {
 });
 
 describe('interpretHookEvent — codex', () => {
-  it('maps agent-turn-complete to idle with the last assistant message', () => {
+  it('maps agent-turn-complete to waiting_input (its only "needs you" signal) with the last assistant message', () => {
     expect(interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': 'Done. Want me to run the tests?', 'input-messages': ['private'] })).toEqual({
-      kind: 'idle',
+      kind: 'waiting_input',
       text: 'Done. Want me to run the tests?',
       meta: { event: 'agent-turn-complete' },
     });

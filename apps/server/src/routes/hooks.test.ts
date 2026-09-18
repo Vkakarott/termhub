@@ -61,6 +61,12 @@ describe('POST /api/hooks/events', () => {
     expect(recordEvent).not.toHaveBeenCalled();
   });
 
+  it('rejects before reading the body: a bad token with an oversized or invalid body is still a plain 401', async () => {
+    const { app } = buildApp();
+    const r = await app.inject({ method: 'POST', url: '/api/hooks/events', headers: { authorization: 'Bearer nope', 'content-type': 'application/json' }, payload: '{not json' });
+    expect(r.statusCode).toBe(401);
+  });
+
   it('validates the body', async () => {
     const { app } = buildApp();
     expect((await post(app, { tool: 'vim', session: tab.tmux_session, event: {} })).statusCode).toBe(400);
