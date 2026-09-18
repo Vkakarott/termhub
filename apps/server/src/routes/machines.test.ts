@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
 
+import { CLOSE } from '@termhub/agent-protocol';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, MachineType } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
@@ -138,7 +139,7 @@ describe('POST /api/machines/:id/agent-token (rotation)', () => {
     const body = res.json();
     expect(AGENT_TOKEN_RE.test(body.agent_token)).toBe(true);
     expect(built.repos.rotateAgentToken).toHaveBeenCalledWith('m1', hashAgentToken(body.agent_token));
-    expect(disconnect).toHaveBeenCalledWith('m1', expect.any(Number), 'rotated');
+    expect(disconnect).toHaveBeenCalledWith('m1', CLOSE.UNAUTHORIZED, 'rotated');
   });
 
   it('rejects rotation on a non-agent machine (400)', async () => {
@@ -179,7 +180,7 @@ describe('DELETE /api/machines/:id', () => {
     const disconnect = vi.spyOn(agents, 'disconnect');
     const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1' });
     expect(res.statusCode).toBe(200);
-    expect(disconnect).toHaveBeenCalledWith('m1', expect.any(Number), 'deleted');
+    expect(disconnect).toHaveBeenCalledWith('m1', CLOSE.UNAUTHORIZED, 'deleted');
   });
 });
 
@@ -199,8 +200,10 @@ describe('GET /api/machines/:id/status', () => {
 });
 
 describe('GET /api/machines/:id/simulators', () => {
-  it('answers 409 for an agent machine', async () => {
-    store.m1 = makeMachine({ id: 'm1', type: 'agent', os: 'macos', capabilities: ['xcodebuild'] });
+  it('answers 409 for an agent machine, before the "is this a Mac" check', async () => {
+    // No os/capabilities set (a freshly enrolled agent machine): the agent guard must run
+    // before requireMac, or this would 400 with "Esta máquina não é um Mac com Xcode" instead.
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
     ({ app } = buildApp(store));
     const res = await app.inject({ method: 'GET', url: '/api/machines/m1/simulators' });
     expect(res.statusCode).toBe(409);

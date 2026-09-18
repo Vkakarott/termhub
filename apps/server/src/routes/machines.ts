@@ -124,6 +124,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/:id/simulators', async (request) => {
     const { id } = idParam.parse(request.params);
     const machine = await scoped(repos, request).machine(id);
+    if (machine.type === 'agent') throw conflict('Simulador indisponível em máquinas com agente');
     requireMac(machine);
     return { simulators: await listSimulators(machine) };
   });
