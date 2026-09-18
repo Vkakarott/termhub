@@ -37,20 +37,31 @@ export function registerAgentWs(router: ReturnType<typeof createUpgradeRouter>, 
           if (hello.protocol > PROTOCOL_VERSION) return conn.close(CLOSE.CONFLICT, 'protocol');
           registry.attach(machine.id, conn);
 
+          // Register the close listener before the first `await`: if the agent disconnects
+          // while `touch()` below is in flight, `closed` catches it so the intervals are never
+          // created — otherwise they'd run forever on a dead connection (this listener would
+          // never fire to clear them, since it wouldn't exist yet when 'close' fired).
+          let closed = false;
+          let seen: ReturnType<typeof setInterval> | undefined;
+          let beat: ReturnType<typeof setInterval> | undefined;
+          conn.on('close', () => {
+            closed = true;
+            if (seen) clearInterval(seen);
+            if (beat) clearInterval(beat);
+          });
+
           const touch = (extra: { version?: string; os?: string; capabilities?: string[] } = {}) =>
             deps.repos.machines
               .touchAgent(machine.id, { lastSeenAt: new Date(), ...extra })
               .catch((err) => log.warn({ err, machineId: machine.id }, 'touchAgent failed'));
 
           await touch({ version: hello.agent_version, os: hello.os, capabilities: hello.tools });
-          const seen = setInterval(() => void touch(), TOUCH_INTERVAL_MS);
+          if (closed) return;
+
+          seen = setInterval(() => void touch(), TOUCH_INTERVAL_MS);
           seen.unref();
-          const beat = setInterval(() => conn.heartbeat(), HEARTBEAT_INTERVAL_MS);
+          beat = setInterval(() => conn.heartbeat(), HEARTBEAT_INTERVAL_MS);
           beat.unref();
-          conn.on('close', () => {
-            clearInterval(seen);
-            clearInterval(beat);
-          });
 
           log.info({ machineId: machine.id, agentVersion: hello.agent_version, os: hello.os }, 'agent connected');
         },

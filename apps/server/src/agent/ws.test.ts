@@ -115,8 +115,11 @@ describe('registerAgentWs', () => {
 
   it('bearer token that hashes to no machine → 401', async () => {
     await start();
-    const res = await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${'b'.repeat(50)}` });
+    // Well-formed (matches AGENT_TOKEN_RE) but distinct from GOOD, so this actually exercises
+    // the findByAgentTokenHash() miss path rather than the regex check above it.
+    const res = await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer thb_ag_${'b'.repeat(43)}` });
     expect(res.statusCode).toBe(401);
+    expect(repos.machines.findByAgentTokenHash).toHaveBeenCalled();
   });
 
   it('valid token: upgrade succeeds, hello marks the machine online and touches it', async () => {
@@ -175,5 +178,51 @@ describe('registerAgentWs', () => {
     expect(closed.code).toBe(CLOSE.CONFLICT);
     expect(closed.reason).toBe('protocol');
     expect(registry.isOnline('m1')).toBe(false);
+  });
+
+  it('connection closing while the initial touch() is still in flight leaves no dangling interval', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    try {
+      await start();
+      const res = await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` });
+      const ws = res.ws!;
+
+      // Hold the initial touchAgent() call pending so we can close the socket while it's
+      // still in flight — the exact race the fix (registering conn.on('close', ...) before
+      // the await) has to survive.
+      let releaseTouch: (() => void) | undefined;
+      const firstTouchCalled = new Promise<void>((resolve) => {
+        repos.machines.touchAgent.mockImplementationOnce(() => {
+          resolve();
+          return new Promise<void>((r) => {
+            releaseTouch = r;
+          });
+        });
+      });
+
+      const hello = {
+        type: 'hello',
+        protocol: PROTOCOL_VERSION,
+        agent_version: '0.1.0',
+        os: 'linux',
+        arch: 'x64',
+        hostname: 'box',
+        tmux: true,
+        tools: ['tmux'],
+      };
+      ws.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify(hello)));
+      await firstTouchCalled;
+
+      const offline = new Promise<void>((resolve) => registry.once('offline', () => resolve()));
+      ws.terminate();
+      await offline; // server processed the close while the initial touch() was still pending
+
+      releaseTouch?.(); // let the in-flight touch() resolve now that the connection is closed
+      await vi.advanceTimersByTimeAsync(70_000); // past both the 20s heartbeat and 60s touch intervals
+
+      expect(repos.machines.touchAgent).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
