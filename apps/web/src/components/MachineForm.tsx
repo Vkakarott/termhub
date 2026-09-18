@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { Modal } from './Modal';
 import { SimulatorSetupCard } from './SimulatorSetupCard';
@@ -202,11 +202,16 @@ export function MachineForm({ open, onClose, machine }: Props) {
     }
   };
 
+  // Stable across re-renders (MachineForm re-renders on every DataContext change, e.g. the
+  // 30 s status loop): a new function identity on each render would retrigger AgentEnrollment's
+  // polling effect and restart its interval.
+  const onConnectedEnrolled = useCallback(() => void refresh(), [refresh]);
+
   if (enrollment) {
     return (
       <Modal title={enrollment.machine.name} open={open} onClose={onClose}>
         <div className="space-y-3">
-          <AgentEnrollment machine={enrollment.machine} token={enrollment.token} onConnected={() => void refresh()} />
+          <AgentEnrollment machine={enrollment.machine} token={enrollment.token} onConnected={onConnectedEnrolled} />
           <div className="flex justify-end pt-2">
             <button type="button" className="btn-primary" onClick={onClose}>
               Fechar

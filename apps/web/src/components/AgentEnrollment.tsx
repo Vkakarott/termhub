@@ -47,6 +47,14 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
   const [os, setOs] = useState<string | null>(null);
   const [agentVersion, setAgentVersion] = useState<string | null>(null);
   const notifiedRef = useRef(false);
+  // Kept up to date in its own effect and read from the polling effect below, so that an
+  // `onConnected` prop recreated on every parent render (a common case — see MachineForm,
+  // which re-renders whenever DataContext changes, e.g. the 30 s status loop) does not
+  // retrigger the polling effect and restart the interval / re-fire `poll()` immediately.
+  const onConnectedRef = useRef(onConnected);
+  useEffect(() => {
+    onConnectedRef.current = onConnected;
+  }, [onConnected]);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +74,7 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
           }
           if (!notifiedRef.current) {
             notifiedRef.current = true;
-            onConnected?.();
+            onConnectedRef.current?.();
           }
         }
       } catch {
@@ -80,7 +88,7 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [machine.id, onConnected]);
+  }, [machine.id]);
 
   const origin = window.location.origin;
   const steps: Step[] = [
