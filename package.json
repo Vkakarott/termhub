@@ -1,6 +1,7 @@
 {
   "name": "termhub",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Terminais das suas m\u00e1quinas no navegador, organizados em M\u00e1quinas > Projetos > Tabs",
   "workspaces": [
