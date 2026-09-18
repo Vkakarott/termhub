@@ -118,7 +118,7 @@ On jarvis, `app.termhub.dev` sits behind a Cloudflare Access self-hosted applica
 
 ## Users and login
 
-There is no public sign-up. Create users through the CLI:
+There is no public sign-up. Invite people from the app (sidebar → ⚙ Configurações → Usuários → **Convidar**: e-mail, optional name, role) or create users through the CLI:
 
 ```bash
 npm run create-user -- --email you@example.com --name "Your Name" [--password ...] [--role ADMIN|MANAGER|AUTHENTICATED]
@@ -128,8 +128,12 @@ npm run create-user -- --email you@example.com --name "Your Name" [--password ..
 - **E-mail code (default):** enter the e-mail, receive a 6-digit code (expires in `LOGIN_CODE_TTL_MINUTES`, 5 attempts, max 3 sends every 10 min). Unknown e-mails get the same response, with no e-mail sent.
 - **Password:** optional (`--password`); "Sign in with password" button on the login screen.
 - The first user gets the `ADMIN` role; later ones `AUTHENTICATED` unless `--role` says otherwise.
+- **Invites:** an invite creates the user with the chosen role (no password), adds the e-mail to the Cloudflare Access allowlist when `CF_ACCOUNT_ID`/`CF_API_TOKEN` are set (see below) and sends an invite e-mail with the app link; the person then signs in with Google or an e-mail code. The users table shows who is still a pending invite (never signed in), whether each e-mail is in the Access allowlist, and lets you resend the invite (↻: e-mail + allowlist again). Deleting a user also removes the e-mail from the allowlist.
 - **Google:** set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and register `<PUBLIC_URL>/api/auth/google/callback` as an authorized redirect URI in the Google Cloud Console. By default only e-mails already registered can sign in (the `google_id` is linked on first sign-in). With `AUTH_GOOGLE_SIGNUP=true`, an unknown Google account creates the user with the `AUTH_DEFAULT_ROLE` role (default `AUTHENTICATED`) — sensible behind Cloudflare Access, which already gates who reaches the app.
 
+### Cloudflare Access allowlist sync
+
+When the app sits behind Cloudflare Access with an e-mail allowlist policy, invites keep that policy in sync: set `CF_ACCOUNT_ID` and `CF_API_TOKEN` (API token scoped to *Account · Access: Apps and Policies · Edit*), optionally `CF_ACCESS_APP_DOMAIN` (defaults to `PUBLIC_URL`'s host) and `CF_ACCESS_POLICY_NAME` (default `allowlist`). The server finds the Access application by domain, reads the named allow policy and adds/removes `email` rules in its include list (read-modify-write, serialized in-process); other rules in the policy are kept. `GET /api/users/access` returns the current list, which the users table uses for the "Access" column. Without these variables invites still create the user and send the e-mail.
 ### Roles and permissions
 
 Same model as the engenhariainversa CMS: a **role** is a named set of permissions, a **permission** is one `resource:action` grant (`create` / `read` / `update` / `delete`), roles flagged `is_admin` bypass every check, and system roles cannot be deleted. Resources: `machines`, `projects`, `terminals`, `tasks`, `notes`, `tickets`, `integrations`, `ai_accounts`, `hardware`, `waitlist`, `users`, `roles`.
@@ -195,7 +199,8 @@ See [.env.example](.env.example). Main ones:
 | `AUTH_MODE` | `app`, `cloudflare`, `disabled` (dev) or the combination `app,cloudflare` |
 | `PUBLIC_URL` | public URL (secure cookies and OAuth redirect) |
 | `DATABASE_URL` | Postgres (`postgresql://user:pass@host:5432/db`) |
-| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | login code delivery |
+| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | login code and invite delivery |
+| `CF_ACCOUNT_ID`/`CF_API_TOKEN`/`CF_ACCESS_APP_DOMAIN`/`CF_ACCESS_POLICY_NAME` | Cloudflare Access allowlist sync on invite/delete (optional) |
 | `BIND_ADDR` | (compose) host IP that publishes Mailpit's UI port; the prod app has no host port of its own (proxy nginx only) |
 | `ENCRYPTION_KEY` | base64 of 32 bytes (`openssl rand -base64 32`) for integration secrets |
 | `VITE_FIREBASE_*` | Firebase Analytics for the landing page; build args of the landing image, empty = no analytics |

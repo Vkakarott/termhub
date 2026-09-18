@@ -29,6 +29,10 @@ export interface User {
   /** DEPRECATED legacy flag; use role_id */
   role: UserRole;
   role_id: string | null;
+  /** set when the user was created by an invite */
+  invited_at: string | null;
+  /** last successful sign-in; null = never signed in */
+  last_login_at: string | null;
   created_at: string;
 }
 
@@ -126,6 +130,8 @@ export const mapUser = (u: PrismaUser): User => ({
   google_id: u.googleId,
   role: u.role,
   role_id: u.roleId,
+  invited_at: u.invitedAt?.toISOString() ?? null,
+  last_login_at: u.lastLoginAt?.toISOString() ?? null,
   created_at: u.createdAt.toISOString(),
 });
 

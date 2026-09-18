@@ -33,6 +33,8 @@ export type UserMinAggregateOutputType = {
   googleId: string | null
   role: $Enums.UserRole | null
   roleId: string | null
+  invitedAt: Date | null
+  lastLoginAt: Date | null
   createdAt: Date | null
 }
 
@@ -45,6 +47,8 @@ export type UserMaxAggregateOutputType = {
   googleId: string | null
   role: $Enums.UserRole | null
   roleId: string | null
+  invitedAt: Date | null
+  lastLoginAt: Date | null
   createdAt: Date | null
 }
 
@@ -57,6 +61,8 @@ export type UserCountAggregateOutputType = {
   googleId: number
   role: number
   roleId: number
+  invitedAt: number
+  lastLoginAt: number
   createdAt: number
   _all: number
 }
@@ -71,6 +77,8 @@ export type UserMinAggregateInputType = {
   googleId?: true
   role?: true
   roleId?: true
+  invitedAt?: true
+  lastLoginAt?: true
   createdAt?: true
 }
 
@@ -83,6 +91,8 @@ export type UserMaxAggregateInputType = {
   googleId?: true
   role?: true
   roleId?: true
+  invitedAt?: true
+  lastLoginAt?: true
   createdAt?: true
 }
 
@@ -95,6 +105,8 @@ export type UserCountAggregateInputType = {
   googleId?: true
   role?: true
   roleId?: true
+  invitedAt?: true
+  lastLoginAt?: true
   createdAt?: true
   _all?: true
 }
@@ -180,6 +192,8 @@ export type UserGroupByOutputType = {
   googleId: string | null
   role: $Enums.UserRole
   roleId: string | null
+  invitedAt: Date | null
+  lastLoginAt: Date | null
   createdAt: Date
   _count: UserCountAggregateOutputType | null
   _min: UserMinAggregateOutputType | null
@@ -213,6 +227,8 @@ export type UserWhereInput = {
   googleId?: Prisma.StringNullableFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleFilter<"User"> | $Enums.UserRole
   roleId?: Prisma.StringNullableFilter<"User"> | string | null
+  invitedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  lastLoginAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
@@ -227,6 +243,8 @@ export type UserOrderByWithRelationInput = {
   googleId?: Prisma.SortOrderInput | Prisma.SortOrder
   role?: Prisma.SortOrder
   roleId?: Prisma.SortOrderInput | Prisma.SortOrder
+  invitedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastLoginAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   roleRef?: Prisma.RoleOrderByWithRelationInput
   sessions?: Prisma.SessionOrderByRelationAggregateInput
@@ -244,6 +262,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   passwordHash?: Prisma.StringNullableFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleFilter<"User"> | $Enums.UserRole
   roleId?: Prisma.StringNullableFilter<"User"> | string | null
+  invitedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  lastLoginAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
@@ -258,6 +278,8 @@ export type UserOrderByWithAggregationInput = {
   googleId?: Prisma.SortOrderInput | Prisma.SortOrder
   role?: Prisma.SortOrder
   roleId?: Prisma.SortOrderInput | Prisma.SortOrder
+  invitedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastLoginAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
   _max?: Prisma.UserMaxOrderByAggregateInput
@@ -276,6 +298,8 @@ export type UserScalarWhereWithAggregatesInput = {
   googleId?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleWithAggregatesFilter<"User"> | $Enums.UserRole
   roleId?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  invitedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
+  lastLoginAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
 }
 
@@ -287,6 +311,8 @@ export type UserCreateInput = {
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
@@ -301,6 +327,8 @@ export type UserUncheckedCreateInput = {
   googleId?: string | null
   role?: $Enums.UserRole
   roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
 }
@@ -313,6 +341,8 @@ export type UserUpdateInput = {
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
@@ -327,6 +357,8 @@ export type UserUncheckedUpdateInput = {
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
   roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
 }
@@ -340,6 +372,8 @@ export type UserCreateManyInput = {
   googleId?: string | null
   role?: $Enums.UserRole
   roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
 }
 
@@ -351,6 +385,8 @@ export type UserUpdateManyMutationInput = {
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -363,6 +399,8 @@ export type UserUncheckedUpdateManyInput = {
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
   roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -375,6 +413,8 @@ export type UserCountOrderByAggregateInput = {
   googleId?: Prisma.SortOrder
   role?: Prisma.SortOrder
   roleId?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrder
+  lastLoginAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -387,6 +427,8 @@ export type UserMaxOrderByAggregateInput = {
   googleId?: Prisma.SortOrder
   role?: Prisma.SortOrder
   roleId?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrder
+  lastLoginAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -399,6 +441,8 @@ export type UserMinOrderByAggregateInput = {
   googleId?: Prisma.SortOrder
   role?: Prisma.SortOrder
   roleId?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrder
+  lastLoginAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -427,6 +471,10 @@ export type NullableStringFieldUpdateOperationsInput = {
 
 export type EnumUserRoleFieldUpdateOperationsInput = {
   set?: $Enums.UserRole
+}
+
+export type NullableDateTimeFieldUpdateOperationsInput = {
+  set?: Date | string | null
 }
 
 export type DateTimeFieldUpdateOperationsInput = {
@@ -497,6 +545,8 @@ export type UserCreateWithoutRoleRefInput = {
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
 }
@@ -509,6 +559,8 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
 }
@@ -551,6 +603,8 @@ export type UserScalarWhereInput = {
   googleId?: Prisma.StringNullableFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleFilter<"User"> | $Enums.UserRole
   roleId?: Prisma.StringNullableFilter<"User"> | string | null
+  invitedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  lastLoginAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
 }
 
@@ -562,6 +616,8 @@ export type UserCreateWithoutSessionsInput = {
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
 }
@@ -575,6 +631,8 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   googleId?: string | null
   role?: $Enums.UserRole
   roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
 }
 
@@ -602,6 +660,8 @@ export type UserUpdateWithoutSessionsInput = {
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
 }
@@ -615,6 +675,8 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
   roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -626,6 +688,8 @@ export type UserCreateManyRoleRefInput = {
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
   createdAt?: Date | string
 }
 
@@ -637,6 +701,8 @@ export type UserUpdateWithoutRoleRefInput = {
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
 }
@@ -649,6 +715,8 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
 }
@@ -661,6 +729,8 @@ export type UserUncheckedUpdateManyWithoutRoleRefInput = {
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -704,6 +774,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   googleId?: boolean
   role?: boolean
   roleId?: boolean
+  invitedAt?: boolean
+  lastLoginAt?: boolean
   createdAt?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -719,6 +791,8 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   googleId?: boolean
   role?: boolean
   roleId?: boolean
+  invitedAt?: boolean
+  lastLoginAt?: boolean
   createdAt?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
@@ -732,6 +806,8 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   googleId?: boolean
   role?: boolean
   roleId?: boolean
+  invitedAt?: boolean
+  lastLoginAt?: boolean
   createdAt?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
@@ -745,10 +821,12 @@ export type UserSelectScalar = {
   googleId?: boolean
   role?: boolean
   roleId?: boolean
+  invitedAt?: boolean
+  lastLoginAt?: boolean
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "passwordHash" | "googleId" | "role" | "roleId" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -779,6 +857,14 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
      */
     role: $Enums.UserRole
     roleId: string | null
+    /**
+     * set when the user was created by an invite (Settings → Usuários → Convidar)
+     */
+    invitedAt: Date | null
+    /**
+     * last successful sign-in; null = never (an invite still pending)
+     */
+    lastLoginAt: Date | null
     createdAt: Date
   }, ExtArgs["result"]["user"]>
   composites: {}
@@ -1213,6 +1299,8 @@ export interface UserFieldRefs {
   readonly googleId: Prisma.FieldRef<"User", 'String'>
   readonly role: Prisma.FieldRef<"User", 'UserRole'>
   readonly roleId: Prisma.FieldRef<"User", 'String'>
+  readonly invitedAt: Prisma.FieldRef<"User", 'DateTime'>
+  readonly lastLoginAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
 }
     

@@ -43,6 +43,10 @@ model User {
   role         UserRole  @default(member)
   roleId       String?   @map("role_id")
   roleRef      Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  /// set when the user was created by an invite (Settings → Usuários → Convidar)
+  invitedAt    DateTime? @map("invited_at")
+  /// last successful sign-in; null = never (an invite still pending)
+  lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   sessions     Session[]
 

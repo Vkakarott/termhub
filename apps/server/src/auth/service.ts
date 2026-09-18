@@ -163,6 +163,7 @@ export class AuthService {
     const token = generateToken(32);
     const expiresAt = new Date(Date.now() + config.auth.sessionTtlMs);
     await this.repos.sessions.create(userId, hashToken(token), expiresAt);
+    await this.repos.users.touchLogin(userId);
     return { token, csrf: generateToken(24), expiresAt };
   }
 

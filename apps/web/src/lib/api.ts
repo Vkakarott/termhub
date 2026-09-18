@@ -1,4 +1,4 @@
-import type { PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -138,8 +138,11 @@ export const api = {
   },
   users: {
     list: () => request<{ users: User[] }>('GET', '/users'),
+    access: () => request<AccessStatus>('GET', '/users/access'),
+    invite: (input: { email: string; name?: string; role_id: string }) => request<InviteResult>('POST', '/users/invite', input),
+    resendInvite: (id: string) => request<InviteResult>('POST', `/users/${id}/invite`),
     setRole: (id: string, role_id: string) => request<{ user: User }>('PATCH', `/users/${id}`, { role_id }),
-    remove: (id: string) => request<{ ok: true }>('DELETE', `/users/${id}`),
+    remove: (id: string) => request<{ ok: true; access_removed: boolean }>('DELETE', `/users/${id}`),
   },
   waitlist: {
     list: () => request<{ entries: WaitlistEntry[] }>('GET', '/waitlist'),

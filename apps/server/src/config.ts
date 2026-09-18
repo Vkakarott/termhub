@@ -34,6 +34,15 @@ const envSchema = z.object({
   CF_TEAM_DOMAIN: z.string().optional(),
   CF_AUD: z.string().optional(),
 
+  // Cloudflare Access allowlist sync (invites add/remove e-mails on the app's allow policy).
+  // Token scope: Account · Access: Apps and Policies · Edit.
+  CF_ACCOUNT_ID: z.string().optional(),
+  CF_API_TOKEN: z.string().optional(),
+  /** Access application domain; defaults to PUBLIC_URL's host */
+  CF_ACCESS_APP_DOMAIN: z.string().optional(),
+  /** name of the allow policy whose include list holds the e-mails */
+  CF_ACCESS_POLICY_NAME: z.string().default('allowlist'),
+
   LOCAL_SHELL: z.string().optional(),
   TMUX_PATH: z.string().default('tmux'),
   SEED_LOCAL_MACHINE: z.enum(['true', 'false']).default('true'),
@@ -110,6 +119,15 @@ export const config = {
         : null,
     loginCodeTtlMs: env.LOGIN_CODE_TTL_MINUTES * 60 * 1000,
   },
+  cloudflareAccess:
+    env.CF_ACCOUNT_ID && env.CF_API_TOKEN
+      ? {
+          accountId: env.CF_ACCOUNT_ID,
+          apiToken: env.CF_API_TOKEN,
+          appDomain: env.CF_ACCESS_APP_DOMAIN || new URL(env.PUBLIC_URL).host,
+          policyName: env.CF_ACCESS_POLICY_NAME,
+        }
+      : null,
   email: {
     smtp: env.SMTP_HOST
       ? {

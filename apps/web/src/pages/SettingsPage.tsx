@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import type { PermissionAction, ResourcePermissions, Role, User } from '../lib/types';
+import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, User } from '../lib/types';
 import { ConfirmDialog, Modal } from '../components/Modal';
 
 /**
@@ -47,12 +47,98 @@ export function SettingsPage() {
 
 // ── Users ────────────────────────────────────────────────────────────────────
 
+/** Human summary of what an invite (or resend) managed to do. */
+function inviteSummary(r: InviteResult): { text: string; warn: boolean } {
+  const parts: string[] = [];
+  let warn = false;
+  if (r.access.configured) {
+    if (r.access.synced) parts.push('liberado no Cloudflare Access');
+    else {
+      parts.push(`não foi liberado no Cloudflare Access (${r.access.error ?? 'erro'})`);
+      warn = true;
+    }
+  }
+  if (r.mail.sent) parts.push('e-mail de convite enviado');
+  else {
+    parts.push(`e-mail não enviado (${r.mail.error ?? 'erro'})`);
+    warn = true;
+  }
+  return { text: `${r.user.email}: ${parts.join(', ')}.`, warn };
+}
+
+function InviteForm({ roles, onClose, onDone }: { roles: Role[]; onClose: () => void; onDone: (r: InviteResult) => void }) {
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [roleId, setRoleId] = useState(roles.find((r) => r.name === 'AUTHENTICATED')?.id ?? roles[0]?.id ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(await api.users.invite({ email: email.trim(), name: name.trim() || undefined, role_id: roleId }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao convidar');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="Convidar usuário" open onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <p className="text-xs text-fg-muted">O usuário é criado com a role escolhida, o e-mail é liberado no Cloudflare Access (quando configurado) e recebe um convite. Ele entra com Google ou com o código enviado por e-mail.</p>
+        <div>
+          <label className="label">E-mail</label>
+          <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus placeholder="pessoa@exemplo.com" />
+        </div>
+        <div>
+          <label className="label">Nome (opcional)</label>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Como aparece no app" />
+        </div>
+        <div>
+          <label className="label">Role</label>
+          <select className="input" value={roleId} onChange={(e) => setRoleId(e.target.value)} required>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+                {r.is_admin ? ' (admin)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="submit" className="btn-primary" disabled={busy || !roleId}>
+            {busy ? 'Convidando…' : 'Convidar'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function UsersSection() {
   const { user: me, can } = useAuth();
   const [users, setUsers] = useState<User[] | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [access, setAccess] = useState<AccessStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; warn: boolean } | null>(null);
+  const [inviting, setInviting] = useState(false);
+  const [resending, setResending] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
+
+  const loadAccess = useCallback(async () => {
+    try {
+      setAccess(await api.users.access());
+    } catch {
+      setAccess(null);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -63,10 +149,13 @@ function UsersSection() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao carregar');
     }
-  }, []);
+    void loadAccess();
+  }, [loadAccess]);
   useEffect(() => {
     void load();
   }, [load]);
+
+  const allowed = useMemo(() => new Set((access?.emails ?? []).map((e) => e.toLowerCase())), [access]);
 
   const setRole = async (u: User, roleId: string) => {
     try {
@@ -78,15 +167,66 @@ function UsersSection() {
     }
   };
 
+  const onInvited = (r: InviteResult) => {
+    setInviting(false);
+    setUsers((l) => [...(l ?? []), r.user]);
+    setNotice(inviteSummary(r));
+    void loadAccess();
+  };
+
+  const resend = async (u: User) => {
+    setResending(u.id);
+    try {
+      setNotice(inviteSummary(await api.users.resendInvite(u.id)));
+      void loadAccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Erro ao reenviar o convite');
+    } finally {
+      setResending(null);
+    }
+  };
+
+  const accessCell = (u: User) => {
+    if (!access) return <span className="text-fg-dim">…</span>;
+    if (!access.configured) return <span className="text-fg-dim" title="CF_ACCOUNT_ID / CF_API_TOKEN não configurados">—</span>;
+    if (access.error) return <span className="text-danger" title={access.error}>erro</span>;
+    return allowed.has(u.email.toLowerCase()) ? (
+      <span className="text-ok" title={`Liberado em ${access.domain}`}>✓ liberado</span>
+    ) : (
+      <span className="text-warn" title={`Não está na policy ${access.policy} de ${access.domain}`}>não liberado</span>
+    );
+  };
+
   return (
-    <div className="max-w-4xl">
-      <div className="mb-4">
-        <h1 className="text-lg font-semibold">Usuários</h1>
-        <p className="text-sm text-fg-muted">
-          {users ? `${users.length} usuário(s).` : 'Carregando…'} Novos usuários entram pela CLI (<code className="font-mono text-xs">npm run create-user</code>) ou pelo primeiro login com Google, quando ativado.
-        </p>
+    <div className="max-w-5xl">
+      <div className="mb-4 flex items-start gap-3">
+        <div>
+          <h1 className="text-lg font-semibold">Usuários</h1>
+          <p className="text-sm text-fg-muted">
+            {users ? `${users.length} usuário(s).` : 'Carregando…'} Convide pelo e-mail: o usuário entra com Google ou com o código enviado por e-mail.
+            {access?.configured && (
+              <>
+                {' '}
+                Convites também liberam o e-mail no Cloudflare Access de <code className="font-mono text-xs">{access.domain}</code>.
+              </>
+            )}
+          </p>
+        </div>
+        {can('users', 'create') && (
+          <button className="btn-primary ml-auto text-xs" onClick={() => setInviting(true)}>
+            Convidar
+          </button>
+        )}
       </div>
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+      {notice && (
+        <p className={`mb-3 flex items-start gap-2 rounded border px-3 py-2 text-sm ${notice.warn ? 'border-warn/40 bg-warn/10 text-warn' : 'border-ok/40 bg-ok/10 text-ok'}`}>
+          <span className="flex-1">{notice.text}</span>
+          <button className="text-xs opacity-70 hover:opacity-100" onClick={() => setNotice(null)}>
+            ✕
+          </button>
+        </p>
+      )}
       {users && (
         <div className="overflow-x-auto rounded-lg border border-line bg-bg-2">
           <table className="w-full text-sm">
@@ -95,6 +235,7 @@ function UsersSection() {
                 <th className="px-3 py-2">Nome</th>
                 <th className="px-3 py-2">E-mail</th>
                 <th className="px-3 py-2">Login</th>
+                <th className="px-3 py-2">Access</th>
                 <th className="px-3 py-2">Role</th>
                 <th className="px-3 py-2" />
               </tr>
@@ -107,12 +248,18 @@ function UsersSection() {
                       {u.avatar_url ? <img src={u.avatar_url} alt="" className="h-5 w-5 rounded-full" referrerPolicy="no-referrer" /> : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-bg-4 text-[10px]">{u.name[0]?.toUpperCase()}</span>}
                       {u.name}
                       {u.id === me?.id && <span className="text-[10px] text-fg-dim">(você)</span>}
+                      {u.invited_at && !u.last_login_at && (
+                        <span className="rounded bg-bg-4 px-1.5 py-0.5 text-[10px] text-fg-dim" title={`Convidado em ${new Date(u.invited_at).toLocaleString('pt-BR')}`}>
+                          convite pendente
+                        </span>
+                      )}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-fg-muted">{u.email}</td>
                   <td className="px-3 py-2 text-xs text-fg-dim">
                     {[u.has_google && 'Google', u.has_password && 'senha', 'e-mail'].filter(Boolean).join(' · ')}
                   </td>
+                  <td className="px-3 py-2 text-xs">{accessCell(u)}</td>
                   <td className="px-3 py-2">
                     {can('users', 'update') ? (
                       <select className="input w-auto py-1 text-xs" value={u.role_info?.id ?? ''} onChange={(e) => void setRole(u, e.target.value)}>
@@ -127,7 +274,17 @@ function UsersSection() {
                       <span className="text-xs">{u.role_info?.label ?? '—'}</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="whitespace-nowrap px-3 py-2 text-right">
+                    {can('users', 'update') && u.id !== me?.id && (
+                      <button
+                        className="mr-1 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg disabled:opacity-50"
+                        title="Reenviar convite (e-mail + Cloudflare Access)"
+                        disabled={resending === u.id}
+                        onClick={() => void resend(u)}
+                      >
+                        {resending === u.id ? '…' : '↻'}
+                      </button>
+                    )}
                     {can('users', 'delete') && u.id !== me?.id && (
                       <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-danger" title="Excluir" onClick={() => setDeleting(u)}>
                         ✕
@@ -140,12 +297,13 @@ function UsersSection() {
           </table>
         </div>
       )}
+      {inviting && <InviteForm roles={roles} onClose={() => setInviting(false)} onDone={onInvited} />}
       <ConfirmDialog
         open={!!deleting}
         title="Excluir usuário"
         message={
           <>
-            Excluir <strong>{deleting?.email}</strong>? As sessões dele são encerradas.
+            Excluir <strong>{deleting?.email}</strong>? As sessões dele são encerradas{access?.configured ? ' e o e-mail sai do Cloudflare Access' : ''}.
           </>
         }
         confirmLabel="Excluir"
@@ -156,6 +314,7 @@ function UsersSection() {
           try {
             await api.users.remove(deleting.id);
             setUsers((l) => (l ?? []).filter((x) => x.id !== deleting.id));
+            void loadAccess();
           } catch (err) {
             setError(err instanceof ApiError ? err.message : 'Erro ao excluir');
           }
