@@ -7,17 +7,49 @@
 #     docker compose --profile dev up --build
 #     → app http://localhost:5173 · API http://localhost:3000 · Mailpit http://localhost:8025
 #
-#   Produção (imagem otimizada, Fastify serve o build do frontend):
-#     docker compose --profile prod up -d --build
-#     → http://127.0.0.1:${PORT:-3000} (publique via Cloudflare Tunnel)
+#   Produção (imagem otimizada, Fastify serve o build do frontend; blue/green atrás do proxy):
+#     bash deploy/blue-green.sh
+#     → sem porta de host: o proxy nginx fala com o container ativo pela rede "proxy"
 #
 # ATENÇÃO: dentro do Docker a máquina "local" é o container. Para abrir terminais
 # no próprio host, cadastre-o como máquina SSH (host.docker.internal). O container
 # gera sua própria chave SSH no primeiro boot (volume "sshkeys"); a chave pública
-# aparece na tela de nova máquina e em: docker compose exec app cat /home/app/.ssh/id_ed25519.pub
+# aparece na tela de nova máquina e em (prod, blue/green):
+#   docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) cat /home/app/.ssh/id_ed25519.pub
 
 # Nome fixo: volumes/containers ficam "termhub_*" independentemente do diretório (CI faz checkout em outro lugar).
 name: termhub
+
+# Shared config for the prod blue/green pair (see services.app-blue / app-green below).
+x-app: &app
+  profiles: ["prod"]
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: termhub-app
+  restart: unless-stopped
+  env_file: ${ENV_FILE:-.env}
+  environment:
+    NODE_ENV: production
+    HOST: 0.0.0.0
+    PORT: 3000
+    DATABASE_URL: postgresql://${POSTGRES_USER:-termhub}:${POSTGRES_PASSWORD:-termhub}@db:5432/${POSTGRES_DB:-termhub}
+    # SMTP: no .env use SMTP_HOST=mailpit (caixa local) ou um SMTP real
+    SEED_LOCAL_MACHINE: ${SEED_LOCAL_MACHINE:-false}
+    TZ: ${TZ:-America/Sao_Paulo}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  volumes:
+    - sshkeys:/home/app/.ssh
+  depends_on:
+    db:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+    interval: 15s
+    timeout: 5s
+    retries: 5
+    start_period: 20s
 
 services:
   db:
@@ -85,37 +117,16 @@ services:
       mailpit:
         condition: service_started
 
-  # ── Prod ───────────────────────────────────────────────────────────
-  app:
-    profiles: ["prod"]
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:${PORT:-3000}:3000"
-    env_file: ${ENV_FILE:-.env}
-    environment:
-      NODE_ENV: production
-      HOST: 0.0.0.0
-      PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-termhub}:${POSTGRES_PASSWORD:-termhub}@db:5432/${POSTGRES_DB:-termhub}
-      # SMTP: no .env use SMTP_HOST=mailpit (caixa local) ou um SMTP real
-      SEED_LOCAL_MACHINE: ${SEED_LOCAL_MACHINE:-false}
-      TZ: ${TZ:-America/Sao_Paulo}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - sshkeys:/home/app/.ssh
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+  # ── Prod: blue/green pair behind the proxy, switched by deploy/blue-green.sh
+  # for zero-downtime deploys. Same image tag on both (built once, reused);
+  # only the container name differs — no host port: the proxy nginx reaches
+  # whichever container is active over the "proxy" docker network (see
+  # docker-compose.proxy.yml). ─────────────────────────────────────────
+  app-blue:
+    <<: *app
+
+  app-green:
+    <<: *app
 
 volumes:
   pgdata:

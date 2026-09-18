@@ -16,8 +16,10 @@
     sh -c 'npm run typecheck -w server && npm run build -w web'
   rm -rf .npm   # cache the container leaves behind
   ```
-- A push to `main` deploys to production (GitHub Actions → self-hosted runner on jarvis). A broken `check` job blocks the deploy, but do not rely on it: verify locally first.
-- After a deploy, confirm with `docker ps --filter name=termhub-app` (healthy) and `curl -s -o /dev/null -w '%{http_code}' https://termhub.dev/`.
+- A push to `main` deploys to production (GitHub Actions → self-hosted runner on jarvis) via `deploy/blue-green.sh`: it builds and healthchecks the inactive color (blue/green), switches the proxy nginx vhost to it, then retires the old container after a grace period — the previous container keeps serving until the switch succeeds, so there is no HTTP 502 window; open terminal WebSockets pinned to the old container reconnect (to the new one) when it stops. A broken `check` job blocks the deploy, but do not rely on it: verify locally first.
+- Migrations must stay backward compatible with the previous release: the old container keeps serving requests while the new one runs `prisma migrate deploy` and becomes healthy.
+- After a deploy, confirm with `docker ps --filter name=termhub-app` (shows the active color, healthy) and `curl -s -o /dev/null -w '%{http_code}' https://termhub.dev/`.
+- To roll back on jarvis: `bash deploy/blue-green.sh --rollback` starts the other, stopped color and switches the vhost back to it — but only once a color has been active at least once. **Right after the very first blue/green deploy**, there is no stopped color yet; the only fallback is the retired legacy container (`termhub-app-legacy`, renamed and stopped, not removed). Roll back to it by hand: `docker start termhub-app-legacy`, edit `proxy_pass` in the vhost (`/mnt/hd2tb/proxy/nginx/conf.d/termhub.dev.conf`) to `http://termhub-app-legacy:3000;`, `docker exec proxy-nginx nginx -t && docker exec proxy-nginx nginx -s reload`, then stop the color that `deploy/blue-green.sh` started (`docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod stop app-<color>`).
 
 ## Architecture rules
 
