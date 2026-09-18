@@ -37,8 +37,8 @@ function setupSteps(os: TargetOs, publicKey: string | null): SetupStep[] {
     return [
       {
         title: 'Ligar o servidor SSH',
-        text: 'Ajustes do Sistema → Geral → Compartilhamento → Sessão Remota (ligado, com o seu usuário). Ou pelo terminal:',
-        command: 'sudo systemsetup -setremotelogin on',
+        text: 'Ajustes do Sistema → Geral → Compartilhamento → Sessão Remota (ligado, com o seu usuário permitido). Pelo terminal, o comando abaixo sobe o sshd sem precisar de Acesso Total ao Disco (o "systemsetup -setremotelogin" exige):',
+        command: 'sudo launchctl enable system/com.openssh.sshd && sudo launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist',
       },
       {
         title: 'Instalar o tmux',
