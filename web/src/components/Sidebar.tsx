@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useData, type MachineStatus } from '../lib/data';
-import type { Machine } from '../lib/types';
+import type { Machine, Project } from '../lib/types';
 import { MachineForm } from './MachineForm';
 import { ProjectForm } from './ProjectForm';
 import { ConfirmDialog } from './Modal';
@@ -14,14 +14,17 @@ const STATUS_DOT: Record<MachineStatus, string> = {
 };
 const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', online: 'online', offline: 'offline' };
 
-export function Sidebar() {
+export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout } = useAuth();
-  const { machines, projects, statuses, missingTmux, loading, deleteMachine, checkStatus } = useData();
+  const { machines, projects, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
   const navigate = useNavigate();
+  const location = useLocation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [machineForm, setMachineForm] = useState<{ open: boolean; machine?: Machine | null }>({ open: false });
   const [projectForm, setProjectForm] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Machine | null>(null);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
   const visibleProjects = projects.filter((p) => showArchived || p.status !== 'archived');
@@ -33,9 +36,16 @@ export function Sidebar() {
         <NavLink to="/" className="text-sm font-semibold tracking-tight">
           <span className="text-accent">▮</span> termhub
         </NavLink>
-        <button className="btn-ghost px-2 py-1 text-xs" title="Nova máquina" onClick={() => setMachineForm({ open: true, machine: null })}>
-          + máquina
-        </button>
+        <span className="flex items-center gap-0.5">
+          <button className="btn-ghost px-2 py-1 text-xs" title="Nova máquina" onClick={() => setMachineForm({ open: true, machine: null })}>
+            + máquina
+          </button>
+          {onCollapse && (
+            <button className="rounded px-1.5 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onCollapse} title="Recolher sidebar" aria-label="Recolher sidebar">
+              «
+            </button>
+          )}
+        </span>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto py-2">
@@ -96,23 +106,39 @@ export function Sidebar() {
                     </li>
                   )}
                   {mProjects.map((p) => (
-                    <li key={p.id}>
+                    <li key={p.id} className="group/p flex items-center rounded-r hover:bg-bg-3">
                       <NavLink
                         to={`/projects/${p.id}`}
                         className={({ isActive }) =>
-                          `flex items-center gap-2 rounded-r px-3 py-1 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`
+                          `flex min-w-0 flex-1 items-center gap-2 rounded-r px-3 py-1 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted group-hover/p:text-fg'}`
                         }
                         title={p.cwd}
                       >
                         <span className={`truncate ${p.status !== 'active' ? 'opacity-60' : ''}`}>{p.name}</span>
                         {!!p.open_tasks && p.status === 'active' && (
-                          <span className="ml-auto rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums text-fg-muted" title={`${p.open_tasks} task(s) aberta(s)`}>
+                          <span className="ml-auto rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums text-fg-muted group-hover/p:hidden" title={`${p.open_tasks} task(s) aberta(s)`}>
                             {p.open_tasks}
                           </span>
                         )}
-                        {p.status === 'paused' && <span className="ml-auto text-[10px] text-warn">pausado</span>}
-                        {p.status === 'archived' && <span className="ml-auto text-[10px] text-fg-dim">arquivado</span>}
+                        {p.status === 'paused' && <span className="ml-auto text-[10px] text-warn group-hover/p:hidden">pausado</span>}
+                        {p.status === 'archived' && <span className="ml-auto text-[10px] text-fg-dim group-hover/p:hidden">arquivado</span>}
                       </NavLink>
+                      {/* ações: só no hover; ficam fora do link para não navegar ao clicar */}
+                      <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-hover/p:flex">
+                        <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Editar projeto" onClick={() => navigate(`/projects/${p.id}/settings`)}>
+                          ✎
+                        </button>
+                        <button
+                          className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-danger"
+                          title="Remover da lista (a pasta na máquina não é apagada)"
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeletingProject(p);
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -157,6 +183,31 @@ export function Sidebar() {
         <MachineForm key={machineForm.machine?.id ?? 'new'} open onClose={() => setMachineForm({ open: false })} machine={machineForm.machine} />
       )}
       {projectForm && <ProjectForm open onClose={() => setProjectForm(null)} machineId={projectForm} />}
+      <ConfirmDialog
+        open={!!deletingProject}
+        title="Remover projeto da lista"
+        message={
+          <>
+            Remover <strong>{deletingProject?.name}</strong> desta máquina? A pasta <code className="font-mono text-xs">{deletingProject?.cwd}</code> continua
+            intacta; só o cadastro, as tarefas e as notas do projeto são apagados, e as sessões tmux das tabs são encerradas.
+            {deleteError && <p className="mt-2 text-danger">{deleteError}</p>}
+          </>
+        }
+        confirmLabel="Remover"
+        danger
+        onCancel={() => setDeletingProject(null)}
+        onConfirm={async () => {
+          if (!deletingProject) return;
+          try {
+            const wasOpen = location.pathname.startsWith(`/projects/${deletingProject.id}`);
+            await deleteProject(deletingProject.id);
+            setDeletingProject(null);
+            if (wasOpen) navigate('/');
+          } catch (e) {
+            setDeleteError((e as Error).message || 'Erro ao remover');
+          }
+        }}
+      />
       <ConfirmDialog
         open={!!deleting}
         title="Excluir máquina"

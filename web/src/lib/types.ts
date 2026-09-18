@@ -24,6 +24,28 @@ export interface Machine {
   created_at: string;
 }
 
+export interface FsRoot {
+  kind: 'home' | 'disk';
+  label: string;
+  path: string;
+  source?: string;
+  size_kb?: number;
+  avail_kb?: number;
+}
+
+export interface FsEntry {
+  name: string;
+  path: string;
+}
+
+/** Resposta de GET /machines/:id/fs */
+export interface FsListing {
+  path: string;
+  parent: string | null;
+  entries: FsEntry[];
+  roots: FsRoot[];
+}
+
 export interface Project {
   id: string;
   machine_id: string;
@@ -36,6 +58,9 @@ export interface Project {
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
+
+/** Corpo de criação/edição de projeto. `create_dir`: cria a pasta na máquina se não existir. */
+export type ProjectInput = Partial<Project> & { create_dir?: boolean };
 
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 

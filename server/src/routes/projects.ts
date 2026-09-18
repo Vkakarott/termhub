@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
+import type { Machine } from '../db/repositories/types.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
+import { ensureDirectory } from '../terminal/machine-fs.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
@@ -15,9 +17,20 @@ const createBody = z.object({
   }),
   status: z.enum(['active', 'paused', 'archived']).optional(),
   description: z.string().trim().max(2000).optional().nullable(),
+  /** cria a pasta na máquina (mkdir -p) se ela não existir */
+  create_dir: z.boolean().optional(),
 });
 
 const patchBody = createBody.omit({ machine_id: true }).partial();
+
+/** Caminhos Windows (C:\\...) não passam pelo sh: ficam sem verificação. */
+const isPosixPath = (p: string) => p.startsWith('/') || p.startsWith('~');
+
+/** Confere a pasta na máquina (cria se pedido) e devolve o caminho absoluto resolvido. */
+async function resolveCwd(machine: Machine, cwd: string, createDir: boolean | undefined): Promise<string> {
+  if (!isPosixPath(cwd)) return cwd;
+  return (await ensureDirectory(machine, cwd, createDir ?? false)).path;
+}
 
 const tabBody = z.object({
   name: z.string().trim().min(1).max(60).optional(),
@@ -33,8 +46,10 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
   });
 
   app.post('/', async (request, reply) => {
-    const body = createBody.parse(request.body);
-    if (!(await repos.machines.findById(body.machine_id))) throw badRequest('Máquina inexistente');
+    const { create_dir, ...body } = createBody.parse(request.body);
+    const machine = await repos.machines.findById(body.machine_id);
+    if (!machine) throw badRequest('Máquina inexistente');
+    body.cwd = await resolveCwd(machine, body.cwd, create_dir);
     const project = await repos.projects.create(body);
     return reply.code(201).send({ project });
   });
@@ -48,8 +63,14 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.projects.findById(id))) throw notFound('Projeto não encontrado');
-    const patch = patchBody.parse(request.body);
+    const current = await repos.projects.findById(id);
+    if (!current) throw notFound('Projeto não encontrado');
+    const { create_dir, ...patch } = patchBody.parse(request.body);
+    if (patch.cwd !== undefined && patch.cwd !== current.cwd) {
+      const machine = await repos.machines.findById(current.machine_id);
+      if (!machine) throw badRequest('Máquina inexistente');
+      patch.cwd = await resolveCwd(machine, patch.cwd, create_dir);
+    }
     return { project: await repos.projects.update(id, patch) };
   });
 

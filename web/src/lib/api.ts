@@ -1,4 +1,4 @@
-import type { AuthConfig, ConnectionInfo, DashboardItem, Integration, IntegrationProvider, Machine, Note, Project, ProjectSetup, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -18,7 +18,9 @@ function readCookie(name: string): string | undefined {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
-  if (body !== undefined) headers['content-type'] = 'application/json';
+  const raw = body instanceof Blob;
+  if (raw) headers['content-type'] = body.type || 'application/octet-stream';
+  else if (body !== undefined) headers['content-type'] = 'application/json';
   if (method !== 'GET' && method !== 'HEAD') {
     const csrf = readCookie('termhub_csrf');
     if (csrf) headers['x-csrf-token'] = csrf;
@@ -26,7 +28,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const res = await fetch(`/api${path}`, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined,
     credentials: 'same-origin',
   });
   const text = await res.text();
@@ -62,12 +64,15 @@ export const api = {
     simulators: (id: string) => request<{ simulators: Simulator[] }>('GET', `/machines/${id}/simulators`),
     wdaSetup: (id: string) => request<WdaSetupState>('GET', `/machines/${id}/simulator/setup`),
     startWdaSetup: (id: string) => request<{ ok: true }>('POST', `/machines/${id}/simulator/setup`, {}),
+    /** subpastas de `path` (padrão $HOME) + discos/mounts da máquina */
+    mkdir: (id: string, parent: string, name: string) => request<{ path: string }>('POST', `/machines/${id}/fs/mkdir`, { parent, name }),
+    browse: (id: string, path?: string) => request<FsListing>('GET', `/machines/${id}/fs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   },
   projects: {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),
     get: (id: string) => request<{ project: Project }>('GET', `/projects/${id}`),
-    create: (input: Partial<Project>) => request<{ project: Project }>('POST', '/projects', input),
-    update: (id: string, input: Partial<Project>) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
+    create: (input: ProjectInput) => request<{ project: Project }>('POST', '/projects', input),
+    update: (id: string, input: ProjectInput) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),
     createTab: (id: string, input: { name?: string; kind?: TabKind; simulator_udid?: string } = {}) =>
@@ -118,5 +123,7 @@ export const api = {
     remove: (id: string) => request<{ ok: true; killed: boolean }>('DELETE', `/tabs/${id}`),
     update: (id: string, input: { name?: string; simulator_udid?: string | null }) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, input),
     screenshotUrl: (id: string) => `/api/tabs/${id}/simulator/screenshot`,
+    /** grava a imagem em ~/.cache/termhub/paste/ na máquina da tab e devolve o caminho */
+    pasteImage: (id: string, image: Blob) => request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-image`, image),
   },
 };

@@ -5,8 +5,11 @@ import { badRequest, notFound } from '../lib/errors.js';
 import { machineStatus } from '../terminal/machine-exec.js';
 import { listSimulators } from '../simulator/machine.js';
 import { startWdaSetup, wdaSetupState } from '../simulator/setup.js';
+import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
+const fsQuery = z.object({ path: z.string().max(4096).optional() });
+const mkdirBody = z.object({ parent: z.string().min(1).max(4096), name: z.string().trim().min(1).max(255) });
 
 const machineBody = z
   .object({
@@ -95,5 +98,24 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     requireMac(machine);
     await startWdaSetup(machine);
     return reply.code(202).send({ ok: true });
+  });
+
+  /** Navegador de diretórios: subpastas de ?path (padrão $HOME) + discos/mounts da máquina. */
+  app.get('/:id/fs', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const { path } = fsQuery.parse(request.query);
+    const machine = await repos.machines.findById(id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    return await browseMachine(machine, path);
+  });
+
+  /** Cria uma subpasta em `parent` na máquina e devolve o caminho absoluto. */
+  app.post('/:id/fs/mkdir', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const { parent, name } = mkdirBody.parse(request.body);
+    const machine = await repos.machines.findById(id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    const path = await makeDirectory(machine, parent, name);
+    return reply.code(201).send({ path });
   });
 }

@@ -1,166 +1,169 @@
 # termhub
 
-Sistema web self-hosted para acessar terminais das suas máquinas na rede local pelo navegador, organizados em **Máquinas > Projetos > Tabs**. Cada tab é uma sessão `tmux` na máquina de destino — fechar o navegador não mata o shell.
+Self-hosted web app to reach the terminals of the machines on your local network from the browser, organized as **Machines > Projects > Tabs**. Each tab is a `tmux` session on the target machine — closing the browser does not kill the shell.
 
-- **Backend:** Node.js + Fastify, WebSocket (`ws`), `node-pty`, Postgres + Prisma (migrations versionadas) com camada de repositórios isolada
+- **Backend:** Node.js + Fastify, WebSocket (`ws`), `node-pty`, Postgres + Prisma (versioned migrations) behind an isolated repository layer
 - **Frontend:** React + Vite + xterm.js (fit + webgl), Tailwind
-- **Auth:** código por e-mail (OTP), senha (argon2) opcional, Google OAuth (PKCE), Cloudflare Access (JWT); rate limit com lockout progressivo, CSRF
-- **Produção:** Docker (Fastify serve o build do frontend na porta 3000); Cloudflare Tunnel ou acesso direto na LAN
+- **Auth:** e-mail code (OTP), optional password (argon2), Google OAuth (PKCE), Cloudflare Access (JWT); rate limiting with progressive lockout, CSRF
+- **Production:** Docker (Fastify serves the frontend build on port 3000); Cloudflare Tunnel or direct LAN access
 
-## Requisitos
+## Requirements
 
-- Docker + Docker Compose (Postgres, Mailpit e, opcionalmente, o app)
-- Para rodar o app no host: Node.js 20+ e `tmux`
-- Em cada máquina SSH: `tmux` instalado e a chave pública do termhub em `~/.ssh/authorized_keys`
+- Docker + Docker Compose (Postgres, Mailpit and, optionally, the app)
+- To run the app on the host: Node.js 20+ and `tmux`
+- On every SSH machine: `tmux` installed and termhub's public key in `~/.ssh/authorized_keys`
 
-## Desenvolvimento
+## Development
 
 ```bash
-npm install                 # server + web (compila node-pty e argon2)
-cp .env.example .env        # padrões já apontam para o Postgres/Mailpit do compose
-docker compose up -d        # Postgres em localhost:5434 + Mailpit (UI em http://localhost:8025)
-npm run prisma:migrate      # aplica migrations (cria novas com: npm run prisma:migrate -- --name <nome>)
-npm run create-user -- --email voce@exemplo.com --name "Seu Nome"   # 1º usuário vira owner
-npm run dev                 # API em :3000 + Vite em :5173 (proxy de /api e /ws)
+npm install                 # server + web (compiles node-pty and argon2)
+cp .env.example .env        # defaults already point to the compose Postgres/Mailpit
+docker compose up -d        # Postgres on localhost:5434 + Mailpit (UI at http://localhost:8025)
+npm run prisma:migrate      # applies migrations (create new ones with: npm run prisma:migrate -- --name <name>)
+npm run create-user -- --email you@example.com --name "Your Name"   # first user becomes owner
+npm run dev                 # API on :3000 + Vite on :5173 (proxies /api and /ws)
 ```
 
-Abra http://localhost:5173, informe o e-mail e pegue o código de 6 dígitos no Mailpit (http://localhost:8025). A máquina "local" é criada automaticamente no primeiro boot (`SEED_LOCAL_MACHINE=true`).
+Open http://localhost:5173, enter your e-mail and grab the 6-digit code from Mailpit (http://localhost:8025). The "local" machine is created automatically on first boot (`SEED_LOCAL_MACHINE=true`).
 
-Tudo dentro do Docker, com hot-reload (`Dockerfile.dev`):
+Everything inside Docker, with hot reload (`Dockerfile.dev`):
 
 ```bash
 docker compose --profile dev up --build
 ```
 
-## Produção (Docker)
+## Production (Docker)
 
 ```bash
-cp .env.example .env        # ajuste: HOST/BIND_ADDR, PUBLIC_URL, POSTGRES_PASSWORD, SMTP_*, ENCRYPTION_KEY
+cp .env.example .env        # adjust: HOST/BIND_ADDR, PUBLIC_URL, POSTGRES_PASSWORD, SMTP_*, ENCRYPTION_KEY
 docker compose --profile prod up -d --build
-docker compose exec app node server/dist/cli/create-user.js voce@exemplo.com "Seu Nome"
+docker compose exec app node server/dist/cli/create-user.js you@example.com "Your Name"
 ```
 
 ### CI/CD (GitHub Actions → jarvis)
 
-`.github/workflows/deploy.yml`: em todo push na `main` (e em PRs) roda o job **check** no GitHub (npm ci, typecheck server/web, build, `prisma migrate deploy` + `migrate diff --exit-code` num Postgres efêmero — garante que as migrations batem com o schema). Se passar e for push na `main`, o job **deploy** roda no **runner self-hosted do jarvis** (`/mnt/hd2tb/github-runner-termhub`, labels `jarvis,termhub`): checkout → `docker compose --env-file /mnt/hd2tb/projetos/termhub/.env --profile prod up -d --build` → espera o healthcheck → `prisma migrate status`.
+`.github/workflows/deploy.yml`: on every push to `main` (and on PRs) the **check** job runs on GitHub (npm ci, server/web typecheck, build, `prisma migrate deploy` + `migrate diff --exit-code` against an ephemeral Postgres — guarantees the migrations match the schema). If it passes and the event is a push to `main`, the **deploy** job runs on the **self-hosted runner on jarvis** (`/mnt/hd2tb/github-runner-termhub`, labels `jarvis,termhub`): checkout → `docker compose --env-file /mnt/hd2tb/projetos/termhub/.env --profile prod up -d --build` → wait for the healthcheck → `prisma migrate status`.
 
-O `.env` de produção **fica só no servidor** (`/mnt/hd2tb/projetos/termhub/.env`, chmod 600); nenhum segredo passa pelo GitHub. Para mudar uma variável: edite o arquivo lá e rode o workflow de novo (ou `docker compose --env-file ... --profile prod up -d`). O compose tem `name: termhub` fixo, então volumes (`termhub_pgdata`, `termhub_sshkeys`) não dependem do diretório de checkout.
+The production `.env` **lives only on the server** (`/mnt/hd2tb/projetos/termhub/.env`, chmod 600); no secret goes through GitHub. To change a variable: edit the file there and re-run the workflow (or `docker compose --env-file ... --profile prod up -d`). The compose file has a fixed `name: termhub`, so volumes (`termhub_pgdata`, `termhub_sshkeys`) do not depend on the checkout directory.
 
-Runner como serviço (uma vez, precisa de sudo): `cd /mnt/hd2tb/github-runner-termhub && sudo ./svc.sh install pedrogoiania && sudo ./svc.sh start`.
+Runner as a service (once, needs sudo): `cd /mnt/hd2tb/github-runner-termhub && sudo ./svc.sh install pedrogoiania && sudo ./svc.sh start`.
 
-O `Dockerfile` gera uma imagem enxuta (tmux + ssh) e o entrypoint roda `prisma migrate deploy` a cada boot. Principais variáveis:
+The `Dockerfile` produces a slim image (tmux + ssh) and the entrypoint runs `prisma migrate deploy` on every boot. Main variables:
 
-| Variável | Valor |
+| Variable | Value |
 | --- | --- |
-| `BIND_ADDR` | `127.0.0.1` (só Cloudflare Tunnel) ou `0.0.0.0` (acesso direto pelo IP na LAN) |
-| `PUBLIC_URL` | `http://192.168.x.x:3000` ou `https://termhub.seudominio.com` |
-| `SMTP_HOST` | `mailpit` (caixa local, UI em `:8025`) ou um SMTP real (Mailgun etc.) |
-| `SEED_LOCAL_MACHINE` | `false` — no Docker a "local" seria o container |
+| `BIND_ADDR` | `127.0.0.1` (Cloudflare Tunnel only) or `0.0.0.0` (direct access by LAN IP) |
+| `PUBLIC_URL` | `http://192.168.x.x:3000` or `https://termhub.yourdomain.com` |
+| `SMTP_HOST` | `mailpit` (local inbox, UI on `:8025`) or a real SMTP server (Mailgun etc.) |
+| `SEED_LOCAL_MACHINE` | `false` — inside Docker, "local" would be the container |
 
-**Dentro do Docker, o próprio host precisa ser cadastrado como máquina SSH.** O container gera uma chave no primeiro boot (volume `sshkeys`); a pública aparece no formulário de nova máquina e no log (`docker compose logs app | grep chave`). Autorize-a no host e cadastre `host.docker.internal` como host (usuário e porta do SSH do host). Instale `tmux` no host.
+**Inside Docker, the host itself must be registered as an SSH machine.** The container generates a key on first boot (`sshkeys` volume); the public key shows up in the new-machine form and in the log (`docker compose logs app | grep key`). Authorize it on the host and register `host.docker.internal` as the host (with the host's SSH user and port). Install `tmux` on the host.
 
-### Sem Docker (Node no host)
+### Without Docker (Node on the host)
 
 ```bash
 npm run build && NODE_ENV=production npm start
 ```
 
-### Serviço de boot (sem Docker)
+### Boot service (without Docker)
 
-Detecta o SO e instala um serviço de usuário (launchd no macOS, systemd no Linux):
+Detects the OS and installs a user service (launchd on macOS, systemd on Linux):
 
 ```bash
 npm run build
-npm run install-service      # cria e inicia o serviço
+npm run install-service      # creates and starts the service
 npm run uninstall-service
 ```
 
-Logs no macOS: `data/logs/`. No Linux: `journalctl --user -u termhub -f` (use `loginctl enable-linger $USER` para subir sem sessão aberta).
+Logs on macOS: `data/logs/`. On Linux: `journalctl --user -u termhub -f` (use `loginctl enable-linger $USER` to start without an open session).
 
 ### Cloudflare Tunnel
 
-No jarvis o termhub é publicado em **https://termhub.dev** pelo proxy existente (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, túnel "jarvis"). O overlay `docker-compose.proxy.yml` coloca o `app` na rede docker externa `proxy`; o vhost `nginx/conf.d/termhub.dev.conf` faz `proxy_pass http://termhub-app:3000` com upgrade de WebSocket; o hostname público é gerenciado no painel Zero Trust → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). O workflow recarrega o nginx após cada deploy (container novo = IP novo). Para rodar o compose à mão no jarvis, exporte `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (o `env_file` dos serviços usa essa variável).
+On jarvis, termhub is published at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app` on the external `proxy` docker network; the `nginx/conf.d/termhub.dev.conf` vhost does `proxy_pass http://termhub-app:3000` with WebSocket upgrade; the public hostname is managed in the Zero Trust dashboard → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). The workflow reloads nginx after each deploy (new container = new IP). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
 
-Em outro servidor, o caminho simples é `cloudflared tunnel --url http://127.0.0.1:3000`.
+On another server, the simple path is `cloudflared tunnel --url http://127.0.0.1:3000`.
 
-Ajuste `PUBLIC_URL=https://termhub.seudominio.com` no `.env` (cookies `secure` + redirect do Google). Se proteger com **Cloudflare Access**, configure `AUTH_MODE=app,cloudflare`, `CF_TEAM_DOMAIN` e `CF_AUD` — o servidor valida o JWT `Cf-Access-Jwt-Assertion` em toda requisição além da sessão do app.
+Set `PUBLIC_URL=https://termhub.yourdomain.com` in `.env` (`secure` cookies + Google redirect). If you protect it with **Cloudflare Access**, set `AUTH_MODE=app,cloudflare`, `CF_TEAM_DOMAIN` and `CF_AUD` — the server validates the `Cf-Access-Jwt-Assertion` JWT on every request in addition to the app session.
 
-## Usuários e login
+## Users and login
 
-Não existe cadastro público. Crie usuários pela CLI:
+There is no public sign-up. Create users through the CLI:
 
 ```bash
-npm run create-user -- --email voce@exemplo.com --name "Seu Nome" [--password ...] [--role owner|member]
-# Docker: docker compose exec app node server/dist/cli/create-user.js voce@exemplo.com "Seu Nome"
+npm run create-user -- --email you@example.com --name "Your Name" [--password ...] [--role owner|member]
+# Docker: docker compose exec app node server/dist/cli/create-user.js you@example.com "Your Name"
 ```
 
-- **Código por e-mail (padrão):** informe o e-mail, receba um código de 6 dígitos (expira em `LOGIN_CODE_TTL_MINUTES`, 5 tentativas, máx. 3 envios a cada 10 min). E-mails não cadastrados recebem a mesma resposta, sem envio.
-- **Senha:** opcional (`--password`); botão "Entrar com senha" na tela de login.
-- O primeiro usuário vira `owner`.
-- **Google:** só entra quem já tem o e-mail cadastrado; na primeira vez o `google_id` é vinculado. Configure `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` e cadastre `<PUBLIC_URL>/api/auth/google/callback` como redirect URI autorizado no Google Cloud Console.
+- **E-mail code (default):** enter the e-mail, receive a 6-digit code (expires in `LOGIN_CODE_TTL_MINUTES`, 5 attempts, max 3 sends every 10 min). Unknown e-mails get the same response, with no e-mail sent.
+- **Password:** optional (`--password`); "Sign in with password" button on the login screen.
+- The first user becomes `owner`.
+- **Google:** only e-mails already registered can sign in; on the first sign-in the `google_id` is linked. Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and register `<PUBLIC_URL>/api/auth/google/callback` as an authorized redirect URI in the Google Cloud Console.
 
-## Máquinas e projetos
+## Machines and projects
 
-- **Máquina local:** criada automaticamente. Terminais rodam `tmux new-session -A -s <sessão> -c <cwd>` direto.
-- **Máquina SSH:** na sidebar, "+ máquina" → tipo SSH, host, usuário e porta. Terminais rodam `ssh -tt ... "tmux new-session -A -s <sessão> -c '<cwd>'"`. Teste antes no servidor do termhub: `ssh -o BatchMode=yes usuario@host exit` deve funcionar sem pedir senha.
-- **Projeto:** passe o mouse sobre a máquina e clique em "+". Informe nome e o diretório absoluto na máquina de destino.
-- **Tabs:** `⌘T` nova, duplo clique renomeia, `⌘W` fecha (com confirmação — mata a sessão tmux), `⌘1..9` troca. Como alguns navegadores capturam `⌘T`/`⌘W`, `Ctrl+Shift+T`/`Ctrl+Shift+W` funcionam como alternativa.
-- Sessões tmux têm o nome `termhub-<project_id>-<tab_id>`; você pode anexar por fora com `tmux attach -t <nome>`.
+- **Local machine:** created automatically. Terminals run `tmux new-session -A -s <session> -c <cwd>` directly.
+- **SSH machine:** in the sidebar, "+ machine" → type SSH, host, user and port. Terminals run `ssh -tt ... "tmux new-session -A -s <session> -c '<cwd>'"`. Test it first from the termhub server: `ssh -o BatchMode=yes user@host exit` must work without asking for a password.
+- **Project:** hover the machine and click "+". Enter a name and the absolute directory on the target machine — or click "Browse…" to navigate the machine's folders: the browser lists disks/mounts (with free space, via `df`) and the home directory as shortcuts, lets you filter and show hidden folders, and fills the project name with the chosen folder (`GET /api/machines/:id/fs?path=`). "+ New folder" creates a subfolder in the current folder (`POST /api/machines/:id/fs/mkdir`). On save, the server checks the folder on the machine and resolves `~` to the absolute path; with "create the folder if it doesn't exist" checked it runs `mkdir -p`; unchecked, it refuses with an error instead of letting tmux fall back to the home directory.
+- **Sidebar:** the `«` button at the top collapses the sidebar to a narrow rail to give the terminal more room (`»` expands it back); the choice is saved in the browser.
+- **Tabs:** `⌘T` new, double-click renames, `⌘W` closes (with confirmation — kills the tmux session), `⌘1..9` switches. Since some browsers capture `⌘T`/`⌘W`, `Ctrl+Shift+T`/`Ctrl+Shift+W` work as alternatives.
+- **Copy:** selecting text copies it automatically on mouse release ("Copied" notice in the status bar). When the running program enables mouse tracking (Claude Code, vim, htop…), the drag goes to it; hold `⌥` (Mac) or `Shift` (Linux/Windows) while dragging to select — the status bar shows when this is active.
+- **Paste image:** `Cmd+V` with an image on the clipboard uploads the file to `~/.cache/termhub/paste/` on the tab's machine (up to 20 MB; PNG, JPEG, GIF or WebP; files older than 7 days are deleted on each new upload) and pastes the path into the terminal — for Claude Code it is the same as dragging the file in; the status bar shows progress. Text still pastes normally.
+- tmux sessions are named `termhub-<project_id>-<tab_id>`; you can attach from outside with `tmux attach -t <name>`.
 
-## Gestão dos projetos
+## Project management
 
-Cada projeto tem navegação interna: **Terminais | Tarefas | Notas | Configurações**.
+Each project has internal navigation: **Terminals | Tasks | Notes | Settings**.
 
-- **Tarefas:** kanban com quatro colunas (Backlog / A fazer / Fazendo / Feito), arrastar e soltar entre colunas e para reordenar, criação rápida no topo de cada coluna (Enter), duplo clique renomeia, clique abre título/descrição/status/excluir. O contador de tasks abertas aparece na sidebar ao lado do projeto. O campo `external_ref` (JSON) fica reservado para integrações futuras (GitHub/Jira/Linear).
-- **Notas:** uma nota em markdown por projeto, com preview (GFM), modos editar / lado a lado / preview e autosave com debounce (⌘S força).
-- **Dashboard** (home): projetos ativos com máquina (online/offline), tasks em "Fazendo", total de abertas e último acesso a terminal — ordenado pelo terminal mais recente.
-- **Configurações:** renomear, editar `cwd`, descrição, status (ativo/pausado/arquivado) e excluir (encerra as sessões tmux das tabs).
+- **Tasks:** kanban with four columns (Backlog / To do / Doing / Done), drag and drop between columns and to reorder, quick create at the top of each column (Enter), double-click renames, click opens title/description/status/delete. The open-task counter shows in the sidebar next to the project. The `external_ref` field (JSON) is reserved for integrations (GitHub/Jira/Linear).
+- **Notes:** one markdown note per project, with preview (GFM), edit / side-by-side / preview modes and debounced autosave (⌘S forces it).
+- **Dashboard** (home): active projects with machine (online/offline), tasks in "Doing", total open tasks and last terminal access — ordered by most recent terminal.
+- **Settings:** rename, edit `cwd`, description, status (active/paused/archived) and delete (ends the tabs' tmux sessions). In the sidebar, hovering a project shows ✎ (opens Settings) and ✕ (removes the project from the list — the folder on the machine is not touched).
 
-## Integrações e Setup do projeto
+## Integrations and project Setup
 
-- **Integrações** (sidebar → ⚙ Integrações): credenciais de **GitHub** (token), **Linear** (API key) e **Jira** (URL + e-mail + API token). Segredos criptografados com `ENCRYPTION_KEY` (AES-256-GCM); botão "Testar" valida e lista times/projetos/repos.
-- **Setup** (aba do projeto): repositório (integração GitHub, `owner/repo`, branch base, padrão de branch, PR draft), **tickets** (fonte Linear/Jira/GitHub + escopo + filtro + sync automático), **runner** (máquina onde a automação roda, cwd, comando de preparação, worktree), **agente** (comando, plugins, modelo), **verificação** (screenshot iOS/web/comando) e **aprovações** (cada decisão: pedir no dashboard ou automático).
-- **Tickets** (aba do projeto): o sync (`POST /api/projects/:id/tickets/sync` ou automático) alimenta uma **lista de tickets por integração** — nada entra no board sozinho. Você seleciona os que quer e clica em "Enviar para o backlog": viram tasks na coluna **Backlog** com `external_ref` (`{provider, id, identifier, url, state}`). Syncs seguintes só atualizam o espelho do estado externo; a coluna e o título no kanban são seus. Excluir a task devolve o ticket à lista.
-- **Nada volta para Linear/Jira/GitHub automaticamente**: na task (⋯) o botão "Atualizar no Linear/Jira" empurra a coluna atual para o provedor (Linear: estado do tipo correspondente no time; Jira: transição pela `statusCategory`; GitHub: open/closed). O card avisa quando o estado externo difere da coluna.
-- **Terminal por task**: "Abrir terminal para esta task" cria uma tab tmux com o nome do ticket e a vincula (`tasks.tab_id`); o card mostra `▮_` com link direto para a tab. É onde a run do agente vai aparecer.
-- O status das máquinas detecta SO e ferramentas (`claude`, `gh`, `git`, `node`, `xcodebuild`, `adb`…) — usado para escolher o runner.
+- **Integrations** (sidebar → ⚙ Integrations): credentials for **GitHub** (token), **Linear** (API key) and **Jira** (URL + e-mail + API token). Secrets encrypted with `ENCRYPTION_KEY` (AES-256-GCM); the "Test" button validates and lists teams/projects/repos.
+- **Setup** (project tab): repository (GitHub integration, `owner/repo`, base branch, branch pattern, draft PR), **tickets** (Linear/Jira/GitHub source + scope + filter + auto sync), **runner** (machine where automation runs, cwd, setup command, worktree), **agent** (command, plugins, model), **verification** (iOS/web screenshot or command) and **approvals** (each decision: ask on the dashboard or automatic).
+- **Tickets** (project tab): the sync (`POST /api/projects/:id/tickets/sync` or automatic) feeds a **ticket list per integration** — nothing enters the board on its own. You select the ones you want and click "Send to backlog": they become tasks in the **Backlog** column with `external_ref` (`{provider, id, identifier, url, state}`). Later syncs only refresh the mirror of the external state; the column and title on the kanban are yours. Deleting the task returns the ticket to the list.
+- **Nothing goes back to Linear/Jira/GitHub automatically**: on the task (⋯) the "Update on Linear/Jira" button pushes the current column to the provider (Linear: state of the matching type in the team; Jira: transition by `statusCategory`; GitHub: open/closed). The card warns when the external state differs from the column.
+- **Terminal per task**: "Open terminal for this task" creates a tmux tab named after the ticket and links it (`tasks.tab_id`); the card shows `▮_` with a direct link to the tab. That is where the agent run will show up.
+- Machine status detects the OS and tools (`claude`, `gh`, `git`, `node`, `xcodebuild`, `adb`…) — used to pick the runner.
 
-## Variáveis de ambiente
+## Environment variables
 
-Veja [.env.example](.env.example). Principais:
+See [.env.example](.env.example). Main ones:
 
-| Variável | Descrição |
+| Variable | Description |
 | --- | --- |
-| `AUTH_MODE` | `app`, `cloudflare`, `disabled` (dev) ou combinação `app,cloudflare` |
-| `PUBLIC_URL` | URL pública (cookies secure e redirect OAuth) |
+| `AUTH_MODE` | `app`, `cloudflare`, `disabled` (dev) or the combination `app,cloudflare` |
+| `PUBLIC_URL` | public URL (secure cookies and OAuth redirect) |
 | `DATABASE_URL` | Postgres (`postgresql://user:pass@host:5432/db`) |
-| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | envio do código de login |
-| `BIND_ADDR` | (compose) IP do host onde publicar as portas |
-| `ENCRYPTION_KEY` | base64 de 32 bytes (`openssl rand -base64 32`) para os segredos das integrações |
-| `TMUX_PATH` | caminho do tmux (útil como serviço, PATH mínimo) |
-| `LOCAL_SHELL` | shell dentro do tmux local (padrão `$SHELL`) |
+| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | login code delivery |
+| `BIND_ADDR` | (compose) host IP to publish the ports on |
+| `ENCRYPTION_KEY` | base64 of 32 bytes (`openssl rand -base64 32`) for integration secrets |
+| `TMUX_PATH` | path to tmux (useful as a service, minimal PATH) |
+| `LOCAL_SHELL` | shell inside local tmux (default `$SHELL`) |
 
-## Estrutura
+## Structure
 
 ```
-server/prisma      schema.prisma + migrations (npm run prisma:migrate -- --name <nome>)
+server/prisma      schema.prisma + migrations (npm run prisma:migrate -- --name <name>)
 server/src
-  auth/          provedores (senha, google, cloudflare), sessão, CSRF, middleware
-  db/            Prisma client + repositórios (o resto do app nunca importa o Prisma)
-  email/         mailer (SMTP/console) e templates
+  auth/          providers (password, google, cloudflare), session, CSRF, middleware
+  db/            Prisma client + repositories (the rest of the app never imports Prisma)
+  email/         mailer (SMTP/console) and templates
   cli/           create-user
-  routes/        rotas REST (zod em todas as entradas)
-  terminal/      exec em máquinas (local/ssh), PTY, WebSocket
+  routes/        REST routes (zod on every input)
+  terminal/      exec on machines (local/ssh), PTY, WebSocket
 web/src
-  components/    Sidebar, TabBar, Terminal (xterm), formulários
-  pages/         Login, Home, Projeto
-  lib/           api client, auth/data providers, conexão WS com backoff
+  components/    Sidebar, TabBar, Terminal (xterm), forms
+  pages/         Login, Home, Project
+  lib/           api client, auth/data providers, WS connection with backoff
 ```
 
-## Segurança
+## Security
 
-- Cookies `httpOnly` + `SameSite=Lax`; token de sessão opaco, só o hash vai pro banco
-- CSRF double-submit (`termhub_csrf` + header `x-csrf-token`) em todas as mutações
-- Lockout progressivo no login (por e-mail e por IP)
-- WebSocket: autenticação no upgrade + verificação de `Origin`
-- Conteúdo dos terminais nunca é logado
+- `httpOnly` + `SameSite=Lax` cookies; opaque session token, only its hash is stored
+- CSRF double-submit (`termhub_csrf` + `x-csrf-token` header) on every mutation
+- Progressive login lockout (per e-mail and per IP)
+- WebSocket: authentication on upgrade + `Origin` check
+- Terminal content is never logged
