@@ -62,7 +62,7 @@ describe('tmux rpc handlers', () => {
   it('tmux.capture uses -S -<lines> and =session, returning stdout as text', async () => {
     run.mockResolvedValue({ code: 0, stdout: 'hello\n', stderr: '', timedOut: false });
     await expect(capture({ session: 'th-a', lines: 200 })).resolves.toEqual({ text: 'hello\n' });
-    expect(run).toHaveBeenCalledWith('tmux', ['capture-pane', '-p', '-S', '-200', '-t', '=th-a']);
+    expect(run).toHaveBeenCalledWith('tmux', ['capture-pane', '-p', '-S', '-200', '-t', '=th-a:']);
   });
 
   it('tmux.capture raises notfound on a non-zero exit', async () => {

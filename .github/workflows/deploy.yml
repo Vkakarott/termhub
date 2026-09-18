@@ -29,8 +29,12 @@ jobs:
         run: npm run build:packages
       - name: Testes agent
         run: npm test -w @termhub/agent
+      - name: Typecheck agent
+        run: npm run typecheck -w @termhub/agent
       - name: Build agent
         run: npm run build -w @termhub/agent
+      - name: Instalar tmux (teste e2e do agente)
+        run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Testes server
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/termhub
