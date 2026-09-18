@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentSocket } from './client.js';
+import * as execModule from './exec.js';
 import { createPtyManager, type SpawnFn, type PtyLike } from './pty.js';
 
 function makeSocket(): { socket: AgentSocket; sendControl: ReturnType<typeof vi.fn>; sendStream: ReturnType<typeof vi.fn> } {
@@ -157,6 +158,27 @@ describe('createPtyManager', () => {
     await manager.open(9, openParams, socket);
 
     expect(sendControl).toHaveBeenCalledWith({ type: 'open_error', ch: 9, error: { code: 'internal', message: 'failed to start pty' } });
+  });
+
+  it('open_error internal (and resolves, never rejects) when building the env throws before spawn is even reached', async () => {
+    const fake = makeFakePty();
+    const spawn = vi.fn<SpawnFn>(() => fake.proc);
+    const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn() });
+    const { socket, sendControl } = makeSocket();
+
+    // Regression for a bug where `agentEnv()` (called while building the pty env, before the
+    // try/catch around spawn) could throw synchronously — e.g. a malformed REMOTE_PATH_PREFIX
+    // in agentEnv()'s pathPrefixDirs() — and that exception escaped open() entirely instead of
+    // being reported as open_error, leaving the channel with neither `opened` nor `open_error`.
+    const agentEnvSpy = vi.spyOn(execModule, 'agentEnv').mockImplementation(() => {
+      throw new Error('unexpected REMOTE_PATH_PREFIX format');
+    });
+
+    await expect(manager.open(13, openParams, socket)).resolves.toBeUndefined();
+
+    agentEnvSpy.mockRestore();
+    expect(sendControl).toHaveBeenCalledWith({ type: 'open_error', ch: 13, error: { code: 'internal', message: 'failed to start pty' } });
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it('open_error invalid when the channel is already open', async () => {

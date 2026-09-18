@@ -91,16 +91,21 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
         return;
       }
 
-      const { cols, rows } = clampSize(params);
-      const cwd = resolveCwd(params.cwd);
-      const env = {
-        ...ptyEnv(agentEnv(), process.env.SHELL ?? '/bin/sh'),
-        TERMHUB_TAB_ID: params.session,
-        TERMHUB_SESSION: params.session,
-      };
-
+      // Everything that can throw before the PTY exists — size clamping, cwd resolution, env
+      // building (`agentEnv()` can throw if `REMOTE_PATH_PREFIX` is ever malformed), resolving
+      // the lazy `spawn` import, and the spawn call itself — stays inside this one try so no
+      // exception can ever escape `open()` unreported.
       let proc: PtyLike;
+      let cols: number;
+      let rows: number;
       try {
+        ({ cols, rows } = clampSize(params));
+        const cwd = resolveCwd(params.cwd);
+        const env = {
+          ...ptyEnv(agentEnv(), process.env.SHELL ?? '/bin/sh'),
+          TERMHUB_TAB_ID: params.session,
+          TERMHUB_SESSION: params.session,
+        };
         const spawn = await resolveSpawn();
         proc = spawn(tmux, ['-u', 'new-session', '-A', '-s', params.session, '-c', cwd], { name: 'xterm-256color', cols, rows, cwd, env });
       } catch (err) {
@@ -116,7 +121,11 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
       deps.log('pty opened', { ch, session: params.session, cols, rows });
 
       proc.onData((data) => {
-        socket.sendStream(ch, Buffer.from(data, 'utf8'));
+        try {
+          socket.sendStream(ch, Buffer.from(data, 'utf8'));
+        } catch (err) {
+          deps.log('pty stream send failed', { ch, error: err instanceof Error ? err.message : String(err) });
+        }
       });
       proc.onExit(({ exitCode }) => {
         // If close() already deleted (or a later open() replaced) this entry, `closed` was
@@ -125,10 +134,18 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
         procs.delete(ch);
         const code = exitCode ?? null;
         deps.log('pty exited', { ch, code });
-        socket.sendControl({ type: 'closed', ch, code });
+        try {
+          socket.sendControl({ type: 'closed', ch, code });
+        } catch (err) {
+          deps.log('pty closed send failed', { ch, error: err instanceof Error ? err.message : String(err) });
+        }
       });
 
-      socket.sendControl({ type: 'opened', ch });
+      try {
+        socket.sendControl({ type: 'opened', ch });
+      } catch (err) {
+        deps.log('pty opened send failed', { ch, error: err instanceof Error ? err.message : String(err) });
+      }
     },
 
     write(ch, data): void {
