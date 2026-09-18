@@ -17,6 +17,48 @@ const WINDOW_LABELS: Record<string, string> = {
   seven_day_oauth_apps: '7 dias · apps',
 };
 
+const GROUP_LABELS: Record<string, string> = { session: '5 horas', weekly: '7 dias' };
+
+const clamp = (n: number) => Math.max(0, Math.min(100, n));
+
+/**
+ * Turns the usage payload into windows. Top-level keys (five_hour, seven_day, ...) carry the
+ * account-wide limits; per-model caps (e.g. the weekly Fable allowance) only show up in `limits[]`
+ * as entries with a `scope`, so those are appended after the account-wide ones.
+ */
+export function parseUsageBody(body: Record<string, unknown>): AiUsageWindow[] {
+  const windows: AiUsageWindow[] = [];
+  for (const [key, val] of Object.entries(body)) {
+    if (!isObj(val)) continue;
+    const utilization = num(val.utilization);
+    if (utilization === null) continue;
+    windows.push({ key, label: WINDOW_LABELS[key] ?? key.replace(/_/g, ' '), utilization: clamp(utilization), resets_at: toIso(val.resets_at) });
+  }
+  // known windows first, in a stable order
+  const order = Object.keys(WINDOW_LABELS);
+  windows.sort((a, b) => (order.indexOf(a.key) + 1 || 99) - (order.indexOf(b.key) + 1 || 99));
+
+  if (Array.isArray(body.limits)) {
+    for (const lim of body.limits) {
+      if (!isObj(lim) || !isObj(lim.scope)) continue;
+      const percent = num(lim.percent);
+      if (percent === null) continue;
+      const model = isObj(lim.scope.model) ? str(lim.scope.model.display_name) : null;
+      const surface = isObj(lim.scope.surface) ? str(lim.scope.surface.display_name) : str(lim.scope.surface);
+      const scope = model ?? surface;
+      if (!scope) continue;
+      const group = str(lim.group) ?? str(lim.kind) ?? 'limit';
+      windows.push({
+        key: `limit:${str(lim.kind) ?? group}:${scope}`,
+        label: `${GROUP_LABELS[group] ?? group.replace(/_/g, ' ')} · ${scope}`,
+        utilization: clamp(percent),
+        resets_at: toIso(lim.resets_at),
+      });
+    }
+  }
+  return windows;
+}
+
 export const claudeAdapter: AiProviderAdapter = {
   provider: 'claude',
   loginHint: 'Run `claude` on that machine and sign in (or set the config dir if you use CLAUDE_CONFIG_DIR).',
@@ -57,17 +99,8 @@ export const claudeAdapter: AiProviderAdapter = {
     if (r.status >= 400 || !isObj(r.body)) {
       return { ...base, error: `Unexpected response from Anthropic (${r.status})`, hint: r.text.slice(0, 200) || null };
     }
-    const windows: AiUsageWindow[] = [];
-    for (const [key, val] of Object.entries(r.body)) {
-      if (!isObj(val)) continue;
-      const utilization = num(val.utilization);
-      if (utilization === null) continue;
-      windows.push({ key, label: WINDOW_LABELS[key] ?? key.replace(/_/g, ' '), utilization: Math.max(0, Math.min(100, utilization)), resets_at: toIso(val.resets_at) });
-    }
+    const windows = parseUsageBody(r.body);
     if (windows.length === 0) return { ...base, error: 'No usage windows in the response', hint: r.text.slice(0, 200) || null };
-    // known windows first, in a stable order
-    const order = Object.keys(WINDOW_LABELS);
-    windows.sort((a, b) => (order.indexOf(a.key) + 1 || 99) - (order.indexOf(b.key) + 1 || 99));
     return { ...base, ok: true, windows };
   },
 };
