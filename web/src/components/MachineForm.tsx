@@ -11,6 +11,16 @@ interface Props {
   machine?: Machine | null;
 }
 
+/**
+ * One-liner that authorizes the termhub key on the target machine: creates ~/.ssh
+ * with the right permissions, fixes the common mistake of authorized_keys being a
+ * directory, appends the key only if it is not there yet.
+ */
+function authorizeCommand(publicKey: string): string {
+  const key = publicKey.trim().replace(/'/g, `'\\''`);
+  return `mkdir -p ~/.ssh && chmod 700 ~/.ssh && { [ -d ~/.ssh/authorized_keys ] && rmdir ~/.ssh/authorized_keys; true; } && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && { grep -qF '${key}' ~/.ssh/authorized_keys || echo '${key}' >> ~/.ssh/authorized_keys; }`;
+}
+
 export function MachineForm({ open, onClose, machine }: Props) {
   const { createMachine, updateMachine } = useData();
   const [name, setName] = useState(machine?.name ?? '');
@@ -21,6 +31,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sshKey, setSshKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (type !== 'ssh') return;
@@ -93,15 +104,24 @@ export function MachineForm({ open, onClose, machine }: Props) {
             <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
               {sshKey ? (
                 <>
-                  <p className="mb-1">
-                    Autorize a chave pública do termhub na máquina (<code className="font-mono">~/.ssh/authorized_keys</code>):
-                  </p>
+                  <p className="mb-1">Cole este comando num terminal da máquina de destino. Ele autoriza a chave do termhub e ajusta as permissões:</p>
                   <div className="flex items-start gap-1">
-                    <code className="block max-h-16 flex-1 select-all overflow-auto break-all font-mono text-[10px] text-fg-muted">{sshKey}</code>
-                    <button type="button" className="btn-ghost px-1.5 py-0.5 text-[10px]" onClick={() => void navigator.clipboard?.writeText(sshKey)}>
-                      copiar
+                    <code className="block max-h-24 flex-1 select-all overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-fg-muted">{authorizeCommand(sshKey)}</code>
+                    <button
+                      type="button"
+                      className="btn-ghost shrink-0 px-1.5 py-0.5 text-[10px]"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(authorizeCommand(sshKey));
+                        setCopied(true);
+                        window.setTimeout(() => setCopied(false), 1500);
+                      }}
+                    >
+                      {copied ? 'copiado' : 'copiar'}
                     </button>
                   </div>
+                  <p className="mt-1.5">
+                    macOS: ligue <em>Sessão Remota</em> em Ajustes → Geral → Compartilhamento e instale o tmux (<code className="font-mono">brew install tmux</code>). Linux: <code className="font-mono">apt install openssh-server tmux</code>.
+                  </p>
                 </>
               ) : (
                 <p>A autenticação usa a chave SSH do servidor do termhub (sem senha, BatchMode). Nenhuma chave pública encontrada em ~/.ssh.</p>
