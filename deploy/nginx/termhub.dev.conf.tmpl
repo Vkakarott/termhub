@@ -1,9 +1,28 @@
-# termhub.dev vhost, rendered by deploy/blue-green.sh: the upstream host below
-# is swapped for the active color's container.
+# termhub.dev vhosts, rendered by deploy/blue-green.sh: the app upstream below is
+# swapped for the active color's container. The landing is a static container
+# that the deploy workflow recreates before the blue/green switch.
+
+# Landing page
 server {
     listen 80;
-    # app.termhub.dev is the app's home; termhub.dev keeps serving it until the landing page exists
-    server_name app.termhub.dev termhub.dev www.termhub.dev;
+    server_name termhub.dev www.termhub.dev;
+    # resolver do Docker + variável: nginx re-resolve o IP quando o container é recriado
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $upstream_landing termhub-landing;
+    location / {
+        proxy_pass http://$upstream_landing:80;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+
+# App
+server {
+    listen 80;
+    server_name app.termhub.dev;
     location / {
         proxy_pass http://__APP_HOST__:3000;
         proxy_http_version 1.1;

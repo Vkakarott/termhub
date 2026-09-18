@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 // Raiz do monorepo (funciona tanto em src/ quanto em dist/).
-export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 // .env: raiz do monorepo tem prioridade sobre o diretório atual.
 dotenv.config({ path: [path.join(ROOT_DIR, '.env'), path.resolve(process.cwd(), '.env')] });

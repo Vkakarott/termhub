@@ -5,7 +5,7 @@
  *  - Linux: systemd (unidade de usuário em ~/.config/systemd/user/termhub.service)
  *
  * Uso: npm run install-service | npm run uninstall-service
- * Antes: npm run build (o serviço roda server/dist/index.js com NODE_ENV=production).
+ * Antes: npm run build (o serviço roda apps/server/dist/index.js com NODE_ENV=production).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const uninstall = process.argv.includes('--uninstall');
 const nodeBin = process.execPath;
-const entry = path.join(ROOT, 'server', 'dist', 'index.js');
+const entry = path.join(ROOT, 'apps', 'server', 'dist', 'index.js');
 const logDir = path.join(ROOT, 'data', 'logs');
 
 function which(bin) {
@@ -62,7 +62,7 @@ if (os.platform() === 'darwin') {
     <string>${nodeBin}</string>
     <string>${entry}</string>
   </array>
-  <key>WorkingDirectory</key><string>${path.join(ROOT, 'server')}</string>
+  <key>WorkingDirectory</key><string>${path.join(ROOT, 'apps', 'server')}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>NODE_ENV</key><string>production</string>
@@ -97,7 +97,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=${path.join(ROOT, 'server')}
+WorkingDirectory=${path.join(ROOT, 'apps', 'server')}
 ExecStart=${nodeBin} ${entry}
 Environment=NODE_ENV=production
 Environment=PATH=${extraPath}

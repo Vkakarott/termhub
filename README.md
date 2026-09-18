@@ -54,7 +54,7 @@ docker compose --profile dev up --build
 ```bash
 cp .env.example .env        # adjust: HOST/BIND_ADDR, PUBLIC_URL, POSTGRES_PASSWORD, SMTP_*, ENCRYPTION_KEY
 bash deploy/blue-green.sh   # builds the image and switches the active blue/green container (see deploy/blue-green.sh)
-docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node server/dist/cli/create-user.js you@example.com "Your Name"
+docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node apps/server/dist/cli/create-user.js you@example.com "Your Name"
 ```
 
 `app-blue`/`app-green` publish no host port on their own — the proxy nginx reaches whichever one is active over the external `proxy` docker network. Without that proxy, publish a port yourself (e.g. a local compose override with `ports: ["127.0.0.1:3000:3000"]`) before running a single color directly.
@@ -100,7 +100,7 @@ Logs on macOS: `data/logs/`. On Linux: `journalctl --user -u termhub -f` (use `l
 
 ### Cloudflare Tunnel
 
-On jarvis, termhub is published at **https://app.termhub.dev** (and, until the landing page exists, also at **https://termhub.dev**) through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one, so there is no 502 window. The public hostnames are managed in the Zero Trust dashboard → Tunnels → jarvis (`app.termhub.dev` and `termhub.dev` → HTTP → `proxy-nginx:80`; the tunnel is dashboard-managed, so `cloudflared tunnel route dns` alone is not enough: it only creates the DNS record, and it uses the zone `~/.cloudflared/cert.pem` was logged into). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
+On jarvis, the app is published at **https://app.termhub.dev** and the landing page at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one, so there is no 502 window. The public hostnames are managed in the Zero Trust dashboard → Tunnels → jarvis (`app.termhub.dev` and `termhub.dev` → HTTP → `proxy-nginx:80`; the vhost template `deploy/nginx/termhub.dev.conf.tmpl` sends `termhub.dev` to the `termhub-landing` container and `app.termhub.dev` to the active app color; the tunnel is dashboard-managed, so `cloudflared tunnel route dns` alone is not enough: it only creates the DNS record, and it uses the zone `~/.cloudflared/cert.pem` was logged into). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
 
 On another server, the simple path is `cloudflared tunnel --url http://127.0.0.1:3000`.
 
@@ -112,7 +112,7 @@ There is no public sign-up. Create users through the CLI:
 
 ```bash
 npm run create-user -- --email you@example.com --name "Your Name" [--password ...] [--role owner|member]
-# Docker (prod blue/green): docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node server/dist/cli/create-user.js you@example.com "Your Name"
+# Docker (prod blue/green): docker exec termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color) node apps/server/dist/cli/create-user.js you@example.com "Your Name"
 ```
 
 - **E-mail code (default):** enter the e-mail, receive a 6-digit code (expires in `LOGIN_CODE_TTL_MINUTES`, 5 attempts, max 3 sends every 10 min). Unknown e-mails get the same response, with no e-mail sent.
@@ -180,16 +180,19 @@ See [.env.example](.env.example). Main ones:
 
 ## Structure
 
+npm workspaces monorepo: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`) and `apps/landing` (`@termhub/landing`, the static site at termhub.dev). Run a workspace script with `npm run <script> -w @termhub/<name>`.
+
 ```
-server/prisma      schema.prisma + migrations (npm run prisma:migrate -- --name <name>)
-server/src
+apps/landing       marketing site (Vite + React), built into a static nginx image (apps/landing/Dockerfile)
+apps/server/prisma schema.prisma + migrations (npm run prisma:migrate -- --name <name>)
+apps/server/src
   auth/          providers (password, google, cloudflare), session, CSRF, middleware
   db/            Prisma client + repositories (the rest of the app never imports Prisma)
   email/         mailer (SMTP/console) and templates
   cli/           create-user
   routes/        REST routes (zod on every input)
   terminal/      exec on machines (local/ssh), PTY, WebSocket
-web/src
+apps/web/src
   components/    Sidebar, TabBar, Terminal (xterm), forms
   pages/         Login, Home, Project
   lib/           api client, auth/data providers, WS connection with backoff
