@@ -133,6 +133,14 @@ export class AgentConnection extends EventEmitter {
     if (this.closing) {
       return Promise.reject(new AgentClosedError('agent connection closed'));
     }
+    // Validate before anything hits the wire: the agent would answer `invalid` anyway, but a
+    // round trip for a request we can already see is malformed is wasted, and a synchronous
+    // rejection keeps the failure next to the caller that built the params.
+    const checked = RPC[method].params.safeParse(params);
+    if (!checked.success) {
+      this.log.warn({ machineId: this.machineId, method, issues: checked.error.issues.length }, 'agent rpc params rejected before send');
+      return Promise.reject(new AgentRpcError({ code: 'invalid', message: 'invalid rpc params' }));
+    }
     const id = `r${++this.seq}`;
     const effectiveTimeout = timeoutMs ?? RPC[method].timeoutMs;
     return new Promise((resolve, reject) => {

@@ -23,6 +23,8 @@ export function toHttpError(err: unknown): HttpError {
         return new HttpError(404, 'Não encontrado na máquina');
       case 'no_tmux':
         return new HttpError(502, 'tmux não encontrado na máquina');
+      case 'invalid':
+        return new HttpError(400, 'Parâmetros inválidos para a máquina');
       default:
         return new HttpError(502, 'Falha na máquina');
     }

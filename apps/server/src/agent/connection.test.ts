@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { CLOSE, CONTROL_CHANNEL, decodeFrame, encodeFrame, PROTOCOL_VERSION } from '@termhub/agent-protocol';
-import { AgentClosedError, AgentConnection, AgentTimeoutError } from './connection.js';
+import { AgentClosedError, AgentConnection, AgentRpcError, AgentTimeoutError } from './connection.js';
 
 class FakeSocket extends EventEmitter {
   sent: Buffer[] = [];
@@ -160,6 +160,28 @@ describe('AgentConnection — fix round 1', () => {
     await expect(c.openPty({ session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 }, { onData() {}, onExit() {} })).rejects.toBeInstanceOf(
       AgentClosedError,
     );
+  });
+});
+
+// Final fix wave — I5: params are validated before anything hits the wire.
+describe('AgentConnection — rpc params validation', () => {
+  it('rejects invalid params with AgentRpcError "invalid" and sends no frame', async () => {
+    const { s, c } = connected();
+    const before = s.sent.length;
+    const pending = c.rpc('tmux.kill', { session: 'bad name' } as never);
+    await expect(pending).rejects.toBeInstanceOf(AgentRpcError);
+    await pending.catch((err: AgentRpcError) => expect(err.rpcError.code).toBe('invalid'));
+    expect(s.sent.length).toBe(before);
+    expect(s.closed).toBeNull();
+  });
+
+  it('still sends valid params unchanged', async () => {
+    const { s, c } = connected();
+    const pending = c.rpc('fs.mkdir', { parent: '/tmp', name: 'x', recursive: true });
+    const [msg] = s.control().filter((m) => m.type === 'rpc');
+    expect(msg.params).toEqual({ parent: '/tmp', name: 'x', recursive: true });
+    s.recvControl({ type: 'rpc_result', id: msg.id, ok: true, result: { stdout: 'PWD:/tmp/x' } });
+    await expect(pending).resolves.toEqual({ stdout: 'PWD:/tmp/x' });
   });
 });
 

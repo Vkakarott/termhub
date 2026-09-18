@@ -291,6 +291,10 @@ describe('toHttpError', () => {
     expect(toHttpError(new AgentRpcError({ code: 'no_tmux', message: 'x' }))).toMatchObject({ statusCode: 502 });
   });
 
+  it('maps AgentRpcError invalid to 400', () => {
+    expect(toHttpError(new AgentRpcError({ code: 'invalid', message: 'x' }))).toMatchObject({ statusCode: 400, message: 'Parâmetros inválidos para a máquina' });
+  });
+
   it('maps other AgentRpcError codes to 502', () => {
     expect(toHttpError(new AgentRpcError({ code: 'internal', message: 'x' }))).toMatchObject({ statusCode: 502 });
   });
