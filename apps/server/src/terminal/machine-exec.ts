@@ -13,6 +13,7 @@ export interface ExecResult {
 }
 
 export function sshBaseArgs(machine: Machine, connectTimeout = 5): string[] {
+  if (machine.type === 'agent') throw new Error('Máquina do tipo agente não executa shell');
   if (machine.type !== 'ssh' || !machine.host) throw new Error('Máquina não é SSH');
   const target = machine.ssh_user ? `${machine.ssh_user}@${machine.host}` : machine.host;
   return [
@@ -38,6 +39,7 @@ export function runOnMachine(
   remoteCommand: string,
   timeoutMs = 8000,
 ): Promise<ExecResult> {
+  if (machine.type === 'agent') throw new Error('Máquina do tipo agente não executa shell');
   const [file, args] =
     machine.type === 'local' ? [local.file, local.args] : ['ssh', [...sshBaseArgs(machine), '--', remoteCommand]];
 
@@ -65,6 +67,7 @@ export function runOnMachineWithInput(
   input: Buffer,
   timeoutMs = 30000,
 ): Promise<ExecResult> {
+  if (machine.type === 'agent') throw new Error('Máquina do tipo agente não executa shell');
   const [file, args] =
     machine.type === 'local' ? [local.file, local.args] : ['ssh', [...sshBaseArgs(machine, 10), '--', remoteCommand]];
 
@@ -107,6 +110,8 @@ export interface MachineStatus {
 
 /** Testa conectividade, tmux, SO e ferramentas disponíveis na máquina. */
 export async function machineStatus(machine: Machine): Promise<MachineStatus> {
+  // Agent: no shell exec here; status comes from the agent's own connection (Task 8).
+  if (machine.type === 'agent') return { online: false, tmux: false, os: null, capabilities: [] };
   // Local: roda via shell de login para ter o PATH do usuário (claude em ~/.local/bin, brew...)
   const r = await runOnMachine(
     machine,
@@ -193,6 +198,8 @@ export async function diagnoseSsh(target: { host: string; ssh_user: string | nul
     os: null,
     capabilities: [],
     checked_at: null,
+    agent_version: null,
+    agent_last_seen_at: null,
     owner_id: null,
     owner_name: null,
     created_at: '',

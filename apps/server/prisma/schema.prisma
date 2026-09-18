@@ -19,6 +19,7 @@ enum UserRole {
 enum MachineType {
   local
   ssh
+  agent
 }
 
 enum ProjectStatus {
@@ -132,6 +133,11 @@ model Machine {
   os           String?
   capabilities Json      @default("[]")
   checkedAt    DateTime? @map("checked_at")
+  /// agent transport: sha256 of the enrollment token (null for local/ssh); the token itself is never stored
+  agentTokenHash      String?   @unique @map("agent_token_hash")
+  agentTokenCreatedAt DateTime? @map("agent_token_created_at")
+  agentVersion        String?   @map("agent_version")
+  agentLastSeenAt     DateTime? @map("agent_last_seen_at")
   /// Owner: everything under the machine (projects, tabs, tasks, notes, AI accounts) is visible only to
   /// them (and to admins viewing as them or as "all"). Null = orphan (previous owner deleted / seeded).
   ownerId   String?     @map("owner_id")

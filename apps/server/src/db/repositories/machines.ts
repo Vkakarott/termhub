@@ -32,14 +32,37 @@ export class MachinesRepository {
     return (await this.db.machine.findMany({ where: { type } })).map(mapMachine);
   }
 
+  async findByAgentTokenHash(hash: string): Promise<Machine | undefined> {
+    const m = await this.db.machine.findUnique({ where: { agentTokenHash: hash }, include: withOwner });
+    return m && m.type === 'agent' ? mapMachine(m) : undefined;
+  }
+
+  async rotateAgentToken(id: string, hash: string): Promise<void> {
+    await this.db.machine.updateMany({ where: { id, type: 'agent' }, data: { agentTokenHash: hash, agentTokenCreatedAt: new Date() } });
+  }
+
+  /** Written on hello and once a minute while connected. */
+  async touchAgent(id: string, patch: { version?: string; os?: string | null; capabilities?: string[]; lastSeenAt: Date }): Promise<void> {
+    await this.db.machine.updateMany({
+      where: { id },
+      data: {
+        agentLastSeenAt: patch.lastSeenAt,
+        ...(patch.version !== undefined ? { agentVersion: patch.version } : {}),
+        ...(patch.os !== undefined ? { os: patch.os, checkedAt: patch.lastSeenAt } : {}),
+        ...(patch.capabilities !== undefined ? { capabilities: patch.capabilities } : {}),
+      },
+    });
+  }
+
   async create(input: MachineInput): Promise<Machine> {
+    const isAgent = input.type === 'agent';
     const m = await this.db.machine.create({
       data: {
         id: newId(),
         name: input.name,
         type: input.type,
-        host: input.host ?? null,
-        sshUser: input.ssh_user ?? null,
+        host: isAgent ? null : (input.host ?? null),
+        sshUser: isAgent ? null : (input.ssh_user ?? null),
         sshPort: input.ssh_port ?? 22,
         ownerId: input.owner_id ?? null,
       },
