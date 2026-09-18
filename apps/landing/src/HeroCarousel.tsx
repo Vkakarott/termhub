@@ -61,10 +61,10 @@ function HardwarePanel() {
   const { t } = useLang();
   const hw = t.carousel.hardware;
   return (
-    <div className="flex h-full flex-col gap-3 p-3 md:gap-4 md:p-4">
+    <div className="flex h-full flex-col gap-3 p-3 md:p-4">
       <div className="grid grid-cols-2 gap-2 md:gap-3">
         {hw.kpis.map((kpi) => (
-          <div key={kpi.label} className="rounded-field border border-border-2 bg-canvas p-2 md:p-3">
+          <div key={kpi.label} className="rounded-field border border-border-2 bg-canvas p-2 md:p-2.5">
             <p className="text-[10px] uppercase tracking-wide text-muted">{kpi.label}</p>
             <p className="mt-0.5 text-[12px] font-medium text-white md:text-body-sm">{kpi.value}</p>
             <span className="mt-1.5 block h-[3px] w-full rounded-full bg-border-2">
@@ -73,7 +73,7 @@ function HardwarePanel() {
           </div>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden rounded-field border border-border-2 bg-canvas px-2 py-1.5 font-mono text-[10px] leading-[1.6] md:px-3 md:text-[11px]">
+      <div className="hidden min-h-0 flex-1 overflow-hidden rounded-field border border-border-2 bg-canvas px-2 py-1.5 font-mono text-[10px] leading-[1.6] md:block md:px-3 md:text-[11px]">
         <div className="flex gap-2 text-muted">
           <span className="flex-1">{hw.procs_head[0]}</span>
           <span className="w-12 text-right">{hw.procs_head[1]}</span>
@@ -87,7 +87,7 @@ function HardwarePanel() {
           </div>
         ))}
       </div>
-      <p className="text-[10px] text-muted">{hw.caption}</p>
+      <p className="mt-auto text-[10px] text-muted">{hw.caption}</p>
     </div>
   );
 }
@@ -128,13 +128,16 @@ function SimulatorPanel() {
 function KanbanPanel() {
   const { t } = useLang();
   return (
-    <div className="grid h-full grid-cols-2 gap-2 p-3 md:grid-cols-4 md:gap-3 md:p-4">
+    <div className="grid h-full grid-cols-2 gap-1.5 p-2.5 md:grid-cols-4 md:gap-3 md:p-4">
       {t.carousel.kanban.columns.map((column) => (
-        <div key={column.title} className="flex min-w-0 flex-col gap-1.5 md:gap-2">
+        <div key={column.title} className="flex min-w-0 flex-col gap-1 md:gap-2">
           <p className="text-[10px] uppercase tracking-wide text-muted">{column.title}</p>
-          {column.cards.map((card) => (
-            <div key={card.text} className="rounded-field border border-border-2 bg-surface p-1.5 text-[11px] text-frost md:p-2 md:text-caption">
-              <span className="block truncate">{card.text}</span>
+          {column.cards.map((card, i) => (
+            <div
+              key={card.text}
+              className={`rounded-field border border-border-2 bg-surface p-1.5 text-[11px] text-frost md:p-2 md:text-caption ${i > 1 ? 'hidden md:block' : ''}`}
+            >
+              <span className="block">{card.text}</span>
               {card.chip ? (
                 <span className="mt-1 inline-block rounded-tint border border-border-2 px-1 font-mono text-[9px] text-accent">{card.chip}</span>
               ) : null}
