@@ -29,6 +29,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/termhub
         run: npm test -w server
+      - name: Testes web
+        run: npm test -w web
       - name: Typecheck server
         run: npm run typecheck -w server
       - name: Typecheck + build web

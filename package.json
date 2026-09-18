@@ -14,7 +14,7 @@
     "dev:web": "npm run dev -w web",
     "build": "npm run prisma:generate && npm run build -w web && npm run build -w server",
     "start": "npm run start -w server",
-    "test": "npm test -w server",
+    "test": "npm test -w server && npm test -w web",
     "prisma:generate": "npm run prisma:generate -w server",
     "prisma:migrate": "npm run prisma:migrate -w server --",
     "prisma:migrate:deploy": "npm run prisma:migrate:deploy -w server",
