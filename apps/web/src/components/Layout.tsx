@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
+import { MonitorProvider } from '../lib/monitor';
 import { Sidebar } from './Sidebar';
 
 const SIDEBAR_KEY = 'termhub:sidebar-collapsed';
@@ -17,12 +18,14 @@ export function Layout() {
   if (!user) return <Navigate to="/login" replace />;
   return (
     <DataProvider>
-      <div className="flex h-full">
-        {collapsed ? <SidebarRail onExpand={() => setCollapsed(false)} /> : <Sidebar onCollapse={() => setCollapsed(true)} />}
-        <main className="relative min-w-0 flex-1">
-          <Outlet />
-        </main>
-      </div>
+      <MonitorProvider>
+        <div className="flex h-full">
+          {collapsed ? <SidebarRail onExpand={() => setCollapsed(false)} /> : <Sidebar onCollapse={() => setCollapsed(true)} />}
+          <main className="relative min-w-0 flex-1">
+            <Outlet />
+          </main>
+        </div>
+      </MonitorProvider>
     </DataProvider>
   );
 }

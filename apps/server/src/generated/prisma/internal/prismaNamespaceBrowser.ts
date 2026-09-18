@@ -60,6 +60,8 @@ export const ModelName = {
   Machine: 'Machine',
   Project: 'Project',
   Tab: 'Tab',
+  TabEvent: 'TabEvent',
+  MachineHook: 'MachineHook',
   Ticket: 'Ticket',
   Task: 'Task',
   Note: 'Note',
@@ -199,10 +201,36 @@ export const TabScalarFieldEnum = {
   tmuxSession: 'tmuxSession',
   simulatorUdid: 'simulatorUdid',
   position: 'position',
+  state: 'state',
+  stateText: 'stateText',
+  stateTool: 'stateTool',
+  stateAt: 'stateAt',
   createdAt: 'createdAt'
 } as const
 
 export type TabScalarFieldEnum = (typeof TabScalarFieldEnum)[keyof typeof TabScalarFieldEnum]
+
+
+export const TabEventScalarFieldEnum = {
+  id: 'id',
+  tabId: 'tabId',
+  kind: 'kind',
+  tool: 'tool',
+  text: 'text',
+  meta: 'meta',
+  createdAt: 'createdAt'
+} as const
+
+export type TabEventScalarFieldEnum = (typeof TabEventScalarFieldEnum)[keyof typeof TabEventScalarFieldEnum]
+
+
+export const MachineHookScalarFieldEnum = {
+  machineId: 'machineId',
+  tokenHash: 'tokenHash',
+  installedAt: 'installedAt'
+} as const
+
+export type MachineHookScalarFieldEnum = (typeof MachineHookScalarFieldEnum)[keyof typeof MachineHookScalarFieldEnum]
 
 
 export const TicketScalarFieldEnum = {
