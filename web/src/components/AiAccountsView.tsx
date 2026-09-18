@@ -10,7 +10,7 @@ const PROVIDER_HINT: Record<AiProvider, string> = {
   claude: 'Lê o login do Claude Code na máquina (~/.claude). Para uma segunda conta (ex.: a da empresa), faça login com CLAUDE_CONFIG_DIR=~/.claude-work claude e informe o diretório aqui.',
   chatgpt: 'Lê o login do Codex CLI na máquina (~/.codex). Entre com "Sign in with ChatGPT" — login por API key não tem limite de plano.',
   gemini: 'Lê o login do Gemini CLI na máquina (~/.gemini). Entre com a conta Google — login por API key não tem cota de plano.',
-  antigravity: 'Lê o login do Antigravity CLI na máquina (~/.gemini/antigravity-cli). Rode `agy` e entre com a conta Google do plano AI Pro/Ultra — login por API key não tem cota de plano.',
+  antigravity: 'Lê o login do Antigravity CLI na máquina (~/.gemini/antigravity-cli/antigravity-oauth-token; o diretório de config é ~/.gemini). Rode `agy` e entre com a conta Google do plano AI Pro/Ultra — login por API key não tem cota de plano.',
 };
 
 const PROVIDER_STYLE: Record<AiProvider, string> = {
