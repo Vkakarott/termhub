@@ -134,9 +134,8 @@ function Page() {
             <p className="mb-4 inline-flex items-center gap-2 rounded-field border border-border-2 bg-canvas px-3 py-1 text-caption text-frost">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" /> {t.hero.badge}
             </p>
-            <h1 className="text-heading-lg md:text-display">
+            <h1 className="text-heading-lg [text-wrap:balance] md:text-[44px] lg:text-[48px] xl:text-[50px]">
               {t.hero.title_a}
-              <br className="hidden md:block" />
               <span className="text-accent">{t.hero.title_b}</span>.
             </h1>
             <p className="mt-5 max-w-xl text-subheading text-frost">{t.hero.lead}</p>
@@ -214,9 +213,9 @@ function Page() {
       <footer className="border-t border-border-2">
         <div className="mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-2 px-4 py-6 text-caption text-muted md:px-6">
           <span>© {new Date().getFullYear()} termhub · MIT</span>
-          <a href={REPO_URL} className="transition duration-150 hover:text-frost">GitHub</a>
-          <a href={`${REPO_URL}/blob/main/README.md`} className="transition duration-150 hover:text-frost">{t.footer.docs}</a>
-          <a href={COFFEE_URL} className="transition duration-150 hover:text-frost">{t.footer.coffee}</a>
+          <a href={REPO_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">GitHub</a>
+          <a href={`${REPO_URL}/blob/main/README.md`} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.docs}</a>
+          <a href={COFFEE_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.coffee}</a>
           <span className="ml-auto">{t.footer.made}</span>
         </div>
       </footer>

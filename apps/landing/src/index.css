@@ -89,4 +89,9 @@ h4 {
     transform: none;
     transition: none;
   }
+
+  /* the pulsing badge dots and the terminal cursor hold still too */
+  .animate-pulse {
+    animation: none;
+  }
 }

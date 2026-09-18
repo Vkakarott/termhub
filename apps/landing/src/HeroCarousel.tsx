@@ -102,7 +102,7 @@ function SimulatorPanel() {
           <div className="flex h-full flex-col gap-1 overflow-hidden rounded-[22px] bg-surface p-1.5 md:gap-1.5">
             <p className="text-[7px] font-medium text-white md:text-[9px]">{ios.screen_title}</p>
             {ios.rows.map((row) => (
-              <div key={row} className="flex items-center rounded-[4px] bg-border-2 px-1 py-0.5 text-[6px] text-frost md:text-[8px]">
+              <div key={row} className="flex items-center rounded-tint bg-border-2 px-1 py-0.5 text-[6px] text-frost md:text-[8px]">
                 {row}
               </div>
             ))}
@@ -156,7 +156,12 @@ export function HeroCarousel() {
   const { t } = useLang();
   const tabs = t.carousel.tabs;
   const [active, setActive] = useState(0);
-  const [paused, setPaused] = useState(false);
+  // the two pause reasons are tracked apart: coming back to a visible tab must not restart
+  // the timer while the pointer is still resting on the carousel
+  const [hovering, setHovering] = useState(false);
+  const [documentHidden, setDocumentHidden] = useState(() => typeof document !== 'undefined' && document.hidden);
+  // bumped on every tab pick, so clicking the tab that is already active restarts the countdown
+  const [restarts, setRestarts] = useState(0);
   const [reduced, setReduced] = useState(prefersReducedMotion);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const frameRef = useReveal<HTMLDivElement>();
@@ -171,33 +176,38 @@ export function HeroCarousel() {
 
   // a hidden tab keeps its timer stopped, so the panel does not race ahead in a background tab
   useEffect(() => {
-    const onVisibility = () => setPaused(document.hidden);
+    const onVisibility = () => setDocumentHidden(document.hidden);
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
   useEffect(() => {
-    if (reduced || paused) return;
+    if (reduced || hovering || documentHidden) return;
     const id = window.setTimeout(() => setActive((i) => (i + 1) % tabs.length), AUTO_MS);
     return () => window.clearTimeout(id);
-  }, [active, paused, reduced, tabs.length]);
+  }, [active, restarts, hovering, documentHidden, reduced, tabs.length]);
+
+  const selectTab = useCallback((index: number) => {
+    setActive(index);
+    setRestarts((n) => n + 1);
+  }, []);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       event.preventDefault();
       const next = (active + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
-      setActive(next);
+      selectTab(next);
       tabRefs.current[next]?.focus();
     },
-    [active, tabs.length],
+    [active, selectTab, tabs.length],
   );
 
   return (
     <div
       className="w-full"
-      onPointerEnter={() => setPaused(true)}
-      onPointerLeave={() => setPaused(document.hidden)}
+      onPointerEnter={() => setHovering(true)}
+      onPointerLeave={() => setHovering(false)}
     >
       <div role="tablist" aria-label={t.carousel.label} onKeyDown={onKeyDown} className="mb-3 flex flex-wrap gap-1">
         {tabs.map((tab, i) => (
@@ -212,7 +222,7 @@ export function HeroCarousel() {
             aria-selected={i === active}
             aria-controls={`hero-panel-${i}`}
             tabIndex={i === active ? 0 : -1}
-            onClick={() => setActive(i)}
+            onClick={() => selectTab(i)}
             className={`rounded-tint px-2 py-1 text-body-sm font-medium transition duration-150 ${
               i === active ? 'border-b-2 border-accent text-white' : 'border-b-2 border-transparent text-muted hover:text-frost'
             }`}
@@ -232,6 +242,7 @@ export function HeroCarousel() {
             id={`hero-panel-${i}`}
             aria-labelledby={`hero-tab-${i}`}
             aria-hidden={i !== active}
+            tabIndex={i === active ? 0 : -1}
             className={`absolute inset-0 ${reduced ? '' : 'transition-opacity duration-300'} ${
               i === active ? 'opacity-100' : 'pointer-events-none opacity-0'
             }`}

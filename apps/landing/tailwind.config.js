@@ -16,12 +16,11 @@ export default {
         muted: '#646e87', // secondary/muted text
         frost: '#c9d3ee', // secondary text, icon strokes
         accent: '#98a4f7', // links and small accents (never a filled button background)
-        iris: '#5b63d3', // gradient start stop
+        // the CTA gradient's stops (#5b63d3 -> #7c87f7) live in backgroundImage.cta below
       },
       fontSize: {
         display: ['53px', { lineHeight: '1.08' }],
         'heading-lg': ['40px', { lineHeight: '1.1' }],
-        heading: ['32px', { lineHeight: '1.17' }],
         'heading-sm': ['28px', { lineHeight: '1.45' }],
         subheading: ['20px', { lineHeight: '1.45' }],
         body: ['16px', { lineHeight: '1.6' }],
