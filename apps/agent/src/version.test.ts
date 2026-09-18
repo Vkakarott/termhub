@@ -13,3 +13,13 @@ describe('AGENT_VERSION', () => {
     expect(AGENT_VERSION).toBe(pkg.version);
   });
 });
+
+describe('package manifest', () => {
+  // npm 11 drops a bin entry whose path starts with "./" when publishing ("was invalid and
+  // removed"), which would ship the package without the termhub-agent command.
+  it('declares the bin without a leading ./', () => {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string>; files: string[] };
+    expect(pkg.bin).toEqual({ 'termhub-agent': 'dist/cli.js' });
+    expect(pkg.files).toContain('dist');
+  });
+});
