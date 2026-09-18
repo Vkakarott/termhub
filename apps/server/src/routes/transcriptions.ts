@@ -4,6 +4,8 @@ import { badRequest, unauthorized } from '../lib/errors.js';
 import { TRANSCRIPTION_MAX_BYTES, isTranscriptionEnabled, type TranscriptionService } from '../terminal/transcription.js';
 
 const idParam = z.object({ id: z.string().uuid() });
+/** clip length in seconds, as measured by the recorder (drives the progress estimate) */
+const createQuery = z.object({ seconds: z.coerce.number().min(0).max(600).optional() });
 
 /**
  * Voice input for the terminals: the browser records a clip, POSTs it here and polls the job
@@ -20,7 +22,8 @@ export async function transcriptionRoutes(app: FastifyInstance, deps: { transcri
     const mime = String(request.headers['content-type'] ?? '').split(';')[0].trim();
     if (!Buffer.isBuffer(request.body) || !mime.startsWith('audio/')) throw badRequest('Envie o áudio como corpo binário (content-type audio/*)');
     if (request.body.length === 0) throw badRequest('Áudio vazio');
-    const job = deps.transcriptions.start(request.user.id, request.body, mime);
+    const { seconds } = createQuery.parse(request.query);
+    const job = deps.transcriptions.start(request.user.id, request.body, mime, seconds ?? null);
     return reply.code(202).send({ transcription: deps.transcriptions.view(job) });
   });
 

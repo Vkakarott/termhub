@@ -15,6 +15,7 @@ import { AiAccountsRepository } from './ai-accounts.js';
 import { WaitlistRepository } from './waitlist.js';
 import { RolesRepository } from './roles.js';
 import { MachineHooksRepository } from './machine-hooks.js';
+import { UploadsRepository } from './uploads.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -33,6 +34,7 @@ export interface Repositories {
   machineHooks: MachineHooksRepository;
   waitlist: WaitlistRepository;
   roles: RolesRepository;
+  uploads: UploadsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -53,6 +55,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     machineHooks: new MachineHooksRepository(db),
     waitlist: new WaitlistRepository(db),
     roles: new RolesRepository(db),
+    uploads: new UploadsRepository(db),
   };
 }
 
@@ -61,4 +64,5 @@ export type { Integration, IntegrationProvider } from './integrations.js';
 export type { ProjectSetup } from './project-setup.js';
 export type { WaitlistEntry } from './waitlist.js';
 export type { Role, PermissionGrant } from './roles.js';
+export type { Upload } from './uploads.js';
 export { SYSTEM_ROLE_IDS } from './roles.js';

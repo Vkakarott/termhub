@@ -10,6 +10,10 @@ const WHISPER_TIMEOUT_MS = 10 * 60 * 1000;
 const JOB_TTL_MS = 10 * 60 * 1000;
 /** Pending jobs per user: one clip at a time is the normal case; two absorbs a quick retry. */
 const MAX_PENDING_PER_USER = 2;
+/** Seconds of processing per second of audio before any job has been measured (CPU "medium"). */
+const DEFAULT_SPEED_RATIO = 0.35;
+/** Fixed cost per clip (decode, model warm-up), seconds. */
+const OVERHEAD_S = 1.5;
 
 export type TranscriptionStatus = 'pending' | 'done' | 'error';
 
@@ -21,13 +25,25 @@ export interface TranscriptionJob {
   text?: string;
   /** audio length in seconds, as reported by whisper */
   duration?: number;
+  /** audio length in seconds as told by the client at upload (drives the estimate while pending) */
+  audio_seconds: number | null;
   /** user-facing failure message (error) */
   error?: string;
   created_at: number;
   finished_at?: number;
 }
 
-export type TranscriptionView = Pick<TranscriptionJob, 'id' | 'status' | 'text' | 'duration' | 'error'>;
+export interface TranscriptionView {
+  id: string;
+  status: TranscriptionStatus;
+  text?: string;
+  duration?: number;
+  error?: string;
+  /** pending only: estimated seconds until the text is ready (0 when overdue) */
+  eta_seconds?: number;
+  /** pending only: 0..1 share of the estimated time already elapsed (capped below 1) */
+  progress?: number;
+}
 
 export const isTranscriptionEnabled = () => config.transcription !== null;
 
@@ -40,26 +56,40 @@ export const isTranscriptionEnabled = () => config.transcription !== null;
 export class TranscriptionService {
   private readonly jobs = new Map<string, TranscriptionJob>();
   private readonly log: (meta: Record<string, unknown>, msg: string) => void;
+  /** processing seconds per audio second, learned from finished jobs (exponential moving average) */
+  private speedRatio = DEFAULT_SPEED_RATIO;
 
   constructor(opts: { log: (meta: Record<string, unknown>, msg: string) => void }) {
     this.log = opts.log;
   }
 
-  view(job: TranscriptionJob): TranscriptionView {
-    return { id: job.id, status: job.status, text: job.text, duration: job.duration, error: job.error };
+  view(job: TranscriptionJob, now = Date.now()): TranscriptionView {
+    const v: TranscriptionView = { id: job.id, status: job.status, text: job.text, duration: job.duration, error: job.error };
+    if (job.status === 'pending' && job.audio_seconds !== null) {
+      const expected = this.estimateSeconds(job.audio_seconds);
+      const elapsed = (now - job.created_at) / 1000;
+      v.eta_seconds = Math.max(0, Math.ceil(expected - elapsed));
+      v.progress = Math.min(0.97, elapsed / expected);
+    }
+    return v;
+  }
+
+  /** Expected processing time for a clip of the given length. */
+  estimateSeconds(audioSeconds: number): number {
+    return OVERHEAD_S + audioSeconds * this.speedRatio;
   }
 
   /** Enqueues a clip; the whisper call runs in the background. */
-  start(userId: string, audio: Buffer, mime: string): TranscriptionJob {
+  start(userId: string, audio: Buffer, mime: string, audioSeconds: number | null = null): TranscriptionJob {
     if (!config.transcription) throw new HttpError(503, 'Transcrição de voz não está configurada', 'TRANSCRIPTION_OFF');
     this.purge();
     let pending = 0;
     for (const j of this.jobs.values()) if (j.user_id === userId && j.status === 'pending') pending += 1;
     if (pending >= MAX_PENDING_PER_USER) throw conflict('Já existe uma transcrição em andamento');
 
-    const job: TranscriptionJob = { id: randomUUID(), user_id: userId, status: 'pending', created_at: Date.now() };
+    const job: TranscriptionJob = { id: randomUUID(), user_id: userId, status: 'pending', audio_seconds: audioSeconds, created_at: Date.now() };
     this.jobs.set(job.id, job);
-    this.log({ jobId: job.id, bytes: audio.length, mime }, 'transcription started');
+    this.log({ jobId: job.id, bytes: audio.length, mime, audioSeconds, etaSeconds: audioSeconds === null ? null : Math.ceil(this.estimateSeconds(audioSeconds)) }, 'transcription started');
     void this.run(job, audio, mime);
     return job;
   }
@@ -79,7 +109,13 @@ export class TranscriptionService {
       job.text = result.text;
       job.duration = result.duration;
       job.status = 'done';
-      this.log({ jobId: job.id, audioSeconds: result.duration, ms: Date.now() - t0, chars: result.text.length }, 'transcription done');
+      const ms = Date.now() - t0;
+      if (result.duration >= 3) {
+        // learn the machine's real speed; the first job replaces the guess outright
+        const ratio = Math.max(0, ms / 1000 - OVERHEAD_S) / result.duration;
+        this.speedRatio = this.speedRatio === DEFAULT_SPEED_RATIO ? ratio : this.speedRatio * 0.7 + ratio * 0.3;
+      }
+      this.log({ jobId: job.id, audioSeconds: result.duration, ms, chars: result.text.length, speedRatio: Number(this.speedRatio.toFixed(3)) }, 'transcription done');
     } catch (err) {
       job.status = 'error';
       job.error = err instanceof HttpError ? err.message : 'Falha ao transcrever o áudio';

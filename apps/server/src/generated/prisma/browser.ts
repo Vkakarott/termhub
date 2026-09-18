@@ -111,3 +111,10 @@ export type AiAccount = Prisma.AiAccountModel
  * Cloud waitlist sign-ups from the landing page (public form). Managed from the app.
  */
 export type WaitlistEntry = Prisma.WaitlistEntryModel
+/**
+ * Model Upload
+ * A file pasted/dropped on a terminal and written to ~/.cache/termhub/paste/ on the machine.
+ * Attribution only (who sent what, when): the file itself lives on the machine and may be gone
+ * (7-day cleanup, manual rm) — Settings → Arquivos reconciles rows with the directory listing.
+ */
+export type Upload = Prisma.UploadModel

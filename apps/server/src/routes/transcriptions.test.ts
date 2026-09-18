@@ -58,6 +58,26 @@ describe('POST /api/transcriptions', () => {
     expect(done.json().transcription).toMatchObject({ id: job.id, status: 'done', text: 'ola mundo', duration: 1.5 });
   });
 
+  it('estimates progress from the clip length while pending and learns the real speed', async () => {
+    let answer: (r: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (answer = r)));
+    const service = new TranscriptionService({ log: () => {} });
+    const app = buildApp(service);
+    const res = await app.inject({ method: 'POST', url: '/api/transcriptions?seconds=60', headers: { 'content-type': 'audio/webm' }, payload: Buffer.from('x') });
+    const job = res.json().transcription;
+    expect(job.eta_seconds).toBeGreaterThan(10); // 1.5 + 60 × 0.35 ≈ 22 s
+    expect(job.progress).toBeGreaterThanOrEqual(0);
+    expect(job.progress).toBeLessThan(0.2);
+
+    answer(new Response(JSON.stringify({ text: 'ok', language: 'pt', duration: 60 }), { status: 200 }));
+    await settle();
+    const done = (await app.inject({ method: 'GET', url: `/api/transcriptions/${job.id}` })).json().transcription;
+    expect(done.status).toBe('done');
+    expect(done.eta_seconds).toBeUndefined();
+    // the finished job (instant here) taught the service the machine is fast: the next estimate shrinks
+    expect(service.estimateSeconds(60)).toBeLessThan(5);
+  });
+
   it('rejects a non-audio body', async () => {
     const app = buildApp(new TranscriptionService({ log: () => {} }));
     const res = await app.inject({ method: 'POST', url: '/api/transcriptions', headers: { 'content-type': 'application/json' }, payload: { audio: 'x' } });
