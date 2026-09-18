@@ -68,72 +68,74 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
   };
 
   return (
-    <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-line bg-bg-2">
-      {tabs.map((t, i) => {
-        const active = t.id === activeId;
-        const shown = onScreen(t.id);
-        return (
-          <div
-            key={t.id}
-            className={`group relative flex min-w-[120px] max-w-[220px] cursor-pointer select-none items-center gap-2 border-r border-line px-3 text-xs ${
-              active ? 'bg-bg text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'
-            }`}
-            onClick={() => onSelect(t.id)}
-            onDoubleClick={() => {
-              setEditing(t.id);
-              setDraft(t.name);
-            }}
-            title={`${t.name} — ${t.kind === 'simulator' ? 'simulador iOS' : t.tmux_session}${i < 9 ? `  (⌘${i + 1})` : ''}`}
-          >
-            {(active || shown) && <span className={`absolute inset-x-0 top-0 h-px ${active ? 'bg-accent' : 'bg-accent/40'}`} />}
-            <span
-              className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.alive ? 'bg-ok' : 'bg-fg-dim'}`}
-              title={t.kind === 'simulator' ? (t.alive ? 'simulador conectado' : 'simulador desconectado') : t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada'}
-            />
-            {t.kind === 'simulator' && (
-              <span className="text-[10px]" aria-hidden>
-                📱
-              </span>
-            )}
-            {editing === t.id ? (
-              <input
-                ref={inputRef}
-                className="w-full bg-transparent outline-none"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={commit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commit();
-                  if (e.key === 'Escape') setEditing(null);
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span className="truncate">{t.name}</span>
-            )}
-            <button
-              className={`ml-auto rounded px-1 text-fg-dim hover:bg-bg-4 hover:text-fg ${active ? '' : 'invisible group-hover:visible'}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose(t.id);
+    <div className="flex h-9 shrink-0 items-stretch border-b border-line bg-bg-2">
+      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+        {tabs.map((t, i) => {
+          const active = t.id === activeId;
+          const shown = onScreen(t.id);
+          return (
+            <div
+              key={t.id}
+              className={`group relative flex min-w-[120px] max-w-[220px] cursor-pointer select-none items-center gap-2 border-r border-line px-3 text-xs ${
+                active ? 'bg-bg text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'
+              }`}
+              onClick={() => onSelect(t.id)}
+              onDoubleClick={() => {
+                setEditing(t.id);
+                setDraft(t.name);
               }}
-              title="Fechar tab (⌘W)"
-              aria-label="Fechar tab"
+              title={`${t.name} — ${t.kind === 'simulator' ? 'simulador iOS' : t.tmux_session}${i < 9 ? `  (⌘${i + 1})` : ''}`}
             >
-              ✕
-            </button>
-          </div>
-        );
-      })}
-      <button className="px-3 text-sm text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onNew} title="Nova tab (⌘T)" aria-label="Nova tab">
-        +
-      </button>
-      {canSimulator && (
-        <button className="px-2 text-sm text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onNewSimulator} title="Novo simulador iOS" aria-label="Novo simulador iOS">
-          📱
+              {(active || shown) && <span className={`absolute inset-x-0 top-0 h-px ${active ? 'bg-accent' : 'bg-accent/40'}`} />}
+              <span
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.alive ? 'bg-ok' : 'bg-fg-dim'}`}
+                title={t.kind === 'simulator' ? (t.alive ? 'simulador conectado' : 'simulador desconectado') : t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada'}
+              />
+              {t.kind === 'simulator' && (
+                <span className="text-[10px]" aria-hidden>
+                  📱
+                </span>
+              )}
+              {editing === t.id ? (
+                <input
+                  ref={inputRef}
+                  className="w-full bg-transparent outline-none"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={commit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commit();
+                    if (e.key === 'Escape') setEditing(null);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span className="truncate">{t.name}</span>
+              )}
+              <button
+                className={`ml-auto rounded px-1 text-fg-dim hover:bg-bg-4 hover:text-fg ${active ? '' : 'invisible group-hover:visible'}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose(t.id);
+                }}
+                title="Fechar tab (⌘W)"
+                aria-label="Fechar tab"
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+        <button className="px-3 text-sm text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onNew} title="Nova tab (⌘T)" aria-label="Nova tab">
+          +
         </button>
-      )}
-      <div className="ml-auto flex items-center gap-0.5 px-2" role="radiogroup" aria-label="Arranjo dos painéis">
+        {canSimulator && (
+          <button className="px-2 text-sm text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onNewSimulator} title="Novo simulador iOS" aria-label="Novo simulador iOS">
+            📱
+          </button>
+        )}
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 px-2" role="radiogroup" aria-label="Arranjo dos painéis">
         {PRESETS.map((p) => (
           <button
             key={p.key}

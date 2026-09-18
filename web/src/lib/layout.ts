@@ -129,6 +129,19 @@ function withCell(cells: (string | null)[], index: number, value: string | null)
   return cells.map((c, i) => (i === index ? value : c));
 }
 
+/**
+ * Fallback so the area is never blank: if nothing is on screen (no cell occupied, no
+ * floating window) but at least one tab exists, assigns the first tab to cell 0. Used
+ * after `sanitize`/`loadLayout` so migration, tab deletion and a fresh area never leave
+ * every cell empty when there is something to show.
+ */
+export function ensureVisibleTab(layout: Layout, tabIds: string[]): Layout {
+  if (layout.floating) return layout;
+  if (layout.cells.some((c) => c !== null)) return layout;
+  if (tabIds.length === 0) return layout;
+  return { ...layout, cells: withCell(layout.cells, 0, tabIds[0]) };
+}
+
 export function reduce(layout: Layout, action: Action, area: Size | null): Layout {
   const n = layout.cells.length;
   switch (action.type) {

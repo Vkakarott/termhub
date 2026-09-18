@@ -8,6 +8,8 @@ interface Props {
   tab: Tab;
   machineId: string;
   active: boolean;
+  /** true when this is the tab that should own keyboard focus right now (the focused cell/floating window) */
+  focused?: boolean;
   floating?: boolean;
   onDetach?: (aspect: number) => void;
   onDock?: () => void;
@@ -65,7 +67,7 @@ function DevicePicker({ machineId, value, onPick }: { machineId: string; value: 
   );
 }
 
-export function SimulatorView({ tab, machineId, active, floating, onDetach, onDock, onTabChange, onConnected }: Props) {
+export function SimulatorView({ tab, machineId, active, focused, floating, onDetach, onDock, onTabChange, onConnected }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const connRef = useRef<SimulatorConnection | null>(null);
@@ -164,6 +166,13 @@ export function SimulatorView({ tab, machineId, active, floating, onDetach, onDo
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Keyboard focus follows the focused cell (or the floating window), not just mounting/activating.
+  useEffect(() => {
+    if (!focused) return;
+    const id = requestAnimationFrame(() => canvasRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [focused]);
 
   const send = useCallback((msg: Parameters<SimulatorConnection['send']>[0]) => connRef.current?.send(msg), []);
 

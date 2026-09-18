@@ -4,6 +4,7 @@ import {
   cellRects,
   clampFloating,
   emptyLayout,
+  ensureVisibleTab,
   FLOATING_MARGIN,
   FLOATING_MIN,
   initialFloatingRect,
@@ -234,6 +235,28 @@ describe('sanitize', () => {
     const l = sanitize(raw, tabs, AREA);
     expect(l.floating).toBeNull();
     expect(l.cells).toEqual(['s', null]);
+  });
+});
+
+describe('ensureVisibleTab', () => {
+  it('nada na tela e há abas: coloca a primeira na célula 0', () => {
+    const l = ensureVisibleTab(emptyLayout('single'), ['a', 'b']);
+    expect(l.cells).toEqual(['a']);
+  });
+
+  it('sem abas: não mexe', () => {
+    const l = emptyLayout('single');
+    expect(ensureVisibleTab(l, [])).toEqual(l);
+  });
+
+  it('já há uma célula ocupada: não mexe', () => {
+    const l = L({ cells: [null, 'b'] });
+    expect(ensureVisibleTab(l, ['a', 'b'])).toEqual(l);
+  });
+
+  it('há uma janela flutuante: não mexe mesmo com as células vazias', () => {
+    const l = L({ floating: { tabId: 's', x: 0, y: 0, w: 300, h: 400 } });
+    expect(ensureVisibleTab(l, ['a', 's'])).toEqual(l);
   });
 });
 

@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import {
   cellRects,
+  emptyLayout,
+  ensureVisibleTab,
   initialFloatingRect,
   loadLayout,
   placeOf,
@@ -48,7 +50,10 @@ export function TerminalsView({ project, visible }: Props) {
   // --- Layout state -------------------------------------------------------
   const areaRef = useRef<HTMLDivElement>(null);
   const [area, setArea] = useState<Size | null>(null);
-  const [layout, setLayout] = useState<Layout>(() => loadLayout(project.id, [], null));
+  // Starts empty: loading with the real tab list (below) picks up the stored layout, and
+  // `loadLayout`/`sanitize` need the actual tab ids to keep anything — calling them here with an
+  // empty list would consume the legacy migration key and sanitize away any saved layout.
+  const [layout, setLayout] = useState<Layout>(() => emptyLayout('single'));
   const [floatingFocused, setFloatingFocused] = useState(false);
   const tabIds = useMemo(() => (tabs ?? []).map((t) => t.id), [tabs]);
 
@@ -57,16 +62,21 @@ export function TerminalsView({ project, visible }: Props) {
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const r = el.getBoundingClientRect();
+      // The section can be `display:none` while hidden (0×0): ignore that reading and keep the
+      // last real size, or the floating window (and everything else) gets clamped to nothing
+      // and that gets persisted.
+      if (r.width === 0 || r.height === 0) return;
       setArea({ width: Math.floor(r.width), height: Math.floor(r.height) });
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  // Re-sanitize whenever the tab list or the area changes (deleted tabs, smaller window).
+  // Re-sanitize whenever the tab list or the area changes (deleted tabs, smaller window), and
+  // fall back to showing the first tab if that leaves nothing on screen.
   useEffect(() => {
     if (!tabs) return;
-    setLayout((l) => sanitize(l, tabIds, area));
+    setLayout((l) => ensureVisibleTab(sanitize(l, tabIds, area), tabIds));
   }, [tabs, tabIds, area]);
 
   // First load with the real tab list: pick up the stored layout (or migrate the old active-tab key).
@@ -74,7 +84,7 @@ export function TerminalsView({ project, visible }: Props) {
   useEffect(() => {
     if (!tabs || loadedFor.current === project.id) return;
     loadedFor.current = project.id;
-    setLayout(loadLayout(project.id, tabIds, area));
+    setLayout(ensureVisibleTab(loadLayout(project.id, tabIds, area), tabIds));
   }, [tabs, tabIds, area, project.id]);
 
   useEffect(() => {
@@ -111,8 +121,9 @@ export function TerminalsView({ project, visible }: Props) {
       setReachable(r.reachable);
       setError(null);
     } catch (e) {
+      // Keep `tabs` as-is (usually still null on the first load): a fake `[]` would make the
+      // layout effects sanitize away — and then persist — an empty layout over whatever was saved.
       setError(e instanceof ApiError ? e.message : 'Erro ao carregar tabs');
-      setTabs([]);
     }
   }, [project.id]);
 
@@ -211,13 +222,13 @@ export function TerminalsView({ project, visible }: Props) {
         if (t) {
           e.preventDefault();
           dispatch({ type: 'assign', tabId: t.id });
-          setFloatingFocused(false);
+          setFloatingFocused(layout.floating?.tabId === t.id);
         }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, tabs, focusedTabId, newTab, dispatch]);
+  }, [visible, tabs, focusedTabId, newTab, dispatch, layout.floating]);
 
   const floatingTab = layout.floating ? (tabs ?? []).find((t) => t.id === layout.floating?.tabId) : undefined;
 
@@ -256,6 +267,9 @@ export function TerminalsView({ project, visible }: Props) {
       {error && (
         <div className="border-b border-danger/30 bg-danger/10 px-3 py-1 text-xs text-danger">
           {error}{' '}
+          <button className="underline" onClick={() => void load()}>
+            Tentar de novo
+          </button>{' '}
           <button className="underline" onClick={() => setError(null)}>
             fechar
           </button>
@@ -278,6 +292,7 @@ export function TerminalsView({ project, visible }: Props) {
               const place = placeOf(layout, t.id);
               const isFloating = place?.kind === 'floating';
               const active = visible && r !== null;
+              const focused = visible && t.id === focusedTabId;
               return (
                 <div
                   key={t.id}
@@ -299,6 +314,7 @@ export function TerminalsView({ project, visible }: Props) {
                       tab={t}
                       machineId={project.machine_id}
                       active={active}
+                      focused={focused}
                       floating={isFloating}
                       onDetach={(aspect) => detach(t, aspect)}
                       onDock={() => {
@@ -309,7 +325,7 @@ export function TerminalsView({ project, visible }: Props) {
                       onConnected={() => markAlive(t.id)}
                     />
                   ) : (
-                    <TerminalView tabId={t.id} active={active} onConnected={() => markAlive(t.id)} />
+                    <TerminalView tabId={t.id} active={active} focused={focused} onConnected={() => markAlive(t.id)} />
                   )}
                 </div>
               );

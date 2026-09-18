@@ -48,7 +48,7 @@ function TabPicker({ tabs, value, onPick, onNew }: { tabs: Tab[]; value: string 
 export function PaneLayer({ preset, rects, cells, focusedCell, tabs, onFocus, onAssign, onClear, onNewTerminal }: Props) {
   if (preset === 'single') return null;
   return (
-    <div className="pointer-events-none absolute inset-0">
+    <div className="pointer-events-none absolute inset-0 z-10">
       {rects.map((r, cell) => {
         const tab = cells[cell] ? tabs.find((t) => t.id === cells[cell]) : undefined;
         const focused = cell === focusedCell;

@@ -9,6 +9,8 @@ import { api, ApiError } from '../lib/api';
 interface Props {
   tabId: string;
   active: boolean;
+  /** true when this is the tab that should own keyboard focus right now (the focused cell/floating window) */
+  focused?: boolean;
   onConnected?: () => void;
   onExit?: () => void;
 }
@@ -84,7 +86,7 @@ export function isAppShortcut(e: KeyboardEvent): boolean {
   return false;
 }
 
-export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
+export function TerminalView({ tabId, active, focused, onConnected, onExit }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -252,7 +254,8 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
     };
   }, [tabId]);
 
-  // Ao ativar a tab: reajusta tamanho e foca.
+  // Ao ativar a tab: reajusta tamanho (não mexe no foco do teclado — isso é o `focused` abaixo,
+  // senão a última tab montada rouba o foco de quem está de fato na célula focada).
   useEffect(() => {
     if (!active) return;
     const id = requestAnimationFrame(() => {
@@ -261,10 +264,17 @@ export function TerminalView({ tabId, active, onConnected, onExit }: Props) {
       } catch {
         /* container oculto */
       }
-      termRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
   }, [active]);
+
+  // Foco do teclado segue a célula focada (ou a janela flutuante), não a simples transição
+  // active=false→true de toda tab montada.
+  useEffect(() => {
+    if (!focused) return;
+    const id = requestAnimationFrame(() => termRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [focused]);
 
   const badge =
     state === 'connected'
