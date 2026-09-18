@@ -146,6 +146,10 @@ Each project has internal navigation: **Terminals | Tasks | Notes | Settings**.
 
 The home page's **Hardware** tab shows a machine's CPU usage and load, RAM and swap, disks with free space, temperatures (Linux sensors), GPU (when `nvidia-smi` exists) and the top processes, refreshed every 5 s while the tab is visible. Pick any registered machine; the termhub host is the default. Data comes from a portable `sh` script run over the same local/SSH channel as the terminals (`GET /api/machines/:id/hardware`). macOS exposes no temperature sensors without extra tools. **Access note:** this tab is meant for super admins once the user system exists (see the `TODO(users)` comments).
 
+## Cloud waitlist
+
+The landing page (PT/EN, switch in the header, `?lang=pt|en` for links) has a **termhub Cloud** section with a waitlist form: first and last name, e-mail, phone (country code, area code, number) and optional LinkedIn/GitHub. Entries go to the `waitlist_entries` table through `POST /api/waitlist`, a public route (rate-limited per IP: 30 attempts and 5 sign-ups per hour, honeypot field, e-mail de-duplicated). The proxy forwards `termhub.dev/api/waitlist` to the app so the form is same-origin and outside Cloudflare Access. Sign-ups are listed on the home page's **Waitlist** tab (filter, CSV export, remove) via `GET/DELETE /api/waitlist`. *Super-admin only once the user system exists (`TODO(users)`).*
+
 ## AI accounts (usage limits)
 
 The home page has a second tab, **Contas de IA**, that shows the rate-limit windows of your AI subscriptions (Claude, ChatGPT, Gemini) with utilization bars and reset countdowns, refreshed every minute.

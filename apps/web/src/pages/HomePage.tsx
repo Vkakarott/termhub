@@ -5,6 +5,7 @@ import { useData } from '../lib/data';
 import type { DashboardItem } from '../lib/types';
 import { AiAccountsView } from '../components/AiAccountsView';
 import { HardwareView } from '../components/HardwareView';
+import { WaitlistView } from '../components/WaitlistView';
 
 function relative(iso: string | null): string {
   if (!iso) return 'nunca';
@@ -24,6 +25,7 @@ const TABS = [
   { path: '/', label: 'Projetos' },
   { path: '/ai', label: 'Contas de IA' },
   { path: '/hardware', label: 'Hardware' },
+  { path: '/waitlist', label: 'Waitlist' },
 ];
 
 export function HomePage() {
@@ -42,7 +44,7 @@ export function HomePage() {
           </NavLink>
         ))}
       </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">{pathname === '/ai' ? <AiAccountsView /> : pathname === '/hardware' ? <HardwareView /> : <Dashboard />}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">{pathname === '/ai' ? <AiAccountsView /> : pathname === '/hardware' ? <HardwareView /> : pathname === '/waitlist' ? <WaitlistView /> : <Dashboard />}</div>
     </div>
   );
 }

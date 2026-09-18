@@ -12,6 +12,7 @@ import { IntegrationsRepository } from './integrations.js';
 import { ProjectSetupRepository } from './project-setup.js';
 import { TicketsRepository } from './tickets.js';
 import { AiAccountsRepository } from './ai-accounts.js';
+import { WaitlistRepository } from './waitlist.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -27,6 +28,7 @@ export interface Repositories {
   projectSetup: ProjectSetupRepository;
   tickets: TicketsRepository;
   aiAccounts: AiAccountsRepository;
+  waitlist: WaitlistRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -44,9 +46,11 @@ export function createRepositories(db: PrismaClient): Repositories {
     projectSetup: new ProjectSetupRepository(db),
     tickets: new TicketsRepository(db),
     aiAccounts: new AiAccountsRepository(db),
+    waitlist: new WaitlistRepository(db),
   };
 }
 
 export * from './types.js';
 export type { Integration, IntegrationProvider } from './integrations.js';
 export type { ProjectSetup } from './project-setup.js';
+export type { WaitlistEntry } from './waitlist.js';

@@ -21,6 +21,7 @@ import { integrationRoutes } from './routes/integrations.js';
 import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
+import { waitlistRoutes } from './routes/waitlist.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { registerTerminalWs } from './terminal/ws.js';
 import { createUpgradeRouter } from './ws/router.js';
@@ -116,6 +117,7 @@ export async function buildApp(): Promise<App> {
       await api.register((a) => taskTicketRoutes(a, repos), { prefix: '/tasks' });
       await api.register((a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), { prefix: '/tabs' });
       await api.register((a) => aiAccountRoutes(a, repos), { prefix: '/ai-accounts' });
+      await api.register((a) => waitlistRoutes(a, repos), { prefix: '/waitlist' });
       await api.register(systemRoutes, { prefix: '/system' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
