@@ -253,6 +253,7 @@ export function App() {
   useEffect(() => {
     document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
     document.title = DICT[lang].meta.title;
+    document.querySelector('meta[name="description"]')?.setAttribute('content', DICT[lang].meta.description);
   }, [lang]);
   // analytics starts only with a stored "granted"; withdrawing it stops collection at once,
   // without waiting for the next page load

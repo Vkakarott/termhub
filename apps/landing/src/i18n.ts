@@ -17,7 +17,10 @@ export function detectLang(): Lang {
 }
 
 const pt = {
-  meta: { title: 'termhub — os terminais das suas máquinas, no navegador' },
+  meta: {
+    title: 'termhub — os terminais das suas máquinas, no navegador',
+    description: 'Terminais de todas as suas máquinas no navegador, organizados por máquina, projeto e tab. Cada tab é uma sessão tmux persistente. Self-hosted e open source (MIT).',
+  },
   nav: { features: 'Recursos', how: 'Como funciona', cloud: 'Cloud', github: 'GitHub', app: 'Entrar no app' },
   hero: {
     badge: 'self-hosted · open source · MIT',
@@ -135,7 +138,10 @@ const pt = {
 };
 
 const en: typeof pt = {
-  meta: { title: 'termhub — your machines’ terminals, in the browser' },
+  meta: {
+    title: 'termhub — your machines’ terminals, in the browser',
+    description: 'Every machine’s terminal in your browser, organized by machine, project and tab. Each tab is a persistent tmux session. Self-hosted and open source (MIT).',
+  },
   nav: { features: 'Features', how: 'How it works', cloud: 'Cloud', github: 'GitHub', app: 'Open the app' },
   hero: {
     badge: 'self-hosted · open source · MIT',

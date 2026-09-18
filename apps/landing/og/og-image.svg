@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Social preview card (Open Graph / Twitter). Rasterize with og/build.sh -> public/og-image.png -->
+  <defs>
+    <linearGradient id="cta" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b63d3"/>
+      <stop offset="1" stop-color="#7c87f7"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.85" cy="0.1" r="0.7">
+      <stop offset="0" stop-color="#5b63d3" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#0f101a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#0f101a"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <!-- logo: mark + wordmark from public/logo.svg (560x140), scaled 1.55x -->
+  <image href="logo.svg" x="72" y="118" width="868" height="217"/>
+  <text x="90" y="420" font-family="Inter, sans-serif" font-size="46" font-weight="600" fill="#c9d3ee">Os terminais das suas máquinas, <tspan fill="#98a4f7">no navegador</tspan>.</text>
+  <text x="90" y="478" font-family="Inter, sans-serif" font-size="27" fill="#646e87">Cada tab é uma sessão tmux que sobrevive ao navegador.</text>
+  <!-- badge -->
+  <rect x="90" y="530" width="404" height="46" rx="10" fill="#151621" stroke="#1f2433" stroke-width="2"/>
+  <circle cx="118" cy="553" r="5" fill="#98a4f7"/>
+  <text x="134" y="562" font-family="Inter, sans-serif" font-size="22" fill="#c9d3ee">self-hosted · open source · MIT</text>
+  <text x="1110" y="562" text-anchor="end" font-family="Inter, sans-serif" font-size="24" fill="#646e87">termhub.dev</text>
+</svg>
