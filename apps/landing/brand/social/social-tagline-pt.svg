@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="1200" viewBox="0 0 1600 1200">
+  <!-- 4:3 social post (LinkedIn, Instagram): mark + tagline. Rasterize with brand/build.sh -->
+  <defs>
+    <radialGradient id="glow" cx="0.85" cy="0.1" r="0.7">
+      <stop offset="0" stop-color="#5b63d3" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#0f101a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="1200" fill="#0f101a"/>
+  <rect width="1600" height="1200" fill="url(#glow)"/>
+  <!-- mark: public/favicon.svg (120x120) at 2x -->
+  <image href="favicon.svg" x="120" y="120" width="240" height="240"/>
+  <text x="120" y="560" font-family="Inter, sans-serif" font-size="84" font-weight="600" fill="#e6e8ee">Os terminais das suas máquinas,</text>
+  <text x="120" y="670" font-family="Inter, sans-serif" font-size="84" font-weight="600" fill="#98a4f7">no navegador.</text>
+  <text x="120" y="770" font-family="Inter, sans-serif" font-size="40" fill="#c9d3ee">Cada tab é uma sessão tmux que sobrevive ao navegador.</text>
+  <!-- terminal line -->
+  <rect x="120" y="860" width="1360" height="96" rx="16" fill="#151621" stroke="#1f2433" stroke-width="2"/>
+  <circle cx="164" cy="908" r="8" fill="#646e87"/>
+  <circle cx="192" cy="908" r="8" fill="#939db8"/>
+  <circle cx="220" cy="908" r="8" fill="#c9d3ee"/>
+  <text x="260" y="921" font-family="'JetBrains Mono', monospace" font-size="32" fill="#c9d3ee"><tspan fill="#98a4f7">$</tspan> tmux attach -t projeto<tspan fill="#98a4f7">▍</tspan></text>
+  <!-- footer -->
+  <circle cx="134" cy="1078" r="7" fill="#98a4f7"/>
+  <text x="156" y="1088" font-family="Inter, sans-serif" font-size="30" fill="#c9d3ee">self-hosted · open source · MIT</text>
+  <text x="1480" y="1088" text-anchor="end" font-family="Inter, sans-serif" font-size="34" fill="#646e87">termhub.dev</text>
+</svg>

@@ -1,56 +1,20 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { ANALYTICS_ENABLED, disableAnalytics, initAnalytics, setLang as setAnalyticsLang, track } from './analytics';
-import { CookieBanner } from './CookieBanner';
-import { readConsent, subscribeConsent } from './consent';
+import { type ReactNode } from 'react';
 import { HeroCarousel } from './HeroCarousel';
-import { DICT, LANG_KEY, LangContext, detectLang, useLang, type Lang } from './i18n';
+import { useLang, type Dict } from './i18n';
+import { APP_URL, Chevron, REPO_URL, Site, SiteFooter, SiteHeader, trackCta } from './Site';
 import { useReveal } from './useReveal';
 import { WaitlistForm } from './WaitlistForm';
-
-const APP_URL = 'https://app.termhub.dev';
-const REPO_URL = 'https://github.com/engenhariainversa/termhub';
-const COFFEE_URL = 'https://buymeacoffee.com/pedrogoiania';
 
 const FEATURE_ICONS = ['▮_', '⌂', '✦', '▦', '◔', '◫'];
 
 /** Tiles fade up in sequence, capped so the last one never feels late. */
 const revealDelay = (index: number) => ({ transitionDelay: `${Math.min(index * 60, 300)}ms` });
 
-/** Click handler for the page's calls to action; the navigation itself is untouched. */
-const trackCta = (target: string, location: string) => () => track('cta_click', { target, location });
-
-function Logo({ className = 'h-10' }: { className?: string }) {
-  return <img src="/logo.svg" alt="termhub" className={className} />;
-}
-
-function Chevron() {
-  return <span aria-hidden="true">›</span>;
-}
-
 function SectionLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a href={href} className="section-link">
       {children} <Chevron />
     </a>
-  );
-}
-
-function LangSwitch() {
-  const { lang, setLang } = useLang();
-  return (
-    <span className="flex rounded-field border border-border-2 p-0.5 text-caption" role="group" aria-label="Language">
-      {(['pt', 'en'] as Lang[]).map((l) => (
-        <button
-          key={l}
-          type="button"
-          onClick={() => setLang(l)}
-          className={`hover-tint px-2 py-0.5 font-medium uppercase ${lang === l ? 'bg-surface text-white' : 'text-muted hover:text-frost'}`}
-          aria-pressed={lang === l}
-        >
-          {l}
-        </button>
-      ))}
-    </span>
   );
 }
 
@@ -201,16 +165,13 @@ function FinalCta() {
   );
 }
 
-function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
+function Page() {
   const { t } = useLang();
   return (
     <div className="min-h-full">
-      <header className="sticky top-0 z-20 bg-canvas/85 shadow-rim backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-page items-center px-4 md:px-6">
-          <a href="#" aria-label="termhub" className="hover-tint px-1 py-1">
-            <Logo className="h-7" />
-          </a>
-          <nav className="ml-6 hidden items-center gap-1 md:flex">
+      <SiteHeader
+        nav={
+          <>
             <a href="#recursos" className="nav-link">{t.nav.features}</a>
             <a href="#agentes" className="nav-link">{t.nav.agents}</a>
             <a href="#como-funciona" className="nav-link">{t.nav.how}</a>
@@ -218,14 +179,9 @@ function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
             <a href="#cloud" className="nav-link">{t.nav.cloud}</a>
             <a href="#faq" className="nav-link hidden lg:inline-flex">{t.nav.faq}</a>
             <a href={REPO_URL} className="nav-link hidden lg:inline-flex">{t.nav.github}</a>
-          </nav>
-          <div className="ml-auto flex items-center gap-2">
-            <LangSwitch />
-            <a href={REPO_URL} className="btn-ghost hidden px-4 py-1.5 text-body-sm md:inline-flex" onClick={trackCta('github', 'nav')}>{t.hero.repo}</a>
-            <a href={APP_URL} className="btn-primary px-4 py-1.5 text-body-sm" onClick={trackCta('app', 'nav')}>{t.nav.app}</a>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main>
         {/* hero */}
@@ -316,59 +272,17 @@ function Page({ onOpenCookies }: { onOpenCookies: () => void }) {
         <FinalCta />
       </main>
 
-      <footer className="border-t border-border-2">
-        <div className="mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-2 px-4 py-6 text-caption text-muted md:px-6">
-          <span>© {new Date().getFullYear()} termhub · MIT</span>
-          <a href={REPO_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">GitHub</a>
-          <a href={`${REPO_URL}/blob/main/README.md`} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.docs}</a>
-          <a href={COFFEE_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.coffee}</a>
-          {ANALYTICS_ENABLED && (
-            <button type="button" onClick={onOpenCookies} className="hover-tint px-1.5 py-0.5 hover:text-frost">
-              {t.footer.cookies}
-            </button>
-          )}
-          <span className="ml-auto">{t.footer.made}</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
 
+const meta = (t: Dict) => t.meta;
+
 export function App() {
-  const [lang, setLangState] = useState<Lang>(detectLang);
-  // open until the visitor answers; the footer "Cookies" button reopens it to change the choice
-  const [cookiesOpen, setCookiesOpen] = useState(() => ANALYTICS_ENABLED && readConsent() === null);
-  const setLang = (l: Lang) => {
-    if (l !== lang) {
-      setAnalyticsLang(l);
-      track('lang_switch', { lang: l });
-    }
-    setLangState(l);
-    try {
-      localStorage.setItem(LANG_KEY, l);
-    } catch {
-      /* ignore */
-    }
-  };
-  useEffect(() => {
-    document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
-    document.title = DICT[lang].meta.title;
-    document.querySelector('meta[name="description"]')?.setAttribute('content', DICT[lang].meta.description);
-  }, [lang]);
-  // analytics starts only with a stored "granted"; withdrawing it stops collection at once,
-  // without waiting for the next page load
-  useEffect(() => {
-    if (readConsent() === 'granted') initAnalytics(lang);
-    return subscribeConsent((consent) => {
-      setCookiesOpen(false);
-      if (consent === 'granted') initAnalytics(lang);
-      else disableAnalytics();
-    });
-  }, [lang]);
   return (
-    <LangContext.Provider value={{ lang, t: DICT[lang], setLang }}>
-      <Page onOpenCookies={() => setCookiesOpen(true)} />
-      {ANALYTICS_ENABLED && <CookieBanner open={cookiesOpen} />}
-    </LangContext.Provider>
+    <Site meta={meta}>
+      <Page />
+    </Site>
   );
 }
