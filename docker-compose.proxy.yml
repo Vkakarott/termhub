@@ -1,9 +1,16 @@
 # Overlay para o servidor com o proxy reverso (nginx + Cloudflare Tunnel em /mnt/hd2tb/proxy):
-# o app entra na rede docker externa "proxy" e o nginx fala com ele por "termhub-app:3000".
-#   docker compose --env-file <env> -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build
+# blue/green entram na rede docker externa "proxy"; deploy/blue-green.sh aponta o
+# vhost nginx pro container ativo ("termhub-app-blue" ou "termhub-app-green").
+#   docker compose --env-file <env> -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps app-<blue|green>
 services:
-  app:
-    container_name: termhub-app
+  app-blue:
+    container_name: termhub-app-blue
+    networks:
+      - default
+      - proxy
+
+  app-green:
+    container_name: termhub-app-green
     networks:
       - default
       - proxy

@@ -96,7 +96,7 @@ Logs on macOS: `data/logs/`. On Linux: `journalctl --user -u termhub -f` (use `l
 
 ### Cloudflare Tunnel
 
-On jarvis, termhub is published at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app` on the external `proxy` docker network; the `nginx/conf.d/termhub.dev.conf` vhost does `proxy_pass http://termhub-app:3000` with WebSocket upgrade; the public hostname is managed in the Zero Trust dashboard → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). The workflow reloads nginx after each deploy (new container = new IP). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
+On jarvis, termhub is published at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one — no downtime. The public hostname is managed in the Zero Trust dashboard → Tunnels → jarvis (`termhub.dev` → HTTP → `proxy-nginx:80`). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` (the services' `env_file` uses that variable).
 
 On another server, the simple path is `cloudflared tunnel --url http://127.0.0.1:3000`.
 

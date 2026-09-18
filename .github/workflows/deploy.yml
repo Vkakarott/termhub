@@ -67,25 +67,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Conferir .env do servidor
         run: test -f "$ENV_FILE" || { echo "faltando $ENV_FILE (copie de .env.example)"; exit 1; }
-      - name: Build + up (perfil prod)
-        run: docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --remove-orphans
-      - name: Aguardar app saudável
-        run: |
-          cid=$(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod ps -q app)
-          for i in $(seq 1 40); do
-            st=$(docker inspect --format='{{.State.Health.Status}}' "$cid")
-            echo "tentativa $i: app = $st"
-            [ "$st" = "healthy" ] && exit 0
-            sleep 5
-          done
-          docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod logs --tail=100 app
-          exit 1
-      - name: Recarregar nginx do proxy (container novo = IP novo)
-        run: docker exec proxy-nginx nginx -s reload
+      - name: Deploy blue-green (build, healthcheck, switch nginx, retire old)
+        run: bash deploy/blue-green.sh
       - name: Conferir migrations aplicadas
-        run: |
-          cid=$(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod ps -q app)
-          docker exec "$cid" npx --prefix server prisma migrate status --config server/prisma.config.ts
+        run: docker exec "termhub-app-$(cat /mnt/hd2tb/projetos/termhub/active-color)" npx --prefix server prisma migrate status --config server/prisma.config.ts
       - name: Limpar imagens antigas
         if: always()
         run: docker image prune -f
