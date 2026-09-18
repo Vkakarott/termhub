@@ -1,3 +1,4 @@
+import { ensureSpawnHelperExecutable } from './pty-health.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,7 @@ export interface DoctorReport {
   server: { ok: boolean; error?: string };
   tmux: { ok: boolean; path?: string };
   nodePty: { ok: boolean; error?: string };
+  spawnHelper: { ok: boolean; path: string | null; repaired: boolean; error?: string };
   paths: { path: string; ok: boolean; error?: string }[];
 }
 
@@ -86,7 +88,9 @@ export async function runDoctor(paths: string[], deps: DoctorDeps = {}): Promise
 
   const pathsReport = paths.map((p) => checkPathAccess(p, fsImpl));
 
-  return { config: configReport, server, tmux, nodePty, paths: pathsReport };
+  const helper = ensureSpawnHelperExecutable();
+  const spawnHelper = { ok: helper.executable, path: helper.path, repaired: helper.repaired, ...(helper.error ? { error: helper.error } : {}) };
+  return { config: configReport, server, tmux, nodePty, spawnHelper, paths: pathsReport };
 }
 
 export interface FormatDoctorDeps {
@@ -108,6 +112,11 @@ export function formatDoctor(report: DoctorReport, deps: FormatDoctorDeps = {}):
   lines.push(`${mark(report.server.ok)} Servidor${report.server.ok ? '' : report.server.error ? `: ${report.server.error}` : ''}`);
   lines.push(`${mark(report.tmux.ok)} tmux${report.tmux.path ? ` (${report.tmux.path})` : ''}`);
   lines.push(`${mark(report.nodePty.ok)} node-pty${report.nodePty.ok ? '' : report.nodePty.error ? `: ${report.nodePty.error}` : ''}`);
+  const sh = report.spawnHelper;
+  if (sh.path) {
+    lines.push(`${mark(sh.ok)} spawn-helper do node-pty ${sh.ok ? (sh.repaired ? '(permissão de execução corrigida agora)' : 'executável') : `sem permissão de execução${sh.error ? `: ${sh.error}` : ''}`}`);
+    if (!sh.ok) lines.push(`  → rode: chmod +x "${sh.path}"`);
+  }
 
   for (const p of report.paths) {
     lines.push(`${mark(p.ok)} ${p.path}${p.ok ? '' : p.error ? `: ${p.error}` : ''}`);

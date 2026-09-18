@@ -52,3 +52,10 @@ macOS's TCC (Transparency, Consent and Control) can block the agent from listing
 special privileges. If `doctor` or `service install` reports this, grant the agent's Node binary
 Full Disk Access: **Ajustes → Privacidade e Segurança → Acesso Total ao Disco**, then add the
 `node` binary path `doctor` printed.
+
+## Troubleshooting
+
+- **Terminals fail to open with `posix_spawnp failed.`** (visible in `~/.termhub/agent.log`): node-pty's
+  prebuilt `spawn-helper` lost its exec bit — npm 11 skips the postinstall that sets it unless the
+  package is approved. The agent repairs this itself on startup and in `termhub-agent doctor`; if the
+  file is not writable by your user, `doctor` prints the exact `chmod +x` to run.
