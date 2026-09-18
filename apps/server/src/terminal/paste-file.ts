@@ -9,6 +9,8 @@ export { PASTE_DIR, PASTE_MAX_BYTES, safeName } from '@termhub/machine-ops';
 export interface PastedFile {
   /** absolute path on the target machine */
   path: string;
+  /** file name inside PASTE_DIR */
+  name: string;
   bytes: number;
   mime: string;
 }
@@ -25,7 +27,7 @@ export async function saveFileOnMachine(machine: Machine, data: Buffer, original
   if (machine.type === 'agent') {
     const { path } = await agentRpc(machine, 'file.paste', { name, data_b64: data.toString('base64') });
     if (!path.startsWith('/')) throw new HttpError(502, 'Resposta inesperada da máquina');
-    return { path, bytes: data.length, mime };
+    return { path, name, bytes: data.length, mime };
   }
 
   // Name is sanitized above (no quotes, spaces or slashes) and PASTE_DIR is fixed: nothing raw from the client enters the command.
@@ -36,5 +38,5 @@ export async function saveFileOnMachine(machine: Machine, data: Buffer, original
   if (r.code !== 0) throw new HttpError(502, machine.type === 'ssh' ? 'Falha ao enviar o arquivo via SSH' : 'Falha ao gravar o arquivo');
   const path = r.stdout.trim().split('\n').pop() ?? '';
   if (!path.startsWith('/')) throw new HttpError(502, 'Resposta inesperada da máquina');
-  return { path, bytes: data.length, mime };
+  return { path, name, bytes: data.length, mime };
 }

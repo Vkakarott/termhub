@@ -1,5 +1,5 @@
 import type { AiCredential, AiUsageResult, AiUsageWindow } from './types.js';
-import { httpJson, isObj, num, str, toIso } from './credentials.js';
+import { httpJson, isObj, num, retryAfterMs, str, toIso } from './credentials.js';
 
 /**
  * Google Code Assist usage (shared by the Gemini CLI and Antigravity CLI adapters,
@@ -81,6 +81,7 @@ export async function fetchCodeAssistUsage(cred: AiCredential, opts: CodeAssistO
   // 1) which Code Assist project / tier this account has
   const load = await post('loadCodeAssist', { metadata: { ideType: opts.ide === 'antigravity' ? 'ANTIGRAVITY' : 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' } });
   if (load.status === 401 || load.status === 403) return { ...base, error: `Google rejected the token (${load.status})`, hint: opts.refresh };
+  if (load.status === 429) return { ...base, error: 'Google rate-limited the usage query', hint: 'Showing the last reading; retrying in a few minutes.', rate_limited: true, retry_after_ms: retryAfterMs(load.headers) };
   if (load.status >= 400 || !isObj(load.body)) return { ...base, error: `Unexpected response from Google (${load.status})`, hint: load.text.slice(0, 200) || null };
   const tier = isObj(load.body.currentTier) ? (str(load.body.currentTier.name) ?? str(load.body.currentTier.id)) : null;
   const project = str(load.body.cloudaicompanionProject) ?? (isObj(load.body.cloudaicompanionProject) ? str(load.body.cloudaicompanionProject.id) : null);

@@ -12,6 +12,7 @@ import { AuthService, authRoutes, buildAuthHook, type AuthContext } from './auth
 import { applyErrorHandler } from './lib/errors.js';
 import { machineRoutes } from './routes/machines.js';
 import { projectRoutes } from './routes/projects.js';
+import { transcriptionRoutes } from './routes/transcriptions.js';
 import { tabRoutes } from './routes/tabs.js';
 import { systemRoutes } from './routes/system.js';
 import { projectTaskRoutes, taskRoutes } from './routes/tasks.js';
@@ -22,12 +23,17 @@ import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
+import { hooksRoutes } from './routes/hooks.js';
+import { monitorRoutes } from './routes/monitor.js';
+import { registerMonitorWs } from './monitor/ws.js';
 import { roleRoutes } from './routes/roles.js';
 import { userRoutes } from './routes/users.js';
+import { uploadRoutes } from './routes/uploads.js';
 import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { registerTerminalWs } from './terminal/ws.js';
 import { registerAgentWs } from './agent/ws.js';
+import { TranscriptionService } from './terminal/transcription.js';
 import { createUpgradeRouter } from './ws/router.js';
 import { registerSimulatorWs } from './simulator/ws.js';
 import { SimulatorSessionManager } from './simulator/session-manager.js';
@@ -88,6 +94,8 @@ export async function buildApp(): Promise<App> {
   applyErrorHandler(fastify);
 
   const simulators = new SimulatorSessionManager(realBackend, { log: (msg, meta) => fastify.log.info(meta ?? {}, msg) });
+  const transcriptions = new TranscriptionService({ log: (meta, msg) => fastify.log.info(meta, msg) });
+  if (config.transcription) fastify.log.info({ url: config.transcription.url, language: config.transcription.language }, 'voice transcription enabled');
 
   // --- WebSockets (terminais e simulador) — criados antes do bloco /api para que as rotas HTTP
   // recebam `simulators` e `simWs.closeTab`. `fastify.server` já existe neste ponto.
@@ -95,6 +103,7 @@ export async function buildApp(): Promise<App> {
   registerTerminalWs(upgrades, { repos, log: fastify.log });
   registerAgentWs(upgrades, { repos, log: fastify.log });
   const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
+  registerMonitorWs(upgrades, { log: fastify.log });
 
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
@@ -129,10 +138,14 @@ export async function buildApp(): Promise<App> {
       await guarded('tickets', (a) => projectTicketRoutes(a, repos), '/projects');
       await guarded('tickets', (a) => taskTicketRoutes(a, repos), '/tasks');
       await guarded('terminals', (a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), '/tabs');
+      await guarded('terminals', (a) => transcriptionRoutes(a, { transcriptions }), '/transcriptions');
+      await guarded('terminals', (a) => monitorRoutes(a, repos), '/monitor');
+      await guarded('terminals', (a) => hooksRoutes(a, repos), '/hooks');
       await guarded('ai_accounts', (a) => aiAccountRoutes(a, repos), '/ai-accounts');
       await guarded('waitlist', (a) => waitlistRoutes(a, repos), '/waitlist');
       await guarded('roles', (a) => roleRoutes(a, repos), '/roles');
       await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
+      await guarded('uploads', (a) => uploadRoutes(a, repos), '/uploads');
       await guarded('machines', systemRoutes, '/system');
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));

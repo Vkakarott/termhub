@@ -37,6 +37,9 @@ x-app: &app
     # SMTP: no .env use SMTP_HOST=mailpit (caixa local) ou um SMTP real
     SEED_LOCAL_MACHINE: ${SEED_LOCAL_MACHINE:-false}
     TZ: ${TZ:-America/Sao_Paulo}
+    # voice input: the whisper service below (same compose network); unset to turn the mic off
+    WHISPER_URL: ${WHISPER_URL:-http://whisper:8000}
+    WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
   extra_hosts:
     - "host.docker.internal:host-gateway"
   volumes:
@@ -80,6 +83,26 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
+  # ── Speech-to-text for the terminals' voice input (docker/whisper): faster-whisper on CPU ──
+  # Shared by dev and the blue/green pair like the db; the app works without it (mic hidden).
+  # Model weights land in the "whisper-models" volume on first start (small ≈ 500 MB, medium ≈ 1.5 GB).
+  # First boot takes a minute or two while it downloads — the app answers 503 for the mic until then.
+  whisper:
+    profiles: ["dev", "prod"]
+    build: docker/whisper
+    image: termhub-whisper
+    restart: unless-stopped
+    environment:
+      # medium: ~3x realtime on 6 cores, best pt-BR (punctuation, names); small: ~10x realtime, rougher.
+      # large-v3/turbo were measured worse in Portuguese (no punctuation, skipped passages) and slower.
+      WHISPER_MODEL: ${WHISPER_MODEL:-medium}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
+      # 0 = one thread per physical core (hyperthreads slow CTranslate2 down)
+      WHISPER_THREADS: ${WHISPER_THREADS:-0}
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-5}
+    volumes:
+      - whisper-models:/models
+
   # ── Dev: hot-reload (tsx watch + vite) ─────────────────────────────
   app-dev:
     profiles: ["dev"]
@@ -103,6 +126,8 @@ services:
       SEED_LOCAL_MACHINE: "false"
       VITE_HOST: 0.0.0.0
       TZ: ${TZ:-America/Sao_Paulo}
+      WHISPER_URL: ${WHISPER_URL:-http://whisper:8000}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -156,3 +181,4 @@ volumes:
   pgdata:
   sshkeys:
   sshkeys-dev:
+  whisper-models:

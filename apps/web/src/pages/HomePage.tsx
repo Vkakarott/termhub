@@ -7,6 +7,7 @@ import type { DashboardItem } from '../lib/types';
 import { AiAccountsView } from '../components/AiAccountsView';
 import { HardwareView } from '../components/HardwareView';
 import { WaitlistView } from '../components/WaitlistView';
+import { NeedsYouList } from '../components/NeedsYouList';
 
 function relative(iso: string | null): string {
   if (!iso) return 'nunca';
@@ -57,6 +58,12 @@ function Dashboard() {
   const { statuses, projects } = useData();
   const [items, setItems] = useState<DashboardItem[] | null>(null);
   const [error, setError] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +81,7 @@ function Dashboard() {
 
   return (
     <div>
+      <NeedsYouList now={now} />
       <div className="mb-5 flex items-end gap-4">
         <div>
           <h1 className="text-lg font-semibold">O que estou fazendo</h1>

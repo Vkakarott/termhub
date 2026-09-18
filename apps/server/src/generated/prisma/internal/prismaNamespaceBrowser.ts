@@ -60,13 +60,16 @@ export const ModelName = {
   Machine: 'Machine',
   Project: 'Project',
   Tab: 'Tab',
+  TabEvent: 'TabEvent',
+  MachineHook: 'MachineHook',
   Ticket: 'Ticket',
   Task: 'Task',
   Note: 'Note',
   Integration: 'Integration',
   ProjectSetup: 'ProjectSetup',
   AiAccount: 'AiAccount',
-  WaitlistEntry: 'WaitlistEntry'
+  WaitlistEntry: 'WaitlistEntry',
+  Upload: 'Upload'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -203,10 +206,36 @@ export const TabScalarFieldEnum = {
   tmuxSession: 'tmuxSession',
   simulatorUdid: 'simulatorUdid',
   position: 'position',
+  state: 'state',
+  stateText: 'stateText',
+  stateTool: 'stateTool',
+  stateAt: 'stateAt',
   createdAt: 'createdAt'
 } as const
 
 export type TabScalarFieldEnum = (typeof TabScalarFieldEnum)[keyof typeof TabScalarFieldEnum]
+
+
+export const TabEventScalarFieldEnum = {
+  id: 'id',
+  tabId: 'tabId',
+  kind: 'kind',
+  tool: 'tool',
+  text: 'text',
+  meta: 'meta',
+  createdAt: 'createdAt'
+} as const
+
+export type TabEventScalarFieldEnum = (typeof TabEventScalarFieldEnum)[keyof typeof TabEventScalarFieldEnum]
+
+
+export const MachineHookScalarFieldEnum = {
+  machineId: 'machineId',
+  tokenHash: 'tokenHash',
+  installedAt: 'installedAt'
+} as const
+
+export type MachineHookScalarFieldEnum = (typeof MachineHookScalarFieldEnum)[keyof typeof MachineHookScalarFieldEnum]
 
 
 export const TicketScalarFieldEnum = {
@@ -310,6 +339,22 @@ export const WaitlistEntryScalarFieldEnum = {
 } as const
 
 export type WaitlistEntryScalarFieldEnum = (typeof WaitlistEntryScalarFieldEnum)[keyof typeof WaitlistEntryScalarFieldEnum]
+
+
+export const UploadScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  machineId: 'machineId',
+  projectId: 'projectId',
+  tabId: 'tabId',
+  name: 'name',
+  path: 'path',
+  mime: 'mime',
+  bytes: 'bytes',
+  createdAt: 'createdAt'
+} as const
+
+export type UploadScalarFieldEnum = (typeof UploadScalarFieldEnum)[keyof typeof UploadScalarFieldEnum]
 
 
 export const SortOrder = {

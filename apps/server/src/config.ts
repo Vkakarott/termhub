@@ -43,6 +43,13 @@ const envSchema = z.object({
   /** name of the allow policy whose include list holds the e-mails */
   CF_ACCESS_POLICY_NAME: z.string().default('allowlist'),
 
+  /**
+   * Where the machines' hook scripts post monitor events. Must be reachable from the machines
+   * without a browser session: in production the landing host forwards this one path to the
+   * app outside Cloudflare Access (https://termhub.dev/api/hooks/events). Default: PUBLIC_URL.
+   */
+  HOOKS_URL: z.string().url().optional(),
+
   LOCAL_SHELL: z.string().optional(),
   TMUX_PATH: z.string().default('tmux'),
   SEED_LOCAL_MACHINE: z.enum(['true', 'false']).default('true'),
@@ -58,6 +65,11 @@ const envSchema = z.object({
 
   // Chave (base64, 32 bytes) para criptografar segredos das integrações. Gere com: openssl rand -base64 32
   ENCRYPTION_KEY: z.string().optional(),
+
+  // Speech-to-text service (docker/whisper) for voice input in the terminals. Unset = feature off.
+  WHISPER_URL: z.string().url().optional(),
+  /** language hint passed to whisper ("auto" = detect) */
+  WHISPER_LANGUAGE: z.string().default('pt'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -102,6 +114,7 @@ export const config = {
   host: env.HOST,
   databaseUrl: env.DATABASE_URL,
   publicUrl: env.PUBLIC_URL.replace(/\/$/, ''),
+  hooksUrl: env.HOOKS_URL ?? `${env.PUBLIC_URL.replace(/\/$/, '')}/api/hooks/events`,
   auth: {
     modes: authModes,
     sessionTtlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
@@ -141,6 +154,7 @@ export const config = {
   },
   seedLocalMachine: env.SEED_LOCAL_MACHINE === 'true',
   encryptionKey: env.ENCRYPTION_KEY ?? null,
+  transcription: env.WHISPER_URL ? { url: env.WHISPER_URL.replace(/\/$/, ''), language: env.WHISPER_LANGUAGE } : null,
   terminal: {
     localShell: env.LOCAL_SHELL || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh'),
     tmuxPath: env.TMUX_PATH,

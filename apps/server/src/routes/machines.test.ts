@@ -66,7 +66,14 @@ function buildApp(store: Record<string, Machine>) {
     return true;
   });
 
+  const machineHooks = {
+    findByMachine: vi.fn(async () => undefined),
+    upsert: vi.fn(async (machine_id: string) => ({ machine_id, installed_at: '2026-01-01T00:00:00.000Z' })),
+    delete: vi.fn(async () => true),
+  };
+
   const repos = {
+    machineHooks,
     machines: {
       findById: async (id: string) => store[id],
       list: async () => Object.values(store),
@@ -84,7 +91,7 @@ function buildApp(store: Record<string, Machine>) {
   } as unknown as Repositories;
 
   app.register((instance) => machineRoutes(instance, repos), { prefix: '/api/machines' });
-  return { app, repos: { create, rotateAgentToken, update, delete: del } };
+  return { app, repos: { create, rotateAgentToken, update, delete: del, machineHooks } };
 }
 
 let app: FastifyInstance;
@@ -208,5 +215,37 @@ describe('GET /api/machines/:id/simulators', () => {
     const res = await app.inject({ method: 'GET', url: '/api/machines/m1/simulators' });
     expect(res.statusCode).toBe(409);
     expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
+  it('POST answers 409 without shelling out or minting a token', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('Instalação de hooks ainda não disponível em máquinas com agente');
+    expect(built.repos.machineHooks.upsert).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('DELETE answers 409 and keeps whatever is stored', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(409);
+    expect(built.repos.machineHooks.delete).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('GET still answers for an agent machine (DB only)', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    ({ app } = buildApp(store));
+    const res = await app.inject({ method: 'GET', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().installed_at).toBeNull();
   });
 });

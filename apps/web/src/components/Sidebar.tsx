@@ -181,7 +181,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             ⚙ Integrações
           </NavLink>
         )}
-        {(can('users') || can('roles')) && (
+        {(can('users') || can('roles') || can('uploads')) && (
           <NavLink to="/settings" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
             ⚙ Configurações
           </NavLink>

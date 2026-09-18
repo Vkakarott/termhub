@@ -87,6 +87,17 @@ export type Project = Prisma.ProjectModel
  */
 export type Tab = Prisma.TabModel
 /**
+ * Model TabEvent
+ * One monitor event for a tab (hook from Claude Code / Codex, or the tmux fallback).
+ * `text` is the tool's own message (question, permission prompt), capped — never terminal content.
+ */
+export type TabEvent = Prisma.TabEventModel
+/**
+ * Model MachineHook
+ * Hook install on a machine: the token its hook script posts with (sha256 only). Row = installed.
+ */
+export type MachineHook = Prisma.MachineHookModel
+/**
  * Model Ticket
  * Tickets sincronizados das integrações (staging). Só viram task quando o usuário manda pro backlog.
  */
@@ -124,3 +135,10 @@ export type AiAccount = Prisma.AiAccountModel
  * Cloud waitlist sign-ups from the landing page (public form). Managed from the app.
  */
 export type WaitlistEntry = Prisma.WaitlistEntryModel
+/**
+ * Model Upload
+ * A file pasted/dropped on a terminal and written to ~/.cache/termhub/paste/ on the machine.
+ * Attribution only (who sent what, when): the file itself lives on the machine and may be gone
+ * (7-day cleanup, manual rm) — Settings → Arquivos reconciles rows with the directory listing.
+ */
+export type Upload = Prisma.UploadModel

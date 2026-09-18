@@ -1,6 +1,6 @@
 import { credentialScript } from '@termhub/machine-ops';
 import type { AiCredential, AiProviderAdapter, AiUsageResult, AiUsageWindow } from './types.js';
-import { httpJson, isObj, num, str, toIso } from './credentials.js';
+import { httpJson, isObj, num, retryAfterMs, str, toIso } from './credentials.js';
 
 /**
  * Claude (claude.ai subscription: Pro / Max / Team / Enterprise seat).
@@ -91,6 +91,9 @@ export const claudeAdapter: AiProviderAdapter = {
     });
     if (r.status === 401 || r.status === 403) {
       return { ...base, error: `Anthropic rejected the token (${r.status})`, hint: 'Run `claude` on that machine once to refresh the login.' };
+    }
+    if (r.status === 429) {
+      return { ...base, error: 'Anthropic rate-limited the usage query', hint: 'Showing the last reading; retrying in a few minutes.', rate_limited: true, retry_after_ms: retryAfterMs(r.headers) };
     }
     if (r.status >= 400 || !isObj(r.body)) {
       return { ...base, error: `Unexpected response from Anthropic (${r.status})`, hint: r.text.slice(0, 200) || null };

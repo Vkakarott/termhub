@@ -4,6 +4,7 @@ import type {
   Machine as PrismaMachine,
   Project as PrismaProject,
   Tab as PrismaTab,
+  TabEvent as PrismaTabEvent,
   Task as PrismaTask,
   Note as PrismaNote,
   Ticket as PrismaTicket,
@@ -14,6 +15,8 @@ export type MachineType = 'local' | 'ssh' | 'agent';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 export type TabKind = 'terminal' | 'simulator';
+/** Monitor state of the tool running in a tab (see monitor/state.ts). */
+export type TabState = 'working' | 'waiting_input' | 'waiting_permission' | 'idle' | 'error';
 
 /**
  * Tipos expostos pela camada de dados (snake_case, datas em ISO string).
@@ -84,6 +87,22 @@ export interface Tab {
   tmux_session: string | null;
   simulator_udid: string | null;
   position: number;
+  /** monitor: last reported state; null = never reported */
+  state: TabState | null;
+  /** the tool's pending question / notification (never terminal content) */
+  state_text: string | null;
+  state_tool: string | null;
+  state_at: string | null;
+  created_at: string;
+}
+
+export interface TabEvent {
+  id: string;
+  tab_id: string;
+  kind: TabState;
+  tool: string;
+  text: string | null;
+  meta: Record<string, unknown>;
   created_at: string;
 }
 
@@ -187,7 +206,21 @@ export const mapTab = (t: PrismaTab): Tab => ({
   tmux_session: t.tmuxSession,
   simulator_udid: t.simulatorUdid,
   position: t.position,
+  state: t.state,
+  state_text: t.stateText,
+  state_tool: t.stateTool,
+  state_at: iso(t.stateAt),
   created_at: t.createdAt.toISOString(),
+});
+
+export const mapTabEvent = (e: PrismaTabEvent): TabEvent => ({
+  id: e.id,
+  tab_id: e.tabId,
+  kind: e.kind,
+  tool: e.tool,
+  text: e.text,
+  meta: (e.meta ?? {}) as Record<string, unknown>,
+  created_at: e.createdAt.toISOString(),
 });
 
 export const mapTask = (t: PrismaTask): Task => ({

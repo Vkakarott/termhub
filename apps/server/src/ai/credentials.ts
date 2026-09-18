@@ -61,7 +61,7 @@ export async function readCredential(machine: Machine, adapter: AiProviderAdapte
 }
 
 /** Shared fetch with timeout; returns status + parsed JSON (or text). Never throws on HTTP errors. */
-export async function httpJson(url: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<{ status: number; body: unknown; text: string }> {
+export async function httpJson(url: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<{ status: number; body: unknown; text: string; headers: Headers }> {
   const { timeoutMs = 12000, ...rest } = init;
   const res = await fetch(url, { ...rest, signal: AbortSignal.timeout(timeoutMs) });
   const text = await res.text();
@@ -71,7 +71,17 @@ export async function httpJson(url: string, init: RequestInit & { timeoutMs?: nu
   } catch {
     body = null;
   }
-  return { status: res.status, body, text };
+  return { status: res.status, body, text, headers: res.headers };
+}
+
+/** Retry-After header (seconds or HTTP date) -> ms to wait, or null. */
+export function retryAfterMs(headers: Headers): number | null {
+  const v = headers.get('retry-after');
+  if (!v) return null;
+  const secs = Number(v);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  const at = Date.parse(v);
+  return Number.isNaN(at) ? null : Math.max(0, at - Date.now());
 }
 
 export const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);

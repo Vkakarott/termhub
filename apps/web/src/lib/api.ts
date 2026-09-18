@@ -1,4 +1,4 @@
-import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -11,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-function readCookie(name: string): string | undefined {
+export function readCookie(name: string): string | undefined {
   const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
   return m ? decodeURIComponent(m[1]) : undefined;
 }
@@ -38,12 +38,47 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch {
     data = null;
   }
-  if (!res.ok) {
-    const d = (data ?? {}) as { error?: string; code?: string; issues?: unknown };
-    if (res.status === 401) window.dispatchEvent(new CustomEvent('termhub:unauthorized'));
-    throw new ApiError(res.status, d.error ?? `Erro ${res.status}`, d.code, d.issues);
-  }
+  if (!res.ok) throw errorFrom(res.status, data);
   return data as T;
+}
+
+function errorFrom(status: number, data: unknown): ApiError {
+  const d = (data ?? {}) as { error?: string; code?: string; issues?: unknown };
+  if (status === 401) window.dispatchEvent(new CustomEvent('termhub:unauthorized'));
+  return new ApiError(status, d.error ?? `Erro ${status}`, d.code, d.issues);
+}
+
+/**
+ * POST of a binary body with upload progress (fetch has none): used for dictation clips, whose upload
+ * on a slow uplink is long enough to deserve a percentage. Same cookies/CSRF/error shape as request().
+ */
+function upload<T>(path: string, body: Blob, onProgress?: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api${path}`);
+    xhr.withCredentials = true;
+    xhr.responseType = 'text';
+    xhr.setRequestHeader('accept', 'application/json');
+    xhr.setRequestHeader('content-type', body.type || 'application/octet-stream');
+    const csrf = readCookie('termhub_csrf');
+    if (csrf) xhr.setRequestHeader('x-csrf-token', csrf);
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && onProgress) onProgress(ev.loaded / ev.total);
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'Sem conexão com o servidor', 'NETWORK'));
+    xhr.onabort = () => reject(new ApiError(0, 'Envio cancelado', 'ABORTED'));
+    xhr.onload = () => {
+      let data: unknown = null;
+      try {
+        data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        data = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
+      else reject(errorFrom(xhr.status, data));
+    };
+    xhr.send(body);
+  });
 }
 
 export const api = {
@@ -74,6 +109,9 @@ export const api = {
     test: (input: { host: string; ssh_user?: string | null; ssh_port?: number }) => request<SshDiagnosis>('POST', '/machines/test', input),
     simulators: (id: string) => request<{ simulators: Simulator[] }>('GET', `/machines/${id}/simulators`),
     wdaSetup: (id: string) => request<WdaSetupState>('GET', `/machines/${id}/simulator/setup`),
+    hooks: (id: string) => request<MachineHooks>('GET', `/machines/${id}/hooks`),
+    installHooks: (id: string) => request<MachineHooks & { claude: 'installed' | 'skipped'; codex: 'installed' | 'skipped' }>('POST', `/machines/${id}/hooks`),
+    removeHooks: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}/hooks`),
     startWdaSetup: (id: string) => request<{ ok: true }>('POST', `/machines/${id}/simulator/setup`, {}),
     /** subpastas de `path` (padrão $HOME) + discos/mounts da máquina */
     hardware: (id: string) => request<{ hardware: HardwareSnapshot }>('GET', `/machines/${id}/hardware`),
@@ -91,6 +129,9 @@ export const api = {
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
+  monitor: {
+    tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
+  },
   tasks: {
     list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),
     create: (projectId: string, input: { title: string; description?: string | null; status?: TaskStatus }) =>
@@ -165,8 +206,25 @@ export const api = {
     remove: (id: string) => request<{ ok: true; killed: boolean }>('DELETE', `/tabs/${id}`),
     update: (id: string, input: { name?: string; simulator_udid?: string | null }) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, input),
     screenshotUrl: (id: string) => `/api/tabs/${id}/simulator/screenshot`,
+    /** types text into the tab's tmux session (and presses Enter) — no terminal attached needed */
+    input: (id: string, text: string, enter = true) => request<{ ok: true; tab: Tab }>('POST', `/tabs/${id}/input`, { text, enter }),
+    events: (id: string, limit = 50) => request<{ events: TabEvent[] }>('GET', `/tabs/${id}/events?limit=${limit}`),
     /** writes the file to ~/.cache/termhub/paste/ on the tab's machine and returns its path */
     pasteFile: (id: string, file: Blob, name?: string) =>
       request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-file${name ? `?name=${encodeURIComponent(name)}` : ''}`, new Blob([file], { type: 'application/octet-stream' })),
+  },
+  uploads: {
+    list: () => request<{ machines: UploadMachineStatus[]; files: UploadEntry[] }>('GET', '/uploads'),
+    remove: (machineId: string, name: string) => request<{ ok: true; existed: boolean }>('DELETE', `/uploads/${machineId}/${encodeURIComponent(name)}`),
+  },
+  transcriptions: {
+    config: () => request<{ enabled: boolean }>('GET', '/transcriptions/config'),
+    /**
+     * The blob keeps its recorder mime type (audio/webm, audio/mp4...) so the server can decode it;
+     * `seconds` is the recorded length, which the server turns into a time estimate.
+     */
+    create: (audio: Blob, seconds: number, onProgress?: (fraction: number) => void) =>
+      upload<{ transcription: Transcription }>(`/transcriptions?seconds=${Math.round(seconds)}`, audio, onProgress),
+    get: (id: string) => request<{ transcription: Transcription }>('GET', `/transcriptions/${id}`),
   },
 };

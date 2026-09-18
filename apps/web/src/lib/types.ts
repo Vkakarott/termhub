@@ -261,8 +261,91 @@ export interface Tab {
   tmux_session: string | null;
   simulator_udid: string | null;
   position: number;
+  /** monitor: what the tool in the tab is doing (from its hooks); null = never reported */
+  state: TabState | null;
+  /** the tool's pending question / notification */
+  state_text: string | null;
+  state_tool: string | null;
+  state_at: string | null;
   created_at: string;
   alive: boolean;
+}
+
+export type TabState = 'working' | 'waiting_input' | 'waiting_permission' | 'idle' | 'error';
+
+export const TAB_STATE_LABEL: Record<TabState, string> = {
+  working: 'trabalhando',
+  waiting_input: 'esperando resposta',
+  waiting_permission: 'pedindo permissão',
+  idle: 'terminou',
+  error: 'erro',
+};
+
+/** States in which the tool is waiting for the person. */
+export const NEEDS_YOU: readonly TabState[] = ['waiting_input', 'waiting_permission'];
+
+export interface TabEvent {
+  id: string;
+  tab_id: string;
+  kind: TabState;
+  tool: string;
+  text: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+/** Monitor hooks on a machine (GET /machines/:id/hooks). */
+export interface MachineHooks {
+  installed_at: string | null;
+  hooks_url: string;
+}
+
+export interface MonitorItem {
+  tab: Tab;
+  project: Project;
+  machine: Machine;
+}
+
+/** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
+export interface UploadEntry {
+  machine_id: string;
+  name: string;
+  bytes: number;
+  modified_at: string;
+  /** false = the machine could not be listed; the entry comes from the DB and the file may be gone */
+  on_disk: boolean;
+  upload: {
+    id: string;
+    user_id: string | null;
+    user_name: string | null;
+    user_email: string | null;
+    mime: string;
+    project_id: string | null;
+    created_at: string;
+  } | null;
+}
+
+export interface UploadMachineStatus {
+  id: string;
+  name: string;
+  /** files with no upload record are attributed to the owner (only they can paste into the machine) */
+  owner_id: string | null;
+  owner_name: string | null;
+  ok: boolean;
+  error?: string;
+}
+
+export interface Transcription {
+  id: string;
+  status: 'pending' | 'done' | 'error';
+  text?: string;
+  /** audio length in seconds */
+  duration?: number;
+  error?: string;
+  /** pending only: estimated seconds until the text is ready */
+  eta_seconds?: number;
+  /** pending only: 0..1 share of the estimated time already elapsed */
+  progress?: number;
 }
 
 export interface Simulator {
@@ -324,6 +407,8 @@ export interface AiAccountUsage {
   windows: AiUsageWindow[];
   error: string | null;
   hint: string | null;
+  /** last good reading, shown because the provider is rate-limiting the usage query */
+  stale?: boolean;
 }
 
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', antigravity: 'Antigravity' };
