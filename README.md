@@ -124,7 +124,7 @@ npm run create-user -- --email you@example.com --name "Your Name" [--password ..
 - **Sidebar:** the `«` button at the top collapses the sidebar to a narrow rail to give the terminal more room (`»` expands it back); the choice is saved in the browser.
 - **Tabs:** `⌘T` new, double-click renames, `⌘W` closes (with confirmation — kills the tmux session), `⌘1..9` switches. Since some browsers capture `⌘T`/`⌘W`, `Ctrl+Shift+T`/`Ctrl+Shift+W` work as alternatives.
 - **Copy:** selecting text copies it automatically on mouse release ("Copied" notice in the status bar). When the running program enables mouse tracking (Claude Code, vim, htop…), the drag goes to it; hold `⌥` (Mac) or `Shift` (Linux/Windows) while dragging to select — the status bar shows when this is active.
-- **Paste image:** `Cmd+V` with an image on the clipboard uploads the file to `~/.cache/termhub/paste/` on the tab's machine (up to 20 MB; PNG, JPEG, GIF or WebP; files older than 7 days are deleted on each new upload) and pastes the path into the terminal — for Claude Code it is the same as dragging the file in; the status bar shows progress. Text still pastes normally.
+- **Attach files:** drop files on the terminal, or `Cmd+V` with an image or files on the clipboard, to upload them to `~/.cache/termhub/paste/` on the tab's machine (up to 20 MB each; files older than 7 days are deleted on each new upload; original names kept, sanitized; images get their real extension) and paste the paths into the terminal — for Claude Code it is the same as attaching the file; the status bar shows progress. Plain text still pastes normally.
 - tmux sessions are named `termhub-<project_id>-<tab_id>`; you can attach from outside with `tmux attach -t <name>`.
 
 ## Project management

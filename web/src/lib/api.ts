@@ -132,7 +132,8 @@ export const api = {
     remove: (id: string) => request<{ ok: true; killed: boolean }>('DELETE', `/tabs/${id}`),
     update: (id: string, input: { name?: string; simulator_udid?: string | null }) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, input),
     screenshotUrl: (id: string) => `/api/tabs/${id}/simulator/screenshot`,
-    /** grava a imagem em ~/.cache/termhub/paste/ na máquina da tab e devolve o caminho */
-    pasteImage: (id: string, image: Blob) => request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-image`, image),
+    /** writes the file to ~/.cache/termhub/paste/ on the tab's machine and returns its path */
+    pasteFile: (id: string, file: Blob, name?: string) =>
+      request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-file${name ? `?name=${encodeURIComponent(name)}` : ''}`, new Blob([file], { type: 'application/octet-stream' })),
   },
 };

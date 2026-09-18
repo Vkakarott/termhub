@@ -4,9 +4,10 @@ import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
-import { PASTE_IMAGE_MAX_BYTES, saveImageOnMachine } from '../terminal/paste-image.js';
+import { PASTE_MAX_BYTES, saveFileOnMachine } from '../terminal/paste-file.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
+const pasteQuery = z.object({ name: z.string().max(255).optional() });
 const patchBody = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   simulator_udid: z.string().regex(/^[A-Fa-f0-9-]{8,64}$/).nullable().optional(),
@@ -17,8 +18,9 @@ export async function tabRoutes(
   repos: Repositories,
   deps: { simulators: SimulatorSessionManager; closeSimulatorTab: (tabId: string) => void },
 ) {
-  // Corpo binário das imagens coladas (só neste plugin).
-  app.addContentTypeParser(/^image\/.+/, { parseAs: 'buffer', bodyLimit: PASTE_IMAGE_MAX_BYTES }, (_req, body, done) => done(null, body));
+  // Binary bodies for pasted/dropped files (this plugin only). JSON keeps its own parser.
+  app.addContentTypeParser(['application/octet-stream'], { parseAs: 'buffer', bodyLimit: PASTE_MAX_BYTES }, (_req, body, done) => done(null, body));
+  app.addContentTypeParser(/^(image|text|audio|video)\/.+/, { parseAs: 'buffer', bodyLimit: PASTE_MAX_BYTES }, (_req, body, done) => done(null, body));
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
@@ -66,19 +68,20 @@ export async function tabRoutes(
   });
 
   /**
-   * Imagem colada no terminal (Cmd+V no navegador): grava em ~/.cache/termhub/paste/ na máquina da tab
-   * e devolve o caminho, que o front cola no terminal como texto.
+   * File pasted (Cmd+V) or dropped on the terminal: written to ~/.cache/termhub/paste/ on the tab's
+   * machine; the returned path is what the frontend pastes into the terminal as text.
    */
-  app.post('/:id/paste-image', { bodyLimit: PASTE_IMAGE_MAX_BYTES }, async (request) => {
+  app.post('/:id/paste-file', { bodyLimit: PASTE_MAX_BYTES }, async (request) => {
     const { id } = idParam.parse(request.params);
+    const { name } = pasteQuery.parse(request.query);
     const tab = await repos.tabs.findById(id);
     if (!tab) throw notFound('Tab não encontrada');
     const project = await repos.projects.findById(tab.project_id);
     const machine = project && (await repos.machines.findById(project.machine_id));
     if (!project || !machine) throw notFound('Projeto ou máquina não encontrados');
-    if (!Buffer.isBuffer(request.body)) throw badRequest('Envie a imagem como corpo binário (content-type image/*)');
-    const image = await saveImageOnMachine(machine, request.body);
-    request.log.info({ tabId: id, machineId: machine.id, bytes: image.bytes, mime: image.mime }, 'imagem colada');
-    return image;
+    if (!Buffer.isBuffer(request.body)) throw badRequest('Envie o arquivo como corpo binário (content-type application/octet-stream)');
+    const file = await saveFileOnMachine(machine, request.body, name);
+    request.log.info({ tabId: id, machineId: machine.id, bytes: file.bytes, mime: file.mime }, 'file pasted');
+    return file;
   });
 }
