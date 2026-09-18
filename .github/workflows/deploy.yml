@@ -25,12 +25,16 @@ jobs:
         run: npm ci
       - name: Gerar Prisma Client
         run: npm run prisma:generate
+      - name: Build dos pacotes compartilhados
+        run: npm run build:packages
       - name: Testes server
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/termhub
         run: npm test -w @termhub/server
       - name: Testes web
         run: npm test -w @termhub/web
+      - name: Testes protocolo do agente
+        run: npm test -w @termhub/agent-protocol
       - name: Typecheck server
         run: npm run typecheck -w @termhub/server
       - name: Typecheck + build web
