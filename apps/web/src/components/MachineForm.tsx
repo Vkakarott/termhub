@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { useAuth } from '../lib/auth';
 import { Modal } from './Modal';
 import { SimulatorSetupCard } from './SimulatorSetupCard';
 import { useData } from '../lib/data';
-import type { Machine, SshDiagnosis } from '../lib/types';
+import type { Machine, SshDiagnosis, User } from '../lib/types';
 import { api, ApiError } from '../lib/api';
 
 interface Props {
@@ -96,6 +97,11 @@ function CopyButton({ text }: { text: string }) {
 
 export function MachineForm({ open, onClose, machine }: Props) {
   const { createMachine, updateMachine } = useData();
+  const { user: me } = useAuth();
+  const isAdmin = !!me?.role_info?.is_admin;
+  // Owner transfer: admins editing an existing machine can hand it to another user.
+  const [owners, setOwners] = useState<User[] | null>(null);
+  const [ownerId, setOwnerId] = useState<string>(machine?.owner_id ?? '');
   const [name, setName] = useState(machine?.name ?? '');
   const [type, setType] = useState<'local' | 'ssh'>(machine?.type ?? 'ssh');
   const [host, setHost] = useState(machine?.host ?? '');
@@ -130,6 +136,14 @@ export function MachineForm({ open, onClose, machine }: Props) {
       .catch(() => setSshKey(null));
   }, [type]);
 
+  useEffect(() => {
+    if (!isAdmin || !machine) return;
+    api.users
+      .list()
+      .then((r) => setOwners(r.users))
+      .catch(() => setOwners(null));
+  }, [isAdmin, machine]);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -142,6 +156,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
         ssh_user: type === 'ssh' ? sshUser || null : null,
         ssh_port: type === 'ssh' ? Number(sshPort) || 22 : 22,
       };
+      if (machine && isAdmin && owners && (ownerId || null) !== machine.owner_id) input.owner_id = ownerId || null;
       if (machine) await updateMachine(machine.id, input);
       else await createMachine(input);
       onClose();
@@ -253,6 +268,20 @@ export function MachineForm({ open, onClose, machine }: Props) {
               )}
             </div>
           </>
+        )}
+        {machine && isAdmin && owners && (
+          <div>
+            <label className="label">Dono</label>
+            <select className="input" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+              <option value="">— sem dono (só visível em "todas as máquinas") —</option>
+              {owners.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} — {u.email}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-fg-dim">Projetos, tabs, tarefas, notas e contas de IA desta máquina passam a ser vistos pelo novo dono.</p>
+          </div>
         )}
         {machine && <SimulatorSetupCard machine={machine} />}
         {error && <p className="text-sm text-danger">{error}</p>}

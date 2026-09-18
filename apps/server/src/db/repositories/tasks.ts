@@ -139,8 +139,12 @@ export class TasksRepository {
     return Object.fromEntries(rows.map((r) => [r.projectId, r._count._all]));
   }
 
-  async listDoing(): Promise<Task[]> {
-    const rows = await this.db.task.findMany({ where: { status: 'doing' }, orderBy: [{ projectId: 'asc' }, { position: 'asc' }] });
+  /** `owner`: only tasks of projects on machines of that user (null = all). */
+  async listDoing(owner: string | null = null): Promise<Task[]> {
+    const rows = await this.db.task.findMany({
+      where: { status: 'doing', ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
+      orderBy: [{ projectId: 'asc' }, { position: 'asc' }],
+    });
     return rows.map(mapTask);
   }
 }

@@ -12,8 +12,9 @@ export interface AiAccountInput {
 export class AiAccountsRepository {
   constructor(private db: PrismaClient) {}
 
-  async list(): Promise<AiAccount[]> {
-    return (await this.db.aiAccount.findMany({ orderBy: { createdAt: 'asc' } })).map(mapAiAccount);
+  /** `owner`: only accounts on machines of that user (null = all). */
+  async list(owner: string | null = null): Promise<AiAccount[]> {
+    return (await this.db.aiAccount.findMany({ where: owner ? { machine: { ownerId: owner } } : {}, orderBy: { createdAt: 'asc' } })).map(mapAiAccount);
   }
 
   async findById(id: string): Promise<AiAccount | undefined> {

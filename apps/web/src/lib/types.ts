@@ -69,8 +69,14 @@ export interface Machine {
   os: string | null;
   capabilities: string[];
   checked_at: string | null;
+  /** null = orphan (visible only to admins viewing "all") */
+  owner_id: string | null;
+  owner_name: string | null;
   created_at: string;
 }
+
+/** Admin data-scope switch: null = own data, "all" = everything, or the impersonated user. */
+export type ViewAs = null | 'all' | { id: string; name: string; email: string; avatar_url: string | null };
 
 export interface FsRoot {
   kind: 'home' | 'disk';
@@ -166,6 +172,7 @@ export interface Integration {
   provider: IntegrationProvider;
   name: string;
   config: Record<string, unknown>;
+  owner_id: string | null;
   created_at: string;
   updated_at: string;
 }

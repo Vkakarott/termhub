@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine } from '../db/repositories/types.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { badRequest } from '../lib/errors.js';
+import { scoped } from '../auth/scope.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { ensureDirectory } from '../terminal/machine-fs.js';
@@ -41,14 +42,15 @@ const tabBody = z.object({
 export async function projectRoutes(app: FastifyInstance, repos: Repositories, deps: { simulators: SimulatorSessionManager }) {
   app.get('/', async (request) => {
     const q = z.object({ status: z.enum(['active', 'paused', 'archived']).optional() }).parse(request.query);
-    const [projects, openCounts] = await Promise.all([repos.projects.list({ status: q.status }), repos.tasks.openCountByProject()]);
+    const [projects, openCounts] = await Promise.all([repos.projects.list({ status: q.status, owner: request.scope.ownerId }), repos.tasks.openCountByProject()]);
     return { projects: projects.map((p) => ({ ...p, open_tasks: openCounts[p.id] ?? 0 })) };
   });
 
   app.post('/', async (request, reply) => {
     const { create_dir, ...body } = createBody.parse(request.body);
-    const machine = await repos.machines.findById(body.machine_id);
-    if (!machine) throw badRequest('Máquina inexistente');
+    const machine = await scoped(repos, request).machine(body.machine_id).catch(() => {
+      throw badRequest('Máquina inexistente');
+    });
     body.cwd = await resolveCwd(machine, body.cwd, create_dir);
     const project = await repos.projects.create(body);
     return reply.code(201).send({ project });
@@ -56,19 +58,15 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
 
   app.get('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const project = await repos.projects.findById(id);
-    if (!project) throw notFound('Projeto não encontrado');
+    const { project } = await scoped(repos, request).project(id);
     return { project };
   });
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const current = await repos.projects.findById(id);
-    if (!current) throw notFound('Projeto não encontrado');
+    const { project: current, machine } = await scoped(repos, request).project(id);
     const { create_dir, ...patch } = patchBody.parse(request.body);
     if (patch.cwd !== undefined && patch.cwd !== current.cwd) {
-      const machine = await repos.machines.findById(current.machine_id);
-      if (!machine) throw badRequest('Máquina inexistente');
       patch.cwd = await resolveCwd(machine, patch.cwd, create_dir);
     }
     return { project: await repos.projects.update(id, patch) };
@@ -76,15 +74,11 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const project = await repos.projects.findById(id);
-    if (!project) throw notFound('Projeto não encontrado');
-    const machine = await repos.machines.findById(project.machine_id);
+    const { machine } = await scoped(repos, request).project(id);
     // Melhor esforço: mata as sessões tmux das tabs antes de apagar (máquina pode estar offline).
-    if (machine) {
-      await Promise.allSettled(
-        (await repos.tabs.listByProject(id)).filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)),
-      );
-    }
+    await Promise.allSettled(
+      (await repos.tabs.listByProject(id)).filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)),
+    );
     await repos.projects.delete(id);
     return { ok: true };
   });
@@ -92,14 +86,12 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
   // --- Tabs ---
   app.get('/:id/tabs', async (request) => {
     const { id } = idParam.parse(request.params);
-    const project = await repos.projects.findById(id);
-    if (!project) throw notFound('Projeto não encontrado');
-    const machine = await repos.machines.findById(project.machine_id);
+    const { machine } = await scoped(repos, request).project(id);
     const tabs = await repos.tabs.listByProject(id);
     let alive = new Set<string>();
     let reachable = false;
     const terminalTabs = tabs.filter((t) => t.kind === 'terminal');
-    if (machine && terminalTabs.length > 0) {
+    if (terminalTabs.length > 0) {
       try {
         alive = await listTmuxSessions(machine);
         reachable = true;
@@ -115,7 +107,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
         ...t,
         alive:
           t.kind === 'simulator'
-            ? !!t.simulator_udid && !!machine && deps.simulators.isReady(machine.id, t.simulator_udid)
+            ? !!t.simulator_udid && deps.simulators.isReady(machine.id, t.simulator_udid)
             : !!t.tmux_session && alive.has(t.tmux_session),
       })),
     };
@@ -123,17 +115,13 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
 
   app.post('/:id/tabs', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const project = await repos.projects.findById(id);
-    if (!project) throw notFound('Projeto não encontrado');
+    const { machine } = await scoped(repos, request).project(id);
     const body = tabBody.parse(request.body ?? {});
     const kind = body.kind ?? 'terminal';
     const existing = await repos.tabs.listByProject(id);
     const count = existing.filter((t) => t.kind === kind).length + 1;
     const name = body.name ?? (kind === 'simulator' ? `Simulador ${count}` : `Terminal ${count}`);
-    if (kind === 'simulator') {
-      const machine = await repos.machines.findById(project.machine_id);
-      if (!machine?.capabilities.includes('wda')) throw badRequest('Prepare o WDA nesta máquina antes de abrir um simulador');
-    }
+    if (kind === 'simulator' && !machine.capabilities.includes('wda')) throw badRequest('Prepare o WDA nesta máquina antes de abrir um simulador');
     const tab = await repos.tabs.create(id, name, { kind, simulator_udid: body.simulator_udid ?? null });
     return reply.code(201).send({ tab: { ...tab, alive: false } });
   });

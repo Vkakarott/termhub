@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
-import { badRequest, notFound, HttpError } from '../lib/errors.js';
+import { badRequest, HttpError } from '../lib/errors.js';
+import { scoped } from '../auth/scope.js';
 import { getProvider } from '../integrations/index.js';
 import { externalId, ticketRef } from '../setup/tickets-sync.js';
 
@@ -12,7 +13,7 @@ const importBody = z.object({ ticket_ids: z.array(z.string().min(1).max(64)).min
 export async function projectTicketRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/:id/tickets', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.projects.findById(id))) throw notFound('Projeto não encontrado');
+    await scoped(repos, request).project(id);
     const q = z.object({ integration_id: z.string().max(64).optional() }).parse(request.query);
     return { tickets: await repos.tickets.listByProject(id, q.integration_id) };
   });
@@ -20,7 +21,7 @@ export async function projectTicketRoutes(app: FastifyInstance, repos: Repositor
   /** Manda tickets escolhidos para o backlog (cria tasks vinculadas). */
   app.post('/:id/tickets/import', { config: { resource: 'tasks', action: 'create' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.projects.findById(id))) throw notFound('Projeto não encontrado');
+    await scoped(repos, request).project(id);
     const { ticket_ids } = importBody.parse(request.body);
     const tickets = await repos.tickets.findByIds(id, ticket_ids);
     const created = [];
@@ -47,8 +48,7 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
   /** Empurra a coluna atual da task para o provedor (ação explícita). */
   app.post('/:id/push-status', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    const task = await repos.tasks.findById(id);
-    if (!task) throw notFound('Task não encontrada');
+    const { task } = await scoped(repos, request).task(id);
     const ref = task.external_ref as { provider?: string; id?: string; identifier?: string; scope?: string } | null;
     if (!ref?.provider || !ref.id) throw badRequest('Task não está ligada a um ticket externo');
     const setup = await repos.projectSetup.get(task.project_id);
@@ -76,8 +76,7 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
   /** Abre (ou reaproveita) uma tab de terminal para a task e a vincula. */
   app.post('/:id/terminal', { config: { resource: 'terminals', action: 'create' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    const task = await repos.tasks.findById(id);
-    if (!task) throw notFound('Task não encontrada');
+    const { task } = await scoped(repos, request).task(id);
     if (task.tab_id) {
       const existing = await repos.tabs.findById(task.tab_id);
       if (existing) return { task, tab: existing, created: false };
@@ -91,7 +90,7 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
 
   app.delete('/:id/terminal', { config: { resource: 'tasks', action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.tasks.findById(id))) throw notFound('Task não encontrada');
+    await scoped(repos, request).task(id);
     return { task: await repos.tasks.setTab(id, null) };
   });
 }

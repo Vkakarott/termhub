@@ -224,6 +224,8 @@ export async function diagnoseSsh(target: { host: string; ssh_user: string | nul
     os: null,
     capabilities: [],
     checked_at: null,
+    owner_id: null,
+    owner_name: null,
     created_at: '',
   };
   const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', 'exit 1'] }, `${REMOTE_PATH_PREFIX}${DETECT_SCRIPT}`, 12000);

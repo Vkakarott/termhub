@@ -49,6 +49,8 @@ model User {
   lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   sessions     Session[]
+  machines     Machine[]     @relation("MachineOwner")
+  integrations Integration[] @relation("IntegrationOwner")
 
   @@index([roleId])
   @@map("users")
@@ -130,10 +132,15 @@ model Machine {
   os           String?
   capabilities Json      @default("[]")
   checkedAt    DateTime? @map("checked_at")
+  /// Owner: everything under the machine (projects, tabs, tasks, notes, AI accounts) is visible only to
+  /// them (and to admins viewing as them or as "all"). Null = orphan (previous owner deleted / seeded).
+  ownerId   String?     @map("owner_id")
+  owner     User?       @relation("MachineOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt DateTime    @default(now()) @map("created_at")
   projects   Project[]
   aiAccounts AiAccount[]
 
+  @@index([ownerId])
   @@map("machines")
 }
 
@@ -255,9 +262,13 @@ model Integration {
   /// Dados não sensíveis (ex.: Jira: { baseUrl, email }; GitHub: { login })
   config    Json                @default("{}")
   secret    String
+  /// Owner (credentials are personal); same scoping rules as machines.
+  ownerId   String?             @map("owner_id")
+  owner     User?               @relation("IntegrationOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt DateTime            @default(now()) @map("created_at")
   updatedAt DateTime            @default(now()) @updatedAt @map("updated_at")
 
+  @@index([ownerId])
   @@map("integrations")
 }
 

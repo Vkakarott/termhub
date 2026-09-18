@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
+import { scoped } from '../auth/scope.js';
 import { encryptionAvailable } from '../lib/crypto.js';
 import { getProvider } from '../integrations/index.js';
 
@@ -34,23 +35,24 @@ export async function integrationRoutes(app: FastifyInstance, repos: Repositorie
     if (!encryptionAvailable()) throw badRequest('ENCRYPTION_KEY não configurada no servidor (openssl rand -base64 32)');
   });
 
-  app.get('/', async () => ({ integrations: await repos.integrations.list() }));
+  app.get('/', async (request) => ({ integrations: await repos.integrations.list(request.scope.ownerId) }));
 
   app.post('/', async (request, reply) => {
     const body = createBody.parse(request.body);
-    const integration = await repos.integrations.create(body);
+    const integration = await repos.integrations.create({ ...body, owner_id: request.scope.createAs });
     return reply.code(201).send({ integration });
   });
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.integrations.findById(id))) throw notFound('Integração não encontrada');
+    await scoped(repos, request).integration(id);
     return { integration: await repos.integrations.update(id, patchBody.parse(request.body)) };
   });
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.integrations.delete(id))) throw notFound('Integração não encontrada');
+    await scoped(repos, request).integration(id);
+    await repos.integrations.delete(id);
     return { ok: true };
   });
 
@@ -60,8 +62,7 @@ export async function integrationRoutes(app: FastifyInstance, repos: Repositorie
     let secret = body.secret;
     let config = body.config;
     if (!secret && body.integration_id) {
-      const saved = await repos.integrations.findById(body.integration_id);
-      if (!saved) throw notFound('Integração não encontrada');
+      const saved = await scoped(repos, request).integration(body.integration_id);
       secret = await repos.integrations.getSecret(body.integration_id);
       config = { ...saved.config, ...config } as typeof config;
     }

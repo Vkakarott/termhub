@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
-import type { AuthConfig, User } from './types';
+import type { AuthConfig, User, ViewAs } from './types';
 
 interface AuthState {
   user: User | null;
@@ -10,6 +10,10 @@ interface AuthState {
   sendCode: (email: string) => Promise<number>;
   verifyCode: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** admin data-scope switch (see ViewAs); null when viewing own data */
+  viewAs: ViewAs;
+  /** admin only: switch the data scope and reload the app so every list/socket follows */
+  setViewAs: (user_id: string | null) => Promise<void>;
   /** true when the signed-in user's role grants resource:action (admins: always) */
   can: (resource: string, action?: 'create' | 'read' | 'update' | 'delete') => boolean;
 }
@@ -19,6 +23,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [viewAs, setViewAsState] = useState<ViewAs>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setConfig(cfg);
         setUser(me?.user ?? null);
+        setViewAsState(me?.view_as ?? null);
       } catch {
         if (!cancelled) setUser(null);
       } finally {
@@ -73,9 +79,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await api.auth.logout().catch(() => {});
     setUser(null);
+    setViewAsState(null);
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, config, login, sendCode, verifyCode, logout, can }}>{children}</AuthContext.Provider>;
+  const setViewAs = useCallback(async (user_id: string | null) => {
+    const r = await api.auth.viewAs(user_id);
+    setViewAsState(r.view_as);
+    // Machines, projects and open terminals are all scope-bound: a full reload is the honest reset.
+    window.location.assign('/');
+  }, []);
+
+  return <AuthContext.Provider value={{ user, loading, config, login, sendCode, verifyCode, logout, viewAs, setViewAs, can }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

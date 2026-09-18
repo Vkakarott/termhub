@@ -6,6 +6,7 @@ import type { Machine, Project } from '../lib/types';
 import { MachineForm } from './MachineForm';
 import { ProjectForm } from './ProjectForm';
 import { ConfirmDialog } from './Modal';
+import { ViewAsSwitch } from './ViewAsSwitch';
 
 const STATUS_DOT: Record<MachineStatus, string> = {
   checking: 'bg-warn animate-pulse',
@@ -15,7 +16,7 @@ const STATUS_DOT: Record<MachineStatus, string> = {
 const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', online: 'online', offline: 'offline' };
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
-  const { user, logout, can } = useAuth();
+  const { user, logout, can, viewAs } = useAuth();
   const { machines, projects, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
   const navigate = useNavigate();
   const location = useLocation();
@@ -79,6 +80,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                   {m.name}
                 </span>
                 {m.os && <span className="text-[10px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
+                {viewAs === 'all' && (
+                  <span className="truncate text-[10px] text-fg-dim" title={m.owner_name ? `Dono: ${m.owner_name}` : 'Sem dono'}>
+                    {m.owner_name ?? 'sem dono'}
+                  </span>
+                )}
                 {missingTmux[m.id] && (
                   <span className="text-[10px] text-warn" title="tmux não está instalado nesta máquina">
                     sem tmux
@@ -155,6 +161,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         )}
       </nav>
 
+      <ViewAsSwitch />
       <div className="border-t border-line px-3 py-1.5">
         {can('integrations') && (
           <NavLink to="/integrations" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
