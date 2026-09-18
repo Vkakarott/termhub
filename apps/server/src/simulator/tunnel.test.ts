@@ -21,7 +21,7 @@ describe('findFreePort', () => {
 describe('openTunnel local', () => {
   it('máquina local não abre ssh e devolve as portas remotas', async () => {
     const t = await openTunnel(
-      { id: 'm', name: 'local', host: null, ssh_user: null, ssh_port: 22, type: 'local', os: null, capabilities: [], checked_at: null, created_at: '' },
+      { id: 'm', name: 'local', host: null, ssh_user: null, ssh_port: 22, type: 'local', os: null, capabilities: [], checked_at: null, owner_id: null, owner_name: null, created_at: '' },
       { wdaPort: 8101, mjpegPort: 9101 },
     );
     expect(t).toMatchObject({ wdaPort: 8101, mjpegPort: 9101 });
@@ -39,6 +39,8 @@ const sshMachine = (): Machine => ({
   os: null,
   capabilities: [],
   checked_at: null,
+  owner_id: null,
+  owner_name: null,
   created_at: '',
 });
 

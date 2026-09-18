@@ -3,6 +3,7 @@ import type { Duplex } from 'node:stream';
 import { config } from '../config.js';
 import { parseCookies, resolveUser, type AuthContext } from '../auth/index.js';
 import { canAccess } from '../auth/permissions.js';
+import { resolveScope, type Scope } from '../auth/scope.js';
 import type { User } from '../db/repositories/types.js';
 
 export interface UpgradeContext {
@@ -12,6 +13,7 @@ export interface UpgradeContext {
   url: URL;
   params: string[];
   user: User;
+  scope: Scope;
 }
 export type UpgradeHandler = (ctx: UpgradeContext) => void | Promise<void>;
 
@@ -49,17 +51,19 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
     const route = routes.map((r) => ({ r, m: url.pathname.match(r.pattern) })).find((x) => x.m);
     if (!route?.m) return rejectUpgrade(socket, 404, 'Not Found');
     if (!originAllowed(req)) return rejectUpgrade(socket, 403, 'Forbidden');
+    const cookies = parseCookies(req.headers.cookie);
     let user: User | null = null;
     try {
-      user = await resolveUser(deps.auth, { headers: req.headers, cookies: parseCookies(req.headers.cookie) });
+      user = await resolveUser(deps.auth, { headers: req.headers, cookies });
     } catch {
       user = null;
     }
     if (!user) return rejectUpgrade(socket, 401, 'Unauthorized');
+    const scope = await resolveScope(deps.auth.repos, user, cookies);
     // every WebSocket is a terminal or simulator stream: needs terminals:read
     if (!(await canAccess(deps.auth.repos, user, 'terminals', 'read'))) return rejectUpgrade(socket, 403, 'Forbidden');
     try {
-      await route.r.handler({ req, socket, head, url, params: route.m.slice(1), user });
+      await route.r.handler({ req, socket, head, url, params: route.m.slice(1), user, scope });
     } catch {
       rejectUpgrade(socket, 500, 'Internal Server Error');
     }

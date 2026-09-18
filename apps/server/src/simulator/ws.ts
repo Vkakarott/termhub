@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Tab } from '../db/repositories/types.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
+import { Scoped } from '../auth/scope.js';
 import { dragActions, tapActions } from './actions.js';
 import { specialKeyToWda } from './keys.js';
 import type { SessionHandle, SimulatorSessionManager, Viewer } from './session-manager.js';
@@ -23,11 +24,11 @@ export function registerSimulatorWs(router: ReturnType<typeof createUpgradeRoute
   const log = deps.log.child({ mod: 'sim-ws' });
   const byTab = new Map<string, Set<WebSocket>>();
 
-  router.add(/^\/ws\/sim\/([a-z0-9]+)\/?$/, async ({ req, socket, head, params }) => {
-    const tab = await deps.repos.tabs.findById(params[0]);
-    const project = tab && (await deps.repos.projects.findById(tab.project_id));
-    const machine = project && (await deps.repos.machines.findById(project.machine_id));
-    if (!tab || !project || !machine || tab.kind !== 'simulator') return rejectUpgrade(socket, 404, 'Not Found');
+  router.add(/^\/ws\/sim\/([a-z0-9]+)\/?$/, async ({ req, socket, head, params, scope }) => {
+    // ownership: a tab outside the caller's scope is a 404, like a missing one
+    const found = await new Scoped(deps.repos, scope).tab(params[0]).catch(() => null);
+    if (!found || found.tab.kind !== 'simulator') return rejectUpgrade(socket, 404, 'Not Found');
+    const { tab, machine } = found;
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
       const set = byTab.get(tab.id) ?? new Set<WebSocket>();

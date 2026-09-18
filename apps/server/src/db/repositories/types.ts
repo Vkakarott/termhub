@@ -54,6 +54,10 @@ export interface Machine {
   os: string | null;
   capabilities: string[];
   checked_at: string | null;
+  /** null = orphan (only visible to admins viewing "all") */
+  owner_id: string | null;
+  /** owner's display name (list/detail convenience for the "all" view) */
+  owner_name: string | null;
   created_at: string;
 }
 
@@ -143,7 +147,7 @@ export const mapSession = (s: PrismaSession): Session => ({
   created_at: s.createdAt.toISOString(),
 });
 
-export const mapMachine = (m: PrismaMachine): Machine => ({
+export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null }): Machine => ({
   id: m.id,
   name: m.name,
   host: m.host,
@@ -153,6 +157,8 @@ export const mapMachine = (m: PrismaMachine): Machine => ({
   os: m.os,
   capabilities: Array.isArray(m.capabilities) ? (m.capabilities as string[]) : [],
   checked_at: iso(m.checkedAt),
+  owner_id: m.ownerId,
+  owner_name: m.owner?.name ?? null,
   created_at: m.createdAt.toISOString(),
 });
 

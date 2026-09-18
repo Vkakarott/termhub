@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
+import { scoped } from '../auth/scope.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { PASTE_MAX_BYTES, saveFileOnMachine } from '../terminal/paste-file.js';
@@ -24,8 +25,7 @@ export async function tabRoutes(
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const tab = await repos.tabs.findById(id);
-    if (!tab) throw notFound('Tab não encontrada');
+    const { tab } = await scoped(repos, request).tab(id);
     const body = patchBody.parse(request.body);
     if (body.simulator_udid !== undefined && tab.kind !== 'simulator') throw badRequest('Só tabs de simulador têm aparelho');
     const updated = await repos.tabs.update(id, body);
@@ -35,10 +35,9 @@ export async function tabRoutes(
 
   app.get('/:id/simulator/screenshot', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const tab = await repos.tabs.findById(id);
-    if (!tab || tab.kind !== 'simulator') throw notFound('Tab não encontrada');
-    const project = await repos.projects.findById(tab.project_id);
-    if (!project || !tab.simulator_udid) throw conflict('Simulador não está conectado');
+    const { tab, project } = await scoped(repos, request).tab(id);
+    if (tab.kind !== 'simulator') throw notFound('Tab não encontrada');
+    if (!tab.simulator_udid) throw conflict('Simulador não está conectado');
     const client = deps.simulators.getClient(project.machine_id, tab.simulator_udid);
     if (!client) throw conflict('Simulador não está conectado');
     const png = await client.screenshotPng();
@@ -51,12 +50,9 @@ export async function tabRoutes(
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const tab = await repos.tabs.findById(id);
-    if (!tab) throw notFound('Tab não encontrada');
-    const project = await repos.projects.findById(tab.project_id);
-    const machine = project && (await repos.machines.findById(project.machine_id));
+    const { tab, machine } = await scoped(repos, request).tab(id);
     let killed = false;
-    if (machine && tab.tmux_session) {
+    if (tab.tmux_session) {
       try {
         killed = await killTmuxSession(machine, tab.tmux_session);
       } catch {
@@ -74,11 +70,7 @@ export async function tabRoutes(
   app.post('/:id/paste-file', { bodyLimit: PASTE_MAX_BYTES, config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const { name } = pasteQuery.parse(request.query);
-    const tab = await repos.tabs.findById(id);
-    if (!tab) throw notFound('Tab não encontrada');
-    const project = await repos.projects.findById(tab.project_id);
-    const machine = project && (await repos.machines.findById(project.machine_id));
-    if (!project || !machine) throw notFound('Projeto ou máquina não encontrados');
+    const { machine } = await scoped(repos, request).tab(id);
     if (!Buffer.isBuffer(request.body)) throw badRequest('Envie o arquivo como corpo binário (content-type application/octet-stream)');
     const file = await saveFileOnMachine(machine, request.body, name);
     request.log.info({ tabId: id, machineId: machine.id, bytes: file.bytes, mime: file.mime }, 'file pasted');

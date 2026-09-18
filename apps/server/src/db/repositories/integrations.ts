@@ -9,15 +9,17 @@ export interface Integration {
   provider: IntegrationProvider;
   name: string;
   config: Record<string, unknown>;
+  owner_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
-const map = (i: { id: string; provider: IntegrationProvider; name: string; config: unknown; createdAt: Date; updatedAt: Date }): Integration => ({
+const map = (i: { id: string; provider: IntegrationProvider; name: string; config: unknown; ownerId: string | null; createdAt: Date; updatedAt: Date }): Integration => ({
   id: i.id,
   provider: i.provider,
   name: i.name,
   config: (i.config ?? {}) as Record<string, unknown>,
+  owner_id: i.ownerId,
   created_at: i.createdAt.toISOString(),
   updated_at: i.updatedAt.toISOString(),
 });
@@ -26,8 +28,9 @@ const map = (i: { id: string; provider: IntegrationProvider; name: string; confi
 export class IntegrationsRepository {
   constructor(private db: PrismaClient) {}
 
-  async list(): Promise<Integration[]> {
-    return (await this.db.integration.findMany({ orderBy: { createdAt: 'asc' } })).map(map);
+  /** `owner`: only that user's integrations (null = all). */
+  async list(owner: string | null = null): Promise<Integration[]> {
+    return (await this.db.integration.findMany({ where: owner ? { ownerId: owner } : {}, orderBy: { createdAt: 'asc' } })).map(map);
   }
 
   async findById(id: string): Promise<Integration | undefined> {
@@ -40,9 +43,9 @@ export class IntegrationsRepository {
     return i ? decryptSecret(i.secret) : undefined;
   }
 
-  async create(input: { provider: IntegrationProvider; name: string; config: Record<string, unknown>; secret: string }): Promise<Integration> {
+  async create(input: { provider: IntegrationProvider; name: string; config: Record<string, unknown>; secret: string; owner_id: string | null }): Promise<Integration> {
     const i = await this.db.integration.create({
-      data: { id: newId(), provider: input.provider, name: input.name, config: input.config as object, secret: encryptSecret(input.secret) },
+      data: { id: newId(), provider: input.provider, name: input.name, config: input.config as object, secret: encryptSecret(input.secret), ownerId: input.owner_id },
     });
     return map(i);
   }

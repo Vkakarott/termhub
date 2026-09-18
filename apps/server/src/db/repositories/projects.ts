@@ -13,11 +13,13 @@ export interface ProjectInput {
 export class ProjectsRepository {
   constructor(private db: PrismaClient) {}
 
-  async list(filter?: { machine_id?: string; status?: ProjectStatus }): Promise<Project[]> {
+  /** `owner`: restrict to projects whose machine belongs to that user (undefined/null = no filter). */
+  async list(filter?: { machine_id?: string; status?: ProjectStatus; owner?: string | null }): Promise<Project[]> {
     const rows = await this.db.project.findMany({
       where: {
         ...(filter?.machine_id ? { machineId: filter.machine_id } : {}),
         ...(filter?.status ? { status: filter.status } : {}),
+        ...(filter?.owner ? { machine: { ownerId: filter.owner } } : {}),
       },
       orderBy: { name: 'asc' },
     });

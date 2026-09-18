@@ -67,6 +67,76 @@
           "sameAs": ["https://github.com/engenhariainversa/termhub"]
         },
         {
+          "@type": "FAQPage",
+          "@id": "https://termhub.dev/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "O que é o termhub?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Um painel no navegador para os terminais das suas máquinas. Você cadastra máquinas (local ou SSH), organiza por projeto e abre tabs; cada tab é uma sessão tmux na máquina de destino, que continua rodando quando você fecha o navegador."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Preciso instalar algo no computador que uso para acessar?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Não. Basta um navegador: funciona no notebook, no tablet e no celular. O que precisa existir é o servidor do termhub (um docker compose) e o tmux nas máquinas de destino."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "É seguro? Onde ficam as credenciais?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "O servidor usa uma chave SSH própria, que você autoriza em cada máquina. Para mostrar os limites das contas de IA, o login do CLI (Claude, Codex, Gemini, Antigravity) é lido na máquina na hora da consulta; nenhum token é armazenado e o conteúdo dos terminais nunca é logado."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Funciona com o Claude Code?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Sim, e foi feito pensando nele: colar imagens e arrastar arquivos direto no terminal, seleção e cópia mesmo com o app usando o mouse e locale UTF-8 garantido. Codex, Gemini CLI, Antigravity ou qualquer outra CLI rodam do mesmo jeito, porque é um terminal de verdade."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Funciona no Windows?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Para acessar, sim: é só abrir o navegador. Como máquina de destino, o termhub precisa de tmux, então use WSL ou uma máquina Linux/macOS."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "É grátis?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Sim. O termhub é open source sob licença MIT: rode na sua rede com quantas máquinas e usuários quiser. O termhub Cloud, hospedado por nós, será a opção paga para quem não quer manter servidor."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "O que é o termhub Cloud?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "A mesma experiência sem servidor para manter: suas máquinas conectam ao Cloud e você acessa de qualquer lugar, com login, times e permissões prontos. Está em lista de espera."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Como contribuir?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "O código está no GitHub. Issues, PRs e ideias são bem-vindos; o README explica como rodar em desenvolvimento."
+              }
+            }
+          ]
+        },
+        {
           "@type": "SoftwareSourceCode",
           "@id": "https://termhub.dev/#source",
           "name": "termhub",

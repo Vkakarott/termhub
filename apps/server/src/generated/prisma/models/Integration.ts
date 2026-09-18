@@ -29,6 +29,7 @@ export type IntegrationMinAggregateOutputType = {
   provider: $Enums.IntegrationProvider | null
   name: string | null
   secret: string | null
+  ownerId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -38,6 +39,7 @@ export type IntegrationMaxAggregateOutputType = {
   provider: $Enums.IntegrationProvider | null
   name: string | null
   secret: string | null
+  ownerId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -48,6 +50,7 @@ export type IntegrationCountAggregateOutputType = {
   name: number
   config: number
   secret: number
+  ownerId: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -59,6 +62,7 @@ export type IntegrationMinAggregateInputType = {
   provider?: true
   name?: true
   secret?: true
+  ownerId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -68,6 +72,7 @@ export type IntegrationMaxAggregateInputType = {
   provider?: true
   name?: true
   secret?: true
+  ownerId?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -78,6 +83,7 @@ export type IntegrationCountAggregateInputType = {
   name?: true
   config?: true
   secret?: true
+  ownerId?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -161,6 +167,7 @@ export type IntegrationGroupByOutputType = {
   name: string
   config: runtime.JsonValue
   secret: string
+  ownerId: string | null
   createdAt: Date
   updatedAt: Date
   _count: IntegrationCountAggregateOutputType | null
@@ -192,8 +199,10 @@ export type IntegrationWhereInput = {
   name?: Prisma.StringFilter<"Integration"> | string
   config?: Prisma.JsonFilter<"Integration">
   secret?: Prisma.StringFilter<"Integration"> | string
+  ownerId?: Prisma.StringNullableFilter<"Integration"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Integration"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Integration"> | Date | string
+  owner?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
 }
 
 export type IntegrationOrderByWithRelationInput = {
@@ -202,8 +211,10 @@ export type IntegrationOrderByWithRelationInput = {
   name?: Prisma.SortOrder
   config?: Prisma.SortOrder
   secret?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+  owner?: Prisma.UserOrderByWithRelationInput
 }
 
 export type IntegrationWhereUniqueInput = Prisma.AtLeast<{
@@ -215,8 +226,10 @@ export type IntegrationWhereUniqueInput = Prisma.AtLeast<{
   name?: Prisma.StringFilter<"Integration"> | string
   config?: Prisma.JsonFilter<"Integration">
   secret?: Prisma.StringFilter<"Integration"> | string
+  ownerId?: Prisma.StringNullableFilter<"Integration"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Integration"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Integration"> | Date | string
+  owner?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
 }, "id">
 
 export type IntegrationOrderByWithAggregationInput = {
@@ -225,6 +238,7 @@ export type IntegrationOrderByWithAggregationInput = {
   name?: Prisma.SortOrder
   config?: Prisma.SortOrder
   secret?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.IntegrationCountOrderByAggregateInput
@@ -241,6 +255,7 @@ export type IntegrationScalarWhereWithAggregatesInput = {
   name?: Prisma.StringWithAggregatesFilter<"Integration"> | string
   config?: Prisma.JsonWithAggregatesFilter<"Integration">
   secret?: Prisma.StringWithAggregatesFilter<"Integration"> | string
+  ownerId?: Prisma.StringNullableWithAggregatesFilter<"Integration"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Integration"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Integration"> | Date | string
 }
@@ -253,6 +268,7 @@ export type IntegrationCreateInput = {
   secret: string
   createdAt?: Date | string
   updatedAt?: Date | string
+  owner?: Prisma.UserCreateNestedOneWithoutIntegrationsInput
 }
 
 export type IntegrationUncheckedCreateInput = {
@@ -261,6 +277,7 @@ export type IntegrationUncheckedCreateInput = {
   name: string
   config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   secret: string
+  ownerId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -273,6 +290,7 @@ export type IntegrationUpdateInput = {
   secret?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  owner?: Prisma.UserUpdateOneWithoutIntegrationsNestedInput
 }
 
 export type IntegrationUncheckedUpdateInput = {
@@ -281,6 +299,7 @@ export type IntegrationUncheckedUpdateInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   secret?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -291,6 +310,7 @@ export type IntegrationCreateManyInput = {
   name: string
   config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   secret: string
+  ownerId?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -311,8 +331,19 @@ export type IntegrationUncheckedUpdateManyInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   secret?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type IntegrationListRelationFilter = {
+  every?: Prisma.IntegrationWhereInput
+  some?: Prisma.IntegrationWhereInput
+  none?: Prisma.IntegrationWhereInput
+}
+
+export type IntegrationOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
 }
 
 export type IntegrationCountOrderByAggregateInput = {
@@ -321,6 +352,7 @@ export type IntegrationCountOrderByAggregateInput = {
   name?: Prisma.SortOrder
   config?: Prisma.SortOrder
   secret?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -330,6 +362,7 @@ export type IntegrationMaxOrderByAggregateInput = {
   provider?: Prisma.SortOrder
   name?: Prisma.SortOrder
   secret?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -339,8 +372,151 @@ export type IntegrationMinOrderByAggregateInput = {
   provider?: Prisma.SortOrder
   name?: Prisma.SortOrder
   secret?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type IntegrationCreateNestedManyWithoutOwnerInput = {
+  create?: Prisma.XOR<Prisma.IntegrationCreateWithoutOwnerInput, Prisma.IntegrationUncheckedCreateWithoutOwnerInput> | Prisma.IntegrationCreateWithoutOwnerInput[] | Prisma.IntegrationUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.IntegrationCreateOrConnectWithoutOwnerInput | Prisma.IntegrationCreateOrConnectWithoutOwnerInput[]
+  createMany?: Prisma.IntegrationCreateManyOwnerInputEnvelope
+  connect?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+}
+
+export type IntegrationUncheckedCreateNestedManyWithoutOwnerInput = {
+  create?: Prisma.XOR<Prisma.IntegrationCreateWithoutOwnerInput, Prisma.IntegrationUncheckedCreateWithoutOwnerInput> | Prisma.IntegrationCreateWithoutOwnerInput[] | Prisma.IntegrationUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.IntegrationCreateOrConnectWithoutOwnerInput | Prisma.IntegrationCreateOrConnectWithoutOwnerInput[]
+  createMany?: Prisma.IntegrationCreateManyOwnerInputEnvelope
+  connect?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+}
+
+export type IntegrationUpdateManyWithoutOwnerNestedInput = {
+  create?: Prisma.XOR<Prisma.IntegrationCreateWithoutOwnerInput, Prisma.IntegrationUncheckedCreateWithoutOwnerInput> | Prisma.IntegrationCreateWithoutOwnerInput[] | Prisma.IntegrationUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.IntegrationCreateOrConnectWithoutOwnerInput | Prisma.IntegrationCreateOrConnectWithoutOwnerInput[]
+  upsert?: Prisma.IntegrationUpsertWithWhereUniqueWithoutOwnerInput | Prisma.IntegrationUpsertWithWhereUniqueWithoutOwnerInput[]
+  createMany?: Prisma.IntegrationCreateManyOwnerInputEnvelope
+  set?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  disconnect?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  delete?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  connect?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  update?: Prisma.IntegrationUpdateWithWhereUniqueWithoutOwnerInput | Prisma.IntegrationUpdateWithWhereUniqueWithoutOwnerInput[]
+  updateMany?: Prisma.IntegrationUpdateManyWithWhereWithoutOwnerInput | Prisma.IntegrationUpdateManyWithWhereWithoutOwnerInput[]
+  deleteMany?: Prisma.IntegrationScalarWhereInput | Prisma.IntegrationScalarWhereInput[]
+}
+
+export type IntegrationUncheckedUpdateManyWithoutOwnerNestedInput = {
+  create?: Prisma.XOR<Prisma.IntegrationCreateWithoutOwnerInput, Prisma.IntegrationUncheckedCreateWithoutOwnerInput> | Prisma.IntegrationCreateWithoutOwnerInput[] | Prisma.IntegrationUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.IntegrationCreateOrConnectWithoutOwnerInput | Prisma.IntegrationCreateOrConnectWithoutOwnerInput[]
+  upsert?: Prisma.IntegrationUpsertWithWhereUniqueWithoutOwnerInput | Prisma.IntegrationUpsertWithWhereUniqueWithoutOwnerInput[]
+  createMany?: Prisma.IntegrationCreateManyOwnerInputEnvelope
+  set?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  disconnect?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  delete?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  connect?: Prisma.IntegrationWhereUniqueInput | Prisma.IntegrationWhereUniqueInput[]
+  update?: Prisma.IntegrationUpdateWithWhereUniqueWithoutOwnerInput | Prisma.IntegrationUpdateWithWhereUniqueWithoutOwnerInput[]
+  updateMany?: Prisma.IntegrationUpdateManyWithWhereWithoutOwnerInput | Prisma.IntegrationUpdateManyWithWhereWithoutOwnerInput[]
+  deleteMany?: Prisma.IntegrationScalarWhereInput | Prisma.IntegrationScalarWhereInput[]
+}
+
+export type IntegrationCreateWithoutOwnerInput = {
+  id: string
+  provider: $Enums.IntegrationProvider
+  name: string
+  config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  secret: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type IntegrationUncheckedCreateWithoutOwnerInput = {
+  id: string
+  provider: $Enums.IntegrationProvider
+  name: string
+  config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  secret: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type IntegrationCreateOrConnectWithoutOwnerInput = {
+  where: Prisma.IntegrationWhereUniqueInput
+  create: Prisma.XOR<Prisma.IntegrationCreateWithoutOwnerInput, Prisma.IntegrationUncheckedCreateWithoutOwnerInput>
+}
+
+export type IntegrationCreateManyOwnerInputEnvelope = {
+  data: Prisma.IntegrationCreateManyOwnerInput | Prisma.IntegrationCreateManyOwnerInput[]
+  skipDuplicates?: boolean
+}
+
+export type IntegrationUpsertWithWhereUniqueWithoutOwnerInput = {
+  where: Prisma.IntegrationWhereUniqueInput
+  update: Prisma.XOR<Prisma.IntegrationUpdateWithoutOwnerInput, Prisma.IntegrationUncheckedUpdateWithoutOwnerInput>
+  create: Prisma.XOR<Prisma.IntegrationCreateWithoutOwnerInput, Prisma.IntegrationUncheckedCreateWithoutOwnerInput>
+}
+
+export type IntegrationUpdateWithWhereUniqueWithoutOwnerInput = {
+  where: Prisma.IntegrationWhereUniqueInput
+  data: Prisma.XOR<Prisma.IntegrationUpdateWithoutOwnerInput, Prisma.IntegrationUncheckedUpdateWithoutOwnerInput>
+}
+
+export type IntegrationUpdateManyWithWhereWithoutOwnerInput = {
+  where: Prisma.IntegrationScalarWhereInput
+  data: Prisma.XOR<Prisma.IntegrationUpdateManyMutationInput, Prisma.IntegrationUncheckedUpdateManyWithoutOwnerInput>
+}
+
+export type IntegrationScalarWhereInput = {
+  AND?: Prisma.IntegrationScalarWhereInput | Prisma.IntegrationScalarWhereInput[]
+  OR?: Prisma.IntegrationScalarWhereInput[]
+  NOT?: Prisma.IntegrationScalarWhereInput | Prisma.IntegrationScalarWhereInput[]
+  id?: Prisma.StringFilter<"Integration"> | string
+  provider?: Prisma.EnumIntegrationProviderFilter<"Integration"> | $Enums.IntegrationProvider
+  name?: Prisma.StringFilter<"Integration"> | string
+  config?: Prisma.JsonFilter<"Integration">
+  secret?: Prisma.StringFilter<"Integration"> | string
+  ownerId?: Prisma.StringNullableFilter<"Integration"> | string | null
+  createdAt?: Prisma.DateTimeFilter<"Integration"> | Date | string
+  updatedAt?: Prisma.DateTimeFilter<"Integration"> | Date | string
+}
+
+export type IntegrationCreateManyOwnerInput = {
+  id: string
+  provider: $Enums.IntegrationProvider
+  name: string
+  config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  secret: string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type IntegrationUpdateWithoutOwnerInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  secret?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type IntegrationUncheckedUpdateWithoutOwnerInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  secret?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type IntegrationUncheckedUpdateManyWithoutOwnerInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  config?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  secret?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 
@@ -351,8 +527,10 @@ export type IntegrationSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   name?: boolean
   config?: boolean
   secret?: boolean
+  ownerId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  owner?: boolean | Prisma.Integration$ownerArgs<ExtArgs>
 }, ExtArgs["result"]["integration"]>
 
 export type IntegrationSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -361,8 +539,10 @@ export type IntegrationSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   name?: boolean
   config?: boolean
   secret?: boolean
+  ownerId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  owner?: boolean | Prisma.Integration$ownerArgs<ExtArgs>
 }, ExtArgs["result"]["integration"]>
 
 export type IntegrationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -371,8 +551,10 @@ export type IntegrationSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   name?: boolean
   config?: boolean
   secret?: boolean
+  ownerId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
+  owner?: boolean | Prisma.Integration$ownerArgs<ExtArgs>
 }, ExtArgs["result"]["integration"]>
 
 export type IntegrationSelectScalar = {
@@ -381,15 +563,27 @@ export type IntegrationSelectScalar = {
   name?: boolean
   config?: boolean
   secret?: boolean
+  ownerId?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type IntegrationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "provider" | "name" | "config" | "secret" | "createdAt" | "updatedAt", ExtArgs["result"]["integration"]>
+export type IntegrationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "provider" | "name" | "config" | "secret" | "ownerId" | "createdAt" | "updatedAt", ExtArgs["result"]["integration"]>
+export type IntegrationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  owner?: boolean | Prisma.Integration$ownerArgs<ExtArgs>
+}
+export type IntegrationIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  owner?: boolean | Prisma.Integration$ownerArgs<ExtArgs>
+}
+export type IntegrationIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  owner?: boolean | Prisma.Integration$ownerArgs<ExtArgs>
+}
 
 export type $IntegrationPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "Integration"
-  objects: {}
+  objects: {
+    owner: Prisma.$UserPayload<ExtArgs> | null
+  }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     provider: $Enums.IntegrationProvider
@@ -399,6 +593,10 @@ export type $IntegrationPayload<ExtArgs extends runtime.Types.Extensions.Interna
      */
     config: runtime.JsonValue
     secret: string
+    /**
+     * Owner (credentials are personal); same scoping rules as machines.
+     */
+    ownerId: string | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["integration"]>
@@ -795,6 +993,7 @@ readonly fields: IntegrationFieldRefs;
  */
 export interface Prisma__IntegrationClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
+  owner<T extends Prisma.Integration$ownerArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Integration$ownerArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -829,6 +1028,7 @@ export interface IntegrationFieldRefs {
   readonly name: Prisma.FieldRef<"Integration", 'String'>
   readonly config: Prisma.FieldRef<"Integration", 'Json'>
   readonly secret: Prisma.FieldRef<"Integration", 'String'>
+  readonly ownerId: Prisma.FieldRef<"Integration", 'String'>
   readonly createdAt: Prisma.FieldRef<"Integration", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Integration", 'DateTime'>
 }
@@ -848,6 +1048,10 @@ export type IntegrationFindUniqueArgs<ExtArgs extends runtime.Types.Extensions.I
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
+  /**
    * Filter, which Integration to fetch.
    */
   where: Prisma.IntegrationWhereUniqueInput
@@ -866,6 +1070,10 @@ export type IntegrationFindUniqueOrThrowArgs<ExtArgs extends runtime.Types.Exten
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
+  /**
    * Filter, which Integration to fetch.
    */
   where: Prisma.IntegrationWhereUniqueInput
@@ -883,6 +1091,10 @@ export type IntegrationFindFirstArgs<ExtArgs extends runtime.Types.Extensions.In
    * Omit specific fields from the Integration
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
   /**
    * Filter, which Integration to fetch.
    */
@@ -932,6 +1144,10 @@ export type IntegrationFindFirstOrThrowArgs<ExtArgs extends runtime.Types.Extens
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
+  /**
    * Filter, which Integration to fetch.
    */
   where?: Prisma.IntegrationWhereInput
@@ -979,6 +1195,10 @@ export type IntegrationFindManyArgs<ExtArgs extends runtime.Types.Extensions.Int
    * Omit specific fields from the Integration
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
   /**
    * Filter, which Integrations to fetch.
    */
@@ -1028,6 +1248,10 @@ export type IntegrationCreateArgs<ExtArgs extends runtime.Types.Extensions.Inter
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
+  /**
    * The data needed to create a Integration.
    */
   data: Prisma.XOR<Prisma.IntegrationCreateInput, Prisma.IntegrationUncheckedCreateInput>
@@ -1061,6 +1285,10 @@ export type IntegrationCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Ext
    */
   data: Prisma.IntegrationCreateManyInput | Prisma.IntegrationCreateManyInput[]
   skipDuplicates?: boolean
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationIncludeCreateManyAndReturn<ExtArgs> | null
 }
 
 /**
@@ -1075,6 +1303,10 @@ export type IntegrationUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inter
    * Omit specific fields from the Integration
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
   /**
    * The data needed to update a Integration.
    */
@@ -1127,6 +1359,10 @@ export type IntegrationUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Ext
    * Limit how many Integrations to update.
    */
   limit?: number
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationIncludeUpdateManyAndReturn<ExtArgs> | null
 }
 
 /**
@@ -1141,6 +1377,10 @@ export type IntegrationUpsertArgs<ExtArgs extends runtime.Types.Extensions.Inter
    * Omit specific fields from the Integration
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
   /**
    * The filter to search for the Integration to update in case it exists.
    */
@@ -1168,6 +1408,10 @@ export type IntegrationDeleteArgs<ExtArgs extends runtime.Types.Extensions.Inter
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
+  /**
    * Filter which Integration to delete.
    */
   where: Prisma.IntegrationWhereUniqueInput
@@ -1188,6 +1432,25 @@ export type IntegrationDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.I
 }
 
 /**
+ * Integration.owner
+ */
+export type Integration$ownerArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the User
+   */
+  select?: Prisma.UserSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the User
+   */
+  omit?: Prisma.UserOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.UserInclude<ExtArgs> | null
+  where?: Prisma.UserWhereInput
+}
+
+/**
  * Integration without action
  */
 export type IntegrationDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1199,4 +1462,8 @@ export type IntegrationDefaultArgs<ExtArgs extends runtime.Types.Extensions.Inte
    * Omit specific fields from the Integration
    */
   omit?: Prisma.IntegrationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IntegrationInclude<ExtArgs> | null
 }

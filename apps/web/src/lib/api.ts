@@ -1,4 +1,4 @@
-import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, Transcription, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, Transcription, TaskStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -49,7 +49,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   auth: {
     config: () => request<AuthConfig>('GET', '/auth/config'),
-    me: () => request<{ user: User }>('GET', '/auth/me'),
+    me: () => request<{ user: User; view_as: ViewAs }>('GET', '/auth/me'),
+    /** admin only: null = self, '*' = everything, or a user id */
+    viewAs: (user_id: string | null) => request<{ view_as: ViewAs }>('POST', '/auth/view-as', { user_id }),
     login: (email: string, password: string) => request<{ user: User }>('POST', '/auth/login', { email, password }),
     sendCode: (email: string) => request<{ ok: true; ttl_minutes: number }>('POST', '/auth/code/send', { email }),
     verifyCode: (email: string, code: string) => request<{ user: User }>('POST', '/auth/code/verify', { email, code }),

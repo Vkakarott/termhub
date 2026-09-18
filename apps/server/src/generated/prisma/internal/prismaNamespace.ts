@@ -1740,6 +1740,7 @@ export const MachineScalarFieldEnum = {
   os: 'os',
   capabilities: 'capabilities',
   checkedAt: 'checkedAt',
+  ownerId: 'ownerId',
   createdAt: 'createdAt'
 } as const
 
@@ -1828,6 +1829,7 @@ export const IntegrationScalarFieldEnum = {
   name: 'name',
   config: 'config',
   secret: 'secret',
+  ownerId: 'ownerId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

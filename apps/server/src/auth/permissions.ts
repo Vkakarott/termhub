@@ -72,6 +72,12 @@ export async function canAccess(repos: Repositories, user: User | null | undefin
   return g.set.has(`${resource}:${action}`);
 }
 
+/** Whether the user's role bypasses the permission matrix (also unlocks the "view as" scope switch). */
+export async function isAdmin(repos: Repositories, user: User | null | undefined): Promise<boolean> {
+  if (!user?.role_id) return false;
+  return (await grants(repos, user.role_id)).isAdmin;
+}
+
 /** Flat "resource:action" list for the client (admins get the full catalog). */
 export async function permissionsOf(repos: Repositories, user: User): Promise<string[]> {
   if (!user.role_id) return [];

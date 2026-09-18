@@ -8,17 +8,23 @@ export interface MachineInput {
   host?: string | null;
   ssh_user?: string | null;
   ssh_port?: number;
+  owner_id?: string | null;
 }
+
+/** Visibility filter: a user id, or null for everything (admin "all" view). */
+export type OwnerScope = string | null;
+const ownerWhere = (owner: OwnerScope) => (owner === null ? {} : { ownerId: owner });
+const withOwner = { owner: { select: { name: true } } } as const;
 
 export class MachinesRepository {
   constructor(private db: PrismaClient) {}
 
-  async list(): Promise<Machine[]> {
-    return (await this.db.machine.findMany({ orderBy: { createdAt: 'asc' } })).map(mapMachine);
+  async list(owner: OwnerScope = null): Promise<Machine[]> {
+    return (await this.db.machine.findMany({ where: ownerWhere(owner), include: withOwner, orderBy: { createdAt: 'asc' } })).map(mapMachine);
   }
 
   async findById(id: string): Promise<Machine | undefined> {
-    const m = await this.db.machine.findUnique({ where: { id } });
+    const m = await this.db.machine.findUnique({ where: { id }, include: withOwner });
     return m ? mapMachine(m) : undefined;
   }
 
@@ -35,7 +41,9 @@ export class MachinesRepository {
         host: input.host ?? null,
         sshUser: input.ssh_user ?? null,
         sshPort: input.ssh_port ?? 22,
+        ownerId: input.owner_id ?? null,
       },
+      include: withOwner,
     });
     return mapMachine(m);
   }
@@ -46,7 +54,15 @@ export class MachinesRepository {
     const next = { ...current, ...patch };
     const m = await this.db.machine.update({
       where: { id },
-      data: { name: next.name, type: next.type, host: next.host ?? null, sshUser: next.ssh_user ?? null, sshPort: next.ssh_port ?? 22 },
+      data: {
+        name: next.name,
+        type: next.type,
+        host: next.host ?? null,
+        sshUser: next.ssh_user ?? null,
+        sshPort: next.ssh_port ?? 22,
+        ...(patch.owner_id !== undefined ? { ownerId: patch.owner_id } : {}),
+      },
+      include: withOwner,
     });
     return mapMachine(m);
   }
