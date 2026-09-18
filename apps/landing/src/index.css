@@ -2,12 +2,96 @@
 @tailwind components;
 @tailwind utilities;
 
-html { scroll-behavior: smooth; }
-body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-canvas text-frost antialiased;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+  font-feature-settings: 'ss01' on, 'ss03' on, 'ss04' on, 'ss19' on;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  @apply font-medium text-white;
+  font-feature-settings: 'salt' on, 'ss02' on, 'ss01' on, 'ss03' on, 'ss04' on, 'ss19' on;
+}
 
 @layer components {
-  .btn { @apply inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors; }
-  .btn-primary { @apply btn bg-accent text-white hover:bg-accent-hover; }
-  .btn-ghost { @apply btn border border-line text-fg-muted hover:bg-bg-3 hover:text-fg; }
-  .kbd { @apply rounded border border-line bg-bg-3 px-1.5 py-0.5 font-mono text-[11px] text-fg-muted; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2 text-body font-medium transition duration-150;
+  }
+
+  .btn-primary {
+    @apply btn bg-cta text-white shadow-rim hover:brightness-110;
+  }
+
+  .btn-ghost {
+    @apply btn border border-border text-frost hover:text-white;
+  }
+
+  .btn-ghost:hover {
+    background-color: rgba(114, 125, 161, 0.15);
+  }
+
+  .kbd {
+    @apply rounded-tint border border-border-2 bg-surface px-1.5 py-0.5 font-mono text-[11px] text-muted;
+  }
+
+  /* subtle background wash shared by nav links and inline text links */
+  .hover-tint {
+    @apply rounded-tint transition duration-150;
+  }
+
+  .hover-tint:hover {
+    background-color: rgba(114, 125, 161, 0.15);
+  }
+
+  .nav-link {
+    @apply hover-tint px-2 py-1 text-body-sm font-medium text-frost;
+  }
+
+  .section-link {
+    @apply inline-flex items-center gap-1 text-body-sm font-medium text-accent transition duration-150 hover:underline hover:underline-offset-4;
+  }
+
+  .field {
+    @apply w-full rounded-field border border-border-2 bg-canvas px-3.5 py-2.5 text-body-sm text-white transition duration-150 placeholder:text-muted focus:border-accent focus:outline-none;
+  }
+}
+
+/* scroll reveal: elements fade up once when they first enter the viewport */
+.reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  /* border-color rides along so hover states on revealed cards keep their 150ms */
+  transition: opacity 0.5s ease, transform 0.5s ease, border-color 0.15s ease;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .reveal,
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  /* the pulsing badge dots and the terminal cursor hold still too */
+  .animate-pulse {
+    animation: none;
+  }
 }

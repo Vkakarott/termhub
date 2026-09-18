@@ -4,17 +4,44 @@ export default {
   theme: {
     extend: {
       fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'Menlo', 'Monaco', '"SF Mono"', 'Consolas', 'monospace'],
       },
-      // same palette as the app (apps/web/tailwind.config.js) so both feel like one product
+      // midnight SRE console palette: depth comes from surface tones, never from shadows
       colors: {
-        bg: { DEFAULT: '#0f1115', 2: '#161920', 3: '#1e222b', 4: '#262b36' },
-        line: '#2a2f3a',
-        fg: { DEFAULT: '#e6e8ee', muted: '#9aa1b1', dim: '#6b7280' },
-        accent: { DEFAULT: '#4f8cff', hover: '#3b78ea', 2: '#39c5cf' },
-        ok: '#3fb950',
-        warn: '#d29922',
-        danger: '#f85149',
+        canvas: '#0f101a', // page, nav and "well" backgrounds
+        surface: '#151621', // card surfaces
+        'border-2': '#1f2433', // elevated border, icon tile background
+        border: '#939db8', // structural hairline
+        muted: '#646e87', // secondary/muted text
+        frost: '#c9d3ee', // secondary text, icon strokes
+        accent: '#98a4f7', // links and small accents (never a filled button background)
+        // the CTA gradient's stops (#5b63d3 -> #7c87f7) live in backgroundImage.cta below
+      },
+      fontSize: {
+        display: ['53px', { lineHeight: '1.08' }],
+        'heading-lg': ['40px', { lineHeight: '1.1' }],
+        'heading-sm': ['28px', { lineHeight: '1.45' }],
+        subheading: ['20px', { lineHeight: '1.45' }],
+        body: ['16px', { lineHeight: '1.6' }],
+        'body-sm': ['14px', { lineHeight: '1.55' }],
+        caption: ['12px', { lineHeight: '1.45' }],
+        'caption-sm': ['10px', { lineHeight: '1.4' }],
+      },
+      borderRadius: {
+        card: '16px',
+        field: '10px',
+        tint: '6px',
+      },
+      boxShadow: {
+        // the only shadow on the page: an inset rim light
+        rim: 'rgba(255,255,255,0.25) 0px 1px 3px 0px inset',
+      },
+      backgroundImage: {
+        cta: 'linear-gradient(353deg, #5b63d3 17.51%, #7c87f7 183.08%)',
+      },
+      maxWidth: {
+        page: '1200px',
       },
     },
   },

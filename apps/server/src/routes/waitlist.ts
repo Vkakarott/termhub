@@ -12,10 +12,19 @@ import { HttpError, notFound } from '../lib/errors.js';
 
 const digits = (max: number) => z.string().trim().regex(/^\d+$/, 'only digits').max(max);
 
-const signupBody = z.object({
+/** Exported for the unit test: the public form's payload contract. */
+export const signupBody = z.object({
   first_name: z.string().trim().min(1).max(80),
   last_name: z.string().trim().min(1).max(80),
-  email: z.string().trim().toLowerCase().email().max(200),
+  // the address is added to Cloudflare Access, and Access signs people in with Google,
+  // so only Gmail addresses can be invited
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email({ message: 'invalid_email' })
+    .max(200)
+    .refine((e) => /^[^@\s]+@gmail\.com$/i.test(e), { message: 'gmail_only' }),
   phone_country: digits(4).transform((s) => s.replace(/^0+/, '')).refine((s) => s.length >= 1, 'required'),
   phone_area: digits(5),
   phone_number: digits(12).refine((s) => s.length >= 6, 'too short'),
@@ -27,6 +36,20 @@ const signupBody = z.object({
 });
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
+
+/**
+ * Parses the public form's payload, turning the two e-mail rules into stable codes
+ * (`gmail_only`, `invalid_email`) that the landing maps to its own message; every other
+ * field keeps the generic zod 400.
+ */
+export function parseSignup(body: unknown) {
+  const parsed = signupBody.safeParse(body);
+  if (parsed.success) return parsed.data;
+  const email = parsed.error.issues.find((issue) => issue.path[0] === 'email');
+  if (email?.message === 'gmail_only') throw new HttpError(400, 'Use um endereço @gmail.com', 'gmail_only');
+  if (email) throw new HttpError(400, 'E-mail inválido', 'invalid_email');
+  throw parsed.error;
+}
 
 /** "handle" or URL -> canonical profile URL; empty -> null. */
 function profileUrl(value: string | null | undefined, base: string, handleRe: RegExp): string | null {
@@ -62,7 +85,7 @@ export async function waitlistRoutes(app: FastifyInstance, repos: Repositories) 
   app.post('/', { config: { public: true } }, async (request, reply) => {
     const tooMany = () => new HttpError(429, 'Too many sign-ups from this address; try again later', 'RATE_LIMITED');
     if (!bump(attempts, request.ip, MAX_ATTEMPTS, true) || !bump(signups, request.ip, MAX_SIGNUPS, false)) throw tooMany();
-    const b = signupBody.parse(request.body);
+    const b = parseSignup(request.body);
     const linkedin = profileUrl(b.linkedin, 'https://www.linkedin.com/in/', /^[A-Za-z0-9._-]{2,100}$/);
     const github = profileUrl(b.github, 'https://github.com/', /^[A-Za-z0-9-]{1,39}$/);
     const existing = await repos.waitlist.findByEmail(b.email);

@@ -3,13 +3,12 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ZodError } from 'zod';
 import { config, ROOT_DIR } from './config.js';
 import { getPrisma, closePrisma } from './db/prisma.js';
 import { createRepositories, type Repositories } from './db/repositories/index.js';
 import { createMailer } from './email/mailer.js';
 import { AuthService, authRoutes, buildAuthHook, type AuthContext } from './auth/index.js';
-import { HttpError } from './lib/errors.js';
+import { applyErrorHandler } from './lib/errors.js';
 import { machineRoutes } from './routes/machines.js';
 import { projectRoutes } from './routes/projects.js';
 import { tabRoutes } from './routes/tabs.js';
@@ -82,18 +81,7 @@ export async function buildApp(): Promise<App> {
     reply.header('referrer-policy', 'same-origin');
   });
 
-  fastify.setErrorHandler((err, request, reply) => {
-    if (err instanceof ZodError) {
-      return reply.code(400).send({ error: 'Dados inválidos', code: 'VALIDATION', issues: err.issues });
-    }
-    if (err instanceof HttpError) {
-      return reply.code(err.statusCode).send({ error: err.message, code: err.code });
-    }
-    const e = err as { statusCode?: number; message?: string };
-    const status = e.statusCode ?? 500;
-    if (status >= 500) request.log.error({ err }, 'erro não tratado');
-    return reply.code(status).send({ error: status >= 500 ? 'Erro interno' : e.message, code: 'ERROR' });
-  });
+  applyErrorHandler(fastify);
 
   const simulators = new SimulatorSessionManager(realBackend, { log: (msg, meta) => fastify.log.info(meta ?? {}, msg) });
 
