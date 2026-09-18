@@ -141,7 +141,12 @@ export function reduce(layout: Layout, action: Action, area: Size | null): Layou
     case 'assignTo': {
       if (action.cell < 0 || action.cell >= n) return layout;
       const cells = layout.cells.map((c) => (c === action.tabId ? null : c));
-      return { ...layout, cells: withCell(cells, action.cell, action.tabId), focusedCell: action.cell };
+      return {
+        ...layout,
+        cells: withCell(cells, action.cell, action.tabId),
+        focusedCell: action.cell,
+        floating: layout.floating?.tabId === action.tabId ? null : layout.floating,
+      };
     }
     case 'focus':
       return action.cell >= 0 && action.cell < n ? { ...layout, focusedCell: action.cell } : layout;

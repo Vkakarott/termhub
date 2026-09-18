@@ -118,6 +118,13 @@ describe('reduce', () => {
     expect(l.focusedCell).toBe(1);
   });
 
+  it('assignTo de aba flutuando encaixa na célula e fecha a janela flutuante', () => {
+    const l = reduce(L({ cells: ['a', null], floating: { tabId: 's', x: 0, y: 0, w: 300, h: 400 } }), { type: 'assignTo', cell: 1, tabId: 's' }, AREA);
+    expect(l.cells).toEqual(['a', 's']);
+    expect(l.floating).toBeNull();
+    expect(l.focusedCell).toBe(1);
+  });
+
   it('focus e clearCell', () => {
     let l = reduce(L({ cells: ['a', 'b'] }), { type: 'focus', cell: 1 }, AREA);
     expect(l.focusedCell).toBe(1);
@@ -139,7 +146,7 @@ describe('reduce', () => {
   });
 
   it('detach tira da célula e cria floating clampado; dock devolve à célula focada', () => {
-    const rect = { x: 900, y: 500, w: 300, h: 400 }; // fora da área: clampa
+    const rect = { x: 900, y: 500, w: 300, h: 400 }; // outside the area: gets clamped
     let l = reduce(L({ cells: ['s', 'b'], focusedCell: 1 }), { type: 'detach', tabId: 's', rect }, AREA);
     expect(l.cells).toEqual([null, 'b']);
     expect(l.floating).toEqual({ tabId: 's', x: 700, y: 200, w: 300, h: 400 });
@@ -178,7 +185,7 @@ describe('floating helpers', () => {
   it('initialFloatingRect: 60% da altura, largura pela proporção, canto inferior direito com margem', () => {
     const r = initialFloatingRect(AREA, 9 / 19.5);
     expect(r.h).toBe(360);
-    expect(r.w).toBe(Math.max(FLOATING_MIN.w, Math.round(360 * (9 / 19.5)))); // 166 sobe para o mínimo de 200
+    expect(r.w).toBe(Math.max(FLOATING_MIN.w, Math.round(360 * (9 / 19.5)))); // 166 rounds up to the 200 minimum
     expect(r.x).toBe(AREA.width - r.w - FLOATING_MARGIN);
     expect(r.y).toBe(AREA.height - r.h - FLOATING_MARGIN);
   });
@@ -220,6 +227,13 @@ describe('sanitize', () => {
     const raw = { preset: 'single', cells: [null], focusedCell: 0, floating: { tabId: 's', x: 5000, y: 5000, w: 300, h: 400 } };
     expect(sanitize(raw, tabs, AREA).floating).toEqual({ tabId: 's', x: 700, y: 200, w: 300, h: 400 });
     expect(sanitize(raw, tabs, null).floating).toEqual(raw.floating);
+  });
+
+  it('floating com coordenada não numérica é descartado; a aba some do floating e sobra só na célula', () => {
+    const raw = { preset: 'columns', cells: ['s', null], focusedCell: 0, floating: { tabId: 's', x: 'nope', y: 0, w: 300, h: 400 } };
+    const l = sanitize(raw, tabs, AREA);
+    expect(l.floating).toBeNull();
+    expect(l.cells).toEqual(['s', null]);
   });
 });
 
