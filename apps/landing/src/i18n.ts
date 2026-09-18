@@ -175,7 +175,68 @@ const pt = {
     accept: 'Aceitar',
     decline: 'Recusar',
   },
-  footer: { docs: 'Documentação', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'feito em Goiânia' },
+  footer: { docs: 'Documentação', brand: 'Marca', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'feito em Goiânia' },
+  // /brand/ — logo, colors and typography for anyone writing about termhub
+  brand: {
+    meta: {
+      title: 'Marca termhub — logo, cores e tipografia',
+      description: 'Símbolo, logotipo, paleta e tipografia do termhub para download, com as regras de uso. SVG e PNG num único .zip.',
+    },
+    back: 'Início',
+    title: 'Marca',
+    lead: 'Vai escrever, apresentar ou fazer um vídeo sobre o termhub? Aqui está tudo o que você precisa: símbolo, logotipo, cores e tipografia, prontos para usar.',
+    download_all: 'Baixar tudo (.zip)',
+    download_hint: 'SVG, PNG em vários tamanhos e um README com as cores.',
+    mark: {
+      title: 'Símbolo',
+      text: 'A janela de terminal com o prompt. É o ícone do app e o favicon; use quando o espaço for pequeno ou quadrado (avatar, ícone, favicon).',
+    },
+    logo: {
+      title: 'Logotipo',
+      text: 'Símbolo + wordmark + tagline. Prefira esta versão sempre que houver espaço horizontal. A versão para fundo claro troca só a cor do texto; o símbolo é sempre escuro.',
+      on_dark: 'sobre fundo escuro',
+      on_light: 'sobre fundo claro',
+    },
+    social: {
+      title: 'Redes sociais',
+      text: 'Artes 4:3 (1600×1200) prontas para LinkedIn e Instagram. Clique para baixar.',
+      items: [
+        { file: 'termhub-social-logo.png', label: 'Logotipo' },
+        { file: 'termhub-social-tagline-pt.png', label: 'Tagline (pt)' },
+        { file: 'termhub-social-tagline-en.png', label: 'Tagline (en)' },
+      ],
+    },
+    colors: {
+      title: 'Cores',
+      text: 'O roxo do gradiente é o único acento: aparece no prompt do símbolo, no “hub” do wordmark e nos botões. O resto da paleta são tons de superfície.',
+      items: [
+        { name: 'Gradiente (CTA)', value: '#5b63d3 → #7c87f7', role: 'prompt, “hub”, botões' },
+        { name: 'Accent', value: '#98a4f7', role: 'links e acentos pequenos' },
+        { name: 'Canvas', value: '#0f101a', role: 'fundo da página e do símbolo' },
+        { name: 'Surface', value: '#151621', role: 'cartões' },
+        { name: 'Border', value: '#1f2433', role: 'bordas e contornos' },
+        { name: 'Text', value: '#e6e8ee', role: 'wordmark, títulos' },
+        { name: 'Frost', value: '#c9d3ee', role: 'texto secundário' },
+        { name: 'Muted', value: '#646e87', role: 'texto de apoio' },
+      ],
+    },
+    type: {
+      title: 'Tipografia',
+      text: 'Duas famílias, ambas livres: Inter para interface e texto, JetBrains Mono para o wordmark e tudo que é terminal.',
+      items: [
+        { name: 'Inter', role: 'Interface e texto', sample: 'Os terminais das suas máquinas, no navegador.', mono: false },
+        { name: 'JetBrains Mono', role: 'Wordmark e terminal', sample: 'termhub $ tmux attach -t projeto', mono: true },
+      ],
+    },
+    rules: {
+      title: 'Uso',
+      dos: ['Use os arquivos originais, sem redesenhar.', 'Deixe em volta um respiro de pelo menos a altura das bolinhas da janela.', 'Sobre fundo claro, use a versão “sobre fundo claro”.'],
+      donts: ['Não recolora, não gira e não estica.', 'Não coloque o símbolo dentro de outra forma.', 'Não escreva “TermHub” ou “Term Hub”: é sempre termhub, em minúsculas.'],
+      dos_title: 'Faça',
+      donts_title: 'Evite',
+    },
+    files: { svg: 'SVG', png: 'PNG' },
+  },
 };
 
 const en: typeof pt = {
@@ -337,7 +398,67 @@ const en: typeof pt = {
     accept: 'Accept',
     decline: 'Decline',
   },
-  footer: { docs: 'Documentation', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'made in Goiânia' },
+  footer: { docs: 'Documentation', brand: 'Brand', coffee: '☕ Buy me a coffee', cookies: 'Cookies', made: 'made in Goiânia' },
+  brand: {
+    meta: {
+      title: 'termhub brand — logo, colors and typography',
+      description: 'The termhub mark, logo, palette and typography for download, with usage rules. SVG and PNG in a single .zip.',
+    },
+    back: 'Home',
+    title: 'Brand',
+    lead: 'Writing, presenting or making a video about termhub? Here is everything you need: mark, logo, colors and typography, ready to use.',
+    download_all: 'Download all (.zip)',
+    download_hint: 'SVG, PNG in several sizes and a README with the colors.',
+    mark: {
+      title: 'Mark',
+      text: 'The terminal window with the prompt. It is the app icon and the favicon; use it when the space is small or square (avatar, icon, favicon).',
+    },
+    logo: {
+      title: 'Logo',
+      text: 'Mark + wordmark + tagline. Prefer it whenever there is horizontal room. The light-background version only changes the text color; the mark is always dark.',
+      on_dark: 'on a dark background',
+      on_light: 'on a light background',
+    },
+    social: {
+      title: 'Social media',
+      text: '4:3 artwork (1600×1200) ready for LinkedIn and Instagram. Click to download.',
+      items: [
+        { file: 'termhub-social-logo.png', label: 'Logo' },
+        { file: 'termhub-social-tagline-pt.png', label: 'Tagline (pt)' },
+        { file: 'termhub-social-tagline-en.png', label: 'Tagline (en)' },
+      ],
+    },
+    colors: {
+      title: 'Colors',
+      text: 'The gradient purple is the only accent: it shows up in the mark’s prompt, in the wordmark’s “hub” and on buttons. The rest of the palette is surface tones.',
+      items: [
+        { name: 'Gradient (CTA)', value: '#5b63d3 → #7c87f7', role: 'prompt, “hub”, buttons' },
+        { name: 'Accent', value: '#98a4f7', role: 'links and small accents' },
+        { name: 'Canvas', value: '#0f101a', role: 'page and mark background' },
+        { name: 'Surface', value: '#151621', role: 'cards' },
+        { name: 'Border', value: '#1f2433', role: 'borders and outlines' },
+        { name: 'Text', value: '#e6e8ee', role: 'wordmark, headings' },
+        { name: 'Frost', value: '#c9d3ee', role: 'secondary text' },
+        { name: 'Muted', value: '#646e87', role: 'supporting text' },
+      ],
+    },
+    type: {
+      title: 'Typography',
+      text: 'Two families, both free: Inter for interface and text, JetBrains Mono for the wordmark and anything terminal.',
+      items: [
+        { name: 'Inter', role: 'Interface and text', sample: 'Your machines’ terminals, in the browser.', mono: false },
+        { name: 'JetBrains Mono', role: 'Wordmark and terminal', sample: 'termhub $ tmux attach -t project', mono: true },
+      ],
+    },
+    rules: {
+      title: 'Usage',
+      dos: ['Use the original files, do not redraw them.', 'Leave clear space around it of at least the height of the window dots.', 'On a light background, use the “on a light background” version.'],
+      donts: ['Do not recolor, rotate or stretch it.', 'Do not put the mark inside another shape.', 'Do not write “TermHub” or “Term Hub”: it is always termhub, lowercase.'],
+      dos_title: 'Do',
+      donts_title: 'Avoid',
+    },
+    files: { svg: 'SVG', png: 'PNG' },
+  },
 };
 
 export const DICT: Record<Lang, typeof pt> = { pt, en };
