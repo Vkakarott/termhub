@@ -43,11 +43,15 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
   }
 }
 
-/** Codex CLI `notify` payload (argv JSON): `{ type: "agent-turn-complete", "last-assistant-message": ... }` */
+/**
+ * Codex CLI `notify` payload (argv JSON): `{ type: "agent-turn-complete", "last-assistant-message": ... }`.
+ * Codex has no idle/permission notification, so a finished turn is its "needs you" signal:
+ * the last assistant message is the question the person has to answer.
+ */
 function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
   const type = str(ev.type);
   if (type === 'agent-turn-complete') {
-    return { kind: 'idle', text: cap(str(ev['last-assistant-message'])), meta: { event: type } };
+    return { kind: 'waiting_input', text: cap(str(ev['last-assistant-message'])), meta: { event: type } };
   }
   return null;
 }

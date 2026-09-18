@@ -2,6 +2,9 @@
 # swapped for the active color's container. The landing is a static container
 # that the deploy workflow recreates before the blue/green switch.
 
+# Tab monitor ingestion: per-client budget (the client IP comes from Cloudflare; an empty key is not limited)
+limit_req_zone $http_cf_connecting_ip zone=termhub_hooks:1m rate=20r/s;
+
 # Landing page
 server {
     listen 80;
@@ -23,6 +26,8 @@ server {
     # Tab monitor: the machines' hook scripts post here (public route, bearer token; no Access on this host)
     location = /api/hooks/events {
         limit_except POST { deny all; }
+        limit_req zone=termhub_hooks burst=40 nodelay;
+        limit_req_status 429;
         proxy_pass http://__APP_HOST__:3000;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;

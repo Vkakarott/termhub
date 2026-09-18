@@ -1,10 +1,17 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { unauthorized } from '../lib/errors.js';
 import { ingestHookEvent } from '../monitor/ingest.js';
 import { HOOK_TOOLS } from '../monitor/state.js';
 import { HOOK_TOKEN_PREFIX, hashHookToken } from '../monitor/token.js';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** machine authenticated by its hook token (hooks routes only) */
+    hookMachineId?: string;
+  }
+}
 
 /** Exported for the unit test: what the machines' hook script posts. */
 export const hookEventBody = z.object({
@@ -24,11 +31,18 @@ export const HOOK_BODY_LIMIT = 256 * 1024;
  * calls do not go through Cloudflare Access. Only the token's hash is stored.
  */
 export async function hooksRoutes(app: FastifyInstance, repos: Repositories) {
-  app.post('/events', { config: { public: true }, bodyLimit: HOOK_BODY_LIMIT }, async (request, reply) => {
+  /** Token check runs at onRequest, before the body is read: an unauthenticated caller never gets a JSON parse. */
+  const authenticate = async (request: FastifyRequest) => {
     const auth = request.headers.authorization ?? '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-    if (!token.startsWith(HOOK_TOKEN_PREFIX)) throw unauthorized();
+    if (!token.startsWith(HOOK_TOKEN_PREFIX) || token.length > 128) throw unauthorized();
     const machineId = await repos.machineHooks.machineIdForTokenHash(hashHookToken(token));
+    if (!machineId) throw unauthorized();
+    request.hookMachineId = machineId;
+  };
+
+  app.post('/events', { config: { public: true }, bodyLimit: HOOK_BODY_LIMIT, onRequest: authenticate }, async (request, reply) => {
+    const machineId = request.hookMachineId;
     if (!machineId) throw unauthorized();
 
     const body = hookEventBody.parse(request.body);
