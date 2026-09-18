@@ -21,7 +21,8 @@ termhub-agent connect --url https://app.termhub.dev
 
 You'll be prompted to paste an agent token generated from the termhub web app (Machines → Add
 machine). `--token <token>` and the `TERMHUB_URL`/`TERMHUB_TOKEN` environment variables work too,
-for non-interactive setups. On success the agent keeps running in the foreground until Ctrl-C.
+for non-interactive setups. On success the pairing is saved and the command exits; start the agent
+with `termhub-agent service install` (background) or `termhub-agent run` (foreground).
 
 ## Run as a background service
 

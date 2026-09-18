@@ -17,10 +17,7 @@ function promptToken(): Promise<string> {
   });
 }
 
-/**
- * Runs the agent in the foreground until `signal`-worthy Ctrl-C (SIGINT/SIGTERM), then exits 0.
- * Shared by `connect` (right after a successful pairing) and `run`.
- */
+/** Runs the agent in the foreground until Ctrl-C (SIGINT/SIGTERM), then exits 0. Used by `run`. */
 export async function runForegroundUntilSignal(config: AgentConfig, log: Logger): Promise<never> {
   const controller = new AbortController();
   const onSignal = () => controller.abort();
@@ -94,7 +91,12 @@ export async function connectCommand(values: ConnectValues, log: Logger): Promis
   // established session) — stored empty until a future protocol version fills them in.
   const config: AgentConfig = { url, token, machine_id: '', machine_name: '', created_at: new Date().toISOString() };
   writeConfig(config);
-  console.log('Conectado. Agora rode: termhub-agent service install');
-
-  await runForegroundUntilSignal(config, log);
+  // Pairing is done: hand the terminal back. The long-lived session belongs to the service
+  // (`service install`) or to an explicit `termhub-agent run`; keeping it in the foreground here
+  // made users type the next command into the running agent.
+  console.log('Conectado. Configuração salva.');
+  console.log('Próximos passos:');
+  console.log('  termhub-agent service install   # mantém o agente rodando em segundo plano');
+  console.log('  termhub-agent doctor            # confere tmux e acesso às pastas');
+  console.log('(ou termhub-agent run para rodar em primeiro plano)');
 }
