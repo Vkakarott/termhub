@@ -15,6 +15,8 @@ interface Step {
   command: string;
   note?: string;
   hint?: string;
+  /** Rendered as a warning callout below the command (for the errors people actually hit). */
+  troubleshoot?: React.ReactNode;
 }
 
 interface Props {
@@ -37,6 +39,9 @@ function StepItem({ index, step }: { index: number; step: Step }) {
         </div>
         {step.note && <p className="mt-1 text-[11px] text-warn">{step.note}</p>}
         {step.hint && <p className="mt-1 text-[11px] text-fg-dim">{step.hint}</p>}
+        {step.troubleshoot && (
+          <div className="mt-1.5 rounded-md border border-warn/30 bg-warn/10 px-2 py-1.5 text-[11px]">{step.troubleshoot}</div>
+        )}
       </div>
     </li>
   );
@@ -95,7 +100,25 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
     {
       title: 'Instalar o agente',
       command: 'npm i -g @termhub/agent && termhub-agent --version',
-      hint: 'Precisa de Node 20+ e tmux na máquina. Se der "command not found": com asdf, rode asdf reshim nodejs; caso contrário o diretório de binários globais do npm não está no PATH — export PATH="$(npm prefix -g)/bin:$PATH" (e adicione ao ~/.zshrc ou ~/.bashrc).',
+      hint: 'Precisa de Node 20+ e tmux na máquina.',
+      troubleshoot: (
+        <>
+          <p className="font-semibold text-warn">Deu "command not found"?</p>
+          <ul className="mt-1 space-y-1 text-fg">
+            <li>
+              Usa <span className="font-medium">asdf</span>? Rode{' '}
+              <code className="rounded bg-bg-2 px-1 font-mono text-fg-muted">asdf reshim nodejs</code>
+            </li>
+            <li>
+              Senão, o diretório de binários globais do npm não está no PATH:
+              <code className="mt-0.5 block select-all whitespace-pre-wrap break-all rounded bg-bg-2 px-1.5 py-1 font-mono text-fg-muted">
+                export PATH="$(npm prefix -g)/bin:$PATH"
+              </code>
+              <span className="text-fg-dim">(e adicione essa linha ao ~/.zshrc ou ~/.bashrc)</span>
+            </li>
+          </ul>
+        </>
+      ),
     },
     {
       title: 'Conectar',
