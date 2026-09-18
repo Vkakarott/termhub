@@ -5,7 +5,8 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { Scoped } from '../auth/scope.js';
-import { PtySession } from './pty-session.js';
+import { AgentOfflineError } from '../agent/registry.js';
+import { createPtySession, type PtySession } from './pty-session.js';
 
 const controlSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resize'), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(200) }),
@@ -33,7 +34,7 @@ export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
-      handleConnection(ws, { tab, project, machine, cols, rows }, deps, log);
+      void handleConnection(ws, { tab, project, machine, cols, rows }, deps, log);
     });
   });
 
@@ -54,7 +55,7 @@ export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter
   return wss;
 }
 
-function handleConnection(
+async function handleConnection(
   ws: WebSocket,
   ctx: { tab: Tab; project: Project; machine: Machine; cols: number; rows: number },
   deps: Deps,
@@ -70,7 +71,7 @@ function handleConnection(
 
   let session: PtySession;
   try {
-    session = new PtySession(
+    session = await createPtySession(
       ctx.machine,
       ctx.project,
       ctx.tab,
@@ -86,6 +87,12 @@ function handleConnection(
       },
     );
   } catch (err) {
+    if (err instanceof AgentOfflineError) {
+      log.info({ tabId: ctx.tab.id, machineId: ctx.machine.id }, 'agente desconectado');
+      send({ type: 'error', message: 'Agente desconectado' });
+      ws.close(1011, 'agent offline');
+      return;
+    }
     log.error({ err, tabId: ctx.tab.id }, 'falha ao iniciar pty');
     send({ type: 'error', message: 'Falha ao iniciar terminal' });
     ws.close(1011, 'pty spawn failed');

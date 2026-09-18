@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import { UTF8_LOCALE, clampSize, ptyEnv } from '@termhub/machine-ops';
 import { config } from '../config.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
+import { agents } from '../agent/registry.js';
+import { AgentPtySession } from '../agent/pty.js';
 import { REMOTE_PATH_PREFIX, assertSessionName, shellQuote, sshBaseArgs } from './machine-exec.js';
 
 export interface PtySize {
@@ -13,6 +15,14 @@ export interface PtySize {
 export interface PtySessionHandlers {
   onData: (data: string) => void;
   onExit: (code: number, signal?: number) => void;
+}
+
+/** A live PTY attached to a terminal tab, wherever it actually runs (local/ssh spawn or the user's agent). */
+export interface PtySession {
+  write(data: string | Buffer): void;
+  resize(size: Partial<PtySize>): void;
+  kill(): void;
+  readonly pid: number | null;
 }
 
 function localCwd(cwd: string): string {
@@ -49,7 +59,7 @@ export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file
 }
 
 /** Um PTY por conexão WebSocket. O tmux na máquina de destino sobrevive ao PTY. */
-export class PtySession {
+export class LocalPtySession implements PtySession {
   private proc: pty.IPty;
   private closed = false;
 
@@ -98,4 +108,18 @@ export class PtySession {
   get pid(): number {
     return this.proc.pid;
   }
+}
+
+/** Picks the right PtySession implementation for the tab's machine: local/ssh spawn a PTY here, `agent` opens one over the agent connection. */
+export async function createPtySession(
+  machine: Machine,
+  project: Project,
+  tab: Tab,
+  size: Partial<PtySize>,
+  handlers: PtySessionHandlers,
+): Promise<PtySession> {
+  if (machine.type === 'agent') {
+    return AgentPtySession.open(agents, machine, project, tab, size, handlers);
+  }
+  return new LocalPtySession(machine, project, tab, size, handlers);
 }
