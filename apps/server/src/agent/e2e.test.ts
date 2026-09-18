@@ -86,6 +86,8 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
   let agentController: AbortController;
   let agentRunPromise: Promise<void>;
   let machine: Machine;
+  let prevTmuxTmpDir: string | undefined;
+  let prevTmuxPath: string | undefined;
 
   beforeAll(async () => {
     tmuxTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'thtest-tmux-'));
@@ -93,7 +95,10 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
 
     // Set before anything spawns tmux: the agent's own tmux calls (pty open + tmux.capture RPC)
     // build their env from process.env at call time, so this keeps the real tmux server the
-    // dev/CI machine might have running completely out of reach.
+    // dev/CI machine might have running completely out of reach. Saved so afterAll can put the
+    // process env back the way it found it (other test files in the same worker may care).
+    prevTmuxTmpDir = process.env.TMUX_TMPDIR;
+    prevTmuxPath = process.env.TMUX_PATH;
     process.env.TMUX_TMPDIR = tmuxTmpDir;
     delete process.env.TMUX_PATH;
 
@@ -186,6 +191,11 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
     if (server) await shutdown(server);
     fs.rmSync(tmuxTmpDir, { recursive: true, force: true });
     fs.rmSync(projectCwd, { recursive: true, force: true });
+
+    if (prevTmuxTmpDir === undefined) delete process.env.TMUX_TMPDIR;
+    else process.env.TMUX_TMPDIR = prevTmuxTmpDir;
+    if (prevTmuxPath === undefined) delete process.env.TMUX_PATH;
+    else process.env.TMUX_PATH = prevTmuxPath;
   });
 
   it(
