@@ -104,7 +104,9 @@ On jarvis, the app is published at **https://app.termhub.dev** and the landing p
 
 On another server, the simple path is `cloudflared tunnel --url http://127.0.0.1:3000`.
 
-Set `PUBLIC_URL=https://termhub.yourdomain.com` in `.env` (`secure` cookies + Google redirect). If you protect it with **Cloudflare Access**, set `AUTH_MODE=app,cloudflare`, `CF_TEAM_DOMAIN` and `CF_AUD` — the server validates the `Cf-Access-Jwt-Assertion` JWT on every request in addition to the app session.
+Set `PUBLIC_URL=https://app.termhub.yourdomain.com` in `.env` (`secure` cookies + Google redirect). If you protect it with **Cloudflare Access**, set `AUTH_MODE=app,cloudflare`, `CF_TEAM_DOMAIN` and `CF_AUD` — the server validates the `Cf-Access-Jwt-Assertion` JWT on every request in addition to the app session.
+
+On jarvis, `app.termhub.dev` sits behind a Cloudflare Access self-hosted application ("termhub") with an e-mail **allowlist** policy; the landing at `termhub.dev` stays public. The allowlist is managed with a script on the server that talks to the Access API using an API token (Account · Access: Apps and Policies · Edit) stored in `~/.cloudflare/access-token`: `bash ~/cf-access-allowlist.sh a@x.com b@y.com` replaces the policy with exactly those e-mails. The tunnel's own `cert.pem` token can read but not edit Access.
 
 ## Users and login
 
