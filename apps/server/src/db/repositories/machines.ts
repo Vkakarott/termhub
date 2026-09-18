@@ -8,6 +8,7 @@ export interface MachineInput {
   host?: string | null;
   ssh_user?: string | null;
   ssh_port?: number;
+  is_local?: boolean;
   owner_id?: string | null;
 }
 
@@ -64,6 +65,7 @@ export class MachinesRepository {
         host: isAgent ? null : (input.host ?? null),
         sshUser: isAgent ? null : (input.ssh_user ?? null),
         sshPort: input.ssh_port ?? 22,
+        isLocal: input.is_local ?? false,
         ownerId: input.owner_id ?? null,
       },
       include: withOwner,
@@ -83,6 +85,7 @@ export class MachinesRepository {
         host: next.host ?? null,
         sshUser: next.ssh_user ?? null,
         sshPort: next.ssh_port ?? 22,
+        isLocal: next.is_local,
         ...(patch.owner_id !== undefined ? { ownerId: patch.owner_id } : {}),
       },
       include: withOwner,

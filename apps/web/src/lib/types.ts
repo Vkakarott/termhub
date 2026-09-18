@@ -73,6 +73,8 @@ export interface Machine {
   agent_version: string | null;
   /** last time the agent machine was seen online */
   agent_last_seen_at: string | null;
+  /** the user's own computer: shown only in the browser that added it (see lib/local-machines) */
+  is_local: boolean;
   /** null = orphan (visible only to admins viewing "all") */
   owner_id: string | null;
   owner_name: string | null;
@@ -412,19 +414,6 @@ export interface AiAccountUsage {
 }
 
 export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini', antigravity: 'Antigravity' };
-
-export type SshProblem = 'unreachable' | 'refused' | 'auth' | 'hostkey' | 'timeout' | 'no_tmux' | 'unknown';
-
-/** Result of POST /machines/test */
-export interface SshDiagnosis {
-  ok: boolean;
-  connected: boolean;
-  tmux: boolean;
-  os: string | null;
-  problem: SshProblem | null;
-  hint: string | null;
-  detail: string | null;
-}
 
 /** GET /machines/:id/hardware */
 export interface HardwareSnapshot {

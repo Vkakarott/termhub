@@ -1,4 +1,4 @@
-import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState } from './types';
+import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -105,8 +105,6 @@ export const api = {
       ),
     /** issues a new agent token, invalidating the previous one */
     rotateAgentToken: (id: string) => request<{ agent_token: string }>('POST', `/machines/${id}/agent-token`, {}),
-    /** SSH connection test for the form (unsaved values) with a human-readable diagnosis */
-    test: (input: { host: string; ssh_user?: string | null; ssh_port?: number }) => request<SshDiagnosis>('POST', '/machines/test', input),
     simulators: (id: string) => request<{ simulators: Simulator[] }>('GET', `/machines/${id}/simulators`),
     wdaSetup: (id: string) => request<WdaSetupState>('GET', `/machines/${id}/simulator/setup`),
     hooks: (id: string) => request<MachineHooks>('GET', `/machines/${id}/hooks`),
@@ -197,9 +195,6 @@ export const api = {
   waitlist: {
     list: () => request<{ entries: WaitlistEntry[] }>('GET', '/waitlist'),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/waitlist/${id}`),
-  },
-  system: {
-    sshKey: () => request<{ public_key: string | null; file: string | null }>('GET', '/system/ssh-key'),
   },
   tabs: {
     rename: (id: string, name: string) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, { name }),

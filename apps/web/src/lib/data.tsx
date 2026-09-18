@@ -1,12 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
 import type { Machine, Project, ProjectInput } from './types';
+import { forgetLocalMachine, localMachineIds, rememberLocalMachine } from './local-machines';
 
 export type MachineStatus = 'checking' | 'online' | 'offline';
 
 interface DataState {
+  /** machines visible in this browser: local machines of other computers are left out */
   machines: Machine[];
+  /** projects of the visible machines */
   projects: Project[];
+  /** local machines (someone's own computer) added from another browser; hidden until claimed */
+  hiddenLocal: Machine[];
+  /** marks a hidden local machine as this computer (remembered in this browser) */
+  claimLocal: (id: string) => void;
   statuses: Record<string, MachineStatus>;
   /** máquinas online sem tmux instalado */
   missingTmux: Record<string, boolean>;
@@ -28,8 +35,22 @@ const DataContext = createContext<DataState | null>(null);
 const STATUS_INTERVAL_MS = 30_000;
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const [machines, setMachines] = useState<Machine[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [allMachines, setMachines] = useState<Machine[]>([]);
+  const [allProjects, setProjects] = useState<Project[]>([]);
+  const [localIds, setLocalIds] = useState(() => localMachineIds());
+  const { machines, projects, hiddenLocal } = useMemo(() => {
+    const visible = allMachines.filter((m) => !m.is_local || localIds.has(m.id));
+    const ids = new Set(visible.map((m) => m.id));
+    return {
+      machines: visible,
+      projects: allProjects.filter((p) => ids.has(p.machine_id)),
+      hiddenLocal: allMachines.filter((m) => m.is_local && !localIds.has(m.id)),
+    };
+  }, [allMachines, allProjects, localIds]);
+  const claimLocal = useCallback((id: string) => {
+    rememberLocalMachine(id);
+    setLocalIds(localMachineIds());
+  }, []);
   const [statuses, setStatuses] = useState<Record<string, MachineStatus>>({});
   const [missingTmux, setMissingTmux] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -74,7 +95,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setMachines(m.machines);
     setProjects(p.projects);
     setLoading(false);
-    void Promise.all(m.machines.map((x) => checkStatus(x.id)));
+    const mine = localMachineIds();
+    void Promise.all(m.machines.filter((x) => !x.is_local || mine.has(x.id)).map((x) => checkStatus(x.id)));
   }, [checkStatus]);
 
   useEffect(() => {
@@ -92,6 +114,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     () => ({
       machines,
       projects,
+      hiddenLocal,
+      claimLocal,
       statuses,
       missingTmux,
       loading,
@@ -99,18 +123,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
       checkStatus,
       async createMachine(input) {
         const { machine } = await api.machines.create(input);
+        if (machine.is_local) claimLocal(machine.id);
         setMachines((m) => [...m, machine]);
         void checkStatus(machine.id);
         return machine;
       },
       async updateMachine(id, input) {
         const { machine } = await api.machines.update(id, input);
+        // the browser that (un)marks a machine as its own computer is the one that sees it
+        if (machine.is_local) claimLocal(machine.id);
+        else forgetLocalMachine(machine.id);
         setMachines((m) => m.map((x) => (x.id === id ? machine : x)));
         void checkStatus(machine.id);
         return machine;
       },
       async deleteMachine(id) {
         await api.machines.remove(id);
+        forgetLocalMachine(id);
         setMachines((m) => m.filter((x) => x.id !== id));
       },
       async createProject(input) {
@@ -129,7 +158,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       },
       setOpenTasks,
     }),
-    [machines, projects, statuses, missingTmux, loading, refresh, checkStatus, setOpenTasks],
+    [machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, refresh, checkStatus, setOpenTasks],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

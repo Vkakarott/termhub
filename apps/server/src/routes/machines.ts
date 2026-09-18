@@ -5,7 +5,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, conflict, forbidden } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
 import { isAdmin } from '../auth/permissions.js';
-import { diagnoseSsh, machineStatus } from '../terminal/machine-exec.js';
+import { machineStatus } from '../terminal/machine-exec.js';
 import { listSimulators } from '../simulator/machine.js';
 import { startWdaSetup, wdaSetupState } from '../simulator/setup.js';
 import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
@@ -20,6 +20,11 @@ const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
 const mkdirBody = z.object({ parent: z.string().min(1).max(4096), name: z.string().trim().min(1).max(255) });
 
+/**
+ * Shape of a stored machine, used to validate PATCHes. `local` and `ssh` are legacy transports:
+ * existing rows keep working and can be edited, but new machines are agent-only (see POST).
+ * "local" in particular means the termhub server's own host, never the user's computer.
+ */
 const machineBody = z
   .object({
     name: z.string().trim().min(1).max(80),
@@ -27,6 +32,7 @@ const machineBody = z
     host: z.string().trim().min(1).max(253).optional().nullable(),
     ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
     ssh_port: z.coerce.number().int().min(1).max(65535).optional(),
+    is_local: z.boolean().optional(),
   })
   .superRefine((m, ctx) => {
     if (m.type === 'ssh' && !m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'host é obrigatório para SSH' });
@@ -38,32 +44,27 @@ const HOOKS_ON_AGENT = 'Instalação de hooks ainda não disponível em máquina
 
 const ownerPatch = z.object({ owner_id: z.string().min(1).max(64).nullable().optional() });
 
-const testBody = z.object({
-  host: z.string().trim().min(1).max(253),
-  ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
-  ssh_port: z.coerce.number().int().min(1).max(65535).optional(),
-});
+const createBody = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    type: z.enum(['local', 'ssh', 'agent']),
+    /** the user's own computer; see Machine.is_local */
+    is_local: z.boolean().optional(),
+  })
+  .strict(); // no host/ssh_* on an agent machine
 
 export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
-  /** Connection test for the machine form (before saving): explains refused / unreachable / auth / missing tmux. */
-  app.post('/test', async (request) => {
-    const b = testBody.parse(request.body);
-    return await diagnoseSsh({ host: b.host, ssh_user: b.ssh_user ?? null, ssh_port: b.ssh_port ?? 22 });
-  });
-
   /** Machines in the caller's scope (own, or the "view as" target / all for admins). */
   app.get('/', async (request) => ({ machines: await repos.machines.list(request.scope.ownerId) }));
 
+  /** New machines are agent-only: mints the enrollment token, shown to the caller this once. */
   app.post('/', async (request, reply) => {
-    const body = machineBody.parse(request.body);
-    if (body.type === 'agent') {
-      const { token, hash } = newAgentToken();
-      const machine = await repos.machines.create({ ...body, host: null, ssh_user: null, owner_id: request.scope.createAs });
-      await repos.machines.rotateAgentToken(machine.id, hash);
-      return reply.code(201).send({ machine, agent_token: token });
-    }
-    const machine = await repos.machines.create({ ...body, owner_id: request.scope.createAs });
-    return reply.code(201).send({ machine });
+    const body = createBody.parse(request.body);
+    if (body.type !== 'agent') throw badRequest('Novas máquinas usam o agente; SSH e local não podem mais ser adicionados');
+    const { token, hash } = newAgentToken();
+    const machine = await repos.machines.create({ ...body, host: null, ssh_user: null, owner_id: request.scope.createAs });
+    await repos.machines.rotateAgentToken(machine.id, hash);
+    return reply.code(201).send({ machine, agent_token: token });
   });
 
   /** Rotates an agent machine's enrollment token and kicks the current connection (if any). */
