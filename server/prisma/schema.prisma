@@ -95,7 +95,8 @@ model Machine {
   capabilities Json      @default("[]")
   checkedAt    DateTime? @map("checked_at")
   createdAt DateTime    @default(now()) @map("created_at")
-  projects  Project[]
+  projects   Project[]
+  aiAccounts AiAccount[]
 
   @@map("machines")
 }
@@ -234,4 +235,27 @@ model ProjectSetup {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@map("project_setups")
+}
+
+enum AiProvider {
+  claude
+  chatgpt
+  gemini
+}
+
+/// AI subscription account whose usage limits are shown on the home page.
+/// No token is stored: the CLI credential is read from the machine on demand
+/// (Claude Code, Codex CLI or Gemini CLI login) and never persisted or logged.
+model AiAccount {
+  id        String     @id
+  provider  AiProvider
+  label     String
+  machineId String     @map("machine_id")
+  /// CLI config dir override (e.g. ~/.claude-work for a second Claude login). null = default.
+  configDir String?    @map("config_dir")
+  createdAt DateTime   @default(now()) @map("created_at")
+  machine   Machine    @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([machineId])
+  @@map("ai_accounts")
 }

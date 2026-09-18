@@ -62,7 +62,8 @@ export const ModelName = {
   Task: 'Task',
   Note: 'Note',
   Integration: 'Integration',
-  ProjectSetup: 'ProjectSetup'
+  ProjectSetup: 'ProjectSetup',
+  AiAccount: 'AiAccount'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -242,6 +243,18 @@ export const ProjectSetupScalarFieldEnum = {
 } as const
 
 export type ProjectSetupScalarFieldEnum = (typeof ProjectSetupScalarFieldEnum)[keyof typeof ProjectSetupScalarFieldEnum]
+
+
+export const AiAccountScalarFieldEnum = {
+  id: 'id',
+  provider: 'provider',
+  label: 'label',
+  machineId: 'machineId',
+  configDir: 'configDir',
+  createdAt: 'createdAt'
+} as const
+
+export type AiAccountScalarFieldEnum = (typeof AiAccountScalarFieldEnum)[keyof typeof AiAccountScalarFieldEnum]
 
 
 export const SortOrder = {

@@ -366,6 +366,23 @@ export type JsonNullableWithAggregatesFilterBase<$PrismaModel = never> = {
   _max?: Prisma.NestedJsonNullableFilter<$PrismaModel>
 }
 
+export type EnumAiProviderFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiProvider | Prisma.EnumAiProviderFieldRefInput<$PrismaModel>
+  in?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  notIn?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumAiProviderFilter<$PrismaModel> | $Enums.AiProvider
+}
+
+export type EnumAiProviderWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiProvider | Prisma.EnumAiProviderFieldRefInput<$PrismaModel>
+  in?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  notIn?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumAiProviderWithAggregatesFilter<$PrismaModel> | $Enums.AiProvider
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumAiProviderFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumAiProviderFilter<$PrismaModel>
+}
+
 export type NestedStringFilter<$PrismaModel = never> = {
   equals?: string | Prisma.StringFieldRefInput<$PrismaModel>
   in?: string[] | Prisma.ListStringFieldRefInput<$PrismaModel>
@@ -675,6 +692,23 @@ export type NestedJsonNullableFilterBase<$PrismaModel = never> = {
   gt?: runtime.InputJsonValue | Prisma.JsonFieldRefInput<$PrismaModel>
   gte?: runtime.InputJsonValue | Prisma.JsonFieldRefInput<$PrismaModel>
   not?: runtime.InputJsonValue | Prisma.JsonFieldRefInput<$PrismaModel> | Prisma.JsonNullValueFilter
+}
+
+export type NestedEnumAiProviderFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiProvider | Prisma.EnumAiProviderFieldRefInput<$PrismaModel>
+  in?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  notIn?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumAiProviderFilter<$PrismaModel> | $Enums.AiProvider
+}
+
+export type NestedEnumAiProviderWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.AiProvider | Prisma.EnumAiProviderFieldRefInput<$PrismaModel>
+  in?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  notIn?: $Enums.AiProvider[] | Prisma.ListEnumAiProviderFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumAiProviderWithAggregatesFilter<$PrismaModel> | $Enums.AiProvider
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumAiProviderFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumAiProviderFilter<$PrismaModel>
 }
 
 
