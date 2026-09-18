@@ -19,7 +19,10 @@ function fakeApi(initialEmails: string[], extraRules: unknown[] = []) {
     const method = init?.method ?? 'GET';
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ method, url, body });
-    if (url.endsWith('/access/apps') && method === 'GET') return json([{ id: 'other', domain: 'x.example' }, { id: 'app1', domain: 'app.termhub.dev' }]);
+    // Newest first, like the real API: a path-scoped app on the same host (the agent WebSocket
+    // bypass) is listed before the app that owns the allowlist.
+    if (url.endsWith('/access/apps') && method === 'GET') return json([{ id: 'ws', domain: 'app.termhub.dev/agent/ws' }, { id: 'other', domain: 'x.example' }, { id: 'app1', domain: 'app.termhub.dev' }]);
+    if (url.endsWith('/apps/ws/policies') && method === 'GET') return json([{ id: 'byp', name: 'bypass', decision: 'bypass', include: [{ everyone: {} }] }]);
     if (url.endsWith('/apps/app1/policies') && method === 'GET') return json([{ id: 'deny', name: 'block', decision: 'deny', include: [] }, policy]);
     if (url.endsWith('/apps/app1/policies/pol1') && method === 'PUT') {
       policy = { ...policy, ...body };
@@ -31,6 +34,13 @@ function fakeApi(initialEmails: string[], extraRules: unknown[] = []) {
 }
 
 describe('CloudflareAccessClient', () => {
+  it('prefers the app whose domain matches exactly over path-scoped apps on the same host', async () => {
+    const api = fakeApi(['a@x.com']);
+    const c = new CloudflareAccessClient(cfg, api.fetchImpl);
+    expect(await c.status()).toMatchObject({ policy: 'allowlist', emails: ['a@x.com'] });
+    expect(api.calls.some((k) => k.url.endsWith('/apps/ws/policies'))).toBe(false);
+  });
+
   it('reads the allowlist of the app matched by domain', async () => {
     const api = fakeApi(['a@x.com', 'b@x.com']);
     const c = new CloudflareAccessClient(cfg, api.fetchImpl);

@@ -84,7 +84,11 @@ export class CloudflareAccessClient implements AccessAllowlist {
   private async resolveApp(): Promise<string> {
     if (this.appId) return this.appId;
     const apps = (await this.call<CfApp[] | null>('/apps')) ?? [];
-    const app = apps.find((a) => a.domain === this.cfg.appDomain || a.domain?.startsWith(`${this.cfg.appDomain}/`));
+    // Exact host first: path-scoped apps on the same host (e.g. app.termhub.dev/agent/ws, a
+    // Bypass for the agent WebSocket) are listed before it by the API and carry other policies.
+    const app =
+      apps.find((a) => a.domain === this.cfg.appDomain) ??
+      apps.find((a) => a.domain?.startsWith(`${this.cfg.appDomain}/`));
     if (!app) throw new CloudflareAccessError(`Cloudflare Access: nenhuma aplicação para ${this.cfg.appDomain}`);
     this.appId = app.id;
     return app.id;
