@@ -29,6 +29,7 @@ export const antigravityAdapter: AiProviderAdapter = {
     return fetchCodeAssistUsage(cred, {
       expired: 'Run `agy` on that machine once; it refreshes the token on use.',
       refresh: 'Run `agy` on that machine once to refresh the login.',
+      ide: 'antigravity',
     });
   },
 };
