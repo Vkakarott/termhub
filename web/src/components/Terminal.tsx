@@ -57,13 +57,22 @@ function formatBytes(n: number): string {
   return `${n} B`;
 }
 
-/** Primeira imagem da área de transferência (Cmd+V com imagem ou arquivo de imagem copiado). */
-function imageFromClipboard(data: DataTransfer | null): File | null {
-  if (!data) return null;
-  for (const item of Array.from(data.items)) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) return item.getAsFile();
+/** Files carried by a paste or drop (screenshot on the clipboard, files copied in Finder, dragged files). */
+function filesFromTransfer(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const files = Array.from(data.files ?? []);
+  if (files.length) return files;
+  const out: File[] = [];
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== 'file') continue;
+    const f = item.getAsFile();
+    if (f) out.push(f);
   }
-  return null;
+  return out;
+}
+
+function hasFiles(data: DataTransfer | null): boolean {
+  return !!data && Array.from(data.types ?? []).includes('Files');
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -100,6 +109,8 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
   /** aviso do upload de imagem colada: texto + tom */
   const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'ok' | 'danger' } | null>(null);
   const noticeTimer = useRef(0);
+  /** a file drag is hovering the terminal */
+  const [dragging, setDragging] = useState(false);
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const onConnectedRef = useRef(onConnected);
@@ -163,28 +174,72 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
       setNotice({ text, tone });
       if (ms) noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
     };
+    // Uploads files (paste or drop) to the tab's machine one by one and pastes their paths into the prompt.
     let uploading = false;
+    const attachFiles = async (files: File[]) => {
+      if (uploading || files.length === 0) return;
+      uploading = true;
+      const total = files.reduce((n, f) => n + f.size, 0);
+      const what = files.length === 1 ? (files[0].name || 'arquivo') : `${files.length} arquivos`;
+      showNotice(`Enviando ${what}… ${formatBytes(total)}`, 'info');
+      const paths: string[] = [];
+      try {
+        for (const f of files) {
+          const r = await api.tabs.pasteFile(tabId, f, f.name || undefined);
+          paths.push(r.path);
+        }
+        term.paste(`${paths.join(' ')} `);
+        showNotice(files.length === 1 ? 'Arquivo anexado' : `${files.length} arquivos anexados`, 'ok', 2500);
+      } catch (err) {
+        if (paths.length) term.paste(`${paths.join(' ')} `); // keep what did go through
+        showNotice(err instanceof ApiError ? err.message : 'Falha ao enviar o arquivo', 'danger', 5000);
+      } finally {
+        uploading = false;
+      }
+    };
+
     const onPaste = (e: ClipboardEvent) => {
-      const file = imageFromClipboard(e.clipboardData);
-      if (!file) return; // texto: o xterm cola normalmente
+      const files = filesFromTransfer(e.clipboardData);
+      if (files.length === 0) return; // plain text: xterm pastes it
       e.preventDefault();
       e.stopPropagation();
-      if (uploading) return;
-      uploading = true;
-      showNotice(`Enviando imagem… ${formatBytes(file.size)}`, 'info');
-      void api.tabs
-        .pasteImage(tabId, file)
-        .then((img) => {
-          term.paste(`${img.path} `);
-          showNotice('Imagem anexada', 'ok', 2500);
-        })
-        .catch((err) => showNotice(err instanceof ApiError ? err.message : 'Falha ao enviar a imagem', 'danger', 5000))
-        .finally(() => {
-          uploading = false;
-        });
+      void attachFiles(files);
     };
-    // capture: roda antes do listener de paste do xterm (na textarea interna)
+    // capture: runs before xterm's own paste listener (on its inner textarea)
     el.addEventListener('paste', onPaste, true);
+
+    // Drag and drop: highlight while a file drag hovers the terminal; drop uploads.
+    let dragDepth = 0;
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepth += 1;
+      setDragging(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e.dataTransfer)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) setDragging(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      dragDepth = 0;
+      setDragging(false);
+      const files = filesFromTransfer(e.dataTransfer);
+      if (files.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      term.focus();
+      void attachFiles(files);
+    };
+    el.addEventListener('dragenter', onDragEnter);
+    el.addEventListener('dragover', onDragOver);
+    el.addEventListener('dragleave', onDragLeave);
+    el.addEventListener('drop', onDrop);
 
     // Detecta quando o app liga/desliga o mouse tracking (DECSET/DECRST ?1000/?1002/?1003) para mostrar a dica.
     const syncMouseMode = () => setMouseApp(term.modes.mouseTrackingMode !== 'none');
@@ -239,6 +294,10 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
       window.removeEventListener('mouseup', copySelection);
       selSub.dispose();
       el.removeEventListener('paste', onPaste, true);
+      el.removeEventListener('dragenter', onDragEnter);
+      el.removeEventListener('dragover', onDragOver);
+      el.removeEventListener('dragleave', onDragLeave);
+      el.removeEventListener('drop', onDrop);
       window.clearTimeout(noticeTimer.current);
       for (const sub of modeSubs) sub.dispose();
       window.clearTimeout(copiedTimer.current);
@@ -285,7 +344,13 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
 
   return (
     <div className="absolute inset-0 flex flex-col">
-      <div ref={containerRef} className="min-h-0 flex-1 bg-bg" onClick={() => termRef.current?.focus()} />
+      <div ref={containerRef} className="relative min-h-0 flex-1 bg-bg" onClick={() => termRef.current?.focus()}>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-accent bg-accent/10 text-sm font-medium text-fg">
+            Solte para anexar ao terminal
+          </div>
+        )}
+      </div>
       <div className="flex h-6 shrink-0 items-center gap-2 border-t border-line bg-bg-2 px-2 text-[11px] text-fg-dim">
         <span className={`rounded px-1.5 py-px font-medium ${badge}`}>
           {STATE_LABEL[state]}

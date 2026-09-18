@@ -104,6 +104,12 @@ export function runOnMachineWithInput(
 
 const tmux = () => config.terminal.tmuxPath;
 
+/**
+ * Non-interactive SSH commands get the sshd default PATH (on macOS just /usr/bin:/bin:...),
+ * which misses Homebrew and ~/.local/bin. Every remote command is prefixed with this.
+ */
+export const REMOTE_PATH_PREFIX = 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
+
 export interface MachineStatus {
   online: boolean;
   tmux: boolean;
@@ -137,7 +143,7 @@ export async function machineStatus(machine: Machine): Promise<MachineStatus> {
     machine,
     { file: '/bin/sh', args: ['-lc', DETECT_SCRIPT] },
     // Remoto: o ssh já usa shell de login; garante ~/.local/bin e brew no PATH
-    `export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ${DETECT_SCRIPT}`,
+    `${REMOTE_PATH_PREFIX}${DETECT_SCRIPT}`,
     8000,
   );
   const online = machine.type === 'local' || r.code === 0;
@@ -150,7 +156,7 @@ export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['list-sessions', '-F', '#{session_name}'] },
-    `tmux list-sessions -F '#{session_name}' 2>/dev/null || true`,
+    `${REMOTE_PATH_PREFIX}tmux list-sessions -F '#{session_name}' 2>/dev/null || true`,
   );
   const set = new Set<string>();
   if (r.code !== 0) return set;
@@ -166,7 +172,68 @@ export async function killTmuxSession(machine: Machine, session: string): Promis
   const r = await runOnMachine(
     machine,
     { file: tmux(), args: ['kill-session', '-t', `=${session}`] },
-    `tmux kill-session -t '=${session}' 2>/dev/null || true`,
+    `${REMOTE_PATH_PREFIX}tmux kill-session -t '=${session}' 2>/dev/null || true`,
   );
   return r.code === 0;
+}
+
+export type SshProblem = 'unreachable' | 'refused' | 'auth' | 'hostkey' | 'timeout' | 'no_tmux' | 'unknown';
+
+export interface SshDiagnosis {
+  ok: boolean;
+  /** SSH login worked (tmux may still be missing) */
+  connected: boolean;
+  tmux: boolean;
+  os: string | null;
+  problem: SshProblem | null;
+  /** what the user should do, in the UI language */
+  hint: string | null;
+  /** last line of ssh's stderr, for the curious */
+  detail: string | null;
+}
+
+const HINTS: Record<SshProblem, string> = {
+  refused: 'A máquina respondeu, mas nada escuta na porta SSH. Ligue o servidor SSH (macOS: Sessão Remota; Linux: openssh-server) e confira a porta.',
+  unreachable: 'Não há rota até esse IP. Confira o endereço (macOS: ipconfig getifaddr en0; Linux: hostname -I) e se as duas máquinas estão na mesma rede.',
+  timeout: 'A conexão não completou a tempo. IP errado, máquina dormindo ou firewall bloqueando a porta SSH.',
+  auth: 'O servidor SSH aceitou a conexão, mas recusou a chave. Rode o comando do passo 3 na máquina, com o usuário informado aqui, e confira o nome do usuário.',
+  hostkey: 'A chave do host mudou desde a última conexão (máquina reinstalada ou IP reaproveitado). Remova a entrada antiga do known_hosts no servidor do termhub.',
+  no_tmux: 'Conectou, mas o tmux não está instalado (ou não está no PATH de login). Rode o passo 2.',
+  unknown: 'Falha desconhecida; veja o detalhe.',
+};
+
+function classifySsh(stderr: string): SshProblem {
+  const e = stderr.toLowerCase();
+  if (e.includes('connection refused')) return 'refused';
+  if (e.includes('no route to host') || e.includes('network is unreachable') || e.includes('could not resolve') || e.includes('name or service not known')) return 'unreachable';
+  if (e.includes('timed out') || e.includes('connection timed out')) return 'timeout';
+  if (e.includes('permission denied') || e.includes('too many authentication failures')) return 'auth';
+  if (e.includes('host key verification failed') || e.includes('remote host identification has changed')) return 'hostkey';
+  return 'unknown';
+}
+
+/** Tries an SSH login (BatchMode, no password) and explains what went wrong in user terms. */
+export async function diagnoseSsh(target: { host: string; ssh_user: string | null; ssh_port: number }): Promise<SshDiagnosis> {
+  const machine: Machine = {
+    id: 'probe',
+    name: 'probe',
+    type: 'ssh',
+    host: target.host,
+    ssh_user: target.ssh_user,
+    ssh_port: target.ssh_port,
+    os: null,
+    capabilities: [],
+    checked_at: null,
+    created_at: '',
+  };
+  const r = await runOnMachine(machine, { file: '/bin/sh', args: ['-c', 'exit 1'] }, `${REMOTE_PATH_PREFIX}${DETECT_SCRIPT}`, 12000);
+  const detail = r.stderr.trim().split('\n').filter((l) => !l.startsWith('Warning: Permanently added')).pop() ?? null;
+  if (r.timedOut) return { ok: false, connected: false, tmux: false, os: null, problem: 'timeout', hint: HINTS.timeout, detail };
+  if (r.code !== 0) {
+    const problem = classifySsh(r.stderr);
+    return { ok: false, connected: false, tmux: false, os: null, problem, hint: HINTS[problem], detail };
+  }
+  const det = parseDetect(r.stdout);
+  const tmux = det.capabilities.includes('tmux');
+  return { ok: tmux, connected: true, tmux, os: det.os, problem: tmux ? null : 'no_tmux', hint: tmux ? null : HINTS.no_tmux, detail: null };
 }

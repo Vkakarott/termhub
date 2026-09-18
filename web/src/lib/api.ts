@@ -1,4 +1,4 @@
-import type { AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
+import type { AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, Note, Project, ProjectInput, ProjectSetup, SshDiagnosis, ProjectSetupData, Simulator, Tab, TabKind, Task, TaskStatus, Ticket, User, WdaSetupState } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -61,6 +61,8 @@ export const api = {
     update: (id: string, input: Partial<Machine>) => request<{ machine: Machine }>('PATCH', `/machines/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}`),
     status: (id: string) => request<{ id: string; online: boolean; tmux: boolean; os: string | null; capabilities: string[] }>('GET', `/machines/${id}/status`),
+    /** SSH connection test for the form (unsaved values) with a human-readable diagnosis */
+    test: (input: { host: string; ssh_user?: string | null; ssh_port?: number }) => request<SshDiagnosis>('POST', '/machines/test', input),
     simulators: (id: string) => request<{ simulators: Simulator[] }>('GET', `/machines/${id}/simulators`),
     wdaSetup: (id: string) => request<WdaSetupState>('GET', `/machines/${id}/simulator/setup`),
     startWdaSetup: (id: string) => request<{ ok: true }>('POST', `/machines/${id}/simulator/setup`, {}),
@@ -132,7 +134,8 @@ export const api = {
     remove: (id: string) => request<{ ok: true; killed: boolean }>('DELETE', `/tabs/${id}`),
     update: (id: string, input: { name?: string; simulator_udid?: string | null }) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, input),
     screenshotUrl: (id: string) => `/api/tabs/${id}/simulator/screenshot`,
-    /** grava a imagem em ~/.cache/termhub/paste/ na máquina da tab e devolve o caminho */
-    pasteImage: (id: string, image: Blob) => request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-image`, image),
+    /** writes the file to ~/.cache/termhub/paste/ on the tab's machine and returns its path */
+    pasteFile: (id: string, file: Blob, name?: string) =>
+      request<{ path: string; bytes: number; mime: string }>('POST', `/tabs/${id}/paste-file${name ? `?name=${encodeURIComponent(name)}` : ''}`, new Blob([file], { type: 'application/octet-stream' })),
   },
 };
