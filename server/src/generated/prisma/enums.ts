@@ -34,6 +34,14 @@ export const ProjectStatus = {
 export type ProjectStatus = (typeof ProjectStatus)[keyof typeof ProjectStatus]
 
 
+export const TabKind = {
+  terminal: 'terminal',
+  simulator: 'simulator'
+} as const
+
+export type TabKind = (typeof TabKind)[keyof typeof TabKind]
+
+
 export const TaskStatus = {
   backlog: 'backlog',
   todo: 'todo',

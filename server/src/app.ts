@@ -22,7 +22,11 @@ import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
-import { attachTerminalWebSocket } from './terminal/ws.js';
+import { registerTerminalWs } from './terminal/ws.js';
+import { createUpgradeRouter } from './ws/router.js';
+import { registerSimulatorWs } from './simulator/ws.js';
+import { SimulatorSessionManager } from './simulator/session-manager.js';
+import { realBackend } from './simulator/backend.js';
 import { seed } from './seed.js';
 
 
@@ -87,13 +91,21 @@ export async function buildApp(): Promise<App> {
     return reply.code(status).send({ error: status >= 500 ? 'Erro interno' : e.message, code: 'ERROR' });
   });
 
+  const simulators = new SimulatorSessionManager(realBackend, { log: (msg, meta) => fastify.log.info(meta ?? {}, msg) });
+
+  // --- WebSockets (terminais e simulador) — criados antes do bloco /api para que as rotas HTTP
+  // recebam `simulators` e `simWs.closeTab`. `fastify.server` já existe neste ponto.
+  const upgrades = createUpgradeRouter(fastify.server, { auth });
+  registerTerminalWs(upgrades, { repos, log: fastify.log });
+  const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
+
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
     async (api) => {
       api.addHook('preHandler', buildAuthHook(auth));
       await api.register((a) => authRoutes(a, auth), { prefix: '/auth' });
       await api.register((a) => machineRoutes(a, repos), { prefix: '/machines' });
-      await api.register((a) => projectRoutes(a, repos), { prefix: '/projects' });
+      await api.register((a) => projectRoutes(a, repos, { simulators }), { prefix: '/projects' });
       await api.register((a) => projectTaskRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => noteRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => taskRoutes(a, repos), { prefix: '/tasks' });
@@ -102,7 +114,7 @@ export async function buildApp(): Promise<App> {
       await api.register((a) => setupRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => projectTicketRoutes(a, repos), { prefix: '/projects' });
       await api.register((a) => taskTicketRoutes(a, repos), { prefix: '/tasks' });
-      await api.register((a) => tabRoutes(a, repos), { prefix: '/tabs' });
+      await api.register((a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), { prefix: '/tabs' });
       await api.register((a) => aiAccountRoutes(a, repos), { prefix: '/ai-accounts' });
       await api.register(systemRoutes, { prefix: '/system' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
@@ -126,15 +138,13 @@ export async function buildApp(): Promise<App> {
     fastify.log.warn('web/dist não encontrado — rodando só a API (use "npm run build" para servir o frontend)');
   }
 
-  // --- WebSocket dos terminais ---
-  attachTerminalWebSocket(fastify.server, { repos, auth, log: fastify.log });
-
   // Limpeza periódica de sessões expiradas
   const purge = setInterval(() => void authService.purgeExpired().catch(() => {}), 60 * 60 * 1000);
   const stopSync = startTicketSyncScheduler(repos, fastify.log);
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
     stopSync();
+    await simulators.shutdownAll();
     await closePrisma();
   });
 

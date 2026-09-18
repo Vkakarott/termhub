@@ -1512,7 +1512,9 @@ export const TabScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
   name: 'name',
+  kind: 'kind',
   tmuxSession: 'tmuxSession',
+  simulatorUdid: 'simulatorUdid',
   position: 'position',
   createdAt: 'createdAt'
 } as const
@@ -1752,6 +1754,20 @@ export type EnumProjectStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$Pr
  * Reference to a field of type 'ProjectStatus[]'
  */
 export type ListEnumProjectStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ProjectStatus[]'>
+    
+
+
+/**
+ * Reference to a field of type 'TabKind'
+ */
+export type EnumTabKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TabKind'>
+    
+
+
+/**
+ * Reference to a field of type 'TabKind[]'
+ */
+export type ListEnumTabKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TabKind[]'>
     
 
 

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from './Modal';
+import { SimulatorSetupCard } from './SimulatorSetupCard';
 import { useData } from '../lib/data';
 import type { Machine } from '../lib/types';
 import { api, ApiError } from '../lib/api';
@@ -108,6 +109,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
             </div>
           </>
         )}
+        {machine && <SimulatorSetupCard machine={machine} />}
         {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn-ghost" onClick={onClose}>

@@ -192,14 +192,37 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   done: 'Feito',
 };
 
+export type TabKind = 'terminal' | 'simulator';
+
 export interface Tab {
   id: string;
   project_id: string;
   name: string;
-  tmux_session: string;
+  kind: TabKind;
+  tmux_session: string | null;
+  simulator_udid: string | null;
   position: number;
   created_at: string;
   alive: boolean;
+}
+
+export interface Simulator {
+  udid: string;
+  name: string;
+  runtime: string;
+  state: string;
+}
+
+export interface WdaSetupState {
+  state: 'idle' | 'running' | 'ok' | 'failed';
+  tail: string[];
+  version: string | null;
+}
+
+export interface Screen {
+  width: number;
+  height: number;
+  orientation: 'portrait' | 'landscape';
 }
 
 export interface AuthConfig {

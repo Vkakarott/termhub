@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { machineStatus } from '../terminal/machine-exec.js';
+import { listSimulators } from '../simulator/machine.js';
+import { startWdaSetup, wdaSetupState } from '../simulator/setup.js';
 import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
@@ -63,6 +65,39 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const status = await machineStatus(machine);
     if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
     return { id, ...status, checked_at: new Date().toISOString() };
+  });
+
+  const requireMac = (m: { os: string | null; capabilities: string[] }) => {
+    if (m.os !== 'macos' || !m.capabilities.includes('xcodebuild')) throw badRequest('Esta máquina não é um Mac com Xcode');
+  };
+
+  app.get('/:id/simulators', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await repos.machines.findById(id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    requireMac(machine);
+    return { simulators: await listSimulators(machine) };
+  });
+
+  app.get('/:id/simulator/setup', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await repos.machines.findById(id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    const state = await wdaSetupState(machine);
+    if (state.state === 'ok' && !machine.capabilities.includes('wda')) {
+      const status = await machineStatus(machine);
+      if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
+    }
+    return state;
+  });
+
+  app.post('/:id/simulator/setup', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await repos.machines.findById(id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    requireMac(machine);
+    await startWdaSetup(machine);
+    return reply.code(202).send({ ok: true });
   });
 
   /** Navegador de diretórios: subpastas de ?path (padrão $HOME) + discos/mounts da máquina. */

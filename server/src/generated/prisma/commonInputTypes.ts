@@ -264,6 +264,23 @@ export type EnumProjectStatusWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedEnumProjectStatusFilter<$PrismaModel>
 }
 
+export type EnumTabKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabKind | Prisma.EnumTabKindFieldRefInput<$PrismaModel>
+  in?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  notIn?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumTabKindFilter<$PrismaModel> | $Enums.TabKind
+}
+
+export type EnumTabKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabKind | Prisma.EnumTabKindFieldRefInput<$PrismaModel>
+  in?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  notIn?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumTabKindWithAggregatesFilter<$PrismaModel> | $Enums.TabKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTabKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTabKindFilter<$PrismaModel>
+}
+
 export type EnumIntegrationProviderFilter<$PrismaModel = never> = {
   equals?: $Enums.IntegrationProvider | Prisma.EnumIntegrationProviderFieldRefInput<$PrismaModel>
   in?: $Enums.IntegrationProvider[] | Prisma.ListEnumIntegrationProviderFieldRefInput<$PrismaModel>
@@ -600,6 +617,23 @@ export type NestedEnumProjectStatusWithAggregatesFilter<$PrismaModel = never> = 
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumProjectStatusFilter<$PrismaModel>
   _max?: Prisma.NestedEnumProjectStatusFilter<$PrismaModel>
+}
+
+export type NestedEnumTabKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabKind | Prisma.EnumTabKindFieldRefInput<$PrismaModel>
+  in?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  notIn?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumTabKindFilter<$PrismaModel> | $Enums.TabKind
+}
+
+export type NestedEnumTabKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabKind | Prisma.EnumTabKindFieldRefInput<$PrismaModel>
+  in?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  notIn?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumTabKindWithAggregatesFilter<$PrismaModel> | $Enums.TabKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTabKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTabKindFilter<$PrismaModel>
 }
 
 export type NestedEnumIntegrationProviderFilter<$PrismaModel = never> = {
