@@ -92,7 +92,11 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
 
   const origin = window.location.origin;
   const steps: Step[] = [
-    { title: 'Instalar o agente', command: 'npm i -g @termhub/agent' },
+    {
+      title: 'Instalar o agente',
+      command: 'npm i -g @termhub/agent && termhub-agent --version',
+      hint: 'Precisa de Node 20+ e tmux na máquina. Se der "command not found": com asdf, rode asdf reshim nodejs; caso contrário o diretório de binários globais do npm não está no PATH — export PATH="$(npm prefix -g)/bin:$PATH" (e adicione ao ~/.zshrc ou ~/.bashrc).',
+    },
     {
       title: 'Conectar',
       command: enrollCommand(origin, token),
