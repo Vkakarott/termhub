@@ -50,6 +50,9 @@ const envSchema = z.object({
    */
   HOOKS_URL: z.string().url().optional(),
 
+  /** WhatsApp group the alpha-tester invite (Waitlist tab → Convidar) links to */
+  ALPHA_COMMUNITY_URL: z.string().url().default('https://77a.it/comunidadetermhub'),
+
   LOCAL_SHELL: z.string().optional(),
   TMUX_PATH: z.string().default('tmux'),
   SEED_LOCAL_MACHINE: z.enum(['true', 'false']).default('true'),
@@ -115,6 +118,7 @@ export const config = {
   databaseUrl: env.DATABASE_URL,
   publicUrl: env.PUBLIC_URL.replace(/\/$/, ''),
   hooksUrl: env.HOOKS_URL ?? `${env.PUBLIC_URL.replace(/\/$/, '')}/api/hooks/events`,
+  alphaCommunityUrl: env.ALPHA_COMMUNITY_URL,
   auth: {
     modes: authModes,
     sessionTtlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,

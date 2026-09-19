@@ -2128,7 +2128,8 @@ export const WaitlistEntryScalarFieldEnum = {
   github: 'github',
   locale: 'locale',
   source: 'source',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  invitedAt: 'invitedAt'
 } as const
 
 export type WaitlistEntryScalarFieldEnum = (typeof WaitlistEntryScalarFieldEnum)[keyof typeof WaitlistEntryScalarFieldEnum]
