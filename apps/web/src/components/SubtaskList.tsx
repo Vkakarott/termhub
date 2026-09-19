@@ -4,7 +4,7 @@ import type { Task } from '../lib/types';
 
 interface Props {
   parent: Task;
-  /** The full, reindexed list after every change (optimistic; rolled back on failure). */
+  /** The full, reindexed list after every change (optimistic). On failure no snapshot is written here; the parent reloads from the server and reports the error. */
   onChange: (subtasks: Task[]) => void;
   onError: (message: string) => void;
 }
@@ -19,13 +19,12 @@ export function SubtaskList({ parent, onChange, onError }: Props) {
   const [dragId, setDragId] = useState<string | null>(null);
   const done = subtasks.filter((s) => s.status === 'done').length;
 
-  /** Applies `next` now; restores the current list and reports if `save` rejects. */
+  /** Applies `next` now; on rejection reports only — no snapshot is written, since the closure's `subtasks` may be stale by the time the save settles. The parent reloads from the server. */
   const commit = async (next: Task[], save: () => Promise<unknown>, fallback: string) => {
     onChange(next);
     try {
       await save();
     } catch (e) {
-      onChange(subtasks);
       onError(e instanceof ApiError ? e.message : fallback);
     }
   };

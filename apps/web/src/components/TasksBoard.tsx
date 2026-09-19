@@ -225,7 +225,10 @@ export function TasksBoard({ projectId }: Props) {
           onPushStatus={() => pushStatus(editing.id)}
           terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
           onSubtasks={(subtasks) => setSubtasks(editing.id, subtasks)}
-          onError={setError}
+          onError={(message) => {
+            setError(message);
+            void load();
+          }}
         />
       )}
     </div>

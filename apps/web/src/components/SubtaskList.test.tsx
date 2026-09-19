@@ -78,7 +78,7 @@ describe('SubtaskList', () => {
     expect(onChange.mock.calls[0][0][0].status).toBe('done');
   });
 
-  it('rolls back and reports when the save fails', async () => {
+  it('reports a failed save without writing a stale snapshot', async () => {
     updateMock.mockRejectedValue(new Error('boom'));
     const onChange = vi.fn();
     const onError = vi.fn();
@@ -86,7 +86,7 @@ describe('SubtaskList', () => {
     render(<SubtaskList parent={parentWith(subs)} onChange={onChange} onError={onError} />);
     fireEvent.click(screen.getByRole('checkbox', { name: 'a' }));
     await waitFor(() => expect(onError).toHaveBeenCalledWith('Erro ao salvar subtarefa'));
-    expect(onChange.mock.calls.at(-1)![0][0].status).toBe('todo');
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it('adds a subtask with Enter and ignores a blank title', async () => {
@@ -110,5 +110,45 @@ describe('SubtaskList', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Excluir subtarefa a' }));
     expect(onChange.mock.calls[0][0]).toMatchObject([{ id: 'b', position: 0 }]);
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('a'));
+  });
+
+  it('renames a subtask on Enter and persists', async () => {
+    updateMock.mockResolvedValue({ task: {} });
+    const onChange = vi.fn();
+    const subs = [task({ id: 'a', parent_id: 'parent' })];
+    render(<SubtaskList parent={parentWith(subs)} onChange={onChange} onError={vi.fn()} />);
+    fireEvent.click(screen.getByText('a'));
+    const input = screen.getByDisplayValue('a');
+    fireEvent.change(input, { target: { value: '  renomeada  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onChange.mock.calls.at(-1)![0][0].title).toBe('renomeada');
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith('a', { title: 'renomeada' }));
+  });
+
+  it('cancels a rename on Escape without saving', () => {
+    const onChange = vi.fn();
+    const subs = [task({ id: 'a', parent_id: 'parent' })];
+    render(<SubtaskList parent={parentWith(subs)} onChange={onChange} onError={vi.fn()} />);
+    fireEvent.click(screen.getByText('a'));
+    const input = screen.getByDisplayValue('a');
+    fireEvent.change(input, { target: { value: 'renomeada' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('reorders on drag and drop and persists', async () => {
+    reorderMock.mockResolvedValue({ task: {} });
+    const onChange = vi.fn();
+    const subs = [task({ id: 'a', parent_id: 'parent', position: 0 }), task({ id: 'b', parent_id: 'parent', position: 1 })];
+    render(<SubtaskList parent={parentWith(subs)} onChange={onChange} onError={vi.fn()} />);
+    const rows = screen.getAllByRole('checkbox').map((c) => c.closest('li')!);
+    const dataTransfer = { effectAllowed: '', setData: () => {} };
+    fireEvent.dragStart(rows[1], { dataTransfer });
+    fireEvent.dragOver(rows[0], { dataTransfer });
+    fireEvent.drop(rows[0], { dataTransfer });
+    expect(onChange.mock.calls.at(-1)![0].map((s: Task) => s.id)).toEqual(['b', 'a']);
+    expect(onChange.mock.calls.at(-1)![0].map((s: Task) => s.position)).toEqual([0, 1]);
+    await waitFor(() => expect(reorderMock).toHaveBeenCalledWith('b', 0));
   });
 });
