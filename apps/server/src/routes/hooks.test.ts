@@ -8,7 +8,7 @@ import { hashHookToken, newHookToken } from '../monitor/token.js';
 import { hooksRoutes } from './hooks.js';
 
 const { token, hash } = newHookToken();
-const tab: Tab = { id: 'tab1', project_id: 'p1', name: 'x', kind: 'terminal', tmux_session: 'termhub-p1-tab1', simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, created_at: '2026-09-18T00:00:00.000Z' };
+const tab: Tab = { id: 'tab1', project_id: 'p1', name: 'x', kind: 'terminal', tmux_session: 'termhub-p1-tab1', simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '2026-09-18T00:00:00.000Z' };
 
 function buildApp() {
   const recordEvent = vi.fn(async (_id: string, e: { kind: Tab['state']; tool: string; text: string | null }) => ({

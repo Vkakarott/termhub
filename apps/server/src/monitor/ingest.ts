@@ -28,6 +28,11 @@ export async function applyState(repos: Repositories, log: FastifyBaseLogger, ta
   const project = await repos.projects.findById(tab.project_id);
   const machine = project ? await repos.machines.findById(project.machine_id) : undefined;
   log.info({ tabId: tab.id, machineId: machine?.id, tool, kind: next.kind, textLen: next.text?.length ?? 0 }, 'monitor: tab state');
-  monitorBus.publish({ tab: updated, project_id: tab.project_id, machine_id: machine?.id ?? '', owner_id: machine?.owner_id ?? null });
+  publishTabChange(updated, tab.project_id, machine);
   return updated;
+}
+
+/** Tells the monitor subscribers (WS handler) about a tab whose state or seen-ness changed. */
+export function publishTabChange(tab: Tab, projectId: string, machine: { id: string; owner_id: string | null } | undefined): void {
+  monitorBus.publish({ tab, project_id: projectId, machine_id: machine?.id ?? '', owner_id: machine?.owner_id ?? null });
 }

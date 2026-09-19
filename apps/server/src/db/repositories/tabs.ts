@@ -33,14 +33,29 @@ export class TabsRepository {
     return rows.map(mapTab);
   }
 
-  /** Monitor: records the event and makes it the tab's current state; keeps only the newest events per tab. */
+  /**
+   * Monitor: records the event and makes it the tab's current state; keeps only the newest events
+   * per tab. Leaving `stateSeenAt` untouched re-arms a seen tab by itself (the bumped `stateAt` is
+   * now newer than it) — except for the *same* `waiting_input` wait continuing: Claude's hooks send
+   * `Stop` and, ~1 min later, `Notification idle_prompt` for one turn, both mapped to `waiting_input`;
+   * if the person already saw the tab for that wait, a second `waiting_input` in a row must not
+   * re-open it, so the seen mark is carried forward to the new `stateAt` instead. Any transition
+   * through another state, or a `waiting_permission` (always a fresh ask), still re-arms as before.
+   */
   async recordEvent(tabId: string, event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown> }): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
-    const [e, t] = await this.db.$transaction([
-      this.db.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } }),
-      this.db.tab.update({ where: { id: tabId }, data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at } }),
-      this.db.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`,
-    ]);
+    const [e, t] = await this.db.$transaction(async (tx) => {
+      const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true } });
+      const currentlySeen = !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt;
+      const carrySeen = current?.state === 'waiting_input' && event.kind === 'waiting_input' && currentlySeen;
+      const ev = await tx.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } });
+      const updated = await tx.tab.update({
+        where: { id: tabId },
+        data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at, ...(carrySeen ? { stateSeenAt: at } : {}) },
+      });
+      await tx.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`;
+      return [ev, updated] as const;
+    });
     return { tab: mapTab(t), event: mapTabEvent(e) };
   }
 
@@ -51,7 +66,26 @@ export class TabsRepository {
 
   /** Clears the monitor state (e.g. the tmux session is gone). */
   async clearState(tabId: string): Promise<void> {
-    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null } });
+    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null } });
+  }
+
+  /**
+   * Monitor: the tab was just looked at. Writes `stateSeenAt = now` only when the tab is waiting
+   * (NEEDS_YOU states — keep in sync with monitor/state.ts) and is not already seen for its current
+   * `stateAt`. A conditional `UPDATE` (raw SQL: Prisma's query builder cannot compare two columns)
+   * compares the row's *current* `stateAt`, so a hook event that bumps it concurrently is never
+   * marked seen by accident. Returns the updated tab when it
+   * wrote, `undefined` otherwise (not waiting, already seen, or missing).
+   */
+  async markSeen(id: string, now = new Date()): Promise<Tab | undefined> {
+    const written = await this.db.$executeRaw`
+      UPDATE "tabs"
+      SET "state_seen_at" = ${now}
+      WHERE "id" = ${id}
+        AND "state" IN ('waiting_input', 'waiting_permission')
+        AND ("state_seen_at" IS NULL OR "state_seen_at" < "state_at")
+    `;
+    return written > 0 ? this.findById(id) : undefined;
   }
 
   async create(projectId: string, name: string, opts: { kind?: TabKind; simulator_udid?: string | null } = {}): Promise<Tab> {

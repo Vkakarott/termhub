@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMonitor } from '../lib/monitor';
 import { useData } from '../lib/data';
 import { ApiError } from '../lib/api';
+import { tabNeedsYou } from '../lib/needs-you';
 import { NEEDS_YOU, TAB_STATE_LABEL, type MonitorItem, type TabState } from '../lib/types';
 
 function since(iso: string | null, now: number): string {
@@ -35,7 +36,10 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { tab, project } = item;
-  const waiting = !!tab.state && NEEDS_YOU.includes(tab.state);
+  // The highlight follows "needs you" (drops once seen); the quick-reply form follows the raw
+  // state — the tool is still actually waiting for an answer either way, seen or not.
+  const waiting = tabNeedsYou(tab);
+  const canReply = !!tab.state && NEEDS_YOU.includes(tab.state);
 
   const send = async (e: FormEvent, value = text) => {
     e.preventDefault();
@@ -65,7 +69,7 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
         <span className="ml-auto shrink-0 text-[11px] text-fg-dim">{since(tab.state_at, now)}</span>
       </div>
       {tab.state_text && <p className="mt-2 whitespace-pre-wrap break-words rounded bg-bg-3 px-2 py-1.5 text-xs text-fg">{tab.state_text}</p>}
-      {waiting && (
+      {canReply && (
         <form className="mt-2 flex items-center gap-2" onSubmit={send}>
           <input
             className="min-w-0 flex-1 rounded border border-line bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
@@ -89,24 +93,33 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
   );
 }
 
-interface MachineGroup {
+export interface MachineGroup {
   machine: MonitorItem['machine'];
+  /** needs you: waiting and not seen since */
   waiting: MonitorItem[];
+  /** still waiting_*, but the person already looked at it since — nothing to do here right now */
+  seen: MonitorItem[];
+  /** idle or error */
   finished: MonitorItem[];
   working: number;
 }
 
-/** One accordion per machine: the ones with someone waiting open (and first), the rest collapsed. */
-function groupByMachine(items: MonitorItem[]): MachineGroup[] {
+/**
+ * One accordion per machine, split into three buckets, in this render order: waiting (needs you,
+ * highlighted) → seen (still waiting_*, but already looked at) → finished (idle/error). The ones
+ * with someone waiting open (and sort first); the rest collapsed. Pure — unit-tested directly.
+ */
+export function groupMachineItems(items: MonitorItem[]): MachineGroup[] {
   const groups = new Map<string, MachineGroup>();
   for (const item of items) {
     let g = groups.get(item.machine.id);
     if (!g) {
-      g = { machine: item.machine, waiting: [], finished: [], working: 0 };
+      g = { machine: item.machine, waiting: [], seen: [], finished: [], working: 0 };
       groups.set(item.machine.id, g);
     }
     const st = item.tab.state;
-    if (st && NEEDS_YOU.includes(st)) g.waiting.push(item);
+    if (tabNeedsYou(item.tab)) g.waiting.push(item);
+    else if (st && NEEDS_YOU.includes(st)) g.seen.push(item); // waiting_*, already seen
     else if (st === 'idle' || st === 'error') g.finished.push(item);
     else g.working += 1;
   }
@@ -126,15 +139,17 @@ function readOpen(): Record<string, boolean> {
 
 function MachineSection({ group, now, open, onToggle }: { group: MachineGroup; now: number; open: boolean; onToggle: () => void }) {
   const { statuses } = useData();
-  const { machine, waiting, finished, working } = group;
+  const { machine, waiting, seen, finished, working } = group;
   const st = statuses[machine.id] ?? 'checking';
   const summary = [
     waiting.length ? `${waiting.length} esperando` : null,
+    seen.length ? `${seen.length} ${seen.length === 1 ? 'visto' : 'vistos'}` : null,
     finished.length ? `${finished.length} terminou` : null,
     working ? `${working} trabalhando` : null,
   ]
     .filter(Boolean)
     .join(' · ');
+  const hasContent = waiting.length > 0 || seen.length > 0 || finished.length > 0;
   return (
     <li className={`rounded-lg border bg-bg-2 ${waiting.length ? 'border-accent/50' : 'border-line'}`}>
       <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-bg-3" onClick={onToggle} aria-expanded={open}>
@@ -146,9 +161,12 @@ function MachineSection({ group, now, open, onToggle }: { group: MachineGroup; n
         {waiting.length > 0 && <span className="rounded bg-accent/15 px-1.5 text-[11px] font-semibold text-accent">{waiting.length}</span>}
         <span className="ml-auto truncate text-xs text-fg-dim">{summary || 'sem atividade'}</span>
       </button>
-      {open && (waiting.length > 0 || finished.length > 0) && (
+      {open && hasContent && (
         <ul className="space-y-2 border-t border-line p-2">
           {waiting.map((i) => (
+            <Item key={i.tab.id} item={i} now={now} />
+          ))}
+          {seen.map((i) => (
             <Item key={i.tab.id} item={i} now={now} />
           ))}
           {finished.slice(0, 6).map((i) => (
@@ -156,7 +174,7 @@ function MachineSection({ group, now, open, onToggle }: { group: MachineGroup; n
           ))}
         </ul>
       )}
-      {open && waiting.length === 0 && finished.length === 0 && <p className="border-t border-line px-3 py-2 text-xs text-fg-dim">Nenhuma tab esperando você aqui.</p>}
+      {open && !hasContent && <p className="border-t border-line px-3 py-2 text-xs text-fg-dim">Nenhuma tab esperando você aqui.</p>}
     </li>
   );
 }
@@ -165,7 +183,7 @@ function MachineSection({ group, now, open, onToggle }: { group: MachineGroup; n
 export function NeedsYouList({ now }: { now: number }) {
   const { items, needsYou, connected } = useMonitor();
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
-  const groups = useMemo(() => groupByMachine(items), [items]);
+  const groups = useMemo(() => groupMachineItems(items), [items]);
   if (items.length === 0) return null;
   const isOpen = (g: MachineGroup) => open[g.machine.id] ?? g.waiting.length > 0;
   const toggle = (g: MachineGroup) => {
