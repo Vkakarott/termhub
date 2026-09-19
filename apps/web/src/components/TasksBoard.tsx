@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api';
 import { useData } from '../lib/data';
 import { PROVIDER_LABEL, TASK_STATUS_LABEL, type Task, type TaskStatus } from '../lib/types';
 import { Modal } from './Modal';
+import { SubtaskList } from './SubtaskList';
 
 const COLUMNS: TaskStatus[] = ['backlog', 'todo', 'doing', 'done'];
 const NEXT: Partial<Record<TaskStatus, TaskStatus>> = { backlog: 'todo', todo: 'doing', doing: 'done' };
@@ -68,7 +69,11 @@ export function TasksBoard({ projectId }: Props) {
     }
   };
 
-  const replaceTask = (task: Task) => setTasks((t) => (t ?? []).map((x) => (x.id === task.id ? task : x)));
+  // PATCH/move answer with the bare task: keep the subtasks the list endpoint gave us
+  const replaceTask = (task: Task) => setTasks((t) => (t ?? []).map((x) => (x.id === task.id ? { ...task, subtasks: task.subtasks ?? x.subtasks } : x)));
+
+  const setSubtasks = (parentId: string, v: Task[] | ((prev: Task[]) => Task[])) =>
+    setTasks((t) => (t ?? []).map((x) => (x.id === parentId ? { ...x, subtasks: typeof v === 'function' ? v(x.subtasks ?? []) : v } : x)));
 
   const openTerminal = async (id: string) => {
     try {
@@ -220,6 +225,11 @@ export function TasksBoard({ projectId }: Props) {
           onOpenTerminal={() => void openTerminal(editing.id)}
           onPushStatus={() => pushStatus(editing.id)}
           terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
+          onSubtasks={(subtasks) => setSubtasks(editing.id, subtasks)}
+          onError={(message) => {
+            setError(message);
+            void load();
+          }}
         />
       )}
     </div>
@@ -328,6 +338,14 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
             )}
             {task.external_ref ? task.title.replace(task.external_ref.identifier, '').trim() : task.title}
           </span>
+          {(task.subtasks?.length ?? 0) > 0 && (
+            <span
+              className="shrink-0 rounded bg-bg-4 px-1 text-[10px] tabular-nums text-fg-muted"
+              title={`${task.subtasks!.filter((s) => s.status === 'done').length} de ${task.subtasks!.length} subtarefas concluídas`}
+            >
+              ✓ {task.subtasks!.filter((s) => s.status === 'done').length}/{task.subtasks!.length}
+            </span>
+          )}
           {terminalHref && (
             <Link
               to={terminalHref}
@@ -391,9 +409,11 @@ interface EditorProps {
   onOpenTerminal: () => void;
   onPushStatus: () => Promise<string | null>;
   terminalHref: string | null;
+  onSubtasks: (subtasks: Task[] | ((prev: Task[]) => Task[])) => void;
+  onError: (message: string) => void;
 }
 
-function TaskEditor({ task, onClose, onSave, onStatus, onDelete, onOpenTerminal, onPushStatus, terminalHref }: EditorProps) {
+function TaskEditor({ task, onClose, onSave, onStatus, onDelete, onOpenTerminal, onPushStatus, terminalHref, onSubtasks, onError }: EditorProps) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? '');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -434,6 +454,7 @@ function TaskEditor({ task, onClose, onSave, onStatus, onDelete, onOpenTerminal,
             ))}
           </div>
         </div>
+        <SubtaskList parent={task} onChange={onSubtasks} onError={onError} />
         {ref && (
           <div className="rounded-md border border-line bg-bg p-3 text-xs">
             <div className="flex items-center gap-2">
@@ -479,7 +500,7 @@ function TaskEditor({ task, onClose, onSave, onStatus, onDelete, onOpenTerminal,
           <div className="flex gap-2">
             {confirmDelete ? (
               <>
-                <span className="self-center">Excluir?</span>
+                <span className="self-center">{(task.subtasks?.length ?? 0) > 0 ? `Excluir com ${task.subtasks!.length} subtarefa(s)?` : 'Excluir?'}</span>
                 <button className="btn-danger" onClick={onDelete}>
                   Sim, excluir
                 </button>
