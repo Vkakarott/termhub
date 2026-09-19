@@ -93,7 +93,7 @@ function Compare() {
           container: without it they escape to the document, which then gets as wide as the
           table and iOS Safari zooms the whole page out to fit it. */}
       <div ref={ref} className="reveal relative mt-10 overflow-x-auto rounded-card border border-border-2 bg-surface">
-        <table className="w-full min-w-[640px] border-collapse text-body-sm">
+        <table className="w-full min-w-[760px] border-collapse text-body-sm">
           <thead>
             <tr className="border-b border-border-2">
               <th scope="col" className="p-4 text-left font-normal text-muted" />
