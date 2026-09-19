@@ -274,6 +274,8 @@ export interface Tab {
   state_text: string | null;
   state_tool: string | null;
   state_at: string | null;
+  /** when the tab was last looked at while needing you; null or before state_at = still needs you */
+  state_seen_at: string | null;
   created_at: string;
   alive: boolean;
 }

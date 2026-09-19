@@ -91,9 +91,10 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
             >
               {(active || shown) && <span className={`absolute inset-x-0 top-0 h-px ${active ? 'bg-accent' : 'bg-accent/40'}`} />}
               {(() => {
-                const st = tabState(t.id)?.state;
+                const monitorTab = tabState(t.id);
+                const st = monitorTab?.state;
                 const base = t.kind === 'simulator' ? (t.alive ? 'simulador conectado' : 'simulador desconectado') : t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada';
-                return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tabDotClass(t.alive, st)}`} title={st && st !== 'working' ? `${base} · ${TAB_STATE_LABEL[st]}` : base} />;
+                return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tabDotClass(t.alive, monitorTab)}`} title={st && st !== 'working' ? `${base} · ${TAB_STATE_LABEL[st]}` : base} />;
               })()}
               {t.kind === 'simulator' && (
                 <span className="text-[10px]" aria-hidden>

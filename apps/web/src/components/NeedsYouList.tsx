@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMonitor } from '../lib/monitor';
 import { useData } from '../lib/data';
 import { ApiError } from '../lib/api';
+import { tabNeedsYou } from '../lib/needs-you';
 import { NEEDS_YOU, TAB_STATE_LABEL, type MonitorItem, type TabState } from '../lib/types';
 
 function since(iso: string | null, now: number): string {
@@ -35,7 +36,9 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { tab, project } = item;
-  const waiting = !!tab.state && NEEDS_YOU.includes(tab.state);
+  // Once seen, a still-waiting_* tab keeps its state label but drops the highlight/quick-reply
+  // (see monitor/state.ts needsYou): reply from the terminal, which the person just looked at.
+  const waiting = tabNeedsYou(tab);
 
   const send = async (e: FormEvent, value = text) => {
     e.preventDefault();
@@ -106,8 +109,9 @@ function groupByMachine(items: MonitorItem[]): MachineGroup[] {
       groups.set(item.machine.id, g);
     }
     const st = item.tab.state;
-    if (st && NEEDS_YOU.includes(st)) g.waiting.push(item);
-    else if (st === 'idle' || st === 'error') g.finished.push(item);
+    if (tabNeedsYou(item.tab)) g.waiting.push(item);
+    // idle/error, and a waiting_* tab already seen, all read as "nothing to do here right now"
+    else if (st === 'idle' || st === 'error' || (st && NEEDS_YOU.includes(st))) g.finished.push(item);
     else g.working += 1;
   }
   const oldestWaiting = (g: MachineGroup) => (g.waiting.length ? Math.min(...g.waiting.map((i) => new Date(i.tab.state_at ?? 0).getTime())) : Number.POSITIVE_INFINITY);

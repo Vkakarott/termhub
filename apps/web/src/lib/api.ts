@@ -207,6 +207,8 @@ export const api = {
     screenshotUrl: (id: string) => `/api/tabs/${id}/simulator/screenshot`,
     /** types text into the tab's tmux session (and presses Enter) — no terminal attached needed */
     input: (id: string, text: string, enter = true) => request<{ ok: true; tab: Tab }>('POST', `/tabs/${id}/input`, { text, enter }),
+    /** the user focused this tab: clears its "needs you" flag if it had one (idempotent) */
+    seen: (id: string) => request<{ tab: Tab }>('POST', `/tabs/${id}/seen`),
     events: (id: string, limit = 50) => request<{ events: TabEvent[] }>('GET', `/tabs/${id}/events?limit=${limit}`),
     /** writes the file to ~/.cache/termhub/paste/ on the tab's machine and returns its path */
     pasteFile: (id: string, file: Blob, name?: string) =>

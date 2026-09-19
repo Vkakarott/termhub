@@ -25,6 +25,7 @@ import { PaneLayer, PANE_HEADER_HEIGHT } from './PaneLayer';
 import { FloatingWindow, FLOATING_TITLE_HEIGHT } from './FloatingWindow';
 import { ConfirmDialog } from './Modal';
 import { useData } from '../lib/data';
+import { useMarkSeenOnFocus } from '../lib/monitor';
 import { setTabsOnScreen } from '../lib/visible-tabs';
 
 interface Props {
@@ -124,6 +125,9 @@ export function TerminalsView({ project, visible }: Props) {
   };
 
   const focusedTabId = layout.floating && floatingFocused ? layout.floating.tabId : layout.cells[layout.focusedCell] ?? null;
+
+  // Clears the focused tab's "needs you" dot as soon as the person actually looks at it.
+  useMarkSeenOnFocus(focusedTabId, visible);
 
   // --- Data -----------------------------------------------------------------
   const load = useCallback(async () => {
