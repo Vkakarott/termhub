@@ -13,6 +13,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { ApiToken } from '../db/repositories/api-tokens.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { hashApiToken } from '../auth/api-tokens.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { mcpRoutes } from './route.js';
 import { TokenRateLimiter } from './rate-limit.js';
 
@@ -48,6 +49,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   vi.mocked(listMachines).mockResolvedValue({ machines: [{ id: 'm1', name: 'MacBook Pro M4', type: 'agent', os: 'macos', online: true, capabilities: [] }] });
   vi.mocked(readScreen).mockReset();
+  vi.mocked(listMachines).mockClear();
 });
 
 describe('POST /mcp auth', () => {
@@ -153,6 +155,97 @@ describe('POST /mcp tools', () => {
     const r = await rpc(app, call('list_machines'));
     expect(r.json().result.isError).toBe(true);
     expect(r.json().result.content[0].text).toMatch(/Limite de 1 chamadas por minuto/);
+  });
+});
+
+describe('POST /mcp hardening', () => {
+  it('rejects JSON-RPC batches with 400 and runs nothing', async () => {
+    const { app, apiTokens } = build();
+    const r = await rpc(app, [call('list_machines'), call('list_machines')]);
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toEqual({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Batch requests are not supported' } });
+    await flush();
+    expect(listMachines).not.toHaveBeenCalled();
+    expect(apiTokens.recordEvent).not.toHaveBeenCalled();
+  });
+
+  it('audits and counts a call to a tool outside the allowed set', async () => {
+    const { app, apiTokens } = build({ grants: ['machines:read'], limiter: new TokenRateLimiter(1, 60_000) });
+    await rpc(app, call('read_screen', { tab_id: 't1' }));
+    await flush();
+    expect(apiTokens.recordEvent).toHaveBeenCalledTimes(1);
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ token_id: 'tok1', tool: 'read_screen', tab_id: 't1', ok: false, error_code: 'TOOL_NOT_ALLOWED', duration_ms: 0 });
+    const next = await rpc(app, call('list_machines'));
+    expect(next.json().result.content[0].text).toMatch(/Limite de 1 chamadas por minuto/);
+  });
+
+  it('truncates an unknown tool name to 64 chars in the audit', async () => {
+    const { app, apiTokens } = build();
+    await rpc(app, call('x'.repeat(200)));
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0].tool).toBe('x'.repeat(64));
+  });
+
+  it('audits and counts a call with invalid arguments without running the tool', async () => {
+    const { app, apiTokens } = build({ limiter: new TokenRateLimiter(2, 60_000) });
+    for (const args of [{ tab_id: 't1', lines: 'x' }, {}]) {
+      const r = await rpc(app, call('read_screen', args));
+      expect(r.json().result.isError).toBe(true);
+    }
+    await flush();
+    expect(readScreen).not.toHaveBeenCalled();
+    expect(apiTokens.recordEvent.mock.calls.map((c) => c[0])).toMatchObject([
+      { tool: 'read_screen', tab_id: 't1', ok: false, error_code: 'INVALID_ARGS' },
+      { tool: 'read_screen', ok: false, error_code: 'INVALID_ARGS' },
+    ]);
+    const next = await rpc(app, call('list_machines'));
+    expect(next.json().result.content[0].text).toMatch(/Limite de 2 chamadas por minuto/);
+  });
+
+  it('sets the security headers on a hijacked 200 response', async () => {
+    const { app } = build();
+    const r = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers['x-content-type-options']).toBe('nosniff');
+    expect(r.headers['x-frame-options']).toBe('DENY');
+    expect(r.headers['referrer-policy']).toBe('same-origin');
+  });
+
+  it('closes the MCP server when the client disconnects before the tools are resolved', async () => {
+    const closeSpy = vi.spyOn(McpServer.prototype, 'close');
+    const { app, apiTokens } = build();
+    let reached!: () => void;
+    const inGrantCheck = new Promise<void>((r) => (reached = r));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.mocked(canAccess).mockImplementation(async () => {
+      reached();
+      await gate;
+      return true;
+    });
+    const base = await app.listen({ port: 0, host: '127.0.0.1' });
+    try {
+      const ac = new AbortController();
+      const req = fetch(`${base}/mcp`, {
+        method: 'POST',
+        signal: ac.signal,
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${SECRET}` },
+        body: JSON.stringify(call('list_machines')),
+      }).catch(() => undefined);
+      await inGrantCheck;
+      ac.abort();
+      await req;
+      await vi.waitFor(() => expect(closeSpy).toHaveBeenCalled());
+      release();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(listMachines).not.toHaveBeenCalled();
+      expect(apiTokens.recordEvent).not.toHaveBeenCalled();
+    } finally {
+      release();
+      closeSpy.mockRestore();
+      app.server.closeAllConnections(); // the aborted client's socket would otherwise hold close() for seconds
+      await app.close();
+    }
   });
 });
 
