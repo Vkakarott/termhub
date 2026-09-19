@@ -79,6 +79,9 @@ export class TasksRepository {
    */
   async createSubtasks(parentId: string, items: SubtaskInput[], expectProjectId?: string): Promise<Task[]> {
     return this.db.$transaction(async (tx) => {
+      // Lock the parent row so concurrent writers appending to the same parent (e.g. an MCP tool
+      // and the web board) serialize instead of both reading the same max sibling position.
+      await tx.$queryRaw`SELECT id FROM "tasks" WHERE id = ${parentId} FOR UPDATE`;
       const parent = await tx.task.findUnique({ where: { id: parentId } });
       if (!parent || (expectProjectId && parent.projectId !== expectProjectId)) {
         throw new TaskRuleError('PARENT_NOT_FOUND', 'Tarefa pai não encontrada neste projeto');
@@ -165,6 +168,9 @@ export class TasksRepository {
     if (!current) return undefined;
     if (!current.parent_id) throw new TaskRuleError('NOT_A_SUBTASK', 'Só subtarefas são reordenadas aqui; use mover para tarefas do quadro');
     return this.db.$transaction(async (tx) => {
+      // Lock the parent row so a concurrent createSubtasks/reorder on the same parent serializes
+      // instead of both reading the same sibling snapshot.
+      await tx.$queryRaw`SELECT id FROM "tasks" WHERE id = ${current.parent_id} FOR UPDATE`;
       const siblings = await tx.task.findMany({ where: { parentId: current.parent_id }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true, position: true } });
       const ids = siblings.map((s) => s.id).filter((s) => s !== id);
       ids.splice(Math.max(0, Math.min(Math.trunc(position), ids.length)), 0, id);

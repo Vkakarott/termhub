@@ -59,6 +59,18 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
     await expect(repo.createSubtasks(child.id, [{ title: 'x' }])).rejects.toBeInstanceOf(TaskRuleError);
   });
 
+  it('keeps sibling positions distinct under concurrent createSubtasks calls on the same parent', async () => {
+    const parent = await repo.create(projectId, { title: 'parent' });
+    await Promise.all([
+      repo.createSubtasks(parent.id, [{ title: 'a1' }, { title: 'a2' }]),
+      repo.createSubtasks(parent.id, [{ title: 'b1' }, { title: 'b2' }]),
+    ]);
+
+    const list = await repo.listByProject(projectId);
+    const positions = list[0].subtasks.map((s) => s.position).sort((a, b) => a - b);
+    expect(positions).toEqual([0, 1, 2, 3]);
+  });
+
   it('rejects an unknown parent and a parent from another project, creating nothing', async () => {
     const foreign = await repo.create(otherProjectId, { title: 'foreign' });
     await expect(repo.createSubtasks('nope', [{ title: 'x' }])).rejects.toMatchObject({ code: 'PARENT_NOT_FOUND' });
