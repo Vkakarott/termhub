@@ -285,8 +285,15 @@ model Task {
   tabId       String?    @map("tab_id")
   tab         Tab?       @relation(fields: [tabId], references: [id], onDelete: SetNull)
 
+  /// Subtask: the parent task (one level only, enforced in TasksRepository). Subtasks have no
+  /// board column — `position` orders them among siblings — and are always local (no externalKey).
+  parentId    String?    @map("parent_id")
+  parent      Task?      @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks    Task[]     @relation("TaskSubtasks")
+
   @@unique([projectId, externalKey])
   @@index([projectId, status, position])
+  @@index([parentId, position])
   @@map("tasks")
 }
 
