@@ -6,6 +6,20 @@ import type { Machine } from '../lib/types';
 
 const POLL_MS = 3000;
 
+/**
+ * Installs the agent on the target machine. The agent attaches every terminal to tmux, so the
+ * command first installs tmux when it is missing, through whichever package manager the machine
+ * has (Homebrew, apt, dnf, pacman), and stops with a message when none of them is around.
+ */
+export const INSTALL_COMMAND = [
+  'command -v tmux >/dev/null',
+  '{ command -v brew >/dev/null && brew install tmux; }',
+  '{ command -v apt-get >/dev/null && sudo apt-get install -y tmux; }',
+  '{ command -v dnf >/dev/null && sudo dnf install -y tmux; }',
+  '{ command -v pacman >/dev/null && sudo pacman -S --noconfirm --needed tmux; }',
+  "{ echo 'instale o tmux manualmente e rode o comando de novo'; false; }",
+].join(' || ') + ' && npm i -g @termhub/agent && termhub-agent --version';
+
 /** The `termhub-agent connect` command the user pastes on the target machine. */
 export function enrollCommand(origin: string, token: string): string {
   return `termhub-agent connect --url ${origin} --token ${token}`;
@@ -102,9 +116,9 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
   const origin = window.location.origin;
   const steps: Step[] = [
     {
-      title: 'Instalar o agente',
-      command: 'npm i -g @termhub/agent && termhub-agent --version',
-      hint: 'Precisa de Node 20+ e tmux na máquina.',
+      title: 'Instalar o tmux e o agente',
+      command: INSTALL_COMMAND,
+      hint: 'Precisa de Node 20+. O comando instala o tmux se faltar (brew, apt, dnf ou pacman); em outro sistema, instale o tmux antes.',
       troubleshoot: (
         <>
           <p className="font-semibold text-warn">Deu "command not found"?</p>

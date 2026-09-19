@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AgentEnrollment } from './AgentEnrollment';
+import { AgentEnrollment, INSTALL_COMMAND } from './AgentEnrollment';
 import type { Machine } from '../lib/types';
 
 const statusMock = vi.fn();
@@ -124,5 +124,18 @@ describe('AgentEnrollment', () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(statusMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('INSTALL_COMMAND', () => {
+  it('installs tmux only when it is missing, then the agent', () => {
+    expect(INSTALL_COMMAND.startsWith('command -v tmux >/dev/null || ')).toBe(true);
+    expect(INSTALL_COMMAND).toContain('brew install tmux');
+    expect(INSTALL_COMMAND).toContain('sudo apt-get install -y tmux');
+    expect(INSTALL_COMMAND.endsWith(' && npm i -g @termhub/agent && termhub-agent --version')).toBe(true);
+  });
+
+  it('stops with a message instead of installing the agent when no package manager is found', () => {
+    expect(INSTALL_COMMAND).toContain("{ echo 'instale o tmux manualmente e rode o comando de novo'; false; } && npm i -g");
   });
 });
