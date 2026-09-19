@@ -5,6 +5,7 @@ import type { PtyOpenParams } from '@termhub/agent-protocol';
 import type { AgentSocket } from './client.js';
 import type { PtyManager } from './dispatch.js';
 import { agentEnv, tmuxPath } from './exec.js';
+import { ensureSpawnHelperExecutable, type SpawnHelperStatus } from './pty-health.js';
 
 /**
  * The slice of node-pty's `IPty` this module actually uses. Kept narrow (rather than importing
@@ -35,6 +36,8 @@ export interface PtyManagerDeps {
   spawn?: SpawnFn;
   tmuxPath?: string;
   log: (msg: string, meta?: object) => void;
+  /** Defaults to fixing node-pty's spawn-helper exec bit (see pty-health.ts). */
+  repairSpawnHelper?: () => SpawnHelperStatus;
 }
 
 /** `~` / `~/…` expanded against `HOME`; anything else passed through unchanged. */
@@ -57,6 +60,11 @@ function resolveCwd(rawCwd: string): string {
   const home = process.env.HOME || '/';
   const expanded = expandHome(rawCwd, home);
   return existsDir(expanded) ? expanded : home;
+}
+
+/** node-pty's error when its spawn-helper cannot be executed (usually a lost exec bit). */
+function isSpawnHelperFailure(err: unknown): boolean {
+  return /posix_spawnp failed/.test(err instanceof Error ? err.message : String(err));
 }
 
 function isEnoent(err: unknown): boolean {
@@ -82,6 +90,7 @@ interface ChannelProc {
 export function createPtyManager(deps: PtyManagerDeps): PtyManager {
   const procs = new Map<number, ChannelProc>();
   const tmux = deps.tmuxPath ?? tmuxPath();
+  const repairSpawnHelper = deps.repairSpawnHelper ?? (() => ensureSpawnHelperExecutable());
   let spawnFn: SpawnFn | undefined = deps.spawn;
 
   async function resolveSpawn(): Promise<SpawnFn> {
@@ -115,7 +124,18 @@ export function createPtyManager(deps: PtyManagerDeps): PtyManager {
           TERMHUB_SESSION: params.session,
         };
         const spawn = await resolveSpawn();
-        proc = spawn(tmux, ['-u', 'new-session', '-A', '-s', params.session, '-c', cwd], { name: 'xterm-256color', cols, rows, cwd, env });
+        const spawnTmux = () => spawn(tmux, ['-u', 'new-session', '-A', '-s', params.session, '-c', cwd], { name: 'xterm-256color', cols, rows, cwd, env });
+        try {
+          proc = spawnTmux();
+        } catch (err) {
+          // The startup repair is not enough when node-pty is reinstalled under a running agent
+          // (`npm i -g` without a restart brings a helper without its exec bit): repair and retry once.
+          if (!isSpawnHelperFailure(err)) throw err;
+          const helper = repairSpawnHelper();
+          if (!helper.repaired) throw err;
+          deps.log('spawn-helper exec bit repaired on open', { path: helper.path });
+          proc = spawnTmux();
+        }
       } catch (err) {
         // The wire message stays generic; the local log keeps the real reason (no PTY bytes here).
         deps.log('pty open failed', { ch, session: params.session, tmux, cwd: params.cwd, error: err instanceof Error ? err.message : String(err) });
