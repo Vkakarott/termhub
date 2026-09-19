@@ -39,6 +39,13 @@ const machineBody = z
     if (m.type === 'agent' && m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'máquina com agente não tem host' });
   });
 
+/** Config dirs of the Claude accounts registered on the machine (CLAUDE_CONFIG_DIR): the hooks go there too. */
+async function claudeAccountDirs(repos: Repositories, machineId: string): Promise<string[]> {
+  return (await repos.aiAccounts.list())
+    .filter((a) => a.machine_id === machineId && a.provider === 'claude' && a.config_dir)
+    .map((a) => a.config_dir as string);
+}
+
 const ownerPatch = z.object({ owner_id: z.string().min(1).max(64).nullable().optional() });
 
 const createBody = z
@@ -164,7 +171,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
 
   /**
    * Installs (or reinstalls with a fresh token) the monitor hooks on the machine: the script under
-   * ~/.termhub/bin, the entries in ~/.claude/settings.json and, when Codex is there, config.toml.
+   * ~/.termhub/bin, the entries in ~/.claude/settings.json (and in the config dir of each Claude
+   * account of the machine that exists there) and, when Codex is there, config.toml.
    * Only the token's hash is kept here; the plain token lives in ~/.termhub/hook.env on the machine.
    */
   app.post('/:id/hooks', { config: { action: 'update' } }, async (request) => {
@@ -173,15 +181,15 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const { token, hash } = newHookToken();
     let report;
     try {
-      report = await installHooks(machine, token, config.hooksUrl);
+      report = await installHooks(machine, token, config.hooksUrl, await claudeAccountDirs(repos, machine.id));
     } catch (err) {
       // Agent failures (offline, outdated, what the machine reported) already carry their own status.
       if (err instanceof HttpError) throw err;
       throw conflict(err instanceof Error ? err.message : 'Instalação falhou');
     }
     const hook = await repos.machineHooks.upsert(machine.id, hash);
-    request.log.info({ machineId: machine.id, claude: report.claude, codex: report.codex }, 'monitor: hooks installed');
-    return { installed_at: hook.installed_at, hooks_url: report.hooks_url, claude: report.claude, codex: report.codex };
+    request.log.info({ machineId: machine.id, claude: report.claude, claudeDirs: report.claude_dirs.length, codex: report.codex }, 'monitor: hooks installed');
+    return { installed_at: hook.installed_at, hooks_url: report.hooks_url, claude: report.claude, codex: report.codex, claude_dirs: report.claude_dirs };
   });
 
   /** Removes the hooks from the machine and revokes its token. */
@@ -189,7 +197,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const { id } = idParam.parse(request.params);
     const machine = await scoped(repos, request).machine(id);
     try {
-      await uninstallHooks(machine);
+      await uninstallHooks(machine, await claudeAccountDirs(repos, machine.id));
     } catch (err) {
       if (err instanceof HttpError) throw err;
       throw conflict(err instanceof Error ? err.message : 'Remoção falhou');
