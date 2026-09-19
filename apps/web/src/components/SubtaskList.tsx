@@ -1,11 +1,19 @@
-import { useState, type DragEvent, type FormEvent } from 'react';
+import { useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { Task } from '../lib/types';
 
 interface Props {
   parent: Task;
-  /** The full, reindexed list after every change (optimistic). On failure no snapshot is written here; the parent reloads from the server and reports the error. */
-  onChange: (subtasks: Task[]) => void;
+  /**
+   * The full, reindexed list after every change (optimistic). On failure no snapshot is written
+   * here; the parent reloads from the server and reports the error.
+   *
+   * Optimistic call sites (toggle/rename/remove/reorder) pass a list computed from the props
+   * `subtasks` snapshot, safe since they resolve synchronously from the user's perspective. `add`
+   * awaits the server first, so it passes an updater instead — applied to whatever the list is by
+   * the time the response lands, so it can't revert a change (e.g. a toggle) made during the wait.
+   */
+  onChange: (subtasks: Task[] | ((prev: Task[]) => Task[])) => void;
   onError: (message: string) => void;
 }
 
@@ -38,8 +46,23 @@ export function SubtaskList({ parent, onChange, onError }: Props) {
     );
   };
 
-  const rename = () => {
-    if (!renaming) return;
+  // Enter/Escape settle the edit synchronously and mark it handled so a blur that fires afterward
+  // (e.g. as the input unmounts) can't re-save from a stale closure or save a cancelled edit.
+  const renameHandled = useRef(false);
+
+  const startRename = (s: Task) => {
+    renameHandled.current = false;
+    setRenaming({ id: s.id, title: s.title });
+  };
+
+  const cancelRename = () => {
+    renameHandled.current = true;
+    setRenaming(null);
+  };
+
+  const commitRename = () => {
+    if (renameHandled.current || !renaming) return;
+    renameHandled.current = true;
     const { id, title } = renaming;
     setRenaming(null);
     const v = title.trim();
@@ -58,7 +81,7 @@ export function SubtaskList({ parent, onChange, onError }: Props) {
     setDraft('');
     try {
       const r = await api.tasks.addSubtasks(parent.id, [{ title }]);
-      onChange([...subtasks, ...r.subtasks]);
+      onChange((prev) => [...prev, ...r.subtasks]);
     } catch (err) {
       setDraft(title);
       onError(err instanceof ApiError ? err.message : 'Erro ao criar subtarefa');
@@ -115,16 +138,16 @@ export function SubtaskList({ parent, onChange, onError }: Props) {
                 autoFocus
                 value={renaming.title}
                 onChange={(e) => setRenaming({ id: s.id, title: e.target.value })}
-                onBlur={rename}
+                onBlur={commitRename}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') rename();
-                  if (e.key === 'Escape') setRenaming(null);
+                  if (e.key === 'Enter') commitRename();
+                  if (e.key === 'Escape') cancelRename();
                 }}
               />
             ) : (
               <span
                 className={`flex-1 cursor-text break-words ${s.status === 'done' ? 'text-fg-muted line-through decoration-fg-dim' : ''}`}
-                onClick={() => setRenaming({ id: s.id, title: s.title })}
+                onClick={() => startRename(s)}
               >
                 {s.title}
               </span>

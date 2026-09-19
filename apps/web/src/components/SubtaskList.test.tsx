@@ -99,7 +99,40 @@ describe('SubtaskList', () => {
     fireEvent.change(input, { target: { value: '  nova  ' } });
     fireEvent.submit(input.closest('form')!);
     await waitFor(() => expect(addMock).toHaveBeenCalledWith('parent', [{ title: 'nova' }]));
-    await waitFor(() => expect(onChange.mock.calls.at(-1)![0].map((s: Task) => s.id)).toEqual(['n']));
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    // `add` reports an updater (see the next test for why); apply it to the current (empty) list.
+    const updater = onChange.mock.calls.at(-1)![0];
+    const result = typeof updater === 'function' ? updater([]) : updater;
+    expect(result.map((s: Task) => s.id)).toEqual(['n']);
+  });
+
+  it('add applies to whatever list exists when the response lands, not the one at submit time', async () => {
+    updateMock.mockResolvedValue({ task: {} });
+    let resolveAdd: (v: { subtasks: Task[] }) => void = () => {};
+    addMock.mockImplementation(() => new Promise<{ subtasks: Task[] }>((resolve) => (resolveAdd = resolve)));
+    const onChange = vi.fn();
+    const subs = [task({ id: 'a', parent_id: 'parent' })];
+    render(<SubtaskList parent={parentWith(subs)} onChange={onChange} onError={vi.fn()} />);
+    const input = screen.getByPlaceholderText('Adicionar subtarefa (Enter)');
+    fireEvent.change(input, { target: { value: 'nova' } });
+    fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(addMock).toHaveBeenCalled());
+
+    // A toggle lands (and its own onChange fires) while the add round trip is still pending.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a' }));
+    const toggledList = onChange.mock.calls.at(-1)![0];
+    expect(Array.isArray(toggledList)).toBe(true);
+    expect(toggledList[0].status).toBe('done');
+
+    resolveAdd({ subtasks: [task({ id: 'n', title: 'nova', parent_id: 'parent' })] });
+    await waitFor(() => expect(typeof onChange.mock.calls.at(-1)![0]).toBe('function'));
+    const updater = onChange.mock.calls.at(-1)![0] as (prev: Task[]) => Task[];
+    // Applying the updater to the list that already carries the toggle: both survive.
+    const result = updater(toggledList);
+    expect(result.map((s: Task) => [s.id, s.status])).toEqual([
+      ['a', 'done'],
+      ['n', 'todo'],
+    ]);
   });
 
   it('removes a subtask and reindexes the rest', async () => {
@@ -135,6 +168,34 @@ describe('SubtaskList', () => {
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(updateMock).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a blur that fires after Escape does not resurrect the cancelled edit', () => {
+    const onChange = vi.fn();
+    const subs = [task({ id: 'a', parent_id: 'parent' })];
+    render(<SubtaskList parent={parentWith(subs)} onChange={onChange} onError={vi.fn()} />);
+    fireEvent.click(screen.getByText('a'));
+    const input = screen.getByDisplayValue('a');
+    fireEvent.change(input, { target: { value: 'renomeada' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    // Escape unmounts the input synchronously; blur is only meaningful if it's still attached.
+    if (document.body.contains(input)) fireEvent.blur(input);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a blur that fires after Enter does not re-save the already-committed rename', async () => {
+    updateMock.mockResolvedValue({ task: {} });
+    const onChange = vi.fn();
+    const subs = [task({ id: 'a', parent_id: 'parent' })];
+    render(<SubtaskList parent={parentWith(subs)} onChange={onChange} onError={vi.fn()} />);
+    fireEvent.click(screen.getByText('a'));
+    const input = screen.getByDisplayValue('a');
+    fireEvent.change(input, { target: { value: 'renomeada' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    if (document.body.contains(input)) fireEvent.blur(input);
+    await waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1));
+    expect(updateMock).toHaveBeenCalledWith('a', { title: 'renomeada' });
   });
 
   it('reorders on drag and drop and persists', async () => {

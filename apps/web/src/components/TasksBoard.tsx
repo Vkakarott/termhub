@@ -72,7 +72,8 @@ export function TasksBoard({ projectId }: Props) {
   // PATCH/move answer with the bare task: keep the subtasks the list endpoint gave us
   const replaceTask = (task: Task) => setTasks((t) => (t ?? []).map((x) => (x.id === task.id ? { ...task, subtasks: task.subtasks ?? x.subtasks } : x)));
 
-  const setSubtasks = (parentId: string, subtasks: Task[]) => setTasks((t) => (t ?? []).map((x) => (x.id === parentId ? { ...x, subtasks } : x)));
+  const setSubtasks = (parentId: string, v: Task[] | ((prev: Task[]) => Task[])) =>
+    setTasks((t) => (t ?? []).map((x) => (x.id === parentId ? { ...x, subtasks: typeof v === 'function' ? v(x.subtasks ?? []) : v } : x)));
 
   const openTerminal = async (id: string) => {
     try {
@@ -408,7 +409,7 @@ interface EditorProps {
   onOpenTerminal: () => void;
   onPushStatus: () => Promise<string | null>;
   terminalHref: string | null;
-  onSubtasks: (subtasks: Task[]) => void;
+  onSubtasks: (subtasks: Task[] | ((prev: Task[]) => Task[])) => void;
   onError: (message: string) => void;
 }
 
