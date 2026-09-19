@@ -1,6 +1,7 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
-import { mapTask, type Task, type TaskStatus } from './types.js';
+import { nestTasks } from './task-tree.js';
+import { mapTask, type Task, type TaskStatus, type TaskWithSubtasks } from './types.js';
 
 /** JSON com chaves ordenadas (JSONB do Postgres reordena as chaves). */
 function stableStringify(v: unknown): string {
@@ -15,7 +16,28 @@ function stableStringify(v: unknown): string {
   return JSON.stringify(v);
 }
 
+export type TaskRuleCode = 'PARENT_NOT_FOUND' | 'PARENT_IS_SUBTASK' | 'SUBTASK_CANNOT_MOVE' | 'NOT_A_SUBTASK';
+
+/** A subtask rule was broken. `message` is pt-BR and safe to show to the user. */
+export class TaskRuleError extends Error {
+  constructor(
+    readonly code: TaskRuleCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'TaskRuleError';
+  }
+}
+
 export interface TaskInput {
+  title: string;
+  description?: string | null;
+  status?: TaskStatus;
+  /** Creates a subtask of this task. Ignored by `update` (no reparenting). */
+  parent_id?: string | null;
+}
+
+export interface SubtaskInput {
   title: string;
   description?: string | null;
   status?: TaskStatus;
@@ -24,9 +46,10 @@ export interface TaskInput {
 export class TasksRepository {
   constructor(private db: PrismaClient) {}
 
-  async listByProject(projectId: string): Promise<Task[]> {
+  /** Top-level tasks with their subtasks nested. */
+  async listByProject(projectId: string): Promise<TaskWithSubtasks[]> {
     const rows = await this.db.task.findMany({ where: { projectId }, orderBy: [{ status: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }] });
-    return rows.map(mapTask);
+    return nestTasks(rows.map(mapTask));
   }
 
   async findById(id: string): Promise<Task | undefined> {
@@ -34,11 +57,15 @@ export class TasksRepository {
     return t ? mapTask(t) : undefined;
   }
 
-  /** Cria no topo da coluna (position 0), empurrando as demais. */
+  /** Top-level: created at the top of its column (position 0), pushing the others down. Subtask: appended last. */
   async create(projectId: string, input: TaskInput): Promise<Task> {
+    if (input.parent_id) {
+      const [subtask] = await this.createSubtasks(input.parent_id, [{ title: input.title, description: input.description, status: input.status }], projectId);
+      return subtask;
+    }
     const status = input.status ?? 'todo';
     return this.db.$transaction(async (tx) => {
-      await tx.task.updateMany({ where: { projectId, status }, data: { position: { increment: 1 } } });
+      await tx.task.updateMany({ where: { projectId, status, parentId: null }, data: { position: { increment: 1 } } });
       const t = await tx.task.create({
         data: { id: newId(), projectId, title: input.title, description: input.description ?? null, status, position: 0 },
       });
@@ -46,10 +73,48 @@ export class TasksRepository {
     });
   }
 
+  /**
+   * Appends subtasks to `parentId` in one transaction. One level only: the parent must be a
+   * top-level task (of `expectProjectId`, when given). Subtasks inherit the parent's project.
+   */
+  async createSubtasks(parentId: string, items: SubtaskInput[], expectProjectId?: string): Promise<Task[]> {
+    return this.db.$transaction(async (tx) => {
+      const parent = await tx.task.findUnique({ where: { id: parentId } });
+      if (!parent || (expectProjectId && parent.projectId !== expectProjectId)) {
+        throw new TaskRuleError('PARENT_NOT_FOUND', 'Tarefa pai não encontrada neste projeto');
+      }
+      if (parent.parentId) throw new TaskRuleError('PARENT_IS_SUBTASK', 'Uma subtarefa não pode ter subtarefas');
+      const agg = await tx.task.aggregate({ where: { parentId }, _max: { position: true } });
+      let position = (agg._max.position ?? -1) + 1;
+      const created: Task[] = [];
+      for (const item of items) {
+        const t = await tx.task.create({
+          data: {
+            id: newId(),
+            projectId: parent.projectId,
+            parentId,
+            title: item.title,
+            description: item.description ?? null,
+            status: item.status ?? 'todo',
+            position: position++,
+          },
+        });
+        created.push(mapTask(t));
+      }
+      return created;
+    });
+  }
+
+  /** Ids of a task's subtasks (the route unlinks their tickets before a cascading delete). */
+  async childIds(id: string): Promise<string[]> {
+    const rows = await this.db.task.findMany({ where: { parentId: id }, select: { id: true } });
+    return rows.map((r) => r.id);
+  }
+
   async update(id: string, patch: Partial<TaskInput>): Promise<Task | undefined> {
     const current = await this.findById(id);
     if (!current) return undefined;
-    if (patch.status && patch.status !== current.status) {
+    if (!current.parent_id && patch.status && patch.status !== current.status) {
       return this.move(id, patch.status, 0, { title: patch.title, description: patch.description });
     }
     const t = await this.db.task.update({
@@ -57,6 +122,7 @@ export class TasksRepository {
       data: {
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(current.parent_id && patch.status ? { status: patch.status } : {}),
       },
     });
     return mapTask(t);
@@ -66,17 +132,18 @@ export class TasksRepository {
   async move(id: string, status: TaskStatus, position: number, extra?: { title?: string; description?: string | null }): Promise<Task | undefined> {
     const current = await this.findById(id);
     if (!current) return undefined;
+    if (current.parent_id) throw new TaskRuleError('SUBTASK_CANNOT_MOVE', 'Subtarefas não ficam em colunas; mude o status ou reordene');
     return this.db.$transaction(async (tx) => {
       // remove da coluna de origem
       await tx.task.updateMany({
-        where: { projectId: current.project_id, status: current.status, position: { gt: current.position } },
+        where: { projectId: current.project_id, status: current.status, parentId: null, position: { gt: current.position } },
         data: { position: { decrement: 1 } },
       });
-      const count = await tx.task.count({ where: { projectId: current.project_id, status, id: { not: id } } });
+      const count = await tx.task.count({ where: { projectId: current.project_id, status, parentId: null, id: { not: id } } });
       const pos = Math.max(0, Math.min(position, count));
       // abre espaço na coluna de destino
       await tx.task.updateMany({
-        where: { projectId: current.project_id, status, position: { gte: pos }, id: { not: id } },
+        where: { projectId: current.project_id, status, parentId: null, position: { gte: pos }, id: { not: id } },
         data: { position: { increment: 1 } },
       });
       const t = await tx.task.update({
@@ -92,13 +159,33 @@ export class TasksRepository {
     });
   }
 
+  /** Moves a subtask to `position` among its siblings (clamped), reindexing them 0..n-1. */
+  async reorder(id: string, position: number): Promise<Task | undefined> {
+    const current = await this.findById(id);
+    if (!current) return undefined;
+    if (!current.parent_id) throw new TaskRuleError('NOT_A_SUBTASK', 'Só subtarefas são reordenadas aqui; use mover para tarefas do quadro');
+    return this.db.$transaction(async (tx) => {
+      const siblings = await tx.task.findMany({ where: { parentId: current.parent_id }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true, position: true } });
+      const ids = siblings.map((s) => s.id).filter((s) => s !== id);
+      ids.splice(Math.max(0, Math.min(Math.trunc(position), ids.length)), 0, id);
+      for (const [i, siblingId] of ids.entries()) {
+        if (siblings.find((s) => s.id === siblingId)?.position !== i) await tx.task.update({ where: { id: siblingId }, data: { position: i } });
+      }
+      const t = await tx.task.findUniqueOrThrow({ where: { id } });
+      return mapTask(t);
+    });
+  }
+
+  /** Deletes the task (its subtasks cascade) and closes the gap: in its column, or among its siblings. */
   async delete(id: string): Promise<boolean> {
     const current = await this.findById(id);
     if (!current) return false;
     await this.db.$transaction(async (tx) => {
       await tx.task.delete({ where: { id } });
       await tx.task.updateMany({
-        where: { projectId: current.project_id, status: current.status, position: { gt: current.position } },
+        where: current.parent_id
+          ? { parentId: current.parent_id, position: { gt: current.position } }
+          : { projectId: current.project_id, status: current.status, parentId: null, position: { gt: current.position } },
         data: { position: { decrement: 1 } },
       });
     });
@@ -107,7 +194,7 @@ export class TasksRepository {
 
   /** Cria a task a partir de um ticket sincronizado (vai para o fim do backlog). */
   async createFromTicket(projectId: string, ticket: { key: string; title: string; description: string | null; ref: Record<string, unknown> }): Promise<Task> {
-    const agg = await this.db.task.aggregate({ where: { projectId, status: 'backlog' }, _max: { position: true } });
+    const agg = await this.db.task.aggregate({ where: { projectId, status: 'backlog', parentId: null }, _max: { position: true } });
     const t = await this.db.task.create({
       data: {
         id: newId(),
@@ -135,14 +222,14 @@ export class TasksRepository {
 
   /** Contagem de tasks abertas (todo + doing) por projeto. */
   async openCountByProject(): Promise<Record<string, number>> {
-    const rows = await this.db.task.groupBy({ by: ['projectId'], where: { status: { in: ['todo', 'doing'] } }, _count: { _all: true } });
+    const rows = await this.db.task.groupBy({ by: ['projectId'], where: { status: { in: ['todo', 'doing'] }, parentId: null }, _count: { _all: true } });
     return Object.fromEntries(rows.map((r) => [r.projectId, r._count._all]));
   }
 
   /** `owner`: only tasks of projects on machines of that user (null = all). */
   async listDoing(owner: string | null = null): Promise<Task[]> {
     const rows = await this.db.task.findMany({
-      where: { status: 'doing', ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
+      where: { status: 'doing', parentId: null, ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
       orderBy: [{ projectId: 'asc' }, { position: 'asc' }],
     });
     return rows.map(mapTask);

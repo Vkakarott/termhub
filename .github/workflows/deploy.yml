@@ -35,9 +35,14 @@ jobs:
         run: npm run build -w @termhub/agent
       - name: Instalar tmux (teste e2e do agente)
         run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Aplicar migrations (testes de repositório usam o Postgres)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/termhub
+        run: cd apps/server && npx prisma migrate deploy
       - name: Testes server
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/termhub
+          TERMHUB_DB_TESTS: '1'
         run: npm test -w @termhub/server
       - name: Testes web
         run: npm test -w @termhub/web
