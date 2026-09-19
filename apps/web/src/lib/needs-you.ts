@@ -41,10 +41,23 @@ export function needsYouText(tab: Tab): string {
 }
 
 /**
- * Whether to tell the server the person just looked at this tab: it needs you, and both the
- * terminals view (this tab focused, on screen) and the browser window are actually visible.
- * Pure so the effect (useMarkSeenOnFocus, in monitor.tsx/TerminalsView) stays a thin wrapper.
+ * Whether to tell the server the person just looked at this tab: the user can (`terminals:update`
+ * — a 403 loop is not worth an optimistic clear), it needs you, and both the terminals view (this
+ * tab focused, on screen) and the browser window are actually visible. Pure so the effect
+ * (useMarkSeenOnFocus, in monitor.tsx/TerminalsView) stays a thin wrapper.
  */
-export function shouldMarkSeen(tab: NeedsYouTab, opts: { viewVisible: boolean; windowActive: boolean }): boolean {
-  return opts.viewVisible && opts.windowActive && tabNeedsYou(tab);
+export function shouldMarkSeen(tab: NeedsYouTab, opts: { viewVisible: boolean; windowActive: boolean; canMark: boolean }): boolean {
+  return opts.canMark && opts.viewVisible && opts.windowActive && tabNeedsYou(tab);
+}
+
+/**
+ * The optimistic `state_seen_at` written to the client's own copy of the tab right before the
+ * server confirms it: never earlier than the tab's `state_at`, so a browser clock running behind
+ * the server can't write a seen time that still reads as "before the wait started" — which would
+ * leave `tabNeedsYou` true and the dot stuck on. The server's own write (its clock) is what
+ * actually lands in the database; this only has to look right until that push arrives.
+ */
+export function optimisticSeenAt(tab: Pick<Tab, 'state_at'>, now: Date = new Date()): string {
+  const nowIso = now.toISOString();
+  return tab.state_at && tab.state_at > nowIso ? tab.state_at : nowIso;
 }

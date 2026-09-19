@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MonitorItem, Tab } from './types';
-import { entersNeedsYou, needsYouByProject, needsYouText, shouldMarkSeen, tabDotClass, tabNeedsYou } from './needs-you';
+import { entersNeedsYou, needsYouByProject, needsYouText, optimisticSeenAt, shouldMarkSeen, tabDotClass, tabNeedsYou } from './needs-you';
 import { isTabOnScreen, setTabsOnScreen } from './visible-tabs';
 
 const T1 = '2026-01-01T00:00:00.000Z';
@@ -124,26 +124,44 @@ describe('needsYouText', () => {
 
 describe('shouldMarkSeen', () => {
   const waitingUnseen = tab({ state: 'waiting_input', state_at: T1 });
+  const active = { viewVisible: true, windowActive: true, canMark: true };
 
-  it('is true only when the tab needs you, the view is visible and the window is active', () => {
-    expect(shouldMarkSeen(waitingUnseen, { viewVisible: true, windowActive: true })).toBe(true);
+  it('is true only when the user can mark it, the tab needs you, the view is visible and the window is active', () => {
+    expect(shouldMarkSeen(waitingUnseen, active)).toBe(true);
+  });
+
+  it('is false when the user lacks terminals:update', () => {
+    expect(shouldMarkSeen(waitingUnseen, { ...active, canMark: false })).toBe(false);
   });
 
   it('is false while the terminals view is not visible', () => {
-    expect(shouldMarkSeen(waitingUnseen, { viewVisible: false, windowActive: true })).toBe(false);
+    expect(shouldMarkSeen(waitingUnseen, { ...active, viewVisible: false })).toBe(false);
   });
 
   it('is false while the browser window is not visible/focused', () => {
-    expect(shouldMarkSeen(waitingUnseen, { viewVisible: true, windowActive: false })).toBe(false);
+    expect(shouldMarkSeen(waitingUnseen, { ...active, windowActive: false })).toBe(false);
   });
 
   it('is false when the tab is not waiting', () => {
-    expect(shouldMarkSeen(tab({ state: 'working' }), { viewVisible: true, windowActive: true })).toBe(false);
+    expect(shouldMarkSeen(tab({ state: 'working' }), active)).toBe(false);
   });
 
   it('is false when the tab is already seen', () => {
     const seen = tab({ state: 'waiting_input', state_at: T1, state_seen_at: T1 });
-    expect(shouldMarkSeen(seen, { viewVisible: true, windowActive: true })).toBe(false);
+    expect(shouldMarkSeen(seen, active)).toBe(false);
+  });
+});
+
+describe('optimisticSeenAt', () => {
+  it('uses "now" when the tab\'s state_at is not newer (the common case)', () => {
+    const now = new Date(T2);
+    expect(optimisticSeenAt({ state_at: T1 }, now)).toBe(T2);
+    expect(optimisticSeenAt({ state_at: null }, now)).toBe(T2);
+  });
+
+  it('never goes earlier than state_at, so a browser clock behind the server cannot leave the dot on', () => {
+    const behindClock = new Date(T1); // the browser thinks it's T1, but the wait already started at T2
+    expect(optimisticSeenAt({ state_at: T2 }, behindClock)).toBe(T2);
   });
 });
 

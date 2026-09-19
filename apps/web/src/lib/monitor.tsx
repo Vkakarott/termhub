@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
-import { entersNeedsYou, shouldMarkSeen, tabNeedsYou } from './needs-you';
+import { useAuth } from './auth';
+import { entersNeedsYou, optimisticSeenAt, shouldMarkSeen, tabNeedsYou } from './needs-you';
 import type { MonitorItem, Tab } from './types';
 
 /** Called when a push moves a tab into a waiting state (never for the snapshot on load). */
@@ -122,8 +123,11 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       },
       async markSeen(tabId) {
         // Optimistic: the WS push from the server confirms it (and syncs every other device).
-        const now = new Date().toISOString();
-        setItems((list) => list.map((i) => (i.tab.id === tabId ? { ...i, tab: { ...i.tab, state_seen_at: now } } : i)));
+        // optimisticSeenAt never goes earlier than the tab's own state_at, so a browser clock
+        // running behind the server can't write a seen time that still reads as "unseen".
+        const current = itemsRef.current.find((i) => i.tab.id === tabId)?.tab;
+        const seenAt = optimisticSeenAt({ state_at: current?.state_at ?? null });
+        setItems((list) => list.map((i) => (i.tab.id === tabId ? { ...i, tab: { ...i.tab, state_seen_at: seenAt } } : i)));
         try {
           await api.tabs.seen(tabId);
         } catch {
@@ -148,23 +152,26 @@ export function useMonitor(): MonitorState {
 
 /**
  * Marks the focused tab seen (clears its "needs you" dot) as soon as the person is actually
- * looking at it: the terminals view visible, this tab focused, and the browser window itself
- * visible and focused (not just another app on top). Re-checks on focus changes, on a monitor
- * push for this tab (a new needs-you event while looking at it re-arms it), and on the window
- * regaining focus/visibility — `shouldMarkSeen` (needs-you.ts) makes the call; `markSeen`
- * (above) fires at most once per (tab id, state_at) via its own dedupe below.
+ * looking at it: they can (`terminals:update` — no point in an optimistic clear that just 403s
+ * and bounces back on reload), the terminals view is visible, this tab is focused, and the
+ * browser window itself is visible and focused (not just another app on top). Re-checks on focus
+ * changes, on a monitor push for this tab (a new needs-you event while looking at it re-arms it),
+ * and on the window regaining focus/visibility — `shouldMarkSeen` (needs-you.ts) makes the call;
+ * `markSeen` (above) fires at most once per (tab id, state_at) via its own dedupe below.
  */
 export function useMarkSeenOnFocus(tabId: string | null, viewVisible: boolean): void {
   const { tabState, markSeen } = useMonitor();
+  const { can } = useAuth();
+  const canMark = can('terminals', 'update');
   const askedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!tabId) return;
+    if (!tabId || !canMark) return;
     const check = () => {
       const tab = tabState(tabId);
       if (!tab) return;
       const windowActive = document.visibilityState === 'visible' && document.hasFocus();
-      if (!shouldMarkSeen(tab, { viewVisible, windowActive })) return;
+      if (!shouldMarkSeen(tab, { viewVisible, windowActive, canMark })) return;
       const key = `${tabId}:${tab.state_at}`;
       if (askedRef.current === key) return;
       askedRef.current = key;
@@ -177,5 +184,5 @@ export function useMarkSeenOnFocus(tabId: string | null, viewVisible: boolean): 
       window.removeEventListener('focus', check);
       document.removeEventListener('visibilitychange', check);
     };
-  }, [tabId, viewVisible, tabState, markSeen]);
+  }, [tabId, viewVisible, canMark, tabState, markSeen]);
 }
