@@ -9,7 +9,8 @@ export const pasteName = z.string().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/);
 export const aiProvider = z.enum(['claude', 'chatgpt', 'gemini', 'antigravity']);
 
 export const rpcErrorSchema = z.object({
-  code: z.enum(['eperm', 'notfound', 'no_tmux', 'timeout', 'invalid', 'internal']),
+  /** `failed`: the operation ran on the machine and `message` says why it failed, in words meant for the user. */
+  code: z.enum(['eperm', 'notfound', 'no_tmux', 'timeout', 'invalid', 'internal', 'failed']),
   message: z.string().max(2000),
   path: z.string().max(4096).optional(),
 });
@@ -36,6 +37,13 @@ export const RPC = {
   ),
   'ai.credential': def(z.object({ provider: aiProvider, config_dir: machinePath.nullable() }), z.object({ stdout: z.string() }), 10_000),
   'file.paste': def(z.object({ name: pasteName, data_b64: z.string().min(1).max(28 * 1024 * 1024) }), z.object({ path: z.string() }), 60_000),
+  /** Monitor hooks (see @termhub/machine-ops hooks.ts): the agent writes the script, env and config entries under its own $HOME. */
+  'hooks.install': def(
+    z.object({ hooks_url: z.string().min(1).max(2048).regex(/^https?:\/\/[^\s'"]+$/), token: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/) }),
+    z.object({ home: z.string(), claude: z.enum(['installed', 'skipped']), codex: z.enum(['installed', 'skipped']) }),
+    15_000,
+  ),
+  'hooks.uninstall': def(z.object({}), z.object({ removed: z.boolean() }), 15_000),
 } as const;
 
 export type RpcMethod = keyof typeof RPC;

@@ -118,7 +118,7 @@ export function WaitlistForm() {
           <label className="text-caption font-medium uppercase tracking-wide text-muted" htmlFor="wl-email">{f.email}</label>
           <button
             type="button"
-            className="peer rounded-tint text-[16px] leading-none text-muted transition duration-150 hover:text-frost focus-visible:text-frost focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+            className="peer tap-icon rounded-tint text-[16px] leading-none text-muted transition duration-150 hover:text-frost focus-visible:text-frost focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
             aria-label={f.email_why}
             aria-describedby="wl-email-tip"
             onMouseEnter={openTip}

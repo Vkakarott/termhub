@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,7 +10,9 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, MachineType } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { agents } from '../agent/registry.js';
+import { AgentRpcError } from '../agent/connection.js';
 import { AGENT_TOKEN_RE, hashAgentToken } from '../agent/token.js';
+import { HOOK_TOKEN_PREFIX, hashHookToken } from '../monitor/token.js';
 import { machineRoutes } from './machines.js';
 
 function makeMachine(overrides: Partial<Machine> & { type: MachineType }): Machine {
@@ -231,24 +234,88 @@ describe('GET /api/machines/:id/simulators', () => {
 });
 
 describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
-  it('POST answers 409 without shelling out or minting a token', async () => {
+  /** A connected agent as the registry sees it: hello + an rpc stub, no socket. */
+  function attachAgent(version: string, rpc = vi.fn()) {
+    const conn = Object.assign(new EventEmitter(), {
+      hello: { type: 'hello', protocol: 1, agent_version: version, os: 'macos', tools: ['tmux'] },
+      connectedAt: Date.now(),
+      rpc,
+      close: vi.fn(),
+    });
+    agents.attach('m1', conn as never);
+    return rpc;
+  }
+
+  it('POST answers 503 when the agent is offline, without minting a token', async () => {
     store.m1 = makeMachine({ id: 'm1', type: 'agent' });
     const built = buildApp(store);
     app = built.app;
     const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).toBe('Instalação de hooks ainda não disponível em máquinas com agente');
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toBe('Agente desconectado');
     expect(built.repos.machineHooks.upsert).not.toHaveBeenCalled();
     expect(execFile).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
 
-  it('DELETE answers 409 and keeps whatever is stored', async () => {
+  it('POST answers 409 AGENT_OUTDATED for an agent that predates the hooks RPC, without calling it', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    const rpc = attachAgent('0.1.3');
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('AGENT_OUTDATED');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(built.repos.machineHooks.upsert).not.toHaveBeenCalled();
+  });
+
+  it('POST installs through hooks.install and stores the hash of the token it sent', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    const rpc = attachAgent('0.1.4', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'skipped' })));
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ installed_at: '2026-01-01T00:00:00.000Z', claude: 'installed', codex: 'skipped' });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [method, params] = rpc.mock.calls[0] as [string, { hooks_url: string; token: string }];
+    expect(method).toBe('hooks.install');
+    expect(params.hooks_url).toBe(res.json().hooks_url);
+    expect(params.token.startsWith(HOOK_TOKEN_PREFIX)).toBe(true);
+    expect(built.repos.machineHooks.upsert).toHaveBeenCalledWith('m1', hashHookToken(params.token));
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('POST relays what the machine reported (rpc error "failed") as 502 and stores nothing', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    attachAgent('0.1.4', vi.fn(async () => { throw new AgentRpcError({ code: 'failed', message: '~/.claude/settings.json não é JSON válido', path: '.claude/settings.json' }); }));
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error).toBe('~/.claude/settings.json não é JSON válido');
+    expect(built.repos.machineHooks.upsert).not.toHaveBeenCalled();
+  });
+
+  it('DELETE removes through hooks.uninstall and forgets the token', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    const rpc = attachAgent('0.1.4', vi.fn(async () => ({ removed: true })));
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('hooks.uninstall', {}, undefined);
+    expect(built.repos.machineHooks.delete).toHaveBeenCalledWith('m1');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('DELETE answers 503 for an offline agent and keeps whatever is stored', async () => {
     store.m1 = makeMachine({ id: 'm1', type: 'agent' });
     const built = buildApp(store);
     app = built.app;
     const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1/hooks' });
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(built.repos.machineHooks.delete).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });

@@ -27,14 +27,14 @@ function TerminalPanel() {
         <span className="h-2 w-2 rounded-full bg-muted" />
         <span className="h-2 w-2 rounded-full bg-muted" />
         <span className="h-2 w-2 rounded-full bg-muted" />
-        <span className="ml-3 flex gap-1 text-[11px]">
+        <span className="ml-3 flex gap-1 text-caption">
           <span className="rounded-tint bg-border-2 px-2 py-0.5 text-frost">claude</span>
           <span className="rounded-tint px-2 py-0.5 text-muted">server</span>
           <span className="rounded-tint px-2 py-0.5 text-muted">logs</span>
         </span>
         <span className="ml-auto hidden text-caption-sm text-muted sm:block">tmux · UTF-8</span>
       </div>
-      <pre className="flex-1 overflow-hidden p-3 font-mono text-[10px] leading-[1.5] md:p-4 md:text-[12px] md:leading-5">
+      <pre className="flex-1 overflow-hidden p-3 font-mono text-[12px] leading-[1.5] md:p-4 md:leading-5">
         {lines.map((line, i) => (
           <div
             key={i}
@@ -48,7 +48,7 @@ function TerminalPanel() {
           <span className="inline-block h-3 w-[6px] animate-pulse bg-frost align-middle md:h-4 md:w-2" />
         </div>
       </pre>
-      <div className="flex items-center gap-2 border-t border-border-2 px-3 py-1 text-[11px] text-muted">
+      <div className="flex items-center gap-2 border-t border-border-2 px-3 py-1 text-caption text-muted">
         <span className="rounded-tint bg-border-2 px-1.5 text-frost">{t.mock.status}</span>
         <span className="truncate">{t.mock.hint}</span>
         <span className="ml-auto hidden font-mono sm:block">tmux</span>
@@ -65,7 +65,7 @@ function HardwarePanel() {
       <div className="grid grid-cols-2 gap-2 md:gap-3">
         {hw.kpis.map((kpi) => (
           <div key={kpi.label} className="rounded-field border border-border-2 bg-canvas p-2 md:p-2.5">
-            <p className="text-[10px] uppercase tracking-wide text-muted">{kpi.label}</p>
+            <p className="text-caption uppercase tracking-wide text-muted">{kpi.label}</p>
             <p className="mt-0.5 text-[12px] font-medium text-white md:text-body-sm">{kpi.value}</p>
             <span className="mt-1.5 block h-[3px] w-full rounded-full bg-border-2">
               <span className="block h-full rounded-full bg-accent" style={{ width: `${kpi.pct}%` }} />
@@ -87,7 +87,7 @@ function HardwarePanel() {
           </div>
         ))}
       </div>
-      <p className="mt-auto text-[10px] text-muted">{hw.caption}</p>
+      <p className="mt-auto text-caption text-muted">{hw.caption}</p>
     </div>
   );
 }
@@ -111,7 +111,7 @@ function SimulatorPanel() {
             </div>
           </div>
         </div>
-        <ul className="space-y-1.5 text-[11px] text-frost md:space-y-2 md:text-caption">
+        <ul className="space-y-1.5 text-caption text-frost md:space-y-2">
           {ios.actions.map((action) => (
             <li key={action} className="flex items-center gap-2">
               <span className="h-1 w-1 shrink-0 rounded-full bg-accent" />
@@ -120,7 +120,7 @@ function SimulatorPanel() {
           ))}
         </ul>
       </div>
-      <p className="pt-2 text-[10px] text-muted">{ios.caption}</p>
+      <p className="pt-2 text-caption text-muted">{ios.caption}</p>
     </div>
   );
 }
@@ -131,15 +131,15 @@ function KanbanPanel() {
     <div className="grid h-full grid-cols-2 gap-1.5 p-2.5 md:grid-cols-4 md:gap-3 md:p-4">
       {t.carousel.kanban.columns.map((column) => (
         <div key={column.title} className="flex min-w-0 flex-col gap-1 md:gap-2">
-          <p className="text-[10px] uppercase tracking-wide text-muted">{column.title}</p>
+          <p className="text-caption uppercase tracking-wide text-muted">{column.title}</p>
           {column.cards.map((card, i) => (
             <div
               key={card.text}
-              className={`rounded-field border border-border-2 bg-surface p-1.5 text-[11px] text-frost md:p-2 md:text-caption ${i > 1 ? 'hidden md:block' : ''}`}
+              className={`rounded-field border border-border-2 bg-surface p-1.5 text-caption text-frost md:p-2 ${i > 1 ? 'hidden md:block' : ''}`}
             >
               <span className="block">{card.text}</span>
               {card.chip ? (
-                <span className="mt-1 inline-block rounded-tint border border-border-2 px-1 font-mono text-[9px] text-accent">{card.chip}</span>
+                <span className="mt-1 inline-block rounded-tint border border-border-2 px-1 font-mono text-caption text-accent">{card.chip}</span>
               ) : null}
             </div>
           ))}
@@ -223,7 +223,7 @@ export function HeroCarousel() {
             aria-controls={`hero-panel-${i}`}
             tabIndex={i === active ? 0 : -1}
             onClick={() => selectTab(i)}
-            className={`rounded-tint px-2 py-1 text-body-sm font-medium transition duration-150 ${
+            className={`rounded-tint px-2 py-1 text-body-sm font-medium transition duration-150 coarse:min-h-11 ${
               i === active ? 'border-b-2 border-accent text-white' : 'border-b-2 border-transparent text-muted hover:text-frost'
             }`}
           >
@@ -233,7 +233,7 @@ export function HeroCarousel() {
       </div>
       <div
         ref={frameRef}
-        className="reveal relative aspect-[16/10] w-full overflow-hidden rounded-card border border-border-2 bg-surface"
+        className="reveal relative h-[268px] w-full md:aspect-[16/10] md:h-auto overflow-hidden rounded-card border border-border-2 bg-surface"
       >
         {PANELS.map((Panel, i) => (
           <div

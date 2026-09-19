@@ -455,4 +455,11 @@ export interface WaitlistEntry {
   locale: string;
   source: string;
   created_at: string;
+  /** when the alpha invite was (last) sent from the Waitlist tab; null = not invited yet */
+  invited_at: string | null;
 }
+
+/** One entry's outcome of POST /users/invite-from-waitlist. */
+export type WaitlistInviteResult =
+  | { id: string; error: string }
+  | { id: string; user_id: string; existing: boolean; access: InviteResult['access']; mail: InviteResult['mail'] };

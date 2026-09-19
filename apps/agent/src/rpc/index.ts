@@ -1,6 +1,7 @@
 import type { RpcMethod, RpcParams, RpcResult } from '@termhub/agent-protocol';
 import * as ai from './ai.js';
 import * as fs from './fs.js';
+import * as hooks from './hooks.js';
 import * as hw from './hw.js';
 import * as paste from './paste.js';
 import * as tmux from './tmux.js';
@@ -22,4 +23,6 @@ export const handlers: Handlers = {
   'fs.mkdir': fs.mkdir,
   'ai.credential': ai.credential,
   'file.paste': paste.pasteFile,
+  'hooks.install': hooks.install,
+  'hooks.uninstall': hooks.uninstall,
 };

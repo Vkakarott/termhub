@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PRESETS, type Preset } from '../lib/layout';
-import { NEEDS_YOU, TAB_STATE_LABEL, type Tab } from '../lib/types';
+import { TAB_STATE_LABEL, type Tab } from '../lib/types';
+import { tabDotClass } from '../lib/needs-you';
 import { useMonitor } from '../lib/monitor';
 
 interface Props {
@@ -89,26 +90,16 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
               title={`${t.name} — ${t.kind === 'simulator' ? 'simulador iOS' : t.tmux_session}${i < 9 ? `  (⌘${i + 1})` : ''}`}
             >
               {(active || shown) && <span className={`absolute inset-x-0 top-0 h-px ${active ? 'bg-accent' : 'bg-accent/40'}`} />}
-              <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.alive ? 'bg-ok' : 'bg-fg-dim'}`}
-                title={t.kind === 'simulator' ? (t.alive ? 'simulador conectado' : 'simulador desconectado') : t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada'}
-              />
+              {(() => {
+                const st = tabState(t.id)?.state;
+                const base = t.kind === 'simulator' ? (t.alive ? 'simulador conectado' : 'simulador desconectado') : t.alive ? 'sessão tmux ativa' : 'sessão tmux não iniciada';
+                return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tabDotClass(t.alive, st)}`} title={st && st !== 'working' ? `${base} · ${TAB_STATE_LABEL[st]}` : base} />;
+              })()}
               {t.kind === 'simulator' && (
                 <span className="text-[10px]" aria-hidden>
                   📱
                 </span>
               )}
-              {(() => {
-                const st = tabState(t.id)?.state;
-                if (!st || st === 'working') return null;
-                const needs = NEEDS_YOU.includes(st);
-                return (
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${needs ? 'animate-pulse bg-accent' : st === 'error' ? 'bg-danger' : 'bg-fg-dim'}`}
-                    title={TAB_STATE_LABEL[st]}
-                  />
-                );
-              })()}
               {editing === t.id ? (
                 <input
                   ref={inputRef}
