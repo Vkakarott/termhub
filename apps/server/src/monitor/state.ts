@@ -1,4 +1,4 @@
-import type { TabState } from '../db/repositories/types.js';
+import type { Tab, TabState } from '../db/repositories/types.js';
 
 /** Tools whose hooks we understand (the hook script names itself). */
 export const HOOK_TOOLS = ['claude', 'codex'] as const;
@@ -69,3 +69,12 @@ export function interpretHookEvent(tool: HookTool, raw: unknown): Interpreted | 
 
 /** States in which the tool is waiting for the person (the "needs you" list). */
 export const NEEDS_YOU: readonly TabState[] = ['waiting_input', 'waiting_permission'];
+
+/**
+ * A tab "needs you" when it is waiting and has not been seen since that state began: a new hook
+ * event bumps `state_at`, so an already-seen tab needs you again automatically.
+ */
+export function needsYou(tab: Pick<Tab, 'state' | 'state_at' | 'state_seen_at'>): boolean {
+  if (!tab.state || !NEEDS_YOU.includes(tab.state) || !tab.state_at) return false;
+  return !tab.state_seen_at || tab.state_seen_at < tab.state_at;
+}

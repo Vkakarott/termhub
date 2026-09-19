@@ -51,7 +51,25 @@ export class TabsRepository {
 
   /** Clears the monitor state (e.g. the tmux session is gone). */
   async clearState(tabId: string): Promise<void> {
-    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null } });
+    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null } });
+  }
+
+  /**
+   * Monitor: the tab was just looked at. Writes `stateSeenAt = now` only when the tab is waiting
+   * (NEEDS_YOU states — keep in sync with monitor/state.ts) and is not already seen for its current
+   * `stateAt`. A conditional `updateMany` compares the row's *current* `stateAt`, so a hook event
+   * that bumps it concurrently is never marked seen by accident. Returns the updated tab when it
+   * wrote, `undefined` otherwise (not waiting, already seen, or missing).
+   */
+  async markSeen(id: string, now = new Date()): Promise<Tab | undefined> {
+    const written = await this.db.$executeRaw`
+      UPDATE "tabs"
+      SET "state_seen_at" = ${now}
+      WHERE "id" = ${id}
+        AND "state" IN ('waiting_input', 'waiting_permission')
+        AND ("state_seen_at" IS NULL OR "state_seen_at" < "state_at")
+    `;
+    return written > 0 ? this.findById(id) : undefined;
   }
 
   async create(projectId: string, name: string, opts: { kind?: TabKind; simulator_udid?: string | null } = {}): Promise<Tab> {

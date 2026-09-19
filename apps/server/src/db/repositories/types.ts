@@ -95,6 +95,8 @@ export interface Tab {
   state_text: string | null;
   state_tool: string | null;
   state_at: string | null;
+  /** when the tab was last looked at while needing you; null or before state_at = still needs you */
+  state_seen_at: string | null;
   created_at: string;
 }
 
@@ -221,6 +223,7 @@ export const mapTab = (t: PrismaTab): Tab => ({
   state_text: t.stateText,
   state_tool: t.stateTool,
   state_at: iso(t.stateAt),
+  state_seen_at: iso(t.stateSeenAt),
   created_at: t.createdAt.toISOString(),
 });
 

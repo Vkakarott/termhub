@@ -7,7 +7,7 @@ import { killTmuxSession } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { PASTE_MAX_BYTES, saveFileOnMachine } from '../terminal/paste-file.js';
 import { INPUT_MAX_CHARS, sendKeysToSession } from '../monitor/send-keys.js';
-import { applyState } from '../monitor/ingest.js';
+import { applyState, publishTabChange } from '../monitor/ingest.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const pasteQuery = z.object({ name: z.string().max(255).optional() });
@@ -35,6 +35,18 @@ export async function tabRoutes(
     const updated = await repos.tabs.update(id, body);
     if (body.simulator_udid !== undefined && body.simulator_udid !== tab.simulator_udid) deps.closeSimulatorTab(id);
     return { tab: updated };
+  });
+
+  /**
+   * The user focused this tab: if it needs you, mark it seen — the orange dot goes away for
+   * everyone watching, without waiting for the tool's next hook event. Idempotent (always 200).
+   */
+  app.post('/:id/seen', { config: { action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const { tab, project, machine } = await scoped(repos, request).tab(id);
+    const updated = await repos.tabs.markSeen(id);
+    if (updated) publishTabChange(updated, project.id, machine);
+    return { tab: updated ?? tab };
   });
 
   app.get('/:id/simulator/screenshot', async (request, reply) => {

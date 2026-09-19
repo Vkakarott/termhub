@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STATE_TEXT_MAX, interpretHookEvent } from './state.js';
+import { STATE_TEXT_MAX, interpretHookEvent, needsYou } from './state.js';
 
 describe('interpretHookEvent — claude', () => {
   it('maps permission and idle notifications to waiting states with the message', () => {
@@ -50,5 +50,28 @@ describe('interpretHookEvent — codex', () => {
 
   it('ignores other notify types', () => {
     expect(interpretHookEvent('codex', { type: 'something-else' })).toBeNull();
+  });
+});
+
+describe('needsYou', () => {
+  it('is true while waiting and never seen', () => {
+    expect(needsYou({ state: 'waiting_input', state_at: '2026-01-01T00:00:00.000Z', state_seen_at: null })).toBe(true);
+    expect(needsYou({ state: 'waiting_permission', state_at: '2026-01-01T00:00:00.000Z', state_seen_at: null })).toBe(true);
+  });
+
+  it('is false once seen at or after the state started', () => {
+    expect(needsYou({ state: 'waiting_input', state_at: '2026-01-01T00:00:00.000Z', state_seen_at: '2026-01-01T00:00:00.000Z' })).toBe(false);
+    expect(needsYou({ state: 'waiting_input', state_at: '2026-01-01T00:00:00.000Z', state_seen_at: '2026-01-01T00:01:00.000Z' })).toBe(false);
+  });
+
+  it('is true again when seen before the (newer) state_at — a new event re-arms it', () => {
+    expect(needsYou({ state: 'waiting_input', state_at: '2026-01-01T00:02:00.000Z', state_seen_at: '2026-01-01T00:01:00.000Z' })).toBe(true);
+  });
+
+  it('is false outside NEEDS_YOU states, and when state_at is null', () => {
+    expect(needsYou({ state: 'working', state_at: '2026-01-01T00:00:00.000Z', state_seen_at: null })).toBe(false);
+    expect(needsYou({ state: 'idle', state_at: '2026-01-01T00:00:00.000Z', state_seen_at: null })).toBe(false);
+    expect(needsYou({ state: null, state_at: null, state_seen_at: null })).toBe(false);
+    expect(needsYou({ state: 'waiting_input', state_at: null, state_seen_at: null })).toBe(false);
   });
 });

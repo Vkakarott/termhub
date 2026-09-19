@@ -189,6 +189,8 @@ model Tab {
   stateText     String?  @map("state_text")
   stateTool     String?  @map("state_tool")
   stateAt       DateTime? @map("state_at")
+  /// When the tab was last looked at while needing you; null or earlier than stateAt = still needs you.
+  stateSeenAt   DateTime? @map("state_seen_at")
   createdAt     DateTime @default(now()) @map("created_at")
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   tasks         Task[]
