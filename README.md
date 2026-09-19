@@ -42,6 +42,13 @@ npm run create-user -- --email you@example.com --name "Your Name"   # first user
 npm run dev                 # API on :3000 + Vite on :5173 (proxies /api and /ws)
 ```
 
+Repository tests that need Postgres are skipped unless `TERMHUB_DB_TESTS=1` and `DATABASE_URL` points at a **migrated, disposable** database (CI does this):
+
+```bash
+DATABASE_URL=postgresql://termhub:termhub@localhost:5434/termhub_test TERMHUB_DB_TESTS=1 \
+  sh -c 'npm run prisma:migrate:deploy && npm test -w @termhub/server'
+```
+
 Open http://localhost:5173, enter your e-mail and grab the 6-digit code from Mailpit (http://localhost:8025). The "local" machine is created automatically on first boot (`SEED_LOCAL_MACHINE=true`).
 
 Everything inside Docker, with hot reload (`Dockerfile.dev`):

@@ -2063,7 +2063,8 @@ export const TaskScalarFieldEnum = {
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
   externalKey: 'externalKey',
-  tabId: 'tabId'
+  tabId: 'tabId',
+  parentId: 'parentId'
 } as const
 
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]

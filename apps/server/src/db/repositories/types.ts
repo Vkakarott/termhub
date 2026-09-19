@@ -119,8 +119,16 @@ export interface Task {
   external_ref: unknown | null;
   external_key: string | null;
   tab_id: string | null;
+  /** Parent task for a subtask; null for a top-level (board) task. */
+  parent_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A top-level task as the list endpoint returns it. */
+export interface TaskWithSubtasks extends Task {
+  subtasks: Task[];
+  subtask_counts: { done: number; total: number };
 }
 
 export interface Ticket {
@@ -236,6 +244,7 @@ export const mapTask = (t: PrismaTask): Task => ({
   external_ref: t.externalRef ?? null,
   external_key: t.externalKey,
   tab_id: t.tabId,
+  parent_id: t.parentId,
   created_at: t.createdAt.toISOString(),
   updated_at: t.updatedAt.toISOString(),
 });
