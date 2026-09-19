@@ -110,7 +110,7 @@ Logs on macOS: `data/logs/`. On Linux: `journalctl --user -u termhub -f` (use `l
 
 ### API tokens (global terminal)
 
-Settings → **Tokens de API** creates personal tokens (`thb_pat_…`) for the MCP endpoint that lets one agent session drive every machine of an account. Each token has scopes — `read`, `tasks`, `terminals` — and never exceeds its owner's own permissions; only its sha256 is stored, the token is shown once, and it can expire (30/90/365 days) or be revoked at any time. Every call made with a token is recorded as metadata (tool, ids, result, duration — never terminal content) and pruned after 30 days. Set `MCP_URL` (e.g. `https://termhub.dev/mcp`) to show the ready-made `claude mcp add` command when a token is created.
+Settings → **Tokens de API** creates personal tokens (`thb_pat_…`) for the global terminal: the MCP endpoint (coming in a follow-up release) that will let one agent session drive every machine of an account. Each token has scopes — `read`, `tasks`, `terminals` — that will be intersected with its owner's own permissions when the endpoint uses it; only its sha256 is stored, the token is shown once, and it can expire (30/90/365 days) or be revoked at any time. Calls made with a token will be recorded as metadata only (tool, ids, result, duration — never terminal content) and pruned after 30 days. Set `MCP_URL` (e.g. `https://termhub.dev/mcp`) once that endpoint is deployed to show the ready-made `claude mcp add` command when a token is created.
 
 ### Cloudflare Tunnel
 
