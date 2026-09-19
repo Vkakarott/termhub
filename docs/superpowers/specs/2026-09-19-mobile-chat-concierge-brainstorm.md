@@ -77,6 +77,73 @@ O pedido descreve duas coisas diferentes; falta definir qual é o alvo da v1:
 a tabela de conversas já nasce com `machineId` e `tabId` opcional, então o B entra
 depois sem migração dolorosa.
 
+## Segurança: provar que o comando vem do dono da conta
+
+**Status: decidido em conversa (2026-09-19).**
+
+O chat vira um caminho de texto para execução de comando nos computadores da conta.
+Hoje a web usa cookie httpOnly com CSRF, e o token `thb_pat_` é um bearer simples:
+quem copia o bearer tem tudo o que o dono tem. No celular o token fica guardado por
+meses, então essa é a parte fraca. A decisão é amarrar a credencial ao aparelho, em
+vez de fazer um handshake a cada comando.
+
+### O que entra na v1
+
+1. **Pareamento de dispositivo com chave no hardware.** No primeiro login, o app gera
+   um par de chaves no Secure Enclave ou Keystore; a chave privada nunca sai do
+   aparelho. O aparelho é aprovado pela web (QR code na sessão logada), que já é onde
+   os computadores são adicionados. O servidor guarda a chave pública e emite um
+   token ligado a ela.
+2. **Assinatura por requisição.** Cada chamada, ou pelo menos cada mensagem de chat,
+   vai assinada pela chave do aparelho, com timestamp e nonce, no estilo DPoP. Um
+   token vazado sozinho não serve para nada, e replay não funciona. O WebSocket só
+   precisa assinar na abertura.
+3. **Biometria para liberar a chave.** Face ID ou digital ao abrir o app. Cobre o
+   caso do celular desbloqueado na mão de outra pessoa. Vem quase pronto da
+   plataforma.
+4. **Confirmação para toda escrita em terminal.** Quando o concierge for escrever
+   num terminal ou iniciar um agente, o app mostra "vou rodar X na máquina Y,
+   confirma?". A confirmação é assinada pelo aparelho e verificada no servidor antes
+   de o MCP executar. Leituras ("o que está rodando?") passam direto. Para reduzir o
+   atrito existe a opção "confiar nesta conversa por 15 minutos". Encaixa no estado
+   `waiting_permission` que o monitor já tem.
+5. **Lista de dispositivos em Settings na web.** Mostra último uso e permite revogar.
+   A tabela `ApiTokenEvent` dá a base de auditoria.
+
+Confirmar toda escrita, e não só as destrutivas, foi escolha consciente: classificar
+comandos como perigosos ou não falha, e a janela de confiança de 15 minutos resolve
+a lentidão.
+
+### O que o handshake não resolve
+
+O handshake prova quem enviou a mensagem, não que o conteúdo é seguro. O concierge lê
+telas de terminal, e uma tela pode conter texto malicioso (o README de um repo
+clonado, a saída de um `curl`) que tenta dar ordens à IA. A assinatura do dono não
+protege contra isso. Mitigações:
+
+- O token do concierge tem os scopes mínimos.
+- Ele nunca usa flags de bypass de permissão (o spec do MCP já diz isso).
+- A confirmação do item 4 é a última barreira, porque quem aprova a ação é o humano
+  e não a IA.
+
+### Depois da v1
+
+Na web, o cookie atual serve para conversar. Para as ações perigosas dá para exigir
+passkey (WebAuthn) na confirmação, o equivalente à biometria do celular.
+
+## Outros pontos em aberto
+
+- **Chat global na web.** O spec do MCP global deixou "in-app chat" fora de escopo e
+  nada foi implementado. A proposta é tratar web e mobile como um chat só no backend
+  (uma API de conversas, dois clientes). A confirmar.
+- **Conflito com o spec do MCP.** Ele decide "always a visible tab, no headless mode"
+  e "not a new LLM inside termhub". O concierge é um LLM operado pelo termhub, e o
+  terminal geral é oculto. Uma aba tmux real filtrada da listagem respeita a primeira
+  regra; `claude -p` não. A mudança de direção precisa ficar escrita no spec novo.
+- **API tokens.** A branch `feat/api-tokens` cria e revoga tokens, mas nenhuma rota
+  os aceita como bearer ainda. O app precisa dessa validação nas rotas REST e nos
+  WebSockets, não só no `/mcp`.
+
 ## Próximos passos
 
 1. Decidir A, B ou C.
