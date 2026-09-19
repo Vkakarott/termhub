@@ -75,7 +75,7 @@
               "name": "O que é o termhub?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "Um painel no navegador para os terminais das suas máquinas. Você cadastra máquinas (local ou SSH), organiza por projeto e abre tabs; cada tab é uma sessão tmux na máquina de destino, que continua rodando quando você fecha o navegador."
+                "text": "Um painel no navegador para os terminais das suas máquinas. Você conecta cada máquina com o agente do termhub, organiza por projeto e abre tabs; cada tab é uma sessão tmux na máquina, que continua rodando quando você fecha o navegador."
               }
             },
             {
@@ -83,7 +83,15 @@
               "name": "Preciso instalar algo no computador que uso para acessar?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "Não. Basta um navegador: funciona no notebook, no tablet e no celular. O que precisa existir é o servidor do termhub (um docker compose) e o tmux nas máquinas de destino."
+                "text": "Não. Basta um navegador: funciona no notebook, no tablet e no celular. A instalação fica do outro lado: o servidor do termhub (um docker compose) e, em cada máquina que você quer acessar, o agente (@termhub/agent) com tmux."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Como conecto uma máquina?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Instale o agente com npm i -g @termhub/agent (precisa de Node 20+ e tmux), gere um token em Máquinas › Adicionar máquina e rode o termhub-agent connect que o app mostra. Depois, termhub-agent service install deixa o agente rodando em segundo plano (launchd no macOS, systemd no Linux). A conexão sai da máquina por WebSocket: não precisa abrir porta, configurar SSH nem estar na mesma rede."
               }
             },
             {
@@ -91,7 +99,7 @@
               "name": "É seguro? Onde ficam as credenciais?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "O servidor usa uma chave SSH própria, que você autoriza em cada máquina. Para mostrar os limites das contas de IA, o login do CLI (Claude, Codex, Gemini, Antigravity) é lido na máquina na hora da consulta; nenhum token é armazenado e o conteúdo dos terminais nunca é logado."
+                "text": "O agente abre uma conexão de saída até o servidor, então nenhuma porta fica exposta na máquina. O token de pareamento aparece uma vez só e o servidor guarda apenas o hash dele; o servidor nunca manda texto de shell para o agente, só pede operações nomeadas (abrir um terminal, listar sessões…). Para mostrar os limites das contas de IA, o login do CLI é lido na máquina na hora da consulta: nenhum token de IA é armazenado e o conteúdo dos terminais nunca é logado."
               }
             },
             {
@@ -99,7 +107,15 @@
               "name": "Funciona com o Claude Code?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "Sim, e foi feito pensando nele: colar imagens e arrastar arquivos direto no terminal, seleção e cópia mesmo com o app usando o mouse e locale UTF-8 garantido. Codex, Gemini CLI, Antigravity ou qualquer outra CLI rodam do mesmo jeito, porque é um terminal de verdade."
+                "text": "Sim, e foi feito pensando nele: cole imagens e arraste arquivos direto no terminal, dite o prompt por voz (a transcrição roda no seu servidor) e selecione e copie mesmo com o app usando o mouse. Codex, Gemini CLI, Antigravity ou qualquer outra CLI rodam do mesmo jeito, porque é um terminal de verdade."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Como sei quando o agente de IA precisa de mim?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Instale os hooks do monitor na máquina, com um clique no app. Quando o Claude Code ou o Codex termina de responder ou para esperando uma permissão, a tab ganha um ponto laranja, o projeto é marcado na barra lateral e um aviso aparece no canto da tela. A home lista tudo o que está esperando você, agrupado por máquina."
               }
             },
             {
@@ -107,7 +123,7 @@
               "name": "Funciona no Windows?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "Para acessar, sim: é só abrir o navegador. Como máquina de destino, o termhub precisa de tmux, então use WSL ou uma máquina Linux/macOS."
+                "text": "Para acessar, sim: é só abrir o navegador. Como máquina de destino, o agente roda em macOS e Linux e precisa de tmux; no Windows, use o WSL."
               }
             },
             {
@@ -123,7 +139,7 @@
               "name": "O que é o termhub Cloud?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "A mesma experiência sem servidor para manter: suas máquinas conectam ao Cloud e você acessa de qualquer lugar, com login, times e permissões prontos. Está em lista de espera."
+                "text": "A mesma experiência sem servidor para manter: você conecta suas máquinas com o agente e acessa de qualquer lugar, com login, times e permissões prontos. Está em alpha fechado, e os convites saem em ordem de inscrição na lista de espera."
               }
             },
             {
