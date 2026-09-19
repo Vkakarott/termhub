@@ -134,6 +134,11 @@ export interface Task {
   external_ref: ExternalRef | null;
   external_key: string | null;
   tab_id: string | null;
+  /** Parent task for a subtask; null for a board task. */
+  parent_id: string | null;
+  /** Only on board tasks from the list endpoint. Absent on responses from a server without subtasks. */
+  subtasks?: Task[];
+  subtask_counts?: { done: number; total: number };
   created_at: string;
   updated_at: string;
 }

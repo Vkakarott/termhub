@@ -132,12 +132,15 @@ export const api = {
   },
   tasks: {
     list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),
-    create: (projectId: string, input: { title: string; description?: string | null; status?: TaskStatus }) =>
+    create: (projectId: string, input: { title: string; description?: string | null; status?: TaskStatus; parent_id?: string | null }) =>
       request<{ task: Task }>('POST', `/projects/${projectId}/tasks`, input),
     update: (id: string, input: { title?: string; description?: string | null; status?: TaskStatus }) =>
       request<{ task: Task }>('PATCH', `/tasks/${id}`, input),
     move: (id: string, status: TaskStatus, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/move`, { status, position }),
-    remove: (id: string) => request<{ ok: true }>('DELETE', `/tasks/${id}`),
+    remove: (id: string) => request<{ ok: true; deleted_subtasks: number }>('DELETE', `/tasks/${id}`),
+    addSubtasks: (id: string, items: { title: string; description?: string | null }[]) =>
+      request<{ subtasks: Task[] }>('POST', `/tasks/${id}/subtasks`, { items }),
+    reorder: (id: string, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/reorder`, { position }),
     pushStatus: (id: string) => request<{ task: Task; state: string }>('POST', `/tasks/${id}/push-status`, {}),
     openTerminal: (id: string) => request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, {}),
     detachTerminal: (id: string) => request<{ task: Task }>('DELETE', `/tasks/${id}/terminal`),
