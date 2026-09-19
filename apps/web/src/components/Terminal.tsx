@@ -348,14 +348,18 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
         setState(s);
         setAttempt(a);
         if (s === 'connected') {
+          // the failure notice is ours to clear; any other notice stays
+          if (lastError) setNotice(null);
           lastError = null;
           onConnectedRef.current?.();
         }
-        // gave up: say why, when the server told us
+        // gave up: the reason again, in case another notice replaced it meanwhile
         if (s === 'offline' && lastError) showNotice(lastError, 'danger');
       },
       onError: (message) => {
+        // shown from the first failure and kept through the retries, not only once they give up
         lastError = message;
+        showNotice(message, 'danger');
       },
       onExit: () => onExitRef.current?.(),
     });

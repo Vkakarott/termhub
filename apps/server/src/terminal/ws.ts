@@ -6,7 +6,18 @@ import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { Scoped } from '../auth/scope.js';
 import { AgentOfflineError } from '../agent/registry.js';
+import { AgentRpcError } from '../agent/connection.js';
 import { createPtySession, type PtySession } from './pty-session.js';
+
+/** What the person sees when the terminal could not start: what to do when we know the cause. */
+function openErrorMessage(err: unknown): string {
+  if (err instanceof AgentRpcError) {
+    if (err.rpcError.code === 'no_tmux') return 'tmux não encontrado nesta máquina. Instale o tmux e tente de novo.';
+    // the agent's generic failure is almost always node-pty's spawn-helper, which doctor repairs
+    if (err.rpcError.code === 'internal') return 'Esta máquina não conseguiu abrir o terminal. Rode termhub-agent doctor nela.';
+  }
+  return 'Falha ao iniciar terminal';
+}
 
 const controlSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resize'), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(200) }),
@@ -109,7 +120,7 @@ async function handleConnection(
       return;
     }
     log.error({ err, tabId: ctx.tab.id }, 'falha ao iniciar pty');
-    send({ type: 'error', message: 'Falha ao iniciar terminal' });
+    send({ type: 'error', message: openErrorMessage(err) });
     ws.close(1011, 'pty spawn failed');
     return;
   }

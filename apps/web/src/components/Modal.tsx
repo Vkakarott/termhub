@@ -6,21 +6,23 @@ interface Props {
   onClose: () => void;
   children: ReactNode;
   width?: string;
+  /** false disables Escape and backdrop-click dismissal; the header × still closes it. Default true. */
+  dismissible?: boolean;
 }
 
-export function Modal({ title, open, onClose, children, width = 'max-w-md' }: Props) {
+export function Modal({ title, open, onClose, children, width = 'max-w-md', dismissible = true }: Props) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || !dismissible) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, dismissible, onClose]);
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={dismissible ? onClose : undefined}>
       <div
         className={`flex max-h-[calc(100vh-2rem)] w-full ${width} flex-col rounded-lg border border-line bg-bg-2 shadow-2xl`}
         onMouseDown={(e) => e.stopPropagation()}

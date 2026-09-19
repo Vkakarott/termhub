@@ -1,4 +1,4 @@
-import type { AccessStatus, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, CreatedApiToken, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -195,6 +195,11 @@ export const api = {
     inviteFromWaitlist: (input: { ids: string[]; role_id: string }) => request<{ results: WaitlistInviteResult[] }>('POST', '/users/invite-from-waitlist', input),
     setRole: (id: string, role_id: string) => request<{ user: User }>('PATCH', `/users/${id}`, { role_id }),
     remove: (id: string) => request<{ ok: true; access_removed: boolean }>('DELETE', `/users/${id}`),
+  },
+  apiTokens: {
+    list: () => request<{ tokens: ApiToken[] }>('GET', '/api-tokens'),
+    create: (input: { name: string; scopes: ApiTokenScope[]; expires_in_days: number | null }) => request<CreatedApiToken>('POST', '/api-tokens', input),
+    revoke: (id: string) => request<{ api_token: ApiToken }>('DELETE', `/api-tokens/${id}`),
   },
   waitlist: {
     list: () => request<{ entries: WaitlistEntry[] }>('GET', '/waitlist'),

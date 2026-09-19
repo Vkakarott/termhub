@@ -53,6 +53,7 @@ model User {
   machines     Machine[]     @relation("MachineOwner")
   integrations Integration[] @relation("IntegrationOwner")
   uploads      Upload[]
+  apiTokens    ApiToken[]
 
   @@index([roleId])
   @@map("users")
@@ -417,4 +418,44 @@ model Upload {
   @@unique([machineId, name])
   @@index([userId])
   @@map("uploads")
+}
+
+/// Personal API token (Settings → Tokens de API) for the MCP endpoint. Only the sha256 of the
+/// token is stored; the plain token is shown once at creation. Revoked rows stay for the audit trail.
+model ApiToken {
+  id         String          @id
+  userId     String          @map("user_id")
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  tokenHash  String          @unique @map("token_hash")
+  /// subset of read | tasks | terminals (see auth/api-tokens.ts)
+  scopes     String[]
+  expiresAt  DateTime?       @map("expires_at")
+  lastUsedAt DateTime?       @map("last_used_at")
+  revokedAt  DateTime?       @map("revoked_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  events     ApiTokenEvent[]
+
+  @@index([userId])
+  @@map("api_tokens")
+}
+
+/// One MCP tool call made with a token. Metadata only — never typed text, screen content or prompts.
+/// Pruned after 30 days.
+model ApiTokenEvent {
+  id         String   @id
+  tokenId    String   @map("token_id")
+  token      ApiToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  tool       String
+  machineId  String?  @map("machine_id")
+  projectId  String?  @map("project_id")
+  tabId      String?  @map("tab_id")
+  ok         Boolean
+  errorCode  String?  @map("error_code")
+  durationMs Int      @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tokenId, createdAt])
+  @@index([createdAt])
+  @@map("api_token_events")
 }
