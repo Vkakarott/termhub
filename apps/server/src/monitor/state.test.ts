@@ -19,8 +19,12 @@ describe('interpretHookEvent — claude', () => {
     expect(interpretHookEvent('claude', { hook_event_name: 'UserPromptSubmit', prompt: 'secret plans' })).toEqual({ kind: 'working', text: null, meta: { event: 'UserPromptSubmit' } });
   });
 
-  it('marks the tab idle when the turn or the session ends', () => {
-    expect(interpretHookEvent('claude', { hook_event_name: 'Stop', stop_hook_active: false })?.kind).toBe('idle');
+  it('treats a finished turn as waiting for the person, like Codex', () => {
+    expect(interpretHookEvent('claude', { hook_event_name: 'Stop', stop_hook_active: false })).toEqual({ kind: 'waiting_input', text: null, meta: { event: 'Stop' } });
+    expect(interpretHookEvent('claude', { hook_event_name: 'Stop', last_assistant_message: '  Pronto. Posso seguir?  ' })?.text).toBe('Pronto. Posso seguir?');
+  });
+
+  it('marks the tab idle when the session ends', () => {
     expect(interpretHookEvent('claude', { hook_event_name: 'SessionEnd', reason: 'exit' })).toEqual({ kind: 'idle', text: null, meta: { event: 'SessionEnd', reason: 'exit' } });
   });
 

@@ -13,6 +13,8 @@ export default {
         accent: { DEFAULT: '#4f8cff', hover: '#3b78ea' },
         ok: '#3fb950',
         warn: '#d29922',
+        /** a tab whose tool is waiting for the person */
+        attention: '#f0883e',
         danger: '#f85149',
       },
     },

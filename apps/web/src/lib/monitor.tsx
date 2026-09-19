@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
+import { entersNeedsYou } from './needs-you';
 import { NEEDS_YOU, type MonitorItem, type Tab } from './types';
+
+/** Called when a push moves a tab into a waiting state (never for the snapshot on load). */
+export type NeedsYouListener = (tab: Tab, projectId: string) => void;
 
 interface MonitorState {
   /** every tab in the scope with a reported state, newest change first */
@@ -13,6 +17,8 @@ interface MonitorState {
   reply: (tabId: string, text: string) => Promise<void>;
   reload: () => Promise<void>;
   connected: boolean;
+  /** subscribes to tabs that start waiting for the person; returns the unsubscribe */
+  onNeedsYou: (listener: NeedsYouListener) => () => void;
 }
 
 const MonitorContext = createContext<MonitorState | null>(null);
@@ -30,6 +36,11 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  const listeners = useRef(new Set<NeedsYouListener>());
+  const onNeedsYou = useCallback((listener: NeedsYouListener) => {
+    listeners.current.add(listener);
+    return () => void listeners.current.delete(listener);
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -61,6 +72,12 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
         }
         if (msg.type !== 'tab' || !msg.tab) return;
         const tab = msg.tab;
+        // compared with what was on screen before this push (a tab never seen counts as not waiting)
+        const prev = itemsRef.current.find((i) => i.tab.id === tab.id)?.tab.state;
+        if (entersNeedsYou(prev, tab.state)) {
+          const projectId = msg.project_id ?? tab.project_id;
+          listeners.current.forEach((l) => l(tab, projectId));
+        }
         setItems((list) => {
           const idx = list.findIndex((i) => i.tab.id === tab.id);
           if (idx === -1) {
@@ -103,8 +120,9 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       },
       reload,
       connected,
+      onNeedsYou,
     }),
-    [items, reload, connected],
+    [items, reload, connected, onNeedsYou],
   );
 
   return <MonitorContext.Provider value={value}>{children}</MonitorContext.Provider>;
