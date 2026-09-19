@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiTokensView, mcpAddCommand, tokenStatus } from './ApiTokensView';
+import { ApiError } from '../lib/api';
 import type { ApiToken } from '../lib/types';
 
 const listMock = vi.fn();
@@ -16,7 +17,8 @@ vi.mock('../lib/api', () => {
   };
 });
 
-vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: () => true }) }));
+const authMock = { can: () => true };
+vi.mock('../lib/auth', () => ({ useAuth: () => authMock }));
 
 const tok = (over: Partial<ApiToken> & { id: string }): ApiToken => ({
   user_id: 'u1',
@@ -38,6 +40,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  authMock.can = () => true;
 });
 
 describe('tokenStatus', () => {
@@ -126,5 +129,108 @@ describe('ApiTokensView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revogar' }));
     await waitFor(() => expect(revokeMock).toHaveBeenCalledWith('laptop'));
     expect(await screen.findByText('revogado')).toBeTruthy();
+  });
+
+  it('clears a stale error once a later action succeeds', async () => {
+    listMock.mockResolvedValue({ tokens: [tok({ id: 'laptop' })] });
+    revokeMock.mockRejectedValueOnce(new ApiError('Erro ao revogar token'));
+    revokeMock.mockResolvedValueOnce({ api_token: tok({ id: 'laptop', revoked_at: '2026-09-19T02:00:00.000Z' }) });
+    render(<ApiTokensView />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Revogar laptop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revogar' }));
+    expect(await screen.findByText('Erro ao revogar token')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revogar laptop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revogar' }));
+    await waitFor(() => expect(revokeMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('revogado')).toBeTruthy();
+    expect(screen.queryByText('Erro ao revogar token')).toBeNull();
+  });
+
+  it('keeps the secret in the "Token criado" panel through Escape and a backdrop click; only Concluído closes it', async () => {
+    createMock.mockResolvedValue({ api_token: tok({ id: 'new', name: 'laptop' }), token: SECRET, mcp_url: null });
+    render(<ApiTokensView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo token' }));
+    fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'laptop' } });
+    fireEvent.click(screen.getByLabelText(/^Ler/));
+    fireEvent.click(screen.getByRole('button', { name: 'Criar token' }));
+    expect(await screen.findByDisplayValue(SECRET)).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByDisplayValue(SECRET)).toBeTruthy();
+
+    const backdrop = screen.getByRole('dialog').parentElement!;
+    fireEvent.mouseDown(backdrop);
+    expect(screen.getByDisplayValue(SECRET)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Concluído' }));
+    expect(screen.queryByDisplayValue(SECRET)).toBeNull();
+  });
+
+  it('hides the create/revoke actions when the user lacks permission', async () => {
+    authMock.can = () => false;
+    listMock.mockResolvedValue({ tokens: [tok({ id: 'laptop' })] });
+    render(<ApiTokensView />);
+    expect(await screen.findByText('laptop')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Novo token' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Revogar/ })).toBeNull();
+  });
+});
+
+describe('CopyField (via CreatedTokenModal)', () => {
+  beforeEach(() => {
+    listMock.mockResolvedValue({ tokens: [] });
+  });
+
+  const openCreatedTokenModal = async () => {
+    createMock.mockResolvedValue({ api_token: tok({ id: 'new', name: 'laptop' }), token: SECRET, mcp_url: null });
+    render(<ApiTokensView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo token' }));
+    fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'laptop' } });
+    fireEvent.click(screen.getByLabelText(/^Ler/));
+    fireEvent.click(screen.getByRole('button', { name: 'Criar token' }));
+    await screen.findByDisplayValue(SECRET);
+  };
+
+  it('shows "Copiado" then reverts to "Copiar" after a successful copy', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    try {
+      await openCreatedTokenModal();
+      fireEvent.click(screen.getAllByRole('button', { name: 'Copiar' })[0]);
+      expect(writeText).toHaveBeenCalledWith(SECRET);
+      await waitFor(() => expect(screen.getAllByRole('button', { name: 'Copiado' })[0]).toBeTruthy());
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await waitFor(() => expect(screen.getAllByRole('button', { name: 'Copiar' })[0]).toBeTruthy());
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows "Selecione e copie" when the clipboard write rejects', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    try {
+      await openCreatedTokenModal();
+      fireEvent.click(screen.getAllByRole('button', { name: 'Copiar' })[0]);
+      await waitFor(() => expect(screen.getAllByRole('button', { name: 'Selecione e copie' })[0]).toBeTruthy());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('shows "Selecione e copie" when there is no clipboard API (non-secure context)', async () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
+    try {
+      await openCreatedTokenModal();
+      fireEvent.click(screen.getAllByRole('button', { name: 'Copiar' })[0]);
+      await waitFor(() => expect(screen.getAllByRole('button', { name: 'Selecione e copie' })[0]).toBeTruthy());
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

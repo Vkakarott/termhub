@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { ApiToken, ApiTokenScope, CreatedApiToken } from '../lib/types';
@@ -40,6 +40,7 @@ export function ApiTokensView() {
   const [revoking, setRevoking] = useState<ApiToken | null>(null);
 
   const load = useCallback(async () => {
+    setError(null);
     try {
       setTokens((await api.apiTokens.list()).tokens);
     } catch (e) {
@@ -55,6 +56,7 @@ export function ApiTokensView() {
     const t = revoking;
     setRevoking(null);
     if (!t) return;
+    setError(null);
     try {
       const r = await api.apiTokens.revoke(t.id);
       setTokens((list) => (list ?? []).map((x) => (x.id === t.id ? r.api_token : x)));
@@ -213,22 +215,36 @@ function CreateTokenModal({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
+type CopyState = 'idle' | 'copied' | 'failed';
+
 function CopyField({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<CopyState>('idle');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (state !== 'copied') return;
+    const id = setTimeout(() => setState('idle'), 2000);
+    return () => clearTimeout(id);
+  }, [state]);
+
+  const copy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('no clipboard API');
+      await navigator.clipboard.writeText(value);
+      setState('copied');
+    } catch {
+      inputRef.current?.select();
+      setState('failed');
+    }
+  };
+
   return (
     <div>
       <label className="label">{label}</label>
       <div className="flex gap-2">
-        <input className="input font-mono text-xs" readOnly value={value} onFocus={(e) => e.currentTarget.select()} />
-        <button
-          type="button"
-          className="btn-ghost shrink-0 border border-line"
-          onClick={() => {
-            void navigator.clipboard?.writeText(value);
-            setCopied(true);
-          }}
-        >
-          {copied ? 'Copiado' : 'Copiar'}
+        <input ref={inputRef} className="input font-mono text-xs" readOnly value={value} onFocus={(e) => e.currentTarget.select()} />
+        <button type="button" className="btn-ghost shrink-0 border border-line" onClick={() => void copy()}>
+          {state === 'copied' ? 'Copiado' : state === 'failed' ? 'Selecione e copie' : 'Copiar'}
         </button>
       </div>
     </div>
@@ -237,7 +253,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
 
 function CreatedTokenModal({ created, onClose }: { created: CreatedApiToken; onClose: () => void }) {
   return (
-    <Modal title="Token criado" open onClose={onClose} width="max-w-2xl">
+    <Modal title="Token criado" open onClose={onClose} width="max-w-2xl" dismissible={false}>
       <div className="space-y-3">
         <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">Copie agora: este token não aparece de novo. Se perder, revogue e crie outro.</p>
         <CopyField label="Token" value={created.token} />
