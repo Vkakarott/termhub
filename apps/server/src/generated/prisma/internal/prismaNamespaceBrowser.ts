@@ -69,7 +69,9 @@ export const ModelName = {
   ProjectSetup: 'ProjectSetup',
   AiAccount: 'AiAccount',
   WaitlistEntry: 'WaitlistEntry',
-  Upload: 'Upload'
+  Upload: 'Upload',
+  ApiToken: 'ApiToken',
+  ApiTokenEvent: 'ApiTokenEvent'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -358,6 +360,37 @@ export const UploadScalarFieldEnum = {
 } as const
 
 export type UploadScalarFieldEnum = (typeof UploadScalarFieldEnum)[keyof typeof UploadScalarFieldEnum]
+
+
+export const ApiTokenScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  name: 'name',
+  tokenHash: 'tokenHash',
+  scopes: 'scopes',
+  expiresAt: 'expiresAt',
+  lastUsedAt: 'lastUsedAt',
+  revokedAt: 'revokedAt',
+  createdAt: 'createdAt'
+} as const
+
+export type ApiTokenScalarFieldEnum = (typeof ApiTokenScalarFieldEnum)[keyof typeof ApiTokenScalarFieldEnum]
+
+
+export const ApiTokenEventScalarFieldEnum = {
+  id: 'id',
+  tokenId: 'tokenId',
+  tool: 'tool',
+  machineId: 'machineId',
+  projectId: 'projectId',
+  tabId: 'tabId',
+  ok: 'ok',
+  errorCode: 'errorCode',
+  durationMs: 'durationMs',
+  createdAt: 'createdAt'
+} as const
+
+export type ApiTokenEventScalarFieldEnum = (typeof ApiTokenEventScalarFieldEnum)[keyof typeof ApiTokenEventScalarFieldEnum]
 
 
 export const SortOrder = {

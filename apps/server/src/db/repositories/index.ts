@@ -16,6 +16,7 @@ import { WaitlistRepository } from './waitlist.js';
 import { RolesRepository } from './roles.js';
 import { MachineHooksRepository } from './machine-hooks.js';
 import { UploadsRepository } from './uploads.js';
+import { ApiTokensRepository } from './api-tokens.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -35,6 +36,7 @@ export interface Repositories {
   waitlist: WaitlistRepository;
   roles: RolesRepository;
   uploads: UploadsRepository;
+  apiTokens: ApiTokensRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -56,6 +58,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     waitlist: new WaitlistRepository(db),
     roles: new RolesRepository(db),
     uploads: new UploadsRepository(db),
+    apiTokens: new ApiTokensRepository(db),
   };
 }
 

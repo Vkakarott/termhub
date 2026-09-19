@@ -6,6 +6,7 @@ import type { Mailer } from '../email/mailer.js';
 import { loginCodeMail } from '../email/templates.js';
 import { verifyPassword } from './password.js';
 import { generateToken, hashToken, safeEqual } from './tokens.js';
+import { API_TOKEN_EVENT_RETENTION_DAYS } from './api-tokens.js';
 
 export type LoginResult =
   | { ok: true; user: User }
@@ -177,6 +178,7 @@ export class AuthService {
   }
 
   async purgeExpired(): Promise<void> {
-    await Promise.all([this.repos.sessions.purgeExpired(), this.repos.loginCodes.purgeExpired()]);
+    const eventsCutoff = new Date(Date.now() - API_TOKEN_EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    await Promise.all([this.repos.sessions.purgeExpired(), this.repos.loginCodes.purgeExpired(), this.repos.apiTokens.purgeEventsBefore(eventsCutoff)]);
   }
 }

@@ -28,6 +28,7 @@ import { registerMonitorWs } from './monitor/ws.js';
 import { roleRoutes } from './routes/roles.js';
 import { userRoutes } from './routes/users.js';
 import { uploadRoutes } from './routes/uploads.js';
+import { apiTokenRoutes } from './routes/api-tokens.js';
 import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { registerTerminalWs } from './terminal/ws.js';
@@ -145,6 +146,7 @@ export async function buildApp(): Promise<App> {
       await guarded('roles', (a) => roleRoutes(a, repos), '/roles');
       await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
       await guarded('uploads', (a) => uploadRoutes(a, repos), '/uploads');
+      await guarded('api_tokens', (a) => apiTokenRoutes(a, repos, { mcpUrl: config.mcpUrl }), '/api-tokens');
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },

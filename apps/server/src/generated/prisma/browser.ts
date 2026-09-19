@@ -118,3 +118,15 @@ export type WaitlistEntry = Prisma.WaitlistEntryModel
  * (7-day cleanup, manual rm) — Settings → Arquivos reconciles rows with the directory listing.
  */
 export type Upload = Prisma.UploadModel
+/**
+ * Model ApiToken
+ * Personal API token (Settings → Tokens de API) for the MCP endpoint. Only the sha256 of the
+ * token is stored; the plain token is shown once at creation. Revoked rows stay for the audit trail.
+ */
+export type ApiToken = Prisma.ApiTokenModel
+/**
+ * Model ApiTokenEvent
+ * One MCP tool call made with a token. Metadata only — never typed text, screen content or prompts.
+ * Pruned after 30 days.
+ */
+export type ApiTokenEvent = Prisma.ApiTokenEventModel

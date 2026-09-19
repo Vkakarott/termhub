@@ -415,7 +415,9 @@ export const ModelName = {
   ProjectSetup: 'ProjectSetup',
   AiAccount: 'AiAccount',
   WaitlistEntry: 'WaitlistEntry',
-  Upload: 'Upload'
+  Upload: 'Upload',
+  ApiToken: 'ApiToken',
+  ApiTokenEvent: 'ApiTokenEvent'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -431,7 +433,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1841,6 +1843,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ApiToken: {
+      payload: Prisma.$ApiTokenPayload<ExtArgs>
+      fields: Prisma.ApiTokenFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ApiTokenFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ApiTokenFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>
+        }
+        findFirst: {
+          args: Prisma.ApiTokenFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ApiTokenFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>
+        }
+        findMany: {
+          args: Prisma.ApiTokenFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>[]
+        }
+        create: {
+          args: Prisma.ApiTokenCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>
+        }
+        createMany: {
+          args: Prisma.ApiTokenCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ApiTokenCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>[]
+        }
+        delete: {
+          args: Prisma.ApiTokenDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>
+        }
+        update: {
+          args: Prisma.ApiTokenUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>
+        }
+        deleteMany: {
+          args: Prisma.ApiTokenDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ApiTokenUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ApiTokenUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>[]
+        }
+        upsert: {
+          args: Prisma.ApiTokenUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenPayload>
+        }
+        aggregate: {
+          args: Prisma.ApiTokenAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateApiToken>
+        }
+        groupBy: {
+          args: Prisma.ApiTokenGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ApiTokenGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ApiTokenCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ApiTokenCountAggregateOutputType> | number
+        }
+      }
+    }
+    ApiTokenEvent: {
+      payload: Prisma.$ApiTokenEventPayload<ExtArgs>
+      fields: Prisma.ApiTokenEventFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ApiTokenEventFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ApiTokenEventFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>
+        }
+        findFirst: {
+          args: Prisma.ApiTokenEventFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ApiTokenEventFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>
+        }
+        findMany: {
+          args: Prisma.ApiTokenEventFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>[]
+        }
+        create: {
+          args: Prisma.ApiTokenEventCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>
+        }
+        createMany: {
+          args: Prisma.ApiTokenEventCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ApiTokenEventCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>[]
+        }
+        delete: {
+          args: Prisma.ApiTokenEventDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>
+        }
+        update: {
+          args: Prisma.ApiTokenEventUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>
+        }
+        deleteMany: {
+          args: Prisma.ApiTokenEventDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ApiTokenEventUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ApiTokenEventUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>[]
+        }
+        upsert: {
+          args: Prisma.ApiTokenEventUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ApiTokenEventPayload>
+        }
+        aggregate: {
+          args: Prisma.ApiTokenEventAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateApiTokenEvent>
+        }
+        groupBy: {
+          args: Prisma.ApiTokenEventGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ApiTokenEventGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ApiTokenEventCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ApiTokenEventCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -2150,6 +2300,37 @@ export const UploadScalarFieldEnum = {
 } as const
 
 export type UploadScalarFieldEnum = (typeof UploadScalarFieldEnum)[keyof typeof UploadScalarFieldEnum]
+
+
+export const ApiTokenScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  name: 'name',
+  tokenHash: 'tokenHash',
+  scopes: 'scopes',
+  expiresAt: 'expiresAt',
+  lastUsedAt: 'lastUsedAt',
+  revokedAt: 'revokedAt',
+  createdAt: 'createdAt'
+} as const
+
+export type ApiTokenScalarFieldEnum = (typeof ApiTokenScalarFieldEnum)[keyof typeof ApiTokenScalarFieldEnum]
+
+
+export const ApiTokenEventScalarFieldEnum = {
+  id: 'id',
+  tokenId: 'tokenId',
+  tool: 'tool',
+  machineId: 'machineId',
+  projectId: 'projectId',
+  tabId: 'tabId',
+  ok: 'ok',
+  errorCode: 'errorCode',
+  durationMs: 'durationMs',
+  createdAt: 'createdAt'
+} as const
+
+export type ApiTokenEventScalarFieldEnum = (typeof ApiTokenEventScalarFieldEnum)[keyof typeof ApiTokenEventScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -2564,6 +2745,8 @@ export type GlobalOmitConfig = {
   aiAccount?: Prisma.AiAccountOmit
   waitlistEntry?: Prisma.WaitlistEntryOmit
   upload?: Prisma.UploadOmit
+  apiToken?: Prisma.ApiTokenOmit
+  apiTokenEvent?: Prisma.ApiTokenEventOmit
 }
 
 /* Types for Logging */

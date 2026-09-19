@@ -463,3 +463,24 @@ export interface WaitlistEntry {
 export type WaitlistInviteResult =
   | { id: string; error: string }
   | { id: string; user_id: string; existing: boolean; access: InviteResult['access']; mail: InviteResult['mail'] };
+
+export type ApiTokenScope = 'read' | 'tasks' | 'terminals';
+
+/** Personal API token as the server lists it (never the secret). */
+export interface ApiToken {
+  id: string;
+  user_id: string;
+  name: string;
+  scopes: ApiTokenScope[];
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+/** Create response: the only time the plain token is ever returned. */
+export interface CreatedApiToken {
+  api_token: ApiToken;
+  token: string;
+  mcp_url: string | null;
+}
