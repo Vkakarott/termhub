@@ -4,8 +4,11 @@ import { httpJson, isObj, num, retryAfterMs, str, toIso } from './credentials.js
 
 /**
  * Claude (claude.ai subscription: Pro / Max / Team / Enterprise seat).
- * Credential: Claude Code login — ~/.claude/.credentials.json (Linux) or the
- * "Claude Code-credentials" keychain item (macOS). Usage comes from the same
+ * Credential: Claude Code login — ~/.claude/.credentials.json (Linux), the
+ * "Claude Code-credentials" keychain item (macOS, default config dir), or
+ * "Claude Code-credentials-<sha256(config dir)[:8]>" (macOS, CLAUDE_CONFIG_DIR).
+ * The machine prints every candidate it can find and parseCredential keeps the
+ * freshest one (largest claudeAiOauth.expiresAt). Usage comes from the same
  * endpoint Claude Code's /usage uses.
  */
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
@@ -79,13 +82,14 @@ export function parseCredential(stdout: string): AiCredential {
     } catch {
       continue;
     }
-    const oauth = isObj(json) && isObj(json.claudeAiOauth) ? json.claudeAiOauth : null;
-    const token = oauth ? str(oauth.accessToken) : null;
+    if (!isObj(json) || !isObj(json.claudeAiOauth)) continue;
+    const oauth = json.claudeAiOauth;
+    const token = str(oauth.accessToken);
     if (!token) continue;
-    const expiresAt = oauth ? num(oauth.expiresAt) : null;
+    const expiresAt = num(oauth.expiresAt);
     const rank = expiresAt ?? 0;
     if (rank > bestExpiresAt) {
-      best = { token, extra: {}, expires_at: expiresAt, plan: oauth ? str(oauth.subscriptionType) : null };
+      best = { token, extra: {}, expires_at: expiresAt, plan: str(oauth.subscriptionType) };
       bestExpiresAt = rank;
     }
   }
