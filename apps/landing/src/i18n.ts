@@ -79,7 +79,7 @@ const pt = {
     lead: 'Tudo o que você abre de novo toda manhã, já aberto.',
     items: [
       { title: 'Terminais que não morrem', text: 'Cada tab é uma sessão tmux na máquina de destino. Feche o navegador, troque de computador, volte amanhã: o shell continua onde estava.' },
-      { title: 'Máquinas › Projetos › Tabs', text: 'Cadastre suas máquinas (local ou SSH), organize por projeto com a pasta certa e abra quantas tabs precisar. Um navegador de pastas e discos ajuda a escolher o diretório.' },
+      { title: 'Máquinas › Projetos › Tabs', text: 'Conecte suas máquinas com o agente, organize por projeto com a pasta certa e abra quantas tabs precisar. Um navegador de pastas e discos ajuda a escolher o diretório.' },
       { title: 'Feito para agentes de IA', text: 'Cole imagens e arraste arquivos direto no terminal do Claude Code. Selecione e copie mesmo com o app usando o mouse. Locale UTF-8 garantido em qualquer máquina.' },
       { title: 'Kanban, notas e tickets', text: 'Tarefas por projeto com Backlog › A fazer › Fazendo › Feito, notas em markdown com autosave e sincronização de tickets do Linear, Jira e GitHub.' },
       { title: 'Limites das suas contas de IA', text: 'Veja quanto resta das janelas de uso do Claude, ChatGPT e Gemini, lidas do login dos CLIs nas suas máquinas. Nenhum token é armazenado.' },
@@ -91,7 +91,7 @@ const pt = {
     title: 'Como funciona',
     steps: [
       { title: 'Suba com Docker', text: 'docker compose --profile prod up -d. Postgres, e-mail de login e o app. Publique pela LAN ou por um Cloudflare Tunnel.' },
-      { title: 'Autorize a chave', text: 'O termhub gera uma chave SSH própria. O formulário de máquina mostra o comando pronto para colar e testa a conexão explicando o que faltou.' },
+      { title: 'Conecte a máquina', text: 'npm i -g @termhub/agent e o comando de conexão que o app mostra, com o token já preenchido. A máquina conecta por WebSocket de saída: sem abrir porta nem configurar SSH.' },
       { title: 'Abra um terminal', text: 'Escolha a máquina, a pasta do projeto e pronto. ⌘T abre outra tab, ⌘1..9 alterna. Tudo continua rodando quando você fecha a aba.' },
     ],
     stack_label: 'Stack',
@@ -305,7 +305,7 @@ const en: typeof pt = {
     lead: 'Everything you reopen every morning, already open.',
     items: [
       { title: 'Terminals that don’t die', text: 'Every tab is a tmux session on the target machine. Close the browser, switch computers, come back tomorrow: the shell is where you left it.' },
-      { title: 'Machines › Projects › Tabs', text: 'Register your machines (local or SSH), organize by project with the right folder and open as many tabs as you need. A folder and disk browser helps pick the directory.' },
+      { title: 'Machines › Projects › Tabs', text: 'Connect your machines with the agent, organize by project with the right folder and open as many tabs as you need. A folder and disk browser helps pick the directory.' },
       { title: 'Made for AI agents', text: 'Paste images and drop files straight into Claude Code’s terminal. Select and copy even while the app owns the mouse. UTF-8 locale guaranteed on every machine.' },
       { title: 'Kanban, notes and tickets', text: 'Tasks per project with Backlog › To do › Doing › Done, markdown notes with autosave and ticket sync from Linear, Jira and GitHub.' },
       { title: 'Your AI account limits', text: 'See what is left of the Claude, ChatGPT and Gemini usage windows, read from the CLI logins on your machines. No token is stored.' },
@@ -317,7 +317,7 @@ const en: typeof pt = {
     title: 'How it works',
     steps: [
       { title: 'Run it with Docker', text: 'docker compose --profile prod up -d. Postgres, login e-mail and the app. Publish on your LAN or through a Cloudflare Tunnel.' },
-      { title: 'Authorize the key', text: 'termhub generates its own SSH key. The machine form shows a ready-to-paste command and tests the connection, explaining what is missing.' },
+      { title: 'Connect the machine', text: 'npm i -g @termhub/agent and the connect command the app shows, token already filled in. The machine connects over an outbound WebSocket: no port to open, no SSH to set up.' },
       { title: 'Open a terminal', text: 'Pick the machine and the project folder, done. ⌘T opens another tab, ⌘1..9 switches. Everything keeps running when you close the tab.' },
     ],
     stack_label: 'Stack',
