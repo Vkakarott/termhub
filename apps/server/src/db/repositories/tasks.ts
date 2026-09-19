@@ -16,7 +16,10 @@ function stableStringify(v: unknown): string {
   return JSON.stringify(v);
 }
 
-export type TaskRuleCode = 'PARENT_NOT_FOUND' | 'PARENT_IS_SUBTASK' | 'SUBTASK_CANNOT_MOVE' | 'NOT_A_SUBTASK';
+export type TaskRuleCode = 'PARENT_NOT_FOUND' | 'PARENT_IS_SUBTASK' | 'SUBTASK_CANNOT_MOVE' | 'NOT_A_SUBTASK' | 'TOO_MANY_SUBTASKS';
+
+/** Enforced both here and in the route's zod schema (which uses this constant too). */
+export const MAX_SUBTASKS_PER_CALL = 50;
 
 /** A subtask rule was broken. `message` is pt-BR and safe to show to the user. */
 export class TaskRuleError extends Error {
@@ -78,6 +81,9 @@ export class TasksRepository {
    * top-level task (of `expectProjectId`, when given). Subtasks inherit the parent's project.
    */
   async createSubtasks(parentId: string, items: SubtaskInput[], expectProjectId?: string): Promise<Task[]> {
+    if (items.length > MAX_SUBTASKS_PER_CALL) {
+      throw new TaskRuleError('TOO_MANY_SUBTASKS', 'No máximo 50 subtarefas por vez');
+    }
     return this.db.$transaction(async (tx) => {
       // Lock the parent row so concurrent writers appending to the same parent (e.g. an MCP tool
       // and the web board) serialize instead of both reading the same max sibling position.
@@ -177,8 +183,8 @@ export class TasksRepository {
       for (const [i, siblingId] of ids.entries()) {
         if (siblings.find((s) => s.id === siblingId)?.position !== i) await tx.task.update({ where: { id: siblingId }, data: { position: i } });
       }
-      const t = await tx.task.findUniqueOrThrow({ where: { id } });
-      return mapTask(t);
+      const t = await tx.task.findUnique({ where: { id } });
+      return t ? mapTask(t) : undefined;
     });
   }
 

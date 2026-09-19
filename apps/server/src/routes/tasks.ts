@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
-import { TaskRuleError } from '../db/repositories/tasks.js';
+import { MAX_SUBTASKS_PER_CALL, TaskRuleError } from '../db/repositories/tasks.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
 
@@ -21,7 +21,7 @@ const subtasksBody = z.object({
   items: z
     .array(z.object({ title: taskFields.title, description: taskFields.description }))
     .min(1)
-    .max(50),
+    .max(MAX_SUBTASKS_PER_CALL),
 });
 const reorderBody = z.object({ position: z.number().int().min(0).max(10_000) });
 

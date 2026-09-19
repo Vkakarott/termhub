@@ -2,7 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
-import { TaskRuleError, TasksRepository } from './tasks.js';
+import { MAX_SUBTASKS_PER_CALL, TaskRuleError, TasksRepository } from './tasks.js';
 
 // Needs a migrated Postgres: TERMHUB_DB_TESTS=1 DATABASE_URL=… (CI sets both; see the plan/README for the local Docker recipe).
 describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres)', () => {
@@ -50,6 +50,13 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
     expect(list[0].subtasks.map((s) => s.position)).toEqual([0, 1, 2]);
     expect(list[0].subtasks.every((s) => s.project_id === projectId && s.external_key === null)).toBe(true);
     expect(list[0].subtask_counts).toEqual({ done: 0, total: 3 });
+  });
+
+  it('rejects a call over the per-call cap, creating nothing', async () => {
+    const parent = await repo.create(projectId, { title: 'parent' });
+    const items = Array.from({ length: MAX_SUBTASKS_PER_CALL + 1 }, (_, i) => ({ title: `s${i}` }));
+    await expect(repo.createSubtasks(parent.id, items)).rejects.toMatchObject({ code: 'TOO_MANY_SUBTASKS' });
+    expect(await repo.childIds(parent.id)).toEqual([]);
   });
 
   it('rejects a subtask of a subtask', async () => {

@@ -45,7 +45,7 @@ npm run dev                 # API on :3000 + Vite on :5173 (proxies /api and /ws
 Repository tests that need Postgres are skipped unless `TERMHUB_DB_TESTS=1` and `DATABASE_URL` points at a **migrated, disposable** database (CI does this):
 
 ```bash
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/termhub_test TERMHUB_DB_TESTS=1 \
+DATABASE_URL=postgresql://termhub:termhub@localhost:5434/termhub_test TERMHUB_DB_TESTS=1 \
   sh -c 'npm run prisma:migrate:deploy && npm test -w @termhub/server'
 ```
 
