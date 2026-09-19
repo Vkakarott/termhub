@@ -8,6 +8,7 @@ import { createUpgradeRouter } from '../ws/router.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { AgentOfflineError } from '../agent/registry.js';
+import { AgentRpcError } from '../agent/connection.js';
 import { registerTerminalWs } from './ws.js';
 
 const { resolveUserMock, canAccessMock, createPtySessionMock } = vi.hoisted(() => ({
@@ -146,6 +147,31 @@ describe('registerTerminalWs', () => {
 
     expect(closed.code).toBe(1011);
     expect(messages).toContainEqual({ type: 'error', message: 'Agente desconectado' });
+  });
+
+  async function openError(err: unknown): Promise<unknown[]> {
+    createPtySessionMock.mockRejectedValueOnce(err);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/tabs/t1`);
+    const messages: unknown[] = [];
+    ws.on('message', (data) => messages.push(JSON.parse(data.toString())));
+    await waitOpen(ws);
+    expect((await waitClose(ws)).code).toBe(1011);
+    return messages;
+  }
+
+  it('the agent could not start the terminal: says what to run on the machine', async () => {
+    const messages = await openError(new AgentRpcError({ code: 'internal', message: 'failed to start pty' }));
+    expect(messages).toContainEqual({ type: 'error', message: 'Esta máquina não conseguiu abrir o terminal. Rode termhub-agent doctor nela.' });
+  });
+
+  it('the agent has no tmux: says so', async () => {
+    const messages = await openError(new AgentRpcError({ code: 'no_tmux', message: 'tmux not found' }));
+    expect(messages).toContainEqual({ type: 'error', message: 'tmux não encontrado nesta máquina. Instale o tmux e tente de novo.' });
+  });
+
+  it('any other failure keeps the generic message', async () => {
+    const messages = await openError(new Error('ssh: connect refused'));
+    expect(messages).toContainEqual({ type: 'error', message: 'Falha ao iniciar terminal' });
   });
 
   it('kills a session whose browser socket closed while createPtySession() was still pending', async () => {
