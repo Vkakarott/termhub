@@ -8,11 +8,8 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  // Installing runs shell on the machine, which agents do not do yet (the server answers 409): no fetch, no buttons.
-  const isAgent = machine.type === 'agent';
 
   useEffect(() => {
-    if (isAgent) return;
     let cancelled = false;
     api.machines
       .hooks(machine.id)
@@ -21,7 +18,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
     return () => {
       cancelled = true;
     };
-  }, [machine.id, isAgent]);
+  }, [machine.id]);
 
   const install = async () => {
     setBusy(true);
@@ -53,14 +50,6 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
     }
   };
 
-  if (isAgent) {
-    return (
-      <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
-        <p className="font-medium text-fg-muted">Hooks do monitor: disponíveis em breve para agentes</p>
-      </div>
-    );
-  }
-
   const installed = !!hooks?.installed_at;
   return (
     <div className="rounded-md border border-line bg-bg p-2 text-xs">
@@ -81,6 +70,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
       <p className="mt-1 text-fg-dim">
         Escreve <code className="font-mono">~/.termhub/bin/termhub-hook</code> e registra hooks no Claude Code (<code className="font-mono">~/.claude/settings.json</code>) e no Codex (
         <code className="font-mono">~/.codex/config.toml</code>) para avisar quando uma tab está esperando você. Só a pergunta da ferramenta é enviada, nunca o conteúdo do terminal.
+        {machine.type === 'agent' && ' Numa máquina com agente, é o próprio agente que escreve os arquivos (precisa estar conectado).'}
       </p>
       {hooks && <p className="mt-1 truncate font-mono text-[10px] text-fg-dim" title={hooks.hooks_url}>→ {hooks.hooks_url}</p>}
       {note && <p className="mt-1 text-fg-muted">{note}</p>}
