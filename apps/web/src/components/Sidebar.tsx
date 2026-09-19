@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { canSeeSettings } from '../lib/settings-sections';
 import { ANALYTICS_ENABLED } from '../lib/analytics';
 import { openCookieBanner } from './AnalyticsGate';
 import { useData, type MachineStatus } from '../lib/data';
@@ -214,7 +215,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             ⚙ Integrações
           </NavLink>
         )}
-        {(can('users') || can('roles') || can('uploads')) && (
+        {canSeeSettings(can) && (
           <NavLink to="/settings" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
             ⚙ Configurações
           </NavLink>

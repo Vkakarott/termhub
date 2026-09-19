@@ -3,29 +3,25 @@ import { NavLink, useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, User } from '../lib/types';
+import { SETTINGS_SECTIONS, type SettingsSection } from '../lib/settings-sections';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { UploadsView } from '../components/UploadsView';
+import { ApiTokensView } from '../components/ApiTokensView';
 
 /**
- * Settings: users, roles and the permission matrix (resource × create/read/update/delete).
+ * Settings: users, roles, the permission matrix (resource × create/read/update/delete), uploads
+ * and the signed-in user's own personal API tokens.
  * Same model as the engenhariainversa CMS: admin roles bypass everything, system roles cannot be deleted.
  */
 
-type Section = 'users' | 'roles' | 'permissions' | 'uploads';
-const SECTIONS: { key: Section; label: string; resource: string }[] = [
-  { key: 'users', label: 'Usuários', resource: 'users' },
-  { key: 'roles', label: 'Roles', resource: 'roles' },
-  { key: 'permissions', label: 'Permissões', resource: 'roles' },
-  { key: 'uploads', label: 'Arquivos', resource: 'uploads' },
-];
 const ACTION_LABELS: Record<PermissionAction, string> = { create: 'Criar', read: 'Ver', update: 'Editar', delete: 'Excluir' };
 const ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete'];
 
 export function SettingsPage() {
   const { section } = useParams<{ section?: string }>();
   const { can } = useAuth();
-  const visible = SECTIONS.filter((s) => can(s.resource));
-  const current = (visible.find((s) => s.key === section) ?? visible[0])?.key;
+  const visible = SETTINGS_SECTIONS.filter((s) => can(s.resource));
+  const current: SettingsSection | undefined = (visible.find((s) => s.key === section) ?? visible[0])?.key;
 
   return (
     <div className="flex h-full flex-col">
@@ -42,6 +38,7 @@ export function SettingsPage() {
         {current === 'roles' && <RolesSection />}
         {current === 'permissions' && <PermissionsSection />}
         {current === 'uploads' && <UploadsView />}
+        {current === 'api-tokens' && <ApiTokensView />}
         {!current && <p className="text-sm text-fg-dim">Sem permissão para ver as configurações.</p>}
       </div>
     </div>
