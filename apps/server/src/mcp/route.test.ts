@@ -202,6 +202,36 @@ describe('POST /mcp hardening', () => {
     expect(next.json().result.content[0].text).toMatch(/Limite de 2 chamadas por minuto/);
   });
 
+  it('audits only bounded ids from a refused call', async () => {
+    const { app, apiTokens } = build({ grants: ['machines:read'] });
+    await rpc(app, call('read_screen', { tab_id: 't'.repeat(1000) }));
+    await rpc(app, call('read_screen', { tab_id: 't'.repeat(64), machine_id: '' }));
+    await flush();
+    const rows = apiTokens.recordEvent.mock.calls.map((c) => c[0]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ error_code: 'TOOL_NOT_ALLOWED', tab_id: null });
+    expect(rows[1]).toMatchObject({ error_code: 'TOOL_NOT_ALLOWED', tab_id: 't'.repeat(64), machine_id: null });
+  });
+
+  it('leaves a tools/call with a non-string name to the SDK and audits nothing', async () => {
+    const { app, apiTokens } = build();
+    for (const name of [{ toString: 1 }, undefined, 42]) {
+      const r = await rpc(app, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: {} } });
+      expect(r.statusCode).not.toBe(500);
+      expect(r.json().error ?? r.json().result?.isError).toBeTruthy();
+    }
+    await flush();
+    expect(apiTokens.recordEvent).not.toHaveBeenCalled();
+  });
+
+  it('audits a refused call over the rate limit as RATE_LIMITED', async () => {
+    const { app, apiTokens } = build({ grants: ['machines:read'], limiter: new TokenRateLimiter(1, 60_000) });
+    await rpc(app, call('read_screen', { tab_id: 't1' }));
+    await rpc(app, call('read_screen', { tab_id: 't1' }));
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls.map((c) => c[0].error_code)).toEqual(['TOOL_NOT_ALLOWED', 'RATE_LIMITED']);
+  });
+
   it('sets the security headers on a hijacked 200 response', async () => {
     const { app } = build();
     const r = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' });

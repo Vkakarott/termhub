@@ -24,10 +24,11 @@ const UNAUTHORIZED = { error: 'Não autenticado', code: 'UNAUTHORIZED' } as cons
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const text = (t: string, isError = false): ToolResult => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
-const str = (v: unknown) => (typeof v === 'string' ? v : null);
+/** An id worth auditing: refused calls carry raw, unvalidated arguments, so anything else is dropped. */
+const auditId = (v: unknown) => (typeof v === 'string' && v.length >= 1 && v.length <= 64 ? v : null);
 const idsOf = (args: unknown) => {
   const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
-  return { machine_id: str(a.machine_id), project_id: str(a.project_id), tab_id: str(a.tab_id) };
+  return { machine_id: auditId(a.machine_id), project_id: auditId(a.project_id), tab_id: auditId(a.tab_id) };
 };
 
 /** Same headers the app's global onSend hook sets — a hijacked reply bypasses that hook. */
@@ -128,14 +129,12 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
     // counted and audited here; the SDK then answers them as usual. Valid allowed calls are audited by the handler.
     const body = withDefaultArguments(request.body);
     const msg = body as { method?: unknown; params?: { name?: unknown; arguments?: unknown } } | null;
-    if (msg && typeof msg === 'object' && msg.method === 'tools/call' && msg.params && typeof msg.params === 'object') {
-      const name = typeof msg.params.name === 'string' ? msg.params.name : String(msg.params.name);
+    // A non-string name is left to the SDK, which rejects the request itself (nothing to audit it as).
+    if (msg && typeof msg === 'object' && msg.method === 'tools/call' && msg.params && typeof msg.params === 'object' && typeof msg.params.name === 'string') {
+      const name = msg.params.name;
       const tool = tools.find((t) => t.name === name);
       const refusal = !tool ? 'TOOL_NOT_ALLOWED' : !z.object(tool.input).safeParse(msg.params.arguments).success ? 'INVALID_ARGS' : null;
-      if (refusal) {
-        limiter.take(token.id);
-        audit(name, msg.params.arguments, refusal, 0);
-      }
+      if (refusal) audit(name, msg.params.arguments, limiter.take(token.id).ok ? refusal : 'RATE_LIMITED', 0);
     }
 
     if (closed) return gone();
