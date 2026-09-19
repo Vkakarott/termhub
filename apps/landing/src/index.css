@@ -40,7 +40,7 @@ h4 {
   }
 
   .kbd {
-    @apply rounded-tint border border-border-2 bg-surface px-1.5 py-0.5 font-mono text-[11px] text-muted;
+    @apply rounded-tint border border-border-2 bg-surface px-1.5 py-0.5 font-mono text-caption text-muted;
   }
 
   /* subtle background wash shared by nav links and inline text links */
@@ -58,6 +58,44 @@ h4 {
 
   .section-link {
     @apply inline-flex items-center gap-1 text-body-sm font-medium text-accent transition duration-150 hover:underline hover:underline-offset-4;
+  }
+
+  /* touch screens: 44px targets. Buttons grow; text links keep their size and get a taller
+     hit area instead, so nothing in the layout moves. */
+  @media (pointer: coarse) {
+    .btn,
+    .btn-primary,
+    .btn-ghost {
+      min-height: 44px;
+    }
+
+    .tap,
+    .tap-icon,
+    .section-link {
+      position: relative;
+    }
+
+    .tap::after,
+    .section-link::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 44px;
+      transform: translateY(-50%);
+    }
+
+    /* the form's ⓘ: wider and mostly upwards, so it never covers the field right below it */
+    .tap-icon::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      bottom: -4px;
+      width: 44px;
+      height: 36px;
+      transform: translateX(-50%);
+    }
   }
 
   .field {
