@@ -25,6 +25,7 @@ import { PaneLayer, PANE_HEADER_HEIGHT } from './PaneLayer';
 import { FloatingWindow, FLOATING_TITLE_HEIGHT } from './FloatingWindow';
 import { ConfirmDialog } from './Modal';
 import { useData } from '../lib/data';
+import { setTabsOnScreen } from '../lib/visible-tabs';
 
 interface Props {
   project: Project;
@@ -56,6 +57,12 @@ export function TerminalsView({ project, visible }: Props) {
   const [layout, setLayout] = useState<Layout>(() => emptyLayout('single'));
   const [floatingFocused, setFloatingFocused] = useState(false);
   const tabIds = useMemo(() => (tabs ?? []).map((t) => t.id), [tabs]);
+
+  // Tabs in a cell or floating while this section is shown: the "needs you" toasts skip them.
+  useEffect(() => {
+    setTabsOnScreen(project.id, visible ? tabIds.filter((id) => placeOf(layout, id) !== null) : []);
+  }, [project.id, visible, tabIds, layout]);
+  useEffect(() => () => setTabsOnScreen(project.id, []), [project.id]);
 
   useLayoutEffect(() => {
     const el = areaRef.current;

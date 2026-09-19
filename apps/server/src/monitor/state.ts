@@ -35,7 +35,9 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
       return null; // auth_success and friends: nothing the user has to act on
     }
     case 'Stop':
-      return { kind: 'idle', text: null, meta: { event: name } };
+      // A finished turn is the tool waiting for the person (same as Codex); the idle_prompt
+      // notification only comes about a minute later. The last answer, when sent, is the question.
+      return { kind: 'waiting_input', text: cap(str(ev.last_assistant_message)), meta: { event: name } };
     case 'SessionEnd':
       return { kind: 'idle', text: null, meta: { event: name, reason: str(ev.reason) } };
     default:

@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { ANALYTICS_ENABLED } from '../lib/analytics';
 import { openCookieBanner } from './AnalyticsGate';
 import { useData, type MachineStatus } from '../lib/data';
+import { useMonitor } from '../lib/monitor';
+import { needsYouByProject } from '../lib/needs-you';
 import type { Machine, Project } from '../lib/types';
 import { relativeTime } from '../lib/time';
 import { MachineForm } from './MachineForm';
@@ -31,6 +33,8 @@ export function machineTitle(m: Machine, status: MachineStatus): string {
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can, viewAs } = useAuth();
   const { machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
+  const { items: monitorItems } = useMonitor();
+  const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -141,13 +145,20 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                         title={p.cwd}
                       >
                         <span className={`truncate ${p.status !== 'active' ? 'opacity-60' : ''}`}>{p.name}</span>
+                        {!!waiting.get(p.id) && (
+                          <span
+                            className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-attention"
+                            title={waiting.get(p.id) === 1 ? '1 tab esperando você' : `${waiting.get(p.id)} tabs esperando você`}
+                            aria-label="esperando você"
+                          />
+                        )}
                         {!!p.open_tasks && p.status === 'active' && (
-                          <span className="ml-auto rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums text-fg-muted group-hover/p:hidden" title={`${p.open_tasks} task(s) aberta(s)`}>
+                          <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums text-fg-muted group-hover/p:hidden`} title={`${p.open_tasks} task(s) aberta(s)`}>
                             {p.open_tasks}
                           </span>
                         )}
-                        {p.status === 'paused' && <span className="ml-auto text-[10px] text-warn group-hover/p:hidden">pausado</span>}
-                        {p.status === 'archived' && <span className="ml-auto text-[10px] text-fg-dim group-hover/p:hidden">arquivado</span>}
+                        {p.status === 'paused' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-warn group-hover/p:hidden`}>pausado</span>}
+                        {p.status === 'archived' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-fg-dim group-hover/p:hidden`}>arquivado</span>}
                       </NavLink>
                       {/* ações: só no hover; ficam fora do link para não navegar ao clicar */}
                       <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-hover/p:flex">
