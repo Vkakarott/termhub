@@ -8,6 +8,13 @@ export const machinePath = z.string().min(1).max(4096).refine((p) => (p === '~' 
 export const pasteName = z.string().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/);
 export const aiProvider = z.enum(['claude', 'chatgpt', 'gemini', 'antigravity']);
 
+/** The only keys a terminal tool may press (spec §4.2): no arbitrary key names reach tmux. */
+export const TMUX_KEYS = ['Enter', 'Escape', 'C-c', 'Up', 'Down', 'Tab', 'y', 'n', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
+export const tmuxKey = z.enum(TMUX_KEYS);
+export type TmuxKey = (typeof TMUX_KEYS)[number];
+
+export const TEXT_MAX_CHARS = 4000;
+
 export const rpcErrorSchema = z.object({
   /** `failed`: the operation ran on the machine and `message` says why it failed, in words meant for the user. */
   code: z.enum(['eperm', 'notfound', 'no_tmux', 'timeout', 'invalid', 'internal', 'failed']),
@@ -23,6 +30,11 @@ export const RPC = {
   'tmux.list': def(z.object({}), z.object({ sessions: z.array(sessionName) })),
   'tmux.kill': def(z.object({ session: sessionName }), z.object({ killed: z.boolean() })),
   'tmux.capture': def(z.object({ session: sessionName, lines: z.number().int().min(1).max(5000) }), z.object({ text: z.string() })),
+  /** Idempotent: creates the detached session in `cwd` when it is missing. `created` says whether it had to. */
+  'tmux.ensure': def(z.object({ session: sessionName, cwd: machinePath }), z.object({ created: z.boolean() }), 10_000),
+  /** Types `text` literally, then (with `enter`) presses Enter on its own after a short pause. */
+  'tmux.sendText': def(z.object({ session: sessionName, text: z.string().max(TEXT_MAX_CHARS), enter: z.boolean() }), z.object({ sent: z.literal(true) }), 10_000),
+  'tmux.sendKey': def(z.object({ session: sessionName, key: tmuxKey }), z.object({ sent: z.literal(true) }), 10_000),
   'tools.detect': def(z.object({}), z.object({ os: z.string().nullable(), tools: z.array(z.string().max(32)) })),
   'hw.probe': def(z.object({}), z.object({ stdout: z.string() }), 15_000),
   'fs.list': def(z.object({ path: machinePath }), z.object({ stdout: z.string() })),
