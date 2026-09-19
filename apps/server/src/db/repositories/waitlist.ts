@@ -15,17 +15,20 @@ export interface WaitlistEntry {
   locale: string;
   source: string;
   created_at: string;
+  /** when the alpha invite was (last) sent; null = not invited yet */
+  invited_at: string | null;
 }
 
-export type WaitlistInput = Omit<WaitlistEntry, 'id' | 'created_at' | 'source'> & { source?: string };
+export type WaitlistInput = Omit<WaitlistEntry, 'id' | 'created_at' | 'source' | 'invited_at'> & { source?: string };
 
 function map(e: {
   id: string; firstName: string; lastName: string; email: string; phoneCountry: string; phoneArea: string; phoneNumber: string; phone: string;
-  linkedin: string | null; github: string | null; locale: string; source: string; createdAt: Date;
+  linkedin: string | null; github: string | null; locale: string; source: string; createdAt: Date; invitedAt: Date | null;
 }): WaitlistEntry {
   return {
     id: e.id, first_name: e.firstName, last_name: e.lastName, email: e.email, phone_country: e.phoneCountry, phone_area: e.phoneArea,
     phone_number: e.phoneNumber, phone: e.phone, linkedin: e.linkedin, github: e.github, locale: e.locale, source: e.source, created_at: e.createdAt.toISOString(),
+    invited_at: e.invitedAt ? e.invitedAt.toISOString() : null,
   };
 }
 
@@ -51,6 +54,17 @@ export class WaitlistRepository {
 
   async list(): Promise<WaitlistEntry[]> {
     return (await this.db.waitlistEntry.findMany({ orderBy: { createdAt: 'desc' } })).map(map);
+  }
+
+  async findByIds(ids: string[]): Promise<WaitlistEntry[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.waitlistEntry.findMany({ where: { id: { in: ids } } })).map(map);
+  }
+
+  /** Stamps invited_at = now on the given entries (re-invites overwrite the previous stamp). */
+  async markInvited(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.db.waitlistEntry.updateMany({ where: { id: { in: ids } }, data: { invitedAt: new Date() } });
   }
 
   async count(): Promise<number> {

@@ -379,6 +379,8 @@ model WaitlistEntry {
   locale       String   @default("pt")
   source       String   @default("landing")
   createdAt    DateTime @default(now()) @map("created_at")
+  /// when the alpha invite was (last) sent from the Waitlist tab; null = not invited yet
+  invitedAt    DateTime? @map("invited_at")
 
   @@index([createdAt])
   @@map("waitlist_entries")

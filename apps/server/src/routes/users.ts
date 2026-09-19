@@ -5,7 +5,8 @@ import { toPublicUser, type User } from '../db/repositories/types.js';
 import type { Role } from '../db/repositories/roles.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import type { Mailer } from '../email/mailer.js';
-import { inviteMail } from '../email/templates.js';
+import { alphaInviteMail, inviteMail, type AlphaLocale } from '../email/templates.js';
+import type { Mail } from '../email/mailer.js';
 import type { AccessAllowlist } from '../cloudflare/access.js';
 import { config } from '../config.js';
 
@@ -14,6 +15,10 @@ const patchBody = z.object({ role_id: z.string().min(1).max(64) });
 const inviteBody = z.object({
   email: z.string().trim().toLowerCase().email().max(200),
   name: z.string().trim().max(120).optional(),
+  role_id: z.string().min(1).max(64),
+});
+const inviteFromWaitlistBody = z.object({
+  ids: z.array(z.string().min(1).max(64)).min(1).max(200),
   role_id: z.string().min(1).max(64),
 });
 
@@ -39,7 +44,7 @@ function withRoleInfo(u: User, role: Role | undefined) {
 /** User administration. Guarded as resource "users" (see app.ts). */
 export async function userRoutes(app: FastifyInstance, repos: Repositories, deps: UserRouteDeps) {
   /** Allowlist the e-mail and send the invite; failures are reported, not thrown (the user already exists). */
-  async function runInvite(user: User, role: Role, invitedBy: string, log: FastifyBaseLogger): Promise<InviteSideEffects> {
+  async function runInvite(user: User, role: Role, invitedBy: string, log: FastifyBaseLogger, mail?: (accessAllowlisted: boolean) => Mail): Promise<InviteSideEffects> {
     const out: InviteSideEffects = { access: { configured: !!config.cloudflareAccess, synced: false }, mail: { sent: false } };
     if (config.cloudflareAccess) {
       try {
@@ -51,7 +56,9 @@ export async function userRoutes(app: FastifyInstance, repos: Repositories, deps
       }
     }
     try {
-      await deps.mailer.send(inviteMail(user.email, { invitedBy, appUrl: config.publicUrl, roleLabel: role.label, accessAllowlisted: out.access.synced }));
+      await deps.mailer.send(
+        mail ? mail(out.access.synced) : inviteMail(user.email, { invitedBy, appUrl: config.publicUrl, roleLabel: role.label, accessAllowlisted: out.access.synced }),
+      );
       out.mail.sent = true;
     } catch (err) {
       out.mail.error = errMessage(err);
@@ -91,6 +98,49 @@ export async function userRoutes(app: FastifyInstance, repos: Repositories, deps
     const effects = await runInvite(user, role, request.user?.name ?? 'Alguém', request.log);
     request.log.info({ userId: user.id, roleId: role.id, access: effects.access.synced, mail: effects.mail.sent }, 'user invited');
     return reply.code(201).send({ user: withRoleInfo(user, role), ...effects });
+  });
+
+  /**
+   * Alpha invite from the Waitlist tab: for each entry, create the user with the chosen role
+   * (or reuse the account that already has that e-mail), run the invite side effects with the
+   * alpha-tester e-mail (app link + WhatsApp community, in the entry's language) and stamp
+   * invited_at on the entry. Per-entry outcomes are reported, never thrown, so one bad
+   * address does not stop the batch.
+   */
+  app.post('/invite-from-waitlist', async (request) => {
+    const body = inviteFromWaitlistBody.parse(request.body);
+    const role = await repos.roles.findById(body.role_id);
+    if (!role) throw badRequest('Role inexistente');
+    const entries = new Map((await repos.waitlist.findByIds(body.ids)).map((e) => [e.id, e]));
+    const results: Array<{ id: string; error: string } | ({ id: string; user_id: string; existing: boolean } & InviteSideEffects)> = [];
+    const invited: string[] = [];
+    for (const id of body.ids) {
+      const entry = entries.get(id);
+      if (!entry) {
+        results.push({ id, error: 'Entry not found' });
+        continue;
+      }
+      let user = await repos.users.findByEmail(entry.email);
+      const existing = !!user;
+      if (!user) {
+        user = await repos.users.create({
+          email: entry.email,
+          name: `${entry.first_name} ${entry.last_name}`.trim(),
+          role_id: role.id,
+          role: role.is_admin ? 'owner' : 'member',
+          invited_at: new Date(),
+        });
+      }
+      const locale: AlphaLocale = entry.locale === 'en' ? 'en' : 'pt';
+      const effects = await runInvite(user, role, request.user?.name ?? 'Alguém', request.log, () =>
+        alphaInviteMail(user!.email, { appUrl: config.publicUrl, communityUrl: config.alphaCommunityUrl, firstName: entry.first_name, locale }),
+      );
+      invited.push(id);
+      results.push({ id, user_id: user.id, existing, ...effects });
+    }
+    await repos.waitlist.markInvited(invited);
+    request.log.info({ invited: invited.length, roleId: role.id }, 'alpha invites sent from waitlist');
+    return { results };
   });
 
   /** Re-run the invite side effects (e-mail bounced, allowlist edited by hand, …). */

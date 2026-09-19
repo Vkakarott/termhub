@@ -38,6 +38,7 @@ export type WaitlistEntryMinAggregateOutputType = {
   locale: string | null
   source: string | null
   createdAt: Date | null
+  invitedAt: Date | null
 }
 
 export type WaitlistEntryMaxAggregateOutputType = {
@@ -54,6 +55,7 @@ export type WaitlistEntryMaxAggregateOutputType = {
   locale: string | null
   source: string | null
   createdAt: Date | null
+  invitedAt: Date | null
 }
 
 export type WaitlistEntryCountAggregateOutputType = {
@@ -70,6 +72,7 @@ export type WaitlistEntryCountAggregateOutputType = {
   locale: number
   source: number
   createdAt: number
+  invitedAt: number
   _all: number
 }
 
@@ -88,6 +91,7 @@ export type WaitlistEntryMinAggregateInputType = {
   locale?: true
   source?: true
   createdAt?: true
+  invitedAt?: true
 }
 
 export type WaitlistEntryMaxAggregateInputType = {
@@ -104,6 +108,7 @@ export type WaitlistEntryMaxAggregateInputType = {
   locale?: true
   source?: true
   createdAt?: true
+  invitedAt?: true
 }
 
 export type WaitlistEntryCountAggregateInputType = {
@@ -120,6 +125,7 @@ export type WaitlistEntryCountAggregateInputType = {
   locale?: true
   source?: true
   createdAt?: true
+  invitedAt?: true
   _all?: true
 }
 
@@ -209,6 +215,7 @@ export type WaitlistEntryGroupByOutputType = {
   locale: string
   source: string
   createdAt: Date
+  invitedAt: Date | null
   _count: WaitlistEntryCountAggregateOutputType | null
   _min: WaitlistEntryMinAggregateOutputType | null
   _max: WaitlistEntryMaxAggregateOutputType | null
@@ -246,6 +253,7 @@ export type WaitlistEntryWhereInput = {
   locale?: Prisma.StringFilter<"WaitlistEntry"> | string
   source?: Prisma.StringFilter<"WaitlistEntry"> | string
   createdAt?: Prisma.DateTimeFilter<"WaitlistEntry"> | Date | string
+  invitedAt?: Prisma.DateTimeNullableFilter<"WaitlistEntry"> | Date | string | null
 }
 
 export type WaitlistEntryOrderByWithRelationInput = {
@@ -262,6 +270,7 @@ export type WaitlistEntryOrderByWithRelationInput = {
   locale?: Prisma.SortOrder
   source?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrderInput | Prisma.SortOrder
 }
 
 export type WaitlistEntryWhereUniqueInput = Prisma.AtLeast<{
@@ -281,6 +290,7 @@ export type WaitlistEntryWhereUniqueInput = Prisma.AtLeast<{
   locale?: Prisma.StringFilter<"WaitlistEntry"> | string
   source?: Prisma.StringFilter<"WaitlistEntry"> | string
   createdAt?: Prisma.DateTimeFilter<"WaitlistEntry"> | Date | string
+  invitedAt?: Prisma.DateTimeNullableFilter<"WaitlistEntry"> | Date | string | null
 }, "id" | "email">
 
 export type WaitlistEntryOrderByWithAggregationInput = {
@@ -297,6 +307,7 @@ export type WaitlistEntryOrderByWithAggregationInput = {
   locale?: Prisma.SortOrder
   source?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.WaitlistEntryCountOrderByAggregateInput
   _max?: Prisma.WaitlistEntryMaxOrderByAggregateInput
   _min?: Prisma.WaitlistEntryMinOrderByAggregateInput
@@ -319,6 +330,7 @@ export type WaitlistEntryScalarWhereWithAggregatesInput = {
   locale?: Prisma.StringWithAggregatesFilter<"WaitlistEntry"> | string
   source?: Prisma.StringWithAggregatesFilter<"WaitlistEntry"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"WaitlistEntry"> | Date | string
+  invitedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"WaitlistEntry"> | Date | string | null
 }
 
 export type WaitlistEntryCreateInput = {
@@ -335,6 +347,7 @@ export type WaitlistEntryCreateInput = {
   locale?: string
   source?: string
   createdAt?: Date | string
+  invitedAt?: Date | string | null
 }
 
 export type WaitlistEntryUncheckedCreateInput = {
@@ -351,6 +364,7 @@ export type WaitlistEntryUncheckedCreateInput = {
   locale?: string
   source?: string
   createdAt?: Date | string
+  invitedAt?: Date | string | null
 }
 
 export type WaitlistEntryUpdateInput = {
@@ -367,6 +381,7 @@ export type WaitlistEntryUpdateInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   source?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type WaitlistEntryUncheckedUpdateInput = {
@@ -383,6 +398,7 @@ export type WaitlistEntryUncheckedUpdateInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   source?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type WaitlistEntryCreateManyInput = {
@@ -399,6 +415,7 @@ export type WaitlistEntryCreateManyInput = {
   locale?: string
   source?: string
   createdAt?: Date | string
+  invitedAt?: Date | string | null
 }
 
 export type WaitlistEntryUpdateManyMutationInput = {
@@ -415,6 +432,7 @@ export type WaitlistEntryUpdateManyMutationInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   source?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type WaitlistEntryUncheckedUpdateManyInput = {
@@ -431,6 +449,7 @@ export type WaitlistEntryUncheckedUpdateManyInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   source?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type WaitlistEntryCountOrderByAggregateInput = {
@@ -447,6 +466,7 @@ export type WaitlistEntryCountOrderByAggregateInput = {
   locale?: Prisma.SortOrder
   source?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrder
 }
 
 export type WaitlistEntryMaxOrderByAggregateInput = {
@@ -463,6 +483,7 @@ export type WaitlistEntryMaxOrderByAggregateInput = {
   locale?: Prisma.SortOrder
   source?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrder
 }
 
 export type WaitlistEntryMinOrderByAggregateInput = {
@@ -479,6 +500,7 @@ export type WaitlistEntryMinOrderByAggregateInput = {
   locale?: Prisma.SortOrder
   source?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  invitedAt?: Prisma.SortOrder
 }
 
 
@@ -497,6 +519,7 @@ export type WaitlistEntrySelect<ExtArgs extends runtime.Types.Extensions.Interna
   locale?: boolean
   source?: boolean
   createdAt?: boolean
+  invitedAt?: boolean
 }, ExtArgs["result"]["waitlistEntry"]>
 
 export type WaitlistEntrySelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -513,6 +536,7 @@ export type WaitlistEntrySelectCreateManyAndReturn<ExtArgs extends runtime.Types
   locale?: boolean
   source?: boolean
   createdAt?: boolean
+  invitedAt?: boolean
 }, ExtArgs["result"]["waitlistEntry"]>
 
 export type WaitlistEntrySelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -529,6 +553,7 @@ export type WaitlistEntrySelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   locale?: boolean
   source?: boolean
   createdAt?: boolean
+  invitedAt?: boolean
 }, ExtArgs["result"]["waitlistEntry"]>
 
 export type WaitlistEntrySelectScalar = {
@@ -545,9 +570,10 @@ export type WaitlistEntrySelectScalar = {
   locale?: boolean
   source?: boolean
   createdAt?: boolean
+  invitedAt?: boolean
 }
 
-export type WaitlistEntryOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "firstName" | "lastName" | "email" | "phoneCountry" | "phoneArea" | "phoneNumber" | "phone" | "linkedin" | "github" | "locale" | "source" | "createdAt", ExtArgs["result"]["waitlistEntry"]>
+export type WaitlistEntryOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "firstName" | "lastName" | "email" | "phoneCountry" | "phoneArea" | "phoneNumber" | "phone" | "linkedin" | "github" | "locale" | "source" | "createdAt" | "invitedAt", ExtArgs["result"]["waitlistEntry"]>
 
 export type $WaitlistEntryPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "WaitlistEntry"
@@ -578,6 +604,10 @@ export type $WaitlistEntryPayload<ExtArgs extends runtime.Types.Extensions.Inter
     locale: string
     source: string
     createdAt: Date
+    /**
+     * when the alpha invite was (last) sent from the Waitlist tab; null = not invited yet
+     */
+    invitedAt: Date | null
   }, ExtArgs["result"]["waitlistEntry"]>
   composites: {}
 }
@@ -1014,6 +1044,7 @@ export interface WaitlistEntryFieldRefs {
   readonly locale: Prisma.FieldRef<"WaitlistEntry", 'String'>
   readonly source: Prisma.FieldRef<"WaitlistEntry", 'String'>
   readonly createdAt: Prisma.FieldRef<"WaitlistEntry", 'DateTime'>
+  readonly invitedAt: Prisma.FieldRef<"WaitlistEntry", 'DateTime'>
 }
     
 
