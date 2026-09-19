@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CLOSE } from '@termhub/agent-protocol';
 import type { Repositories } from '../db/repositories/index.js';
-import { badRequest, conflict, forbidden } from '../lib/errors.js';
+import { HttpError, badRequest, conflict, forbidden } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
 import { isAdmin } from '../auth/permissions.js';
 import { machineStatus } from '../terminal/machine-exec.js';
@@ -38,9 +38,6 @@ const machineBody = z
     if (m.type === 'ssh' && !m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'host é obrigatório para SSH' });
     if (m.type === 'agent' && m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'máquina com agente não tem host' });
   });
-
-/** Hook install/uninstall runs shell on the machine, which agent machines do not do (no RPC for it yet). */
-const HOOKS_ON_AGENT = 'Instalação de hooks ainda não disponível em máquinas com agente';
 
 const ownerPatch = z.object({ owner_id: z.string().min(1).max(64).nullable().optional() });
 
@@ -173,13 +170,13 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.post('/:id/hooks', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const machine = await scoped(repos, request).machine(id);
-    // installHooks runs shell on the machine; agents only answer named RPCs and have none for this yet
-    if (machine.type === 'agent') throw conflict(HOOKS_ON_AGENT);
     const { token, hash } = newHookToken();
     let report;
     try {
       report = await installHooks(machine, token, config.hooksUrl);
     } catch (err) {
+      // Agent failures (offline, outdated, what the machine reported) already carry their own status.
+      if (err instanceof HttpError) throw err;
       throw conflict(err instanceof Error ? err.message : 'Instalação falhou');
     }
     const hook = await repos.machineHooks.upsert(machine.id, hash);
@@ -191,10 +188,10 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.delete('/:id/hooks', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const machine = await scoped(repos, request).machine(id);
-    if (machine.type === 'agent') throw conflict(HOOKS_ON_AGENT);
     try {
       await uninstallHooks(machine);
     } catch (err) {
+      if (err instanceof HttpError) throw err;
       throw conflict(err instanceof Error ? err.message : 'Remoção falhou');
     }
     await repos.machineHooks.delete(machine.id);

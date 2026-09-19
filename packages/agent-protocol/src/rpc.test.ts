@@ -3,7 +3,7 @@ import { RPC, RPC_METHODS, rpcErrorSchema } from './rpc.js';
 
 describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
-    expect([...RPC_METHODS].sort()).toEqual(['ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hw.probe', 'tmux.capture', 'tmux.kill', 'tmux.list', 'tools.detect']);
+    expect([...RPC_METHODS].sort()).toEqual(['ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe', 'tmux.capture', 'tmux.kill', 'tmux.list', 'tools.detect']);
   });
   it('validates tmux session names', () => {
     expect(RPC['tmux.kill'].params.safeParse({ session: 'th-abc_1' }).success).toBe(true);
@@ -28,6 +28,14 @@ describe('rpc catalog', () => {
     expect(RPC['hw.probe'].timeoutMs).toBe(15_000);
     expect(RPC['tmux.list'].timeoutMs).toBe(8_000);
     expect(RPC['ai.credential'].timeoutMs).toBe(10_000); // same as the ssh path's credential read
+  });
+  it('bounds hooks.install', () => {
+    expect(RPC['hooks.install'].params.safeParse({ hooks_url: 'https://app.termhub.dev/api/hooks', token: 'thb_hk_abc-123' }).success).toBe(true);
+    expect(RPC['hooks.install'].params.safeParse({ hooks_url: 'ftp://x', token: 'a' }).success).toBe(false);
+    expect(RPC['hooks.install'].params.safeParse({ hooks_url: "https://x/'; rm -rf ~", token: 'a' }).success).toBe(false);
+    expect(RPC['hooks.install'].params.safeParse({ hooks_url: 'https://x', token: "a'b" }).success).toBe(false);
+    expect(RPC['hooks.install'].timeoutMs).toBe(15_000);
+    expect(RPC['hooks.uninstall'].params.safeParse({}).success).toBe(true);
   });
   it('shapes rpc errors', () => {
     expect(rpcErrorSchema.parse({ code: 'eperm', message: 'x', path: '/v' }).code).toBe('eperm');

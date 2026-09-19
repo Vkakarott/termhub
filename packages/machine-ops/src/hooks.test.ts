@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLAUDE_HOOK_EVENTS, HOOK_SCRIPT, mergeClaudeSettings, mergeCodexConfig, stripClaudeSettings, stripCodexConfig } from './install.js';
+import { CLAUDE_HOOK_EVENTS, HOOK_SCRIPT, hookEnvFile, mergeClaudeSettings, mergeCodexConfig, stripClaudeSettings, stripCodexConfig } from './hooks.js';
 
 const script = '/Users/p/.termhub/bin/termhub-hook';
 
@@ -60,5 +60,12 @@ describe('hook script', () => {
     expect(HOOK_SCRIPT).toContain('--data-binary @- >/dev/null 2>&1 &');
     expect(HOOK_SCRIPT).not.toContain('__TERMHUB_EOF__');
     expect(HOOK_SCRIPT).not.toMatch(/echo .*TOKEN/);
+  });
+});
+
+describe('hookEnvFile', () => {
+  it('single-quotes both values for sh', () => {
+    expect(hookEnvFile('https://app.example/api/hooks', 'thb_hk_abc')).toBe("TERMHUB_HOOK_URL='https://app.example/api/hooks'\nTERMHUB_HOOK_TOKEN='thb_hk_abc'\n");
+    expect(hookEnvFile('https://x', "a'b")).toContain(`TERMHUB_HOOK_TOKEN='a'\\''b'`);
   });
 });
