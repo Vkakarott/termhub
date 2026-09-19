@@ -13,6 +13,7 @@ export const RESOURCES = [
   { key: 'ai_accounts', label: 'Contas de IA' },
   { key: 'hardware', label: 'Hardware' },
   { key: 'uploads', label: 'Arquivos enviados' },
+  { key: 'api_tokens', label: 'Tokens de API' },
   { key: 'waitlist', label: 'Waitlist' },
   { key: 'users', label: 'Usuários' },
   { key: 'roles', label: 'Roles e permissões' },
