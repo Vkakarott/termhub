@@ -98,9 +98,9 @@ const pt = {
     stack: 'Node.js + Fastify, WebSocket, node-pty e Postgres no servidor. React, Vite e xterm.js no navegador. Login por código de e-mail, senha ou Google, com suporte a Cloudflare Access. O conteúdo dos terminais nunca é logado.',
   },
   cloud: {
-    badge: 'em breve',
+    badge: 'alpha fechado',
     title: 'termhub Cloud',
-    lead: 'A mesma experiência, sem servidor para manter: suas máquinas conectam ao termhub Cloud e você acessa de qualquer lugar. Está em lista de espera; inscreva-se para receber o convite.',
+    lead: 'A mesma experiência, sem servidor para manter: suas máquinas conectam ao termhub Cloud e você acessa de qualquer lugar. Está em alpha fechado; entre na lista de espera para receber o convite.',
     perks: ['Sem Docker, sem proxy, sem túnel: conecte a máquina e pronto', 'Login e allowlist prontos, com times e permissões', 'Aviso no celular quando o Claude precisar de você', 'Convites em ordem de inscrição'],
     form: {
       title: 'Entrar na lista de espera',
@@ -324,9 +324,9 @@ const en: typeof pt = {
     stack: 'Node.js + Fastify, WebSocket, node-pty and Postgres on the server. React, Vite and xterm.js in the browser. Sign-in by e-mail code, password or Google, with Cloudflare Access support. Terminal content is never logged.',
   },
   cloud: {
-    badge: 'coming soon',
+    badge: 'closed alpha',
     title: 'termhub Cloud',
-    lead: 'The same experience with no server to maintain: your machines connect to termhub Cloud and you reach them from anywhere. It is waitlist-only for now; sign up to get an invite.',
+    lead: 'The same experience with no server to maintain: your machines connect to termhub Cloud and you reach them from anywhere. It is in closed alpha; join the waitlist to get an invite.',
     perks: ['No Docker, no proxy, no tunnel: connect the machine and go', 'Sign-in and allowlist built in, with teams and permissions', 'A ping on your phone when Claude needs you', 'Invites in sign-up order'],
     form: {
       title: 'Join the waitlist',
