@@ -341,12 +341,21 @@ export function TerminalView({ tabId, active, focused, onConnected, onExit }: Pr
     termRef.current = term;
     fitRef.current = fit;
 
+    let lastError: string | null = null;
     const conn = new TerminalConnection(tabId, {
       onData: (data) => term.write(data),
       onState: (s, a) => {
         setState(s);
         setAttempt(a);
-        if (s === 'connected') onConnectedRef.current?.();
+        if (s === 'connected') {
+          lastError = null;
+          onConnectedRef.current?.();
+        }
+        // gave up: say why, when the server told us
+        if (s === 'offline' && lastError) showNotice(lastError, 'danger');
+      },
+      onError: (message) => {
+        lastError = message;
       },
       onExit: () => onExitRef.current?.(),
     });

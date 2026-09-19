@@ -4,6 +4,8 @@ export interface TerminalConnectionHandlers {
   onData: (data: Uint8Array) => void;
   onState: (state: ConnectionState, attempt: number) => void;
   onExit?: (code: number) => void;
+  /** what the server said went wrong (e.g. the machine could not start the terminal) */
+  onError?: (message: string) => void;
 }
 
 const MAX_ATTEMPTS = 8;
@@ -49,11 +51,10 @@ export class TerminalConnection {
     this.ws = ws;
     this.setState(this.attempt === 0 ? 'connecting' : 'reconnecting');
 
-    ws.onopen = () => {
-      this.attempt = 0;
-      this.setState('connected');
-      this.sendResize(this.size.cols, this.size.rows);
-    };
+    // The socket opens before the server has started the terminal, which can still fail on the
+    // machine: only `ready` counts as connected and resets the backoff. Resetting on open made a
+    // terminal that never starts retry about once a second, forever.
+    ws.onopen = () => {};
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) {
         this.handlers.onData(new Uint8Array(ev.data));
@@ -61,7 +62,13 @@ export class TerminalConnection {
       }
       try {
         const msg = JSON.parse(String(ev.data)) as { type: string; code?: number; message?: string };
-        if (msg.type === 'exit') {
+        if (msg.type === 'ready') {
+          this.attempt = 0;
+          this.setState('connected');
+          this.sendResize(this.size.cols, this.size.rows);
+        } else if (msg.type === 'error' && msg.message) {
+          this.handlers.onError?.(msg.message);
+        } else if (msg.type === 'exit') {
           // O processo do terminal terminou (tmux detach/exit, ssh falhou, tmux ausente...).
           // Não reconecta sozinho: o usuário decide com o botão "Reconectar".
           this.exited = true;
