@@ -89,7 +89,10 @@ function Compare() {
     <section id="comparar" className="mx-auto max-w-page px-4 py-20 md:px-6">
       <h2 className="text-heading-lg">{t.compare.title}</h2>
       <p className="mt-4 max-w-2xl text-subheading text-frost">{t.compare.lead}</p>
-      <div ref={ref} className="reveal mt-10 overflow-x-auto rounded-card border border-border-2 bg-surface">
+      {/* `relative` keeps the cells' absolutely-positioned sr-only spans inside this scroll
+          container: without it they escape to the document, which then gets as wide as the
+          table and iOS Safari zooms the whole page out to fit it. */}
+      <div ref={ref} className="reveal relative mt-10 overflow-x-auto rounded-card border border-border-2 bg-surface">
         <table className="w-full min-w-[640px] border-collapse text-body-sm">
           <thead>
             <tr className="border-b border-border-2">
