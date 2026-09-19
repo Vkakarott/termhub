@@ -2,16 +2,36 @@ import { shellQuote } from './shell.js';
 
 export type AiProvider = 'claude' | 'chatgpt' | 'gemini' | 'antigravity';
 
+/**
+ * Separates the candidate credential blobs the claude script prints (see below).
+ * The server splits on this and keeps the freshest candidate.
+ */
+export const CREDENTIAL_SEPARATOR = '---termhub-credential---';
+
 /** POSIX sh that prints the CLI credential; $D is the provider config dir (already set by the caller). */
 export function credentialScript(provider: AiProvider): string {
   switch (provider) {
     case 'claude':
-      // file first (Linux, and macOS when keychain is disabled); then the macOS keychain
+      // Claude Code keeps the live OAuth token in different places depending on the OS and on
+      // CLAUDE_CONFIG_DIR, and the on-disk copy under $D can go stale once the CLI starts using
+      // the macOS keychain. So every candidate is printed, separated by SEP, and the caller
+      // (apps/server/src/ai/claude.ts) picks the one with the largest claudeAiOauth.expiresAt.
       return [
-        `if [ -f "$D/.credentials.json" ]; then cat "$D/.credentials.json"`,
-        `elif [ "$(uname -s)" = Darwin ]; then security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true`,
+        `SEP=${shellQuote(CREDENTIAL_SEPARATOR)}`,
+        // 1. the on-disk copy (Linux, and macOS when the keychain entry is missing/disabled)
+        `if [ -f "$D/.credentials.json" ]; then cat "$D/.credentials.json" 2>/dev/null || true; fi`,
+        `printf '\\n%s\\n' "$SEP"`,
+        `if [ "$(uname -s 2>/dev/null)" = Darwin ]; then`,
+        `  D=\${D%/}`,
+        // 2a. the per-config-dir keychain item (CLAUDE_CONFIG_DIR accounts)
+        `  H=$(printf %s "$D" | shasum -a 256 2>/dev/null | cut -c1-8) || true`,
+        `  if [ -n "$H" ]; then security find-generic-password -s "Claude Code-credentials-$H" -w 2>/dev/null || true; fi`,
+        `  printf '\\n%s\\n' "$SEP"`,
+        // 2b. the unsuffixed item, only for the default dir (it belongs to a different account otherwise)
+        `  if [ "$D" = "$HOME/.claude" ]; then security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true; fi`,
+        `  printf '\\n%s\\n' "$SEP"`,
         `fi`,
-      ].join('; ');
+      ].join('\n');
     case 'chatgpt':
       return `if [ -f "$D/auth.json" ]; then cat "$D/auth.json"; fi`;
     case 'gemini':
