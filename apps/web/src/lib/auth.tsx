@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, ApiError } from './api';
+import { track } from './analytics';
 import type { AuthConfig, User, ViewAs } from './types';
 
 interface AuthState {
@@ -64,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const { user } = await api.auth.login(email, password);
     setUser(user);
+    track('login', { method: 'password' });
   }, []);
 
   const sendCode = useCallback(async (email: string) => {
@@ -74,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyCode = useCallback(async (email: string, code: string) => {
     const { user } = await api.auth.verifyCode(email, code);
     setUser(user);
+    track('login', { method: 'code' });
   }, []);
 
   const logout = useCallback(async () => {

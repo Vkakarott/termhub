@@ -105,13 +105,14 @@ Logs on macOS: `data/logs/`. On Linux: `journalctl --user -u termhub -f` (use `l
 
 On jarvis, the app is published at **https://app.termhub.dev** and the landing page at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `proxy_pass http://termhub-app-<active color>:3000` with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one, so there is no 502 window. The public hostnames are managed in the Zero Trust dashboard → Tunnels → jarvis (`app.termhub.dev` and `termhub.dev` → HTTP → `proxy-nginx:80`; the vhost template `deploy/nginx/termhub.dev.conf.tmpl` sends `termhub.dev` to the `termhub-landing` container and `app.termhub.dev` to the active app color; the tunnel is dashboard-managed, so `cloudflared tunnel route dns` alone is not enough: it only creates the DNS record, and it uses the zone `~/.cloudflared/cert.pem` was logged into). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` **and pass that same file as `--env-file`**: `ENV_FILE` only feeds the services' `env_file:` (the variables the containers see at runtime), while `--env-file` feeds compose's own interpolation (`${VAR}` in the compose file, including `build.args`).
 
-That distinction matters for the landing: its `VITE_FIREBASE_*` values are interpolated into `build.args` and baked into the static bundle **at build time**, so they are only picked up from `--env-file` or the shell — never from `env_file:` — and the image has to be rebuilt whenever they change:
+That distinction matters for analytics: the `VITE_FIREBASE_*` values are interpolated into `build.args` of both the landing and the app image and baked into the static bundles **at build time**, so they are only picked up from `--env-file` or the shell — never from `env_file:` — and the images have to be rebuilt whenever they change:
 
 ```bash
 docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps landing
+ENV_FILE="$ENV_FILE" bash deploy/blue-green.sh   # the app (blue-green.sh passes --env-file itself)
 ```
 
-Leaving `--env-file` out rebuilds the landing with all seven args empty, which silently ships a landing without analytics and reports no error. The deploy workflow already passes it.
+Leaving `--env-file` out rebuilds with all seven args empty, which silently ships a build without analytics and reports no error. The deploy workflow already passes it.
 
 On another server, the simple path is `cloudflared tunnel --url http://127.0.0.1:3000`.
 
@@ -208,6 +209,8 @@ The home page's **Hardware** tab shows a machine's CPU usage and load, RAM and s
 
 The landing page (PT/EN, switch in the header, `?lang=pt|en` for links) has a **termhub Cloud** section with a waitlist form: first and last name, e-mail, phone (country code, area code, number) and optional LinkedIn/GitHub. Entries go to the `waitlist_entries` table through `POST /api/waitlist`, a public route (rate-limited per IP: 30 attempts and 5 sign-ups per hour, honeypot field, e-mail de-duplicated). The proxy forwards `termhub.dev/api/waitlist` to the app so the form is same-origin and outside Cloudflare Access. Sign-ups are listed on the home page's **Waitlist** tab (filter, CSV export, remove) via `GET/DELETE /api/waitlist`. Shown to roles granted `waitlist:read`. Google Analytics (Firebase SDK) is loaded only after the visitor accepts the cookie banner, and only when the `VITE_FIREBASE_*` build args are set; the footer "Cookies" button reopens the banner to change the choice.
 
+The app (`apps/web`) reports to the same GA stream with the same rules: nothing loads before the cookie banner is accepted (the "Cookies" link next to "Sair" in the sidebar reopens it), and only when the build args are set (`npm run dev` never has analytics). It sends route changes with project ids stripped (`/projects/:id/...`) and the events `login` (method), `machine_enroll_start` and `machine_connected` (OS) — never the user, e-mail, machine names or terminal content.
+
 ## AI accounts (usage limits)
 
 The home page has a second tab, **Contas de IA**, that shows the rate-limit windows of your AI subscriptions (Claude, ChatGPT, Gemini) with utilization bars and reset countdowns, refreshed every minute.
@@ -240,7 +243,7 @@ See [.env.example](.env.example). Main ones:
 | `CF_ACCOUNT_ID`/`CF_API_TOKEN`/`CF_ACCESS_APP_DOMAIN`/`CF_ACCESS_POLICY_NAME` | Cloudflare Access allowlist sync on invite/delete (optional) |
 | `BIND_ADDR` | (compose) host IP that publishes Mailpit's UI port; the prod app has no host port of its own (proxy nginx only) |
 | `ENCRYPTION_KEY` | base64 of 32 bytes (`openssl rand -base64 32`) for integration secrets |
-| `VITE_FIREBASE_*` | Firebase Analytics for the landing page; build args of the landing image, empty = no analytics |
+| `VITE_FIREBASE_*` | Firebase Analytics for the landing page and the app (same Firebase web app); build args of both images, empty = no analytics |
 | `WHISPER_URL` | speech-to-text service for dictation (`http://whisper:8000` in compose); unset hides the microphone |
 | `WHISPER_MODEL`/`WHISPER_LANGUAGE`/`WHISPER_THREADS`/`WHISPER_BEAM_SIZE`/`WHISPER_INITIAL_PROMPT` | (compose, `whisper` service) model `medium` (default: ~3x realtime on 6 cores, best pt-BR punctuation and names — `large-v3`/`turbo` measured worse in Portuguese) or `small` (~10x realtime, rougher); language hint (`auto` detects); threads (0 = physical cores); beam size; style prompt whose punctuation/casing whisper mimics (a pt/en default is built in) |
 | `TMUX_PATH` | path to tmux (useful as a service, minimal PATH) |

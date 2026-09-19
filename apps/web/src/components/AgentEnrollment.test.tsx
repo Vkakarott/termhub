@@ -5,6 +5,11 @@ import { AgentEnrollment } from './AgentEnrollment';
 import type { Machine } from '../lib/types';
 
 const statusMock = vi.fn();
+const trackMock = vi.fn();
+
+vi.mock('../lib/analytics', () => ({
+  track: (...args: unknown[]) => trackMock(...args),
+}));
 
 vi.mock('../lib/api', () => ({
   api: {
@@ -36,6 +41,7 @@ const machine: Machine = {
 afterEach(() => {
   cleanup();
   statusMock.mockReset();
+  trackMock.mockReset();
   vi.useRealTimers();
 });
 
@@ -90,6 +96,17 @@ describe('AgentEnrollment', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(statusMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports the enrollment start once and the connection once, without machine data', async () => {
+    statusMock.mockResolvedValue({ id: 'm1', online: true, tmux: true, os: 'linux', capabilities: [] });
+    const { rerender } = render(<AgentEnrollment machine={machine} token="thb_ag_abc123" />);
+    expect(trackMock).toHaveBeenCalledWith('machine_enroll_start');
+
+    await waitFor(() => expect(screen.getByText(/conectado/)).toBeTruthy());
+    rerender(<AgentEnrollment machine={machine} token="thb_ag_abc123" />);
+    expect(trackMock).toHaveBeenCalledWith('machine_connected', { os: 'linux' });
+    expect(trackMock).toHaveBeenCalledTimes(2);
   });
 
   it('stops polling after unmount', async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CopyButton } from './MachineForm';
 import { api } from '../lib/api';
+import { track } from '../lib/analytics';
 import type { Machine } from '../lib/types';
 
 const POLL_MS = 3000;
@@ -64,6 +65,8 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    // one funnel entry per enrollment shown (create or token rotation), never the machine itself
+    track('machine_enroll_start');
 
     const poll = async () => {
       try {
@@ -79,6 +82,7 @@ export function AgentEnrollment({ machine, token, onConnected }: Props) {
           }
           if (!notifiedRef.current) {
             notifiedRef.current = true;
+            track('machine_connected', { os: r.os ?? 'unknown' });
             onConnectedRef.current?.();
           }
         }

@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { ANALYTICS_ENABLED } from '../lib/analytics';
+import { openCookieBanner } from './AnalyticsGate';
 import { useData, type MachineStatus } from '../lib/data';
 import type { Machine, Project } from '../lib/types';
 import { relativeTime } from '../lib/time';
@@ -218,6 +220,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         <span className="min-w-0 flex-1 truncate text-xs text-fg-muted" title={user?.email}>
           {user?.name}
         </span>
+        {ANALYTICS_ENABLED && (
+          <button className="text-xs text-fg-dim hover:text-fg" onClick={openCookieBanner} title="Alterar a escolha sobre cookies">
+            Cookies
+          </button>
+        )}
         <button
           className="text-xs text-fg-dim hover:text-fg"
           onClick={() => {
