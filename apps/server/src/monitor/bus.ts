@@ -23,6 +23,11 @@ class MonitorBus {
     this.emitter.on('tab', listener);
     return () => this.emitter.off('tab', listener);
   }
+
+  /** Number of subscribers (tests, diagnostics). */
+  listenerCount(): number {
+    return this.emitter.listenerCount('tab');
+  }
 }
 
 export const monitorBus = new MonitorBus();
