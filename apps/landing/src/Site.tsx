@@ -53,14 +53,15 @@ export function SiteHeader({ nav }: { nav?: ReactNode }) {
   return (
     <header className="sticky top-0 z-20 bg-canvas/85 shadow-rim backdrop-blur">
       <div className="mx-auto flex h-14 max-w-page items-center px-4 md:px-6">
-        <a href="/" aria-label="termhub" className="hover-tint tap px-1 py-1">
-          <Logo className="h-7" />
+        <a href="/" aria-label="termhub" className="hover-tint tap min-w-0 shrink px-1 py-1">
+          {/* on the narrowest phones the logo gives way, so the button next to it stays on one line */}
+          <Logo className="h-7 w-auto max-w-full object-contain object-left" />
         </a>
         {nav && <nav className="ml-6 hidden items-center gap-1 md:flex">{nav}</nav>}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2 pl-2">
           <LangSwitch />
           <a href={REPO_URL} className="btn-ghost hidden px-4 py-1.5 text-body-sm md:inline-flex" onClick={trackCta('github', 'nav')}>{t.hero.repo}</a>
-          <a href={APP_URL} className="btn-primary px-4 py-1.5 text-body-sm" onClick={trackCta('app', 'nav')}>{t.nav.app}</a>
+          <a href={APP_URL} className="btn-primary whitespace-nowrap px-4 py-1.5 text-body-sm" onClick={trackCta('app', 'nav')}>{t.nav.app}</a>
         </div>
       </div>
     </header>
