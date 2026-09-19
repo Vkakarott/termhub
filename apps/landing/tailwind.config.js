@@ -18,6 +18,10 @@ export default {
         accent: '#98a4f7', // links and small accents (never a filled button background)
         // the CTA gradient's stops (#5b63d3 -> #7c87f7) live in backgroundImage.cta below
       },
+      screens: {
+        // touch screens, whatever their width: where the 44px tap targets apply
+        coarse: { raw: '(pointer: coarse)' },
+      },
       fontSize: {
         display: ['53px', { lineHeight: '1.08' }],
         'heading-lg': ['40px', { lineHeight: '1.1' }],

@@ -37,7 +37,7 @@ function LangSwitch() {
           key={l}
           type="button"
           onClick={() => setLang(l)}
-          className={`hover-tint px-2 py-0.5 font-medium uppercase ${lang === l ? 'bg-surface text-white' : 'text-muted hover:text-frost'}`}
+          className={`hover-tint tap px-2 py-0.5 font-medium uppercase ${lang === l ? 'bg-surface text-white' : 'text-muted hover:text-frost'}`}
           aria-pressed={lang === l}
         >
           {l}
@@ -53,7 +53,7 @@ export function SiteHeader({ nav }: { nav?: ReactNode }) {
   return (
     <header className="sticky top-0 z-20 bg-canvas/85 shadow-rim backdrop-blur">
       <div className="mx-auto flex h-14 max-w-page items-center px-4 md:px-6">
-        <a href="/" aria-label="termhub" className="hover-tint px-1 py-1">
+        <a href="/" aria-label="termhub" className="hover-tint tap px-1 py-1">
           <Logo className="h-7" />
         </a>
         {nav && <nav className="ml-6 hidden items-center gap-1 md:flex">{nav}</nav>}
@@ -72,14 +72,14 @@ export function SiteFooter() {
   const { openCookies } = useContext(CookiesContext);
   return (
     <footer className="border-t border-border-2">
-      <div className="mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-2 px-4 py-6 text-caption text-muted md:px-6">
+      <div className="mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-2 px-4 py-6 coarse:gap-y-6 text-caption text-muted md:px-6">
         <span>© {new Date().getFullYear()} termhub · MIT</span>
-        <a href={REPO_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">GitHub</a>
-        <a href={`${REPO_URL}/blob/main/README.md`} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.docs}</a>
-        <a href="/brand/" className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.brand}</a>
-        <a href={COFFEE_URL} className="hover-tint px-1.5 py-0.5 hover:text-frost">{t.footer.coffee}</a>
+        <a href={REPO_URL} className="hover-tint tap px-1.5 py-0.5 hover:text-frost">GitHub</a>
+        <a href={`${REPO_URL}/blob/main/README.md`} className="hover-tint tap px-1.5 py-0.5 hover:text-frost">{t.footer.docs}</a>
+        <a href="/brand/" className="hover-tint tap px-1.5 py-0.5 hover:text-frost">{t.footer.brand}</a>
+        <a href={COFFEE_URL} className="hover-tint tap px-1.5 py-0.5 hover:text-frost">{t.footer.coffee}</a>
         {ANALYTICS_ENABLED && (
-          <button type="button" onClick={openCookies} className="hover-tint px-1.5 py-0.5 hover:text-frost">
+          <button type="button" onClick={openCookies} className="hover-tint tap px-1.5 py-0.5 hover:text-frost">
             {t.footer.cookies}
           </button>
         )}
