@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe('hooks.install', () => {
   it('writes the script (755), the env (600) and the Claude entries on a bare home; skips Codex when absent', async () => {
-    await expect(install(params, home)).resolves.toEqual({ home, claude: 'installed', codex: 'skipped' });
+    await expect(install(params, home)).resolves.toEqual({ home, claude: 'installed', codex: 'skipped', claude_dirs: ['~/.claude'] });
     expect(await read('.termhub/bin/termhub-hook')).toBe(HOOK_SCRIPT);
     expect(await mode('.termhub/bin/termhub-hook')).toBe(0o755);
     expect(await read('.termhub/hook.env')).toBe("TERMHUB_HOOK_URL='https://app.termhub.dev/api/hooks'\nTERMHUB_HOOK_TOKEN='thb_hk_abc-123'\n");
@@ -42,6 +42,28 @@ describe('hooks.install', () => {
     expect(settings.model).toBe('opus');
     expect(settings.hooks.Stop.map((e) => e.hooks[0].command)).toEqual(['say done', `${path.join(home, '.termhub/bin/termhub-hook')} claude`]);
     expect(await read('.codex/config.toml')).toBe(`notify = [${JSON.stringify(path.join(home, '.termhub/bin/termhub-hook'))}, "codex"]\nmodel = "o3"\n`);
+  });
+
+  it('also hooks the Claude config dirs of the machine\'s accounts that exist, and says which', async () => {
+    await mkdir(path.join(home, '.claude_pedro'), { recursive: true });
+    await writeFile(path.join(home, '.claude_pedro/settings.json'), JSON.stringify({ model: 'sonnet' }));
+    const r = await install({ ...params, claude_dirs: ['~/.claude_pedro', '~/.claude-missing'] }, home);
+    expect(r.claude_dirs).toEqual(['~/.claude', '~/.claude_pedro']);
+    const settings = JSON.parse(await read('.claude_pedro/settings.json')) as { model: string; hooks: Record<string, { hooks: { command: string }[] }[]> };
+    expect(settings.model).toBe('sonnet');
+    expect(settings.hooks.Stop[0].hooks[0].command).toBe(`${path.join(home, '.termhub/bin/termhub-hook')} claude`);
+    await expect(stat(path.join(home, '.claude-missing'))).rejects.toMatchObject({ code: 'ENOENT' });
+
+    await uninstall({ claude_dirs: ['~/.claude_pedro'] }, home);
+    expect(JSON.parse(await read('.claude_pedro/settings.json'))).toEqual({ model: 'sonnet' });
+  });
+
+  it('checks every settings file before writing any', async () => {
+    await mkdir(path.join(home, '.claude_pedro'), { recursive: true });
+    await writeFile(path.join(home, '.claude_pedro/settings.json'), '[1]');
+    await expect(install({ ...params, claude_dirs: ['~/.claude_pedro'] }, home)).rejects.toMatchObject({ code: 'failed', path: '.claude_pedro/settings.json' });
+    await expect(stat(path.join(home, '.claude'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('refuses to clobber a settings.json that is not a JSON object and writes nothing', async () => {

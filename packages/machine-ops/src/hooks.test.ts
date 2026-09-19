@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLAUDE_HOOK_EVENTS, HOOK_SCRIPT, hookEnvFile, mergeClaudeSettings, mergeCodexConfig, stripClaudeSettings, stripCodexConfig } from './hooks.js';
+import { CLAUDE_HOOK_EVENTS, HOOK_SCRIPT, claudeConfigDirs, expandHome, hookEnvFile, mergeClaudeSettings, mergeCodexConfig, stripClaudeSettings, stripCodexConfig } from './hooks.js';
 
 const script = '/Users/p/.termhub/bin/termhub-hook';
 
@@ -67,5 +67,28 @@ describe('hookEnvFile', () => {
   it('single-quotes both values for sh', () => {
     expect(hookEnvFile('https://app.example/api/hooks', 'thb_hk_abc')).toBe("TERMHUB_HOOK_URL='https://app.example/api/hooks'\nTERMHUB_HOOK_TOKEN='thb_hk_abc'\n");
     expect(hookEnvFile('https://x', "a'b")).toContain(`TERMHUB_HOOK_TOKEN='a'\\''b'`);
+  });
+});
+
+describe('claudeConfigDirs', () => {
+  it('always starts with ~/.claude and adds each account dir once, as ~/x or /abs', () => {
+    expect(claudeConfigDirs([])).toEqual(['~/.claude']);
+    expect(claudeConfigDirs(['~/.claude_pedro', null, '  ', '~/.claude', '~/.claude_pedro/', '/opt/claude', '.claude-work'])).toEqual([
+      '~/.claude',
+      '~/.claude_pedro',
+      '/opt/claude',
+      '~/.claude-work',
+    ]);
+  });
+
+  it('drops the home itself and anything with control characters', () => {
+    expect(claudeConfigDirs(['~', '~/', '/', '~/x\ny', '/a\0b'])).toEqual(['~/.claude']);
+  });
+});
+
+describe('expandHome', () => {
+  it('resolves ~/ against the machine home and keeps absolute paths', () => {
+    expect(expandHome('~/.claude_pedro', '/home/p')).toBe('/home/p/.claude_pedro');
+    expect(expandHome('/opt/claude', '/home/p')).toBe('/opt/claude');
   });
 });
