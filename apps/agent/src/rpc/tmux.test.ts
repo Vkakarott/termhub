@@ -6,7 +6,7 @@ vi.mock('../exec.js', async (importOriginal) => {
   return { ...actual, run };
 });
 
-import { capture, kill, list } from './tmux.js';
+import { capture, ensure, kill, list, sendKey, sendText } from './tmux.js';
 
 beforeEach(() => {
   run.mockReset();
@@ -80,5 +80,57 @@ describe('tmux rpc handlers', () => {
     run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
     await kill({ session: 'th-a' });
     expect(run).toHaveBeenCalledWith('/custom/tmux', ['kill-session', '-t', '=th-a']);
+  });
+});
+
+describe('ensure', () => {
+  it('does nothing when the session is already there', async () => {
+    run.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(ensure({ session: 's1', cwd: '/home/u/app' })).resolves.toEqual({ created: false });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith('tmux', ['has-session', '-t', '=s1']);
+  });
+
+  it('creates a detached session in cwd when it is missing', async () => {
+    run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: "can't find session", timedOut: false });
+    run.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(ensure({ session: 's1', cwd: '/home/u/app' })).resolves.toEqual({ created: true });
+    expect(run).toHaveBeenLastCalledWith('tmux', ['new-session', '-d', '-s', 's1', '-c', '/home/u/app']);
+  });
+
+  it('says the directory is the problem when tmux cannot start there', async () => {
+    run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: '', timedOut: false });
+    run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'no such file or directory\n', timedOut: false });
+    await expect(ensure({ session: 's1', cwd: '/gone' })).rejects.toMatchObject({ code: 'failed', message: expect.stringContaining('no such file') });
+  });
+});
+
+describe('sendText', () => {
+  it('types the text literally and sends Enter separately', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(sendText({ session: 's1', text: 'echo oi', enter: true })).resolves.toEqual({ sent: true });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([
+      ['send-keys', '-t', '=s1:', '-l', '--', 'echo oi'],
+      ['send-keys', '-t', '=s1:', 'Enter'],
+    ]);
+  });
+
+  it('sends only Enter when the text is empty', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendText({ session: 's1', text: '', enter: true });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([['send-keys', '-t', '=s1:', 'Enter']]);
+  });
+
+  it('reports a missing session instead of pretending it typed', async () => {
+    run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: "can't find pane", timedOut: false });
+    await expect(sendText({ session: 's1', text: 'oi', enter: false })).rejects.toMatchObject({ code: 'notfound' });
+  });
+});
+
+describe('sendKey', () => {
+  it('presses one key', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(sendKey({ session: 's1', key: 'C-c' })).resolves.toEqual({ sent: true });
+    expect(run).toHaveBeenCalledWith('tmux', ['send-keys', '-t', '=s1:', 'C-c']);
   });
 });
