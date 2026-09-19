@@ -355,15 +355,22 @@ describe('runForever', () => {
   });
 
   it('stops reconnecting once the AbortSignal fires', async () => {
+    // Abort from inside the server's connection handler, on the 3rd connection, rather than after
+    // a wall-clock delay: an abort that lands mid-handshake terminates the client socket, but the
+    // upgrade request it already sent can still reach the server (and count as a connection)
+    // after runForever() has resolved. Aborting here means no other attempt is in flight, so any
+    // connection seen after `done` resolves is a genuine reconnect.
+    const ABORT_AT = 3;
     let attempts = 0;
+    const controller = new AbortController();
     srv = await startServer({
       onConnection: (ws) => {
         attempts += 1;
+        if (attempts === ABORT_AT) controller.abort();
         ws.close(1000, 'bye');
       },
     });
 
-    const controller = new AbortController();
     const done = runForever(
       {
         url: base(srv),
@@ -376,12 +383,9 @@ describe('runForever', () => {
       },
       controller.signal,
     );
-    await new Promise((r) => setTimeout(r, 40));
-    controller.abort();
     await expect(done).resolves.toBeUndefined();
-    const attemptsAtAbort = attempts;
     await new Promise((r) => setTimeout(r, 40));
-    expect(attempts).toBe(attemptsAtAbort);
+    expect(attempts).toBe(ABORT_AT);
   });
 
   it('aborts a live (never-closed-by-server) session promptly instead of waiting for the server', async () => {
