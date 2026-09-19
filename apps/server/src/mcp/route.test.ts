@@ -133,13 +133,47 @@ describe('POST /mcp tools', () => {
     expect(JSON.stringify(apiTokens.recordEvent.mock.calls)).not.toMatch(/SECRET-SCREEN|10\.0\.0\.1/);
   });
 
-  it('refuses a tool outside the token\'s allowed set', async () => {
+  it('refuses a tool outside the token\'s allowed set as a pt-BR tool error', async () => {
     const { app } = build({ grants: ['machines:read'] });
     const r = await rpc(app, call('read_screen', { tab_id: 't1' }));
-    const body = r.json();
-    const text = body.result?.content?.[0]?.text ?? body.error?.message ?? '';
-    expect(text).toContain('read_screen');
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { content: [{ type: 'text', text: 'Este token não pode usar a ferramenta read_screen: ela precisa do escopo `read` e da permissão terminals:read na sua role' }], isError: true },
+    });
     expect(readScreen).not.toHaveBeenCalled();
+  });
+
+  it('refuses a tool the token scope does not cover the same way', async () => {
+    const { app } = build({ token: token({ scopes: ['tasks'] }) });
+    const r = await rpc(app, call('list_machines'));
+    expect(r.json().result).toEqual({ content: [{ type: 'text', text: 'Este token não pode usar a ferramenta list_machines: ela precisa do escopo `read` e da permissão machines:read na sua role' }], isError: true });
+    expect(listMachines).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown tool name as a pt-BR tool error, truncating the name', async () => {
+    const { app } = build();
+    const r = await rpc(app, { jsonrpc: '2.0', id: 'abc', method: 'tools/call', params: { name: 'y'.repeat(200), arguments: {} } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ jsonrpc: '2.0', id: 'abc', result: { content: [{ type: 'text', text: `Ferramenta desconhecida: ${'y'.repeat(64)}` }], isError: true } });
+  });
+
+  it('offers find to a user who can read only projects', async () => {
+    const { app } = build({ grants: ['projects:read'] });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    const names = list.json().result.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain('find');
+    expect(names).not.toContain('list_machines');
+  });
+
+  it('names what find needs when the user can read none of its kinds', async () => {
+    const { app } = build({ grants: ['terminals:read'] });
+    const r = await rpc(app, call('find', { query: 'mac' }));
+    expect(r.json().result).toEqual({
+      content: [{ type: 'text', text: 'Este token não pode usar a ferramenta find: ela precisa do escopo `read` e da permissão de leitura de máquinas, projetos ou contas de IA na sua role' }],
+      isError: true,
+    });
   });
 
   it('treats an omitted arguments object as empty', async () => {
@@ -228,8 +262,11 @@ describe('POST /mcp hardening', () => {
     const { app, apiTokens } = build({ grants: ['machines:read'], limiter: new TokenRateLimiter(1, 60_000) });
     await rpc(app, call('read_screen', { tab_id: 't1' }));
     await rpc(app, call('read_screen', { tab_id: 't1' }));
+    const limited = await rpc(app, call('read_screen', { tab_id: 't1' }));
+    expect(limited.json().result.isError).toBe(true);
+    expect(limited.json().result.content[0].text).toMatch(/^Limite de 1 chamadas por minuto deste token; tente de novo em \d+ s$/);
     await flush();
-    expect(apiTokens.recordEvent.mock.calls.map((c) => c[0].error_code)).toEqual(['TOOL_NOT_ALLOWED', 'RATE_LIMITED']);
+    expect(apiTokens.recordEvent.mock.calls.map((c) => c[0].error_code)).toEqual(['TOOL_NOT_ALLOWED', 'RATE_LIMITED', 'RATE_LIMITED']);
   });
 
   it('sets the security headers on a hijacked 200 response', async () => {

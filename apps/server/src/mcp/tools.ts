@@ -13,6 +13,10 @@ export interface ToolDef {
   /** the user's grant it also needs */
   resource: Resource;
   action: Action;
+  /** replaces the single resource:action check when the tool can work with any of several grants */
+  allowedIf?(ctx: ControlContext): Promise<boolean>;
+  /** how the refusal names the grant when `allowedIf` is set (after "da permissão ") */
+  grantText?: string;
   input: ZodRawShape;
   run(ctx: ControlContext, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
 }
@@ -50,7 +54,10 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'find',
     description: 'Resolve names to ids in one call — e.g. "MacBook Pro M4", "Hub Community", "pedrogoiania" — across machines, projects and AI accounts (case- and accent-insensitive, best matches first).',
-    scope: 'read', resource: 'machines', action: 'read',
+    // find narrows the kinds it searches to what the user can read, so any one of them is enough
+    scope: 'read', resource: 'projects', action: 'read',
+    allowedIf: async (ctx) => (await Promise.all([ctx.can('machines', 'read'), ctx.can('projects', 'read'), ctx.can('ai_accounts', 'read')])).some(Boolean),
+    grantText: 'de leitura de máquinas, projetos ou contas de IA',
     input: { query: z.string().min(1).max(200), kinds: z.array(z.enum(['machine', 'project', 'ai_account'])).optional() },
     run: (ctx, a) => find(ctx, a as { query: string; kinds?: ('machine' | 'project' | 'ai_account')[] }),
   },
@@ -73,6 +80,13 @@ export const TOOLS: ToolDef[] = [
 /** Tools this token may call: its scope includes the tool's, and the user holds the tool's grant. */
 export async function allowedTools(ctx: ControlContext, scopes: readonly ApiTokenScope[]): Promise<ToolDef[]> {
   const out: ToolDef[] = [];
-  for (const t of TOOLS) if (scopes.includes(t.scope) && (await ctx.can(t.resource, t.action))) out.push(t);
+  for (const t of TOOLS) if (scopes.includes(t.scope) && (await (t.allowedIf ? t.allowedIf(ctx) : ctx.can(t.resource, t.action)))) out.push(t);
   return out;
+}
+
+/** pt-BR answer for a tools/call this token may not make (spec §6: a tool error, not a JSON-RPC error). */
+export function refusalMessage(name: string): string {
+  const tool = TOOLS.find((t) => t.name === name);
+  if (!tool) return `Ferramenta desconhecida: ${name.slice(0, 64)}`;
+  return `Este token não pode usar a ferramenta ${name}: ela precisa do escopo \`${tool.scope}\` e da permissão ${tool.grantText ?? `${tool.resource}:${tool.action}`} na sua role`;
 }

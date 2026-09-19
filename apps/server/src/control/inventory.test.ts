@@ -60,7 +60,7 @@ function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:re
 
 beforeEach(() => {
   vi.mocked(agents.isOnline).mockImplementation((id: string) => id === 'm1');
-  vi.mocked(listTmuxSessions).mockResolvedValue(new Set(['th-t1']));
+  vi.mocked(listTmuxSessions).mockClear().mockResolvedValue(new Set(['th-t1']));
 });
 
 describe('normalizeName', () => {
@@ -109,8 +109,17 @@ describe('listTabs', () => {
     expect(r.tabs[2]).toMatchObject({ id: 'ts', kind: 'simulator', alive: null });
   });
 
-  it('says liveness is unknown when the machine cannot be reached', async () => {
-    vi.mocked(listTmuxSessions).mockRejectedValue(new Error('offline'));
+  it('says liveness is unknown when the agent machine is offline, without asking it', async () => {
+    // listTmuxSessions answers an empty Set (not a rejection) for an offline agent: asking would read every tab as dead
+    vi.mocked(agents.isOnline).mockReturnValue(false);
+    vi.mocked(listTmuxSessions).mockResolvedValue(new Set());
+    const r = await listTabs(ctx(), { project_id: 'p1' });
+    expect(r.tabs.map((t) => t.alive)).toEqual([null, null, null]);
+    expect(listTmuxSessions).not.toHaveBeenCalled();
+  });
+
+  it('says liveness is unknown when listing the sessions fails', async () => {
+    vi.mocked(listTmuxSessions).mockRejectedValueOnce(new Error('ssh: connect timed out'));
     const r = await listTabs(ctx(), { project_id: 'p1' });
     expect(r.tabs[0].alive).toBeNull();
   });

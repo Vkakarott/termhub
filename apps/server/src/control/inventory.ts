@@ -67,7 +67,8 @@ export async function listTabs(ctx: ControlContext, input: { project_id?: string
     throw new ControlError('BAD_REQUEST', 'Informe project_id ou machine_id');
   }
 
-  const sessions = await listTmuxSessions(machine).catch(() => null);
+  // An offline agent's listTmuxSessions answers an empty set (not an error): that would read every tab as dead.
+  const sessions = machine.type === 'agent' && !agents.isOnline(machine.id) ? null : await listTmuxSessions(machine).catch(() => null);
   const out: TabSummary[] = [];
   for (const pid of projectIds) {
     const [tabs, tasks] = await Promise.all([ctx.repos.tabs.listByProject(pid), ctx.repos.tasks.listByProject(pid)]);

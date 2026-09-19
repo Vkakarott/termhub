@@ -9,7 +9,7 @@ import { controlContextFor, ControlError, type ControlContext } from '../control
 import { HttpError } from '../lib/errors.js';
 import { authenticateToken } from './auth.js';
 import { TokenRateLimiter } from './rate-limit.js';
-import { allowedTools } from './tools.js';
+import { allowedTools, refusalMessage } from './tools.js';
 
 export const MCP_BODY_LIMIT = 256 * 1024;
 
@@ -93,6 +93,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
         .catch((err) => request.log.warn({ err }, 'mcp: recordEvent failed'));
 
     server = new McpServer({ name: 'termhub', version: deps.version }, { capabilities: { tools: {} } });
+    const rateLimited = (retryInSeconds: number) => text(`Limite de ${limiter.limit} chamadas por minuto deste token; tente de novo em ${retryInSeconds} s`, true);
     const tools = await allowedTools(ctx, token.scopes);
     // McpServer installs its tools/* handlers on the first registerTool; with nothing allowed, answer an
     // empty catalog instead of "Method not found" (tools/call then stays a JSON-RPC "Method not found").
@@ -105,7 +106,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
         const rate = limiter.take(token.id);
         if (!rate.ok) {
           errorCode = 'RATE_LIMITED';
-          out = text(`Limite de ${limiter.limit} chamadas por minuto deste token; tente de novo em ${rate.retryInSeconds} s`, true);
+          out = rateLimited(rate.retryInSeconds);
         } else {
           try {
             out = text(JSON.stringify(await tool.run(ctx, args, extra.signal), null, 2));
@@ -125,16 +126,26 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
       });
     }
 
-    // Calls the SDK refuses before reaching a handler (tool not allowed, arguments invalid) are still
-    // counted and audited here; the SDK then answers them as usual. Valid allowed calls are audited by the handler.
+    // Calls refused before reaching a handler (tool not allowed, arguments invalid) are counted and audited
+    // here. A tool outside the allowed set, or any refused call over the rate limit, is answered here as a
+    // pt-BR tool error (spec §6) — the SDK would say "Tool X not found" as a JSON-RPC error. Invalid
+    // arguments are left to the SDK's validation error. Valid allowed calls are audited by the handler.
     const body = withDefaultArguments(request.body);
-    const msg = body as { method?: unknown; params?: { name?: unknown; arguments?: unknown } } | null;
+    const msg = body as { id?: unknown; method?: unknown; params?: { name?: unknown; arguments?: unknown } } | null;
     // A non-string name is left to the SDK, which rejects the request itself (nothing to audit it as).
     if (msg && typeof msg === 'object' && msg.method === 'tools/call' && msg.params && typeof msg.params === 'object' && typeof msg.params.name === 'string') {
       const name = msg.params.name;
       const tool = tools.find((t) => t.name === name);
       const refusal = !tool ? 'TOOL_NOT_ALLOWED' : !z.object(tool.input).safeParse(msg.params.arguments).success ? 'INVALID_ARGS' : null;
-      if (refusal) audit(name, msg.params.arguments, limiter.take(token.id).ok ? refusal : 'RATE_LIMITED', 0);
+      if (refusal) {
+        const rate = limiter.take(token.id);
+        audit(name, msg.params.arguments, rate.ok ? refusal : 'RATE_LIMITED', 0);
+        const answer = !rate.ok ? rateLimited(rate.retryInSeconds) : refusal === 'TOOL_NOT_ALLOWED' ? text(refusalMessage(name), true) : null;
+        if (answer) {
+          if (closed) return gone();
+          return reply.code(200).send({ jsonrpc: '2.0', id: msg.id ?? null, result: answer });
+        }
+      }
     }
 
     if (closed) return gone();

@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../agent/screen.js', () => ({ captureScreen: vi.fn() }));
 
 import { captureScreen } from '../agent/screen.js';
-import { AgentOfflineError } from '../agent/registry.js';
+import { AgentOfflineError, agents } from '../agent/registry.js';
+import { toHttpError } from '../agent/errors.js';
+import { AgentTimeoutError } from '../agent/connection.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
@@ -30,8 +32,14 @@ const publish = (tab: Tab) => monitorBus.publish({ tab, project_id: 'p1', machin
 /** lets the scoped tab lookup (several awaits) finish so the wait has subscribed */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-beforeEach(() => vi.mocked(captureScreen).mockReset());
-afterEach(() => vi.useRealTimers());
+beforeEach(() => {
+  vi.mocked(captureScreen).mockReset();
+  vi.spyOn(agents, 'isOnline').mockReturnValue(true);
+});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('readScreen', () => {
   it('captures the default 200 lines and clamps to 2000', async () => {
@@ -43,17 +51,31 @@ describe('readScreen', () => {
     expect(vi.mocked(captureScreen).mock.calls[1][2]).toBe(2000);
   });
 
-  it('refuses simulator tabs, foreign tabs and reports an offline agent', async () => {
+  it('refuses simulator tabs and foreign tabs', async () => {
     await expect(readScreen(ctx(baseTab({ kind: 'simulator', tmux_session: null })), { tab_id: 't1' })).rejects.toThrow('Esta aba não é um terminal');
     await expect(readScreen(ctx(), { tab_id: 'nope' })).rejects.toThrow('Tab não encontrada');
-    // mockRejectedValueOnce (not mockRejectedValue): with a prior mockReset() of this same mock in
-    // beforeEach, vitest 3.2.7's persistent mockRejectedValue() spuriously reports this rejection as
-    // an unhandled one even though it is awaited and caught right below (verified: readScreen does
-    // convert it correctly). mockRejectedValueOnce avoids it and is what the rest of this codebase
-    // already uses for the identical beforeEach-mockReset + reject-in-test pattern (see
-    // terminal/ws.test.ts, routes/uploads.test.ts, routes/transcriptions.test.ts).
-    vi.mocked(captureScreen).mockRejectedValueOnce(new AgentOfflineError('m1'));
-    await expect(readScreen(ctx(), { tab_id: 't1' })).rejects.toThrow('A máquina está offline');
+  });
+
+  it('reports an offline agent machine as MACHINE_OFFLINE without trying to capture', async () => {
+    vi.mocked(agents.isOnline).mockReturnValue(false);
+    await expect(readScreen(ctx(), { tab_id: 't1' })).rejects.toMatchObject({ code: 'MACHINE_OFFLINE', message: 'A máquina está offline: o termhub-agent dela não está conectado' });
+    expect(captureScreen).not.toHaveBeenCalled();
+  });
+
+  it('reports an agent that dropped mid-capture as MACHINE_OFFLINE', async () => {
+    // exactly what captureScreen -> agentRpc -> toHttpError throws when the connection is gone
+    const dropped = toHttpError(new AgentOfflineError('agent offline: m1'));
+    expect(dropped).toMatchObject({ statusCode: 503, message: 'Agente desconectado' });
+    // mockRejectedValueOnce: with the beforeEach mockReset, vitest 3.2.7's persistent mockRejectedValue
+    // spuriously reports an awaited rejection as unhandled (same pattern as terminal/ws.test.ts).
+    vi.mocked(captureScreen).mockRejectedValueOnce(dropped);
+    await expect(readScreen(ctx(), { tab_id: 't1' })).rejects.toMatchObject({ code: 'MACHINE_OFFLINE' });
+  });
+
+  it('keeps other machine failures as they are', async () => {
+    const timeout = toHttpError(new AgentTimeoutError('agent rpc timeout: tmux.capture'));
+    vi.mocked(captureScreen).mockRejectedValueOnce(timeout);
+    await expect(readScreen(ctx(), { tab_id: 't1' })).rejects.toBe(timeout);
   });
 });
 
@@ -66,7 +88,7 @@ describe('waitForState', () => {
   it('says there is no monitor for a tab without hook state', async () => {
     const r = await waitForState(ctx(baseTab({ state: null, state_at: null })), { tab_id: 't1' });
     expect(r).toMatchObject({ state: null, timed_out: false });
-    expect(r.note).toContain('sem monitor');
+    expect(r.note).toBe('Esta aba não tem estado do monitor (hooks não instalados na máquina ou nenhuma ferramenta rodou nela). Use read_screen para ver o terminal.');
   });
 
   it('resolves on the first change of that tab out of working, ignoring other tabs', async () => {
@@ -76,6 +98,27 @@ describe('waitForState', () => {
     publish(baseTab({ state: 'working' }));
     publish(baseTab({ state: 'waiting_permission', state_text: 'Rodar npm test?' }));
     await expect(p).resolves.toMatchObject({ state: 'waiting_permission', state_text: 'Rodar npm test?', timed_out: false });
+  });
+
+  it('finishes at once when the tab left working between the first read and the subscription', async () => {
+    const c = ctx();
+    const before = monitorBus.listenerCount();
+    vi.mocked(c.repos.tabs.findById)
+      .mockResolvedValueOnce(baseTab())
+      .mockResolvedValueOnce(baseTab({ state: 'waiting_input', state_text: 'Posso seguir?' }));
+    await expect(waitForState(c, { tab_id: 't1', timeout_seconds: 5 })).resolves.toMatchObject({ state: 'waiting_input', state_text: 'Posso seguir?', timed_out: false });
+    expect(c.repos.tabs.findById).toHaveBeenCalledTimes(2);
+    expect(monitorBus.listenerCount()).toBe(before);
+  });
+
+  it('keeps waiting when the re-read after subscribing fails', async () => {
+    const c = ctx();
+    vi.mocked(c.repos.tabs.findById).mockResolvedValueOnce(baseTab()).mockRejectedValueOnce(new Error('pg down'));
+    const p = waitForState(c, { tab_id: 't1', timeout_seconds: 5 });
+    await tick();
+    await tick();
+    publish(baseTab({ state: 'idle' }));
+    await expect(p).resolves.toMatchObject({ state: 'idle', timed_out: false });
   });
 
   it('times out without error and clamps the timeout to 90 s', async () => {
