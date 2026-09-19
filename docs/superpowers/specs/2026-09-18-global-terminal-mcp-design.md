@@ -143,9 +143,17 @@ three operations through `runOnMachine` + `shellQuote`. `sendKeysToSession` is
 reimplemented on top of them, which also removes the 409 from the existing monitor
 input route.
 
-`PROTOCOL_VERSION` stays 1 (additive RPCs). The server checks `machine.agentVersion`
-against a minimum (the release that ships these RPCs, `0.2.0`); older agents get
-"Atualize o termhub-agent nesta máquina (≥ 0.2.0): npm i -g @termhub/agent".
+`PROTOCOL_VERSION` stays 1 (additive RPCs). Each route that calls one of these RPCs on
+an agent machine first calls the existing `requireAgentVersion(machine, '0.2.0')` from
+`apps/server/src/agent/errors.ts` (added with the monitor hooks' `hooks.install`, PR #46,
+agent 0.1.4). It checks the connected agent's reported version and answers **409
+`AGENT_OUTDATED`** with the same update message the hooks use. An offline agent passes
+through, and the RPC itself answers 503. No second version check and no new message:
+an MCP tool that hits it returns that message as its `isError` result (§6) and records
+`AGENT_OUTDATED` as the audit row's `error_code`. The three RPCs go into
+`packages/agent-protocol/src/rpc.ts` and `apps/agent/src/rpc/index.ts` next to
+`hooks.install` / `hooks.uninstall`. Operations that fail for a reason meant for the
+user use the `failed` RPC error code from the same PR.
 
 ### 4.4 `start_agent`
 
@@ -248,7 +256,8 @@ HTTP call. Rate or tab limit exceeded: tool error naming the limit.
 2. **API tokens** — tables, `api_tokens` resource, settings UI. No route accepts them yet.
 3. **`/mcp` read-only + nginx** — control layer, SDK, scope `read` tools, vhost
    location. Validated from outside with a `read` token before continuing.
-4. **Tasks + terminals** — agent RPCs (`@termhub/agent` 0.2.0 published),
+4. **Tasks + terminals** — needs PR #46 (monitor hooks on agents, `requireAgentVersion`)
+   merged first; agent RPCs (`@termhub/agent` 0.2.0 published),
    `sendKeysToSession` on the new operations, scopes `tasks` and `terminals` except
    `start_agent`.
 5. **`start_agent`** — `DETECT_TOOLS`, launch table, README section with
