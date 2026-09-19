@@ -12,6 +12,29 @@ export const HOOK_ENV_REL = '.termhub/hook.env';
 /** Substring that marks an entry as ours in settings.json / config.toml. */
 export const HOOK_MARK = 'termhub-hook';
 
+/** Claude Code's default config dir; an account can use another one (CLAUDE_CONFIG_DIR). */
+export const CLAUDE_DEFAULT_DIR = '~/.claude';
+
+/**
+ * The Claude config dirs to hook, as "~/x" or "/abs": the default first, then each account's
+ * own dir once (a bare "x" is taken as "~/x"). The home itself and odd paths are dropped.
+ */
+export function claudeConfigDirs(accountDirs: readonly (string | null | undefined)[]): string[] {
+  const out = [CLAUDE_DEFAULT_DIR];
+  for (const raw of accountDirs) {
+    let d = (raw ?? '').trim().replace(/\/+$/, '');
+    if (!d || d === '~' || /[\0\n\r]/.test(d)) continue;
+    if (!d.startsWith('~/') && !d.startsWith('/')) d = `~/${d}`;
+    if (!out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+/** "~/x" on a machine whose $HOME is `home`; absolute paths stay as they are. */
+export function expandHome(dir: string, home: string): string {
+  return dir.startsWith('~/') ? `${home}/${dir.slice(2)}` : dir;
+}
+
 /** Claude Code hook events we subscribe to (see the server's monitor/state.ts for what each one means). */
 export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'SessionEnd'] as const;
 

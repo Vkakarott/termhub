@@ -27,7 +27,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
     try {
       const r = await api.machines.installHooks(machine.id);
       setHooks({ installed_at: r.installed_at, hooks_url: r.hooks_url });
-      setNote(`Claude Code: ${r.claude === 'installed' ? 'ok' : 'não encontrado'} · Codex: ${r.codex === 'installed' ? 'ok' : 'não encontrado'}. Vale para sessões abertas a partir de agora.`);
+      setNote(`Claude Code: ${r.claude === 'installed' ? `ok (${(r.claude_dirs ?? ['~/.claude']).join(', ')})` : 'não encontrado'} · Codex: ${r.codex === 'installed' ? 'ok' : 'não encontrado'}. Vale para sessões abertas a partir de agora.`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Erro ao instalar');
     } finally {
@@ -68,7 +68,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
         </span>
       </div>
       <p className="mt-1 text-fg-dim">
-        Escreve <code className="font-mono">~/.termhub/bin/termhub-hook</code> e registra hooks no Claude Code (<code className="font-mono">~/.claude/settings.json</code>) e no Codex (
+        Escreve <code className="font-mono">~/.termhub/bin/termhub-hook</code> e registra hooks no Claude Code (<code className="font-mono">~/.claude/settings.json</code> e o diretório de cada conta do Claude desta máquina, em Contas de IA) e no Codex (
         <code className="font-mono">~/.codex/config.toml</code>) para avisar quando uma tab está esperando você. Só a pergunta da ferramenta é enviada, nunca o conteúdo do terminal.
         {machine.type === 'agent' && ' Numa máquina com agente, é o próprio agente que escreve os arquivos (precisa estar conectado).'}
       </p>

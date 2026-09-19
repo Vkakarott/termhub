@@ -38,12 +38,17 @@ export const RPC = {
   'ai.credential': def(z.object({ provider: aiProvider, config_dir: machinePath.nullable() }), z.object({ stdout: z.string() }), 10_000),
   'file.paste': def(z.object({ name: pasteName, data_b64: z.string().min(1).max(28 * 1024 * 1024) }), z.object({ path: z.string() }), 60_000),
   /** Monitor hooks (see @termhub/machine-ops hooks.ts): the agent writes the script, env and config entries under its own $HOME. */
+  /** `claude_dirs`: Claude config dirs besides ~/.claude (accounts with CLAUDE_CONFIG_DIR), hooked when they exist; since agent 0.1.5. */
   'hooks.install': def(
-    z.object({ hooks_url: z.string().min(1).max(2048).regex(/^https?:\/\/[^\s'"]+$/), token: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/) }),
-    z.object({ home: z.string(), claude: z.enum(['installed', 'skipped']), codex: z.enum(['installed', 'skipped']) }),
+    z.object({
+      hooks_url: z.string().min(1).max(2048).regex(/^https?:\/\/[^\s'"]+$/),
+      token: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/),
+      claude_dirs: z.array(machinePath).max(16).optional(),
+    }),
+    z.object({ home: z.string(), claude: z.enum(['installed', 'skipped']), codex: z.enum(['installed', 'skipped']), claude_dirs: z.array(z.string()).optional() }),
     15_000,
   ),
-  'hooks.uninstall': def(z.object({}), z.object({ removed: z.boolean() }), 15_000),
+  'hooks.uninstall': def(z.object({ claude_dirs: z.array(machinePath).max(16).optional() }), z.object({ removed: z.boolean() }), 15_000),
 } as const;
 
 export type RpcMethod = keyof typeof RPC;

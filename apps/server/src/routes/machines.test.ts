@@ -36,7 +36,7 @@ function makeMachine(overrides: Partial<Machine> & { type: MachineType }): Machi
 }
 
 /** Builds a Fastify app with stubbed repos and a fixed request scope, like waitlist.test.ts. */
-function buildApp(store: Record<string, Machine>) {
+function buildApp(store: Record<string, Machine>, aiAccounts: { machine_id: string; provider: string; config_dir: string | null }[] = []) {
   const app = Fastify();
   applyErrorHandler(app);
   app.addHook('preHandler', async (request) => {
@@ -79,6 +79,7 @@ function buildApp(store: Record<string, Machine>) {
 
   const repos = {
     machineHooks,
+    aiAccounts: { list: vi.fn(async () => aiAccounts) },
     machines: {
       findById: async (id: string) => store[id],
       list: async () => Object.values(store),
@@ -285,6 +286,33 @@ describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
     expect(params.token.startsWith(HOOK_TOKEN_PREFIX)).toBe(true);
     expect(built.repos.machineHooks.upsert).toHaveBeenCalledWith('m1', hashHookToken(params.token));
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('POST also hooks the config dirs of this machine\'s Claude accounts, which needs agent 0.1.5', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    const accounts = [
+      { machine_id: 'm1', provider: 'claude', config_dir: '~/.claude_pedro' },
+      { machine_id: 'm1', provider: 'claude', config_dir: null },
+      { machine_id: 'm1', provider: 'chatgpt', config_dir: '~/.codex-work' },
+      { machine_id: 'other', provider: 'claude', config_dir: '~/.claude-elsewhere' },
+    ];
+    const old = attachAgent('0.1.4');
+    let built = buildApp(store, accounts);
+    app = built.app;
+    const outdated = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(outdated.statusCode).toBe(409);
+    expect(outdated.json().code).toBe('AGENT_OUTDATED');
+    expect(old).not.toHaveBeenCalled();
+
+    agents.reset();
+    const rpc = attachAgent('0.1.5', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'skipped', claude_dirs: ['~/.claude', '~/.claude_pedro'] })));
+    built = buildApp(store, accounts);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().claude_dirs).toEqual(['~/.claude', '~/.claude_pedro']);
+    const [, params] = rpc.mock.calls[0] as [string, { claude_dirs?: string[] }];
+    expect(params.claude_dirs).toEqual(['~/.claude_pedro']);
   });
 
   it('POST relays what the machine reported (rpc error "failed") as 502 and stores nothing', async () => {
