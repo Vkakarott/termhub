@@ -166,6 +166,41 @@ describe('createPtyManager', () => {
     expect(sendControl).toHaveBeenCalledWith({ type: 'open_error', ch: 8, error: { code: 'no_tmux', message: 'tmux not found' } });
   });
 
+  it('repairs the spawn-helper and retries once when the first spawn fails with posix_spawnp', async () => {
+    const fake = makeFakePty();
+    const spawn = vi
+      .fn<SpawnFn>()
+      .mockImplementationOnce(() => {
+        throw new Error('posix_spawnp failed.');
+      })
+      .mockImplementationOnce(() => fake.proc);
+    const repairSpawnHelper = vi.fn(() => ({ path: '/x/spawn-helper', executable: true, repaired: true }));
+    const log = vi.fn();
+    const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log, repairSpawnHelper });
+    const { socket, sendControl } = makeSocket();
+
+    await manager.open(10, openParams, socket);
+
+    expect(repairSpawnHelper).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(sendControl).toHaveBeenCalledWith({ type: 'opened', ch: 10 });
+    expect(log).toHaveBeenCalledWith('spawn-helper exec bit repaired on open', { path: '/x/spawn-helper' });
+  });
+
+  it('does not retry when there was nothing to repair', async () => {
+    const spawn = vi.fn<SpawnFn>(() => {
+      throw new Error('posix_spawnp failed.');
+    });
+    const repairSpawnHelper = vi.fn(() => ({ path: '/x/spawn-helper', executable: true, repaired: false }));
+    const manager = createPtyManager({ spawn, tmuxPath: 'tmux', log: vi.fn(), repairSpawnHelper });
+    const { socket, sendControl } = makeSocket();
+
+    await manager.open(11, openParams, socket);
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(sendControl).toHaveBeenCalledWith({ type: 'open_error', ch: 11, error: { code: 'internal', message: 'failed to start pty' } });
+  });
+
   it('open_error internal when spawn throws something else', async () => {
     const spawn = vi.fn<SpawnFn>(() => {
       throw new Error('boom');
