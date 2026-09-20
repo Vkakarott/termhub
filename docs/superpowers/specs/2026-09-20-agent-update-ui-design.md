@@ -147,6 +147,10 @@ Modeled on `MonitorHooksCard`. On mount fetch `api.machines.status(machine.id)`.
   "Sem terminais abertos, o servidor instala novas versões sozinho."
 - Copy in pt-BR.
 
+Implementation note (2026-09-20): the list badge lives in the Sidebar machine row (which
+already showed the agent version), not in `ProjectsByMachine`; success feedback is an inline
+note in the card instead of a toast.
+
 ## Error handling summary
 
 | Situation | Behaviour |
