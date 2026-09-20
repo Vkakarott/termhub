@@ -7,6 +7,7 @@ import { find, listAiAccounts, listMachines, listProjects, listTabs } from '../c
 import { readScreen, SCREEN_MAX_LINES, WAIT_MAX_SECONDS, waitForState } from '../control/screen.js';
 import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendInput, sendKey } from '../control/terminals.js';
 import { addSubtasks, createTask, deleteTask, listTasks, moveTask, TASK_DESCRIPTION_MAX, TASK_POSITION_MAX, TASK_TITLE_MAX, updateTask } from '../control/tasks.js';
+import { PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
 import { MAX_SUBTASKS_PER_CALL } from '../db/repositories/tasks.js';
 import type { TaskStatus } from '../db/repositories/types.js';
 
@@ -129,6 +130,13 @@ export const TOOLS: ToolDef[] = [
     scope: 'terminals', resource: 'terminals', action: 'write',
     input: { tab_id: id, force: z.boolean().optional() },
     run: (ctx, a) => closeTab(ctx, a as { tab_id: string; force?: boolean }),
+  },
+  {
+    name: 'start_agent',
+    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to doing. The prompt cannot start with "-" or contain control characters other than newlines. Then use wait_for_state / read_screen / send_input to follow and answer it. Gemini and Antigravity accounts are not supported yet.`,
+    scope: 'terminals', resource: 'terminals', action: 'write',
+    input: { project_id: id, account_id: id, prompt: z.string().min(1).max(PROMPT_MAX_CHARS), task_id: id.optional(), tab_name: z.string().trim().min(1).max(60).optional() },
+    run: (ctx, a) => startAgent(ctx, a as { project_id: string; account_id: string; prompt: string; task_id?: string; tab_name?: string }),
   },
   {
     name: 'list_tasks',
