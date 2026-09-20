@@ -58,10 +58,12 @@ export interface ServiceFileOptions {
 
 export interface LaunchdDeps {
   run?: typeof run;
+  /** Home the plist lives under; defaults to the real one. Tests pass a temp dir so they never touch the developer's own service file. */
+  home?: string;
 }
 
-function plistPath(): string {
-  return path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
+function plistPath(home = os.homedir()): string {
+  return path.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
 }
 
 function gui(): string {
@@ -70,7 +72,7 @@ function gui(): string {
 
 export async function install(opts: ServiceFileOptions, deps: LaunchdDeps = {}): Promise<void> {
   const runFn = deps.run ?? run;
-  const file = plistPath();
+  const file = plistPath(deps.home);
   const plist = renderPlist({ label: LABEL, node: opts.node, script: opts.script, logPath: opts.logPath });
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -86,7 +88,7 @@ export async function install(opts: ServiceFileOptions, deps: LaunchdDeps = {}):
 
 export async function uninstall(deps: LaunchdDeps = {}): Promise<void> {
   const runFn = deps.run ?? run;
-  const file = plistPath();
+  const file = plistPath(deps.home);
   await runFn('launchctl', ['bootout', gui(), file]);
   try {
     fs.unlinkSync(file);

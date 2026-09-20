@@ -25,7 +25,8 @@ describe('cli.ts entry-point guard (npm global bin symlink)', () => {
   let symlink: string;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-cli-guard-'));
+    // realpath'd: on macOS os.tmpdir() is a symlink (/var → /private/var), see paths.test.ts.
+    dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'termhub-agent-cli-guard-'));
     realTarget = path.join(dir, 'dist', 'cli.js');
     fs.mkdirSync(path.dirname(realTarget), { recursive: true });
     fs.writeFileSync(realTarget, '// fake dist/cli.js\n', 'utf8');
@@ -135,6 +136,11 @@ describe('cli main()', () => {
 
   it('main(["run"]) without a config calls process.exit(78)', async () => {
     const { main } = await freshCli();
+    // exitWithoutRestart() boots the real launchd job out before exiting; unmocked, this test
+    // SIGTERMs and unloads the agent serving the developer's own machine (test-setup.ts now
+    // fails any test that gets that far).
+    const launchd = await import('./service/launchd.js');
+    const stopRestartLoop = vi.spyOn(launchd, 'stopRestartLoop').mockResolvedValue(undefined);
     const exitCodes: (number | undefined)[] = [];
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       exitCodes.push(code);
@@ -144,6 +150,7 @@ describe('cli main()', () => {
     await main(['run']);
 
     expect(exitCodes).toEqual([78]);
+    expect(stopRestartLoop).toHaveBeenCalledTimes(1);
   });
 
   it('"disconnect" removes the config and prints the pt-BR confirmation', async () => {

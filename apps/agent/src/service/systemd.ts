@@ -40,15 +40,17 @@ export interface ServiceFileOptions {
 
 export interface SystemdDeps {
   run?: typeof run;
+  /** Home the unit lives under; defaults to the real one. Tests pass a temp dir so they never touch the developer's own service file. */
+  home?: string;
 }
 
-function unitPath(): string {
-  return path.join(os.homedir(), '.config', 'systemd', 'user', `${UNIT_NAME}.service`);
+function unitPath(home = os.homedir()): string {
+  return path.join(home, '.config', 'systemd', 'user', `${UNIT_NAME}.service`);
 }
 
 export async function install(opts: ServiceFileOptions, deps: SystemdDeps = {}): Promise<void> {
   const runFn = deps.run ?? run;
-  const file = unitPath();
+  const file = unitPath(deps.home);
   const unit = renderUnit({ node: opts.node, script: opts.script, logPath: opts.logPath });
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -67,7 +69,7 @@ export async function uninstall(deps: SystemdDeps = {}): Promise<void> {
   const runFn = deps.run ?? run;
   await runFn('systemctl', ['--user', 'disable', '--now', UNIT_NAME]);
   try {
-    fs.unlinkSync(unitPath());
+    fs.unlinkSync(unitPath(deps.home));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }

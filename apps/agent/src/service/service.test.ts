@@ -112,31 +112,58 @@ describe('renderUnit', () => {
   });
 });
 
+// install()/uninstall() write and unlink the service file under `home`. Every call below passes a
+// throwaway directory: with the default (`os.homedir()`) these tests would overwrite and then
+// delete the developer's real `~/Library/LaunchAgents/dev.termhub.agent.plist` — which is how
+// the agent serving this very machine kept vanishing. The launchctl/systemctl calls are faked
+// through `run` (and blocked globally by test-setup.ts).
 describe('launchd install/uninstall/status', () => {
-  it('install() writes the plist then runs bootout (ignoring failure) and bootstrap', async () => {
+  let home: string;
+  let plist: string;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-launchd-home-'));
+    plist = path.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
+  });
+
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('install() writes the plist under home, then runs bootout (ignoring failure) and bootstrap on that file', async () => {
     const calls: string[][] = [];
     const run = vi.fn(async (file: string, args: string[]) => {
       calls.push([file, ...args]);
       if (args[0] === 'bootout') return fail('nothing loaded');
       return ok();
     });
-    await launchdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never });
+    await launchdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never, home });
 
+    expect(fs.readFileSync(plist, 'utf8')).toContain('<string>/s/cli.js</string>');
     expect(calls[0][0]).toBe('launchctl');
     expect(calls[0][1]).toBe('bootout');
     expect(calls[1][0]).toBe('launchctl');
     expect(calls[1][1]).toBe('bootstrap');
-    expect(calls[1]).toEqual(expect.arrayContaining([expect.stringContaining(LABEL)]));
+    expect(calls[1]).toContain(plist);
   });
 
   it('install() throws when bootstrap itself fails', async () => {
     const run = vi.fn(async (_file: string, args: string[]) => (args[0] === 'bootstrap' ? fail('denied') : ok()));
-    await expect(launchdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never })).rejects.toThrow(/bootstrap failed/);
+    await expect(launchdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never, home })).rejects.toThrow(/bootstrap failed/);
   });
 
-  it('uninstall() runs bootout and removes the plist without throwing when the file is already gone', async () => {
+  it('uninstall() runs bootout and removes the plist under home', async () => {
+    fs.mkdirSync(path.dirname(plist), { recursive: true });
+    fs.writeFileSync(plist, '<plist/>', 'utf8');
     const run = vi.fn(async () => ok());
-    await expect(launchdUninstall({ run: run as never })).resolves.toBeUndefined();
+    await expect(launchdUninstall({ run: run as never, home })).resolves.toBeUndefined();
+    expect(run).toHaveBeenCalledWith('launchctl', ['bootout', expect.any(String), plist]);
+    expect(fs.existsSync(plist)).toBe(false);
+  });
+
+  it('uninstall() does not throw when the plist is already gone', async () => {
+    const run = vi.fn(async () => ok());
+    await expect(launchdUninstall({ run: run as never, home })).resolves.toBeUndefined();
     expect(run).toHaveBeenCalledWith('launchctl', expect.arrayContaining(['bootout']));
   });
 
@@ -178,27 +205,45 @@ describe('launchd stopRestartLoop (exit 78)', () => {
 });
 
 describe('systemd install/uninstall/status', () => {
-  it('install() writes the unit, daemon-reloads, then enables --now', async () => {
+  let home: string;
+  let unit: string;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-systemd-home-'));
+    unit = path.join(home, '.config', 'systemd', 'user', `${UNIT_NAME}.service`);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it('install() writes the unit under home, daemon-reloads, then enables --now', async () => {
     const calls: string[][] = [];
     const run = vi.fn(async (file: string, args: string[]) => {
       calls.push([file, ...args]);
       return ok();
     });
-    await systemdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never });
+    await systemdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never, home });
 
+    expect(fs.readFileSync(unit, 'utf8')).toContain('/s/cli.js');
     expect(calls[0]).toEqual(['systemctl', '--user', 'daemon-reload']);
     expect(calls[1]).toEqual(['systemctl', '--user', 'enable', '--now', UNIT_NAME]);
   });
 
   it('install() throws when enable --now fails', async () => {
     const run = vi.fn(async (_file: string, args: string[]) => (args.includes('enable') ? fail('denied') : ok()));
-    await expect(systemdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never })).rejects.toThrow(/enable --now failed/);
+    await expect(systemdInstall({ node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' }, { run: run as never, home })).rejects.toThrow(/enable --now failed/);
   });
 
-  it('uninstall() disables --now and removes the unit file', async () => {
+  it('uninstall() disables --now and removes the unit file under home', async () => {
+    fs.mkdirSync(path.dirname(unit), { recursive: true });
+    fs.writeFileSync(unit, '[Unit]\n', 'utf8');
     const run = vi.fn(async () => ok());
-    await expect(systemdUninstall({ run: run as never })).resolves.toBeUndefined();
+    await expect(systemdUninstall({ run: run as never, home })).resolves.toBeUndefined();
     expect(run).toHaveBeenCalledWith('systemctl', ['--user', 'disable', '--now', UNIT_NAME]);
+    expect(fs.existsSync(unit)).toBe(false);
   });
 
   it('status() reflects `systemctl --user is-active`', async () => {

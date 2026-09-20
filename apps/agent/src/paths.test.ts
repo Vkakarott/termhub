@@ -11,7 +11,9 @@ describe('resolveScriptPath / isMainModule (npm-global-bin symlink)', () => {
   let symlink: string;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-paths-'));
+    // realpath'd: on macOS os.tmpdir() is /var/folders/… (a symlink to /private/var/…), so a
+    // non-resolved `dir` would never equal what isMainModule() compares against.
+    dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'termhub-agent-paths-'));
     realTarget = path.join(dir, 'dist', 'cli.js');
     fs.mkdirSync(path.dirname(realTarget), { recursive: true });
     fs.writeFileSync(realTarget, '// fake entry point\n', 'utf8');
