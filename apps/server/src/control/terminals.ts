@@ -7,17 +7,16 @@ import { HttpError } from '../lib/errors.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
 import { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } from '../terminal/session-ops.js';
 import { ControlError, type ControlContext } from './context.js';
-import { SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES, waitForState } from './screen.js';
+import { assertTerminal, clamp, offline, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES, waitForState } from './screen.js';
 
 /** Tabs one token may keep open at a time (spec §4.2): a runaway loop cannot bury the project in tabs. */
 export const MAX_TABS_PER_TOKEN = 10;
 export const RUN_DEFAULT_SECONDS = 30;
 export const RUN_MAX_SECONDS = 90;
 const SETTLE_POLL_MS = 1000;
-
-const clamp = (v: number | undefined, def: number, max: number) => Math.max(1, Math.min(max, Math.trunc(v ?? def)));
-
-const offline = () => new ControlError('MACHINE_OFFLINE', 'A máquina está offline: o termhub-agent dela não está conectado');
+/** Budget-bounded window given to the hook to mark the tab "working" right after we typed a command,
+ * before falling back to the screen poll (spec §4.2 line 118: run_command must actually wait). */
+const WORKING_WAIT_MS = 2 * SETTLE_POLL_MS;
 
 /** Online and new enough to answer the terminal RPCs — checked before anything is created or typed. */
 function assertReady(machine: Machine): void {
@@ -29,9 +28,25 @@ function assertReady(machine: Machine): void {
 /** A terminal tab with a session name, on a machine that can answer right now. */
 async function terminal(ctx: ControlContext, tabId: string): Promise<{ tab: Tab; project: Project; machine: Machine; session: string }> {
   const { tab, project, machine } = await ctx.scoped.tab(tabId);
-  if (tab.kind !== 'terminal' || !tab.tmux_session) throw new ControlError('NOT_A_TERMINAL', 'Esta aba não é um terminal');
+  assertTerminal(tab);
   assertReady(machine);
   return { tab, project, machine, session: tab.tmux_session };
+}
+
+/** No hooks report state (or they never marked the tab "working" for this command): settle by
+ * screen instead — two identical captures in a row mean nothing is moving. Mirrors the exact
+ * abort/deadline semantics of the original single-branch loop: aborting or two matching captures
+ * resolve as "not timed out", only running past the deadline sets `timed_out`. */
+async function settleByScreen(machine: Machine, session: string, lines: number, deadline: number, signal?: AbortSignal): Promise<boolean> {
+  let previous: string | null = null;
+  for (;;) {
+    if (signal?.aborted) return false;
+    const now = await captureScreen(machine, session, lines);
+    if (previous !== null && now === previous) return false;
+    previous = now;
+    if (Date.now() + SETTLE_POLL_MS >= deadline) return true;
+    await new Promise((r) => setTimeout(r, SETTLE_POLL_MS));
+  }
 }
 
 /** Opens a tab and starts its tmux session detached, so it is alive without a browser attached. */
@@ -92,6 +107,15 @@ export async function runCommand(
   signal?: AbortSignal,
 ): Promise<{ tab_id: string; state: string | null; timed_out: boolean; lines: number; text: string }> {
   const { tab, project, machine, session } = await terminal(ctx, input.tab_id);
+  // run_command is send_input + Enter (spec §4.2 line 118); the permission guard on send_input
+  // (line 116) applies here too, but there is no answering_permission for run_command — the pending
+  // question must be settled with send_input or send_key first.
+  if (tab.state === 'waiting_permission') {
+    throw new ControlError(
+      'WAITING_PERMISSION',
+      `Esta aba está esperando uma permissão: "${tab.state_text ?? 'pergunta não registrada'}". Responda com send_input (answering_permission: true) ou send_key antes de rodar um comando.`,
+    );
+  }
   if (input.command.length > INPUT_MAX_CHARS) throw new ControlError('TEXT_TOO_LONG', `Comando longo demais: ${input.command.length} caracteres, máximo ${INPUT_MAX_CHARS}`);
   const timeoutMs = clamp(input.timeout_seconds, RUN_DEFAULT_SECONDS, RUN_MAX_SECONDS) * 1000;
   const lines = clamp(input.lines, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES);
@@ -100,28 +124,31 @@ export async function runCommand(
   await sendTextToSession(machine, session, input.command, true);
 
   const deadline = Date.now() + timeoutMs;
-  let timedOut = false;
+  let timedOut: boolean;
   let state: string | null = null;
 
   if (tab.state !== null) {
-    // The machine has monitor hooks: the tool itself reports when it stopped working.
-    const waited = await waitForState(ctx, { tab_id: tab.id, timeout_seconds: Math.ceil(timeoutMs / 1000) }, signal);
-    timedOut = waited.timed_out;
-    state = waited.state;
-  } else {
-    // No hooks: settle on the screen instead — two identical captures in a row mean nothing is moving.
-    let previous: string | null = null;
-    for (;;) {
-      if (signal?.aborted) break;
-      const now = await captureScreen(machine, session, lines);
-      if (previous !== null && now === previous) break;
-      previous = now;
-      if (Date.now() + SETTLE_POLL_MS >= deadline) {
-        timedOut = true;
-        break;
-      }
+    // The machine has monitor hooks, but the tab we read above is from BEFORE we typed the command:
+    // the hook has not necessarily marked it "working" yet. Give it a short, budget-bounded window to
+    // do so before delegating to waitForState; if it never does, fall back to the screen poll below —
+    // run_command must always observe the tab actually settle, one way or the other.
+    const workingDeadline = Math.min(deadline, Date.now() + WORKING_WAIT_MS);
+    let current: Tab | undefined = tab;
+    while (current && current.state !== 'working' && !signal?.aborted && Date.now() < workingDeadline) {
       await new Promise((r) => setTimeout(r, SETTLE_POLL_MS));
+      current = await ctx.repos.tabs.findById(tab.id);
     }
+    if (current?.state === 'working') {
+      const waited = await waitForState(ctx, { tab_id: tab.id, timeout_seconds: Math.max(1, Math.ceil((deadline - Date.now()) / 1000)) }, signal);
+      timedOut = waited.timed_out;
+      state = waited.state;
+    } else {
+      state = current?.state ?? tab.state;
+      timedOut = await settleByScreen(machine, session, lines, deadline, signal);
+    }
+  } else {
+    // No hooks at all: settle on the screen instead.
+    timedOut = await settleByScreen(machine, session, lines, deadline, signal);
   }
 
   return { tab_id: tab.id, state, timed_out: timedOut, lines, text: await captureScreen(machine, session, lines) };

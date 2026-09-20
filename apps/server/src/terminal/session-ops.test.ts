@@ -10,13 +10,19 @@ const { agentRpc, requireAgentVersion, runOnMachine } = vi.hoisted(() => ({
 vi.mock('../agent/errors.js', () => ({ agentRpc, requireAgentVersion }));
 vi.mock('./machine-exec.js', async (orig) => ({ ...(await orig<typeof import('./machine-exec.js')>()), runOnMachine }));
 
-const { ensureSession, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } = await import('./session-ops.js');
+const { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } = await import('./session-ops.js');
 
 const machine = (type: Machine['type']): Machine => ({ id: 'm1', name: 'jarvis', type, os: 'linux', capabilities: ['tmux'], owner_id: 'u1' }) as Machine;
 
 // resetAllMocks (not clearAllMocks): also drops any mockImplementation from a previous test,
 // so an outdated-agent throw set in one test can't leak into the next.
 beforeEach(() => vi.resetAllMocks());
+
+// Every other suite mocks this constant (control/terminals.test.ts, monitor/send-keys.test.ts,
+// routes/tabs.test.ts): only this test, against the real module, would catch it silently drifting.
+it('pins the input cap to 4000 characters', () => {
+  expect(INPUT_MAX_CHARS).toBe(4000);
+});
 
 describe('agent machines', () => {
   it('checks the agent version before every operation and calls the named RPC', async () => {

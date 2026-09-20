@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpError } from '../lib/errors.js';
 
-const { captureScreen, ensureSession, isOnline, killTmuxSession, requireAgentVersion, sendKeyToSession, sendTextToSession } = vi.hoisted(() => ({
+const { captureScreen, ensureSession, isOnline, killTmuxSession, requireAgentVersion, sendKeyToSession, sendTextToSession, waitForState } = vi.hoisted(() => ({
   captureScreen: vi.fn(),
   ensureSession: vi.fn(),
   isOnline: vi.fn(() => true),
@@ -9,12 +9,19 @@ const { captureScreen, ensureSession, isOnline, killTmuxSession, requireAgentVer
   requireAgentVersion: vi.fn(),
   sendKeyToSession: vi.fn(),
   sendTextToSession: vi.fn(),
+  waitForState: vi.fn(),
 }));
 vi.mock('../agent/screen.js', () => ({ captureScreen }));
 vi.mock('../agent/registry.js', () => ({ agents: { isOnline } }));
 vi.mock('../agent/errors.js', () => ({ requireAgentVersion }));
 vi.mock('../terminal/session-ops.js', () => ({ ensureSession, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION: '0.2.0', INPUT_MAX_CHARS: 4000 }));
 vi.mock('../terminal/machine-exec.js', () => ({ killTmuxSession }));
+// Only waitForState is faked here; assertTerminal/clamp/offline/SCREEN_*_LINES come from the real module
+// (screen.test.ts already covers waitForState's own behavior — this file only needs to control when it resolves).
+vi.mock('./screen.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./screen.js')>();
+  return { ...actual, waitForState };
+});
 
 const { closeTab, MAX_TABS_PER_TOKEN, openTab, runCommand, sendInput, sendKey } = await import('./terminals.js');
 
@@ -47,6 +54,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // clearAllMocks keeps implementations: a test that made requireAgentVersion throw would leak into the next one.
   requireAgentVersion.mockReset();
+  waitForState.mockReset();
   isOnline.mockReturnValue(true);
   ensureSession.mockResolvedValue({ created: true });
 });
@@ -80,6 +88,13 @@ describe('openTab', () => {
     const ctx = ctxWith();
     await expect(openTab(ctx, { project_id: 'p1' })).rejects.toMatchObject({ code: 'AGENT_OUTDATED' });
     expect(ctx.repos.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps the tab id in the error when the session fails to start after the row is already created', async () => {
+    ensureSession.mockRejectedValue(new Error('tmux: command not found'));
+    const ctx = ctxWith();
+    await expect(openTab(ctx, { project_id: 'p1' })).rejects.toMatchObject({ code: 'SESSION_FAILED', message: expect.stringContaining('t1') });
+    expect(ctx.repos.tabs.create).toHaveBeenCalled();
   });
 });
 
@@ -126,6 +141,54 @@ describe('runCommand', () => {
     let n = 0;
     captureScreen.mockImplementation(async () => `busy ${n++}`);
     const r = await runCommand(ctxWith(), { tab_id: 't1', command: 'sleep 60', timeout_seconds: 2 });
+    expect(r.timed_out).toBe(true);
+    expect(r.text).toContain('busy');
+  });
+
+  it('refuses a command over the cap instead of typing it', async () => {
+    await expect(runCommand(ctxWith(), { tab_id: 't1', command: 'x'.repeat(4001) })).rejects.toMatchObject({ code: 'TEXT_TOO_LONG' });
+    expect(sendTextToSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses a tab that is waiting on a permission, with no way to bypass it', async () => {
+    const ctx = ctxWith({ tab: tab({ state: 'waiting_permission', state_text: 'Permitir rodar npm install?' }) });
+    await expect(runCommand(ctx, { tab_id: 't1', command: 'npm install' })).rejects.toMatchObject({ code: 'WAITING_PERMISSION', message: expect.stringContaining('Permitir rodar npm install?') });
+    expect(sendTextToSession).not.toHaveBeenCalled();
+  });
+
+  it('delegates to waitForState once the tab is already working when read', async () => {
+    const ctx = ctxWith({ tab: tab({ state: 'working' }) });
+    waitForState.mockResolvedValue({ tab_id: 't1', state: 'waiting_input', state_text: null, state_at: null, timed_out: false });
+    captureScreen.mockResolvedValue('$ npm test\nok\n$');
+    const r = await runCommand(ctx, { tab_id: 't1', command: 'npm test', timeout_seconds: 10 });
+    expect(waitForState).toHaveBeenCalledWith(ctx, expect.objectContaining({ tab_id: 't1' }), undefined);
+    expect(ctx.repos.tabs.findById).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ tab_id: 't1', state: 'waiting_input', timed_out: false });
+  });
+
+  it('waits for the hook to mark the tab working before delegating to waitForState', async () => {
+    let calls = 0;
+    const ctx = ctxWith({
+      tab: tab({ state: 'idle' }),
+      tabs: { findById: vi.fn(async () => (calls++ === 0 ? tab({ state: 'idle' }) : tab({ state: 'working' }))) },
+    });
+    waitForState.mockResolvedValue({ tab_id: 't1', state: 'waiting_input', state_text: null, state_at: null, timed_out: false });
+    captureScreen.mockResolvedValue('$ npm test\nok\n$');
+    const r = await runCommand(ctx, { tab_id: 't1', command: 'npm test', timeout_seconds: 10 });
+    expect(ctx.repos.tabs.findById).toHaveBeenCalled();
+    expect(waitForState).toHaveBeenCalledWith(ctx, expect.objectContaining({ tab_id: 't1' }), undefined);
+    expect(r).toMatchObject({ tab_id: 't1', state: 'waiting_input', timed_out: false });
+  });
+
+  it('falls back to the screen poll when a tab with monitor state never reports working', async () => {
+    const ctx = ctxWith({
+      tab: tab({ state: 'idle' }),
+      tabs: { findById: vi.fn(async () => tab({ state: 'idle' })) },
+    });
+    let n = 0;
+    captureScreen.mockImplementation(async () => `busy ${n++}`);
+    const r = await runCommand(ctx, { tab_id: 't1', command: 'sleep 60', timeout_seconds: 3 });
+    expect(waitForState).not.toHaveBeenCalled();
     expect(r.timed_out).toBe(true);
     expect(r.text).toContain('busy');
   });
