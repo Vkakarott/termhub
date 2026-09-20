@@ -1,6 +1,7 @@
 import { httpJson } from '../ai/credentials.js';
 import type { Repositories } from '../db/repositories/index.js';
-import { AgentClosedError } from './connection.js';
+import { HttpError } from '../lib/errors.js';
+import { AgentClosedError, AgentRpcError } from './connection.js';
 import { toHttpError, versionAtLeast } from './errors.js';
 import { agents } from './registry.js';
 
@@ -95,6 +96,16 @@ export async function runAgentUpdate(machineId: string, version: string, log: Ve
     if (err instanceof AgentClosedError) {
       log.info({ machineId, version }, 'agent connection closed during update (restarting)');
       return { installed_version: null, restart: 'service', restarting: true };
+    }
+    if (err instanceof AgentRpcError) {
+      switch (err.rpcError.code) {
+        case 'failed':
+          throw new HttpError(502, `Falha ao atualizar o agente: ${err.rpcError.message}. Se persistir, rode na máquina: npm i -g @termhub/agent@latest`, 'AGENT_UPDATE_FAILED');
+        case 'timeout':
+          throw new HttpError(504, 'A instalação do agente demorou demais; verifique na máquina', 'AGENT_UPDATE_TIMEOUT');
+        case 'notfound':
+          throw new HttpError(502, 'npm não encontrado na máquina; rode: npm i -g @termhub/agent@latest', 'AGENT_UPDATE_NPM_MISSING');
+      }
     }
     throw toHttpError(err);
   }

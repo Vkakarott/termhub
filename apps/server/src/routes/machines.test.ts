@@ -465,6 +465,27 @@ describe('agent update', () => {
     attachAgent('0.2.1', vi.fn(async () => { throw new AgentRpcError({ code: 'failed', message: 'npm exited with code 243' }); }));
     const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
     expect(res.statusCode).toBe(502);
-    expect(res.json().error).toBe('npm exited with code 243');
+    expect(res.json().code).toBe('AGENT_UPDATE_FAILED');
+    expect(res.json().error).toMatch(/^Falha ao atualizar o agente: npm exited with code 243/);
+  });
+
+  it('POST maps an RPC timeout to 504', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1', vi.fn(async () => { throw new AgentRpcError({ code: 'timeout', message: 'npm install timed out' }); }));
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(504);
+    expect(res.json().code).toBe('AGENT_UPDATE_TIMEOUT');
+  });
+
+  it('POST maps a missing-npm RPC failure to 502 with an install hint', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1', vi.fn(async () => { throw new AgentRpcError({ code: 'notfound', message: 'npm not found beside node' }); }));
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().code).toBe('AGENT_UPDATE_NPM_MISSING');
   });
 });
