@@ -71,7 +71,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
             ...next,
             agent_version: r.agent_version !== undefined ? r.agent_version : next.agent_version,
             agent_last_seen_at: r.last_seen_at !== undefined ? r.last_seen_at : next.agent_last_seen_at,
-            update_available: r.update_available ?? next.update_available,
+            update_available: r.online ? (r.update_available ?? next.update_available) : false,
           };
         }),
       );

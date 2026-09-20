@@ -17,6 +17,8 @@ export function AgentUpdateCard({ machine }: { machine: Machine }) {
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  /** false once the card unmounts (form closed): stops a poll's in-flight tick from rescheduling. */
+  const alive = useRef(true);
 
   const load = async (): Promise<Versions> => {
     const s = await api.machines.status(machine.id);
@@ -27,10 +29,12 @@ export function AgentUpdateCard({ machine }: { machine: Machine }) {
 
   useEffect(() => {
     let cancelled = false;
+    alive.current = true;
     load().catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : 'Erro ao consultar'));
     const all = timers.current;
     return () => {
       cancelled = true;
+      alive.current = false;
       all.forEach(clearTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -46,6 +50,7 @@ export function AgentUpdateCard({ machine }: { machine: Machine }) {
       } catch {
         /* offline while restarting: keep polling */
       }
+      if (!alive.current) return;
       if (s && s.online && s.current === target) {
         setNote(`Agente atualizado para v${target}.`);
         setBusy(false);
@@ -57,9 +62,9 @@ export function AgentUpdateCard({ machine }: { machine: Machine }) {
         setBusy(false);
         return;
       }
-      timers.current.push(setTimeout(() => void tick(), POLL_MS));
+      if (alive.current) timers.current.push(setTimeout(() => void tick(), POLL_MS));
     };
-    timers.current.push(setTimeout(() => void tick(), POLL_MS));
+    if (alive.current) timers.current.push(setTimeout(() => void tick(), POLL_MS));
   };
 
   const update = async () => {

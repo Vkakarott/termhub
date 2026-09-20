@@ -65,4 +65,33 @@ describe('AgentUpdateCard', () => {
     fireEvent.click(await screen.findByLabelText('Atualizar automaticamente quando ociosa'));
     await waitFor(() => expect(updateMachineMock).toHaveBeenCalledWith('m1', { agent_auto_update: true }));
   });
+
+  it('stops polling once the card unmounts, even if a poll tick is still in flight', async () => {
+    vi.useFakeTimers();
+    let resolvePoll: ((v: ReturnType<typeof status>) => void) | undefined;
+    const pending = new Promise<ReturnType<typeof status>>((resolve) => {
+      resolvePoll = resolve;
+    });
+    statusMock.mockResolvedValueOnce(status('0.2.1')).mockImplementationOnce(() => pending);
+    updateAgentMock.mockResolvedValue({ installed_version: '0.2.5', restart: 'service', restarting: true });
+    const { unmount } = render(<AgentUpdateCard machine={machine} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+    await act(async () => {});
+    // trigger the first poll tick: it calls status() again, which is now the pending (unresolved) promise
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    });
+    expect(statusMock).toHaveBeenCalledTimes(2);
+    unmount();
+    // resolve the in-flight status() call after the component is gone
+    await act(async () => {
+      resolvePoll?.(status('0.2.1', '0.2.5', true));
+    });
+    // give the poll's tick() a chance to reschedule (it must not, since the card is unmounted)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+    });
+    expect(statusMock).toHaveBeenCalledTimes(2);
+  });
 });
