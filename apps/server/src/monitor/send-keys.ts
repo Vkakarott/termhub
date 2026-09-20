@@ -1,26 +1,23 @@
 import type { Machine } from '../db/repositories/types.js';
-import { REMOTE_PATH_PREFIX, assertSessionName, runOnMachine, shellQuote } from '../terminal/machine-exec.js';
+import { sendTextToSession } from '../terminal/session-ops.js';
 
-export const INPUT_MAX_CHARS = 4000;
+// Declared once in session-ops.ts (also used by control/terminals.ts); re-exported here so
+// apps/server/src/routes/tabs.ts keeps its existing named import.
+export { INPUT_MAX_CHARS } from '../terminal/session-ops.js';
+import { INPUT_MAX_CHARS } from '../terminal/session-ops.js';
 
 /**
  * Types `text` into the tab's tmux session (literal keys) and, with `enter`, presses Enter after a
- * short pause — TUIs like Claude Code treat a burst of bytes as a paste, so the Enter must arrive
- * on its own. Works with or without a terminal attached in the browser.
+ * short pause. Works on agent machines too (named RPCs) as well as local/ssh, with or without a
+ * terminal attached in the browser.
  */
 export async function sendKeysToSession(machine: Machine, session: string, text: string, enter: boolean): Promise<{ ok: boolean; error: string | null }> {
-  assertSessionName(session);
   if (text.length > INPUT_MAX_CHARS) throw new Error('Texto longo demais');
-  const target = shellQuote(`=${session}`);
-  const parts: string[] = [];
-  if (text) parts.push(`tmux send-keys -t ${target} -l -- ${shellQuote(text)}`);
-  if (enter) {
-    if (text) parts.push('sleep 0.3');
-    parts.push(`tmux send-keys -t ${target} Enter`);
+  try {
+    await sendTextToSession(machine, session, text, enter);
+    return { ok: true, error: null };
+  } catch (e) {
+    // The monitor route reports the failure in the response body instead of a 5xx; keep that contract.
+    return { ok: false, error: e instanceof Error ? e.message : 'tmux send-keys falhou' };
   }
-  if (parts.length === 0) return { ok: true, error: null };
-  const script = parts.join(' && ');
-  const r = await runOnMachine(machine, { file: 'sh', args: ['-c', script] }, `${REMOTE_PATH_PREFIX}${script}`, 10_000);
-  if (r.code !== 0) return { ok: false, error: r.timedOut ? 'A máquina não respondeu a tempo' : r.stderr.trim().split('\n').pop() || 'tmux send-keys falhou' };
-  return { ok: true, error: null };
 }

@@ -72,8 +72,6 @@ export async function tabRoutes(
     const { id } = idParam.parse(request.params);
     const { tab, machine } = await scoped(repos, request).tab(id);
     if (tab.kind !== 'terminal' || !tab.tmux_session) throw badRequest('Só tabs de terminal recebem input');
-    // sendKeysToSession runs shell on the machine; agents only answer named RPCs and have none for this yet
-    if (machine.type === 'agent') throw conflict('Envio de texto pelo monitor ainda não disponível em máquinas com agente');
     const body = inputBody.parse(request.body);
     if (!body.text && !body.enter) throw badRequest('Nada a enviar');
     const r = await sendKeysToSession(machine, tab.tmux_session, body.text, body.enter);
