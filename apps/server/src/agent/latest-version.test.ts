@@ -87,7 +87,12 @@ describe('autoUpdateTick', () => {
     return rpc;
   }
   const machine = (id: string) => ({ id, type: 'agent', agent_auto_update: true }) as never;
-  const repos = (ids: string[]) => ({ machines: { listAutoUpdate: async () => ids.map(machine) } }) as unknown as Repositories;
+  /** `busy`: how many tabs of that machine have a tool mid-task (working / waiting on input or permission). */
+  const repos = (ids: string[], busy: Record<string, number> = {}) =>
+    ({
+      machines: { listAutoUpdate: async () => ids.map(machine) },
+      tabs: { countBusyByMachine: async (id: string) => busy[id] ?? 0 },
+    }) as unknown as Repositories;
 
   afterEach(() => {
     agents.reset();
@@ -107,6 +112,18 @@ describe('autoUpdateTick', () => {
     expect(old).not.toHaveBeenCalled();
     await autoUpdateTick(repos(['idle']), log);
     expect(idle).toHaveBeenCalledTimes(1);
+  });
+
+  // A restart drops the agent's socket for a few seconds. An attached terminal is not the only
+  // sign of a machine in use: a tool working (or waiting for the person) inside a *detached*
+  // tmux session opens no channel at all, and that is precisely when an update must wait.
+  it('skips a machine whose tabs report a tool mid-task, even with no channel open', async () => {
+    setLatestAgentVersion('0.2.5');
+    const working = attach('working', '0.2.1', 0);
+    const quiet = attach('quiet', '0.2.1', 0);
+    await autoUpdateTick(repos(['working', 'quiet'], { working: 1 }), log);
+    expect(working).not.toHaveBeenCalled();
+    expect(quiet).toHaveBeenCalledWith('agent.update', { version: '0.2.5' }, 180_000);
   });
 
   it('does nothing before the latest version is known and survives a failing agent', async () => {

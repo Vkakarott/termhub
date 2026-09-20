@@ -35,6 +35,13 @@ starts the agent at login/boot and restarts it on failure. `termhub-agent servic
 `termhub-agent service uninstall` manage it afterwards. On Linux, run
 `loginctl enable-linger $USER` once so the service keeps running after you log out.
 
+The service is deliberately kept apart from the tmux server that holds your terminals: on Linux
+the unit sets `KillMode=process`, so restarting or updating the agent signals only the agent
+itself and leaves tmux — and whatever is running inside it — alone, and the agent reattaches to
+the existing sessions when it comes back (macOS needs nothing: launchd does not follow tmux once
+it daemonises). A unit installed by an older agent is rewritten to the current template the first
+time the new agent starts.
+
 ## Other commands
 
 - `termhub-agent status` — shows the paired server, machine name and whether the agent can reach

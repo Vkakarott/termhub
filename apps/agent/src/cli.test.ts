@@ -134,6 +134,29 @@ describe('cli main()', () => {
     expect(stopRestartLoop).toHaveBeenCalledTimes(1);
   });
 
+  // The unit/plist is written once, by `service install`; an update only swaps the code. Startup
+  // is therefore the only moment a definition from an older agent can be corrected, and a
+  // failure there must not keep the agent from connecting.
+  it('"run" refreshes the service definition before connecting, and connects anyway when that fails', async () => {
+    const { runCommand } = await import('./commands/run.js');
+    const { writeConfig } = await import('./config.js');
+    const service = await import('./service/index.js');
+    const connect = await import('./commands/connect.js');
+    writeConfig({ url: 'wss://app.termhub.dev/agent', token: 'tok', machine_id: '', machine_name: '', created_at: new Date().toISOString() });
+    const foreground = vi.spyOn(connect, 'runForegroundUntilSignal').mockResolvedValue(undefined as never);
+    const refresh = vi.spyOn(service, 'refresh').mockResolvedValue(true);
+    const messages: string[] = [];
+
+    await runCommand((msg) => messages.push(msg));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(messages).toContain('service definition refreshed');
+    expect(foreground).toHaveBeenCalledTimes(1);
+
+    refresh.mockRejectedValue(new Error('daemon-reload failed'));
+    await expect(runCommand((msg) => messages.push(msg))).resolves.toBeUndefined();
+    expect(foreground).toHaveBeenCalledTimes(2);
+  });
+
   it('main(["run"]) without a config calls process.exit(78)', async () => {
     const { main } = await freshCli();
     // exitWithoutRestart() boots the real launchd job out before exiting; unmocked, this test

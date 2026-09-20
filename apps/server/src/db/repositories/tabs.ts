@@ -5,6 +5,9 @@ import { mapTab, mapTabEvent, type Tab, type TabEvent, type TabKind, type TabSta
 /** A flood of hook events cannot grow the log without bound: only this many are kept per tab. */
 const EVENTS_KEPT_PER_TAB = 200;
 
+/** States that mean a tool is mid-task in that tab — as opposed to `idle`, `error` or never seen. */
+const BUSY_STATES: TabState[] = ['working', 'waiting_input', 'waiting_permission'];
+
 export class TabsRepository {
   constructor(private db: PrismaClient) {}
 
@@ -31,6 +34,15 @@ export class TabsRepository {
       orderBy: [{ stateAt: 'desc' }],
     });
     return rows.map(mapTab);
+  }
+
+  /**
+   * How many tabs of this machine have a tool mid-task. Used before an automatic agent update:
+   * an attached terminal is not the only sign of a machine in use — a tool working (or waiting
+   * for the person) in a detached tmux session holds no channel open at all.
+   */
+  async countBusyByMachine(machineId: string): Promise<number> {
+    return this.db.tab.count({ where: { state: { in: BUSY_STATES }, project: { machineId } } });
   }
 
   /**
