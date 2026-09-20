@@ -6,12 +6,14 @@ vi.mock('../control/inventory.js', async (orig) => ({ ...(await orig<typeof impo
 vi.mock('../control/screen.js', async (orig) => ({ ...(await orig<typeof import('../control/screen.js')>()), readScreen: vi.fn() }));
 vi.mock('../control/terminals.js', async (orig) => ({ ...(await orig<typeof import('../control/terminals.js')>()), sendInput: vi.fn() }));
 vi.mock('../control/tasks.js', async (orig) => ({ ...(await orig<typeof import('../control/tasks.js')>()), createTask: vi.fn(), deleteTask: vi.fn() }));
+vi.mock('../control/agents.js', async (orig) => ({ ...(await orig<typeof import('../control/agents.js')>()), startAgent: vi.fn() }));
 
 import { canAccess } from '../auth/permissions.js';
 import { listMachines } from '../control/inventory.js';
 import { readScreen } from '../control/screen.js';
 import { sendInput } from '../control/terminals.js';
 import { createTask, deleteTask } from '../control/tasks.js';
+import { startAgent } from '../control/agents.js';
 import { ControlError } from '../control/context.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ApiToken } from '../db/repositories/api-tokens.js';
@@ -470,5 +472,48 @@ describe('tasks scope', () => {
     expect(r.json().result.content[0].text).toContain('confirm: true');
     await flush();
     expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'delete_task', ok: false, error_code: 'CONFIRM_REQUIRED' });
+  });
+});
+
+describe('start_agent', () => {
+  const terminalsToken = token({ scopes: ['read', 'terminals'] });
+  const writeGrants = ['machines:read', 'projects:read', 'terminals:read', 'terminals:write'];
+
+  it('is a terminals-scope tool, hidden from a read-only token', async () => {
+    const { app } = build({ grants: writeGrants });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    expect(list.json().result.tools.map((t: { name: string }) => t.name)).not.toContain('start_agent');
+    const offered = await rpc(build({ token: terminalsToken, grants: writeGrants }).app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    expect(offered.json().result.tools.map((t: { name: string }) => t.name)).toContain('start_agent');
+  });
+
+  it('never records the prompt, only the project id', async () => {
+    vi.mocked(startAgent).mockResolvedValue({ tab_id: 't9', project_id: 'p1' } as never);
+    const { app, apiTokens } = build({ token: terminalsToken, grants: writeGrants });
+    const r = await rpc(app, call('start_agent', { project_id: 'p1', account_id: 'a1', prompt: 'PROMPT-SECRETO', tab_name: 'NOME-SECRETO' }));
+    expect(r.json().result.isError).toBeUndefined();
+    await flush();
+    expect(JSON.stringify(apiTokens.recordEvent.mock.calls)).not.toMatch(/SECRETO/);
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'start_agent', ok: true, project_id: 'p1' });
+  });
+
+  it('rejects an empty or oversized prompt before the control layer runs', async () => {
+    vi.mocked(startAgent).mockClear();
+    const { app, apiTokens } = build({ token: terminalsToken, grants: writeGrants });
+    const r = await rpc(app, call('start_agent', { project_id: 'p1', account_id: 'a1', prompt: '' }));
+    expect(r.json().error ?? r.json().result.isError).toBeTruthy();
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'start_agent', ok: false, error_code: 'INVALID_ARGS' });
+    expect(startAgent).not.toHaveBeenCalled();
+  });
+
+  it('surfaces control refusals as pt-BR tool errors with their code', async () => {
+    vi.mocked(startAgent).mockRejectedValue(new ControlError('PROVIDER_UNSUPPORTED', 'Iniciar um agente gemini ainda não é suportado; por enquanto só claude e chatgpt (Codex)'));
+    const { app, apiTokens } = build({ token: terminalsToken, grants: writeGrants });
+    const r = await rpc(app, call('start_agent', { project_id: 'p1', account_id: 'a5', prompt: 'x' }));
+    expect(r.json().result.isError).toBe(true);
+    expect(r.json().result.content[0].text).toContain('ainda não é suportado');
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'start_agent', ok: false, error_code: 'PROVIDER_UNSUPPORTED' });
   });
 });
