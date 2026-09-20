@@ -3,7 +3,13 @@ import { RPC, RPC_METHODS, rpcErrorSchema } from './rpc.js';
 
 describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
-    expect([...RPC_METHODS].sort()).toEqual(['ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect']);
+    expect([...RPC_METHODS].sort()).toEqual(['agent.update', 'ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect']);
+  });
+  it('validates agent.update versions', () => {
+    expect(RPC['agent.update'].params.safeParse({ version: '0.2.1' }).success).toBe(true);
+    expect(RPC['agent.update'].params.safeParse({ version: 'latest' }).success).toBe(false);
+    expect(RPC['agent.update'].params.safeParse({ version: '0.2.1; rm -rf /' }).success).toBe(false);
+    expect(RPC['agent.update'].timeoutMs).toBe(180_000);
   });
   it('validates tmux session names', () => {
     expect(RPC['tmux.kill'].params.safeParse({ session: 'th-abc_1' }).success).toBe(true);
