@@ -60,7 +60,7 @@ npm registry ──(hourly, cached)──▶ server latest-version ──▶ GET
 - Registered inside the existing machines plugin (already `guarded('machines', …)`);
   the handler checks the `machines:write` grant like the hooks routes do.
 - Load the machine through `scoped(repos, request).machine(id)`; 400 unless `type === 'agent'`.
-- 409 `Agente desconectado` when `!agents.isOnline(id)`; 409 `Agente já está na versão mais nova`
+- 409 `Agente desconectado` when `!agents.isOnline(id)`; 409 `Agente antigo (v<x>): atualize manualmente com npm i -g @termhub/agent@latest` when the running agent is older than **0.2.1** (`MIN_SELF_UPDATE_VERSION`), the first version that knows the RPC; 409 `Agente já está na versão mais nova`
   when not outdated; 503 `Versão mais nova desconhecida` when the npm cache is empty.
 - Calls `agents.rpc(id, 'agent.update', { version: latest }, 180_000)` and returns
   `{ installed_version, restart }`. Error mapping: `AgentClosedError` during the call →
@@ -174,4 +174,4 @@ Modeled on `MonitorHooksCard`. On mount fetch `api.machines.status(machine.id)`.
 
 README "Agent" section: one paragraph on the badge, the button, the auto-update toggle
 (idle = no open terminals), and that agents ≥ 0.2.1 support it (older agents show the badge
-but the button reports the RPC as unsupported).
+and the button explains the manual command).
