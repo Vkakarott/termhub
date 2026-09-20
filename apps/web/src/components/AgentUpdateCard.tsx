@@ -82,8 +82,17 @@ export function AgentUpdateCard({ machine }: { machine: Machine }) {
         setBusy(false);
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Erro ao atualizar');
-      setBusy(false);
+      // A gateway/Cloudflare cutting the HTTP request (504/524, or a bare 502) does not mean the
+      // install failed: npm may still be running on the machine. Keep polling instead of showing
+      // an error, unless the server already told us the RPC itself failed or npm is missing.
+      const cutMidInstall = e instanceof ApiError && (e.status === 504 || e.status === 524 || (e.status === 502 && e.code !== 'AGENT_UPDATE_FAILED' && e.code !== 'AGENT_UPDATE_NPM_MISSING'));
+      if (cutMidInstall) {
+        setNote('A conexão caiu durante a instalação; ela pode continuar na máquina. Aguardando o agente voltar…');
+        pollUntil(v.latest);
+      } else {
+        setError(e instanceof ApiError ? e.message : 'Erro ao atualizar');
+        setBusy(false);
+      }
     }
   };
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../lib/api';
 import type { Machine } from '../lib/types';
 
 const statusMock = vi.fn();
@@ -9,7 +10,15 @@ const updateMachineMock = vi.fn(async (_id: string, input: Partial<Machine>) => 
 
 vi.mock('../lib/api', () => ({
   api: { machines: { status: (...a: unknown[]) => statusMock(...a), updateAgent: (...a: unknown[]) => updateAgentMock(...a) } },
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    status: number;
+    code?: string;
+    constructor(status: number, message: string, code?: string) {
+      super(message);
+      this.status = status;
+      this.code = code;
+    }
+  },
 }));
 vi.mock('../lib/data', () => ({ useData: () => ({ updateMachine: updateMachineMock, checkStatus: vi.fn() }) }));
 
@@ -57,6 +66,37 @@ describe('AgentUpdateCard', () => {
     render(<AgentUpdateCard machine={machine} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Atualizar' }));
     await screen.findByText(/reinicie o agente/);
+  });
+
+  it('keeps polling when the gateway cuts the request mid-install (no failure code)', async () => {
+    vi.useFakeTimers();
+    statusMock.mockResolvedValueOnce(status('0.2.1')).mockResolvedValue(status('0.2.5'));
+    updateAgentMock.mockRejectedValue(new ApiError(524, 'timeout', undefined));
+    render(<AgentUpdateCard machine={machine} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+    await act(async () => {});
+    expect(screen.getByText(/A conexão caiu durante a instalação/)).toBeTruthy();
+    expect(screen.queryByText('timeout')).toBeNull();
+    expect(statusMock).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS); });
+    expect(statusMock).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS); });
+    expect(screen.getByText('Agente atualizado para v0.2.5.')).toBeTruthy();
+  });
+
+  it('shows the real failure and stops when the agent reports AGENT_UPDATE_FAILED', async () => {
+    vi.useFakeTimers();
+    statusMock.mockResolvedValue(status('0.2.1'));
+    updateAgentMock.mockRejectedValue(new ApiError(502, 'Falha ao atualizar o agente: npm exited with code 243', 'AGENT_UPDATE_FAILED'));
+    render(<AgentUpdateCard machine={machine} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+    await act(async () => {});
+    expect(screen.getByText('Falha ao atualizar o agente: npm exited with code 243')).toBeTruthy();
+    expect(statusMock).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS * 2); });
+    expect(statusMock).toHaveBeenCalledTimes(1);
   });
 
   it('toggles automatic updates through updateMachine', async () => {
