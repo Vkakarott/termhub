@@ -10,26 +10,26 @@ import { AgentOfflineError, agents } from './registry.js';
  */
 export function toHttpError(err: unknown): HttpError {
   if (err instanceof AgentOfflineError || err instanceof AgentClosedError) {
-    return new HttpError(503, 'Agente desconectado');
+    return new HttpError(503, 'Agente desconectado', 'AGENT_OFFLINE');
   }
   if (err instanceof AgentTimeoutError) {
-    return new HttpError(504, 'A máquina não respondeu');
+    return new HttpError(504, 'A máquina não respondeu', 'AGENT_TIMEOUT');
   }
   if (err instanceof AgentRpcError) {
     switch (err.rpcError.code) {
       case 'eperm':
-        return new HttpError(403, 'Sem acesso à pasta na máquina (Acesso Total ao Disco?)');
+        return new HttpError(403, 'Sem acesso à pasta na máquina (Acesso Total ao Disco?)', 'MACHINE_EPERM');
       case 'notfound':
-        return new HttpError(404, 'Não encontrado na máquina');
+        return new HttpError(404, 'Não encontrado na máquina', 'MACHINE_NOT_FOUND');
       case 'no_tmux':
-        return new HttpError(502, 'tmux não encontrado na máquina');
+        return new HttpError(502, 'tmux não encontrado na máquina', 'NO_TMUX');
       case 'invalid':
-        return new HttpError(400, 'Parâmetros inválidos para a máquina');
+        return new HttpError(400, 'Parâmetros inválidos para a máquina', 'MACHINE_INVALID');
       case 'failed':
         // The operation ran on the machine and reported why it failed (a message meant for the user).
-        return new HttpError(502, err.rpcError.message);
+        return new HttpError(502, err.rpcError.message, 'MACHINE_FAILED');
       default:
-        return new HttpError(502, 'Falha na máquina');
+        return new HttpError(502, 'Falha na máquina', 'MACHINE_FAILED');
     }
   }
   throw err;

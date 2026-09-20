@@ -1,5 +1,6 @@
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
+import type { ApiTokenScope } from '../auth/api-tokens.js';
 import { canAccess, type Action, type Resource } from '../auth/permissions.js';
 import { Scoped, type Scope } from '../auth/scope.js';
 
@@ -9,12 +10,14 @@ export interface ControlContext {
   scope: Scope;
   scoped: Scoped;
   can(resource: Resource, action: Action): Promise<boolean>;
+  /** The API token this request came in with, when it came through /mcp (absent for web sessions). */
+  token?: { id: string; scopes: readonly ApiTokenScope[] };
 }
 
 /** A user's own scope — never "view as", even for admins (API tokens act as their owner only). */
-export function controlContextFor(repos: Repositories, user: User): ControlContext {
+export function controlContextFor(repos: Repositories, user: User, token?: { id: string; scopes: readonly ApiTokenScope[] }): ControlContext {
   const scope: Scope = { user, viewAs: { kind: 'self' }, ownerId: user.id, createAs: user.id };
-  return { repos, scope, scoped: new Scoped(repos, scope), can: (resource, action) => canAccess(repos, user, resource, action) };
+  return { repos, scope, scoped: new Scoped(repos, scope), can: (resource, action) => canAccess(repos, user, resource, action), token };
 }
 
 /** An expected failure the caller should see (pt-BR, actionable). */

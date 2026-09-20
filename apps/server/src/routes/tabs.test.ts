@@ -1,9 +1,13 @@
 import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
-import type { Tab } from '../db/repositories/types.js';
+import type { Machine, Tab } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { monitorBus } from '../monitor/bus.js';
+
+const { sendKeysToSession } = vi.hoisted(() => ({ sendKeysToSession: vi.fn() }));
+vi.mock('../monitor/send-keys.js', () => ({ INPUT_MAX_CHARS: 4000, sendKeysToSession }));
+
 import { tabRoutes } from './tabs.js';
 
 const tab = (over: Partial<Tab> & { id: string; project_id?: string }): Tab => ({
@@ -23,7 +27,7 @@ const tab = (over: Partial<Tab> & { id: string; project_id?: string }): Tab => (
 });
 
 /** Routes over stubbed repos and a fixed request scope, like tasks.test.ts / machines.test.ts. */
-function buildApp(tabs: Record<string, Tab>, ownerId: string | null = null) {
+function buildApp(tabs: Record<string, Tab>, ownerId: string | null = null, machine: Partial<Machine> & { id: string } = { id: 'm1', type: 'local' as Machine['type'] }) {
   const app = Fastify();
   applyErrorHandler(app);
   app.addHook('preHandler', async (request) => {
@@ -45,8 +49,8 @@ function buildApp(tabs: Record<string, Tab>, ownerId: string | null = null) {
   };
   const repos = {
     tabs: tabsRepo,
-    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', machine_id: 'm1' } : undefined)) },
-    machines: { findById: vi.fn(async (id: string) => (id === 'm1' ? { id: 'm1', owner_id: 'u1' } : undefined)) },
+    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', machine_id: machine.id } : undefined)) },
+    machines: { findById: vi.fn(async (id: string) => (id === machine.id ? { owner_id: 'u1', ...machine } : undefined)) },
   } as unknown as Repositories;
   const deps = { simulators: {} as never, closeSimulatorTab: vi.fn() };
   app.register((a) => tabRoutes(a, repos, deps), { prefix: '/tabs' });
@@ -93,5 +97,29 @@ describe('POST /tabs/:id/seen', () => {
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({ tab: store.t2 });
     expect(published).toHaveLength(0);
+  });
+});
+
+describe('POST /tabs/:id/input', () => {
+  let store: Record<string, Tab>;
+  beforeEach(() => {
+    store = { t1: tab({ id: 't1' }) };
+    sendKeysToSession.mockReset();
+  });
+
+  it('sends text through for an agent machine — no more 409 (session-ops covers agent RPCs too)', async () => {
+    sendKeysToSession.mockResolvedValue({ ok: true, error: null });
+    const { app } = buildApp(store, null, { id: 'm1', type: 'agent' });
+    const r = await app.inject({ method: 'POST', url: '/tabs/t1/input', payload: { text: 'echo oi', enter: true } });
+    expect(r.statusCode).toBe(200);
+    expect(sendKeysToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1', type: 'agent' }), 'th-t1', 'echo oi', true);
+  });
+
+  it('still reports a failure from sendKeysToSession as 409', async () => {
+    sendKeysToSession.mockResolvedValue({ ok: false, error: 'tmux não respondeu' });
+    const { app } = buildApp(store, null, { id: 'm1', type: 'local' });
+    const r = await app.inject({ method: 'POST', url: '/tabs/t1/input', payload: { text: 'oi', enter: false } });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error).toBe('tmux não respondeu');
   });
 });

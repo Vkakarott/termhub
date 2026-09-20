@@ -1,9 +1,11 @@
 import { z, type ZodRawShape } from 'zod';
+import { TMUX_KEYS, tmuxKey } from '@termhub/agent-protocol';
 import type { Action, Resource } from '../auth/permissions.js';
 import type { ApiTokenScope } from '../auth/api-tokens.js';
 import type { ControlContext } from '../control/context.js';
 import { find, listAiAccounts, listMachines, listProjects, listTabs } from '../control/inventory.js';
 import { readScreen, SCREEN_MAX_LINES, WAIT_MAX_SECONDS, waitForState } from '../control/screen.js';
+import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendInput, sendKey } from '../control/terminals.js';
 
 export interface ToolDef {
   name: string;
@@ -22,6 +24,16 @@ export interface ToolDef {
 }
 
 const id = z.string().min(1).max(64);
+
+/**
+ * One place that turns raw tool arguments into validated ones — used by the route pre-check and by the SDK.
+ * Only `undefined` (arguments omitted entirely) is treated as empty; `null` is a distinct, invalid value —
+ * zod's object schema rejects it on its own, exactly as it would reject any other non-object.
+ */
+export function parseArgs(tool: ToolDef, args: unknown): { ok: true; value: Record<string, unknown> } | { ok: false } {
+  const parsed = z.object(tool.input).safeParse(args === undefined ? {} : args);
+  return parsed.success ? { ok: true, value: parsed.data as Record<string, unknown> } : { ok: false };
+}
 
 export const TOOLS: ToolDef[] = [
   {
@@ -74,6 +86,41 @@ export const TOOLS: ToolDef[] = [
     scope: 'read', resource: 'terminals', action: 'read',
     input: { tab_id: id, timeout_seconds: z.number().int().min(1).max(WAIT_MAX_SECONDS).optional() },
     run: (ctx, a, signal) => waitForState(ctx, a as { tab_id: string; timeout_seconds?: number }, signal),
+  },
+  {
+    name: 'open_tab',
+    description: 'Open a terminal tab in a project and start its tmux session detached, so it keeps running with no browser attached.',
+    scope: 'terminals', resource: 'terminals', action: 'write',
+    input: { project_id: id, name: z.string().trim().min(1).max(60).optional() },
+    run: (ctx, a) => openTab(ctx, a as { project_id: string; name?: string }),
+  },
+  {
+    name: 'send_input',
+    description: `Type text into a terminal tab (max ${INPUT_MAX_CHARS} chars) and press Enter unless enter is false. A tab waiting for a permission needs answering_permission: true.`,
+    scope: 'terminals', resource: 'terminals', action: 'write',
+    input: { tab_id: id, text: z.string().max(INPUT_MAX_CHARS), enter: z.boolean().optional(), answering_permission: z.boolean().optional() },
+    run: (ctx, a) => sendInput(ctx, a as { tab_id: string; text: string; enter?: boolean; answering_permission?: boolean }),
+  },
+  {
+    name: 'send_key',
+    description: `Press one key in a terminal tab: ${TMUX_KEYS.join(', ')}.`,
+    scope: 'terminals', resource: 'terminals', action: 'write',
+    input: { tab_id: id, key: tmuxKey },
+    run: (ctx, a) => sendKey(ctx, a as { tab_id: string; key: (typeof TMUX_KEYS)[number] }),
+  },
+  {
+    name: 'run_command',
+    description: `Type a command in a terminal tab, press Enter, wait for the tab to settle (default 30 s, max ${RUN_MAX_SECONDS}) and return the screen. There is no exit code: it is an interactive session. A aba não pode estar esperando uma permissão (waiting_permission) — responda com send_input ou send_key antes de rodar um comando.`,
+    scope: 'terminals', resource: 'terminals', action: 'write',
+    input: { tab_id: id, command: z.string().min(1).max(INPUT_MAX_CHARS), timeout_seconds: z.number().int().min(1).max(RUN_MAX_SECONDS).optional(), lines: z.number().int().min(1).max(SCREEN_MAX_LINES).optional() },
+    run: (ctx, a, signal) => runCommand(ctx, a as { tab_id: string; command: string; timeout_seconds?: number; lines?: number }, signal),
+  },
+  {
+    name: 'close_tab',
+    description: 'Kill a terminal tab’s tmux session and remove the tab. Only tabs this token opened, unless force is true.',
+    scope: 'terminals', resource: 'terminals', action: 'write',
+    input: { tab_id: id, force: z.boolean().optional() },
+    run: (ctx, a) => closeTab(ctx, a as { tab_id: string; force?: boolean }),
   },
 ];
 

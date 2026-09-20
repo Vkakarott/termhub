@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
-import { ACTIONS, RESOURCES, invalidatePermissionCache, isAction, isResource } from '../auth/permissions.js';
+import { ACTIONS, RESOURCES, invalidatePermissionCache, isAction, isResource, isValidGrant } from '../auth/permissions.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const roleBody = z.object({
@@ -47,7 +47,7 @@ export async function roleRoutes(app: FastifyInstance, repos: Repositories) {
     return { ok: true };
   });
 
-  /** Matrix: one row per resource with the four action flags. */
+  /** Matrix: one row per resource with its valid action flags (all four CRUD, plus 'write' only for terminals). */
   app.get('/:id/permissions', async (request) => {
     const { id } = idParam.parse(request.params);
     const role = await repos.roles.findById(id);
@@ -58,7 +58,7 @@ export async function roleRoutes(app: FastifyInstance, repos: Repositories) {
       permissions: RESOURCES.map((r) => ({
         resource: r.key,
         label: r.label,
-        ...Object.fromEntries(ACTIONS.map((a) => [a, role.is_admin || set.has(`${r.key}:${a}`)])),
+        ...Object.fromEntries(ACTIONS.filter((a) => isValidGrant(r.key, a)).map((a) => [a, role.is_admin || set.has(`${r.key}:${a}`)])),
       })),
     };
   });
@@ -66,7 +66,7 @@ export async function roleRoutes(app: FastifyInstance, repos: Repositories) {
   app.post('/:id/permissions/toggle', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const { resource, action } = toggleBody.parse(request.body);
-    if (!isResource(resource) || !isAction(action)) throw badRequest('Recurso ou ação inválidos');
+    if (!isResource(resource) || !isAction(action) || !isValidGrant(resource, action)) throw badRequest('Recurso ou ação inválidos');
     const role = await repos.roles.findById(id);
     if (!role) throw notFound('Role não encontrada');
     if (role.is_admin) throw badRequest('Roles de administrador têm acesso total');

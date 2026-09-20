@@ -3,7 +3,7 @@ import { RPC, RPC_METHODS, rpcErrorSchema } from './rpc.js';
 
 describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
-    expect([...RPC_METHODS].sort()).toEqual(['ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe', 'tmux.capture', 'tmux.kill', 'tmux.list', 'tools.detect']);
+    expect([...RPC_METHODS].sort()).toEqual(['ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect']);
   });
   it('validates tmux session names', () => {
     expect(RPC['tmux.kill'].params.safeParse({ session: 'th-abc_1' }).success).toBe(true);
@@ -40,5 +40,36 @@ describe('rpc catalog', () => {
   it('shapes rpc errors', () => {
     expect(rpcErrorSchema.parse({ code: 'eperm', message: 'x', path: '/v' }).code).toBe('eperm');
     expect(rpcErrorSchema.safeParse({ code: 'boom', message: 'x' }).success).toBe(false);
+  });
+});
+
+describe('terminal RPCs', () => {
+  it('tmux.ensure takes a session and an absolute or ~ cwd', () => {
+    expect(RPC['tmux.ensure'].params.safeParse({ session: 'termhub-p1-t1', cwd: '/home/u/app' }).success).toBe(true);
+    expect(RPC['tmux.ensure'].params.safeParse({ session: 'termhub-p1-t1', cwd: '~/app' }).success).toBe(true);
+    expect(RPC['tmux.ensure'].params.safeParse({ session: 'termhub-p1-t1', cwd: 'app' }).success).toBe(false);
+    expect(RPC['tmux.ensure'].params.safeParse({ session: 'bad name', cwd: '/tmp' }).success).toBe(false);
+  });
+
+  it('tmux.sendText caps the text at 4000 chars and keeps enter explicit', () => {
+    expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'oi', enter: true }).success).toBe(true);
+    expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: '', enter: true }).success).toBe(true);
+    expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'x'.repeat(4001), enter: false }).success).toBe(false);
+    expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'oi' }).success).toBe(false);
+  });
+
+  it('tmux.sendKey only accepts the closed key list', () => {
+    for (const key of ['Enter', 'Escape', 'C-c', 'Up', 'Down', 'Tab', 'y', 'n', '1', '9']) {
+      expect(RPC['tmux.sendKey'].params.safeParse({ session: 's', key }).success).toBe(true);
+    }
+    for (const key of ['C-d', 'q', '0', 'Left', '']) {
+      expect(RPC['tmux.sendKey'].params.safeParse({ session: 's', key }).success).toBe(false);
+    }
+  });
+
+  it('gives the terminal RPCs a 10 s budget (a machine that does not answer fails fast)', () => {
+    expect(RPC['tmux.ensure'].timeoutMs).toBe(10_000);
+    expect(RPC['tmux.sendText'].timeoutMs).toBe(10_000);
+    expect(RPC['tmux.sendKey'].timeoutMs).toBe(10_000);
   });
 });

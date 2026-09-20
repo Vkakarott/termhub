@@ -192,12 +192,15 @@ model Tab {
   stateAt       DateTime? @map("state_at")
   /// When the tab was last looked at while needing you; null or earlier than stateAt = still needs you.
   stateSeenAt   DateTime? @map("state_seen_at")
+  /// API token that opened this tab through /mcp (null: opened in the browser). Used by close_tab and the per-token open-tab limit.
+  createdByTokenId String?  @map("created_by_token_id")
   createdAt     DateTime @default(now()) @map("created_at")
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   tasks         Task[]
   events        TabEvent[]
 
   @@index([projectId])
+  @@index([createdByTokenId])
   @@map("tabs")
 }
 

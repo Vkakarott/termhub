@@ -1,0 +1,116 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Machine } from '../db/repositories/types.js';
+import { HttpError } from '../lib/errors.js';
+
+const { agentRpc, requireAgentVersion, runOnMachine } = vi.hoisted(() => ({
+  agentRpc: vi.fn(),
+  requireAgentVersion: vi.fn(),
+  runOnMachine: vi.fn(),
+}));
+vi.mock('../agent/errors.js', () => ({ agentRpc, requireAgentVersion }));
+vi.mock('./machine-exec.js', async (orig) => ({ ...(await orig<typeof import('./machine-exec.js')>()), runOnMachine }));
+
+const { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } = await import('./session-ops.js');
+
+const machine = (type: Machine['type']): Machine => ({ id: 'm1', name: 'jarvis', type, os: 'linux', capabilities: ['tmux'], owner_id: 'u1' }) as Machine;
+
+// resetAllMocks (not clearAllMocks): also drops any mockImplementation from a previous test,
+// so an outdated-agent throw set in one test can't leak into the next.
+beforeEach(() => vi.resetAllMocks());
+
+// Every other suite mocks this constant (control/terminals.test.ts, monitor/send-keys.test.ts,
+// routes/tabs.test.ts): only this test, against the real module, would catch it silently drifting.
+it('pins the input cap to 4000 characters', () => {
+  expect(INPUT_MAX_CHARS).toBe(4000);
+});
+
+describe('agent machines', () => {
+  it('checks the agent version before every operation and calls the named RPC', async () => {
+    agentRpc.mockResolvedValue({ created: true });
+    await ensureSession(machine('agent'), 's1', '/home/u/app');
+    expect(requireAgentVersion).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), TERMINAL_RPC_MIN_AGENT_VERSION);
+    expect(agentRpc).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'tmux.ensure', { session: 's1', cwd: '/home/u/app' });
+    expect(runOnMachine).not.toHaveBeenCalled();
+  });
+
+  it('lets an outdated agent fail before anything is typed', async () => {
+    requireAgentVersion.mockImplementation(() => {
+      throw new HttpError(409, 'Atualize o agente desta máquina', 'AGENT_OUTDATED');
+    });
+    await expect(sendTextToSession(machine('agent'), 's1', 'oi', true)).rejects.toMatchObject({ code: 'AGENT_OUTDATED' });
+    expect(agentRpc).not.toHaveBeenCalled();
+  });
+
+  it('sends text and key through their own RPCs', async () => {
+    agentRpc.mockResolvedValue({ sent: true });
+    await sendTextToSession(machine('agent'), 's1', 'echo oi', true);
+    expect(agentRpc).toHaveBeenCalledWith(expect.anything(), 'tmux.sendText', { session: 's1', text: 'echo oi', enter: true });
+    await sendKeyToSession(machine('agent'), 's1', 'C-c');
+    expect(agentRpc).toHaveBeenCalledWith(expect.anything(), 'tmux.sendKey', { session: 's1', key: 'C-c' });
+  });
+});
+
+describe('local and ssh machines', () => {
+  it('quotes every value it puts in the remote command', async () => {
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendTextToSession(machine('ssh'), 's1', "rm -rf /; echo '$(whoami)'\n", false);
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    expect(remote).toContain(`'rm -rf /; echo '\\''$(whoami)'\\''`);
+    expect(remote.startsWith('export PATH=')).toBe(true);
+    // the local argv form gets the same script, unquoted by any shell of ours
+    expect(runOnMachine.mock.calls[0][1]).toMatchObject({ file: 'sh', args: ['-c', expect.stringContaining('send-keys')] });
+  });
+
+  it('creates the session with has-session || new-session', async () => {
+    runOnMachine.mockResolvedValue({ code: 0, stdout: 'created\n', stderr: '', timedOut: false });
+    await expect(ensureSession(machine('local'), 's1', '/home/u/app')).resolves.toEqual({ created: true });
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    expect(remote).toContain("tmux has-session -t '=s1'");
+    expect(remote).toContain("tmux new-session -d -s 's1' -c '/home/u/app'");
+  });
+
+  it('turns a non-zero exit into an HttpError the user can act on', async () => {
+    runOnMachine.mockResolvedValue({ code: 1, stdout: '', stderr: 'no such file or directory\n', timedOut: false });
+    await expect(ensureSession(machine('ssh'), 's1', '/gone')).rejects.toMatchObject({ statusCode: 502, message: expect.stringContaining('no such file') });
+  });
+
+  it('says the machine did not answer on a timeout', async () => {
+    runOnMachine.mockResolvedValue({ code: null, stdout: '', stderr: '', timedOut: true });
+    await expect(sendKeyToSession(machine('ssh'), 's1', 'Enter')).rejects.toMatchObject({ code: 'MACHINE_TIMEOUT', message: 'A máquina não respondeu' });
+  });
+
+  it('rejects a session name that is not ours before touching the machine', async () => {
+    await expect(sendKeyToSession(machine('ssh'), 'bad name', 'Enter')).rejects.toBeInstanceOf(Error);
+    expect(runOnMachine).not.toHaveBeenCalled();
+  });
+
+  it('sends the Enter as its own send-keys call, after a pause, never merged into the text burst', async () => {
+    // TUIs (Claude Code included) read a burst of bytes as a paste; the text and the Enter that
+    // submits it must reach tmux as two separate send-keys calls with a pause between them.
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendTextToSession(machine('local'), 's1', 'oi', true);
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    const textCallIdx = remote.indexOf(`send-keys -t '=s1:' -l -- 'oi'`);
+    const sleepIdx = remote.indexOf('sleep 0.3');
+    const enterCallIdx = remote.lastIndexOf(`send-keys -t '=s1:' Enter`);
+    expect(textCallIdx).toBeGreaterThanOrEqual(0);
+    expect(sleepIdx).toBeGreaterThan(textCallIdx);
+    expect(enterCallIdx).toBeGreaterThan(sleepIdx);
+    // exactly two send-keys invocations: one for the text, one for Enter — never merged into one
+    expect(remote.match(/send-keys/g)).toHaveLength(2);
+  });
+
+  it('sends a lone Enter as a single send-keys call with no pause', async () => {
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendTextToSession(machine('local'), 's1', '', true);
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    expect(remote).toContain(`send-keys -t '=s1:' Enter`);
+    expect(remote).not.toContain('sleep');
+    expect(remote.match(/send-keys/g)).toHaveLength(1);
+  });
+
+  it('does nothing when there is no text and no Enter to send', async () => {
+    await sendTextToSession(machine('local'), 's1', '', false);
+    expect(runOnMachine).not.toHaveBeenCalled();
+  });
+});

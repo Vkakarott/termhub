@@ -10,14 +10,21 @@ export const SCREEN_MAX_LINES = 2000;
 export const WAIT_DEFAULT_SECONDS = 60;
 export const WAIT_MAX_SECONDS = 90;
 
-const offline = () => new ControlError('MACHINE_OFFLINE', 'A máquina está offline: o termhub-agent dela não está conectado');
+/** Shared by every control op that talks to a machine (spec §4.4: "nothing is queued for offline machines"). */
+export const offline = () => new ControlError('MACHINE_OFFLINE', 'A máquina está offline: o termhub-agent dela não está conectado');
 
-const clamp = (v: number | undefined, def: number, max: number) => Math.max(1, Math.min(max, Math.trunc(v ?? def)));
+/** Shared clamp for every "how many seconds/lines" input across the control ops. */
+export const clamp = (v: number | undefined, def: number, max: number) => Math.max(1, Math.min(max, Math.trunc(v ?? def)));
+
+/** Shared guard: only a terminal tab (one with a tmux session) can be read from or written to. */
+export function assertTerminal(tab: Tab): asserts tab is Tab & { tmux_session: string } {
+  if (tab.kind !== 'terminal' || !tab.tmux_session) throw new ControlError('NOT_A_TERMINAL', 'Esta aba não é um terminal');
+}
 
 /** Last lines of a terminal tab (plain text, as tmux shows them). Never logged. */
 export async function readScreen(ctx: ControlContext, input: { tab_id: string; lines?: number }): Promise<{ tab_id: string; lines: number; text: string }> {
   const { tab, machine } = await ctx.scoped.tab(input.tab_id);
-  if (tab.kind !== 'terminal' || !tab.tmux_session) throw new ControlError('NOT_A_TERMINAL', 'Esta aba não é um terminal');
+  assertTerminal(tab);
   if (machine.type === 'agent' && !agents.isOnline(machine.id)) throw offline();
   const lines = clamp(input.lines, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES);
   try {

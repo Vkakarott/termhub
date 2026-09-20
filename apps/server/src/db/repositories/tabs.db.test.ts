@@ -79,6 +79,21 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     expect(cleared).toMatchObject({ state: null, state_at: null, state_seen_at: null });
   });
 
+  describe('created_by_token_id / countOpenByToken', () => {
+    it('records which token opened a tab and counts the ones still open', async () => {
+      const a = await repo.create(projectId, 'T1', { created_by_token_id: 'tok1' });
+      await repo.create(projectId, 'T2', { created_by_token_id: 'tok1' });
+      await repo.create(projectId, 'T3');
+
+      expect(a.created_by_token_id).toBe('tok1');
+      expect(await repo.countOpenByToken('tok1')).toBe(2);
+      expect(await repo.countOpenByToken('tok2')).toBe(0);
+
+      await repo.delete(a.id);
+      expect(await repo.countOpenByToken('tok1')).toBe(1);
+    });
+  });
+
   describe('recordEvent — the same Claude wait (Stop, then idle_prompt ~1min later) stays seen', () => {
     it('carries the seen mark forward: seen waiting_input + a new waiting_input stays seen', async () => {
       await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'first?' });

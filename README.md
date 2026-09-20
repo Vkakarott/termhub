@@ -120,7 +120,11 @@ Settings → **Tokens de API** creates personal tokens (`thb_pat_…`) for the g
 claude mcp add --transport http termhub https://termhub.dev/mcp --header "Authorization: Bearer thb_pat_…"
 ```
 
-Tools available today (scope `read`): `list_machines`, `list_projects`, `list_tabs`, `list_ai_accounts`, `find` (names → ids), `read_screen`, `wait_for_state`. A token sees only the tools its scopes and its owner's role allow; each token may make 120 calls per minute. In production the landing host forwards `/mcp` to the app outside Cloudflare Access (`deploy/nginx/termhub.dev.conf.tmpl`).
+Tools available today: scope `read` gives `list_machines`, `list_projects`, `list_tabs`, `list_ai_accounts`, `find` (names → ids), `read_screen`, `wait_for_state`. Scope `terminals` gives `open_tab`, `send_input`, `send_key`, `run_command`, `close_tab` — full read/write control of a terminal tab on any machine (agent, local or ssh) the token's owner can see. A token sees only the tools its scopes and its owner's role allow; each token may make 120 calls per minute. In production the landing host forwards `/mcp` to the app outside Cloudflare Access (`deploy/nginx/termhub.dev.conf.tmpl`).
+
+A `terminals` token can type into any terminal its owner can see, so only create one for a machine and a session you trust, and revoke it from Settings → **Tokens de API** as soon as that session is done.
+
+Because `terminals:write` cannot yet be granted to a non-admin role — the settings permission matrix only has `create`/`read`/`update`/`delete` columns — only administrators can use the `open_tab`/`send_input`/`send_key`/`run_command`/`close_tab` tools today; this is known and expected until that matrix is widened, not a bug.
 
 ### Cloudflare Tunnel
 
@@ -165,7 +169,7 @@ Machines belong to a user (`machines.owner_id`), and everything under a machine 
 
 ### Roles and permissions
 
-Same model as the engenhariainversa CMS: a **role** is a named set of permissions, a **permission** is one `resource:action` grant (`create` / `read` / `update` / `delete`), roles flagged `is_admin` bypass every check, and system roles cannot be deleted. Resources: `machines`, `projects`, `terminals`, `tasks`, `notes`, `tickets`, `integrations`, `ai_accounts`, `hardware`, `waitlist`, `users`, `roles`.
+Same model as the engenhariainversa CMS: a **role** is a named set of permissions, a **permission** is one `resource:action` grant (`create` / `read` / `update` / `delete`, plus `write` — only for `terminals`), roles flagged `is_admin` bypass every check, and system roles cannot be deleted. Resources: `machines`, `projects`, `terminals`, `tasks`, `notes`, `tickets`, `integrations`, `ai_accounts`, `hardware`, `waitlist`, `users`, `roles`.
 
 - System roles: **ADMIN** (everything), **MANAGER** (the workspace plus the AI accounts, hardware and waitlist tabs, read-only users) and **AUTHENTICATED** (machines, projects, terminals, tasks, notes, tickets, integrations). Grants are editable in the app: sidebar → ⚙ Configurações → Usuários / Roles / Permissões (matrix resource × action).
 - Every API plugin is registered under a resource; the auth hook derives the action from the HTTP method (GET read, POST create, PATCH/PUT update, DELETE delete) unless the route sets its own (`config: { resource, action }`). WebSockets need `terminals:read`. Grants are cached per role for 30 s and invalidated on change.

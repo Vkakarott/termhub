@@ -88,7 +88,7 @@ export class TabsRepository {
     return written > 0 ? this.findById(id) : undefined;
   }
 
-  async create(projectId: string, name: string, opts: { kind?: TabKind; simulator_udid?: string | null } = {}): Promise<Tab> {
+  async create(projectId: string, name: string, opts: { kind?: TabKind; simulator_udid?: string | null; created_by_token_id?: string | null } = {}): Promise<Tab> {
     const id = newId();
     const kind = opts.kind ?? 'terminal';
     const agg = await this.db.tab.aggregate({ where: { projectId }, _max: { position: true } });
@@ -100,6 +100,7 @@ export class TabsRepository {
         kind,
         tmuxSession: kind === 'terminal' ? `termhub-${projectId}-${id}` : null,
         simulatorUdid: kind === 'simulator' ? (opts.simulator_udid ?? null) : null,
+        createdByTokenId: opts.created_by_token_id ?? null,
         position: (agg._max.position ?? -1) + 1,
       },
     });
@@ -121,5 +122,10 @@ export class TabsRepository {
   async delete(id: string): Promise<boolean> {
     const r = await this.db.tab.deleteMany({ where: { id } });
     return r.count > 0;
+  }
+
+  /** Tabs this token opened that still exist — the per-token open-tab limit (spec §4.2). */
+  async countOpenByToken(tokenId: string): Promise<number> {
+    return this.db.tab.count({ where: { createdByTokenId: tokenId } });
   }
 }

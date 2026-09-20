@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess: vi.fn() }));
 vi.mock('../control/inventory.js', async (orig) => ({ ...(await orig<typeof import('../control/inventory.js')>()), listMachines: vi.fn() }));
 vi.mock('../control/screen.js', async (orig) => ({ ...(await orig<typeof import('../control/screen.js')>()), readScreen: vi.fn() }));
+vi.mock('../control/terminals.js', async (orig) => ({ ...(await orig<typeof import('../control/terminals.js')>()), sendInput: vi.fn() }));
 
 import { canAccess } from '../auth/permissions.js';
 import { listMachines } from '../control/inventory.js';
 import { readScreen } from '../control/screen.js';
+import { sendInput } from '../control/terminals.js';
 import { ControlError } from '../control/context.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ApiToken } from '../db/repositories/api-tokens.js';
@@ -183,6 +185,15 @@ describe('POST /mcp tools', () => {
     expect(JSON.parse(r.json().result.content[0].text).machines[0].id).toBe('m1');
   });
 
+  it('refuses arguments: null for an all-optional tool as INVALID_ARGS instead of silently passing it through', async () => {
+    const { app, apiTokens } = build();
+    const r = await rpc(app, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'list_machines', arguments: null } });
+    expect(r.json().error ?? r.json().result?.isError).toBeTruthy();
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'list_machines', ok: false, error_code: 'INVALID_ARGS' });
+    expect(listMachines).not.toHaveBeenCalled();
+  });
+
   it('applies the per-token rate limit', async () => {
     const { app } = build({ limiter: new TokenRateLimiter(1, 60_000) });
     await rpc(app, call('list_machines'));
@@ -340,5 +351,58 @@ describe('POST /mcp over a real socket', () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe('terminals scope', () => {
+  const terminalsToken = token({ scopes: ['read', 'terminals'] });
+  const writeGrants = ['machines:read', 'projects:read', 'terminals:read', 'terminals:write'];
+
+  it('hides the write tools from a read-only token and names the scope when one is called', async () => {
+    const { app, apiTokens } = build({ grants: writeGrants });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    expect(list.json().result.tools.map((t: { name: string }) => t.name)).not.toContain('send_input');
+
+    const refused = await rpc(app, call('send_input', { tab_id: 't1', text: 'oi' }));
+    expect(refused.json().result.isError).toBe(true);
+    expect(refused.json().result.content[0].text).toContain('escopo `terminals`');
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'send_input', ok: false, error_code: 'TOOL_NOT_ALLOWED', tab_id: 't1' });
+  });
+
+  it('offers the write tools to a terminals token whose user has the grant', async () => {
+    const { app } = build({ token: terminalsToken, grants: writeGrants });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    expect(list.json().result.tools.map((t: { name: string }) => t.name)).toEqual(expect.arrayContaining(['open_tab', 'send_input', 'send_key', 'run_command', 'close_tab']));
+  });
+
+  it('keeps the write tools from a token whose user lost the terminals:write grant', async () => {
+    const { app } = build({ token: terminalsToken, grants: ['terminals:read'] });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    expect(list.json().result.tools.map((t: { name: string }) => t.name)).not.toContain('send_input');
+  });
+
+  it('refuses a key outside the closed list before the machine is touched', async () => {
+    const { app, apiTokens } = build({ token: terminalsToken, grants: writeGrants });
+    const r = await rpc(app, call('send_key', { tab_id: 't1', key: 'C-d' }));
+    expect(r.json().error ?? r.json().result.isError).toBeTruthy();
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'send_key', ok: false, error_code: 'INVALID_ARGS' });
+  });
+
+  it('never records what was typed', async () => {
+    vi.mocked(sendInput).mockResolvedValue({ tab_id: 't1', sent: true });
+    const { app, apiTokens } = build({ token: terminalsToken, grants: writeGrants });
+    await rpc(app, call('send_input', { tab_id: 't1', text: 'SENHA-SECRETA' }));
+    await flush();
+    expect(JSON.stringify(apiTokens.recordEvent.mock.calls)).not.toMatch(/SENHA-SECRETA/);
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'send_input', tab_id: 't1', ok: true });
+  });
+
+  it('answers a notification with 202 and no body', async () => {
+    const { app } = build();
+    const res = await rpc(app, { jsonrpc: '2.0', method: 'notifications/initialized' });
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toBe('');
   });
 });
