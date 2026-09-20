@@ -43,6 +43,18 @@ export async function install(): Promise<void> {
   else await systemd.install(opts);
 }
 
+/**
+ * Best effort, run at agent startup: bring an already installed service definition up to the
+ * current template (see `systemd.renderUnit` — `KillMode=process` is why it matters). An update
+ * only replaces the code, so without this a unit written months ago would keep its old
+ * semantics. Linux only: launchd already leaves the tmux server alone, and rewriting a plist
+ * would mean booting the running job out. Returns whether anything changed.
+ */
+export async function refresh(): Promise<boolean> {
+  if (process.platform !== 'linux') return false;
+  return systemd.refreshUnit(serviceFileOptions());
+}
+
 export async function uninstall(): Promise<void> {
   const platform = process.platform;
   assertSupported(platform);

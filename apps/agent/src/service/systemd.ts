@@ -9,10 +9,23 @@ export interface UnitOptions {
   node: string;
   script: string;
   logPath?: string;
+  /** PATH to write into the unit; defaults to the one the agent composes for child processes. */
+  pathEnv?: string;
 }
 
-/** A systemd user unit that runs `<node> <script> run`, restarting on failure but never after a clean exit(78). */
-export function renderUnit({ node, script, logPath }: UnitOptions): string {
+/**
+ * A systemd user unit that runs `<node> <script> run`, restarting on failure but never after a
+ * clean exit(78).
+ *
+ * `KillMode=process` is what makes an agent restart survivable: the agent spawns the tmux server
+ * that holds every terminal of this machine, so with systemd's default (`control-group`) a stop
+ * — or the self-update's exit(1) and relaunch — SIGKILLs the whole cgroup and takes the person's
+ * sessions, and whatever runs inside them, down with the agent. With `process` systemd signals
+ * only the agent itself and leaves tmux running, so the reconnecting agent finds the sessions
+ * again. macOS needs no equivalent: launchd does not kill the tmux server tmux daemonised away
+ * from the job.
+ */
+export function renderUnit({ node, script, logPath, pathEnv }: UnitOptions): string {
   const lines = [
     '[Unit]',
     'Description=termhub agent',
@@ -20,10 +33,11 @@ export function renderUnit({ node, script, logPath }: UnitOptions): string {
     '',
     '[Service]',
     `ExecStart=${node} ${script} run`,
+    'KillMode=process',
     'Restart=on-failure',
     'RestartSec=2',
     'RestartPreventExitStatus=78',
-    `Environment=PATH=${agentEnv().PATH ?? ''}`,
+    `Environment=PATH=${pathEnv ?? agentEnv().PATH ?? ''}`,
   ];
   if (logPath) {
     lines.push(`StandardOutput=append:${logPath}`, `StandardError=append:${logPath}`);
@@ -63,6 +77,40 @@ export async function install(opts: ServiceFileOptions, deps: SystemdDeps = {}):
   if (enable.code !== 0) throw new Error(`systemctl enable --now failed (code ${enable.code}): ${enable.stderr.trim()}`);
 
   console.log('Para o agente continuar após o logout: loginctl enable-linger $USER');
+}
+
+/** The `Environment=PATH=` already in an installed unit, or undefined when it has none. */
+function unitPathEnv(unit: string): string | undefined {
+  return /^Environment=PATH=(.*)$/m.exec(unit)?.[1];
+}
+
+/**
+ * Brings an already installed unit up to the current template and daemon-reloads, so a machine
+ * that ran `service install` with an older agent still gets template fixes (`KillMode=process`)
+ * on the first boot of the new code — `npm i -g` never rewrites the unit by itself. Returns
+ * whether the file changed; a machine that does not run the agent as a service is left alone.
+ *
+ * The PATH is carried over from the existing unit instead of being re-rendered: this runs inside
+ * the service, where `agentEnv()` would prefix the extra dirs onto a PATH that already has them,
+ * growing the line on every boot.
+ */
+export async function refreshUnit(opts: ServiceFileOptions, deps: SystemdDeps = {}): Promise<boolean> {
+  const file = unitPath(deps.home);
+  let current: string;
+  try {
+    current = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
+  const unit = renderUnit({ node: opts.node, script: opts.script, logPath: opts.logPath, pathEnv: unitPathEnv(current) });
+  if (unit === current) return false;
+
+  fs.writeFileSync(file, unit, 'utf8');
+  const runFn = deps.run ?? run;
+  const reload = await runFn('systemctl', ['--user', 'daemon-reload']);
+  if (reload.code !== 0) throw new Error(`systemctl daemon-reload failed (code ${reload.code}): ${reload.stderr.trim()}`);
+  return true;
 }
 
 export async function uninstall(deps: SystemdDeps = {}): Promise<void> {

@@ -10,7 +10,7 @@ vi.mock('../exec.js', async () => {
 });
 
 const { renderPlist, install: launchdInstall, uninstall: launchdUninstall, status: launchdStatus, stopRestartLoop, LABEL } = await import('./launchd.js');
-const { renderUnit, install: systemdInstall, uninstall: systemdUninstall, status: systemdStatus, UNIT_NAME } = await import('./systemd.js');
+const { renderUnit, refreshUnit, install: systemdInstall, uninstall: systemdUninstall, status: systemdStatus, UNIT_NAME } = await import('./systemd.js');
 const { serviceFileOptions } = await import('./index.js');
 
 function ok(stdout = ''): RunResult {
@@ -84,6 +84,7 @@ describe('renderUnit', () => {
 
       [Service]
       ExecStart=/usr/local/bin/node /opt/termhub-agent/dist/cli.js run
+      KillMode=process
       Restart=on-failure
       RestartSec=2
       RestartPreventExitStatus=78
@@ -109,6 +110,19 @@ describe('renderUnit', () => {
     const unit = renderUnit({ node: '/n/node', script: '/s/cli.js' });
     expect(unit).not.toContain('StandardOutput');
     expect(unit).not.toContain('StandardError');
+  });
+
+  // Without it systemd's default (control-group) SIGKILLs everything in the unit's cgroup on
+  // stop/restart — including the tmux server the agent spawned, so a self-update would take the
+  // person's terminals (and whatever runs in them) down with it.
+  it('sets KillMode=process so a restart leaves the tmux server alone', () => {
+    expect(renderUnit({ node: '/n/node', script: '/s/cli.js' })).toContain('KillMode=process');
+  });
+
+  it('takes PATH from pathEnv when given, instead of the current environment', () => {
+    const unit = renderUnit({ node: '/n/node', script: '/s/cli.js', pathEnv: '/only/this' });
+    expect(unit).toContain('Environment=PATH=/only/this');
+    expect(unit).not.toContain('/usr/local/bin:/usr/bin:/bin');
   });
 });
 
@@ -251,6 +265,57 @@ describe('systemd install/uninstall/status', () => {
     await expect(systemdStatus({ run: runOk as never })).resolves.toBe(true);
     const runFail = vi.fn(async () => fail('inactive'));
     await expect(systemdStatus({ run: runFail as never })).resolves.toBe(false);
+  });
+});
+
+// Machines that installed the service with an older agent keep that old unit forever — nothing
+// rewrites it on `npm i -g`. refreshUnit() is what carries a template fix (KillMode=process) to
+// them, and it runs from inside the service, so it must never grow the PATH it inherited.
+describe('systemd refreshUnit', () => {
+  let home: string;
+  let unit: string;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-systemd-refresh-'));
+    unit = path.join(home, '.config', 'systemd', 'user', `${UNIT_NAME}.service`);
+    fs.mkdirSync(path.dirname(unit), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  const opts = { node: '/n/node', script: '/s/cli.js', logPath: '/l/agent.log' };
+
+  it('rewrites a unit installed by an older agent and daemon-reloads', async () => {
+    fs.writeFileSync(unit, '[Unit]\nDescription=termhub agent\n\n[Service]\nExecStart=/n/node /s/cli.js run\nRestart=on-failure\nEnvironment=PATH=/keep/me:/usr/bin\n', 'utf8');
+    const run = vi.fn(async () => ok());
+    await expect(refreshUnit(opts, { run: run as never, home })).resolves.toBe(true);
+    expect(fs.readFileSync(unit, 'utf8')).toContain('KillMode=process');
+    expect(run).toHaveBeenCalledWith('systemctl', ['--user', 'daemon-reload']);
+  });
+
+  it('keeps the PATH already in the unit, so refreshing from inside the service never grows it', async () => {
+    fs.writeFileSync(unit, '[Service]\nEnvironment=PATH=/keep/me:/usr/bin\n', 'utf8');
+    const run = vi.fn(async () => ok());
+    await refreshUnit(opts, { run: run as never, home });
+    const written = fs.readFileSync(unit, 'utf8');
+    expect(written).toContain('Environment=PATH=/keep/me:/usr/bin');
+    expect(written.match(/Environment=PATH=/g)).toHaveLength(1);
+  });
+
+  it('does nothing when the service was never installed', async () => {
+    const run = vi.fn(async () => ok());
+    await expect(refreshUnit(opts, { run: run as never, home })).resolves.toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(fs.existsSync(unit)).toBe(false);
+  });
+
+  it('does nothing when the unit already matches the template', async () => {
+    fs.writeFileSync(unit, renderUnit({ ...opts, pathEnv: '/keep/me' }), 'utf8');
+    const run = vi.fn(async () => ok());
+    await expect(refreshUnit(opts, { run: run as never, home })).resolves.toBe(false);
+    expect(run).not.toHaveBeenCalled();
   });
 });
 

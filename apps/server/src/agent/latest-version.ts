@@ -120,8 +120,13 @@ export function resetAutoUpdateAttempts(): void {
   attempted.clear();
 }
 
-/** Installs the latest agent on opted-in machines that are online, outdated, idle (no open terminal) and new enough to know the RPC. */
-export async function autoUpdateTick(repos: Pick<Repositories, 'machines'>, log: VersionLog): Promise<void> {
+/**
+ * Installs the latest agent on opted-in machines that are online, outdated, new enough to know
+ * the RPC and idle. Idle means both no terminal attached *and* no tool mid-task on the machine:
+ * the update restarts the agent, which drops its socket for a few seconds, and a tool working (or
+ * waiting for its person) inside a detached tmux session opens no channel to notice.
+ */
+export async function autoUpdateTick(repos: Pick<Repositories, 'machines' | 'tabs'>, log: VersionLog): Promise<void> {
   const latest = cached;
   if (!latest) return;
   const machines = await repos.machines.listAutoUpdate();
@@ -130,6 +135,7 @@ export async function autoUpdateTick(repos: Pick<Repositories, 'machines'>, log:
     if (!info || !isOutdated(info.agent_version, latest)) continue;
     if (!versionAtLeast(info.agent_version, MIN_SELF_UPDATE_VERSION)) continue;
     if (agents.openChannels(m.id) > 0) continue;
+    if ((await repos.tabs.countBusyByMachine(m.id)) > 0) continue;
     if (attempted.get(m.id) === latest) continue;
     attempted.set(m.id, latest);
     try {
@@ -142,7 +148,7 @@ export async function autoUpdateTick(repos: Pick<Repositories, 'machines'>, log:
 }
 
 /** Boot-time wiring: the npm poller (each refresh runs a tick) plus a tick every AUTO_UPDATE_MS. */
-export function startAgentUpdateScheduler(repos: Pick<Repositories, 'machines'>, log: VersionLog): () => void {
+export function startAgentUpdateScheduler(repos: Pick<Repositories, 'machines' | 'tabs'>, log: VersionLog): () => void {
   const tick = () => autoUpdateTick(repos, log).catch((err) => log.warn({ err: (err as Error).message }, 'agent auto-update tick failed'));
   const stopPoll = startAgentVersionPoller(log, tick);
   const timer = setInterval(() => void tick(), AUTO_UPDATE_MS);

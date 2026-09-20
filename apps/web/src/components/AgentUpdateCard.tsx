@@ -125,7 +125,7 @@ export function AgentUpdateCard({ machine }: { machine: Machine }) {
         <input type="checkbox" checked={auto} onChange={(e) => void toggleAuto(e.target.checked)} />
         Atualizar automaticamente quando ociosa
       </label>
-      <p className="mt-1 text-fg-dim">Sem terminais abertos, o servidor instala novas versões do agente sozinho. Terminais abertos reconectam automaticamente depois da atualização.</p>
+      <p className="mt-1 text-fg-dim">Sem terminal aberto e sem ferramenta trabalhando, o servidor instala novas versões do agente sozinho. As sessões do tmux continuam vivas: os terminais reconectam depois da atualização.</p>
       {note && <p className="mt-1 text-fg-muted">{note}</p>}
       {error && <p className="mt-1 text-danger">{error}</p>}
     </div>
