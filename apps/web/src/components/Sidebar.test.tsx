@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Machine } from '../lib/types';
-import { machineTitle } from './Sidebar';
+import { agentVersionBadge, machineTitle } from './Sidebar';
 
 function agentMachine(overrides: Partial<Machine> = {}): Machine {
   return {
@@ -15,6 +15,7 @@ function agentMachine(overrides: Partial<Machine> = {}): Machine {
     checked_at: null,
     agent_version: '0.1.0',
     agent_last_seen_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+    agent_auto_update: false,
     is_local: false,
     owner_id: 'u1',
     owner_name: null,
@@ -41,5 +42,16 @@ describe('machineTitle', () => {
   it('describes ssh machines by user@host:port', () => {
     const m = agentMachine({ type: 'ssh', host: 'box', ssh_user: 'pedro', ssh_port: 2222, os: null, capabilities: [] });
     expect(machineTitle(m, 'online')).toBe('pedro@box:2222');
+  });
+});
+
+describe('agentVersionBadge', () => {
+  it('shows the version, and marks it when a newer agent is available', () => {
+    expect(agentVersionBadge(agentMachine({ agent_version: '0.2.1' }))).toEqual({ text: 'v0.2.1', title: 'agente v0.2.1', outdated: false });
+    expect(agentVersionBadge(agentMachine({ agent_version: '0.2.1', update_available: true }))).toEqual({ text: 'v0.2.1 ↑', title: 'Nova versão do agente disponível — abra a máquina para atualizar', outdated: true });
+  });
+  it('is null without a reported version or for non-agent machines', () => {
+    expect(agentVersionBadge(agentMachine({ agent_version: null }))).toBeNull();
+    expect(agentVersionBadge(agentMachine({ type: 'ssh', host: 'h' }))).toBeNull();
   });
 });

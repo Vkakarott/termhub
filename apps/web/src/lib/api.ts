@@ -93,16 +93,25 @@ export const api = {
     logout: () => request<{ ok: true }>('POST', '/auth/logout'),
   },
   machines: {
-    list: () => request<{ machines: Machine[] }>('GET', '/machines'),
+    list: () => request<{ machines: Machine[]; latest_agent_version: string | null }>('GET', '/machines'),
     /** for `type: 'agent'`, the response also carries `agent_token` (the plaintext token, shown only once) */
     create: (input: Partial<Machine>) => request<{ machine: Machine; agent_token?: string }>('POST', '/machines', input),
     update: (id: string, input: Partial<Machine>) => request<{ machine: Machine }>('PATCH', `/machines/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}`),
     status: (id: string) =>
-      request<{ id: string; online: boolean; tmux: boolean; os: string | null; capabilities: string[]; agent_version?: string | null; last_seen_at?: string | null }>(
-        'GET',
-        `/machines/${id}/status`,
-      ),
+      request<{
+        id: string;
+        online: boolean;
+        tmux: boolean;
+        os: string | null;
+        capabilities: string[];
+        agent_version?: string | null;
+        last_seen_at?: string | null;
+        latest_agent_version?: string | null;
+        update_available?: boolean;
+      }>('GET', `/machines/${id}/status`),
+    /** installs the latest @termhub/agent through the agent; `restarting` = poll the status until the version changes */
+    updateAgent: (id: string) => request<{ installed_version: string | null; restart: 'service' | 'manual'; restarting: boolean }>('POST', `/machines/${id}/agent/update`, {}),
     /** issues a new agent token, invalidating the previous one */
     rotateAgentToken: (id: string) => request<{ agent_token: string }>('POST', `/machines/${id}/agent-token`, {}),
     simulators: (id: string) => request<{ simulators: Simulator[] }>('GET', `/machines/${id}/simulators`),

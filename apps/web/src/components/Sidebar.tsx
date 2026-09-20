@@ -31,6 +31,13 @@ export function machineTitle(m: Machine, status: MachineStatus): string {
   return title;
 }
 
+/** The small "vX.Y.Z" next to an agent machine; `outdated` turns it into the update hint (the card in the machine form does the update). */
+export function agentVersionBadge(m: Machine): { text: string; title: string; outdated: boolean } | null {
+  if (m.type !== 'agent' || !m.agent_version) return null;
+  if (m.update_available) return { text: `v${m.agent_version} ↑`, title: 'Nova versão do agente disponível — abra a máquina para atualizar', outdated: true };
+  return { text: `v${m.agent_version}`, title: `agente v${m.agent_version}`, outdated: false };
+}
+
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can, viewAs } = useAuth();
   const { machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
@@ -100,11 +107,19 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                   </span>
                 )}
                 {m.os && <span className="text-[10px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
-                {m.type === 'agent' && m.agent_version && (
-                  <span className="text-[10px] text-fg-dim" title={`agente v${m.agent_version}`}>
-                    v{m.agent_version}
-                  </span>
-                )}
+                {(() => {
+                  const badge = agentVersionBadge(m);
+                  if (!badge) return null;
+                  return badge.outdated ? (
+                    <button type="button" className="rounded px-1 text-[10px] text-warn hover:bg-bg-3" title={badge.title} onClick={() => setMachineForm({ open: true, machine: m })}>
+                      {badge.text}
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-fg-dim" title={badge.title}>
+                      {badge.text}
+                    </span>
+                  );
+                })()}
                 {viewAs === 'all' && (
                   <span className="truncate text-[10px] text-fg-dim" title={m.owner_name ? `Dono: ${m.owner_name}` : 'Sem dono'}>
                     {m.owner_name ?? 'sem dono'}
