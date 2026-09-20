@@ -25,7 +25,8 @@ describe('cli.ts entry-point guard (npm global bin symlink)', () => {
   let symlink: string;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termhub-agent-cli-guard-'));
+    // realpath'd: on macOS os.tmpdir() is a symlink (/var → /private/var), see paths.test.ts.
+    dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'termhub-agent-cli-guard-'));
     realTarget = path.join(dir, 'dist', 'cli.js');
     fs.mkdirSync(path.dirname(realTarget), { recursive: true });
     fs.writeFileSync(realTarget, '// fake dist/cli.js\n', 'utf8');
