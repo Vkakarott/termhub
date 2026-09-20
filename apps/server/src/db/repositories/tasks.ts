@@ -77,6 +77,33 @@ export class TasksRepository {
   }
 
   /**
+   * A top-level task and its subtasks in one transaction (the MCP `create_task` tool): the task
+   * lands at the top of its column, the subtasks in call order. All or nothing — a cap violation
+   * is rejected before anything is written.
+   */
+  async createWithSubtasks(projectId: string, input: { title: string; description?: string | null; status?: TaskStatus }, subtasks: SubtaskInput[]): Promise<TaskWithSubtasks> {
+    if (subtasks.length > MAX_SUBTASKS_PER_CALL) {
+      throw new TaskRuleError('TOO_MANY_SUBTASKS', 'No máximo 50 subtarefas por vez');
+    }
+    const status = input.status ?? 'todo';
+    return this.db.$transaction(async (tx) => {
+      await tx.task.updateMany({ where: { projectId, status, parentId: null }, data: { position: { increment: 1 } } });
+      const parent = await tx.task.create({
+        data: { id: newId(), projectId, title: input.title, description: input.description ?? null, status, position: 0 },
+      });
+      const rows = [mapTask(parent)];
+      // The parent is new and invisible to other writers until commit: no row lock needed here.
+      for (const [position, item] of subtasks.entries()) {
+        const t = await tx.task.create({
+          data: { id: newId(), projectId, parentId: parent.id, title: item.title, description: item.description ?? null, status: item.status ?? 'todo', position },
+        });
+        rows.push(mapTask(t));
+      }
+      return nestTasks(rows)[0];
+    });
+  }
+
+  /**
    * Appends subtasks to `parentId` in one transaction. One level only: the parent must be a
    * top-level task (of `expectProjectId`, when given). Subtasks inherit the parent's project.
    */
