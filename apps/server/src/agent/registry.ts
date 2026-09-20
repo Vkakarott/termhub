@@ -49,6 +49,10 @@ export class AgentRegistry extends EventEmitter {
     };
   }
 
+  openChannels(machineId: string): number {
+    return this.conns.get(machineId)?.openChannels ?? 0;
+  }
+
   rpc<M extends RpcMethod>(machineId: string, method: M, params: RpcParams<M>, timeoutMs?: number): Promise<RpcResult<M>> {
     const conn = this.conns.get(machineId);
     if (!conn) {

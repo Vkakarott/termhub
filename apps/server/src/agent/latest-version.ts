@@ -1,5 +1,7 @@
 import { httpJson } from '../ai/credentials.js';
-import { versionAtLeast } from './errors.js';
+import { AgentClosedError } from './connection.js';
+import { toHttpError, versionAtLeast } from './errors.js';
+import { agents } from './registry.js';
 
 /**
  * Which @termhub/agent is the newest on npm, so the UI can offer an update and the auto-update
@@ -72,4 +74,27 @@ export function startAgentVersionPoller(log: VersionLog, onRefresh?: () => Promi
     clearInterval(timer);
     clearTimeout(first);
   };
+}
+
+export const UPDATE_TIMEOUT_MS = 180_000;
+export interface AgentUpdateOutcome {
+  installed_version: string | null;
+  restart: 'service' | 'manual';
+  /** the agent is leaving to come back on the new version: poll the status until agent_version changes */
+  restarting: boolean;
+}
+
+/** Runs agent.update on a connected agent. The connection closing mid-call means the agent already left to restart. */
+export async function runAgentUpdate(machineId: string, version: string, log: VersionLog): Promise<AgentUpdateOutcome> {
+  try {
+    const r = await agents.rpc(machineId, 'agent.update', { version }, UPDATE_TIMEOUT_MS);
+    log.info({ machineId, version: r.installed_version, restart: r.restart }, 'agent updated');
+    return { ...r, restarting: r.restart === 'service' };
+  } catch (err) {
+    if (err instanceof AgentClosedError) {
+      log.info({ machineId, version }, 'agent connection closed during update (restarting)');
+      return { installed_version: null, restart: 'service', restarting: true };
+    }
+    throw toHttpError(err);
+  }
 }

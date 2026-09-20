@@ -203,6 +203,11 @@ export class AgentConnection extends EventEmitter {
     this.socket.close(code, reason);
   }
 
+  /** Open PTY channels — 0 means no terminal is attached (the auto-update "idle" test). */
+  get openChannels(): number {
+    return this.channels.size;
+  }
+
   heartbeat(): void {
     if (!this.alive) {
       this.socket.terminate();
