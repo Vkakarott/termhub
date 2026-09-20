@@ -120,7 +120,9 @@ Settings → **Tokens de API** creates personal tokens (`thb_pat_…`) for the g
 claude mcp add --transport http termhub https://termhub.dev/mcp --header "Authorization: Bearer thb_pat_…"
 ```
 
-Tools available today (scope `read`): `list_machines`, `list_projects`, `list_tabs`, `list_ai_accounts`, `find` (names → ids), `read_screen`, `wait_for_state`. A token sees only the tools its scopes and its owner's role allow; each token may make 120 calls per minute. In production the landing host forwards `/mcp` to the app outside Cloudflare Access (`deploy/nginx/termhub.dev.conf.tmpl`).
+Tools available today: scope `read` gives `list_machines`, `list_projects`, `list_tabs`, `list_ai_accounts`, `find` (names → ids), `read_screen`, `wait_for_state`. Scope `terminals` gives `open_tab`, `send_input`, `send_key`, `run_command`, `close_tab` — full read/write control of a terminal tab on any machine (agent, local or ssh) the token's owner can see. A token sees only the tools its scopes and its owner's role allow; each token may make 120 calls per minute. In production the landing host forwards `/mcp` to the app outside Cloudflare Access (`deploy/nginx/termhub.dev.conf.tmpl`).
+
+A `terminals` token can type into any terminal its owner can see, so only create one for a machine and a session you trust, and revoke it from Settings → **Tokens de API** as soon as that session is done.
 
 ### Cloudflare Tunnel
 

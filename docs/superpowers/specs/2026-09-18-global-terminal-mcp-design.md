@@ -122,6 +122,20 @@ schemas are English; error messages are pt-BR and say what to do next.
 Tabs record `created_by_token_id?` (nullable column, additive) for the `close_tab` rule
 and the open-tab limit.
 
+**How `run_command` settles, as built.** It sends the command with Enter, then polls the
+tab row for up to ~2 s for the monitor hook to mark it `working`. If the hook does so in
+time, it waits on monitor state (as `wait_for_state` does) for the rest of the timeout.
+If the tab never reports `working` — no hooks installed, or the hook missed the window —
+it falls back to polling the screen every second until two consecutive captures are
+identical. Either way it always returns the screen alongside `timed_out`; a slow command
+is never an error.
+
+**`run_command` refuses a tab in `waiting_permission`, with no bypass.** `send_input`
+takes `answering_permission: true` to answer a pending prompt; `run_command` has no such
+parameter, because it is defined as `send_input` + Enter, and a pending prompt must be
+answered with `send_input` or `send_key`, never by injecting a whole command line. The
+refusal quotes the pending question.
+
 ### 4.3 Agent machines: three new named RPCs
 
 Today `sendKeysToSession` runs shell through `runOnMachine`, which **throws for
