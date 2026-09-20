@@ -1,5 +1,6 @@
+import { CREDENTIAL_SEPARATOR } from '@termhub/machine-ops';
 import { describe, expect, it } from 'vitest';
-import { parseUsageBody } from './claude.js';
+import { parseCredential, parseUsageBody } from './claude.js';
 
 // Shape of https://api.anthropic.com/api/oauth/usage (values trimmed).
 const body = {
@@ -42,5 +43,42 @@ describe('parseUsageBody', () => {
 
   it('returns nothing for a payload without usage data', () => {
     expect(parseUsageBody({ extra_usage: { is_enabled: false } })).toEqual([]);
+  });
+});
+
+describe('parseCredential', () => {
+  const doc = (token: string, expiresAt?: number, subscriptionType = 'max') =>
+    JSON.stringify({ claudeAiOauth: { accessToken: token, ...(expiresAt !== undefined ? { expiresAt } : {}), subscriptionType } });
+
+  it('parses a single JSON document with no separator (old agent, <0.1.7)', () => {
+    const cred = parseCredential(doc('old-token', 1234));
+    expect(cred).toEqual({ token: 'old-token', extra: {}, expires_at: 1234, plan: 'max' });
+  });
+
+  it('picks the keychain candidate when the file candidate is stale', () => {
+    const stdout = [doc('stale-file-token', 100), doc('fresh-keychain-token', 999999)].join(`\n${CREDENTIAL_SEPARATOR}\n`);
+    const cred = parseCredential(stdout);
+    expect(cred.token).toBe('fresh-keychain-token');
+    expect(cred.expires_at).toBe(999999);
+  });
+
+  it('skips a garbage chunk and keeps the valid one', () => {
+    const stdout = [`not json`, doc('valid-token', 42)].join(`\n${CREDENTIAL_SEPARATOR}\n`);
+    const cred = parseCredential(stdout);
+    expect(cred.token).toBe('valid-token');
+  });
+
+  it('picks a dated candidate over an undated one, but still accepts an undated candidate alone', () => {
+    const dated = parseCredential([doc('no-expiry'), doc('with-expiry', 500)].join(`\n${CREDENTIAL_SEPARATOR}\n`));
+    expect(dated.token).toBe('with-expiry');
+
+    const undatedOnly = parseCredential(doc('no-expiry'));
+    expect(undatedOnly.token).toBe('no-expiry');
+    expect(undatedOnly.expires_at).toBeNull();
+  });
+
+  it('throws when no chunk yields a token', () => {
+    const stdout = [`not json`, `{"foo":"bar"}`, ``].join(`\n${CREDENTIAL_SEPARATOR}\n`);
+    expect(() => parseCredential(stdout)).toThrow('Claude Code credential has no OAuth token');
   });
 });

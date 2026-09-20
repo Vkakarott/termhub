@@ -1,11 +1,14 @@
-import { credentialScript } from '@termhub/machine-ops';
+import { CREDENTIAL_SEPARATOR, credentialScript } from '@termhub/machine-ops';
 import type { AiCredential, AiProviderAdapter, AiUsageResult, AiUsageWindow } from './types.js';
 import { httpJson, isObj, num, retryAfterMs, str, toIso } from './credentials.js';
 
 /**
  * Claude (claude.ai subscription: Pro / Max / Team / Enterprise seat).
- * Credential: Claude Code login — ~/.claude/.credentials.json (Linux) or the
- * "Claude Code-credentials" keychain item (macOS). Usage comes from the same
+ * Credential: Claude Code login — ~/.claude/.credentials.json (Linux), the
+ * "Claude Code-credentials" keychain item (macOS, default config dir), or
+ * "Claude Code-credentials-<sha256(config dir)[:8]>" (macOS, CLAUDE_CONFIG_DIR).
+ * The machine prints every candidate it can find and parseCredential keeps the
+ * freshest one (largest claudeAiOauth.expiresAt). Usage comes from the same
  * endpoint Claude Code's /usage uses.
  */
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
@@ -60,6 +63,40 @@ export function parseUsageBody(body: Record<string, unknown>): AiUsageWindow[] {
   return windows;
 }
 
+/**
+ * The machine-ops script prints one or more JSON candidates separated by CREDENTIAL_SEPARATOR
+ * (an old agent, <0.1.7, prints a single document with no separator at all — that still parses,
+ * since split() on a string that never occurs just returns the whole input as one chunk).
+ * Picks the candidate with the largest claudeAiOauth.expiresAt; an undated candidate counts as 0,
+ * so it loses to any dated one but still wins when it is the only valid candidate.
+ */
+export function parseCredential(stdout: string): AiCredential {
+  let best: AiCredential | null = null;
+  let bestExpiresAt = -1;
+  for (const chunk of stdout.split(CREDENTIAL_SEPARATOR)) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    let json: unknown;
+    try {
+      json = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!isObj(json) || !isObj(json.claudeAiOauth)) continue;
+    const oauth = json.claudeAiOauth;
+    const token = str(oauth.accessToken);
+    if (!token) continue;
+    const expiresAt = num(oauth.expiresAt);
+    const rank = expiresAt ?? 0;
+    if (rank > bestExpiresAt) {
+      best = { token, extra: {}, expires_at: expiresAt, plan: str(oauth.subscriptionType) };
+      bestExpiresAt = rank;
+    }
+  }
+  if (!best) throw new Error('Claude Code credential has no OAuth token');
+  return best;
+}
+
 export const claudeAdapter: AiProviderAdapter = {
   provider: 'claude',
   loginHint: 'Run `claude` on that machine and sign in (or set the config dir if you use CLAUDE_CONFIG_DIR).',
@@ -68,23 +105,16 @@ export const claudeAdapter: AiProviderAdapter = {
     return credentialScript('claude');
   },
 
-  parseCredential(stdout) {
-    const json = JSON.parse(stdout) as unknown;
-    const oauth = isObj(json) && isObj(json.claudeAiOauth) ? json.claudeAiOauth : null;
-    const token = oauth ? str(oauth.accessToken) : null;
-    if (!token) throw new Error('Claude Code credential has no OAuth token');
-    return {
-      token,
-      extra: {},
-      expires_at: oauth ? num(oauth.expiresAt) : null,
-      plan: oauth ? str(oauth.subscriptionType) : null,
-    };
-  },
+  parseCredential,
 
   async fetchUsage(cred: AiCredential): Promise<AiUsageResult> {
     const base: AiUsageResult = { ok: false, plan: cred.plan, windows: [], error: null, hint: null };
     if (cred.expires_at && cred.expires_at < Date.now()) {
-      return { ...base, error: 'Claude Code token expired', hint: 'Run `claude` on that machine once; it refreshes the token on use.' };
+      return {
+        ...base,
+        error: 'Claude Code token expired',
+        hint: 'Run `claude` on that machine once; it refreshes the token on use (on macOS the live token lives in the keychain).',
+      };
     }
     const r = await httpJson(USAGE_URL, {
       headers: { authorization: `Bearer ${cred.token}`, 'anthropic-beta': 'oauth-2025-04-20', accept: 'application/json' },
