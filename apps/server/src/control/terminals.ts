@@ -2,7 +2,7 @@ import type { TmuxKey } from '@termhub/agent-protocol';
 import { requireAgentVersion } from '../agent/errors.js';
 import { agents } from '../agent/registry.js';
 import { captureScreen } from '../agent/screen.js';
-import type { Machine, Project, Tab } from '../db/repositories/types.js';
+import type { Machine, Project, Tab, TabState } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
 import { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } from '../terminal/session-ops.js';
@@ -74,7 +74,10 @@ export async function openTab(ctx: ControlContext, input: { project_id: string; 
     // The tab is kept on purpose (spec §4.4): the error carries its id so the screen can be inspected.
     // The original code travels with it, so the audit row says what actually failed.
     const code = e instanceof ControlError || e instanceof HttpError ? (e.code ?? 'SESSION_FAILED') : 'SESSION_FAILED';
-    throw new ControlError(code, `A aba ${tab.id} foi criada, mas a sessão tmux não subiu: ${e instanceof Error ? e.message : 'erro desconhecido'}`);
+    throw new ControlError(
+      code,
+      `A aba ${tab.id} foi criada, mas a sessão tmux não subiu: ${e instanceof Error ? e.message : 'erro desconhecido'}. Se não for usá-la, feche-a com close_tab.`,
+    );
   }
 }
 
@@ -107,7 +110,7 @@ export async function runCommand(
   ctx: ControlContext,
   input: { tab_id: string; command: string; timeout_seconds?: number; lines?: number },
   signal?: AbortSignal,
-): Promise<{ tab_id: string; state: string | null; timed_out: boolean; lines: number; text: string }> {
+): Promise<{ tab_id: string; state: TabState | null; timed_out: boolean; lines: number; text: string }> {
   const { tab, project, machine, session } = await terminal(ctx, input.tab_id);
   // run_command is send_input + Enter (spec §4.2 line 118); the permission guard on send_input
   // (line 116) applies here too, but there is no answering_permission for run_command — the pending
@@ -127,7 +130,7 @@ export async function runCommand(
 
   const deadline = Date.now() + timeoutMs;
   let timedOut: boolean;
-  let state: string | null = null;
+  let state: TabState | null = null;
 
   if (tab.state !== null) {
     // The machine has monitor hooks, but the tab we read above is from BEFORE we typed the command:

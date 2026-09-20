@@ -17,11 +17,13 @@ const hasTmux = (() => {
   }
 })();
 
-// TMUX_PATH is what exec.ts reads; the wrapper pins every call to our own socket.
-const wrapper = mkdtempSync(join(tmpdir(), 'tmux-wrap-'));
-
 describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
+  // TMUX_PATH is what exec.ts reads; the wrapper pins every call to our own socket. Created here
+  // (not at module top level) so it is only ever made — and cleaned up — when the suite actually runs.
+  let wrapper: string;
+
   beforeAll(() => {
+    wrapper = mkdtempSync(join(tmpdir(), 'tmux-wrap-'));
     const path = join(wrapper, 'tmux');
     execFileSync('sh', ['-c', `printf '#!/bin/sh\\nexec tmux -L %s "$@"\\n' ${SOCKET} > ${path} && chmod +x ${path}`]);
     process.env.TMUX_PATH = path;
