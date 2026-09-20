@@ -10,6 +10,7 @@ export interface MachineInput {
   ssh_port?: number;
   is_local?: boolean;
   owner_id?: string | null;
+  agent_auto_update?: boolean;
 }
 
 /** Visibility filter: a user id, or null for everything (admin "all" view). */
@@ -86,11 +87,18 @@ export class MachinesRepository {
         sshUser: next.ssh_user ?? null,
         sshPort: next.ssh_port ?? 22,
         isLocal: next.is_local,
+        agentAutoUpdate: next.agent_auto_update ?? false,
         ...(patch.owner_id !== undefined ? { ownerId: patch.owner_id } : {}),
       },
       include: withOwner,
     });
     return mapMachine(m);
+  }
+
+  /** Agent machines that opted into automatic updates (the scheduler checks online/idle itself). */
+  async listAutoUpdate(): Promise<Machine[]> {
+    const rows = await this.db.machine.findMany({ where: { type: 'agent', agentAutoUpdate: true }, include: withOwner });
+    return rows.map(mapMachine);
   }
 
   /** Resultado da detecção feita no status (SO e ferramentas disponíveis). */

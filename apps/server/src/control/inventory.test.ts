@@ -13,7 +13,7 @@ import { find, listAiAccounts, listMachines, listProjects, listTabs, normalizeNa
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude'], checked_at: null,
-  agent_version: '0.2.0', agent_last_seen_at: null, is_local: false, owner_id: 'u1', owner_name: null, created_at: '', ...over,
+  agent_version: '0.2.0', agent_last_seen_at: null, agent_auto_update: false, is_local: false, owner_id: 'u1', owner_name: null, created_at: '', ...over,
 });
 const project = (over: Partial<Project> & { id: string; machine_id: string }): Project => ({
   name: over.id, cwd: '/src/' + over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,

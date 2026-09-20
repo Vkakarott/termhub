@@ -40,6 +40,7 @@ const machine: Machine = {
   checked_at: null,
   agent_version: '0.1.0',
   agent_last_seen_at: null,
+  agent_auto_update: false,
   is_local: false,
   owner_id: 'u1',
 } as unknown as Machine;

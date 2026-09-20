@@ -33,10 +33,14 @@ const machineBody = z
     ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
     ssh_port: z.coerce.number().int().min(1).max(65535).optional(),
     is_local: z.boolean().optional(),
+    agent_auto_update: z.boolean().optional(),
   })
   .superRefine((m, ctx) => {
     if (m.type === 'ssh' && !m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'host é obrigatório para SSH' });
     if (m.type === 'agent' && m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'máquina com agente não tem host' });
+    if (m.agent_auto_update && m.type !== 'agent') {
+      ctx.addIssue({ code: 'custom', path: ['agent_auto_update'], message: 'só máquinas com agente atualizam sozinhas' });
+    }
   });
 
 /** Config dirs of the Claude accounts registered on the machine (CLAUDE_CONFIG_DIR): the hooks go there too. */

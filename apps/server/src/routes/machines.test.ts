@@ -27,6 +27,7 @@ function makeMachine(overrides: Partial<Machine> & { type: MachineType }): Machi
     checked_at: null,
     agent_version: null,
     agent_last_seen_at: null,
+    agent_auto_update: false,
     is_local: false,
     owner_id: 'u1',
     owner_name: null,
@@ -193,6 +194,23 @@ describe('PATCH /api/machines/:id (transport type is fixed)', () => {
     ({ app } = buildApp(store));
     const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { name: 'renamed' } });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('PATCH /api/machines/:id (agent_auto_update)', () => {
+  it('stores the auto-update flag for an agent machine', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { agent_auto_update: true } });
+    expect(res.statusCode).toBe(200);
+    expect(built.repos.update).toHaveBeenCalledWith('m1', expect.objectContaining({ agent_auto_update: true }));
+  });
+  it('rejects the flag on an ssh machine', async () => {
+    store.m1 = makeMachine({ type: 'ssh' });
+    ({ app } = buildApp(store));
+    const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { agent_auto_update: true } });
+    expect(res.statusCode).toBe(400);
   });
 });
 

@@ -2119,6 +2119,7 @@ export const MachineScalarFieldEnum = {
   agentTokenCreatedAt: 'agentTokenCreatedAt',
   agentVersion: 'agentVersion',
   agentLastSeenAt: 'agentLastSeenAt',
+  agentAutoUpdate: 'agentAutoUpdate',
   isLocal: 'isLocal',
   ownerId: 'ownerId',
   createdAt: 'createdAt'
