@@ -9,7 +9,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine, Project, Task } from '../db/repositories/types.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
-import { launchLine, PROMPT_MAX_CHARS, startAgent } from './agents.js';
+import { checkPrompt, launchLine, PROMPT_MAX_CHARS, startAgent } from './agents.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude', 'codex'], checked_at: null,
@@ -36,7 +36,8 @@ const accounts = [
 ];
 const k1 = task({ id: 'k1', project_id: 'p1', title: 'Write the spec for XPTO' });
 const kdoing = task({ id: 'k2', project_id: 'p1', title: 'Already', status: 'doing' });
-const ksub = task({ id: 's1', project_id: 'p1', title: 'A subtask', parent_id: 'k1' });
+const ksub = task({ id: 's1', project_id: 'p1', title: 'A subtask', parent_id: 'k1', tab_id: 't-old' });
+const klong = task({ id: 'k3', project_id: 'p1', title: 'T'.repeat(80) });
 const k9 = task({ id: 'k9', project_id: 'p2', title: 'Elsewhere' });
 
 function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
@@ -47,7 +48,7 @@ function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
       findById: vi.fn(async (id: string) => accounts.find((a) => a.id === id)),
       list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)),
     },
-    tasks: { findById: vi.fn(async (id: string) => [k1, kdoing, ksub, k9].find((t) => t.id === id)), setTab: vi.fn(async () => undefined), update: vi.fn(async () => undefined) },
+    tasks: { findById: vi.fn(async (id: string) => [k1, kdoing, ksub, klong, k9].find((t) => t.id === id)), setTab: vi.fn(async () => undefined), update: vi.fn(async () => undefined) },
   };
   const scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' } as const, ownerId: 'u1', createAs: 'u1' };
   const c: ControlContext = {
@@ -85,6 +86,26 @@ describe('launchLine', () => {
   });
 });
 
+describe('checkPrompt', () => {
+  it('folds CRLF into LF and keeps newlines', () => {
+    expect(checkPrompt('a\r\nb\rc\nd')).toBe('a\nb\nc\nd');
+  });
+
+  it('refuses control characters the shell would read as keys', () => {
+    for (const bad of ['a\tb', 'a\x03', '\x1b[A', 'a\x7f', 'x\x00']) expect(() => checkPrompt(bad)).toThrow(new ControlError('PROMPT_CONTROL_CHARS', 'O prompt tem caracteres de controle (tab, escape, ^C…) que o terminal leria como teclas; use só texto e quebras de linha'));
+  });
+
+  it('refuses a prompt that would be parsed as an option', () => {
+    for (const bad of ['--dangerously-skip-permissions', '  -p x', '-']) expect(() => checkPrompt(bad)).toThrow(new ControlError('PROMPT_LOOKS_LIKE_FLAG', 'O prompt não pode começar com "-": o CLI leria isso como uma opção. Comece com uma palavra'));
+    expect(checkPrompt('refactor - and - test')).toBe('refactor - and - test');
+  });
+
+  it('measures the limit after folding CRLF', () => {
+    expect(checkPrompt('x'.repeat(PROMPT_MAX_CHARS - 1) + '\r\n')).toHaveLength(PROMPT_MAX_CHARS);
+    expect(() => checkPrompt('x'.repeat(PROMPT_MAX_CHARS + 1))).toThrow(new ControlError('PROMPT_TOO_LONG', `Prompt longo demais: ${PROMPT_MAX_CHARS + 1} caracteres, máximo ${PROMPT_MAX_CHARS}`));
+  });
+});
+
 describe('startAgent', () => {
   it('opens a tab named after the account, types the launch line and returns where to watch it', async () => {
     const { c } = ctx();
@@ -92,7 +113,7 @@ describe('startAgent', () => {
     expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', name: 'claude · pedrogoiania' });
     expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'write a spec'", true);
     expect(r).toEqual({
-      tab_id: 't9', tab_name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-t9', tab_url: 'https://app.test/projects/p1', command: 'claude', task_id: null,
+      tab_id: 't9', tab_name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-t9', tab_url: 'https://app.test/projects/p1', command: 'claude', task_id: null, previous_tab_id: null,
       note: 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.',
     });
   });
@@ -103,6 +124,47 @@ describe('startAgent', () => {
     expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', name: 'codex run' });
     await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'p', task_id: 'k1' });
     expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', name: 'Write the spec for XPTO' });
+  });
+
+  it('types the codex line for a ChatGPT account without a config dir', async () => {
+    const { c } = ctx();
+    await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
+    expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', "codex 'fix it'", true);
+    expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', name: 'codex · ChatGPT' });
+  });
+
+  it('types the prompt as checked (CRLF folded)', async () => {
+    const { c } = ctx();
+    await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'one\r\ntwo' });
+    expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), "codex 'one\ntwo'", true);
+  });
+
+  it('cuts a long task title to the tab-name limit', async () => {
+    const { c } = ctx();
+    await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', task_id: 'k3' });
+    expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', name: 'T'.repeat(60) });
+  });
+
+  it('links a subtask too, reporting the tab it was linked to before', async () => {
+    const { c, repos } = ctx();
+    const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', task_id: 's1' });
+    expect(repos.tasks.setTab).toHaveBeenCalledWith('s1', 't9');
+    expect(repos.tasks.update).toHaveBeenCalledWith('s1', { status: 'doing' });
+    expect(r).toMatchObject({ task_id: 's1', previous_tab_id: 't-old' });
+  });
+
+  it('names the tab when linking the task fails after the agent started', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.setTab.mockRejectedValue(new Error('P2025'));
+    await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', task_id: 'k1' })).rejects.toEqual(
+      new ControlError('TASK_LINK_FAILED', 'A aba t9 foi aberta e o agente iniciado, mas a tarefa não foi vinculada: P2025. Veja a tela com read_screen ou feche a aba com close_tab.'),
+    );
+  });
+
+  it('refuses a flag-like prompt before opening anything', async () => {
+    const { c } = ctx();
+    await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: '--dangerously-skip-permissions' })).rejects.toMatchObject({ code: 'PROMPT_LOOKS_LIKE_FLAG' });
+    expect(openTab).not.toHaveBeenCalled();
   });
 
   it('links the task to the tab and moves it to doing', async () => {
@@ -156,7 +218,7 @@ describe('startAgent', () => {
   it('refuses when the provider binary was not detected on the machine', async () => {
     const { c } = ctx();
     await expect(startAgent(c, { project_id: 'p2', account_id: 'a4', prompt: 'p' })).rejects.toEqual(
-      new ControlError('TOOL_MISSING', 'codex não foi detectado em mac mini. Se está instalado, atualize o termhub-agent (a detecção roda ao conectar) ou use "Detectar" na máquina.'),
+      new ControlError('TOOL_MISSING', 'codex não foi detectado em mac mini (list_machines mostra o que cada máquina tem). Se está instalado: com agente, atualize o termhub-agent (0.2.3 ou mais novo) e deixe-o reconectar; em máquina local/ssh, abra a lista de máquinas no app para refazer a detecção.'),
     );
     expect(openTab).not.toHaveBeenCalled();
   });

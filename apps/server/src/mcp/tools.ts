@@ -133,7 +133,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'start_agent',
-    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id the task is linked to the tab and moved to doing. Then use wait_for_state / read_screen / send_input to follow and answer it. Gemini and Antigravity accounts are not supported yet.`,
+    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to doing. The prompt cannot start with "-" or contain control characters other than newlines. Then use wait_for_state / read_screen / send_input to follow and answer it. Gemini and Antigravity accounts are not supported yet.`,
     scope: 'terminals', resource: 'terminals', action: 'write',
     input: { project_id: id, account_id: id, prompt: z.string().min(1).max(PROMPT_MAX_CHARS), task_id: id.optional(), tab_name: z.string().trim().min(1).max(60).optional() },
     run: (ctx, a) => startAgent(ctx, a as { project_id: string; account_id: string; prompt: string; task_id?: string; tab_name?: string }),

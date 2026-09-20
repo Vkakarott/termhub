@@ -500,10 +500,12 @@ describe('start_agent', () => {
   it('rejects an empty or oversized prompt before the control layer runs', async () => {
     vi.mocked(startAgent).mockClear();
     const { app, apiTokens } = build({ token: terminalsToken, grants: writeGrants });
-    const r = await rpc(app, call('start_agent', { project_id: 'p1', account_id: 'a1', prompt: '' }));
-    expect(r.json().error ?? r.json().result.isError).toBeTruthy();
+    for (const prompt of ['', 'x'.repeat(4001)]) {
+      const r = await rpc(app, call('start_agent', { project_id: 'p1', account_id: 'a1', prompt }));
+      expect(r.json().error ?? r.json().result.isError).toBeTruthy();
+    }
     await flush();
-    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'start_agent', ok: false, error_code: 'INVALID_ARGS' });
+    expect(apiTokens.recordEvent.mock.calls.map((c) => c[0])).toEqual([expect.objectContaining({ tool: 'start_agent', ok: false, error_code: 'INVALID_ARGS' }), expect.objectContaining({ tool: 'start_agent', ok: false, error_code: 'INVALID_ARGS' })]);
     expect(startAgent).not.toHaveBeenCalled();
   });
 

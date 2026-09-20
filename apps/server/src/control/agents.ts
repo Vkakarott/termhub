@@ -8,6 +8,22 @@ import { openTab } from './terminals.js';
 /** Same ceiling as one typed input: the prompt travels as a single command-line argument. */
 export const PROMPT_MAX_CHARS = 4000;
 const TAB_NAME_MAX = 60;
+/** Bytes the shell would read as keystrokes instead of text (tab completion, ^C, ^D, ESC…): only newline is allowed. */
+const CONTROL_CHARS = /[\x00-\x09\x0b-\x1f\x7f]/;
+
+/**
+ * The prompt as it will be typed: `\r\n` folded to `\n` (a newline inside the quoted argument only makes the
+ * shell show its continuation prompt — the argument stays whole), no other control character, and never a
+ * leading `-`, which the CLI would parse as an option — the "no permission-bypass flag, ever" rule must hold
+ * for every prompt, not just the ones we build.
+ */
+export function checkPrompt(prompt: string): string {
+  const text = prompt.replace(/\r\n?/g, '\n');
+  if (text.length > PROMPT_MAX_CHARS) throw new ControlError('PROMPT_TOO_LONG', `Prompt longo demais: ${text.length} caracteres, máximo ${PROMPT_MAX_CHARS}`);
+  if (CONTROL_CHARS.test(text)) throw new ControlError('PROMPT_CONTROL_CHARS', 'O prompt tem caracteres de controle (tab, escape, ^C…) que o terminal leria como teclas; use só texto e quebras de linha');
+  if (text.trimStart().startsWith('-')) throw new ControlError('PROMPT_LOOKS_LIKE_FLAG', 'O prompt não pode começar com "-": o CLI leria isso como uma opção. Comece com uma palavra');
+  return text;
+}
 
 /**
  * How each provider is started (spec §4.4). The prompt goes in as the CLI's own initial-prompt argument,
@@ -50,6 +66,8 @@ export interface StartAgentResult {
   /** the binary started (never the prompt) */
   command: string;
   task_id: string | null;
+  /** the tab the task was linked to before this call, when there was one (it stays open, unlinked) */
+  previous_tab_id: string | null;
   note: string;
 }
 
@@ -61,12 +79,15 @@ export async function startAgent(
   ctx: ControlContext,
   input: { project_id: string; account_id: string; prompt: string; task_id?: string; tab_name?: string },
 ): Promise<StartAgentResult> {
-  if (input.prompt.length > PROMPT_MAX_CHARS) throw new ControlError('PROMPT_TOO_LONG', `Prompt longo demais: ${input.prompt.length} caracteres, máximo ${PROMPT_MAX_CHARS}`);
+  const prompt = checkPrompt(input.prompt);
   const { project, machine } = await ctx.scoped.project(input.project_id);
   const account = await accountOnMachine(ctx, input.account_id, machine);
   const { binary } = launcher(account.provider);
   if (!machine.capabilities.includes(binary)) {
-    throw new ControlError('TOOL_MISSING', `${binary} não foi detectado em ${machine.name}. Se está instalado, atualize o termhub-agent (a detecção roda ao conectar) ou use "Detectar" na máquina.`);
+    throw new ControlError(
+      'TOOL_MISSING',
+      `${binary} não foi detectado em ${machine.name} (list_machines mostra o que cada máquina tem). Se está instalado: com agente, atualize o termhub-agent (0.2.3 ou mais novo) e deixe-o reconectar; em máquina local/ssh, abra a lista de máquinas no app para refazer a detecção.`,
+    );
   }
 
   let task: Task | null = null;
@@ -76,19 +97,27 @@ export async function startAgent(
     if (task.project_id !== project.id) throw new ControlError('TASK_OTHER_PROJECT', `A tarefa "${task.title}" é de outro projeto`);
   }
 
-  const line = launchLine(account.provider, account.config_dir, input.prompt);
+  const line = launchLine(account.provider, account.config_dir, prompt);
   const name = (input.tab_name?.trim() || task?.title || `${binary} · ${account.label}`).slice(0, TAB_NAME_MAX);
   // openTab does the readiness checks (online, agent version, tab limit) and keeps the tab if the session fails.
   const tab = await openTab(ctx, { project_id: project.id, name });
 
+  // The line is typed right after `tmux new-session`: the shell may still be starting, but bash and zsh
+  // keep typeahead (they never flush the tty on startup), so the text is waiting when the prompt appears.
+  const reason = (e: unknown) => (e instanceof Error ? e.message : 'erro desconhecido');
+  const keptTab = 'Veja a tela com read_screen ou feche a aba com close_tab.';
   try {
     await sendTextToSession(machine, tab.tmux_session as string, line, true);
   } catch (e) {
-    throw new ControlError('LAUNCH_FAILED', `A aba ${tab.tab_id} foi aberta, mas o agente não foi iniciado: ${e instanceof Error ? e.message : 'erro desconhecido'}. Veja a tela com read_screen ou feche a aba com close_tab.`);
+    throw new ControlError('LAUNCH_FAILED', `A aba ${tab.tab_id} foi aberta, mas o agente não foi iniciado: ${reason(e)}. ${keptTab}`);
   }
   if (task) {
-    await ctx.repos.tasks.setTab(task.id, tab.tab_id);
-    if (task.status !== 'doing') await ctx.repos.tasks.update(task.id, { status: 'doing' });
+    try {
+      await ctx.repos.tasks.setTab(task.id, tab.tab_id);
+      if (task.status !== 'doing') await ctx.repos.tasks.update(task.id, { status: 'doing' });
+    } catch (e) {
+      throw new ControlError('TASK_LINK_FAILED', `A aba ${tab.tab_id} foi aberta e o agente iniciado, mas a tarefa não foi vinculada: ${reason(e)}. ${keptTab}`);
+    }
   }
 
   return {
@@ -99,6 +128,7 @@ export async function startAgent(
     tab_url: `${config.publicUrl}/projects/${project.id}`,
     command: binary,
     task_id: task?.id ?? null,
+    previous_tab_id: task?.tab_id ?? null,
     note: 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.',
   };
 }
