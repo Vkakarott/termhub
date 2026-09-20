@@ -19,7 +19,10 @@ export const RESOURCES = [
   { key: 'roles', label: 'Roles e permissões' },
 ] as const;
 export type Resource = (typeof RESOURCES)[number]['key'];
-export const ACTIONS = ['create', 'read', 'update', 'delete'] as const;
+// 'write' is used only by the `terminals` resource, for the MCP write tools (open_tab, send_input, send_key,
+// run_command, close_tab): those aren't CRUD on a record, so they get their own action rather than overloading
+// 'update'.
+export const ACTIONS = ['create', 'read', 'update', 'delete', 'write'] as const;
 export type Action = (typeof ACTIONS)[number];
 export const RESOURCE_KEYS: readonly string[] = RESOURCES.map((r) => r.key);
 

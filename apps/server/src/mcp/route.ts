@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -9,7 +8,7 @@ import { controlContextFor, ControlError, type ControlContext } from '../control
 import { HttpError } from '../lib/errors.js';
 import { authenticateToken } from './auth.js';
 import { TokenRateLimiter } from './rate-limit.js';
-import { allowedTools, refusalMessage } from './tools.js';
+import { allowedTools, parseArgs, refusalMessage } from './tools.js';
 
 export const MCP_BODY_LIMIT = 256 * 1024;
 
@@ -95,8 +94,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
     server = new McpServer({ name: 'termhub', version: deps.version }, { capabilities: { tools: {} } });
     const rateLimited = (retryInSeconds: number) => text(`Limite de ${limiter.limit} chamadas por minuto deste token; tente de novo em ${retryInSeconds} s`, true);
     const tools = await allowedTools(ctx, token.scopes);
-    // McpServer installs its tools/* handlers on the first registerTool; with nothing allowed, answer an
-    // empty catalog instead of "Method not found" (tools/call then stays a JSON-RPC "Method not found").
+    // With no tools at all the SDK would answer "Method not found" to tools/list; answer an empty list instead.
     if (tools.length === 0) server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
     for (const tool of tools) {
       server.registerTool(tool.name, { description: tool.description, inputSchema: tool.input }, async (args: Record<string, unknown>, extra: { signal: AbortSignal }) => {
@@ -132,11 +130,13 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
     // arguments are left to the SDK's validation error. Valid allowed calls are audited by the handler.
     const body = withDefaultArguments(request.body);
     const msg = body as { id?: unknown; method?: unknown; params?: { name?: unknown; arguments?: unknown } } | null;
+    // A notification (no `id`) gets no body: answering one with `id: null` is a protocol error on the client side.
+    if (msg && typeof msg === 'object' && !('id' in msg) && typeof msg.method === 'string') return reply.code(202).send();
     // A non-string name is left to the SDK, which rejects the request itself (nothing to audit it as).
     if (msg && typeof msg === 'object' && msg.method === 'tools/call' && msg.params && typeof msg.params === 'object' && typeof msg.params.name === 'string') {
       const name = msg.params.name;
       const tool = tools.find((t) => t.name === name);
-      const refusal = !tool ? 'TOOL_NOT_ALLOWED' : !z.object(tool.input).safeParse(msg.params.arguments).success ? 'INVALID_ARGS' : null;
+      const refusal = !tool ? 'TOOL_NOT_ALLOWED' : !parseArgs(tool, msg.params.arguments).ok ? 'INVALID_ARGS' : null;
       if (refusal) {
         const rate = limiter.take(token.id);
         audit(name, msg.params.arguments, rate.ok ? refusal : 'RATE_LIMITED', 0);

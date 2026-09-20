@@ -9,6 +9,8 @@ import { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TE
 import { ControlError, type ControlContext } from './context.js';
 import { assertTerminal, clamp, offline, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES, waitForState } from './screen.js';
 
+export { INPUT_MAX_CHARS };
+
 /** Tabs one token may keep open at a time (spec §4.2): a runaway loop cannot bury the project in tabs. */
 export const MAX_TABS_PER_TOKEN = 10;
 export const RUN_DEFAULT_SECONDS = 30;
