@@ -77,4 +77,34 @@ describe('local and ssh machines', () => {
     await expect(sendKeyToSession(machine('ssh'), 'bad name', 'Enter')).rejects.toBeInstanceOf(Error);
     expect(runOnMachine).not.toHaveBeenCalled();
   });
+
+  it('sends the Enter as its own send-keys call, after a pause, never merged into the text burst', async () => {
+    // TUIs (Claude Code included) read a burst of bytes as a paste; the text and the Enter that
+    // submits it must reach tmux as two separate send-keys calls with a pause between them.
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendTextToSession(machine('local'), 's1', 'oi', true);
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    const textCallIdx = remote.indexOf(`send-keys -t '=s1:' -l -- 'oi'`);
+    const sleepIdx = remote.indexOf('sleep 0.3');
+    const enterCallIdx = remote.lastIndexOf(`send-keys -t '=s1:' Enter`);
+    expect(textCallIdx).toBeGreaterThanOrEqual(0);
+    expect(sleepIdx).toBeGreaterThan(textCallIdx);
+    expect(enterCallIdx).toBeGreaterThan(sleepIdx);
+    // exactly two send-keys invocations: one for the text, one for Enter — never merged into one
+    expect(remote.match(/send-keys/g)).toHaveLength(2);
+  });
+
+  it('sends a lone Enter as a single send-keys call with no pause', async () => {
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendTextToSession(machine('local'), 's1', '', true);
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    expect(remote).toContain(`send-keys -t '=s1:' Enter`);
+    expect(remote).not.toContain('sleep');
+    expect(remote.match(/send-keys/g)).toHaveLength(1);
+  });
+
+  it('does nothing when there is no text and no Enter to send', async () => {
+    await sendTextToSession(machine('local'), 's1', '', false);
+    expect(runOnMachine).not.toHaveBeenCalled();
+  });
 });

@@ -1,10 +1,10 @@
 import type { Machine } from '../db/repositories/types.js';
-import { sendTextToSession } from '../terminal/session-ops.js';
+import { HttpError } from '../lib/errors.js';
+import { INPUT_MAX_CHARS, sendTextToSession } from '../terminal/session-ops.js';
 
-// Declared once in session-ops.ts (also used by control/terminals.ts); re-exported here so
-// apps/server/src/routes/tabs.ts keeps its existing named import.
-export { INPUT_MAX_CHARS } from '../terminal/session-ops.js';
-import { INPUT_MAX_CHARS } from '../terminal/session-ops.js';
+// Declared once in session-ops.ts (a future control/terminals.ts will use it too); re-exported
+// here so apps/server/src/routes/tabs.ts keeps its existing named import.
+export { INPUT_MAX_CHARS };
 
 /**
  * Types `text` into the tab's tmux session (literal keys) and, with `enter`, presses Enter after a
@@ -18,6 +18,11 @@ export async function sendKeysToSession(machine: Machine, session: string, text:
     return { ok: true, error: null };
   } catch (e) {
     // The monitor route reports the failure in the response body instead of a 5xx; keep that contract.
-    return { ok: false, error: e instanceof Error ? e.message : 'tmux send-keys falhou' };
+    // HttpError messages are already pt-BR and meant for the user; anything else (e.g. a Node/OS
+    // error surfacing from execFile) is an internal detail that must not leak — log it and answer
+    // with a generic, actionable message instead.
+    if (e instanceof HttpError) return { ok: false, error: e.message };
+    console.error('sendKeysToSession: falha inesperada ao enviar para o tmux', e);
+    return { ok: false, error: 'Não foi possível enviar o texto para o terminal. Tente novamente.' };
   }
 }
