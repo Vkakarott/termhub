@@ -88,6 +88,8 @@ export interface Tab {
   kind: TabKind;
   tmux_session: string | null;
   simulator_udid: string | null;
+  /** API token that opened this tab through /mcp (null: opened in the browser). */
+  created_by_token_id: string | null;
   position: number;
   /** monitor: last reported state; null = never reported */
   state: TabState | null;
@@ -218,6 +220,7 @@ export const mapTab = (t: PrismaTab): Tab => ({
   kind: t.kind,
   tmux_session: t.tmuxSession,
   simulator_udid: t.simulatorUdid,
+  created_by_token_id: t.createdByTokenId,
   position: t.position,
   state: t.state,
   state_text: t.stateText,
