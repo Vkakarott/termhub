@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
 
@@ -10,7 +10,8 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, MachineType } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { agents } from '../agent/registry.js';
-import { AgentRpcError } from '../agent/connection.js';
+import { AgentClosedError, AgentRpcError } from '../agent/connection.js';
+import { setLatestAgentVersion } from '../agent/latest-version.js';
 import { AGENT_TOKEN_RE, hashAgentToken } from '../agent/token.js';
 import { HOOK_TOKEN_PREFIX, hashHookToken } from '../monitor/token.js';
 import { machineRoutes } from './machines.js';
@@ -27,6 +28,7 @@ function makeMachine(overrides: Partial<Machine> & { type: MachineType }): Machi
     checked_at: null,
     agent_version: null,
     agent_last_seen_at: null,
+    agent_auto_update: false,
     is_local: false,
     owner_id: 'u1',
     owner_name: null,
@@ -108,6 +110,18 @@ beforeEach(() => {
   vi.clearAllMocks();
   store = {};
 });
+
+/** A connected agent as the registry sees it: hello + an rpc stub, no socket. */
+function attachAgent(version: string, rpc = vi.fn()) {
+  const conn = Object.assign(new EventEmitter(), {
+    hello: { type: 'hello', protocol: 1, agent_version: version, os: 'macos', tools: ['tmux'] },
+    connectedAt: Date.now(),
+    rpc,
+    close: vi.fn(),
+  });
+  agents.attach('m1', conn as never);
+  return rpc;
+}
 
 describe('POST /api/machines (agent enrollment)', () => {
   it('creates an agent machine, returns a plaintext token, and rotates the stored hash', async () => {
@@ -196,6 +210,23 @@ describe('PATCH /api/machines/:id (transport type is fixed)', () => {
   });
 });
 
+describe('PATCH /api/machines/:id (agent_auto_update)', () => {
+  it('stores the auto-update flag for an agent machine', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { agent_auto_update: true } });
+    expect(res.statusCode).toBe(200);
+    expect(built.repos.update).toHaveBeenCalledWith('m1', expect.objectContaining({ agent_auto_update: true }));
+  });
+  it('rejects the flag on an ssh machine', async () => {
+    store.m1 = makeMachine({ type: 'ssh' });
+    ({ app } = buildApp(store));
+    const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { agent_auto_update: true } });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe('DELETE /api/machines/:id', () => {
   it('disconnects any live agent connection after deleting', async () => {
     store.m1 = makeMachine({ id: 'm1', type: 'agent' });
@@ -235,18 +266,6 @@ describe('GET /api/machines/:id/simulators', () => {
 });
 
 describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
-  /** A connected agent as the registry sees it: hello + an rpc stub, no socket. */
-  function attachAgent(version: string, rpc = vi.fn()) {
-    const conn = Object.assign(new EventEmitter(), {
-      hello: { type: 'hello', protocol: 1, agent_version: version, os: 'macos', tools: ['tmux'] },
-      connectedAt: Date.now(),
-      rpc,
-      close: vi.fn(),
-    });
-    agents.attach('m1', conn as never);
-    return rpc;
-  }
-
   it('POST answers 503 when the agent is offline, without minting a token', async () => {
     store.m1 = makeMachine({ id: 'm1', type: 'agent' });
     const built = buildApp(store);
@@ -354,5 +373,119 @@ describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
     const res = await app.inject({ method: 'GET', url: '/api/machines/m1/hooks' });
     expect(res.statusCode).toBe(200);
     expect(res.json().installed_at).toBeNull();
+  });
+});
+
+describe('agent update', () => {
+  afterEach(() => setLatestAgentVersion(null));
+
+  it('GET /api/machines flags outdated online agents and carries the latest version', async () => {
+    store.m1 = makeMachine({ type: 'agent', agent_version: '0.2.1' });
+    store.m2 = makeMachine({ id: 'm2', type: 'agent', agent_version: '0.2.5' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1');
+    const res = await app.inject({ method: 'GET', url: '/api/machines' });
+    const body = res.json();
+    expect(body.latest_agent_version).toBe('0.2.5');
+    expect(body.machines.find((m: { id: string }) => m.id === 'm1').update_available).toBe(true);
+    expect(body.machines.find((m: { id: string }) => m.id === 'm2').update_available).toBe(false); // offline: nothing to update
+  });
+
+  it('GET /api/machines/:id/status carries latest_agent_version and update_available', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1');
+    const res = await app.inject({ method: 'GET', url: '/api/machines/m1/status' });
+    expect(res.json()).toMatchObject({ online: true, agent_version: '0.2.1', latest_agent_version: '0.2.5', update_available: true });
+  });
+
+  it('POST answers 503 when the agent is offline', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it('POST answers 503 while the latest version is unknown', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    attachAgent('0.2.1');
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it('POST answers 409 when the agent is already up to date', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    const rpc = attachAgent('0.2.5');
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(409);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('POST answers 409 AGENT_OUTDATED for agents that predate the RPC', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.0');
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('AGENT_OUTDATED');
+  });
+
+  it('POST runs agent.update with the latest version and returns the outcome', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    const rpc = attachAgent('0.2.1', vi.fn(async () => ({ installed_version: '0.2.5', restart: 'service' })));
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('agent.update', { version: '0.2.5' }, 180_000);
+    expect(res.json()).toEqual({ installed_version: '0.2.5', restart: 'service', restarting: true });
+  });
+
+  it('POST treats a connection closed mid-update as "restarting"', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1', vi.fn(async () => { throw new AgentClosedError('closed'); }));
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ installed_version: null, restart: 'service', restarting: true });
+  });
+
+  it('POST maps an RPC failure to 502 with the agent message', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1', vi.fn(async () => { throw new AgentRpcError({ code: 'failed', message: 'npm exited with code 243' }); }));
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().code).toBe('AGENT_UPDATE_FAILED');
+    expect(res.json().error).toMatch(/^Falha ao atualizar o agente: npm exited with code 243/);
+  });
+
+  it('POST maps an RPC timeout to 504', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1', vi.fn(async () => { throw new AgentRpcError({ code: 'timeout', message: 'npm install timed out' }); }));
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(504);
+    expect(res.json().code).toBe('AGENT_UPDATE_TIMEOUT');
+  });
+
+  it('POST maps a missing-npm RPC failure to 502 with an install hint', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    setLatestAgentVersion('0.2.5');
+    attachAgent('0.2.1', vi.fn(async () => { throw new AgentRpcError({ code: 'notfound', message: 'npm not found beside node' }); }));
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/agent/update' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().code).toBe('AGENT_UPDATE_NPM_MISSING');
   });
 });

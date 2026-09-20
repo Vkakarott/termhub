@@ -203,6 +203,13 @@ directory…), never a shell command.
 - **Manage:** `termhub-agent status` shows the paired server and connectivity, `termhub-agent
   disconnect` clears the local config; the machine card has a **Rotacionar token** action that mints
   a new token and disconnects the old one.
+- **Updating the agent.** The server checks npm hourly for a newer `@termhub/agent`. In the sidebar
+  an outdated online agent shows `vX.Y.Z ↑`; open the machine and press **Atualizar** — the agent
+  runs `npm i -g @termhub/agent@<latest>` itself and, when it runs as a service (`termhub-agent
+  service install`), restarts on the new version (open terminals reconnect). Without the service it
+  installs and asks you to restart it. The switch **Atualizar automaticamente quando ociosa** lets
+  the server do this on its own whenever the machine has no open terminal (one attempt per version).
+  Needs agent ≥ 0.2.1; older agents show the badge and the manual command.
 - SSH machines keep working unchanged ("SSH (legado)" in the sidebar tooltip); the two connection
   types are just different ways to reach `tmux` on a machine.
 - **Project:** hover the machine and click "+". Enter a name and the absolute directory on the target machine — or click "Browse…" to navigate the machine's folders: the browser lists disks/mounts (with free space, via `df`) and the home directory as shortcuts, lets you filter and show hidden folders, and fills the project name with the chosen folder (`GET /api/machines/:id/fs?path=`). "+ New folder" creates a subfolder in the current folder (`POST /api/machines/:id/fs/mkdir`). On save, the server checks the folder on the machine and resolves `~` to the absolute path; with "create the folder if it doesn't exist" checked it runs `mkdir -p`; unchecked, it refuses with an error instead of letting tmux fall back to the home directory.

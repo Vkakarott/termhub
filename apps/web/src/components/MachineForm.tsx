@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth';
 import { Modal } from './Modal';
 import { SimulatorSetupCard } from './SimulatorSetupCard';
 import { AgentEnrollment } from './AgentEnrollment';
+import { AgentUpdateCard } from './AgentUpdateCard';
 import { MonitorHooksCard } from './MonitorHooksCard';
 import { useData } from '../lib/data';
 import type { Machine, User } from '../lib/types';
@@ -199,6 +200,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
             <p className="mt-1 text-[11px] text-fg-dim">Projetos, tabs, tarefas, notas e contas de IA desta máquina passam a ser vistos pelo novo dono.</p>
           </div>
         )}
+        {machine && machine.type === 'agent' && <AgentUpdateCard machine={machine} />}
         {machine && <MonitorHooksCard machine={machine} />}
         {machine && <SimulatorSetupCard machine={machine} />}
         {error && <p className="text-sm text-danger">{error}</p>}

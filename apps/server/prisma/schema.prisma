@@ -140,6 +140,8 @@ model Machine {
   agentTokenCreatedAt DateTime? @map("agent_token_created_at")
   agentVersion        String?   @map("agent_version")
   agentLastSeenAt     DateTime? @map("agent_last_seen_at")
+  /// Install newer agent versions on their own while no terminal is open on the machine (see agent/latest-version.ts)
+  agentAutoUpdate     Boolean   @default(false) @map("agent_auto_update")
   /// The user's own computer (an agent machine): browsers other than the one that added it hide it
   isLocal             Boolean   @default(false) @map("is_local")
   /// Owner: everything under the machine (projects, tabs, tasks, notes, AI accounts) is visible only to

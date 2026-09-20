@@ -32,6 +32,7 @@ import { apiTokenRoutes } from './routes/api-tokens.js';
 import { mcpRoutes } from './mcp/route.js';
 import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
+import { startAgentUpdateScheduler } from './agent/latest-version.js';
 import { registerTerminalWs } from './terminal/ws.js';
 import { registerAgentWs } from './agent/ws.js';
 import { TranscriptionService } from './terminal/transcription.js';
@@ -176,9 +177,11 @@ export async function buildApp(): Promise<App> {
   // Limpeza periódica de sessões expiradas
   const purge = setInterval(() => void authService.purgeExpired().catch(() => {}), 60 * 60 * 1000);
   const stopSync = startTicketSyncScheduler(repos, fastify.log);
+  const stopAgentUpdates = startAgentUpdateScheduler(repos, fastify.log);
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
     stopSync();
+    stopAgentUpdates();
     await simulators.shutdownAll();
     await closePrisma();
   });

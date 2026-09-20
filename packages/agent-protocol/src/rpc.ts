@@ -61,6 +61,12 @@ export const RPC = {
     15_000,
   ),
   'hooks.uninstall': def(z.object({ claude_dirs: z.array(machinePath).max(16).optional() }), z.object({ removed: z.boolean() }), 15_000),
+  /** Installs `version` of @termhub/agent with npm; when the agent runs as a service it then exits so the service relaunches the new code (since agent 0.2.1). */
+  'agent.update': def(
+    z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }),
+    z.object({ installed_version: z.string(), restart: z.enum(['service', 'manual']) }),
+    180_000,
+  ),
 } as const;
 
 export type RpcMethod = keyof typeof RPC;

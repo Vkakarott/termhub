@@ -73,6 +73,10 @@ export interface Machine {
   agent_version: string | null;
   /** last time the agent machine was seen online */
   agent_last_seen_at: string | null;
+  /** newer agent versions are installed automatically while the machine has no open terminal */
+  agent_auto_update: boolean;
+  /** server-computed: the connected agent is older than the latest on npm (absent for offline/non-agent) */
+  update_available?: boolean;
   /** the user's own computer: shown only in the browser that added it (see lib/local-machines) */
   is_local: boolean;
   /** null = orphan (visible only to admins viewing "all") */

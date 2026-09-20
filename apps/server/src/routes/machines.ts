@@ -12,9 +12,12 @@ import { browseMachine, makeDirectory } from '../terminal/machine-fs.js';
 import { collectHardware } from '../system/hardware.js';
 import { newAgentToken } from '../agent/token.js';
 import { agents } from '../agent/registry.js';
+import { isOutdated, latestAgentVersion, MIN_SELF_UPDATE_VERSION, runAgentUpdate } from '../agent/latest-version.js';
+import { requireAgentVersion } from '../agent/errors.js';
 import { config } from '../config.js';
 import { installHooks, uninstallHooks } from '../monitor/install.js';
 import { newHookToken } from '../monitor/token.js';
+import type { Machine } from '../db/repositories/types.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
@@ -33,10 +36,14 @@ const machineBody = z
     ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
     ssh_port: z.coerce.number().int().min(1).max(65535).optional(),
     is_local: z.boolean().optional(),
+    agent_auto_update: z.boolean().optional(),
   })
   .superRefine((m, ctx) => {
     if (m.type === 'ssh' && !m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'host é obrigatório para SSH' });
     if (m.type === 'agent' && m.host) ctx.addIssue({ code: 'custom', path: ['host'], message: 'máquina com agente não tem host' });
+    if (m.agent_auto_update && m.type !== 'agent') {
+      ctx.addIssue({ code: 'custom', path: ['agent_auto_update'], message: 'só máquinas com agente atualizam sozinhas' });
+    }
   });
 
 /** Config dirs of the Claude accounts registered on the machine (CLAUDE_CONFIG_DIR): the hooks go there too. */
@@ -57,9 +64,19 @@ const createBody = z
   })
   .strict(); // no host/ssh_* on an agent machine
 
+/** Newer agent on npm than the one connected? Offline agents never count: there is nothing to update. */
+function updateAvailable(m: Machine): boolean {
+  if (m.type !== 'agent') return false;
+  const info = agents.info(m.id);
+  return !!info && isOutdated(info.agent_version, latestAgentVersion());
+}
+
 export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   /** Machines in the caller's scope (own, or the "view as" target / all for admins). */
-  app.get('/', async (request) => ({ machines: await repos.machines.list(request.scope.ownerId) }));
+  app.get('/', async (request) => {
+    const machines = await repos.machines.list(request.scope.ownerId);
+    return { machines: machines.map((m) => ({ ...m, update_available: updateAvailable(m) })), latest_agent_version: latestAgentVersion() };
+  });
 
   /** New machines are agent-only: mints the enrollment token, shown to the caller this once. */
   app.post('/', async (request, reply) => {
@@ -122,7 +139,15 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const checked_at = new Date().toISOString();
     if (machine.type === 'agent') {
       const info = agents.info(id);
-      return { id, ...status, agent_version: info?.agent_version ?? machine.agent_version, last_seen_at: machine.agent_last_seen_at, checked_at };
+      return {
+        id,
+        ...status,
+        agent_version: info?.agent_version ?? machine.agent_version,
+        last_seen_at: machine.agent_last_seen_at,
+        checked_at,
+        latest_agent_version: latestAgentVersion(),
+        update_available: updateAvailable(machine),
+      };
     }
     if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
     return { id, ...status, checked_at };
@@ -205,6 +230,20 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     await repos.machineHooks.delete(machine.id);
     request.log.info({ machineId: machine.id }, 'monitor: hooks removed');
     return { ok: true };
+  });
+
+  /** Installs the latest @termhub/agent on the machine through the agent itself; the agent restarts when it runs as a service. */
+  app.post('/:id/agent/update', { config: { action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const machine = await scoped(repos, request).machine(id);
+    if (machine.type !== 'agent') throw badRequest('Só máquinas com agente são atualizadas por aqui');
+    const latest = latestAgentVersion();
+    if (!latest) throw new HttpError(503, 'Versão mais nova do agente ainda desconhecida (npm)', 'AGENT_LATEST_UNKNOWN');
+    const info = agents.info(machine.id);
+    if (!info) throw new HttpError(503, 'Agente desconectado', 'AGENT_OFFLINE');
+    if (!isOutdated(info.agent_version, latest)) throw conflict(`O agente já está na versão ${info.agent_version}`);
+    requireAgentVersion(machine, MIN_SELF_UPDATE_VERSION);
+    return runAgentUpdate(machine.id, latest, request.log);
   });
 
   /** Navegador de diretórios: subpastas de ?path (padrão $HOME) + discos/mounts da máquina. */

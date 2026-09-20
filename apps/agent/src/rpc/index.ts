@@ -6,6 +6,7 @@ import * as hw from './hw.js';
 import * as paste from './paste.js';
 import * as tmux from './tmux.js';
 import * as tools from './tools.js';
+import * as update from './update.js';
 
 // Re-exported so callers of this module (dispatch.ts) don't need to know RpcFailure actually
 // lives in exec.ts — from the RPC layer's point of view it belongs here.
@@ -28,4 +29,5 @@ export const handlers: Handlers = {
   'file.paste': paste.pasteFile,
   'hooks.install': hooks.install,
   'hooks.uninstall': hooks.uninstall,
+  'agent.update': update.update,
 };
