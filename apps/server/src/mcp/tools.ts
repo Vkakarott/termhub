@@ -1,5 +1,5 @@
 import { z, type ZodRawShape } from 'zod';
-import { TMUX_KEYS } from '@termhub/agent-protocol';
+import { TMUX_KEYS, tmuxKey } from '@termhub/agent-protocol';
 import type { Action, Resource } from '../auth/permissions.js';
 import type { ApiTokenScope } from '../auth/api-tokens.js';
 import type { ControlContext } from '../control/context.js';
@@ -25,9 +25,13 @@ export interface ToolDef {
 
 const id = z.string().min(1).max(64);
 
-/** One place that turns raw tool arguments into validated ones — used by the route pre-check and by the SDK. */
+/**
+ * One place that turns raw tool arguments into validated ones — used by the route pre-check and by the SDK.
+ * Only `undefined` (arguments omitted entirely) is treated as empty; `null` is a distinct, invalid value —
+ * zod's object schema rejects it on its own, exactly as it would reject any other non-object.
+ */
 export function parseArgs(tool: ToolDef, args: unknown): { ok: true; value: Record<string, unknown> } | { ok: false } {
-  const parsed = z.object(tool.input).safeParse(args ?? {});
+  const parsed = z.object(tool.input).safeParse(args === undefined ? {} : args);
   return parsed.success ? { ok: true, value: parsed.data as Record<string, unknown> } : { ok: false };
 }
 
@@ -101,7 +105,7 @@ export const TOOLS: ToolDef[] = [
     name: 'send_key',
     description: `Press one key in a terminal tab: ${TMUX_KEYS.join(', ')}.`,
     scope: 'terminals', resource: 'terminals', action: 'write',
-    input: { tab_id: id, key: z.enum(TMUX_KEYS) },
+    input: { tab_id: id, key: tmuxKey },
     run: (ctx, a) => sendKey(ctx, a as { tab_id: string; key: (typeof TMUX_KEYS)[number] }),
   },
   {

@@ -29,6 +29,16 @@ export const RESOURCE_KEYS: readonly string[] = RESOURCES.map((r) => r.key);
 export const isResource = (v: string): v is Resource => RESOURCE_KEYS.includes(v);
 export const isAction = (v: string): v is Action => (ACTIONS as readonly string[]).includes(v);
 
+/**
+ * Whether a resource/action pair is a grant that can actually exist: the four CRUD actions are valid for
+ * every resource, but 'write' is valid only for 'terminals' (the MCP write tools are not CRUD on a record).
+ * The one place this is checked — the permissions toggle route, the matrix the settings page reads, and the
+ * admin's flat grant list all call this instead of repeating the condition.
+ */
+export function isValidGrant(resource: Resource, action: Action): boolean {
+  return action === 'write' ? resource === 'terminals' : true;
+}
+
 /** HTTP method -> default action for routes that only set a resource. */
 export function actionForMethod(method: string): Action {
   switch (method.toUpperCase()) {
@@ -87,6 +97,6 @@ export async function isAdmin(repos: Repositories, user: User | null | undefined
 export async function permissionsOf(repos: Repositories, user: User): Promise<string[]> {
   if (!user.role_id) return [];
   const g = await grants(repos, user.role_id);
-  if (g.isAdmin) return RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r.key}:${a}`));
+  if (g.isAdmin) return RESOURCES.flatMap((r) => ACTIONS.filter((a) => isValidGrant(r.key, a)).map((a) => `${r.key}:${a}`));
   return [...g.set].sort();
 }

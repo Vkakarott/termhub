@@ -185,6 +185,15 @@ describe('POST /mcp tools', () => {
     expect(JSON.parse(r.json().result.content[0].text).machines[0].id).toBe('m1');
   });
 
+  it('refuses arguments: null for an all-optional tool as INVALID_ARGS instead of silently passing it through', async () => {
+    const { app, apiTokens } = build();
+    const r = await rpc(app, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'list_machines', arguments: null } });
+    expect(r.json().error ?? r.json().result?.isError).toBeTruthy();
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'list_machines', ok: false, error_code: 'INVALID_ARGS' });
+    expect(listMachines).not.toHaveBeenCalled();
+  });
+
   it('applies the per-token rate limit', async () => {
     const { app } = build({ limiter: new TokenRateLimiter(1, 60_000) });
     await rpc(app, call('list_machines'));
