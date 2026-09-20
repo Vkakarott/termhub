@@ -16,6 +16,7 @@ export interface SubtaskIn {
 /** A task as the tools return it: never `external_ref` (provider payload the model does not need). */
 export interface TaskOut {
   id: string;
+  project_id: string;
   title: string;
   description: string | null;
   status: TaskStatus;
@@ -33,7 +34,7 @@ export interface TaskTreeOut extends TaskOut {
 }
 
 const out = (t: Task): TaskOut => ({
-  id: t.id, title: t.title, description: t.description, status: t.status, position: t.position, parent_id: t.parent_id,
+  id: t.id, project_id: t.project_id, title: t.title, description: t.description, status: t.status, position: t.position, parent_id: t.parent_id,
   tab_id: t.tab_id, external_key: t.external_key, created_at: t.created_at, updated_at: t.updated_at,
 });
 const outTree = (t: TaskWithSubtasks): TaskTreeOut => ({ ...out(t), subtasks: t.subtasks.map(out), subtask_counts: t.subtask_counts });
@@ -106,7 +107,8 @@ export async function deleteTask(ctx: ControlContext, input: { task_id: string; 
   const { task } = await ctx.scoped.task(input.task_id);
   const children = await ctx.repos.tasks.childIds(task.id);
   if (!input.confirm) {
-    const what = children.length ? `a tarefa "${task.title}" e ${subtaskCount(children.length)}` : `a tarefa "${task.title}"`;
+    const kind = task.parent_id ? 'a subtarefa' : 'a tarefa';
+    const what = children.length ? `${kind} "${task.title}" e ${subtaskCount(children.length)}` : `${kind} "${task.title}"`;
     throw new ControlError('CONFIRM_REQUIRED', `Isso exclui ${what}; repita com confirm: true para confirmar`);
   }
   // Tickets point at tasks by id with no FK: unlink the whole subtree so they show as "não importado" again.

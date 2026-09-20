@@ -67,7 +67,7 @@ describe('listTasks', () => {
     const r = await listTasks(c, { project_id: 'p1' });
     expect(r.board_url).toBe('https://app.test/projects/p1/tasks');
     expect(r.tasks.map((t) => t.id)).toEqual(['k1', 'k2']);
-    expect(r.tasks[0]).toMatchObject({ id: 'k1', title: 'Spec', status: 'doing', external_key: 'LIN-1', subtask_counts: { done: 1, total: 1 } });
+    expect(r.tasks[0]).toMatchObject({ id: 'k1', project_id: 'p1', title: 'Spec', status: 'doing', external_key: 'LIN-1', subtask_counts: { done: 1, total: 1 } });
     expect(r.tasks[0].subtasks[0]).toMatchObject({ id: 's1', parent_id: 'k1', status: 'done' });
     expect(r.tasks[0]).not.toHaveProperty('external_ref');
   });
@@ -216,6 +216,7 @@ describe('deleteTask', () => {
     await expect(deleteTask(c, { task_id: 'k1' })).rejects.toMatchObject({ message: 'Isso exclui a tarefa "Spec" e 2 subtarefas; repita com confirm: true para confirmar' });
     repos.tasks.childIds.mockResolvedValue([]);
     await expect(deleteTask(c, { task_id: 'k2' })).rejects.toMatchObject({ message: 'Isso exclui a tarefa "Plan"; repita com confirm: true para confirmar' });
+    await expect(deleteTask(c, { task_id: 's1' })).rejects.toMatchObject({ message: 'Isso exclui a subtarefa "Write it"; repita com confirm: true para confirmar' });
   });
 
   it('404s a task of another user', async () => {
