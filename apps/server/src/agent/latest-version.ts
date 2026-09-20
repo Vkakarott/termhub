@@ -1,4 +1,5 @@
 import { httpJson } from '../ai/credentials.js';
+import type { Repositories } from '../db/repositories/index.js';
 import { AgentClosedError } from './connection.js';
 import { toHttpError, versionAtLeast } from './errors.js';
 import { agents } from './registry.js';
@@ -97,4 +98,46 @@ export async function runAgentUpdate(machineId: string, version: string, log: Ve
     }
     throw toHttpError(err);
   }
+}
+
+export const AUTO_UPDATE_MS = 10 * 60 * 1000;
+/** machine id → version already attempted, so a failing install is tried once per release. */
+const attempted = new Map<string, string>();
+
+/** Tests only. */
+export function resetAutoUpdateAttempts(): void {
+  attempted.clear();
+}
+
+/** Installs the latest agent on opted-in machines that are online, outdated, idle (no open terminal) and new enough to know the RPC. */
+export async function autoUpdateTick(repos: Pick<Repositories, 'machines'>, log: VersionLog): Promise<void> {
+  const latest = cached;
+  if (!latest) return;
+  const machines = await repos.machines.listAutoUpdate();
+  for (const m of machines) {
+    const info = agents.info(m.id);
+    if (!info || !isOutdated(info.agent_version, latest)) continue;
+    if (!versionAtLeast(info.agent_version, MIN_SELF_UPDATE_VERSION)) continue;
+    if (agents.openChannels(m.id) > 0) continue;
+    if (attempted.get(m.id) === latest) continue;
+    attempted.set(m.id, latest);
+    try {
+      const r = await runAgentUpdate(m.id, latest, log);
+      log.info({ machineId: m.id, from: info.agent_version, to: latest, restart: r.restart }, 'agent auto-update');
+    } catch (err) {
+      log.warn({ machineId: m.id, to: latest, err: (err as Error).message }, 'agent auto-update failed');
+    }
+  }
+}
+
+/** Boot-time wiring: the npm poller (each refresh runs a tick) plus a tick every AUTO_UPDATE_MS. */
+export function startAgentUpdateScheduler(repos: Pick<Repositories, 'machines'>, log: VersionLog): () => void {
+  const tick = () => autoUpdateTick(repos, log).catch((err) => log.warn({ err: (err as Error).message }, 'agent auto-update tick failed'));
+  const stopPoll = startAgentVersionPoller(log, tick);
+  const timer = setInterval(() => void tick(), AUTO_UPDATE_MS);
+  timer.unref();
+  return () => {
+    stopPoll();
+    clearInterval(timer);
+  };
 }
