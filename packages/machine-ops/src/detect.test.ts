@@ -9,6 +9,9 @@ describe('detect', () => {
     expect(parseDetect('OS:Linux\n')).toEqual({ os: 'linux', capabilities: [] });
     expect(parseDetect('')).toEqual({ os: null, capabilities: [] });
   });
+  it('probes the CLIs start_agent can launch', () => {
+    expect(DETECT_TOOLS).toEqual(expect.arrayContaining(['claude', 'codex']));
+  });
   it('probes every tool of the catalog', () => {
     for (const t of DETECT_TOOLS) expect(DETECT_SCRIPT).toContain(t);
     expect(DETECT_SCRIPT).toContain('CAP:wda');
