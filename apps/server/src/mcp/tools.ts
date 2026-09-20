@@ -6,6 +6,9 @@ import type { ControlContext } from '../control/context.js';
 import { find, listAiAccounts, listMachines, listProjects, listTabs } from '../control/inventory.js';
 import { readScreen, SCREEN_MAX_LINES, WAIT_MAX_SECONDS, waitForState } from '../control/screen.js';
 import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendInput, sendKey } from '../control/terminals.js';
+import { addSubtasks, createTask, deleteTask, listTasks, moveTask, TASK_DESCRIPTION_MAX, TASK_POSITION_MAX, TASK_TITLE_MAX, updateTask } from '../control/tasks.js';
+import { MAX_SUBTASKS_PER_CALL } from '../db/repositories/tasks.js';
+import type { TaskStatus } from '../db/repositories/types.js';
 
 export interface ToolDef {
   name: string;
@@ -24,6 +27,11 @@ export interface ToolDef {
 }
 
 const id = z.string().min(1).max(64);
+
+const taskStatus = z.enum(['backlog', 'todo', 'doing', 'done']);
+const taskTitle = z.string().trim().min(1).max(TASK_TITLE_MAX);
+const taskDescription = z.string().trim().max(TASK_DESCRIPTION_MAX).nullable();
+const subtaskItems = z.array(z.object({ title: taskTitle, description: taskDescription.optional() })).min(1).max(MAX_SUBTASKS_PER_CALL);
 
 /**
  * One place that turns raw tool arguments into validated ones — used by the route pre-check and by the SDK.
@@ -121,6 +129,48 @@ export const TOOLS: ToolDef[] = [
     scope: 'terminals', resource: 'terminals', action: 'write',
     input: { tab_id: id, force: z.boolean().optional() },
     run: (ctx, a) => closeTab(ctx, a as { tab_id: string; force?: boolean }),
+  },
+  {
+    name: 'list_tasks',
+    description: 'List the tasks of a project as the board shows them: top-level tasks by column (backlog, todo, doing, done) with their subtasks nested, the tab each one is linked to, and the board URL. status filters the top-level tasks.',
+    scope: 'tasks', resource: 'tasks', action: 'read',
+    input: { project_id: id, status: taskStatus.optional() },
+    run: (ctx, a) => listTasks(ctx, a as { project_id: string; status?: TaskStatus }),
+  },
+  {
+    name: 'create_task',
+    description: `Create a task at the top of a column (default todo), optionally with its subtasks (max ${MAX_SUBTASKS_PER_CALL}) in one transaction. Returns the ids and the board URL.`,
+    scope: 'tasks', resource: 'tasks', action: 'create',
+    input: { project_id: id, title: taskTitle, description: taskDescription.optional(), status: taskStatus.optional(), subtasks: subtaskItems.optional() },
+    run: (ctx, a) => createTask(ctx, a as { project_id: string; title: string; description?: string | null; status?: TaskStatus; subtasks?: { title: string; description?: string | null }[] }),
+  },
+  {
+    name: 'add_subtasks',
+    description: `Append subtasks (max ${MAX_SUBTASKS_PER_CALL} per call) to a top-level task. One level only: a subtask cannot have subtasks.`,
+    scope: 'tasks', resource: 'tasks', action: 'create',
+    input: { task_id: id, subtasks: subtaskItems },
+    run: (ctx, a) => addSubtasks(ctx, a as { task_id: string; subtasks: { title: string; description?: string | null }[] }),
+  },
+  {
+    name: 'update_task',
+    description: 'Change the title, description (null clears it) or status of a task or subtask. Changing the status of a top-level task moves it to the top of that column.',
+    scope: 'tasks', resource: 'tasks', action: 'update',
+    input: { task_id: id, title: taskTitle.optional(), description: taskDescription.optional(), status: taskStatus.optional() },
+    run: (ctx, a) => updateTask(ctx, a as { task_id: string; title?: string; description?: string | null; status?: TaskStatus }),
+  },
+  {
+    name: 'move_task',
+    description: `Move a top-level task to a column at a position (0 = top, default; max ${TASK_POSITION_MAX}, clamped). Subtasks have no column: change their status with update_task.`,
+    scope: 'tasks', resource: 'tasks', action: 'update',
+    input: { task_id: id, status: taskStatus, position: z.number().int().min(0).max(TASK_POSITION_MAX).optional() },
+    run: (ctx, a) => moveTask(ctx, a as { task_id: string; status: TaskStatus; position?: number }),
+  },
+  {
+    name: 'delete_task',
+    description: 'Delete a task and all its subtasks (or one subtask). Requires confirm: true; without it the answer says what would be deleted and nothing happens.',
+    scope: 'tasks', resource: 'tasks', action: 'delete',
+    input: { task_id: id, confirm: z.boolean().optional() },
+    run: (ctx, a) => deleteTask(ctx, a as { task_id: string; confirm?: boolean }),
   },
 ];
 

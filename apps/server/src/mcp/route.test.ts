@@ -5,11 +5,13 @@ vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof impor
 vi.mock('../control/inventory.js', async (orig) => ({ ...(await orig<typeof import('../control/inventory.js')>()), listMachines: vi.fn() }));
 vi.mock('../control/screen.js', async (orig) => ({ ...(await orig<typeof import('../control/screen.js')>()), readScreen: vi.fn() }));
 vi.mock('../control/terminals.js', async (orig) => ({ ...(await orig<typeof import('../control/terminals.js')>()), sendInput: vi.fn() }));
+vi.mock('../control/tasks.js', async (orig) => ({ ...(await orig<typeof import('../control/tasks.js')>()), createTask: vi.fn(), deleteTask: vi.fn() }));
 
 import { canAccess } from '../auth/permissions.js';
 import { listMachines } from '../control/inventory.js';
 import { readScreen } from '../control/screen.js';
 import { sendInput } from '../control/terminals.js';
+import { createTask, deleteTask } from '../control/tasks.js';
 import { ControlError } from '../control/context.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ApiToken } from '../db/repositories/api-tokens.js';
@@ -404,5 +406,69 @@ describe('terminals scope', () => {
     const res = await rpc(app, { jsonrpc: '2.0', method: 'notifications/initialized' });
     expect(res.statusCode).toBe(202);
     expect(res.body).toBe('');
+  });
+});
+
+describe('tasks scope', () => {
+  const TASK_TOOLS = ['list_tasks', 'create_task', 'add_subtasks', 'update_task', 'move_task', 'delete_task'];
+  const tasksToken = token({ scopes: ['read', 'tasks'] });
+  const taskGrants = ['projects:read', 'tasks:read', 'tasks:create', 'tasks:update', 'tasks:delete'];
+
+  it('hides the task tools from a read-only token and names the scope when one is called', async () => {
+    const { app, apiTokens } = build({ grants: taskGrants });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    const names = list.json().result.tools.map((t: { name: string }) => t.name);
+    for (const n of TASK_TOOLS) expect(names).not.toContain(n);
+
+    const refused = await rpc(app, call('create_task', { project_id: 'p1', title: 'x' }));
+    expect(refused.json().result.isError).toBe(true);
+    expect(refused.json().result.content[0].text).toContain('escopo `tasks`');
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'create_task', ok: false, error_code: 'TOOL_NOT_ALLOWED', project_id: 'p1' });
+  });
+
+  it('offers each task tool only with its own grant', async () => {
+    const { app } = build({ token: tasksToken, grants: ['tasks:read', 'tasks:update'] });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    const names = list.json().result.tools.map((t: { name: string }) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['list_tasks', 'update_task', 'move_task']));
+    expect(names).not.toContain('create_task');
+    expect(names).not.toContain('add_subtasks');
+    expect(names).not.toContain('delete_task');
+  });
+
+  it('offers all six to a tasks token whose user has every tasks grant', async () => {
+    const { app } = build({ token: tasksToken, grants: taskGrants });
+    const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    expect(list.json().result.tools.map((t: { name: string }) => t.name)).toEqual(expect.arrayContaining(TASK_TOOLS));
+  });
+
+  it('rejects an invalid status before the control layer runs', async () => {
+    const { app, apiTokens } = build({ token: tasksToken, grants: taskGrants });
+    const r = await rpc(app, call('create_task', { project_id: 'p1', title: 'x', status: 'blocked' }));
+    expect(r.json().error ?? r.json().result.isError).toBeTruthy();
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'create_task', ok: false, error_code: 'INVALID_ARGS' });
+    expect(createTask).not.toHaveBeenCalled();
+  });
+
+  it('never records titles or descriptions, only the project id', async () => {
+    vi.mocked(createTask).mockResolvedValue({ task: { id: 'k9' } as never, board_url: 'https://app.test/projects/p1/tasks' });
+    const { app, apiTokens } = build({ token: tasksToken, grants: taskGrants });
+    const r = await rpc(app, call('create_task', { project_id: 'p1', title: 'TITULO-SECRETO', description: 'DESC-SECRETA', subtasks: [{ title: 'SUB-SECRETA' }] }));
+    expect(r.json().result.isError).toBeUndefined();
+    await flush();
+    expect(JSON.stringify(apiTokens.recordEvent.mock.calls)).not.toMatch(/SECRET/);
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'create_task', ok: true, project_id: 'p1' });
+  });
+
+  it('surfaces the confirm refusal of delete_task as a tool error with its code', async () => {
+    vi.mocked(deleteTask).mockRejectedValue(new ControlError('CONFIRM_REQUIRED', 'Isso exclui a tarefa "x"; repita com confirm: true para confirmar'));
+    const { app, apiTokens } = build({ token: tasksToken, grants: taskGrants });
+    const r = await rpc(app, call('delete_task', { task_id: 'k1' }));
+    expect(r.json().result.isError).toBe(true);
+    expect(r.json().result.content[0].text).toContain('confirm: true');
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'delete_task', ok: false, error_code: 'CONFIRM_REQUIRED' });
   });
 });

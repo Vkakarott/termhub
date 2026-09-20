@@ -52,6 +52,28 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
     expect(list[0].subtask_counts).toEqual({ done: 0, total: 3 });
   });
 
+  it('creates a task with its subtasks in one call, at the top of its column', async () => {
+    const older = await repo.create(projectId, { title: 'older' });
+    const t = await repo.createWithSubtasks(projectId, { title: 'spec', description: 'd', status: 'todo' }, [{ title: 'a' }, { title: 'b', description: 'bd' }]);
+    expect(t).toMatchObject({ title: 'spec', description: 'd', status: 'todo', position: 0, parent_id: null, subtask_counts: { done: 0, total: 2 } });
+    expect(t.subtasks.map((s) => [s.title, s.position, s.parent_id, s.project_id])).toEqual([['a', 0, t.id, projectId], ['b', 1, t.id, projectId]]);
+    expect((await repo.findById(older.id))?.position).toBe(1);
+    const listed = await repo.listByProject(projectId);
+    expect(titles(listed)).toEqual(['spec', 'older']);
+    expect(titles(listed[0].subtasks)).toEqual(['a', 'b']);
+  });
+
+  it('creates a task with no subtasks through the same call', async () => {
+    const t = await repo.createWithSubtasks(projectId, { title: 'alone' }, []);
+    expect(t).toMatchObject({ title: 'alone', status: 'todo', subtasks: [], subtask_counts: { done: 0, total: 0 } });
+  });
+
+  it('rejects too many subtasks in createWithSubtasks, creating nothing', async () => {
+    const many = Array.from({ length: MAX_SUBTASKS_PER_CALL + 1 }, (_, i) => ({ title: `s${i}` }));
+    await expect(repo.createWithSubtasks(projectId, { title: 'x' }, many)).rejects.toMatchObject({ code: 'TOO_MANY_SUBTASKS' } satisfies Partial<TaskRuleError>);
+    expect(await repo.listByProject(projectId)).toEqual([]);
+  });
+
   it('rejects a call over the per-call cap, creating nothing', async () => {
     const parent = await repo.create(projectId, { title: 'parent' });
     const items = Array.from({ length: MAX_SUBTASKS_PER_CALL + 1 }, (_, i) => ({ title: `s${i}` }));
