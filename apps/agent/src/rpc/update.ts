@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
@@ -21,17 +21,29 @@ const EXIT_DELAY_MS = 750;
 
 export interface UpdateDeps {
   run: (file: string, args: string[], opts?: { timeoutMs?: number }) => Promise<RunResult>;
-  npmPath: () => string;
+  execPath: string;
+  npmCli: () => string | null;
   installedVersion: () => Promise<string | null>;
   serviceInstalled: () => Promise<boolean>;
   exit: (code: number) => void;
   log: (msg: string, meta?: object) => void;
 }
 
-/** The `npm` shipped next to the running node (nvm, Homebrew and the official installer all do that); PATH lookup otherwise. */
-export function npmBesideNode(execPath = process.execPath): string {
-  const beside = path.join(path.dirname(execPath), 'npm');
-  return existsSync(beside) ? beside : 'npm';
+/**
+ * Absolute path of npm's entry script (`npm-cli.js`), shipped next to the running node (nvm,
+ * Homebrew and the official installer all do that). We run it as `node <npm-cli.js>` instead of
+ * executing the `npm` file directly: that file is a `#!/usr/bin/env node` script, so running it
+ * would resolve its interpreter — and therefore npm's global install prefix — from PATH, which
+ * can point at a different node than the one running this agent (wrong prefix) or none at all.
+ * Resolves the `npm` symlink beside node to its real target, falling back to the conventional
+ * `../lib/node_modules/npm/bin/npm-cli.js` layout, and `null` when neither exists.
+ */
+export function npmCliBesideNode(execPath = process.execPath): string | null {
+  const dir = path.dirname(execPath);
+  const symlink = path.join(dir, 'npm');
+  if (existsSync(symlink)) return realpathSync(symlink);
+  const fallback = path.join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  return existsSync(fallback) ? fallback : null;
 }
 
 /** Version of the package this process was started from: <pkg>/dist/cli.js → <pkg>/package.json. */
@@ -48,7 +60,8 @@ export async function installedAgentVersion(argv1 = process.argv[1]): Promise<st
 
 const defaultDeps: UpdateDeps = {
   run,
-  npmPath: npmBesideNode,
+  execPath: process.execPath,
+  npmCli: npmCliBesideNode,
   installedVersion: installedAgentVersion,
   serviceInstalled: () => service.status(),
   exit: (code) => process.exit(code),
@@ -69,8 +82,10 @@ export async function updateAgent(params: RpcParams<'agent.update'>, deps: Updat
 
 async function doUpdate(version: string, deps: UpdateDeps): Promise<RpcResult<'agent.update'>> {
   deps.log('update starting', { from: AGENT_VERSION, to: version });
+  const npmCli = deps.npmCli();
+  if (!npmCli) throw new RpcFailure('notfound', 'npm not found beside node');
   // npm's own output is never logged: it can echo paths and registry details.
-  const r = await deps.run(deps.npmPath(), ['install', '-g', '--no-fund', '--no-audit', `${PACKAGE}@${version}`], { timeoutMs: NPM_TIMEOUT_MS });
+  const r = await deps.run(deps.execPath, [npmCli, 'install', '-g', '--no-fund', '--no-audit', `${PACKAGE}@${version}`], { timeoutMs: NPM_TIMEOUT_MS });
   if (r.error === 'enoent') throw new RpcFailure('notfound', 'npm not found on this machine');
   if (r.timedOut) throw new RpcFailure('timeout', 'npm install timed out');
   if (r.code !== 0) {
