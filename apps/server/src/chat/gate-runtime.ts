@@ -186,8 +186,11 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
     );
   }
   // Enriched the same way, and only in this one place, as `GET /api/chat`'s trail — the browser
-  // must never resolve a machine/project/tab name or build the sentence itself.
-  const [card] = await describeActions(ctx.repos, [row]);
+  // must never resolve a machine/project/tab name or build the sentence itself. Scoped to the calling
+  // user: the model on a gated token could name someone else's task/tab/project id in `call.args`
+  // (exactly what a prompt injected into a terminal screen would aim for), and this card must never
+  // confirm that a foreign id exists, let alone show its name, before the call that would 404 on it.
+  const [card] = await describeActions(ctx.repos, [row], ctx.scope.user.id);
   chatBus.publish({
     type: 'confirmation',
     user_id: ctx.scope.user.id,

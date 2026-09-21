@@ -25,7 +25,8 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // screen): a reload must see every pending/decided action exactly as the server has it,
     // including an old denied row sitting beside a newer pending one for the same proposal.
     const [messages, rows] = await Promise.all([repos.chat.listMessages(conversation.id), repos.chatActions.listByConversation(conversation.id)]);
-    const actions = await describeActions(repos, rows);
+    // Scoped to this request's own user: a card must never resolve a name this user cannot see.
+    const actions = await describeActions(repos, rows, request.scope.user.id);
     return { conversation, messages, actions };
   });
 

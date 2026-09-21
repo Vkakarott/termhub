@@ -15,6 +15,10 @@ function build(opts: {
   tabs?: { id: string; project_id: string; name: string }[];
   projects?: { id: string; machine_id: string; name: string }[];
   machines?: { id: string; name: string }[];
+  /** Ids that only ever resolve for this owner — the request's own user id ('u1') unless overridden,
+   * matching every one of the fixtures above by default. Used to prove the route scopes by the
+   * signed-in user, not an unfiltered read. */
+  fixturesOwner?: string;
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
@@ -29,12 +33,14 @@ function build(opts: {
   const tabs = opts.tabs ?? [];
   const projects = opts.projects ?? [];
   const machines = opts.machines ?? [];
+  const fixturesOwner = opts.fixturesOwner ?? 'u1';
   const repos = {
     chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]) },
     chatActions: { decide, findByIdForUser, listByConversation },
-    tabs: { findByIds: vi.fn(async (ids: string[]) => tabs.filter((t) => ids.includes(t.id))) },
-    projects: { findByIds: vi.fn(async (ids: string[]) => projects.filter((p) => ids.includes(p.id))) },
-    machines: { findByIds: vi.fn(async (ids: string[]) => machines.filter((m) => ids.includes(m.id))) },
+    tabs: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? tabs.filter((t) => ids.includes(t.id)) : [])) },
+    projects: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? projects.filter((p) => ids.includes(p.id)) : [])) },
+    machines: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? machines.filter((m) => ids.includes(m.id)) : [])) },
+    tasks: { findByIdsForOwner: vi.fn(async () => []) },
   };
   const app = Fastify();
   applyErrorHandler(app);
@@ -78,6 +84,24 @@ it('returns the trail as sentences enriched with real names, keyed by each row\'
   expect(pending.summary).toBe('digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3');
   expect(denied).toMatchObject({ id: 'act0', status: 'denied' });
   expect(denied.summary).toBe('digitar `rm -rf /` na aba Terminal 2 do projeto reactivando, no macbook m3');
+});
+
+it('scopes the trail\'s enrichment to the signed-in user: a tab belonging to someone else never names itself on this card', async () => {
+  // The security fix: a proposed action naming another user's tab id must read as "does not exist"
+  // on this user's screen, not disclose the foreign tab's name — this is a live check that the route
+  // passes the request's own user id through to describeActions, not an unscoped read.
+  const rows = [{ ...pendingAction, id: 'act1', status: 'pending', args: { tab_id: 't9', text: 'oi' }, tab_id: 't9' }];
+  const { app } = build({
+    listByConversation: vi.fn(async () => rows),
+    tabs: [{ id: 't9', project_id: 'p9', name: 'Aba Alheia' }],
+    fixturesOwner: 'someone-else',
+  });
+
+  const res = await app.inject({ method: 'GET', url: '/chat' });
+  expect(res.statusCode).toBe(200);
+  const { actions } = res.json();
+  expect(actions[0].summary).toBe('digitar `oi` numa aba que não existe mais');
+  expect(actions[0].summary).not.toContain('Aba Alheia');
 });
 
 it('sends a message and answers with the assistant row', async () => {

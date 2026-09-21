@@ -145,14 +145,21 @@ function build(opts: { gated: boolean }) {
     chat,
     chatActions: actions,
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
-    machines: { findById: vi.fn(async () => machine), list: vi.fn(async () => [machine]), findByIds: vi.fn(async (ids: string[]) => (ids.includes(machine.id) ? [machine] : [])) },
-    projects: { findById: vi.fn(async () => project), findByIds: vi.fn(async (ids: string[]) => (ids.includes(project.id) ? [project] : [])) },
-    tasks: { listByProject: vi.fn(async () => []), findByIds: vi.fn(async () => []) },
+    machines: {
+      findById: vi.fn(async () => machine),
+      list: vi.fn(async () => [machine]),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === machine.owner_id && ids.includes(machine.id) ? [machine] : [])),
+    },
+    projects: {
+      findById: vi.fn(async () => project),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === machine.owner_id && ids.includes(project.id) ? [project] : [])),
+    },
+    tasks: { listByProject: vi.fn(async () => []), findByIdsForOwner: vi.fn(async () => []) },
     tabs: {
       listByProject: vi.fn(async () => [...tabs.values()]),
       countOpenByToken: vi.fn(async () => 0),
       findById: vi.fn(async (id: string) => tabs.get(id)),
-      findByIds: vi.fn(async (ids: string[]) => [...tabs.values()].filter((t) => ids.includes(t.id as string))),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === machine.owner_id ? [...tabs.values()].filter((t) => ids.includes(t.id as string)) : [])),
       delete: vi.fn(async (id: string) => tabs.delete(id)),
     },
   } as unknown as Repositories;
