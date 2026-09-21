@@ -9,6 +9,7 @@
     "apps/web",
     "apps/landing",
     "apps/agent",
+    "apps/concierge",
     "packages/*"
   ],
   "scripts": {

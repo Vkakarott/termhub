@@ -33,6 +33,10 @@ jobs:
         run: npm run typecheck -w @termhub/agent
       - name: Build agent
         run: npm run build -w @termhub/agent
+      - name: Testes concierge
+        run: npm test -w @termhub/concierge
+      - name: Typecheck + build concierge
+        run: npm run typecheck -w @termhub/concierge && npm run build -w @termhub/concierge
       - name: Instalar tmux (teste e2e do agente)
         run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Aplicar migrations (testes de repositório usam o Postgres)

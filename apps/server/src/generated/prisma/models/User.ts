@@ -236,6 +236,7 @@ export type UserWhereInput = {
   integrations?: Prisma.IntegrationListRelationFilter
   uploads?: Prisma.UploadListRelationFilter
   apiTokens?: Prisma.ApiTokenListRelationFilter
+  chatConversations?: Prisma.ChatConversationListRelationFilter
 }
 
 export type UserOrderByWithRelationInput = {
@@ -256,6 +257,7 @@ export type UserOrderByWithRelationInput = {
   integrations?: Prisma.IntegrationOrderByRelationAggregateInput
   uploads?: Prisma.UploadOrderByRelationAggregateInput
   apiTokens?: Prisma.ApiTokenOrderByRelationAggregateInput
+  chatConversations?: Prisma.ChatConversationOrderByRelationAggregateInput
 }
 
 export type UserWhereUniqueInput = Prisma.AtLeast<{
@@ -279,6 +281,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   integrations?: Prisma.IntegrationListRelationFilter
   uploads?: Prisma.UploadListRelationFilter
   apiTokens?: Prisma.ApiTokenListRelationFilter
+  chatConversations?: Prisma.ChatConversationListRelationFilter
 }, "id" | "email" | "googleId">
 
 export type UserOrderByWithAggregationInput = {
@@ -332,6 +335,7 @@ export type UserCreateInput = {
   integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateInput = {
@@ -351,6 +355,7 @@ export type UserUncheckedCreateInput = {
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserUpdateInput = {
@@ -370,6 +375,7 @@ export type UserUpdateInput = {
   integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateInput = {
@@ -389,6 +395,7 @@ export type UserUncheckedUpdateInput = {
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateManyInput = {
@@ -632,6 +639,20 @@ export type UserUpdateOneRequiredWithoutApiTokensNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutApiTokensInput, Prisma.UserUpdateWithoutApiTokensInput>, Prisma.UserUncheckedUpdateWithoutApiTokensInput>
 }
 
+export type UserCreateNestedOneWithoutChatConversationsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutChatConversationsInput, Prisma.UserUncheckedCreateWithoutChatConversationsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutChatConversationsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutChatConversationsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutChatConversationsInput, Prisma.UserUncheckedCreateWithoutChatConversationsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutChatConversationsInput
+  upsert?: Prisma.UserUpsertWithoutChatConversationsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutChatConversationsInput, Prisma.UserUpdateWithoutChatConversationsInput>, Prisma.UserUncheckedUpdateWithoutChatConversationsInput>
+}
+
 export type UserCreateWithoutRoleRefInput = {
   id: string
   email: string
@@ -648,6 +669,7 @@ export type UserCreateWithoutRoleRefInput = {
   integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutRoleRefInput = {
@@ -666,6 +688,7 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutRoleRefInput = {
@@ -727,6 +750,7 @@ export type UserCreateWithoutSessionsInput = {
   integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutSessionsInput = {
@@ -745,6 +769,7 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutSessionsInput = {
@@ -779,6 +804,7 @@ export type UserUpdateWithoutSessionsInput = {
   integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutSessionsInput = {
@@ -797,6 +823,7 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutMachinesInput = {
@@ -815,6 +842,7 @@ export type UserCreateWithoutMachinesInput = {
   integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutMachinesInput = {
@@ -833,6 +861,7 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutMachinesInput = {
@@ -867,6 +896,7 @@ export type UserUpdateWithoutMachinesInput = {
   integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutMachinesInput = {
@@ -885,6 +915,7 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutIntegrationsInput = {
@@ -903,6 +934,7 @@ export type UserCreateWithoutIntegrationsInput = {
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutIntegrationsInput = {
@@ -921,6 +953,7 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutIntegrationsInput = {
@@ -955,6 +988,7 @@ export type UserUpdateWithoutIntegrationsInput = {
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutIntegrationsInput = {
@@ -973,6 +1007,7 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutUploadsInput = {
@@ -991,6 +1026,7 @@ export type UserCreateWithoutUploadsInput = {
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutUploadsInput = {
@@ -1009,6 +1045,7 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutUploadsInput = {
@@ -1043,6 +1080,7 @@ export type UserUpdateWithoutUploadsInput = {
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutUploadsInput = {
@@ -1061,6 +1099,7 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutApiTokensInput = {
@@ -1079,6 +1118,7 @@ export type UserCreateWithoutApiTokensInput = {
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutApiTokensInput = {
@@ -1097,6 +1137,7 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutApiTokensInput = {
@@ -1131,6 +1172,7 @@ export type UserUpdateWithoutApiTokensInput = {
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutApiTokensInput = {
@@ -1149,6 +1191,99 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutChatConversationsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutChatConversationsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutChatConversationsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutChatConversationsInput, Prisma.UserUncheckedCreateWithoutChatConversationsInput>
+}
+
+export type UserUpsertWithoutChatConversationsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutChatConversationsInput, Prisma.UserUncheckedUpdateWithoutChatConversationsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutChatConversationsInput, Prisma.UserUncheckedCreateWithoutChatConversationsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutChatConversationsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutChatConversationsInput, Prisma.UserUncheckedUpdateWithoutChatConversationsInput>
+}
+
+export type UserUpdateWithoutChatConversationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutChatConversationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateManyRoleRefInput = {
@@ -1180,6 +1315,7 @@ export type UserUpdateWithoutRoleRefInput = {
   integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutRoleRefInput = {
@@ -1198,6 +1334,7 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateManyWithoutRoleRefInput = {
@@ -1224,6 +1361,7 @@ export type UserCountOutputType = {
   integrations: number
   uploads: number
   apiTokens: number
+  chatConversations: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1232,6 +1370,7 @@ export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.I
   integrations?: boolean | UserCountOutputTypeCountIntegrationsArgs
   uploads?: boolean | UserCountOutputTypeCountUploadsArgs
   apiTokens?: boolean | UserCountOutputTypeCountApiTokensArgs
+  chatConversations?: boolean | UserCountOutputTypeCountChatConversationsArgs
 }
 
 /**
@@ -1279,6 +1418,13 @@ export type UserCountOutputTypeCountApiTokensArgs<ExtArgs extends runtime.Types.
   where?: Prisma.ApiTokenWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountChatConversationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatConversationWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1298,6 +1444,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   integrations?: boolean | Prisma.User$integrationsArgs<ExtArgs>
   uploads?: boolean | Prisma.User$uploadsArgs<ExtArgs>
   apiTokens?: boolean | Prisma.User$apiTokensArgs<ExtArgs>
+  chatConversations?: boolean | Prisma.User$chatConversationsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -1353,6 +1500,7 @@ export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   integrations?: boolean | Prisma.User$integrationsArgs<ExtArgs>
   uploads?: boolean | Prisma.User$uploadsArgs<ExtArgs>
   apiTokens?: boolean | Prisma.User$apiTokensArgs<ExtArgs>
+  chatConversations?: boolean | Prisma.User$chatConversationsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type UserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1371,6 +1519,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     integrations: Prisma.$IntegrationPayload<ExtArgs>[]
     uploads: Prisma.$UploadPayload<ExtArgs>[]
     apiTokens: Prisma.$ApiTokenPayload<ExtArgs>[]
+    chatConversations: Prisma.$ChatConversationPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1793,6 +1942,7 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   integrations<T extends Prisma.User$integrationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$integrationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IntegrationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   uploads<T extends Prisma.User$uploadsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$uploadsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$UploadPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   apiTokens<T extends Prisma.User$apiTokensArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$apiTokensArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ApiTokenPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  chatConversations<T extends Prisma.User$chatConversationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$chatConversationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatConversationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2370,6 +2520,30 @@ export type User$apiTokensArgs<ExtArgs extends runtime.Types.Extensions.Internal
   take?: number
   skip?: number
   distinct?: Prisma.ApiTokenScalarFieldEnum | Prisma.ApiTokenScalarFieldEnum[]
+}
+
+/**
+ * User.chatConversations
+ */
+export type User$chatConversationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatConversation
+   */
+  select?: Prisma.ChatConversationSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatConversation
+   */
+  omit?: Prisma.ChatConversationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatConversationInclude<ExtArgs> | null
+  where?: Prisma.ChatConversationWhereInput
+  orderBy?: Prisma.ChatConversationOrderByWithRelationInput | Prisma.ChatConversationOrderByWithRelationInput[]
+  cursor?: Prisma.ChatConversationWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatConversationScalarFieldEnum | Prisma.ChatConversationScalarFieldEnum[]
 }
 
 /**

@@ -25,6 +25,10 @@ import { waitlistRoutes } from './routes/waitlist.js';
 import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
 import { registerMonitorWs } from './monitor/ws.js';
+import { chatRoutes } from './routes/chat.js';
+import { ChatService } from './chat/service.js';
+import { httpRunner } from './chat/runner.js';
+import { registerChatWs } from './chat/ws.js';
 import { roleRoutes } from './routes/roles.js';
 import { userRoutes } from './routes/users.js';
 import { uploadRoutes } from './routes/uploads.js';
@@ -107,6 +111,7 @@ export async function buildApp(): Promise<App> {
   registerAgentWs(upgrades, { repos, log: fastify.log });
   const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
   registerMonitorWs(upgrades, { log: fastify.log });
+  registerChatWs(upgrades, { log: fastify.log });
 
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
@@ -150,6 +155,8 @@ export async function buildApp(): Promise<App> {
       await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
       await guarded('uploads', (a) => uploadRoutes(a, repos), '/uploads');
       await guarded('api_tokens', (a) => apiTokenRoutes(a, repos, { mcpUrl: config.mcpUrl }), '/api-tokens');
+      const chat = new ChatService({ repos, runner: httpRunner(), configDirs: { primary: '/accounts/primary', secondary: '/accounts/secondary' } });
+      await guarded('chat', (a) => chatRoutes(a, repos, { service: chat }), '/chat');
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },

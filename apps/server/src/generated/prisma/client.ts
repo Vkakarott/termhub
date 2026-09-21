@@ -154,3 +154,24 @@ export type ApiToken = Prisma.ApiTokenModel
  * Pruned after 30 days.
  */
 export type ApiTokenEvent = Prisma.ApiTokenEventModel
+/**
+ * Model ChatConversation
+ * One chat with the concierge. v1 keeps a single conversation per user; machineId/tabId stay
+ * nullable so per-machine and per-tab chats can arrive without a migration (spec §7).
+ * A partial unique index enforces "one account-wide conversation per user" at the database level:
+ * `CREATE UNIQUE INDEX chat_conversations_one_per_user ON chat_conversations(user_id)
+ * WHERE machine_id IS NULL AND tab_id IS NULL` (see the migration). Prisma's schema language has
+ * no partial-index syntax, so it is not declared with `@@unique`/`@@index` here — doing so would
+ * require a plain (non-partial) index and wrongly forbid future per-machine/per-tab rows for the
+ * same user. Confirmed by hand that this omission does not show up as drift: introspection-based
+ * `prisma migrate diff` silently excludes partial indexes from its comparison (verified against a
+ * scratch database with the index applied — no difference reported — while a control plain unique
+ * index on the same table was correctly flagged).
+ */
+export type ChatConversation = Prisma.ChatConversationModel
+/**
+ * Model ChatMessage
+ * A turn of the conversation. The assistant's own prose is stored in full; captured screens and
+ * command output never are (spec §7.1).
+ */
+export type ChatMessage = Prisma.ChatMessageModel
