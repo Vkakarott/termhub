@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatMessage, CreatedApiToken, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatMessage, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -136,6 +136,7 @@ export const api = {
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
+  office: (machineId: string) => request<OfficeSnapshot>('GET', `/office/${encodeURIComponent(machineId)}`),
   /** derived from the session — there is no id to pass or guess (v1: one conversation per user).
    * `actions` is the trail as it truly is server-side (survives a reload); live socket events only
    * update it, they are never its source of truth. */

@@ -319,6 +319,39 @@ export interface MonitorItem {
   machine: Machine;
 }
 
+/** GET /office/:machineId: a machine's floor, one room per non-archived project. */
+export interface OfficeTaskCounts {
+  todo: number;
+  doing: number;
+  done: number;
+}
+
+/** The board task bound to a tab, if any (a tab's own `doing` task with subtasks). */
+export interface OfficeTabProgress {
+  task_id: string;
+  title: string;
+  done: number;
+  total: number;
+}
+
+export interface OfficeTab extends Tab {
+  progress: OfficeTabProgress | null;
+}
+
+export interface OfficeRoom {
+  project: Project;
+  tabs: OfficeTab[];
+  /** null when the board could not be read (no permission or the project has none) */
+  tasks: OfficeTaskCounts | null;
+}
+
+export interface OfficeSnapshot {
+  machine: Machine;
+  /** false when the machine could not be asked which tmux sessions are alive */
+  reachable: boolean;
+  rooms: OfficeRoom[];
+}
+
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
 export interface UploadEntry {
   machine_id: string;
