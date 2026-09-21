@@ -72,3 +72,25 @@ it('fails with 502 CONCIERGE_FAILED when the container refuses the request', asy
   };
   await expect(iterate()).rejects.toMatchObject({ statusCode: 502, code: 'CONCIERGE_FAILED' });
 });
+
+it('abandons a run that never ends, keeping the lines it already produced', async () => {
+  // A concierge that hangs without closing the socket used to hold the in-memory per-conversation
+  // lock for ever, so every later message answered 409 until the server restarted.
+  configure();
+  mode = { lines: [JSON.stringify({ type: 'stream_event' })], hang: true, status: 200 };
+
+  const lines: string[] = [];
+  let failed: unknown = null;
+  try {
+    for await (const line of httpRunner({ deadlineMs: 150 }).run(input)) lines.push(line);
+  } catch (e) {
+    failed = e;
+  }
+
+  expect(lines).toHaveLength(1); // whatever streamed before the deadline is kept
+  expect(failed).not.toBeNull();
+  // Deliberately not an HttpError: a run that started and died belongs on the message as a failed
+  // run, not on the response status (that is what CONCIERGE_DISABLED/FAILED are for).
+  expect(failed).not.toMatchObject({ code: 'CONCIERGE_FAILED' });
+  mode = { lines: [], hang: false, status: 200 };
+});
