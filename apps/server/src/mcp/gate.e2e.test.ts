@@ -76,6 +76,8 @@ function fakeChatActions() {
       row.status = 'expired';
       return true;
     }),
+    /** Owner-scoped, exactly like the repository: this is how the gate asks a row which race it lost. */
+    findByIdForUser: vi.fn(async (id: string, userId: string) => (userId === 'u1' ? snapshot(rows.find((r) => r.id === id)) : undefined)),
     insertPending: vi.fn(async (input: InsertPendingInput) => {
       if (rows.some((r) => sameKey(r, input.conversation_id, input.idempotency_key ?? '') && isOpen(r))) {
         throw new Error('duplicate key value violates unique constraint "chat_actions_one_open_per_key"');
@@ -386,8 +388,35 @@ it('types once when two identical calls both read the same approved row', async 
   expect(typed).toEqual(['npm test']); // one approval, one command
   expect(resultOf(second).isError).toBe(true);
   expect(textOf(second)).toMatch(/já está executando esta ação/i);
+  // The loser asked the row which race it lost: it is `executed`, so "wait for the first call" is the
+  // truth. It must not read as an expiry — there is a result coming.
+  expect(textOf(second)).not.toMatch(/expirou/i);
   expect(actions.claimApproved).toHaveBeenCalledTimes(2);
   expect(actions.markExecuted).toHaveBeenCalledTimes(1);
+});
+
+it('says the approval expired, not that another call is running, when the sweep took the row', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+  // The gate read the row while it was still approved, and the hourly sweep retired it before the claim
+  // landed. The claim loses either way — but here nobody is executing anything, so telling the model to
+  // wait for another call's result would leave it waiting for a result that never comes: the user would
+  // see nothing happen and never be asked again.
+  actions.claimApproved.mockImplementationOnce(async () => {
+    row.status = 'expired';
+    return false;
+  });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/expirou/i);
+  expect(textOf(res)).not.toMatch(/já está executando/i);
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).not.toHaveBeenCalled(); // the row is the sweep's now, not this call's
+  expect(actions.rows[0].status).toBe('expired');
 });
 
 it('answers the permission the user saw, and refuses one asked after it', async () => {

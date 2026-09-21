@@ -116,12 +116,12 @@ const approvalInForce = (row: ChatAction): boolean => {
 
 /**
  * Retires an approval the clock has outlived, and says so. The update is conditional on the row still
- * being approved (`expireApproved`), so this can never race a parallel arrival that already claimed
- * the very same approval: if the claim won, that call is executing the action and this one must stop
- * and wait for it, exactly as any other loser of the claim does.
+ * being approved (`expireApproved`), so this can never race a parallel arrival that claimed the very
+ * same approval. Losing that update is the same ambiguity a lost claim has, and is read the same way
+ * (`raceLost`): somebody is executing this action, or somebody already retired it.
  */
 async function expireApproval(ctx: ControlContext, row: ChatAction): Promise<GateOutcome> {
-  if (!(await ctx.repos.chatActions.expireApproved(row.id))) return ALREADY_CLAIMED;
+  if (!(await ctx.repos.chatActions.expireApproved(row.id))) return raceLost(ctx, row);
   return APPROVAL_EXPIRED;
 }
 
@@ -191,6 +191,22 @@ async function staleApproval(ctx: ControlContext, call: GatedCall, row: ChatActi
   return undefined;
 }
 
+/**
+ * Why a conditional update on an `approved` row found nothing, in the only terms the model can act on.
+ * Two different things take a row out of `approved`: a parallel arrival that is now executing it, and an
+ * expiry — the hourly sweep, or another arrival of this same call, retiring an approval nobody consumed.
+ * They call for opposite answers — wait for the other call's result, or propose the action again — so the
+ * row itself is asked which happened, rather than assumed. Told to wait for a result an expiry made sure
+ * will never come, the model stops, the user sees nothing happen, and no new question is ever asked.
+ *
+ * Anything other than a definite `expired` reads as the genuine race: the row is unreadable, gone, or
+ * being executed, and "stop and wait" is the safe answer when this call cannot tell.
+ */
+async function raceLost(ctx: ControlContext, row: ChatAction): Promise<GateOutcome> {
+  const current = await ctx.repos.chatActions.findByIdForUser(row.id, ctx.scope.user.id).catch(() => undefined);
+  return current?.status === 'expired' ? APPROVAL_EXPIRED : ALREADY_CLAIMED;
+}
+
 /** Runs an approved action and closes its row. Ruling R2: an offline machine, an agent too old, any
  * failure at all is a `failed` row carrying the real error code, and the error reaches the model —
  * never a new question, because asking again for what the machine cannot do is a loop with no exit. */
@@ -199,7 +215,7 @@ async function execute(ctx: ControlContext, call: GatedCall, row: ChatAction): P
   // Claim the approval before anything else happens. Two identical calls can both read the same
   // `approved` row and, without a claim, both would act on one approval — one confirmation, two
   // commands on the user's machine. The conditional update lets exactly one through.
-  if (!(await ctx.repos.chatActions.claimApproved(row.id))) return ALREADY_CLAIMED;
+  if (!(await ctx.repos.chatActions.claimApproved(row.id))) return raceLost(ctx, row);
   const stale = await staleApproval(ctx, call, row);
   if (stale) {
     await ctx.repos.chatActions.markExecuted(row.id, false, stale.code, Date.now() - started);
