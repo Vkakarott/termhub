@@ -48,7 +48,7 @@ progress from the kanban, the
 `/office` route with focus mode, an in-house generated art pack, removal of the spike.
 
 **Out of v1, recorded for v2:** the world level (machines as buildings on a street), progress
-from the agent's own todo list and any time estimate (section 7 explains why), culling of off-screen rooms, third-party or commissioned art packs, per-room slide tweens on a repack, a folder-based pack loader, sound.
+from the agent's own todo list and any time estimate (section 7 explains why), culling of off-screen rooms, third-party or commissioned art packs, per-room slide tweens on a repack, a folder-based pack loader, sound, a server-side memo of the tmux probe per machine (today every open browser tab probes on its own), and carrying the probe's "could not ask" / "asked, nothing is running" distinction into `GET /projects/:id/tabs`, which still reads both as "no sessions".
 
 ## 4. Levels and navigation
 
@@ -60,7 +60,7 @@ transitions and they hide a raised hand in another room.
 Two camera rests:
 
 - **Floor.** All rooms framed. People are small; desk labels and progress bars stay off here — a
-  desk anywhere still reveals its label on hover. The marker of someone who needs you keeps a
+  desk anywhere still reveals its full name on hover. The marker of someone who needs you keeps a
   fixed size on screen, so it reads from far away. Each room has a sign with the project name, its
   progress (section 7) and a counter such as "2 precisam de você".
 - **Room.** One room framed: tab names, progress bars and full animations, but only for the
@@ -70,8 +70,8 @@ Interaction:
 
 - On the floor, clicking a room moves the camera into it.
 - `Esc`, a "voltar ao andar" button, or zooming out past a threshold returns to the floor.
-- Clicking a person's head opens the terminal in a new browser tab at
-  `/projects/<projectId>?tab=<tabId>`, at both levels.
+- Clicking a person — the whole desk, person and furniture together, not only the head — opens the
+  terminal in a new browser tab at `/projects/<projectId>?tab=<tabId>`, at both levels.
 - Clicking a room's sign opens the project (`/projects/<projectId>`).
 - Wheel zoom (at the cursor) and drag pan stay free at all times. A drag longer than a few
   pixels never counts as a click.
@@ -169,8 +169,8 @@ scene:
   texture; a person is not one sprite per state either, but three tinted layers over one
   silhouette (`body`, `shirt`, `hair`).
 - A `manifest.json` next to it declares the tile size, each sprite's anchor (the point that
-  touches the tile), frames per second per animation, and the head point of a person (used to
-  place the "!" and as the click target).
+  touches the tile), frames per second per animation, and the head point of a person (where the
+  "!" and the desk's overlay text hang; the click target is the whole desk container).
 - The scene knows only the manifest. A pack is meant to live as a folder under
   `apps/web/public/office/<pack>/`, read through that same contract — but v1's pack has no such
   folder: it is painted at runtime, straight onto a canvas, by `office/pack/generated.ts`, which is
@@ -211,29 +211,39 @@ if agents start emitting a list again. Tool input stays discarded, as it is now.
 **One read endpoint feeds the whole view.** `useData()` holds machines and projects but no tabs,
 and `MonitorProvider` holds only tabs that reported a state. `GET /api/office/:machineId`
 returns the floor snapshot: the machine's non-archived projects, every tab of each (with `alive`,
-computed from one tmux session listing for the machine, as the project tabs route does), kanban
-progress per tab and task counts per project. The machine is loaded through
+computed from one tmux session probe for the machine), kanban
+progress per tab and task counts per project. The probe is what the project tabs route's plain
+listing cannot do: an offline agent, a timed-out ssh and a machine whose tmux has no sessions all
+answer the same empty set, so the snapshot carries a `reachable` flag and the browser knows when
+`alive: false` means nothing. The machine is loaded through
 `scoped(repos, request).machine(id)`, the params are validated with zod, and the repositories are
-the only path to Prisma. The browser re-reads it on window focus, every 60 s, and whenever the set
+the only path to Prisma. The browser re-reads it on window focus, when the browser tab becomes
+visible again, every 60 s while it is visible, and whenever the set
 of tab ids the monitor knows about and the snapshot does not **grows** — not on every push: a tab
 that can never appear in the snapshot (one that lives in an archived project, say) would otherwise
 trigger a re-read forever, since it stays missing after every read. Growth is judged against ids
 already asked for, so a tab that stays missing is asked for once, not on every render. Live state
 from `useMonitor()` overrides only the state fields (`state`, `state_text`, `state_tool`,
-`state_at`, `state_seen_at`); a tab's name, kind, order and everything else always come from the
+`state_at`, `state_seen_at`), and only while it is the fresher of the two: with the WebSocket down
+the monitor's copy ages (it resyncs every 3 min) while the snapshot keeps arriving, so the side
+with the newer `state_at` wins. A tab's name, kind, order and everything else always come from the
 snapshot — a rename is not pushed over `/ws/monitor`, so only a re-read of the snapshot would ever
 carry it to the floor. A snapshot is used only once its `machine.id` matches the route's machine,
 closing the one-render window where switching machines would otherwise draw the previous floor.
 
 **Display.**
 
-- In a room: a small bar over the desk with `3/7`, and the task's title on hover. A task without
-  subtasks shows its title on hover and no bar.
+- In a room: a small bar under the desk's label with `3/7`. Hovering a desk, at either level,
+  replaces the cut label with the tab's full name and puts the bound task's title on a second line
+  under it, over everything else in the overlay. A task without subtasks draws no bar, so hovering
+  is the only place it appears at all.
 - On the floor: each room's sign shows the project's progress, `done / (todo + doing + done)`;
   the backlog does not count. A project with no tasks in those columns shows no progress.
 
-**Privacy.** The only text that travels is names and titles already shown on the home page and
-the board. Terminal content stays out, as everywhere else.
+**Privacy.** The snapshot carries the same `Project`, `Machine` and `Tab` records the person
+already receives from `/projects`, `/machines` and `/monitor`, plus the task counts and the bound
+task's title. Terminal content stays out, as everywhere else, and the route logs nothing beyond
+ids and counts.
 
 ## 8. Where it lives in the app
 
@@ -249,10 +259,12 @@ each change. `OfficePage`'s click handlers reach the current scene through a ref
 every render, so the mount effect itself never has to depend on them.
 
 **Focus mode.** A button and the `F` key hide the sidebar and the page's top bar, leaving the
-scene and a discreet "sair" in a corner. The state is in the URL (`?focus=1`): the use case is a
-second monitor left open all day, which must survive a reload. In focus, `Esc` first leaves the
+scene, the status notices below and a discreet "sair" together in a corner — a second monitor must
+never show a frozen picture that looks live. The state is in the URL (`?focus=1`): the use case is
+a second monitor left open all day, which must survive a reload. In focus, `Esc` first leaves the
 room and then leaves focus. It is a small context that `Layout` reads to skip rendering
-`Sidebar` — not a second layout.
+`Sidebar` — not a second layout, and only `/office` honours it: elsewhere `?focus=1` would hide a
+sidebar with nothing on the page to bring it back.
 
 **Permissions.** No new entry in `RESOURCES`: the view is a projection of what the person can
 already read. The link and the page require `can('projects', 'read')` and
@@ -264,13 +276,20 @@ enforces its own access.
 **States of the page.**
 
 - No machines: a message with a link to enroll the first one.
-- Machine offline: "máquina offline" in the header and the whole floor dimmed; people keep their
-  last known state, since nothing pushes anything newer. A timestamp ("offline desde …") is a
-  follow-up — `MachineStatus` does not carry one yet.
+- Machine offline: the notice "máquina offline" — no timestamp, `MachineStatus` does not carry one
+  yet — and the whole floor dimmed; people keep their last known state, since nothing pushes
+  anything newer.
+- Machine reachable but its tmux not: the snapshot says `reachable: false`, and `alive: false` is
+  then not evidence that anyone left. People keep their last known state and their raised hands,
+  under the notice "sem resposta do tmux: estado pode estar desatualizado".
 - WebSocket down: a discreet "reconectando…" strip; the scene keeps the last snapshot, and
   `MonitorProvider` already resyncs.
+- All three notices sit in the top bar and, in focus mode, in the same corner as "sair do foco".
 - No WebGL: Pixi falls back to its canvas renderer by itself; if that fails too, a message with a
   link to the home page.
+- The route's chunk gone after a deploy: the lazy import reloads the page once (guarded in
+  `sessionStorage` so a broken chunk cannot loop) and a second failure shows a "Recarregar" button
+  from an error boundary, instead of unmounting the app into a white screen.
 
 **Code structure.** Each unit has one job:
 
