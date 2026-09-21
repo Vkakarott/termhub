@@ -96,7 +96,7 @@ it('starts a fresh session when resuming the old one fails, and tells the client
   // The runner never throws the CLI's phrase: the container classifies the failure (it is the only
   // side that sees stderr) and appends an error frame carrying `missing_session`. This is the shape
   // production really produces, so the retry is triggered off the frame, not off an error's text.
-  const { service, runner, conversation } = build([errorFrame('missing_session')]);
+  const { service, runner, conversation, chat } = build([errorFrame('missing_session')]);
   conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('deixa eu ver'); yield errorFrame('missing_session'); })());
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('oi'); yield done('3f1e9b1e-0000-4000-8000-000000000002'); })());
@@ -115,6 +115,10 @@ it('starts a fresh session when resuming the old one fails, and tells the client
   // answer, and the browser must be told to drop what it already rendered for it.
   expect(answer.text).toBe('oi');
   expect(answer.error_code).toBeNull(); // the retry succeeded: the first attempt's failure is not the answer's
+  // The session the CLI no longer has is the one case that must be cleared — and it is cleared
+  // before the fresh run, so the next message cannot try to resume it either.
+  expect(chat.setCliSession).toHaveBeenCalledWith('c1', null);
+  expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000002');
   expect(events).toContainEqual({ type: 'reset', user_id: 'u1', message_id: answer.id });
 });
 
@@ -174,7 +178,9 @@ it('marks the run as failed when the result frame reports is_error', async () =>
   const answer = await service.send(user, 'faz tudo');
   expect(answer.error_code).toBe('RUNNER_FAILED');
   expect(answer.text).toBe('comecei');
-  expect(conversation.cli_session_id).toBeNull(); // an errored run confirms no session to resume
+  // The thread survives the failure: this server generated that uuid and the session is on disk with
+  // the whole conversation, so the next message resumes it instead of starting over blind.
+  expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000009');
 });
 
 it('publishes the action and a shape-locked action_result over the bus, never the tool result payload', async () => {

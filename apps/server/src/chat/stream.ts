@@ -6,8 +6,10 @@ export type ChatFrame =
   | { type: 'action_result'; tool_use_id: string; ok: boolean }
   | { type: 'done'; session_id?: string; usage?: unknown }
   /** `reason` is the container's machine-readable classification of the failure (never stderr's
-   * text): `missing_session` is the one the service acts on, by retrying on a fresh CLI session. */
-  | { type: 'error'; message: string; reason?: ChatFailureReason };
+   * text): `missing_session` is the one the service acts on, by retrying on a fresh CLI session.
+   * `session_id` is carried for the same reason as on `done`: a run can fail with its session, and
+   * its whole transcript, safely on disk. */
+  | { type: 'error'; message: string; reason?: ChatFailureReason; session_id?: string };
 
 /** Mirrors the concierge's `FailureReason`; an unknown label is dropped rather than guessed at. */
 export type ChatFailureReason = 'missing_session' | 'run_failed';
@@ -52,7 +54,9 @@ export function parseFrame(line: string): ChatFrame | null {
     // A `result` frame is not by itself an answer: `is_error` marks a run that ended badly (max
     // turns, an API error, every tool denied). Treating it as `done` stored it as a clean message
     // — often an empty one, which the page then showed as "pensando…" forever.
-    if (f.is_error === true) return { type: 'error', message: 'run ended with is_error', reason: 'run_failed' };
+    // The session id is kept: the run failed, but the session it ran in is still on disk with the
+    // whole conversation in it, and the next message must resume that thread.
+    if (f.is_error === true) return { type: 'error', message: 'run ended with is_error', reason: 'run_failed', session_id: typeof f.session_id === 'string' ? f.session_id : undefined };
     return { type: 'done', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, usage: f.usage };
   }
   if (type === 'termhub_error') return { type: 'error', message: String(f.message ?? 'runner failed'), reason: toReason(f.reason) };

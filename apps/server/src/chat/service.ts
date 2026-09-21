@@ -85,6 +85,12 @@ export class ChatService {
           } else if (frame.type === 'error') {
             errorCode = 'RUNNER_FAILED';
             if (frame.reason === 'missing_session') missingSession = true;
+            // A failed run still leaves its session, and the whole transcript, on disk: this server
+            // generated the uuid and passed it as --session-id, so there is nothing unknown about
+            // it. Dropping it here would make the next message mint a fresh uuid and silently lose
+            // the thread — the user's follow-up would arrive at a concierge with no context. The
+            // genuinely gone session is the `missing_session` case, cleared below.
+            if (frame.session_id && frame.session_id !== conversation.cli_session_id) await this.deps.repos.chat.setCliSession(conversation.id, frame.session_id);
           }
         }
       };

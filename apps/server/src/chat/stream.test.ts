@@ -71,7 +71,13 @@ it('treats a result frame that reports is_error as a failure, not as a clean fin
   const real = JSON.parse(fixture.at(-1)!) as Record<string, unknown>;
   expect(real.type).toBe('result');
   expect(parseFrame(JSON.stringify({ ...real, is_error: false }))).toMatchObject({ type: 'done', session_id: real.session_id });
-  expect(parseFrame(JSON.stringify({ ...real, is_error: true }))).toEqual({ type: 'error', message: 'run ended with is_error', reason: 'run_failed' });
+  // Same session id as the `done` path reports: the run failed, its session did not.
+  expect(parseFrame(JSON.stringify({ ...real, is_error: true }))).toEqual({
+    type: 'error',
+    message: 'run ended with is_error',
+    reason: 'run_failed',
+    session_id: real.session_id,
+  });
 });
 
 it('ignores a malformed line instead of throwing', () => {
