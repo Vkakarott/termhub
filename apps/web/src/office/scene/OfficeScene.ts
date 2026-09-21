@@ -1,14 +1,16 @@
-/** The office floor in PixiJS. Draws a FloorModel; knows nothing about tabs, the API or React. */
+/** The city in PixiJS: one block per machine, rooms and desks inside. Knows nothing about tabs, the API or React. */
 import { Application, CanvasSource, Container, Rectangle, Texture, UPDATE_PRIORITY, type Graphics } from 'pixi.js';
-import { floorBounds, layoutFloor, placedRoomBounds, type FloorLayout, type PlacedRoom } from '../layout/floor';
+import { blockBounds, cityBounds, layoutCity, placedRoomBounds, roomOnCity, type CityLayout, type PlacedBlock } from '../layout/city';
+import type { PlacedRoom } from '../layout/floor';
 import { depthOf, toScreen } from '../layout/iso';
-import type { FloorModel } from '../model';
+import { sameFocus, type CityModel, type FocusTarget } from '../model';
 import { generatedPack } from '../pack/generated';
 import type { PackManifest } from '../pack/manifest';
-import { Camera } from './camera';
-import { DeskOverlay, RoomSign } from './Overlay';
+import { Camera, type Box } from './camera';
+import { signVisibility } from './detail';
+import { DeskOverlay, MachineSign, RoomSign } from './Overlay';
 import { DeskView, type Textures } from './PersonView';
-import { drawRoom, WALL_H } from './RoomView';
+import { drawBlock, drawRoom, WALL_H } from './RoomView';
 
 /**
  * Zoom from which a free-roaming view is close enough to be read as a room: a label keeps its
@@ -20,12 +22,36 @@ const LABEL_SCALE = 1.8;
 /** Room for the sign hanging over a room's back corner, so framing a room does not cut it off. */
 const SIGN_H = 24;
 
+/** How high above a block's back corner its machine sign hangs, clear of the rooms' walls. */
+const MACHINE_SIGN_UP = 30;
+
+/** Headroom a block (or the whole city) needs above its ground for walls and a machine sign. */
+const BLOCK_TOP = WALL_H + SIGN_H + MACHINE_SIGN_UP;
+
+/** One room as drawn, so a light going out can repaint it where it stands. */
+interface DrawnRoom {
+  ground: Graphics;
+  placed: PlacedRoom;
+  lit: boolean;
+}
+
+/** One machine as drawn. `rooms` and `signs` are in model order, which the shape check pins. */
+interface DrawnMachine {
+  block: PlacedBlock;
+  ground: Graphics;
+  lit: boolean;
+  sign: MachineSign;
+  rooms: DrawnRoom[];
+  signs: RoomSign[];
+}
+
 export interface SceneHandlers {
   onPickDesk(deskId: string, projectId: string): void;
-  onPickRoom(roomId: string): void;
+  onPickRoom(machineId: string, roomId: string): void;
+  onPickMachine(machineId: string): void;
   onPickSign(roomId: string): void;
-  /** the person zoomed out far enough that "inside a room" no longer describes the view */
-  onLeaveRoom(): void;
+  /** the person zoomed out far enough that the current rest no longer describes the view */
+  onGoUp(): void;
 }
 
 export class OfficeScene {
@@ -40,23 +66,25 @@ export class OfficeScene {
   /** the pack's atlas: ours to free, since nothing else knows about it */
   private source: CanvasSource | null = null;
   private manifest: PackManifest | null = null;
-  private layout: FloorLayout = layoutFloor([]);
+  private city: CityLayout = layoutCity([]);
   private shape = '';
-  private model: FloorModel | null = null;
-  private desks = new Map<string, { view: DeskView; overlay: DeskOverlay; roomId: string }>();
-  private signs = new Map<string, RoomSign>();
-  private rooms = new Map<string, { ground: Graphics; placed: PlacedRoom; lit: boolean }>();
-  private focused: string | null = null;
-  private roomScale = 1;
+  private model: CityModel | null = null;
+  private desks = new Map<string, { view: DeskView; overlay: DeskOverlay; machineId: string; roomId: string }>();
+  private machines = new Map<string, DrawnMachine>();
+  private target: FocusTarget = { kind: 'city' };
+  /** the scale the camera framed the current target at: zooming well below it means "go up" */
+  private framedScale = 1;
   /** the person has panned or zoomed since the camera last framed something by itself */
   private userMoved = false;
+  /** onGoUp already fired for this framing — one wheel gesture is many events */
+  private wentUp = false;
   private destroyed = false;
   private readonly reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   frameMs = 0;
 
   constructor(private readonly handlers: SceneHandlers) {
     this.things.sortableChildren = true;
-    // desk overlays over room signs: a sign must never hide a marker of the room in front of it
+    // desk overlays over signs: a sign must never hide a marker of the room in front of it
     this.overlay.sortableChildren = true;
     this.world.addChild(this.floor, this.things);
   }
@@ -90,7 +118,11 @@ export class OfficeScene {
     this.camera = new Camera(app.canvas);
     this.camera.onUserMove = () => {
       this.userMoved = true;
-      if (this.focused && this.camera && this.camera.target.scale < this.roomScale * 0.6) this.handlers.onLeaveRoom();
+      if (this.wentUp || this.target.kind === 'city' || !this.camera) return;
+      if (this.camera.target.scale < this.framedScale * 0.6) {
+        this.wentUp = true;
+        this.handlers.onGoUp();
+      }
     };
     // brackets our update and Pixi's render (priority LOW) to get the CPU cost of one frame
     let t0 = 0;
@@ -100,7 +132,7 @@ export class OfficeScene {
     const onVisibility = () => (document.hidden ? app.ticker.stop() : app.ticker.start());
     // a resized canvas leaves the framing stale; re-frame unless the person put the camera there
     const onResize = () => {
-      if (this.focused !== null || !this.userMoved) this.focusRoom(this.focused, true);
+      if (this.target.kind !== 'city' || !this.userMoved) this.frameTarget(true);
     };
     document.addEventListener('visibilitychange', onVisibility);
     app.renderer.on('resize', onResize);
@@ -139,25 +171,36 @@ export class OfficeScene {
     return this.app?.renderer.name ?? '—';
   }
 
-  /** Same rooms and desks (ids, kinds, order) → only properties change; otherwise the floor is rebuilt. */
-  setModel(model: FloorModel): void {
+  /** Same machines, rooms and desks (ids, kinds, order) → only properties change; otherwise the city is rebuilt. */
+  setModel(model: CityModel): void {
     const shape = shapeOf(model);
     this.model = model;
     if (!this.app) return;
     if (shape !== this.shape) return this.rebuild(model, this.shape === '');
-    for (const room of model.rooms) {
-      // a light going out is not a new floor: repaint that room where it stands
-      const drawn = this.rooms.get(room.id);
-      if (drawn && drawn.lit !== room.lit) {
-        drawn.lit = room.lit;
-        drawRoom(drawn.placed, room.lit, drawn.ground);
+    for (const machine of model.machines) {
+      const drawn = this.machines.get(machine.id);
+      if (!drawn) continue;
+      // a machine going offline is not a new city: repaint its ground where it stands
+      if (drawn.lit !== machine.lit) {
+        drawn.lit = machine.lit;
+        drawBlock(drawn.block, machine.lit, drawn.ground);
       }
-      this.signs.get(room.id)?.apply(room);
-      for (const d of room.desks) {
-        const desk = this.desks.get(d.id);
-        desk?.view.apply(d);
-        desk?.overlay.apply(d);
-      }
+      drawn.sign.apply(machine);
+      machine.floor.rooms.forEach((room, i) => {
+        // a room of an unlit machine is dark whatever its own project says
+        const lit = room.lit && machine.lit;
+        const drawnRoom = drawn.rooms[i];
+        if (drawnRoom && drawnRoom.lit !== lit) {
+          drawnRoom.lit = lit;
+          drawRoom(drawnRoom.placed, lit, drawnRoom.ground);
+        }
+        drawn.signs[i]?.apply(room);
+        for (const d of room.desks) {
+          const desk = this.desks.get(d.id);
+          desk?.view.apply(d);
+          desk?.overlay.apply(d);
+        }
+      });
     }
   }
 
@@ -166,60 +209,103 @@ export class OfficeScene {
     for (const [id, desk] of this.desks) desk.overlay.hovered = id === deskId;
   }
 
-  focusRoom(roomId: string | null, snap = false): void {
-    if (this.destroyed) return;
-    this.focused = roomId;
+  /**
+   * Frames the city, a machine's block or a room. The page replays the URL's target on every
+   * navigation, so an equal target is a no-op: re-framing would undo a camera the person moved.
+   */
+  focus(target: FocusTarget, snap = false): void {
+    if (this.destroyed || sameFocus(target, this.target)) return;
+    this.target = target;
+    this.frameTarget(snap);
+  }
+
+  /** No camera yet (focused before `mount()` resolved): the target is stored and the rebuild frames it. */
+  private frameTarget(snap: boolean): void {
     if (!this.camera) return;
-    const placed = roomId ? this.layout.rooms.find((r) => r.id === roomId) : undefined;
-    this.camera.frameBox(placed ? placedRoomBounds(placed, WALL_H + SIGN_H) : floorBounds(this.layout, WALL_H + SIGN_H), snap);
-    if (placed) this.roomScale = this.camera.target.scale;
+    this.camera.frameBox(this.boxOf(this.target), snap);
+    this.framedScale = this.camera.target.scale;
     this.userMoved = false;
+    this.wentUp = false;
+  }
+
+  private boxOf(target: FocusTarget): Box {
+    const block = target.kind === 'city' ? undefined : this.city.blocks.find((b) => b.id === target.machineId);
+    if (!block) return cityBounds(this.city, BLOCK_TOP);
+    if (target.kind === 'room') {
+      const room = block.floor.rooms.find((r) => r.id === target.roomId);
+      if (room) return placedRoomBounds(roomOnCity(block, room), WALL_H + SIGN_H);
+    }
+    return blockBounds(block, BLOCK_TOP);
+  }
+
+  /** Whether the current model still has what the target names. */
+  private exists(target: FocusTarget): boolean {
+    if (target.kind === 'city') return true;
+    const machine = this.model?.machines.find((m) => m.id === target.machineId);
+    if (!machine) return false;
+    return target.kind === 'machine' || machine.floor.rooms.some((r) => r.id === target.roomId);
   }
 
   /**
-   * `first`: the very first floor, which is framed and snapped to. Later rebuilds (a tab created or
-   * closed) only re-frame the focused room, whose bounds may have moved; a person looking around the
-   * floor keeps the view they chose.
+   * `first`: the very first city, which is framed and snapped to. Later rebuilds (a tab created, a
+   * machine answering at last) re-frame the block or room the person is in, whose bounds may have
+   * moved; on the city as a whole they only re-centre while nobody has moved the camera by hand.
    */
-  private rebuild(model: FloorModel, first: boolean): void {
+  private rebuild(model: CityModel, first: boolean): void {
     if (!this.manifest) return;
     this.shape = shapeOf(model);
-    this.layout = layoutFloor(model.rooms.map((r) => ({ id: r.id, desks: r.desks.length })));
+    this.city = layoutCity(model.machines.map((m) => ({ id: m.id, rooms: m.floor.rooms.map((r) => ({ id: r.id, desks: r.desks.length })) })));
     for (const layer of [this.floor, this.things, this.overlay]) layer.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.desks.clear();
-    this.signs.clear();
-    this.rooms.clear();
-    model.rooms.forEach((room, i) => {
-      const placed = this.layout.rooms[i];
-      const ground = drawRoom(placed, room.lit);
-      ground.on('pointertap', () => this.clicked(() => this.handlers.onPickRoom(room.id)));
+    this.machines.clear();
+    model.machines.forEach((machine, mi) => {
+      const block = this.city.blocks[mi];
+      // the block's ground goes down before its rooms, which paint over it; a click inside a room
+      // lands on the room's own Graphics, so only what the rooms leave bare picks the machine
+      const ground = drawBlock(block, machine.lit);
+      ground.on('pointertap', () => this.clicked(() => this.handlers.onPickMachine(machine.id)));
       this.floor.addChild(ground);
-      this.rooms.set(room.id, { ground, placed, lit: room.lit });
-      const corner = toScreen(placed.origin.gx, placed.origin.gy);
-      const sign = new RoomSign({ x: corner.x, y: corner.y - WALL_H - 6 }, room);
-      sign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickSign(room.id)));
-      this.signs.set(room.id, sign);
+      const back = toScreen(block.origin.gx, block.origin.gy);
+      const sign = new MachineSign({ x: back.x, y: back.y - WALL_H - MACHINE_SIGN_UP }, machine);
+      sign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickMachine(machine.id)));
       this.overlay.addChild(sign.root);
-      room.desks.forEach((d, j) => {
-        const cell = { gx: placed.origin.gx + placed.layout.desks[j].gx, gy: placed.origin.gy + placed.layout.desks[j].gy };
-        const at = toScreen(cell.gx, cell.gy);
-        const view = new DeskView(d, this.textures, this.manifest!, this.reducedMotion);
-        view.root.position.set(at.x, at.y);
-        view.root.zIndex = depthOf(cell);
-        const overlay = new DeskOverlay({ x: at.x + view.head.x, y: at.y + view.head.y }, d);
-        overlay.root.zIndex = 1;
-        view.root.on('pointertap', () => this.clicked(() => this.handlers.onPickDesk(view.model.id, view.model.projectId)));
-        view.root.on('pointerover', () => (overlay.hovered = true));
-        view.root.on('pointerout', () => (overlay.hovered = false));
-        this.things.addChild(view.root);
-        this.overlay.addChild(overlay.root);
-        this.desks.set(d.id, { view, overlay, roomId: room.id });
+      const drawn: DrawnMachine = { block, ground, lit: machine.lit, sign, rooms: [], signs: [] };
+      this.machines.set(machine.id, drawn);
+      machine.floor.rooms.forEach((room, i) => {
+        const placed = roomOnCity(block, block.floor.rooms[i]);
+        const lit = room.lit && machine.lit;
+        const roomGround = drawRoom(placed, lit);
+        roomGround.on('pointertap', () => this.clicked(() => this.handlers.onPickRoom(machine.id, room.id)));
+        this.floor.addChild(roomGround);
+        drawn.rooms.push({ ground: roomGround, placed, lit });
+        const corner = toScreen(placed.origin.gx, placed.origin.gy);
+        const roomSign = new RoomSign({ x: corner.x, y: corner.y - WALL_H - 6 }, room);
+        roomSign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickSign(room.id)));
+        drawn.signs.push(roomSign);
+        this.overlay.addChild(roomSign.root);
+        room.desks.forEach((d, j) => {
+          const cell = { gx: placed.origin.gx + placed.layout.desks[j].gx, gy: placed.origin.gy + placed.layout.desks[j].gy };
+          const at = toScreen(cell.gx, cell.gy);
+          const view = new DeskView(d, this.textures, this.manifest!, this.reducedMotion);
+          view.root.position.set(at.x, at.y);
+          view.root.zIndex = depthOf(cell);
+          const overlay = new DeskOverlay({ x: at.x + view.head.x, y: at.y + view.head.y }, d);
+          overlay.root.zIndex = 1;
+          view.root.on('pointertap', () => this.clicked(() => this.handlers.onPickDesk(view.model.id, view.model.projectId)));
+          view.root.on('pointerover', () => (overlay.hovered = true));
+          view.root.on('pointerout', () => (overlay.hovered = false));
+          this.things.addChild(view.root);
+          this.overlay.addChild(overlay.root);
+          this.desks.set(d.id, { view, overlay, machineId: machine.id, roomId: room.id });
+        });
       });
     });
-    const stillThere = this.focused !== null && model.rooms.some((r) => r.id === this.focused);
-    if (first) this.focusRoom(stillThere ? this.focused : null, true);
-    else if (stillThere) this.focusRoom(this.focused, false);
-    else this.focused = null;
+    // a target whose machine or room is gone falls back to the city, but the camera stays put
+    if (!this.exists(this.target)) {
+      this.target = { kind: 'city' };
+      if (!first) return;
+    }
+    if (first || this.target.kind !== 'city' || !this.userMoved) this.frameTarget(first);
   }
 
   /** A press that dragged the camera is not a click. */
@@ -233,17 +319,26 @@ export class OfficeScene {
     this.world.scale.set(view.scale);
     this.world.position.set(view.x, view.y);
     const t = performance.now() / 1000;
-    // inside a room only that room is read in detail; on the floor, every desk once the zoom allows it
-    const wide = this.focused === null && view.scale >= LABEL_SCALE;
-    for (const { view: desk, overlay, roomId } of this.desks.values()) {
+    const target = this.target;
+    // inside a room only that room is read in detail; wider, every desk once the zoom allows it
+    const wide = target.kind !== 'room' && view.scale >= LABEL_SCALE;
+    for (const { view: desk, overlay, machineId, roomId } of this.desks.values()) {
       desk.update();
-      overlay.place(view, wide || roomId === this.focused, t, this.reducedMotion);
+      overlay.place(view, wide || (target.kind === 'room' && target.machineId === machineId && target.roomId === roomId), t, this.reducedMotion);
     }
-    for (const sign of this.signs.values()) sign.place(view);
+    for (const [machineId, drawn] of this.machines) {
+      const show = signVisibility(target, view.scale, machineId);
+      drawn.sign.root.visible = show.machineSign;
+      if (show.machineSign) drawn.sign.place(view);
+      for (const sign of drawn.signs) {
+        sign.root.visible = show.roomSigns;
+        if (show.roomSigns) sign.place(view);
+      }
+    }
   }
 }
 
-/** What a rebuild depends on: which rooms and desks exist, not anything about their state. */
-function shapeOf(model: FloorModel): string {
-  return model.rooms.map((r) => `${r.id}[${r.desks.map((d) => `${d.id}:${d.kind}`).join(',')}]`).join('|');
+/** What a rebuild depends on: which machines, rooms and desks exist, not anything about their state. */
+function shapeOf(city: CityModel): string {
+  return city.machines.map((m) => `${m.id}{${m.floor.rooms.map((r) => `${r.id}[${r.desks.map((d) => `${d.id}:${d.kind}`).join(',')}]`).join('|')}}`).join(';');
 }

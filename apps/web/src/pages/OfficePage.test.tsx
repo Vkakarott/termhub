@@ -12,11 +12,12 @@ const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoi
    * Pins the scene-mount effect's stability: no WebGL in jsdom, so `OfficeScene` itself is replaced
    * with a spy-able stand-in that records what the page does to it, instead of trying to draw anything.
    */
+  type Target = { kind: 'city' } | { kind: 'machine'; machineId: string } | { kind: 'room'; machineId: string; roomId: string };
   class FakeOfficeScene {
     static instances: FakeOfficeScene[] = [];
-    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickRoom: (id: string) => void; onPickSign: (id: string) => void; onLeaveRoom: () => void };
+    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickRoom: (machineId: string, roomId: string) => void; onPickMachine: (machineId: string) => void; onPickSign: (id: string) => void; onGoUp: () => void };
     models: unknown[] = [];
-    focusCalls: Array<[string | null, boolean | undefined]> = [];
+    focusCalls: Array<[Target, boolean | undefined]> = [];
     destroyed = false;
     constructor(handlers: FakeOfficeScene['handlers']) {
       this.handlers = handlers;
@@ -29,8 +30,8 @@ const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoi
     setModel(model: unknown): void {
       this.models.push(model);
     }
-    focusRoom(roomId: string | null, snap?: boolean): void {
-      this.focusCalls.push([roomId, snap]);
+    focus(target: Target, snap?: boolean): void {
+      this.focusCalls.push([target, snap]);
     }
   }
   return {
@@ -132,11 +133,11 @@ describe('OfficePage scene lifecycle', () => {
     const scene = FakeOfficeScene.instances[0];
 
     // simulate a click on a room in the (faked) scene, exactly as the real OfficeScene would call back
-    act(() => scene.handlers.onPickRoom('p1'));
+    act(() => scene.handlers.onPickRoom('m1', 'p1'));
     expect(await screen.findByText('← voltar ao andar')).toBeTruthy();
     expect(FakeOfficeScene.instances).toHaveLength(1); // no new scene was constructed
     expect(scene.destroyed).toBe(false);
-    expect(scene.focusCalls.at(-1)?.[0]).toBe('p1');
+    expect(scene.focusCalls.at(-1)?.[0]).toEqual({ kind: 'room', machineId: 'm1', roomId: 'p1' });
 
     // toggling focus mode changes ?focus=1 the same way a room click changes ?room= — assert the
     // query string really moved (a real FocusProvider is in the tree, not the no-op default context)
@@ -168,7 +169,7 @@ describe('OfficePage scene lifecycle', () => {
     renderPage();
     await act(async () => {});
 
-    act(() => FakeOfficeScene.instances[0].handlers.onPickRoom('p1'));
+    act(() => FakeOfficeScene.instances[0].handlers.onPickRoom('m1', 'p1'));
     await act(async () => {});
     expect(testSearch).toBe('?room=p1');
 
@@ -194,7 +195,7 @@ describe('OfficePage scene lifecycle', () => {
     expect(FakeOfficeScene.instances).toHaveLength(1);
     const m1Scene = FakeOfficeScene.instances[0];
     expect(m1Scene.models.length).toBeGreaterThan(0); // m1's floor is on screen
-    expect(m1Scene.focusCalls.some(([roomId]) => roomId === 'p1')).toBe(true); // auto-drilled into p1
+    expect(m1Scene.focusCalls.some(([t]) => t.kind === 'room' && t.roomId === 'p1')).toBe(true); // auto-drilled into p1
 
     // a direct URL change that keeps the same ?room=p1 — the exact shape of the finding: the new
     // machine's snapshot is still pending, and the query string coincidentally still says "p1"
@@ -205,13 +206,15 @@ describe('OfficePage scene lifecycle', () => {
     expect(m1Scene.destroyed).toBe(true);
     const m2Scene = FakeOfficeScene.instances[1];
     expect(m2Scene.models).toHaveLength(0); // never handed m1's model
-    expect(m2Scene.focusCalls.every(([roomId]) => roomId !== 'p1')).toBe(true); // never asked to frame m1's room
+    // never asked to frame m1's room, nor m1 itself
+    expect(m2Scene.focusCalls.every(([t]) => t.kind === 'city' || t.machineId === 'm2')).toBe(true);
+    expect(m2Scene.focusCalls.every(([t]) => t.kind !== 'room')).toBe(true);
 
     await act(async () => {
       resolveM2?.(snap('m2', [room('p2', [])]));
     });
     expect(m2Scene.models.length).toBeGreaterThan(0);
-    expect(m2Scene.models.at(-1)).toMatchObject({ rooms: [{ id: 'p2' }] });
+    expect(m2Scene.models.at(-1)).toMatchObject({ machines: [{ id: 'm2', floor: { rooms: [{ id: 'p2' }] } }] });
   });
 });
 

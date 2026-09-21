@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
-import { buildModel, missingTabIds, type FloorModel } from '../office/model';
+import { buildCityModel, missingTabIds, type CityModel, type FocusTarget } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import { useOfficeSnapshot } from '../office/useOfficeSnapshot';
 
@@ -55,14 +55,14 @@ export function OfficePage() {
     onPickDesk: (tabId: string, projectId: string) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
     onPickRoom: (id: string) => setRoom(id),
     onPickSign: (id: string) => navigate(`/projects/${id}`),
-    onLeaveRoom: () => setRoom(null, true),
+    onGoUp: () => setRoom(null, true),
   });
   useEffect(() => {
     handlers.current = {
       onPickDesk: (tabId, projectId) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
       onPickRoom: (id) => setRoom(id),
       onPickSign: (id) => navigate(`/projects/${id}`),
-      onLeaveRoom: () => setRoom(null, true),
+      onGoUp: () => setRoom(null, true),
     };
   });
 
@@ -71,28 +71,37 @@ export function OfficePage() {
   // it to null in its own effect, which runs after this commit — so treating it as current here
   // would build a model (and seed a freshly created scene, below) with the wrong machine's floor.
   const currentSnapshot = snapshot && snapshot.machine.id === machineId ? snapshot : null;
+  // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with an
+  // `online` field: only an explicit 'offline' should dim the floor and show the banner.
+  const online = !machineId || statuses[machineId] !== 'offline';
+  const machineName = machines.find((m) => m.id === machineId)?.name ?? '';
 
   // tabState reads a ref (lib/monitor.tsx), so it never changes identity; `items` is what actually
   // changes on a live push — keep it as a dep, or the model stops updating on monitor pushes.
-  const model = useMemo(() => (currentSnapshot ? buildModel(currentSnapshot, tabState) : null), [currentSnapshot, tabState, items]);
-  // mirrors `model` for the scene-mount effect below: a scene created there (host/machineId change,
+  // Until Task 6 this page still shows one machine, so the city it hands the scene has one block.
+  const city = useMemo(
+    () => (currentSnapshot && machineId ? buildCityModel([{ id: machineId, name: machineName, online, snapshot: currentSnapshot, failed: false }], tabState) : null),
+    [currentSnapshot, tabState, items, machineId, machineName, online],
+  );
+  const model = city?.machines[0]?.floor ?? null;
+  // mirrors `city` for the scene-mount effect below: a scene created there (host/machineId change,
   // or recovering from a failed mount) must be seeded with whatever's already known, not sit blank
   // waiting for this push effect to fire again — it won't, since the model itself hasn't changed.
-  const modelRef = useRef<FloorModel | null>(null);
+  const cityRef = useRef<CityModel | null>(null);
   useEffect(() => {
-    modelRef.current = model;
-    if (model) sceneRef.current?.setModel(model);
-  }, [model]);
+    cityRef.current = city;
+    if (city) sceneRef.current?.setModel(city);
+  }, [city]);
 
   const roomExists = !!model?.rooms.some((r) => r.id === room);
   // deliberate: frame once the first model arrives (the boolean, not the model itself, is what should retrigger this)
   const hasModel = model !== null;
-  // mirrors the current focus target, for the same reason as modelRef above
-  const focusRef = useRef<string | null>(null);
+  // mirrors the current focus target, for the same reason as cityRef above
+  const focusRef = useRef<FocusTarget | null>(null);
   useEffect(() => {
-    focusRef.current = roomExists ? room : null;
-    if (model) sceneRef.current?.focusRoom(focusRef.current);
-  }, [room, roomExists, hasModel]);
+    focusRef.current = machineId ? (room && roomExists ? { kind: 'room', machineId, roomId: room } : { kind: 'machine', machineId }) : null;
+    if (city && focusRef.current) sceneRef.current?.focus(focusRef.current);
+  }, [room, roomExists, hasModel, machineId]);
 
   // a tab opened since the snapshot: re-read it, but only once per newly-missing id that actually
   // started a request — a re-read that bounced off an in-flight one must not be marked "asked", or
@@ -118,7 +127,7 @@ export function OfficePage() {
   // previous machine's model/focus, whichever of the two guards would have caught it on its own.
   useEffect(() => {
     autoDrilled.current = false;
-    modelRef.current = null;
+    cityRef.current = null;
     focusRef.current = null;
   }, [machineId]);
 
@@ -127,15 +136,17 @@ export function OfficePage() {
     setFailed(false);
     const scene = new OfficeScene({
       onPickDesk: (tabId, projectId) => handlers.current.onPickDesk(tabId, projectId),
-      onPickRoom: (id) => handlers.current.onPickRoom(id),
+      // this page is still one machine's floor: which machine a room belongs to is never in doubt
+      onPickRoom: (_machineId, roomId) => handlers.current.onPickRoom(roomId),
+      onPickMachine: () => {},
       onPickSign: (id) => handlers.current.onPickSign(id),
-      onLeaveRoom: () => handlers.current.onLeaveRoom(),
+      onGoUp: () => handlers.current.onGoUp(),
     });
     sceneRef.current = scene;
-    // setModel/focusRoom are safe to call before mount() resolves — the scene stores them and
+    // setModel/focus are safe to call before mount() resolves — the scene stores them and
     // replays them once it can draw, so a scene created here is never left blank
-    if (modelRef.current) scene.setModel(modelRef.current);
-    scene.focusRoom(focusRef.current, true);
+    if (cityRef.current) scene.setModel(cityRef.current);
+    scene.focus(focusRef.current ?? { kind: 'city' }, true);
     // Pixi falls back from WebGL to canvas by itself; this only fires when neither could start
     scene.mount(host).catch(() => setFailed(true));
     return () => {
@@ -172,9 +183,6 @@ export function OfficePage() {
   }
   if (!machineId || !machines.some((m) => m.id === machineId)) return <Navigate to={`/office/${machines[0].id}`} replace />;
 
-  // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with an
-  // `online` field: only an explicit 'offline' should dim the floor and show the banner.
-  const online = statuses[machineId] !== 'offline';
   // an offline machine already explains the silence; this is the machine that answers but whose tmux could not be read
   const tmuxSilent = !!currentSnapshot && !currentSnapshot.reachable && online;
   const needsYouByMachine = (id: string) => needsYou.some((i) => i.machine.id === id);
@@ -208,7 +216,9 @@ export function OfficePage() {
         </div>
       )}
       <div className="relative min-h-0 flex-1">
-        <div ref={setHost} className={`absolute inset-0 overflow-hidden ${online ? '' : 'opacity-60'}`} />
+        {/* an offline machine is dimmed by the scene now — its whole block is drawn dark — so the
+            canvas must not be dimmed a second time on top of it, which left the floor unreadable */}
+        <div ref={setHost} className="absolute inset-0 overflow-hidden" />
         {focus && (
           <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
             <StatusNotices online={online} tmuxSilent={tmuxSilent} connected={connected} />

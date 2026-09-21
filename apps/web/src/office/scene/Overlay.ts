@@ -4,7 +4,7 @@
  * `place()` puts each one back over its world point every frame.
  */
 import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
-import { truncateLabel, type DeskModel, type Marker, type RoomModel } from '../model';
+import { truncateLabel, type DeskModel, type MachineModel, type MachineNotice, type Marker, type RoomModel } from '../model';
 import type { View } from './camera';
 
 /** Hover is where a name cut to 18 characters and a task title become readable: room for both. */
@@ -117,37 +117,85 @@ export class DeskOverlay {
   }
 }
 
-/** The sign over a room's back corner: name, board progress, how many need you. */
-export class RoomSign {
+const needsYouText = (n: number) => (n === 1 ? '1 precisa de você' : `${n} precisam de você`);
+
+/**
+ * A sign hanging over a world point: a bold name, a muted detail line under it, no plate.
+ * `lift` is extra height in SCREEN pixels. The world anchor shrinks with the zoom while markers,
+ * labels and the signs themselves keep their screen size, so a sign that clears what is under it
+ * at close range lands right on top of it once the camera pulls back.
+ */
+class Sign {
   readonly root = new Container();
   private readonly name: Text;
   private readonly detail: Text;
 
   constructor(
     readonly world: { x: number; y: number },
-    model: RoomModel,
+    size: number,
+    private readonly lift = 0,
   ) {
-    this.name = new Text({ text: model.label, style: text(13, 0xe6e8ee, '700') });
+    this.name = new Text({ text: '', style: text(size, 0xe6e8ee, '700') });
     this.detail = new Text({ text: '', style: text(11, 0x9aa1b1) });
     this.name.anchor.set(0.5, 1);
     this.detail.anchor.set(0.5, 0);
     this.root.addChild(this.name, this.detail);
     this.root.eventMode = 'static';
     this.root.cursor = 'pointer';
+  }
+
+  /** `attention`: something in there is waiting for the person, so the detail line is orange. */
+  protected write(label: string, parts: string[], attention: boolean, lit: boolean): void {
+    this.name.text = label;
+    this.detail.text = parts.join(' · ');
+    this.detail.style.fill = attention ? 0xf0883e : 0x9aa1b1;
+    this.root.alpha = lit ? 1 : 0.6;
+  }
+
+  place(view: View): void {
+    this.root.position.set(Math.round(view.x + this.world.x * view.scale), Math.round(view.y + this.world.y * view.scale - this.lift));
+  }
+}
+
+/** The sign over a room's back corner: name, board progress, how many need you. */
+export class RoomSign extends Sign {
+  constructor(world: { x: number; y: number }, model: RoomModel) {
+    super(world, 13);
     this.apply(model);
   }
 
   apply(model: RoomModel): void {
-    this.name.text = model.label;
     const parts: string[] = [];
     if (model.progress) parts.push(`${model.progress.done}/${model.progress.total} tarefas`);
-    if (model.needsYou > 0) parts.push(model.needsYou === 1 ? '1 precisa de você' : `${model.needsYou} precisam de você`);
-    this.detail.text = parts.join(' · ');
-    this.detail.style.fill = model.needsYou > 0 ? 0xf0883e : 0x9aa1b1;
-    this.root.alpha = model.lit ? 1 : 0.6;
+    if (model.needsYou > 0) parts.push(needsYouText(model.needsYou));
+    this.write(model.label, parts, model.needsYou > 0, model.lit);
+  }
+}
+
+/** Why a machine's block may not be telling the truth, read from across the city. */
+const NOTICE: Record<Exclude<MachineNotice, null>, string> = {
+  offline: 'offline',
+  silent: 'sem resposta',
+  error: 'não foi possível carregar',
+};
+
+/**
+ * The block's first room starts at the block's own back corner, so at city zoom this sign would sit
+ * on that room's sign and on the raised hands of its first row of desks. This clears both.
+ */
+const MACHINE_LIFT = 36;
+
+/** The sign over a block's back corner: the machine's name, its notice and how many need you. */
+export class MachineSign extends Sign {
+  constructor(world: { x: number; y: number }, model: MachineModel) {
+    super(world, 16, MACHINE_LIFT);
+    this.apply(model);
   }
 
-  place(view: View): void {
-    this.root.position.set(Math.round(view.x + this.world.x * view.scale), Math.round(view.y + this.world.y * view.scale));
+  apply(model: MachineModel): void {
+    const parts: string[] = [];
+    if (model.notice) parts.push(NOTICE[model.notice]);
+    if (model.needsYou > 0) parts.push(needsYouText(model.needsYou));
+    this.write(model.label, parts, model.needsYou > 0, model.lit);
   }
 }
