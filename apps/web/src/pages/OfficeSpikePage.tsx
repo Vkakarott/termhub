@@ -6,6 +6,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMonitor } from '../lib/monitor';
+import { useData } from '../lib/data';
+import { emptyMonitorHint } from '../lib/needs-you';
 import { TAB_STATE_LABEL, type TabState } from '../lib/types';
 import { OfficeScene, type DeskInput } from '../office/OfficeScene';
 
@@ -29,6 +31,7 @@ function demoDesks(count: number): DeskInput[] {
 
 export function OfficeSpikePage() {
   const { items, connected } = useMonitor();
+  const { machines } = useData();
   const [params, setParams] = useSearchParams();
   const demo = Math.min(2000, Math.max(0, Number(params.get('demo')) || 0));
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -127,7 +130,15 @@ export function OfficeSpikePage() {
           </span>
         </span>
       </div>
-      <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={hostRef} className="h-full w-full overflow-hidden" />
+        {!demo && desks.length === 0 && (
+          <p className="pointer-events-none absolute inset-x-0 top-12 mx-auto max-w-md rounded-lg border border-line bg-bg-2 px-4 py-3 text-center text-xs text-fg-muted">
+            A sala está vazia porque nenhuma tab reportou estado ao monitor.
+            {emptyMonitorHint(machines) ? ` ${emptyMonitorHint(machines)}` : ' Abra uma tab e rode algo nela para a primeira mesa aparecer.'}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

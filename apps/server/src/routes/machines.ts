@@ -72,10 +72,27 @@ function updateAvailable(m: Machine): boolean {
 }
 
 export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
-  /** Machines in the caller's scope (own, or the "view as" target / all for admins). */
+  /**
+   * Machines in the caller's scope (own, or the "view as" target / all for admins), each with the
+   * health the monitor depends on: are the hooks installed, and how many of its tabs ever reported
+   * a state. Without that, a machine whose hooks were never installed looks exactly like an idle one.
+   */
   app.get('/', async (request) => {
     const machines = await repos.machines.list(request.scope.ownerId);
-    return { machines: machines.map((m) => ({ ...m, update_available: updateAvailable(m) })), latest_agent_version: latestAgentVersion() };
+    const [hooks, counts] = await Promise.all([
+      repos.machineHooks.installedAtByMachine(machines.map((m) => m.id)),
+      repos.tabs.countsByMachine(request.scope.ownerId),
+    ]);
+    return {
+      machines: machines.map((m) => ({
+        ...m,
+        update_available: updateAvailable(m),
+        hooks_installed_at: hooks[m.id] ?? null,
+        tabs: counts[m.id]?.tabs ?? 0,
+        tabs_reporting: counts[m.id]?.reporting ?? 0,
+      })),
+      latest_agent_version: latestAgentVersion(),
+    };
   });
 
   /** New machines are agent-only: mints the enrollment token, shown to the caller this once. */

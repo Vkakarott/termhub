@@ -1,4 +1,4 @@
-import { NEEDS_YOU, type MonitorItem, type Tab } from './types';
+import { NEEDS_YOU, type Machine, type MonitorItem, type Tab } from './types';
 
 /** The tab fields the "needs you" rule reads (see server monitor/state.ts needsYou — same rule). */
 type NeedsYouTab = Pick<Tab, 'state' | 'state_at' | 'state_seen_at'>;
@@ -60,4 +60,18 @@ export function shouldMarkSeen(tab: NeedsYouTab, opts: { viewVisible: boolean; w
 export function optimisticSeenAt(tab: Pick<Tab, 'state_at'>, now: Date = new Date()): string {
   const nowIso = now.toISOString();
   return tab.state_at && tab.state_at > nowIso ? tab.state_at : nowIso;
+}
+
+/**
+ * What to say when the monitor has nothing to show. An empty list means "no tab ever reported a
+ * state", which is not the same as "nothing is waiting": a machine whose monitor hooks were never
+ * installed reports nothing at all, and that used to render as a blank page with no hint. Null =
+ * stay quiet (no machine yet, or the hooks are in place and there is simply nothing happening).
+ */
+export function emptyMonitorHint(machines: Machine[]): string | null {
+  const agents = machines.filter((m) => m.type === 'agent');
+  if (agents.length === 0) return null;
+  const withoutHooks = agents.filter((m) => m.hooks_installed_at === null);
+  if (withoutHooks.length === 0) return null;
+  return `Nenhuma tab reportou estado ainda. Instale os hooks do monitor em ${withoutHooks.map((m) => m.name).join(', ')} (✎ na máquina, na barra lateral) para que as tabs apareçam aqui.`;
 }

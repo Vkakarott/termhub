@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMonitor } from '../lib/monitor';
 import { useData } from '../lib/data';
 import { ApiError } from '../lib/api';
-import { tabNeedsYou } from '../lib/needs-you';
+import { emptyMonitorHint, tabNeedsYou } from '../lib/needs-you';
 import { NEEDS_YOU, TAB_STATE_LABEL, type MonitorItem, type TabState } from '../lib/types';
 
 function since(iso: string | null, now: number): string {
@@ -182,9 +182,21 @@ function MachineSection({ group, now, open, onToggle }: { group: MachineGroup; n
 /** Home: one accordion per machine; machines with someone waiting come first and start open. */
 export function NeedsYouList({ now }: { now: number }) {
   const { items, needsYou, connected } = useMonitor();
+  const { machines } = useData();
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
   const groups = useMemo(() => groupMachineItems(items), [items]);
-  if (items.length === 0) return null;
+  const hint = items.length === 0 ? emptyMonitorHint(machines) : null;
+  if (items.length === 0) {
+    if (!hint) return null;
+    return (
+      <section className="mb-6">
+        <div className="mb-2 flex items-center gap-2">
+          <h2 className="text-sm font-semibold">Precisando de você</h2>
+        </div>
+        <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">{hint}</p>
+      </section>
+    );
+  }
   const isOpen = (g: MachineGroup) => open[g.machine.id] ?? g.waiting.length > 0;
   const toggle = (g: MachineGroup) => {
     const next = { ...open, [g.machine.id]: !isOpen(g) };
