@@ -104,7 +104,12 @@ export class OfficeScene {
     };
     document.addEventListener('visibilitychange', onVisibility);
     app.renderer.on('resize', onResize);
+    // Pixi's `resizeTo` only listens to the WINDOW's resize; the host also changes size with no
+    // window resize at all — focus mode hides the sidebar, the sidebar collapses — so watch the element.
+    const observer = new ResizeObserver(() => app.resize());
+    observer.observe(host);
     this.cleanup = () => {
+      observer.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
       app.renderer.off('resize', onResize);
     };

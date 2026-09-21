@@ -30,6 +30,12 @@ const scene = new OfficeScene({
   onPickSign: (id) => (hud.dataset.sign = id),
   onLeaveRoom: () => scene.focusRoom(null),
 });
+// `?grow=1`: the host starts narrow and widens WITHOUT a window resize — what hiding the sidebar in focus mode does
+const hostEl = document.getElementById('host')!;
+if (q.get('grow')) {
+  hostEl.style.width = '75%';
+  setTimeout(() => (hostEl.style.width = '100%'), 800);
+}
 await scene.mount(document.getElementById('host')!);
 scene.setModel(buildModel(snapshot, () => undefined));
 if (q.get('room')) scene.focusRoom(`p${q.get('room')}`, true);
