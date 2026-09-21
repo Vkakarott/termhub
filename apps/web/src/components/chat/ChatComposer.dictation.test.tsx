@@ -47,10 +47,19 @@ function primary(name: RegExp): HTMLButtonElement {
   return screen.getByRole('button', { name }) as HTMLButtonElement;
 }
 
+/**
+ * A mouse, which is the pointer `enterSends()` sends on. Installed explicitly rather than relying on
+ * `matchMedia` being absent: a test that names the fine-pointer branch has to exercise it.
+ */
+function installFinePointer(): void {
+  (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = () => ({ matches: false }) as MediaQueryList;
+}
+
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   deliverText = null;
+  delete (window as { matchMedia?: unknown }).matchMedia;
 });
 
 beforeEach(() => {
@@ -201,6 +210,29 @@ describe('ChatComposer dictation', () => {
       expect(button.textContent).toBe('');
       cleanup();
     }
+  });
+
+  it('lets Enter send only what the button would send: never while recording, never while transcribing', () => {
+    installFinePointer();
+    const press = () => fireEvent.keyDown(screen.getByPlaceholderText(/pergunte/i), { key: 'Enter' });
+
+    renderComposer({ state: 'idle', value: 'oi' });
+    press();
+    expect(onSend).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    // The button reads "Parar" here. An Enter that still sent put a half-typed line in front of an
+    // agent that acts on real machines, and the transcription then landed in the emptied box.
+    onSend.mockClear();
+    renderComposer({ state: 'recording', value: 'oi' });
+    press();
+    expect(onSend).not.toHaveBeenCalled();
+    cleanup();
+
+    // Same for the wait after it: the text of this clip is still on its way into this very box.
+    renderComposer({ state: 'transcribing', value: 'oi' });
+    press();
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it('appends the transcription to what is already typed, with a space between', () => {

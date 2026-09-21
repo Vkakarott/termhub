@@ -56,7 +56,8 @@ const PRIMARY_LABEL: Record<PrimaryRole, string> = {
  * own now, so the box no longer has to be two lines tall to look like one.
  *
  * Enter sends on a fine pointer (a mouse) and writes a newline on a coarse one (a touch keyboard,
- * where Enter is how every other line got started); Shift+Enter is always a newline, on either.
+ * where Enter is how every other line got started); Shift+Enter is always a newline, on either. Either
+ * way it can only send what the button itself would send.
  */
 export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -106,6 +107,8 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   const role: PrimaryRole = dictation.state === 'recording' ? 'stop' : hasText || dictation.state === 'off' ? 'send' : 'dictate';
   const notReadyToDictate = busy || dictation.state === 'checking' || dictation.state === 'starting';
   const disabled = role === 'stop' ? false : role === 'send' ? !hasText || sending || busy : notReadyToDictate;
+  /** The one condition sending obeys, so the keyboard can never send what the button would refuse. */
+  const canSend = role === 'send' && !disabled;
 
   return (
     // `env(safe-area-inset-bottom)` resolves to 0px in every browser today, because the app-wide
@@ -128,7 +131,12 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
           placeholder="Pergunte ou peça algo às suas máquinas"
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && enterSends()) {
+            // `canSend`, not just `enterSends()`: while the box is recording the button reads "Parar",
+            // and an Enter that still sent put a half-typed line in front of an agent that acts on the
+            // person's real machines — with the transcription then landing in the box that send had
+            // just emptied. Nothing is swallowed when it cannot send: the Enter stays the newline the
+            // textarea would have written anyway.
+            if (e.key === 'Enter' && !e.shiftKey && enterSends() && canSend) {
               e.preventDefault();
               onSend();
             }
