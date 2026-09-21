@@ -23,6 +23,17 @@ describe('ChatComposer', () => {
     expect(screen.getByPlaceholderText('Pergunte ou peça algo às suas máquinas')).toBeTruthy();
   });
 
+  it('keeps the box at 16px, because a smaller field makes iOS zoom the page on focus', () => {
+    // Safari on iOS zooms into any field whose font is under 16px the moment it takes focus, and a
+    // zoomed page is wider than the screen — which is what "tapping the box blows out the side"
+    // was. jsdom neither zooms nor lays out, so the class is what can be pinned here; the effect
+    // itself only shows on a device.
+    render(<ChatComposer value="" onChange={() => {}} onSend={() => {}} sending={false} />);
+    const box = screen.getByPlaceholderText(/pergunte/i);
+    expect(box.className).toContain('text-base');
+    expect(box.className).not.toContain('text-sm');
+  });
+
   it('sends on Enter with a fine pointer, and writes a newline with Shift', () => {
     const onSend = vi.fn();
     // Installed, not assumed: with no `matchMedia` at all `enterSends()` returns true anyway, so this

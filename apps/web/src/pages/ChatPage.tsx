@@ -197,7 +197,7 @@ export function ChatPage() {
       <ol
         ref={listRef}
         aria-label="Conversa"
-        className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto py-4"
+        className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto overscroll-contain py-4"
         onScroll={(e) => {
           stick.current = isNearBottom(e.currentTarget);
         }}

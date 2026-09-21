@@ -130,9 +130,13 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
           size acts on the main axis, vertical there) and is kept only as the guard for the day this
           box is a row's flex item again — which is also why no test can observe it. */}
       <div className="min-w-0 rounded-2xl border border-line bg-bg-2 px-3 py-2 focus-within:border-accent">
+        {/* 16px, not the 14px the rest of the chat uses: iOS Safari zooms the page into any field
+            whose font is under 16px the moment it takes focus, and a zoomed page is wider than the
+            screen — which is what "the side blows out when I tap the box" was. The zoom is silent,
+            irreversible without a pinch, and it also lets the whole page pan vertically afterwards. */}
         <textarea
           ref={ref}
-          className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-0 py-1 text-sm text-fg placeholder:text-fg-dim focus:outline-none"
+          className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-0 py-1 text-base text-fg placeholder:text-fg-dim focus:outline-none"
           rows={MIN_ROWS}
           value={value}
           placeholder="Pergunte ou peça algo às suas máquinas"
