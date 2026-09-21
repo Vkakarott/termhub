@@ -547,7 +547,10 @@ it('fetches nothing from an answer: no element in the model text can make the br
   render(<ChatPage />);
 
   await screen.findByText(/olha isso/);
-  expect(document.querySelectorAll('img, video, input, iframe, svg, image')).toHaveLength(0);
+  // Scoped to the thread, which is where the model's text lands: the page's own chrome legitimately
+  // draws inline `svg` icons (the composer's send/mic button), and those are not the model's markup.
+  const thread = screen.getByRole('list', { name: 'Conversa' });
+  expect(thread.querySelectorAll('img, video, input, iframe, svg, image')).toHaveLength(0);
 });
 
 it('puts a card between the two messages it was proposed between', async () => {
@@ -589,7 +592,10 @@ it('cannot be widened past the viewport by an unbreakable token in an answer', a
   const thread = await screen.findByRole('list', { name: 'Conversa' });
   expect(thread.className).toContain('min-w-0');
   expect(thread.parentElement?.className).toContain('min-w-0');
-  expect(screen.getByPlaceholderText(/pergunte/i).className).toContain('min-w-0');
+  // The composer's guard moved one element out, onto the rounded box that now holds the textarea:
+  // the textarea is no longer a flex item (it is a block that fills the box), so the box is what
+  // must refuse to grow past the column.
+  expect(screen.getByPlaceholderText(/pergunte/i).parentElement?.className).toContain('min-w-0');
 });
 
 it('is one single thread, not a message list with a card list glued below it', async () => {
