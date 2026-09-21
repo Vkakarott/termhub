@@ -80,6 +80,14 @@ describe('launchLine', () => {
     expect(line).toBe("CLAUDE_CONFIG_DIR='/tmp/it'\\''s here; rm -rf /' claude 'say '\\''hi'\\''; echo $HOME\nls'");
   });
 
+  it("leaves a config dir's ~ for the machine's shell to expand, the rest still quoted", () => {
+    expect(launchLine('claude', '~/.claude-work', 'write a spec')).toBe("CLAUDE_CONFIG_DIR=\"$HOME\"/'.claude-work' claude 'write a spec'");
+    expect(launchLine('chatgpt', '~', 'fix it')).toBe('CODEX_HOME="$HOME" codex \'fix it\'');
+    // Only the leading ~/ is outside the quotes: a tilde further in, and anything else, stays literal.
+    expect(launchLine('claude', "~/it's $HOME; rm -rf /", 'x')).toBe("CLAUDE_CONFIG_DIR=\"$HOME\"/'it'\\''s $HOME; rm -rf /' claude 'x'");
+    expect(launchLine('claude', '/tmp/~/x', 'x')).toBe("CLAUDE_CONFIG_DIR='/tmp/~/x' claude 'x'");
+  });
+
   it('refuses gemini and antigravity for now', () => {
     expect(() => launchLine('gemini', null, 'x')).toThrow(new ControlError('PROVIDER_UNSUPPORTED', 'Iniciar um agente gemini ainda não é suportado; por enquanto só claude e chatgpt (Codex)'));
     expect(() => launchLine('antigravity', null, 'x')).toThrow(ControlError);
