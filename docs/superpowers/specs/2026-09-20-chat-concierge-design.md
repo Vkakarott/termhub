@@ -90,11 +90,24 @@ The `mcp__termhub__*` wildcard in `--allowed-tools` is to be confirmed against t
 during implementation; if it is not honoured, the tools are enumerated one by one, which the server
 can generate from the same list `tools/list` already exposes.
 
-**The concierge has no local tools, and this is a security property, not a preference.** With
-`Bash` it could reach the machines outside the MCP and the gate would be decoration; with `Read`
-/ `Write` it could read jarvis's disk, including credentials. `--strict-mcp-config` keeps the
-user's other MCP servers out of the process. `--dangerously-skip-permissions` is never passed —
-the same rule the global terminal spec already sets for `start_agent`.
+**The concierge has no local tools, and this is a security property, not a preference.** The risk
+is not that it would reach the machines behind the gate's back — a call to `/mcp` from inside the
+container passes the same server-side gate, and the container has no ssh, no tmux socket and no
+agent connection. The risk is what sits in the container with it. Both account config dirs are
+mounted read-write (the CLI refreshes its own token), so a local shell turns any text the model
+reads off a terminal screen — a cloned repository's README, the output of a `curl` — into three
+things: an OAuth credential it can exfiltrate over the internet the CLI needs anyway; a
+`settings.json` it can write in those dirs, whose hooks then run **on the host** under the user's
+own account the next time they use that config dir; and lateral reach to `db` and `app` on the
+compose network, which the gate never sees. A fourth cost is not security but product: anything
+done through a local tool appears in neither the chat's action trail nor `api_token_events`, so
+"everything it did is in the history" stops being true.
+
+Giving it a shell later is therefore a change to what is mounted beside it, not just a flag: a
+Claude account of its own rather than the user's, and a read-only `settings.json`.
+`--strict-mcp-config` keeps the user's other MCP servers out of the process.
+`--dangerously-skip-permissions` is never passed — the same rule the global terminal spec already
+sets for `start_agent`.
 
 ### 4.2 Account and credit
 
