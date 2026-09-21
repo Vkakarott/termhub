@@ -31,6 +31,11 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Collapsing the box to measure it also collapses how far it can be scrolled, and the browser
+    // clamps `scrollTop` to that while it is collapsed — restoring the rows does not bring the
+    // scroll position back. Without this, a message past `MAX_ROWS` jumped to its first line on
+    // every keystroke.
+    const scrollTop = el.scrollTop;
     // Reset to the floor before measuring, so deleting a line shrinks the box back down too, not
     // just growth.
     el.rows = MIN_ROWS;
@@ -39,6 +44,7 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
     const vPadding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
     const contentRows = Math.ceil((el.scrollHeight - vPadding) / lineHeight);
     el.rows = Math.min(MAX_ROWS, Math.max(MIN_ROWS, contentRows));
+    el.scrollTop = scrollTop;
   }, [value]);
 
   return (

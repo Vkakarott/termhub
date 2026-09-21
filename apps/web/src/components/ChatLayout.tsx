@@ -14,9 +14,11 @@ export function ChatLayout() {
         </Link>
         <h1 className="text-sm font-semibold text-fg">Chat</h1>
       </header>
-      <div className="min-h-0 flex-1">
+      {/* `main`, like every sidebar route's own region (`Layout.tsx`): /chat is a full page too, and
+       * a screen reader needs the landmark to skip the header. */}
+      <main className="min-h-0 flex-1">
         <Outlet />
-      </div>
+      </main>
     </div>
   );
 }

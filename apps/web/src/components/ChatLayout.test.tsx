@@ -40,6 +40,12 @@ describe('ChatLayout', () => {
     expect(screen.getByRole('heading', { name: 'Chat' })).toBeTruthy();
   });
 
+  it('puts the routed page in a main landmark, like every sidebar route', () => {
+    mount();
+    // /chat is a full page of its own, so it needs the landmark a screen reader skips the header by.
+    expect(screen.getByRole('main').textContent).toContain('conteúdo do chat');
+  });
+
   it('offers a labelled way back to the app', () => {
     mount();
     const back = screen.getByRole('link', { name: /voltar/i });

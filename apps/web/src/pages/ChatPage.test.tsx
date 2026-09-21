@@ -247,6 +247,43 @@ it('leaves the scroll position alone once the reader has scrolled away from the 
   expect(list.scrollTop).toBe(100);
 });
 
+it('pins the thread to the bottom when a card lands, not only when a message does', async () => {
+  let deliver: (e: unknown) => void = () => {};
+  // One stable `events` array across renders, so nothing but the thread's own contents can make the
+  // pin effect run: this is what tells a card apart from a message here.
+  const events: unknown[] = [];
+  streamMock.mockImplementation((_onReconnect: () => void, onEvent: (e: unknown) => void) => {
+    deliver = onEvent;
+    return { events, connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })], actions: [] });
+
+  render(<ChatPage />);
+  const list = await screen.findByRole('list', { name: 'Conversa' });
+  Object.defineProperty(list, 'scrollHeight', { value: 480, configurable: true });
+  expect(list.scrollTop).toBe(0);
+
+  // A `confirmation` adds a card and touches nothing else: no refetch, no new message.
+  deliver({ type: 'confirmation', action_id: 'act1', tool: 'send_input', args: { tab_id: 't1', text: 'npm test' }, class: 'write', machine_id: null, project_id: null, tab_id: 't1', summary: 'digitar `npm test` na aba Terminal 2', created_at: '2026-09-21T00:00:05.000Z' });
+
+  await screen.findByRole('button', { name: /autorizar/i });
+  await waitFor(() => expect(list.scrollTop).toBe(480));
+});
+
+it('says what the screen is for while the conversation is empty', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c1' }, messages: [], actions: [] });
+  render(<ChatPage />);
+
+  expect(await screen.findByText(/concierge/i)).toBeTruthy();
+});
+
+it('drops that line as soon as the conversation has a message', async () => {
+  render(<ChatPage />); // the default fixture has one message
+
+  await screen.findByText('oi');
+  expect(screen.queryByText(/concierge/i)).toBeNull();
+});
+
 it('returns to the bottom on send, even if the reader had scrolled away', async () => {
   // load() runs again after a successful send: it must resolve a genuinely new list (not the same
   // object `mockResolvedValue` would keep handing back) for React to see `messages` change and the

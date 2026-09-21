@@ -134,10 +134,12 @@ export function ChatPage() {
   // through history: past one viewport they would otherwise send a message, or watch an answer
   // stream in, and see the page yank itself out from under them. Runs on every new message and on
   // every streamed delta.
+  // Keyed on the timeline, not on `messages`: a card is a row of this thread too, so a change to
+  // `actions` alone — a `decide()` response, a queued note — must be able to move the scroll.
   useEffect(() => {
     const list = listRef.current;
     if (list && stick.current) list.scrollTop = list.scrollHeight;
-  }, [messages, events]);
+  }, [timeline, events]);
 
   const send = async () => {
     const value = text.trim();
@@ -174,6 +176,9 @@ export function ChatPage() {
     // is the composer's own (`ChatComposer`), since it — not this column — is anchored to the edge.
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4">
       {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
+      {/* A new conversation is otherwise a header, an empty thread and a box: one line saying what
+       * this screen is for. Deliberately just the one — no example prompts, no tour. */}
+      {messages.length === 0 && <p className="pt-6 text-center text-sm text-fg-dim">Peça algo às suas máquinas: o concierge lê os terminais e pede sua autorização antes de qualquer alteração.</p>}
       {/* Named, because a rendered answer can contain Markdown lists of its own: this is how the
        * thread is told apart from them — by screen readers, and by the tests. */}
       <ol
