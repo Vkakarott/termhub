@@ -48,6 +48,10 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   }, [value]);
 
   return (
+    // `env(safe-area-inset-bottom)` resolves to 0px in every browser today, because the app-wide
+    // viewport meta in `index.html` has no `viewport-fit=cover` — this padding is not protecting
+    // anything yet, it is what becomes correct the day that meta changes (a change that touches the
+    // terminal pages too, so it is not made here). The soft keyboard is a separate follow-up.
     <div className="mb-4 flex items-end gap-2 pb-[env(safe-area-inset-bottom)]">
       <textarea
         ref={ref}
