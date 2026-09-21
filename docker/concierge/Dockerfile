@@ -24,9 +24,12 @@ RUN npm run build -w @termhub/concierge
 FROM node:22-slim AS runner
 WORKDIR /srv
 ENV NODE_ENV=production
+# The CLI version is pinned: the runner's argv contract depends on its flags, and an unpinned
+# rebuild is what once dropped --verbose and broke every run. Bump it deliberately, with the
+# exact-argv test in apps/concierge/src/run.test.ts as the check.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g @anthropic-ai/claude-code
+ && npm install -g @anthropic-ai/claude-code@2.1.278
 COPY --from=build /app/apps/concierge/dist ./dist
 COPY apps/concierge/package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
