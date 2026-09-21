@@ -1,5 +1,7 @@
 import {
   CLAUDE_DEFAULT_DIR,
+  claudeDirsFromHome,
+  configDirsFromRc,
   HOOK_ENV_REL,
   HOOK_MARK,
   HOOK_SCRIPT,
@@ -91,6 +93,39 @@ function extraDirs(accountDirs: string[]): string[] {
   return claudeConfigDirs(accountDirs).filter((d) => d !== CLAUDE_DEFAULT_DIR);
 }
 
+/** The `.claude*` dirs of the home (with the marker files inside each) and the rc files, in one round trip. */
+const DISCOVERY_SCRIPT = [
+  `for d in "$HOME"/.claude*; do [ -d "$d" ] || continue; printf '%s' "\${d##*/}"; for m in settings.json projects .credentials.json; do [ -e "$d/$m" ] && printf '\\t%s' "$m"; done; printf '\\n'; done`,
+  `printf '${SEP}\\n'`,
+  `for f in .zshrc .bashrc .bash_profile .profile .config/fish/config.fish; do cat "$HOME/$f" 2>/dev/null; printf '\\n'; done`,
+  'true',
+].join('; ');
+
+/**
+ * The Claude config dirs the machine itself knows about, so a person who runs Claude Code through
+ * a CLAUDE_CONFIG_DIR alias is hooked without registering anything. A machine that cannot answer
+ * is not an error: we simply hook what was registered (the agent path does the same on its own).
+ */
+async function discoverOnMachine(machine: Machine): Promise<string[]> {
+  let stdout: string;
+  try {
+    const r = await runOnMachine(machine, { file: 'sh', args: ['-c', DISCOVERY_SCRIPT] }, DISCOVERY_SCRIPT);
+    if (r.code !== 0) return [];
+    stdout = r.stdout;
+  } catch {
+    return [];
+  }
+  const [listing = '', rc = ''] = stdout.split(`${SEP}\n`);
+  const entries = listing
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => {
+      const [name, ...files] = line.split('\t');
+      return { name, files };
+    });
+  return [...claudeDirsFromHome(entries), ...configDirsFromRc(rc)];
+}
+
 /**
  * `accountDirs`: config dirs of the Claude accounts registered for this machine (CLAUDE_CONFIG_DIR);
  * they get the entries too, besides ~/.claude, when they exist on the machine.
@@ -103,7 +138,7 @@ export async function installHooks(machine: Machine, token: string, hooksUrl: st
     const r = await agentRpc(machine, 'hooks.install', { hooks_url: hooksUrl, token, ...(extra.length ? { claude_dirs: extra } : {}) });
     return { home: r.home, claude: r.claude, codex: r.codex, claude_dirs: r.claude_dirs ?? [CLAUDE_DEFAULT_DIR], hooks_url: hooksUrl };
   }
-  const { home, claude, codexConfig, hasCodex } = await readMachineConfigs(machine, claudeConfigDirs(accountDirs));
+  const { home, claude, codexConfig, hasCodex } = await readMachineConfigs(machine, claudeConfigDirs([...accountDirs, ...(await discoverOnMachine(machine))]));
   const scriptPath = `${home}/${HOOK_SCRIPT_REL}`;
   // ~/.claude is created when missing; an account's dir only when it is already there
   const targets = claude.filter((c) => c.dir === CLAUDE_DEFAULT_DIR || c.exists);
@@ -141,7 +176,7 @@ export async function uninstallHooks(machine: Machine, accountDirs: string[] = [
     await agentRpc(machine, 'hooks.uninstall', extra.length ? { claude_dirs: extra } : {});
     return;
   }
-  const { home, claude, codexConfig, hasCodex } = await readMachineConfigs(machine, claudeConfigDirs(accountDirs));
+  const { home, claude, codexConfig, hasCodex } = await readMachineConfigs(machine, claudeConfigDirs([...accountDirs, ...(await discoverOnMachine(machine))]));
   const stripped: { file: string; body: string }[] = [];
   for (const c of claude) {
     if (!c.settings.trim()) continue;

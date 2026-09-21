@@ -6,3 +6,4 @@ export * from './paste.js';
 export * from './ai-credentials.js';
 export * from './pty.js';
 export * from './hooks.js';
+export * from './discover.js';
