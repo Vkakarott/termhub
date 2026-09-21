@@ -38,7 +38,11 @@ function makeMachine(overrides: Partial<Machine> & { type: MachineType }): Machi
 }
 
 /** Builds a Fastify app with stubbed repos and a fixed request scope, like waitlist.test.ts. */
-function buildApp(store: Record<string, Machine>, aiAccounts: { machine_id: string; provider: string; config_dir: string | null }[] = []) {
+function buildApp(
+  store: Record<string, Machine>,
+  aiAccounts: { machine_id: string; provider: string; config_dir: string | null }[] = [],
+  health: { hooks?: Record<string, string>; counts?: Record<string, { tabs: number; reporting: number }> } = {},
+) {
   const app = Fastify();
   applyErrorHandler(app);
   app.addHook('preHandler', async (request) => {
@@ -75,12 +79,14 @@ function buildApp(store: Record<string, Machine>, aiAccounts: { machine_id: stri
 
   const machineHooks = {
     findByMachine: vi.fn(async () => undefined),
+    installedAtByMachine: vi.fn(async () => health.hooks ?? {}),
     upsert: vi.fn(async (machine_id: string) => ({ machine_id, installed_at: '2026-01-01T00:00:00.000Z' })),
     delete: vi.fn(async () => true),
   };
 
   const repos = {
     machineHooks,
+    tabs: { countsByMachine: vi.fn(async () => health.counts ?? {}) },
     aiAccounts: { list: vi.fn(async () => aiAccounts) },
     machines: {
       findById: async (id: string) => store[id],
@@ -122,6 +128,30 @@ function attachAgent(version: string, rpc = vi.fn()) {
   agents.attach('m1', conn as never);
   return rpc;
 }
+
+describe('GET /api/machines (monitor health)', () => {
+  it('says whether the hooks are installed and how many tabs ever reported a state', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store, [], { hooks: { m1: '2026-01-02T00:00:00.000Z' }, counts: { m1: { tabs: 4, reporting: 3 } } }));
+    const res = await app.inject({ method: 'GET', url: '/api/machines' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().machines[0]).toMatchObject({ id: 'm1', hooks_installed_at: '2026-01-02T00:00:00.000Z', tabs: 4, tabs_reporting: 3 });
+  });
+
+  it('reports a machine with tabs but no hooks as reporting nothing (the monitor looks empty)', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store, [], { counts: { m1: { tabs: 2, reporting: 0 } } }));
+    const res = await app.inject({ method: 'GET', url: '/api/machines' });
+    expect(res.json().machines[0]).toMatchObject({ hooks_installed_at: null, tabs: 2, tabs_reporting: 0 });
+  });
+
+  it('zeroes the counts of a machine with no tabs at all', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    ({ app } = buildApp(store));
+    const res = await app.inject({ method: 'GET', url: '/api/machines' });
+    expect(res.json().machines[0]).toMatchObject({ hooks_installed_at: null, tabs: 0, tabs_reporting: 0 });
+  });
+});
 
 describe('POST /api/machines (agent enrollment)', () => {
   it('creates an agent machine, returns a plaintext token, and rotates the stored hash', async () => {

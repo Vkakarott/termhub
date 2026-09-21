@@ -10,31 +10,44 @@ import { Sidebar } from './Sidebar';
 
 const SIDEBAR_KEY = 'termhub:sidebar-collapsed';
 
-export function Layout() {
+/**
+ * Everything signed-in routes need that isn't visual chrome: the auth guard, the
+ * data/monitor/toast providers and the "precisando de você" overlays. Both the sidebar layout
+ * (`Layout`) and the chat's full-screen layout (`ChatLayout`) render under this, so a chat page
+ * still receives monitor pushes and toasts.
+ */
+export function AppShell() {
   const { user, loading } = useAuth();
+
+  if (loading) return <FullScreenMessage>Carregando…</FullScreenMessage>;
+  if (!user) return <Navigate to="/login" replace />;
+  return (
+    <DataProvider>
+      <MonitorProvider>
+        <ToastProvider>
+          <Outlet />
+          <NeedsYouToasts />
+          <Toaster />
+        </ToastProvider>
+      </MonitorProvider>
+    </DataProvider>
+  );
+}
+
+export function Layout() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1');
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
 
-  if (loading) return <FullScreenMessage>Carregando…</FullScreenMessage>;
-  if (!user) return <Navigate to="/login" replace />;
   return (
     <FocusProvider>
-      <DataProvider>
-        <MonitorProvider>
-          <ToastProvider>
-            <div className="flex h-full">
-              <Chrome collapsed={collapsed} setCollapsed={setCollapsed} />
-              <main className="relative min-w-0 flex-1">
-                <Outlet />
-              </main>
-            </div>
-            <NeedsYouToasts />
-            <Toaster />
-          </ToastProvider>
-        </MonitorProvider>
-      </DataProvider>
+      <div className="flex h-full">
+        <Chrome collapsed={collapsed} setCollapsed={setCollapsed} />
+        <main className="relative min-w-0 flex-1">
+          <Outlet />
+        </main>
+      </div>
     </FocusProvider>
   );
 }

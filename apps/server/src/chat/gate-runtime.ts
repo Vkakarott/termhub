@@ -270,6 +270,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
     project_id: row.project_id,
     tab_id: row.tab_id,
     summary: card.summary,
+    created_at: row.created_at,
   });
   return { ok: false, code: 'CONFIRMATION_PENDING', message: PENDING(call.tool) };
 }

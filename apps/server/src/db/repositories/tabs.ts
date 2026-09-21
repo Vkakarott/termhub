@@ -56,6 +56,26 @@ export class TabsRepository {
   }
 
   /**
+   * Per machine: how many terminal tabs exist and how many already reported a state. A tab that
+   * never reported one is invisible to the monitor (see `listWithState`), which is what "the
+   * machine has tabs but the office/monitor is empty" looks like — the machine list shows both
+   * numbers so the person can tell that apart from having no tabs at all.
+   */
+  async countsByMachine(owner: string | null = null): Promise<Record<string, { tabs: number; reporting: number }>> {
+    const rows = await this.db.tab.findMany({
+      where: { kind: 'terminal', ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
+      select: { state: true, project: { select: { machineId: true } } },
+    });
+    const out: Record<string, { tabs: number; reporting: number }> = {};
+    for (const row of rows) {
+      const counts = (out[row.project.machineId] ??= { tabs: 0, reporting: 0 });
+      counts.tabs += 1;
+      if (row.state !== null) counts.reporting += 1;
+    }
+    return out;
+  }
+
+  /**
    * How many tabs of this machine have a tool mid-task. Used before an automatic agent update:
    * an attached terminal is not the only sign of a machine in use — a tool working (or waiting
    * for the person) in a detached tmux session holds no channel open at all.

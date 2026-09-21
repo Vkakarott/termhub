@@ -3,7 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './lib/auth';
 import { AnalyticsGate } from './components/AnalyticsGate';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { FullScreenMessage, Layout } from './components/Layout';
+import { AppShell, FullScreenMessage, Layout } from './components/Layout';
+import { ChatLayout } from './components/ChatLayout';
 import { retryOnceOnImportFailure } from './lib/lazy-retry';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
@@ -44,19 +45,23 @@ export function App() {
         <AnalyticsGate>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
-            <Route element={<Layout />}>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/ai" element={<HomePage />} />
-              <Route path="/hardware" element={<HomePage />} />
-              <Route path="/waitlist" element={<HomePage />} />
-              <Route path="/chat" element={<ChatPage />} />
-              <Route path="/integrations" element={<IntegrationsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/settings/:section" element={<SettingsPage />} />
-              <Route path="/projects/:id" element={<ProjectPage />} />
-              <Route path="/projects/:id/:section" element={<ProjectPage />} />
-              <Route path="/office" element={<OfficeRoute />} />
-              <Route path="/office/:machineId" element={<OfficeRoute />} />
+            <Route element={<AppShell />}>
+              <Route element={<Layout />}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/ai" element={<HomePage />} />
+                <Route path="/hardware" element={<HomePage />} />
+                <Route path="/waitlist" element={<HomePage />} />
+                <Route path="/integrations" element={<IntegrationsPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/:section" element={<SettingsPage />} />
+                <Route path="/projects/:id" element={<ProjectPage />} />
+                <Route path="/projects/:id/:section" element={<ProjectPage />} />
+                <Route path="/office" element={<OfficeRoute />} />
+                <Route path="/office/:machineId" element={<OfficeRoute />} />
+              </Route>
+              <Route element={<ChatLayout />}>
+                <Route path="/chat" element={<ChatPage />} />
+              </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

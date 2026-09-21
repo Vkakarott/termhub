@@ -2,6 +2,26 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { Machine, MachineHooks } from '../lib/types';
 
+/**
+ * What the machine's tabs are reporting, in one sentence. A tab only reaches the monitor once its
+ * tool fired a hook, so "has tabs but none reporting" is the state that makes "Precisando de você"
+ * (and the office view) look empty for someone who does have terminals open.
+ */
+export function monitorHealthNote(machine: Pick<Machine, 'tabs' | 'tabs_reporting'>, installed: boolean): { text: string; warn: boolean } {
+  const tabs = machine.tabs ?? 0;
+  const reporting = machine.tabs_reporting ?? 0;
+  if (tabs === 0) return { text: 'Nenhuma tab de terminal nesta máquina ainda.', warn: false };
+  if (reporting === 0) {
+    return {
+      text: installed
+        ? `Nenhuma das ${tabs} tabs reportou estado ainda: elas não aparecem em “Precisando de você”. O estado chega no primeiro hook — rode algo numa tab.`
+        : `Nenhuma das ${tabs} tabs reportou estado: sem os hooks instalados, elas não aparecem em “Precisando de você”.`,
+      warn: true,
+    };
+  }
+  return { text: `${reporting} de ${tabs} tabs reportando estado ao monitor.`, warn: false };
+}
+
 /** Machine form: install / remove the monitor hooks (what feeds "Precisando de você"). */
 export function MonitorHooksCard({ machine }: { machine: Machine }) {
   const [hooks, setHooks] = useState<MachineHooks | null>(null);
@@ -51,6 +71,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
   };
 
   const installed = !!hooks?.installed_at;
+  const health = monitorHealthNote(machine, installed);
   return (
     <div className="rounded-md border border-line bg-bg p-2 text-xs">
       <div className="flex items-center gap-2">
@@ -72,6 +93,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
         <code className="font-mono">~/.codex/config.toml</code>) para avisar quando uma tab está esperando você. Só a pergunta da ferramenta é enviada, nunca o conteúdo do terminal.
         {machine.type === 'agent' && ' Numa máquina com agente, é o próprio agente que escreve os arquivos (precisa estar conectado).'}
       </p>
+      <p className={`mt-1 ${health.warn ? 'text-warn' : 'text-fg-muted'}`}>{health.text}</p>
       {hooks && <p className="mt-1 truncate font-mono text-[10px] text-fg-dim" title={hooks.hooks_url}>→ {hooks.hooks_url}</p>}
       {note && <p className="mt-1 text-fg-muted">{note}</p>}
       {error && <p className="mt-1 text-danger">{error}</p>}
