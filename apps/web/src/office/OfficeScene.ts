@@ -5,7 +5,7 @@
  */
 import { Application, Container, Graphics, Text, UPDATE_PRIORITY } from 'pixi.js';
 import type { TabState } from '../lib/types';
-import { depthOf, layoutRoom, roomBounds, toScreen, type RoomLayout } from './iso';
+import { depthOf, layoutRoom, roomBounds, toScreen, type RoomLayout } from './layout/iso';
 
 export interface DeskInput {
   id: string;

@@ -1,5 +1,5 @@
 /**
- * SPIKE (throwaway): isometric geometry and the generated room layout for the office world view.
+ * Isometric geometry and the generated room layout for the office view.
  * Pure functions, no renderer — this is the part that would survive a renderer change.
  */
 
