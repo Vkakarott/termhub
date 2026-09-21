@@ -538,6 +538,11 @@ model ChatAction {
   durationMs     Int?             @map("duration_ms")
   decidedBy      String?          @map("decided_by")
   decidedAt      DateTime?        @map("decided_at")
+  /// When this decision was re-injected into the CLI session. Set before the run starts, not
+  /// after, so a decided-but-uninjected row survives a crash or a busy run's lock and is picked up
+  /// exactly once (spec §5, Task 5 fix round 2) — the same at-most-once trade-off `executed` makes
+  /// for the tool call itself.
+  injectedAt     DateTime?        @map("injected_at")
   createdAt      DateTime         @default(now()) @map("created_at")
 
   @@index([conversationId, createdAt])

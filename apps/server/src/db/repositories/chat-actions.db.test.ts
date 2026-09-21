@@ -111,6 +111,34 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect((await repo.findDeniedByKey(conversationId, 'k11'))?.id).toBe(second.id);
   });
 
+  it('finds the oldest decided action not yet injected, ignores injected and pending rows, and drains in order', async () => {
+    // Isolated in its own conversation: the shared one above already carries decided rows from
+    // earlier tests that were never marked injected, which would otherwise leak into this read.
+    const otherUserId = newId();
+    await db.user.create({ data: { id: otherUserId, email: `${otherUserId}@test.local`, name: 'test' } });
+    const otherConversationId = (await new ChatRepository(db).getOrCreateForUser(otherUserId)).id;
+    try {
+      const mk = (key: string) =>
+        repo.insertPending({ conversation_id: otherConversationId, tool: 'send_input', args: { tab_id: 't1', text: 'npm test' }, idempotency_key: key, class: 'write' });
+
+      const a = await mk('inj-a');
+      await repo.decide(a.id, otherUserId, 'approved');
+      const b = await mk('inj-b');
+      await repo.decide(b.id, otherUserId, 'denied');
+      await mk('inj-c'); // left pending: must never surface here
+
+      expect((await repo.findNextToInject(otherConversationId))?.id).toBe(a.id);
+
+      await repo.markInjected(a.id);
+      expect((await repo.findNextToInject(otherConversationId))?.id).toBe(b.id);
+
+      await repo.markInjected(b.id);
+      expect(await repo.findNextToInject(otherConversationId)).toBeUndefined();
+    } finally {
+      await db.user.delete({ where: { id: otherUserId } }); // cascades the conversation and its actions
+    }
+  });
+
   it('expires rows older than the cutoff and leaves fresh ones alone', async () => {
     const old = await pending('k6');
     await db.$executeRawUnsafe(`update chat_actions set created_at = now() - interval '2 days' where id = $1`, old.id);

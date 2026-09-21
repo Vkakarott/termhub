@@ -140,3 +140,42 @@ it('answers 400 for an unknown decision value, without touching the repository',
   expect(res.statusCode).toBe(400);
   expect(decide).not.toHaveBeenCalled();
 });
+
+it('answers 200 (not 409) when the decision is recorded but a run is busy, and says it will be applied later', async () => {
+  // The decision is already durably recorded and already published above this point — a 409 here
+  // would tell the client its own successful decision was a conflict. `ChatService.drainNextDecision`
+  // picks the row up (still approved/denied, never injected) once the busy run's own lock frees up.
+  const { HttpError } = await import('../lib/errors.js');
+  const { app, decide } = build({ resumeAfterDecision: vi.fn(async () => { throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY'); }) });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
+
+  expect(res.statusCode).toBe(200);
+  expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved'); // the decision itself still happened
+  expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'approved' }, queued: true });
+  expect(res.json().note).toMatch(/registrada/i);
+});
+
+it('lets any other resumeAfterDecision failure through unchanged, not the busy 200', async () => {
+  const { app } = build({ resumeAfterDecision: vi.fn(async () => { throw new Error('boom'); }) });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
+
+  expect(res.statusCode).toBe(500);
+});
+
+it('a double click on the same decision still answers 409 the second time, having injected only once', async () => {
+  let decided = false;
+  const decide = vi.fn(async (_id: string, _userId: string, status: string) => {
+    if (decided) return undefined;
+    decided = true;
+    return { ...pendingAction, status };
+  });
+  const findByIdForUser = vi.fn(async () => ({ ...pendingAction, status: 'approved' }));
+  const { app, resumeAfterDecision } = build({ decide, findByIdForUser });
+
+  const first = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
+  const second = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
+
+  expect(first.statusCode).toBe(200);
+  expect(second.statusCode).toBe(409);
+  expect(resumeAfterDecision).toHaveBeenCalledTimes(1); // injected once — the second click never reaches it
+});

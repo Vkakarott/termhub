@@ -39,7 +39,9 @@ const isSetupFailure = (e: unknown): e is HttpError =>
   e instanceof HttpError && (e.code === 'CONCIERGE_DISABLED' || e.code === 'CONCIERGE_FAILED');
 
 /** What the action targets, in the one line the model needs to tell this proposal apart from any
- * other it may have made — the same ids it used to make the call in the first place. */
+ * other it may have made — the tool name and the target ids the model's own original call carried
+ * (`args.tab_id`/`project_id`/`machine_id`, capped and id-shaped by the gate before they were ever
+ * stored — see `targetOf` in gate-runtime.ts), never a tool result and never free-form argument text. */
 const targetDescription = (action: ChatAction): string => {
   if (action.tab_id) return `aba ${action.tab_id}`;
   if (action.project_id) return `projeto ${action.project_id}`;
@@ -48,10 +50,10 @@ const targetDescription = (action: ChatAction): string => {
 };
 
 /**
- * The re-injection (spec §5, Task 5): a fixed pt-BR sentence the server composes, never the model's
- * own words and never a tool result. It names the tool and its target so the model can re-issue the
- * exact call that was gated (an approval) or drop it for good (a denial) — the model is never asked
- * to guess which of its proposals the user was answering.
+ * The re-injection (spec §5, Task 5): a fixed pt-BR sentence the server composes — the tool name and
+ * the target ids, never a tool result and never free-form argument text — so the model can re-issue
+ * the exact call that was gated (an approval) or drop it for good (a denial), without being asked to
+ * guess which of its proposals the user was answering or to read the user's own words for it.
  *
  * When no CLI session is alive (Review Focus 2: an approval can arrive an hour later, or the CLI may
  * have dropped the session), `send` already starts a fresh run on its own — this only adds the line
@@ -87,17 +89,60 @@ export class ChatService {
    * Reuses `send` wholesale rather than duplicating its streaming, retry and locking logic: the
    * injected sentence is just another user turn, so the busy lock, the fresh-session fallback and the
    * bus events all behave exactly as they do for anything the user types.
+   *
+   * If another run already holds the conversation's lock, `send` throws `HttpError(409, CHAT_BUSY)`
+   * before `beforeRun` ever gets to mark the row injected — the decision stays `approved`/`denied`
+   * with `injected_at` still null, exactly the state `findNextToInject` looks for. The route (fix
+   * round 2) turns that specific 409 into a 200: the decision is already durably recorded, so telling
+   * the client "conflict" would be a lie. `drainNextDecision` picks the row up once the busy run's own
+   * `send` call releases the lock, so the two paths — inject now, or inject once the lock frees up —
+   * both go through this same `beforeRun` marking, and cannot diverge (fix round 2, point 4).
    */
   async resumeAfterDecision(user: User, action: ChatAction): Promise<ChatMessage> {
     const conversation = await this.conversationFor(user);
-    return this.send(user, injectionText(action, conversation.cli_session_id === null));
+    return this.send(user, injectionText(action, conversation.cli_session_id === null), {
+      beforeRun: () => this.deps.repos.chatActions.markInjected(action.id),
+    });
   }
 
-  async send(user: User, text: string): Promise<ChatMessage> {
+  /**
+   * Picks up exactly one decided-but-uninjected action for this conversation, if any, once a run's
+   * lock is released. This is how a decision that lost the race to a busy run in `resumeAfterDecision`
+   * still gets injected, without the client that clicked approve/deny ever retrying anything.
+   *
+   * Injects at most one: the run this starts is itself a `send` call whose own completion calls this
+   * again, so a backlog of N decisions drains over N completions, one at a time, in the order they
+   * were decided — never by looping over the whole backlog inside a single call (which is the
+   * "recursing" the fix round asked to avoid: unbounded depth in one call instead of one step per
+   * natural completion).
+   *
+   * One user has exactly one conversation (the same v1 assumption `gate-runtime.ts` relies on), so
+   * reusing the caller's own `user` for the injected run is safe — there is no other user it could be.
+   *
+   * Never lets a failure here reach its own caller: it always runs from a `finally` block, so it must
+   * never turn a clean, already-finished run into a thrown error over an unrelated decision's failed
+   * retry (a lock grabbed by an unrelated message in the moment between the lookup and the injected
+   * `send` call, a concierge outage). The caller wraps this call in `.catch(() => {})` for that reason.
+   */
+  private async drainNextDecision(user: User): Promise<void> {
+    const conversation = await this.conversationFor(user);
+    const next = await this.deps.repos.chatActions.findNextToInject(conversation.id);
+    if (!next) return;
+    await this.send(user, injectionText(next, conversation.cli_session_id === null), {
+      beforeRun: () => this.deps.repos.chatActions.markInjected(next.id),
+    });
+  }
+
+  async send(user: User, text: string, opts?: { beforeRun?: () => Promise<void> }): Promise<ChatMessage> {
     const conversation = await this.conversationFor(user);
     if (this.running.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
     this.running.add(conversation.id);
     try {
+      // Only ever set by a decision's re-injection, and only reached once the lock above is actually
+      // held — marking the row happens here, never before the lock check, so a busy run can never
+      // mark a decision injected that it never actually sent (fix round 2).
+      if (opts?.beforeRun) await opts.beforeRun();
+
       const question = await this.deps.repos.chat.addMessage({ conversation_id: conversation.id, role: 'user', text });
       chatBus.publish({ type: 'message', user_id: user.id, message: question });
 
@@ -225,6 +270,10 @@ export class ChatService {
       return answer;
     } finally {
       this.running.delete(conversation.id);
+      // The lock is free: if a decision was recorded while it was held (fix round 2) and could not
+      // be injected immediately, this is where it finally gets its turn. Swallowed on purpose — see
+      // `drainNextDecision`'s own doc for why a failure here must never become this run's outcome.
+      await this.drainNextDecision(user).catch(() => {});
     }
   }
 }

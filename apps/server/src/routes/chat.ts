@@ -3,11 +3,17 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ChatService } from '../chat/service.js';
 import { chatBus } from '../chat/bus.js';
-import { conflict, notFound } from '../lib/errors.js';
+import { conflict, HttpError, notFound } from '../lib/errors.js';
 
 const messageBody = z.object({ text: z.string().trim().min(1).max(8000) });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
 const decisionBody = z.object({ decision: z.enum(['approve', 'deny']) });
+
+/** What a busy-run decision answers with: the decision is already durably recorded (`decide` ran
+ * and the bus already published it) before this is ever reached, so a 409 here would tell the
+ * client its own successful decision was a conflict. `ChatService.drainNextDecision` injects it as
+ * soon as the run that is currently using the conversation's lock finishes — no client action needed. */
+const QUEUED_NOTE = 'A decisão foi registrada e será aplicada assim que a resposta atual do concierge terminar.';
 
 /** REST surface for the concierge chat: the conversation, its history and sending a message.
  * Live updates (deltas, actions) travel over `/ws/chat`, not here. */
@@ -44,7 +50,15 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // Every open tab must see the decision, not only the one that clicked it.
     chatBus.publish({ type: 'decision', user_id: user.id, action_id: action.id, status });
 
-    const message = await deps.service.resumeAfterDecision(user, action);
-    return { action, message };
+    try {
+      const message = await deps.service.resumeAfterDecision(user, action);
+      return { action, message };
+    } catch (err) {
+      // The decision above already happened and was already published — a busy run must not turn a
+      // successful decision into a 409. The row stays approved/denied with no injection yet; the run
+      // holding the lock will pick it up and inject it through `drainNextDecision` once it finishes.
+      if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { action, queued: true, note: QUEUED_NOTE };
+      throw err;
+    }
   });
 }

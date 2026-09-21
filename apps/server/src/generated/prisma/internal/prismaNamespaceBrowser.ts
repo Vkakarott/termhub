@@ -445,6 +445,7 @@ export const ChatActionScalarFieldEnum = {
   durationMs: 'durationMs',
   decidedBy: 'decidedBy',
   decidedAt: 'decidedAt',
+  injectedAt: 'injectedAt',
   createdAt: 'createdAt'
 } as const
 

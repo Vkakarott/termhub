@@ -25,6 +25,7 @@ export interface ChatAction {
   duration_ms: number | null;
   decided_by: string | null;
   decided_at: string | null;
+  injected_at: string | null;
   created_at: string;
 }
 
@@ -56,6 +57,7 @@ const mapAction = (a: PrismaChatAction): ChatAction => ({
   duration_ms: a.durationMs,
   decided_by: a.decidedBy,
   decided_at: a.decidedAt?.toISOString() ?? null,
+  injected_at: a.injectedAt?.toISOString() ?? null,
   created_at: a.createdAt.toISOString(),
 });
 
@@ -162,6 +164,31 @@ export class ChatActionsRepository {
       where: { id },
       data: { status: ok ? 'executed' : 'failed', errorCode: errorCode ?? null, durationMs: durationMs ?? null },
     });
+  }
+
+  /**
+   * The oldest decided (approved or denied) action for a conversation that has not yet been
+   * re-injected — a decision made while a run held the lock, so `resumeAfterDecision`'s own attempt
+   * never started. Oldest first, so a backlog drains in the order the user answered it, one per run
+   * completion (Task 5 fix round 2, Review Focus 2's sibling: an answer given while busy, not while
+   * dead).
+   */
+  async findNextToInject(conversationId: string): Promise<ChatAction | undefined> {
+    const row = await this.db.chatAction.findFirst({
+      where: { conversationId, status: { in: ['approved', 'denied'] satisfies ChatActionStatus[] }, injectedAt: null },
+      orderBy: [{ decidedAt: 'asc' }, { id: 'asc' }],
+    });
+    return row ? mapAction(row) : undefined;
+  }
+
+  /**
+   * Records that a decision is being re-injected. Set before the run that carries it starts, not
+   * after: the same at-most-once trade-off `claimApproved` makes for the tool call itself — a run
+   * that never starts (a race for the lock) or never finishes (a crash, an outage) leaves this one
+   * decision unsent rather than risking the model seeing it injected twice.
+   */
+  async markInjected(id: string): Promise<void> {
+    await this.db.chatAction.updateMany({ where: { id }, data: { injectedAt: new Date() } });
   }
 
   async listByConversation(conversationId: string, limit = 200): Promise<ChatAction[]> {

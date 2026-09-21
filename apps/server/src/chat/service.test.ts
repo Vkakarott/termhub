@@ -24,11 +24,12 @@ const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
   duration_ms: null,
   decided_by: 'u1',
   decided_at: '2026-09-21T12:00:00.000Z',
+  injected_at: null,
   created_at: '2026-09-21T11:59:00.000Z',
   ...overrides,
 });
 
-function build(lines: string[] | (() => AsyncIterable<string>)) {
+function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[] } = {}) {
   const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null, model: null, review_mode: false, last_message_at: null, created_at: '' };
   const messages: { id: string; role: string; text: string; error_code: string | null }[] = [];
   const chat = {
@@ -51,11 +52,31 @@ function build(lines: string[] | (() => AsyncIterable<string>)) {
     }),
     listMessages: vi.fn(async () => messages),
   };
-  const repos = { chat, apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) } } as unknown as Repositories;
+  // An in-memory stand-in for the two chatActions reads/writes ChatService now uses, real enough to
+  // exercise the queue: findNextToInject only ever sees a decided (approved/denied) row nobody has
+  // marked injected, oldest decided_at first, exactly like the repository's own ordering.
+  const actionsStore: ChatAction[] = opts.chatActions ? opts.chatActions.map((a) => ({ ...a })) : [];
+  const chatActions = {
+    markInjected: vi.fn(async (id: string) => {
+      const row = actionsStore.find((a) => a.id === id);
+      if (row) row.injected_at = new Date().toISOString();
+    }),
+    findNextToInject: vi.fn(async (conversationId: string) => {
+      const open = actionsStore
+        .filter((a) => a.conversation_id === conversationId && (a.status === 'approved' || a.status === 'denied') && a.injected_at === null)
+        .sort((a, b) => Date.parse(a.decided_at ?? a.created_at) - Date.parse(b.decided_at ?? b.created_at));
+      return open[0];
+    }),
+  };
+  const repos = {
+    chat,
+    apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) },
+    chatActions,
+  } as unknown as Repositories;
   const runner: RunnerClient = {
     run: vi.fn(() => (typeof lines === 'function' ? lines() : (async function* () { for (const l of lines) yield l; })())),
   };
-  return { service: new ChatService({ repos, runner, configDirs: { primary: '/accounts/primary' } }), chat, runner, messages, conversation, repos };
+  return { service: new ChatService({ repos, runner, configDirs: { primary: '/accounts/primary' } }), chat, chatActions, actionsStore, runner, messages, conversation, repos };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -239,7 +260,7 @@ it('marks the message with TOKEN_FAILED instead of throwing when minting the tok
 });
 
 it('resumeAfterDecision resumes the same session with a fixed authorization sentence, and the run behaves like any other message', async () => {
-  const { service, runner, conversation, messages } = build([delta('feito'), done()]);
+  const { service, runner, conversation, messages, chatActions } = build([delta('feito'), done()]);
   conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
 
   const answer = await service.resumeAfterDecision(user, action());
@@ -255,6 +276,9 @@ it('resumeAfterDecision resumes the same session with a fixed authorization sent
   // The run that follows is indistinguishable from an ordinary message: deltas, trail, stored answer.
   expect(answer.text).toBe('feito');
   expect(messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+  // The ordinary (unblocked) path marks the row injected itself, through the same `beforeRun` hook
+  // `drainNextDecision` uses — the two paths cannot diverge (fix round 2).
+  expect(chatActions.markInjected).toHaveBeenCalledWith('a1');
 });
 
 it('resumeAfterDecision sends a fixed refusal sentence for a denied action, naming the tool and target', async () => {
@@ -281,4 +305,62 @@ it('resumeAfterDecision starts a fresh session and says so in the chat when no C
   expect(messages[0].text).toMatch(/nova sessão/i);
   expect(answer.text).toBe('ok');
   expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000002');
+});
+
+it('resumeAfterDecision answers busy when a run is already in flight, without marking the decision injected or typing anything', async () => {
+  // Fix round 2: `decide()` (the route) has already flipped the row durably and published it before
+  // this is ever reached — a busy lock must leave the row exactly as `decide` left it (approved or
+  // denied, not yet injected) rather than mark it injected without ever sending it.
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const { service, runner, chatActions } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+
+  const first = service.send(user, 'primeira'); // holds the conversation's lock
+  await expect(service.resumeAfterDecision(user, action())).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+  expect(chatActions.markInjected).not.toHaveBeenCalled();
+  expect(runner.run).toHaveBeenCalledTimes(1); // only the first run's own call — nothing typed for the decision
+
+  release();
+  await first;
+});
+
+it('injects a decision left queued by a busy run exactly once, when that run finishes', async () => {
+  // The state `resumeAfterDecision` would have left behind after losing the race for the lock:
+  // already approved, not yet injected — `chatActions.decide` already ran in the route before the
+  // busy 409 was ever thrown.
+  const { service, runner, messages, chatActions } = build([], { chatActions: [action({ id: 'a1' })] });
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('feito'); yield done(); })());
+
+  await service.send(user, 'mensagem original'); // its own completion drains the queue before resolving
+
+  expect(runner.run).toHaveBeenCalledTimes(2);
+  expect(chatActions.markInjected).toHaveBeenCalledWith('a1');
+  const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text);
+  expect(userTexts).toEqual(['mensagem original', expect.stringMatching(/^O usuário autorizou:.*send_input/s)]);
+
+  // A second, unrelated completion must not inject the same decision again: it is already marked.
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('outra resposta'); yield done(); })());
+  await service.send(user, 'outra mensagem');
+  expect(runner.run).toHaveBeenCalledTimes(3); // one more call, not two — nothing left to drain
+  expect(chatActions.markInjected).toHaveBeenCalledTimes(1);
+});
+
+it('drains two decisions queued behind one run, one per completion, oldest first', async () => {
+  const first = action({ id: 'a1', tool: 'send_input', tab_id: 't1', decided_at: '2026-09-21T12:00:00.000Z' });
+  const second = action({ id: 'a2', tool: 'close_tab', tab_id: 't2', decided_at: '2026-09-21T12:01:00.000Z' });
+  const { service, runner, messages, chatActions } = build([], { chatActions: [second, first] }); // seeded out of order: the drain must still go by decided_at
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r0'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r1'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r2'); yield done(); })());
+
+  await service.send(user, 'mensagem original');
+
+  expect(runner.run).toHaveBeenCalledTimes(3);
+  const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text);
+  expect(userTexts[0]).toBe('mensagem original');
+  expect(userTexts[1]).toContain('send_input'); // a1: decided first
+  expect(userTexts[2]).toContain('close_tab'); // a2: decided second
+  expect(chatActions.markInjected).toHaveBeenNthCalledWith(1, 'a1');
+  expect(chatActions.markInjected).toHaveBeenNthCalledWith(2, 'a2');
 });
