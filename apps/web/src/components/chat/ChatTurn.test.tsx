@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatTurn } from './ChatTurn';
 import type { ChatMessage } from '../../lib/types';
@@ -155,6 +155,20 @@ describe('ChatTurn', () => {
       expect(getByRole('button', { name: /copiar/i })).not.toBeNull();
     });
 
+    /** Renders one answer whose body is a single fence, and hands back its copy button. */
+    function renderFence(): { button: HTMLElement; live: () => string | null } {
+      renderMarkdown.mockReturnValueOnce('<pre><code class="language-bash">npm test</code></pre>');
+      const { getByRole, container } = render(
+        <ol>
+          <ChatTurn message={answer()} waiting={false} failed={false} />
+        </ol>,
+      );
+      return {
+        button: getByRole('button', { name: /copiar/i }),
+        live: () => container.querySelector('[data-copy-live]')?.textContent ?? null,
+      };
+    }
+
     it('clicking copy calls navigator.clipboard.writeText with exactly the code\'s text', () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -172,18 +186,47 @@ describe('ChatTurn', () => {
       expect(writeText).toHaveBeenCalledWith('npm test && echo <ok>');
     });
 
-    it('does not throw and does not claim success when navigator.clipboard is undefined', () => {
-      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
-      renderMarkdown.mockReturnValueOnce('<pre><code class="language-bash">npm test</code></pre>');
-      const { getByRole } = render(
-        <ol>
-          <ChatTurn message={answer()} waiting={false} failed={false} />
-        </ol>,
-      );
+    it('says "copiado" on the button and writes it into the live region the block was built with', async () => {
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+      const { button, live } = renderFence();
+      // The region is part of the figure from the start — that is the half a screen reader needs; that
+      // it is spoken is a browser behaviour no jsdom test can observe.
+      expect(live()).toBe('');
 
-      const button = getByRole('button', { name: /copiar/i });
+      fireEvent.click(button);
+
+      await waitFor(() => expect(button.textContent).toBe('copiado'));
+      expect(live()).toBe('Código copiado');
+    });
+
+    it('says "falhou" when there is no navigator.clipboard at all, instead of a tap that does nothing', () => {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+      const { button, live } = renderFence();
+
       expect(() => fireEvent.click(button)).not.toThrow();
+
+      expect(button.textContent).toBe('falhou');
       expect(button.textContent?.toLowerCase()).not.toContain('copiado');
+      expect(live()).toBe('Não foi possível copiar o código');
+    });
+
+    it('says "falhou" when writeText rejects, which is Firefox without the permission or an unfocused document', async () => {
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('not allowed')) }, configurable: true });
+      const { button, live } = renderFence();
+
+      fireEvent.click(button);
+
+      await waitFor(() => expect(button.textContent).toBe('falhou'));
+      expect(live()).toBe('Não foi possível copiar o código');
+    });
+
+    it('does not throw when writeText returns something that is not a promise', () => {
+      // The old code called `.then` on whatever came back: an implementation that returns undefined
+      // threw straight out of the click handler, which reads as the same dead tap.
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(() => undefined) }, configurable: true });
+      const { button } = renderFence();
+
+      expect(() => fireEvent.click(button)).not.toThrow();
     });
   });
 });

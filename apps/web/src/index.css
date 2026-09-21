@@ -48,5 +48,9 @@ body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, 
 .prose-termhub .code-block pre { @apply my-0 rounded-none border-0 bg-transparent; }
 .prose-termhub .code-block__header { @apply flex items-center justify-between gap-2 border-b border-line px-3 py-1.5; }
 .prose-termhub .code-block__language { @apply font-mono text-[11px] uppercase tracking-wide text-fg-dim; }
-.prose-termhub .code-block__copy { @apply rounded px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-fg-dim opacity-60 transition-opacity hover:bg-bg-3 hover:text-fg hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent; }
-.prose-termhub .code-block__header:hover .code-block__copy { @apply opacity-100; }
+/* No permanent dimming and no `opacity-60`: the full-strength state was reached only through `hover`
+   or `focus-visible`, which a touch screen never produces, so a phone — the device this whole feature
+   was asked for — got the faint state for ever, at about 2.1:1 against the background. `fg-muted`
+   keeps it quiet next to the code without making it unreadable, and the box is at least 24x24 CSS px
+   (WCAG 2.5.8) so a thumb can actually land on it. */
+.prose-termhub .code-block__copy { @apply inline-flex min-h-[24px] items-center rounded px-2 py-1 font-mono text-[11px] uppercase tracking-wide text-fg-muted transition-colors hover:bg-bg-3 hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent; }

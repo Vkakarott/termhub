@@ -61,8 +61,19 @@ export function decorateCodeBlocks(html: string): string {
     buttonLabel.textContent = 'copiar';
     button.appendChild(buttonLabel);
 
+    // The block's own live region, part of it from the moment it is built rather than created when a
+    // copy happens: a region a browser inserts together with its text is not reliably announced.
+    // `ChatTurn`'s copy handler writes the outcome in here; `sr-only` takes it out of the picture
+    // (absolutely positioned, so it is not a third flex item either) — the visible feedback is the
+    // button's own label changing.
+    const live = doc.createElement('span');
+    live.setAttribute('data-copy-live', '');
+    live.setAttribute('role', 'status');
+    live.className = 'sr-only';
+
     header.appendChild(languageLabel);
     header.appendChild(button);
+    header.appendChild(live);
 
     pre.replaceWith(figure);
     figure.appendChild(header);

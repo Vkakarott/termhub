@@ -35,6 +35,15 @@ describe('decorateCodeBlocks', () => {
     expect(figure?.querySelector('pre > code')?.textContent).toBe('npm test');
   });
 
+  it('builds the block with its own empty live region, so a copy can be announced into it later', () => {
+    // Mounted with the block, not created when the copy happens: a live region a browser inserts
+    // together with its text is not reliably announced. `ChatTurn` writes the outcome in here.
+    const el = parse(decorateCodeBlocks('<pre><code class="language-bash">npm test</code></pre>'));
+    const live = el.querySelector('[data-copy-live]');
+    expect(live?.getAttribute('role')).toBe('status');
+    expect(live?.textContent).toBe('');
+  });
+
   it('gives a fence with no language a header reading "código"', () => {
     const el = parse(decorateCodeBlocks('<pre><code>npm test</code></pre>'));
     expect(el.querySelector('[data-code-language]')?.textContent).toBe('código');

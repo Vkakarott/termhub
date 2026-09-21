@@ -6,11 +6,23 @@ import type { ChatMessage } from '../../lib/types';
 
 const COPY_FEEDBACK_MS = 1500;
 
+/** The two things a copy attempt can end as, in the words the block shows and the ones it announces. */
+const COPY_OUTCOME = {
+  copied: { label: 'copiado', announced: 'Código copiado', name: 'Código copiado' },
+  failed: { label: 'falhou', announced: 'Não foi possível copiar o código', name: 'Não foi possível copiar' },
+} as const;
+
 /**
  * The one delegated handler for every copy button a message's decorated HTML may contain — there is
  * no React node per block, since the blocks come from an HTML string. `event.target` is whatever the
  * click actually landed on inside the button (its label span, most likely), so this walks up to the
  * element `decorateCodeBlocks` marked with `data-copy`.
+ *
+ * Every way this can fail ends in the same visible "falhou": a missing `navigator.clipboard` (an
+ * insecure context, an older browser), a `writeText` that rejects (Firefox without the permission, a
+ * document that is not focused), and a `writeText` that is not a promise at all, which used to throw
+ * out of this handler on `.then`. Copying the block is the whole point of the button — a tap that
+ * silently does nothing, again and again, is the one outcome it must never have.
  */
 function handleCopyClick(event: MouseEvent<HTMLDivElement>): void {
   const target = event.target as HTMLElement;
@@ -23,25 +35,38 @@ function handleCopyClick(event: MouseEvent<HTMLDivElement>): void {
   // trimmed before anything reaches the clipboard.
   const text = (pre?.textContent ?? '').replace(/\n$/, '');
 
-  const clipboard = navigator.clipboard;
-  if (!clipboard) return; // No clipboard API (jsdom, an insecure context): report failure, not success.
-
-  clipboard.writeText(text).then(
-    () => flashCopied(button),
-    () => {},
-  );
+  try {
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      flashCopy(button, COPY_OUTCOME.failed);
+      return;
+    }
+    // `Promise.resolve` so a `writeText` that returns undefined (or anything else) is handled here
+    // instead of throwing on `.then`.
+    void Promise.resolve(clipboard.writeText(text)).then(
+      () => flashCopy(button, COPY_OUTCOME.copied),
+      () => flashCopy(button, COPY_OUTCOME.failed),
+    );
+  } catch {
+    // `writeText` threw synchronously, or reading `navigator.clipboard` itself did.
+    flashCopy(button, COPY_OUTCOME.failed);
+  }
 }
 
 /** Transient, DOM-only feedback on the button that was clicked — there is no React state to hold it,
- * since the button is not a React node. Reverts on its own after `COPY_FEEDBACK_MS`. */
-function flashCopied(button: HTMLElement): void {
+ * since the button is not a React node. The outcome also goes into the block's own live region, which
+ * `decorateCodeBlocks` mounted with the block. Reverts on its own after `COPY_FEEDBACK_MS`. */
+function flashCopy(button: HTMLElement, outcome: (typeof COPY_OUTCOME)[keyof typeof COPY_OUTCOME]): void {
+  const live = button.closest('figure')?.querySelector('[data-copy-live]') ?? null;
+  if (live) live.textContent = outcome.announced;
+
   const label = button.querySelector('[data-copy-label]');
-  if (!label) return;
-  const original = label.textContent;
-  label.textContent = 'copiado';
-  button.setAttribute('aria-label', 'Código copiado');
+  const original = label?.textContent ?? null;
+  if (label) label.textContent = outcome.label;
+  button.setAttribute('aria-label', outcome.name);
   window.setTimeout(() => {
-    label.textContent = original;
+    if (live) live.textContent = '';
+    if (label) label.textContent = original;
     button.setAttribute('aria-label', 'Copiar código');
   }, COPY_FEEDBACK_MS);
 }
