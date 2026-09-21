@@ -64,19 +64,28 @@ run "ensure state dir exists" mkdir -p "$STATE_DIR"
 # script wrote; (3) docker ps, as a last resort (e.g. before the vhost or
 # state file exist at all). Prints blue / green / legacy / none.
 #
-# Anchored to the `proxy_pass` directive (and comment lines stripped first)
-# so a color name mentioned in a comment elsewhere in the file can never be
-# mistaken for the active one.
+# Anchored to the directive that names the container (and comment lines
+# stripped first) so a color name mentioned in a comment elsewhere in the file
+# can never be mistaken for the active one.
+#
+# Two spellings are accepted. The template renders `set $upstream_app
+# <container>;` and proxies through that variable, because a `proxy_pass` with
+# the host spelled out creates an implicit nginx server group named
+# `host:port`, which shadows the resolver and pins the upstream to the IP it
+# had when the config was loaded. A vhost rendered before that change still
+# says `proxy_pass http://termhub-app-<color>:3000`, so that form is read too
+# — the first deploy after the change reads exactly such a file.
 detect_active() {
-  local match
+  local match stripped
 
   if [ -f "$PROXY_CONF" ]; then
-    match="$(grep -vE '^[[:space:]]*#' "$PROXY_CONF" 2>/dev/null | grep -oE 'proxy_pass[[:space:]]+https?://termhub-app-(blue|green)' | grep -oE '(blue|green)$' | head -n1 || true)"
+    stripped="$(grep -vE '^[[:space:]]*#' "$PROXY_CONF" 2>/dev/null || true)"
+    match="$(grep -oE 'set[[:space:]]+\$upstream_app[[:space:]]+termhub-app-(blue|green)|proxy_pass[[:space:]]+https?://termhub-app-(blue|green)' <<<"$stripped" | grep -oE '(blue|green)$' | head -n1 || true)"
     if [ -n "$match" ]; then
       echo "$match"
       return
     fi
-    if grep -vE '^[[:space:]]*#' "$PROXY_CONF" 2>/dev/null | grep -qE 'proxy_pass[[:space:]]+https?://termhub-app:3000'; then
+    if grep -qE 'set[[:space:]]+\$upstream_app[[:space:]]+termhub-app;|proxy_pass[[:space:]]+https?://termhub-app:3000' <<<"$stripped"; then
       echo legacy
       return
     fi
