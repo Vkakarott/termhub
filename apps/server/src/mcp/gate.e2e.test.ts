@@ -18,11 +18,13 @@ const CONVERSATION = 'c1';
 const machine = { id: 'm1', name: 'jarvis', type: 'agent', os: 'linux', capabilities: ['tmux'], owner_id: 'u1' };
 const project = { id: 'p1', name: 'app', cwd: '/home/u/app', machine_id: 'm1', status: 'active', owner_id: 'u1' };
 
-/** The fake machine: one tmux session whose screen is whatever was typed into it. */
-function attachFakeTmux(typed: string[]) {
+/** The fake machine: one tmux session whose screen is whatever was typed into it. `agentVersion` is
+ * how the "this machine cannot do it" failures are staged: an agent older than the terminal RPCs makes
+ * the tool throw `AGENT_OUTDATED` before it ever reaches tmux. */
+function attachFakeTmux(typed: string[], agentVersion = '0.2.0') {
   const conn = {
     machineId: machine.id,
-    hello: { agent_version: '0.2.0', os: 'linux', tools: ['tmux'] },
+    hello: { agent_version: agentVersion, os: 'linux', tools: ['tmux'] },
     connectedAt: Date.now(),
     close: vi.fn(),
     openPty: vi.fn(),
@@ -563,4 +565,39 @@ it('still executes an approval given hours ago, inside the window', async () => 
   expect(typed).toEqual(['npm test']);
   expect(actions.markExecuted).toHaveBeenCalledWith(row.id, true, null, expect.any(Number));
   expect(actions.expireApproved).not.toHaveBeenCalled();
+});
+
+it('fails an approved action the machine cannot do, and never puts the row back to pending', async () => {
+  // Ruling R2: an offline machine, an agent too old, any failure at all ends as a `failed` row
+  // carrying the real error code, and the error reaches the model. Never back to `pending`, and never
+  // a new question — asking again for what the machine cannot do is a loop with no exit.
+  const { app, actions, apiTokens } = build({ gated: true }); // no agent attached: the machine is offline
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/offline/i); // the machine's own failure, as any ungated call would get it
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'MACHINE_OFFLINE', expect.any(Number));
+  expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'MACHINE_OFFLINE' });
+  expect(actions.insertPending).not.toHaveBeenCalled();
+  expect(collected).toEqual([]);
+  // The error reached the caller, which is what the per-call audit row records.
+  await settle();
+  expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'send_input', ok: false, error_code: 'MACHINE_OFFLINE' });
+});
+
+it('fails an approved action an outdated agent cannot run, with that error code', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed, '0.0.1'); // older than the terminal RPCs
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'AGENT_OUTDATED', expect.any(Number));
+  expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'AGENT_OUTDATED' });
+  expect(actions.insertPending).not.toHaveBeenCalled();
 });
