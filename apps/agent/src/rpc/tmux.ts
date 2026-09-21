@@ -71,12 +71,36 @@ export async function ensure(params: RpcParams<'tmux.ensure'>): Promise<RpcResul
   return { created: true };
 }
 
+/**
+ * Delivers `text` as one tmux paste instead of typed keystrokes: `load-buffer -` reads it from
+ * stdin (never argv, never a shell string — see exec.ts's `run` contract), then `paste-buffer -p
+ * -d` drops it into the pane bracketed, so a TUI that understands bracketed paste (e.g. Claude
+ * Code) reads an embedded newline as part of the pasted text rather than as Enter. `-d` frees the
+ * buffer right after. Chosen over hand-built `\e[200~ … \e[201~` escape bytes because it needs no
+ * escape literals in our code and tmux verified it produces the same unsubmitted-composer result.
+ */
+async function pasteText(session: string, text: string): Promise<void> {
+  const loaded = await run(tmuxPath(), ['load-buffer', '-'], { input: Buffer.from(text, 'utf8') });
+  const loadFailure = processFailure(loaded);
+  if (loadFailure) throw loadFailure;
+  if (loaded.code !== 0) throw new RpcFailure('internal', why(loaded.stderr, 'tmux load-buffer failed'));
+
+  const pasted = await run(tmuxPath(), ['paste-buffer', '-p', '-d', '-t', pane(session)]);
+  const pasteFailure = processFailure(pasted);
+  if (pasteFailure) throw pasteFailure;
+  if (pasted.code !== 0) throw new RpcFailure('notfound', why(pasted.stderr, 'session not found'));
+}
+
 export async function sendText(params: RpcParams<'tmux.sendText'>): Promise<RpcResult<'tmux.sendText'>> {
   if (params.text) {
-    const typed = await run(tmuxPath(), ['send-keys', '-t', pane(params.session), '-l', '--', params.text]);
-    const failure = processFailure(typed);
-    if (failure) throw failure;
-    if (typed.code !== 0) throw new RpcFailure('notfound', why(typed.stderr, 'session not found'));
+    if (params.paste) {
+      await pasteText(params.session, params.text);
+    } else {
+      const typed = await run(tmuxPath(), ['send-keys', '-t', pane(params.session), '-l', '--', params.text]);
+      const failure = processFailure(typed);
+      if (failure) throw failure;
+      if (typed.code !== 0) throw new RpcFailure('notfound', why(typed.stderr, 'session not found'));
+    }
     // TUIs read a burst of bytes as a paste, so Enter has to arrive on its own.
     if (params.enter) await new Promise((r) => setTimeout(r, ENTER_PAUSE_MS));
   }

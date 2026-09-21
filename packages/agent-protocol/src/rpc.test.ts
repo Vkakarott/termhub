@@ -64,6 +64,13 @@ describe('terminal RPCs', () => {
     expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'oi' }).success).toBe(false);
   });
 
+  it('tmux.sendText accepts an optional paste flag, defaulting to unset', () => {
+    expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'linha um\nlinha dois', enter: true, paste: true }).success).toBe(true);
+    expect(RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'oi', enter: true, paste: false }).success).toBe(true);
+    const parsed = RPC['tmux.sendText'].params.safeParse({ session: 's', text: 'oi', enter: true });
+    expect(parsed.success && parsed.data.paste).toBeUndefined();
+  });
+
   it('tmux.sendKey only accepts the closed key list', () => {
     for (const key of ['Enter', 'Escape', 'C-c', 'Up', 'Down', 'Tab', 'y', 'n', '1', '9']) {
       expect(RPC['tmux.sendKey'].params.safeParse({ session: 's', key }).success).toBe(true);

@@ -7,6 +7,13 @@ import { REMOTE_PATH_PREFIX, assertSessionName, runOnMachine, shellQuote } from 
 /** The agent release that answers tmux.ensure / tmux.sendText / tmux.sendKey (spec §4.3). */
 export const TERMINAL_RPC_MIN_AGENT_VERSION = '0.2.0';
 
+/**
+ * The agent release that understands `tmux.sendText`'s `paste` field. An older agent silently
+ * drops an unknown field and would type a multi-line prompt as keystrokes — the exact bug a paste
+ * request exists to avoid — so a paste is refused outright instead of degrading to typing.
+ */
+export const TERMINAL_PASTE_MIN_AGENT_VERSION = '0.3.0';
+
 /** The largest text the monitor's input route (or a future MCP tool) may type in one call. */
 export const INPUT_MAX_CHARS = 4000;
 
@@ -37,17 +44,26 @@ export async function ensureSession(machine: Machine, session: string, cwd: stri
   return { created: out.includes('created') };
 }
 
-/** Types `text` literally into the session and, with `enter`, presses Enter on its own afterwards. */
-export async function sendTextToSession(machine: Machine, session: string, text: string, enter: boolean): Promise<void> {
+/**
+ * Types `text` literally into the session and, with `enter`, presses Enter on its own afterwards.
+ * With `opts.paste`, `text` is delivered as one tmux paste instead of typed keystrokes, so a TUI
+ * that understands bracketed paste reads an embedded newline as part of the pasted text rather
+ * than as Enter (see tmux.ts's `pasteText` on the agent side for why).
+ */
+export async function sendTextToSession(machine: Machine, session: string, text: string, enter: boolean, opts?: { paste?: boolean }): Promise<void> {
   assertSessionName(session);
+  const paste = opts?.paste ?? false;
   if (machine.type === 'agent') {
-    requireAgentVersion(machine, TERMINAL_RPC_MIN_AGENT_VERSION);
-    await agentRpc(machine, 'tmux.sendText', { session, text, enter });
+    requireAgentVersion(machine, paste ? TERMINAL_PASTE_MIN_AGENT_VERSION : TERMINAL_RPC_MIN_AGENT_VERSION);
+    await agentRpc(machine, 'tmux.sendText', { session, text, enter, paste: paste || undefined });
     return;
   }
   const target = shellQuote(`=${session}:`);
   const parts: string[] = [];
-  if (text) parts.push(`tmux send-keys -t ${target} -l -- ${shellQuote(text)}`);
+  if (text) {
+    parts.push(paste ? `printf '%s' ${shellQuote(text)} | tmux load-buffer -` : `tmux send-keys -t ${target} -l -- ${shellQuote(text)}`);
+    if (paste) parts.push(`tmux paste-buffer -p -d -t ${target}`);
+  }
   if (enter) {
     if (text) parts.push(`sleep ${ENTER_PAUSE}`);
     parts.push(`tmux send-keys -t ${target} Enter`);

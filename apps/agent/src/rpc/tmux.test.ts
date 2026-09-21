@@ -125,6 +125,36 @@ describe('sendText', () => {
     run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: "can't find pane", timedOut: false });
     await expect(sendText({ session: 's1', text: 'oi', enter: false })).rejects.toMatchObject({ code: 'notfound' });
   });
+
+  it('pastes via the tmux buffer instead of typing when paste is true, then sends Enter separately', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(sendText({ session: 's1', text: 'linha um\nlinha dois', enter: true, paste: true })).resolves.toEqual({ sent: true });
+    expect(run.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+      ['tmux', ['load-buffer', '-']],
+      ['tmux', ['paste-buffer', '-p', '-d', '-t', '=s1:']],
+      ['tmux', ['send-keys', '-t', '=s1:', 'Enter']],
+    ]);
+    // the text travels on stdin, never as an argv element or a shell string
+    expect(run.mock.calls[0][2]).toMatchObject({ input: Buffer.from('linha um\nlinha dois') });
+  });
+
+  it('does not paste when paste is false (still the old send-keys -l -- path)', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendText({ session: 's1', text: 'oi', enter: false, paste: false });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([['send-keys', '-t', '=s1:', '-l', '--', 'oi']]);
+  });
+
+  it('does not paste when paste is absent (still the old send-keys -l -- path)', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendText({ session: 's1', text: 'oi', enter: false });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([['send-keys', '-t', '=s1:', '-l', '--', 'oi']]);
+  });
+
+  it('reports a missing session on paste too, when paste-buffer cannot find the pane', async () => {
+    run.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }); // load-buffer
+    run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: "can't find pane", timedOut: false }); // paste-buffer
+    await expect(sendText({ session: 's1', text: 'oi', enter: false, paste: true })).rejects.toMatchObject({ code: 'notfound' });
+  });
 });
 
 describe('sendKey', () => {

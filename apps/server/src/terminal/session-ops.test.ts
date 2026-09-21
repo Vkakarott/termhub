@@ -10,7 +10,7 @@ const { agentRpc, requireAgentVersion, runOnMachine } = vi.hoisted(() => ({
 vi.mock('../agent/errors.js', () => ({ agentRpc, requireAgentVersion }));
 vi.mock('./machine-exec.js', async (orig) => ({ ...(await orig<typeof import('./machine-exec.js')>()), runOnMachine }));
 
-const { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } = await import('./session-ops.js');
+const { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_PASTE_MIN_AGENT_VERSION, TERMINAL_RPC_MIN_AGENT_VERSION } = await import('./session-ops.js');
 
 const machine = (type: Machine['type']): Machine => ({ id: 'm1', name: 'jarvis', type, os: 'linux', capabilities: ['tmux'], owner_id: 'u1' }) as Machine;
 
@@ -45,8 +45,31 @@ describe('agent machines', () => {
     agentRpc.mockResolvedValue({ sent: true });
     await sendTextToSession(machine('agent'), 's1', 'echo oi', true);
     expect(agentRpc).toHaveBeenCalledWith(expect.anything(), 'tmux.sendText', { session: 's1', text: 'echo oi', enter: true });
+    expect(requireAgentVersion).toHaveBeenCalledWith(expect.anything(), TERMINAL_RPC_MIN_AGENT_VERSION);
     await sendKeyToSession(machine('agent'), 's1', 'C-c');
     expect(agentRpc).toHaveBeenCalledWith(expect.anything(), 'tmux.sendKey', { session: 's1', key: 'C-c' });
+  });
+
+  it('requests paste and checks the higher, paste-only version floor when opts.paste is true', async () => {
+    agentRpc.mockResolvedValue({ sent: true });
+    await sendTextToSession(machine('agent'), 's1', 'linha um\nlinha dois', true, { paste: true });
+    expect(requireAgentVersion).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), TERMINAL_PASTE_MIN_AGENT_VERSION);
+    expect(agentRpc).toHaveBeenCalledWith(expect.anything(), 'tmux.sendText', { session: 's1', text: 'linha um\nlinha dois', enter: true, paste: true });
+  });
+
+  it('keeps the plain version floor when paste is not requested (0.2.x keeps typing)', async () => {
+    agentRpc.mockResolvedValue({ sent: true });
+    await sendTextToSession(machine('agent'), 's1', 'oi', true, { paste: false });
+    expect(requireAgentVersion).toHaveBeenCalledWith(expect.anything(), TERMINAL_RPC_MIN_AGENT_VERSION);
+    expect(agentRpc).toHaveBeenCalledWith(expect.anything(), 'tmux.sendText', { session: 's1', text: 'oi', enter: true });
+  });
+
+  it('refuses a paste request to an agent too old for it, without ever reaching the RPC', async () => {
+    requireAgentVersion.mockImplementation((_m: unknown, min: string) => {
+      if (min === TERMINAL_PASTE_MIN_AGENT_VERSION) throw new HttpError(409, 'Atualize o agente desta máquina', 'AGENT_OUTDATED');
+    });
+    await expect(sendTextToSession(machine('agent'), 's1', 'linha um\nlinha dois', true, { paste: true })).rejects.toMatchObject({ code: 'AGENT_OUTDATED' });
+    expect(agentRpc).not.toHaveBeenCalled();
   });
 });
 
@@ -112,5 +135,19 @@ describe('local and ssh machines', () => {
   it('does nothing when there is no text and no Enter to send', async () => {
     await sendTextToSession(machine('local'), 's1', '', false);
     expect(runOnMachine).not.toHaveBeenCalled();
+  });
+
+  it('pastes via tmux load-buffer/paste-buffer instead of send-keys -l -- when opts.paste is true', async () => {
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendTextToSession(machine('ssh'), 's1', 'linha um\nlinha dois', true, { paste: true });
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    expect(remote).toContain(`printf '%s' 'linha um\nlinha dois' | tmux load-buffer -`);
+    expect(remote).toContain(`tmux paste-buffer -p -d -t '=s1:'`);
+    expect(remote).not.toContain('-l --');
+    const pasteIdx = remote.indexOf('paste-buffer');
+    const sleepIdx = remote.indexOf('sleep 0.3');
+    const enterIdx = remote.lastIndexOf(`send-keys -t '=s1:' Enter`);
+    expect(sleepIdx).toBeGreaterThan(pasteIdx);
+    expect(enterIdx).toBeGreaterThan(sleepIdx);
   });
 });

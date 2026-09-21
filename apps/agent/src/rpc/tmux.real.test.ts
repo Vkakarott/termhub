@@ -55,4 +55,17 @@ describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
   it('refuses to type into a session that is not there', async () => {
     await expect(sendText({ session: `${SESSION}-gone`, text: 'x', enter: false })).rejects.toMatchObject({ code: 'notfound' });
   });
+
+  it('pastes a multi-line prompt as one paste, both lines landing in the pane', async () => {
+    const session = `${SESSION}-paste`;
+    expect(await ensure({ session, cwd: tmpdir() })).toEqual({ created: true });
+
+    await sendText({ session, text: 'echo linha-um\necho linha-dois', enter: true, paste: true });
+    await new Promise((r) => setTimeout(r, 800));
+    const { text } = await capture({ session, lines: 50 });
+    expect(text).toContain('linha-um');
+    expect(text).toContain('linha-dois');
+
+    expect(await kill({ session })).toEqual({ killed: true });
+  });
 });
