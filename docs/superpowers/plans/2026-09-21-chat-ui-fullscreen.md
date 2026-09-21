@@ -50,7 +50,7 @@ A card cannot be placed in a chronological thread without one, and the row has h
 
 In `chat-actions-view.test.ts`, one test: a card carries the row's `created_at` unchanged. Use the file's existing row factory and assert the exact value the row was given, not "a string" — a card built from `new Date()` would pass a shape check and silently reorder the thread.
 
-In `gate.e2e.test.ts`, extend the existing assertion on the published `confirmation` event so it requires `created_at` to equal the recorded row's `created_at`. Find the test that already asserts the event's `summary`; add the field there rather than writing a second near-identical test.
+In `gate.e2e.test.ts`, the test "publishes the question to the chat, with the arguments and no terminal content" (around line 541) asserts the event's **exact key set** with `Object.keys(collected[0]).sort()` (line 548) and then its full shape. Add `created_at` to both — the key-set assertion is deliberately exhaustive, so this test fails until the field is emitted, and it is the only place that needs touching.
 
 - [ ] **Step 2: Run them and watch them fail**
 
@@ -282,7 +282,7 @@ git commit -m "Chat: one thread, rendered answers, cards where they were propose
 In `ChatPage.test.tsx`:
 4. With a coarse pointer, Enter in the box does not send (`sendMock` not called) and the text stays.
 5. With a fine pointer, Enter still sends — the existing behaviour, pinned so Task 6 cannot silently take desktop Enter away.
-6. When the user has scrolled up (set `scrollTop`/`scrollHeight`/`clientHeight` so `isNearBottom` is false) and a delta arrives, `scrollTop` does not change.
+6. When the user has scrolled up and a delta arrives, `scrollTop` does not change. Set the list's `scrollTop`/`scrollHeight`/`clientHeight` so `isNearBottom` is false **and then fire a `scroll` event on the list** (`fireEvent.scroll(list)`) — that event is the only thing that tells the page the reader moved. Without it this test would be asserting the opposite of test 2.
 7. Sending a message returns the view to the bottom even from scrolled-up (`scrollTop` becomes `scrollHeight`).
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -291,7 +291,7 @@ In `ChatPage.test.tsx`:
 
 - [ ] **Step 3: Implement**
 
-`chat-scroll.ts`: two small pure functions, `enterSends` guarding `typeof window.matchMedia === 'function'`. `ChatComposer`: the textarea and send button lifted out of `ChatPage` unchanged in behaviour — same `placeholder` ("Pergunte ou peça algo às suas máquinas", asserted by existing tests), same button label, same disabled rules — plus a height that grows with the content up to a cap and then scrolls, and `Enter` obeying `enterSends()` (Shift+Enter always a newline). `ChatPage`: keep a `stick` ref updated from the list's `onScroll` via `isNearBottom`, initialised to `true`; the existing "pin to the bottom" effect only runs while `stick` is true; `send` sets it true before the request. Composer pinned to the bottom of the column with `pb-[env(safe-area-inset-bottom)]` so the iPhone home bar does not sit on the button.
+`chat-scroll.ts`: two small pure functions, `enterSends` guarding `typeof window.matchMedia === 'function'`. `ChatComposer`: the textarea and send button lifted out of `ChatPage` unchanged in behaviour — same `placeholder` ("Pergunte ou peça algo às suas máquinas", asserted by existing tests), same button label, same disabled rules — plus a height that grows with the content up to a cap and then scrolls, and `Enter` obeying `enterSends()` (Shift+Enter always a newline). `ChatPage`: keep a `stick` ref initialised to `true` and updated **only** from the list's `onScroll` handler via `isNearBottom`; the existing "pin to the bottom" effect reads it and does nothing while it is false; `send` sets it true before the request. Do not recompute `isNearBottom` inside the effect from the element's live geometry: jsdom lays nothing out, so a never-scrolled list would read as "far from the bottom" and the page would stop following new messages in every test and in any browser the moment content is shorter than the viewport. Composer pinned to the bottom of the column with `pb-[env(safe-area-inset-bottom)]` so the iPhone home bar does not sit on the button.
 
 - [ ] **Step 4: Green**
 
