@@ -1,4 +1,3 @@
-import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './lib/auth';
 import { AnalyticsGate } from './components/AnalyticsGate';
@@ -9,9 +8,6 @@ import { ProjectPage } from './pages/ProjectPage';
 import { ChatPage } from './pages/ChatPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
 import { SettingsPage } from './pages/SettingsPage';
-
-// SPIKE (throwaway): lazy so PixiJS stays out of the main bundle
-const OfficeSpikePage = lazy(() => import('./pages/OfficeSpikePage').then((m) => ({ default: m.OfficeSpikePage })));
 
 export function App() {
   return (
@@ -25,7 +21,6 @@ export function App() {
               <Route path="/ai" element={<HomePage />} />
               <Route path="/hardware" element={<HomePage />} />
               <Route path="/waitlist" element={<HomePage />} />
-              <Route path="/spike/office" element={<Suspense fallback={null}><OfficeSpikePage /></Suspense>} />
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/integrations" element={<IntegrationsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
