@@ -4,6 +4,7 @@ import { agents } from '../agent/registry.js';
 import { captureScreen } from '../agent/screen.js';
 import type { Machine, Project, Tab, TabState } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
+import { nextTerminalName } from '../lib/tab-names.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
 import { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } from '../terminal/session-ops.js';
 import { ControlError, type ControlContext } from './context.js';
@@ -64,7 +65,7 @@ export async function openTab(ctx: ControlContext, input: { project_id: string; 
   }
 
   const existing = await ctx.repos.tabs.listByProject(project.id);
-  const name = input.name?.trim() || `Terminal ${existing.filter((t) => t.kind === 'terminal').length + 1}`;
+  const name = input.name?.trim() || nextTerminalName(existing.map((t) => t.name));
   const tab = await ctx.repos.tabs.create(project.id, name, { created_by_token_id: ctx.token?.id ?? null });
 
   try {

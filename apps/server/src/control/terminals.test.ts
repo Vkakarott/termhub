@@ -63,7 +63,7 @@ describe('openTab', () => {
   it('creates the tab, starts its session in the project cwd and records the token', async () => {
     const ctx = ctxWith();
     const r = await openTab(ctx, { project_id: 'p1' });
-    expect(ctx.repos.tabs.create).toHaveBeenCalledWith('p1', 'Terminal 1', { created_by_token_id: 'tok1' });
+    expect(ctx.repos.tabs.create).toHaveBeenCalledWith('p1', expect.stringMatching(/^[A-Z][a-z]+$/), { created_by_token_id: 'tok1' });
     expect(ensureSession).toHaveBeenCalledWith(machine, 'termhub-p1-t1', '/home/u/app');
     expect(r).toMatchObject({ tab_id: 't1', created: true });
   });
