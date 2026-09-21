@@ -48,12 +48,14 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
        * text comes from an agent that reads real terminal screens, so `markdownOnly` keeps this to
        * the elements Markdown itself produces — nothing here can make the browser fetch a URL.
        *
-       * `break-words` on this container, not on `.prose-termhub` (the notes editor shares that
-       * class): a `ol` with `overflow-y-auto` computes `overflow-x` to `auto`, so one unbroken path
-       * quoted off a terminal would make the whole conversation — the reader's own bubbles included
-       * — scroll sideways on a phone. `pre` keeps its own horizontal scroll: it does not wrap, so
-       * `overflow-wrap` has nothing to do inside it. */}
-      {body && <div className="prose-termhub break-words" dangerouslySetInnerHTML={{ __html: html }} />}
+       * The two classes are on this container, not on `.prose-termhub` (the notes editor shares that
+       * class), and they fix the same finding from both ends: a `ol` with `overflow-y-auto` computes
+       * `overflow-x` to `auto`, so anything wider than the column makes the whole conversation — the
+       * reader's own bubbles included — scroll sideways on a phone. `break-words` wraps an unbroken
+       * path quoted off a terminal; `overflow-x-auto` contains what cannot wrap, since a six-column
+       * GFM table's min-content width does not shrink, and gives that scroll to the answer instead of
+       * to the thread. `pre` keeps its own horizontal scroll either way. */}
+      {body && <div className="prose-termhub overflow-x-auto break-words" dangerouslySetInnerHTML={{ __html: html }} />}
       {(tools ?? []).length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {(tools ?? []).map((a, i) => (

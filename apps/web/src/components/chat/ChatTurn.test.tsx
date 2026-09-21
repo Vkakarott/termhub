@@ -113,15 +113,18 @@ describe('ChatTurn', () => {
     expect(renderMarkdown.mock.calls.map((c) => c[0])).toEqual(['par', 'parcial']);
   });
 
-  it('breaks long words in the answer, so one path cannot make the thread scroll sideways', () => {
+  it('keeps a wide or unbreakable answer from scrolling the whole thread sideways', () => {
     const { container } = render(
       <ol>
         <ChatTurn message={answer()} waiting={false} failed={false} />
       </ol>,
     );
 
+    // jsdom lays nothing out, so only the classes can be asserted: `break-words` for a long path,
+    // `overflow-x-auto` for a wide GFM table, whose min-content width no amount of wrapping shrinks.
     const prose = container.querySelector('.prose-termhub');
     expect(prose?.classList.contains('break-words')).toBe(true);
+    expect(prose?.classList.contains('overflow-x-auto')).toBe(true);
   });
 
   it('never parses the user\'s own words as Markdown', () => {
