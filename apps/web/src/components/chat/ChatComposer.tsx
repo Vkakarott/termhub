@@ -136,7 +136,7 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
             irreversible without a pinch, and it also lets the whole page pan vertically afterwards. */}
         <textarea
           ref={ref}
-          className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-0 py-1 text-base text-fg placeholder:text-fg-dim focus:outline-none"
+          className="block w-full resize-none overflow-y-auto overscroll-contain border-0 bg-transparent px-0 py-1 text-base text-fg placeholder:text-fg-dim focus:outline-none"
           rows={MIN_ROWS}
           value={value}
           placeholder="Pergunte ou peça algo às suas máquinas"

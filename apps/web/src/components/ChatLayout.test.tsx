@@ -51,4 +51,38 @@ describe('ChatLayout', () => {
     const back = screen.getByRole('link', { name: /voltar/i });
     expect(back.getAttribute('href')).toBe('/');
   });
+
+it('locks the document while it is mounted, and gives it back on the way out', () => {
+  // On iOS a drag that starts on a child which cannot scroll — the message box — is handed to the
+  // document, which is the "press and drag the box and it scrolls for ever" report. The class is
+  // scoped to the chat so the terminals keep their own scrolling; jsdom applies no CSS, so what is
+  // pinned here is that the class arrives and, just as importantly, leaves.
+  const { unmount } = render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Routes>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<p>conversa</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(document.body.classList.contains('chat-locked')).toBe(true);
+  unmount();
+  expect(document.body.classList.contains('chat-locked')).toBe(false);
+});
+
+it('shows which bundle it is running', () => {
+  // So "it did not change on my phone" is answered by reading the header, not by guessing between a
+  // stale page and a fix that does not work.
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Routes>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<p>conversa</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(screen.getByTitle('build').textContent).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
+});
 });

@@ -32,6 +32,9 @@ describe('ChatComposer', () => {
     const box = screen.getByPlaceholderText(/pergunte/i);
     expect(box.className).toContain('text-base');
     expect(box.className).not.toContain('text-sm');
+    // And the box keeps its own drag: without this, panning inside it is handed to whatever can
+    // scroll next, which on a phone was the document.
+    expect(box.className).toContain('overscroll-contain');
   });
 
   it('sends on Enter with a fine pointer, and writes a newline with Shift', () => {
