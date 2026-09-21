@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { RpcParams, RpcResult } from '@termhub/agent-protocol';
 import { RpcFailure, run, tmuxPath, type RunResult } from '../exec.js';
 
@@ -75,20 +76,36 @@ export async function ensure(params: RpcParams<'tmux.ensure'>): Promise<RpcResul
  * Delivers `text` as one tmux paste instead of typed keystrokes: `load-buffer -` reads it from
  * stdin (never argv, never a shell string — see exec.ts's `run` contract), then `paste-buffer -p
  * -d` drops it into the pane bracketed, so a TUI that understands bracketed paste (e.g. Claude
- * Code) reads an embedded newline as part of the pasted text rather than as Enter. `-d` frees the
- * buffer right after. Chosen over hand-built `\e[200~ … \e[201~` escape bytes because it needs no
- * escape literals in our code and tmux verified it produces the same unsubmitted-composer result.
+ * Code) reads an embedded newline as part of the pasted text rather than as Enter. Chosen over
+ * hand-built `\e[200~ … \e[201~` escape bytes because it needs no escape literals in our code and
+ * tmux verified it produces the same unsubmitted-composer result.
+ *
+ * `load-buffer`/`paste-buffer` act on the *most recent* tmux buffer when no `-b` is given, and
+ * the dispatcher does not serialize RPCs (`void handleRpc(...)`): two pastes to different tabs on
+ * the same machine can interleave, so an unnamed buffer can carry one conversation's text into
+ * another tab. Every call therefore gets its own buffer name (`randomUUID`, collision-proof in
+ * practice), and that buffer is always removed — `-d` on a successful paste, `delete-buffer` in
+ * the `finally` on every other path — so a failed paste never leaves the user's prompt sitting in
+ * tmux's buffer list where anything reaching this tmux server could `show-buffer` it.
  */
 async function pasteText(session: string, text: string): Promise<void> {
-  const loaded = await run(tmuxPath(), ['load-buffer', '-'], { input: Buffer.from(text, 'utf8') });
-  const loadFailure = processFailure(loaded);
-  if (loadFailure) throw loadFailure;
-  if (loaded.code !== 0) throw new RpcFailure('internal', why(loaded.stderr, 'tmux load-buffer failed'));
+  const bufferName = `termhub-paste-${randomUUID()}`;
+  try {
+    const loaded = await run(tmuxPath(), ['load-buffer', '-b', bufferName, '-'], { input: Buffer.from(text, 'utf8') });
+    const loadFailure = processFailure(loaded);
+    if (loadFailure) throw loadFailure;
+    if (loaded.code !== 0) throw new RpcFailure('internal', why(loaded.stderr, 'tmux load-buffer failed'));
 
-  const pasted = await run(tmuxPath(), ['paste-buffer', '-p', '-d', '-t', pane(session)]);
-  const pasteFailure = processFailure(pasted);
-  if (pasteFailure) throw pasteFailure;
-  if (pasted.code !== 0) throw new RpcFailure('notfound', why(pasted.stderr, 'session not found'));
+    const pasted = await run(tmuxPath(), ['paste-buffer', '-p', '-d', '-b', bufferName, '-t', pane(session)]);
+    const pasteFailure = processFailure(pasted);
+    if (pasteFailure) throw pasteFailure;
+    if (pasted.code !== 0) throw new RpcFailure('notfound', why(pasted.stderr, 'session not found'));
+  } finally {
+    // Best-effort: `run` never rejects (see exec.ts), and a buffer that is already gone (the
+    // common case — `-d` above deleted it) is exactly the outcome we want, so its result is
+    // ignored either way. This must never replace the error being thrown out of the `try` above.
+    await run(tmuxPath(), ['delete-buffer', '-b', bufferName]);
+  }
 }
 
 export async function sendText(params: RpcParams<'tmux.sendText'>): Promise<RpcResult<'tmux.sendText'>> {

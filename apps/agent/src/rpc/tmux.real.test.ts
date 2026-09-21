@@ -17,6 +17,15 @@ const hasTmux = (() => {
   }
 })();
 
+/** tmux exits non-zero when the server has no buffers at all; stdout is still what we want. */
+function listBuffers(): string {
+  try {
+    return execFileSync(process.env.TMUX_PATH!, ['list-buffers'], { encoding: 'utf8' });
+  } catch (e) {
+    return (e as { stdout?: string }).stdout ?? '';
+  }
+}
+
 describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
   // TMUX_PATH is what exec.ts reads; the wrapper pins every call to our own socket. Created here
   // (not at module top level) so it is only ever made — and cleaned up — when the suite actually runs.
@@ -67,5 +76,43 @@ describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
     expect(text).toContain('linha-dois');
 
     expect(await kill({ session })).toEqual({ killed: true });
+  });
+
+  it('leaves no named paste buffer behind after a failed paste', async () => {
+    // A session has to be alive somewhere on this socket, or tmux itself has no server to run
+    // load-buffer against ("no server running") — this keeps one up so the failure below is
+    // paste-buffer not finding `${SESSION}-gone`, not the whole server being absent.
+    const keepAlive = `${SESSION}-keepalive`;
+    expect(await ensure({ session: keepAlive, cwd: tmpdir() })).toEqual({ created: true });
+
+    await expect(sendText({ session: `${SESSION}-gone`, text: 'linha um\nlinha dois', enter: false, paste: true })).rejects.toMatchObject({ code: 'notfound' });
+    expect(listBuffers()).not.toContain('termhub-paste-');
+
+    expect(await kill({ session: keepAlive })).toEqual({ killed: true });
+  });
+
+  it('runs two concurrent pastes to different tabs without one crossing into the other', async () => {
+    const sessionA = `${SESSION}-concA`;
+    const sessionB = `${SESSION}-concB`;
+    expect(await ensure({ session: sessionA, cwd: tmpdir() })).toEqual({ created: true });
+    expect(await ensure({ session: sessionB, cwd: tmpdir() })).toEqual({ created: true });
+
+    // Started together (not awaited one at a time) so their load-buffer/paste-buffer calls can
+    // actually interleave — an unnamed buffer would flake here; a named one must not.
+    await Promise.all([
+      sendText({ session: sessionA, text: 'echo texto-a', enter: true, paste: true }),
+      sendText({ session: sessionB, text: 'echo texto-b', enter: true, paste: true }),
+    ]);
+    await new Promise((r) => setTimeout(r, 800));
+
+    const a = await capture({ session: sessionA, lines: 50 });
+    const b = await capture({ session: sessionB, lines: 50 });
+    expect(a.text).toContain('texto-a');
+    expect(a.text).not.toContain('texto-b');
+    expect(b.text).toContain('texto-b');
+    expect(b.text).not.toContain('texto-a');
+
+    expect(await kill({ session: sessionA })).toEqual({ killed: true });
+    expect(await kill({ session: sessionB })).toEqual({ killed: true });
   });
 });

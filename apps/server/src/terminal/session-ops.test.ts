@@ -9,6 +9,12 @@ const { agentRpc, requireAgentVersion, runOnMachine } = vi.hoisted(() => ({
 }));
 vi.mock('../agent/errors.js', () => ({ agentRpc, requireAgentVersion }));
 vi.mock('./machine-exec.js', async (orig) => ({ ...(await orig<typeof import('./machine-exec.js')>()), runOnMachine }));
+// Deterministic buffer name so the paste tests can assert the exact script instead of a pattern.
+// A plain function, not vi.fn(): beforeEach's resetAllMocks() would otherwise wipe its return value.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, randomUUID: () => 'fixed-uuid' };
+});
 
 const { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_PASTE_MIN_AGENT_VERSION, TERMINAL_RPC_MIN_AGENT_VERSION } = await import('./session-ops.js');
 
@@ -137,17 +143,38 @@ describe('local and ssh machines', () => {
     expect(runOnMachine).not.toHaveBeenCalled();
   });
 
-  it('pastes via tmux load-buffer/paste-buffer instead of send-keys -l -- when opts.paste is true', async () => {
+  it('pastes via a named tmux buffer instead of send-keys -l -- when opts.paste is true', async () => {
     runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
     await sendTextToSession(machine('ssh'), 's1', 'linha um\nlinha dois', true, { paste: true });
     const remote = runOnMachine.mock.calls[0][2] as string;
-    expect(remote).toContain(`printf '%s' 'linha um\nlinha dois' | tmux load-buffer -`);
-    expect(remote).toContain(`tmux paste-buffer -p -d -t '=s1:'`);
+    expect(remote).toContain(`printf '%s' 'linha um\nlinha dois' | tmux load-buffer -b 'termhub-paste-fixed-uuid' -`);
+    expect(remote).toContain(`tmux paste-buffer -p -d -b 'termhub-paste-fixed-uuid' -t '=s1:'`);
+    expect(remote).toContain(`tmux delete-buffer -b 'termhub-paste-fixed-uuid'`);
     expect(remote).not.toContain('-l --');
     const pasteIdx = remote.indexOf('paste-buffer');
+    const deleteIdx = remote.indexOf('delete-buffer');
     const sleepIdx = remote.indexOf('sleep 0.3');
     const enterIdx = remote.lastIndexOf(`send-keys -t '=s1:' Enter`);
-    expect(sleepIdx).toBeGreaterThan(pasteIdx);
+    expect(deleteIdx).toBeGreaterThan(pasteIdx);
+    expect(sleepIdx).toBeGreaterThan(deleteIdx);
     expect(enterIdx).toBeGreaterThan(sleepIdx);
+  });
+
+  it('sequences the delete-buffer to run unconditionally, even when the paste itself fails', async () => {
+    // The script's own success/failure is decided by tmux on the real machine, not by this JS
+    // string — what this test pins is the *shape* of the generated script: the buffer's removal
+    // must be sequenced with `;` (always runs) after the paste attempt, not `&&` (skipped on
+    // failure), and the original pass/fail must still be what the rest of the chain (Enter) sees.
+    runOnMachine.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendTextToSession(machine('ssh'), 's1', 'linha um\nlinha dois', true, { paste: true });
+    const remote = runOnMachine.mock.calls[0][2] as string;
+    expect(remote).toContain(
+      `; } || RC=$?; tmux delete-buffer -b 'termhub-paste-fixed-uuid' >/dev/null 2>&1; [ "$RC" -eq 0 ]`,
+    );
+  });
+
+  it('turns a non-zero exit from the paste script into an HttpError, same as any other failed remote command', async () => {
+    runOnMachine.mockResolvedValue({ code: 1, stdout: '', stderr: "can't find pane\n", timedOut: false });
+    await expect(sendTextToSession(machine('ssh'), 's1', 'linha um\nlinha dois', true, { paste: true })).rejects.toMatchObject({ statusCode: 502, message: expect.stringContaining("can't find pane") });
   });
 });

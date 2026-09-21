@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { type TmuxKey } from '@termhub/agent-protocol';
 import { agentRpc, requireAgentVersion } from '../agent/errors.js';
 import type { Machine } from '../db/repositories/types.js';
@@ -61,8 +62,20 @@ export async function sendTextToSession(machine: Machine, session: string, text:
   const target = shellQuote(`=${session}:`);
   const parts: string[] = [];
   if (text) {
-    parts.push(paste ? `printf '%s' ${shellQuote(text)} | tmux load-buffer -` : `tmux send-keys -t ${target} -l -- ${shellQuote(text)}`);
-    if (paste) parts.push(`tmux paste-buffer -p -d -t ${target}`);
+    if (paste) {
+      // Mirrors tmux.ts's pasteText on the agent (see its comment for why a named buffer):
+      // load-buffer/paste-buffer act on the most recent buffer when unnamed, and this text must
+      // never carry into a concurrent paste on another tab. The whole thing is one `sh -c`
+      // script, so the buffer's removal is sequenced with `; ` (not `&&`) to run unconditionally
+      // — on a failed paste too — while still failing the fragment (and so the chain below,
+      // skipping Enter) exactly when the paste itself failed.
+      const bufferName = shellQuote(`termhub-paste-${randomUUID()}`);
+      parts.push(
+        `RC=0; { printf '%s' ${shellQuote(text)} | tmux load-buffer -b ${bufferName} - && tmux paste-buffer -p -d -b ${bufferName} -t ${target}; } || RC=$?; tmux delete-buffer -b ${bufferName} >/dev/null 2>&1; [ "$RC" -eq 0 ]`,
+      );
+    } else {
+      parts.push(`tmux send-keys -t ${target} -l -- ${shellQuote(text)}`);
+    }
   }
   if (enter) {
     if (text) parts.push(`sleep ${ENTER_PAUSE}`);
