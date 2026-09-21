@@ -82,6 +82,20 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect(await repo.findDeniedByKey(conversationId, 'k10')).toBeUndefined();
   });
 
+  it('lets exactly one caller claim an approved action', async () => {
+    const row = await pending('k12');
+    await repo.decide(row.id, userId, 'approved');
+    const claims = await Promise.all([repo.claimApproved(row.id), repo.claimApproved(row.id), repo.claimApproved(row.id)]);
+    expect(claims.filter(Boolean)).toHaveLength(1); // one approval must not be executed twice
+    expect(await repo.findOpenByKey(conversationId, 'k12')).toBeUndefined(); // and is not claimable again
+  });
+
+  it('refuses to claim an action the user never approved', async () => {
+    const row = await pending('k13');
+    expect(await repo.claimApproved(row.id)).toBe(false);
+    expect((await repo.findOpenByKey(conversationId, 'k13'))?.status).toBe('pending');
+  });
+
   it('returns the newest denial when the same proposal was refused twice', async () => {
     const first = await pending('k11');
     await repo.decide(first.id, userId, 'denied');

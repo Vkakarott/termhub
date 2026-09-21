@@ -7,6 +7,7 @@
  */
 import { ControlError, type ControlContext } from '../control/context.js';
 import type { ChatAction, ChatActionClass } from '../db/repositories/chat-actions.js';
+import type { Tab } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
 import { actionClass, gateDecision, idempotencyKeyFor } from './gate.js';
@@ -32,6 +33,18 @@ const WAITING: GateOutcome = {
   code: 'CONFIRMATION_WAITING',
   message:
     'Esta ação ainda está aguardando a confirmação do usuário no chat: a pergunta já foi enviada e nada foi executado. Não repita a chamada: diga a ele que está esperando e pare.',
+};
+
+/**
+ * A parallel arrival of the same approved proposal that lost the claim: another call already owns the
+ * execution. Deliberately the same `CONFIRMATION_WAITING` outcome as a question still on screen —
+ * what the model must do is identical, stop and wait — with wording that says which of the two it is.
+ */
+const ALREADY_CLAIMED: GateOutcome = {
+  ok: false,
+  code: 'CONFIRMATION_WAITING',
+  message:
+    'Uma chamada idêntica que chegou antes já está executando esta ação, então esta não executou nada. Não repita a chamada: espere o resultado da primeira e siga a partir dele.',
 };
 
 const REFUSED: GateOutcome = {
@@ -73,6 +86,11 @@ const TAB_WAITING_PERMISSION = (tabId: string) => ({
   message: `A aba ${tabId} passou a esperar uma permissão enquanto a confirmação estava pendente: digitar agora responderia essa pergunta, não o que o usuário confirmou. Nada foi executado e a confirmação não vale mais. Leia a tela com read_screen e proponha a ação de novo.`,
 });
 
+const TAB_PROMPT_CHANGED = (tabId: string) => ({
+  code: 'PROMPT_CHANGED',
+  message: `A aba ${tabId} está esperando outra permissão, pedida depois da pergunta que o usuário confirmou: responder agora aceitaria algo que ele nunca viu. Nada foi executado e a confirmação não vale mais. Leia a tela com read_screen e proponha a ação de novo.`,
+});
+
 /** What the action targets, for the chat's card and for re-validating an approval. Ids only: a value
  * of another shape is not an id and is dropped rather than stored. */
 const targetId = (v: unknown) => (typeof v === 'string' && v.length >= 1 && v.length <= 64 ? v : null);
@@ -90,6 +108,19 @@ const targetOf = (args: Record<string, unknown>) => ({
 const typesFreeText = (call: GatedCall) => call.tool === 'run_command' || (call.tool === 'send_input' && call.args.answering_permission !== true);
 
 /**
+ * Whether the permission the tab is asking for now is a different one from the one the user saw when
+ * they confirmed. `TabsRepository.recordEvent` treats every `waiting_permission` as a fresh ask and
+ * bumps `state_at` for it, so a `state_at` later than the question's `created_at` is another prompt:
+ * the first was answered and a second appeared while the approval waited. Without this, an approved
+ * "press Enter" could accept a dialog nobody ever read.
+ */
+function promptChangedSince(tab: Tab, row: ChatAction): boolean {
+  const askedAt = Date.parse(tab.state_at ?? '');
+  const confirmed = Date.parse(row.created_at);
+  return Number.isFinite(askedAt) && Number.isFinite(confirmed) && askedAt > confirmed;
+}
+
+/**
  * An approval is a snapshot of the moment the user gave it. Between the question and the keystroke
  * the tab can be killed, or the tool in it can start asking for a permission — and then the approved
  * text would answer the wrong question. Either way the approval is spent: the row fails (never back
@@ -99,7 +130,11 @@ async function staleApproval(ctx: ControlContext, call: GatedCall, row: ChatActi
   if (!row.tab_id) return undefined;
   const tab = await ctx.repos.tabs.findById(row.tab_id);
   if (!tab) return TAB_GONE(row.tab_id);
-  if (tab.state === 'waiting_permission' && typesFreeText(call)) return TAB_WAITING_PERMISSION(row.tab_id);
+  if (tab.state === 'waiting_permission') {
+    if (typesFreeText(call)) return TAB_WAITING_PERMISSION(row.tab_id);
+    // The exempted tools answer a permission on purpose — but only the one the user actually saw.
+    if (promptChangedSince(tab, row)) return TAB_PROMPT_CHANGED(row.tab_id);
+  }
   return undefined;
 }
 
@@ -108,6 +143,10 @@ async function staleApproval(ctx: ControlContext, call: GatedCall, row: ChatActi
  * never a new question, because asking again for what the machine cannot do is a loop with no exit. */
 async function execute(ctx: ControlContext, call: GatedCall, row: ChatAction): Promise<GateOutcome> {
   const started = Date.now();
+  // Claim the approval before anything else happens. Two identical calls can both read the same
+  // `approved` row and, without a claim, both would act on one approval — one confirmation, two
+  // commands on the user's machine. The conditional update lets exactly one through.
+  if (!(await ctx.repos.chatActions.claimApproved(row.id))) return ALREADY_CLAIMED;
   const stale = await staleApproval(ctx, call, row);
   if (stale) {
     await ctx.repos.chatActions.markExecuted(row.id, false, stale.code, Date.now() - started);
@@ -136,8 +175,14 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
     // unique index then refuses the loser. The winner's question is already in the chat, so this call
     // is simply waiting on it — asking again would put the same question twice in front of the user.
     // (An approval that landed in this same instant is picked up by the next arrival of the call.)
-    if (!(await ctx.repos.chatActions.findOpenByKey(conversationId, key))) throw err;
-    return WAITING;
+    if (await ctx.repos.chatActions.findOpenByKey(conversationId, key)) return WAITING;
+    // Anything else is a real failure to record the proposal. The original error is deliberately not
+    // rethrown: a rejected write carries the rejected data, so logging it upstream would put the
+    // proposed command — the whole point of `args` — in a log line. The audit row's code is the signal.
+    throw new ControlError(
+      'ACTION_NOT_RECORDED',
+      'Não foi possível registrar esta ação para o usuário confirmar, então nada foi executado. Avise que houve uma falha ao registrar o pedido e tente de novo em alguns segundos.',
+    );
   }
   chatBus.publish({
     type: 'confirmation',

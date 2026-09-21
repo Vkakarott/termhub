@@ -123,6 +123,27 @@ export class ChatActionsRepository {
     return row ? mapAction(row) : undefined;
   }
 
+  /**
+   * Takes an approved action out of the approved state so exactly one caller may execute it. Two
+   * identical tool calls can both read the same `approved` row — an MCP client that issues them in
+   * parallel, a re-injection delivered twice — and without this claim both would act on one approval.
+   * The `UPDATE` is conditional on the row still being approved, so the database decides the winner:
+   * `true` means this caller owns the execution, `false` means somebody else already does.
+   *
+   * It lands on `executed` because that is the only status available today, and `markExecuted` then
+   * records the real outcome (including `failed`). A process that dies between the claim and the
+   * outcome leaves `executed` with a null `duration_ms`: the action is never retried, which is the
+   * safe direction when nobody can know whether the keystroke landed. The deferred `running` status
+   * slots straight in here — write it instead, and nothing else has to change.
+   */
+  async claimApproved(id: string): Promise<boolean> {
+    const { count } = await this.db.chatAction.updateMany({
+      where: { id, status: 'approved' satisfies ChatActionStatus },
+      data: { status: 'executed' satisfies ChatActionStatus },
+    });
+    return count === 1;
+  }
+
   async markExecuted(id: string, ok: boolean, errorCode?: string | null, durationMs?: number | null): Promise<void> {
     await this.db.chatAction.updateMany({
       where: { id },

@@ -36,6 +36,10 @@ function attachFakeTmux(typed: string[]) {
         typed.push(p.text ?? '');
         return { sent: true };
       }
+      if (method === 'tmux.sendKey') {
+        typed.push(`key:${(params as { key?: string }).key ?? ''}`);
+        return { sent: true };
+      }
       if (method === 'tmux.capture') return { text: typed.join('\n') };
       throw new Error(`unexpected rpc ${method}`);
     }),
@@ -44,16 +48,24 @@ function attachFakeTmux(typed: string[]) {
   return conn;
 }
 
-/** The repository's real semantics in memory: the partial unique index means a second *open* row
- * for a key throws, and a decided row is invisible to `findOpenByKey`. */
+/** The repository's real semantics in memory: the partial unique index means a second *open* row for
+ * a key throws, a decided row is invisible to `findOpenByKey`, a claim only succeeds while the row is
+ * still approved, and every read hands back a snapshot — never a live reference into the store. */
 function fakeChatActions() {
   const rows: ChatAction[] = [];
   const isOpen = (r: ChatAction) => r.status === 'pending' || r.status === 'approved';
   const sameKey = (r: ChatAction, conversationId: string, key: string) => r.conversation_id === conversationId && r.idempotency_key === key;
+  const snapshot = (r: ChatAction | undefined) => (r ? { ...r } : undefined);
   return {
     rows,
-    findOpenByKey: vi.fn(async (conversationId: string, key: string) => rows.find((r) => sameKey(r, conversationId, key) && isOpen(r))),
-    findDeniedByKey: vi.fn(async (conversationId: string, key: string) => [...rows].reverse().find((r) => sameKey(r, conversationId, key) && r.status === 'denied')),
+    findOpenByKey: vi.fn(async (conversationId: string, key: string) => snapshot(rows.find((r) => sameKey(r, conversationId, key) && isOpen(r)))),
+    findDeniedByKey: vi.fn(async (conversationId: string, key: string) => snapshot([...rows].reverse().find((r) => sameKey(r, conversationId, key) && r.status === 'denied'))),
+    claimApproved: vi.fn(async (id: string) => {
+      const row = rows.find((r) => r.id === id && r.status === 'approved');
+      if (!row) return false;
+      row.status = 'executed'; // the claim itself, exactly as the conditional UPDATE does it
+      return true;
+    }),
     insertPending: vi.fn(async (input: InsertPendingInput) => {
       if (rows.some((r) => sameKey(r, input.conversation_id, input.idempotency_key ?? '') && isOpen(r))) {
         throw new Error('duplicate key value violates unique constraint "chat_actions_one_open_per_key"');
@@ -331,6 +343,119 @@ it('refuses an approved keystroke into a tab that is now waiting for a permissio
   expect(typed).toEqual([]);
   expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'WAITING_PERMISSION', expect.any(Number));
   expect(actions.rows[0].status).toBe('failed');
+});
+
+it('types once when two identical calls both read the same approved row', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+  // Both arrivals read the row while it was still approved — a client that issues the call twice in
+  // parallel, or a re-injection delivered twice. Only the claim can keep the second one from typing.
+  actions.findOpenByKey.mockResolvedValue({ ...row });
+
+  const first = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  const second = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(first).isError).toBeUndefined();
+  expect(typed).toEqual(['npm test']); // one approval, one command
+  expect(resultOf(second).isError).toBe(true);
+  expect(textOf(second)).toMatch(/já está executando esta ação/i);
+  expect(actions.claimApproved).toHaveBeenCalledTimes(2);
+  expect(actions.markExecuted).toHaveBeenCalledTimes(1);
+});
+
+it('answers the permission the user saw, and refuses one asked after it', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions, tabs } = build({ gated: true });
+  const args = { tab_id: 't1', key: 'Enter' };
+  const stale = actions.seed('approved', 'send_key', args, 40);
+  // The prompt the user confirmed was answered, and another one appeared while the approval waited:
+  // `state_at` is newer than the question, so pressing Enter now would accept something unseen.
+  tabs.set('t1', { ...tabs.get('t1')!, state: 'waiting_permission', state_text: 'Allow rm -rf?', state_at: new Date().toISOString() });
+
+  const res = await callTool(app, 'send_key', args);
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/outra permissão/i);
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(stale.id, false, 'PROMPT_CHANGED', expect.any(Number));
+  expect(actions.rows[0].status).toBe('failed');
+});
+
+it('still answers a permission that was already on screen when the user confirmed', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions, tabs } = build({ gated: true });
+  const args = { tab_id: 't1', key: 'Enter' };
+  const row = actions.seed('approved', 'send_key', args);
+  tabs.set('t1', { ...tabs.get('t1')!, state: 'waiting_permission', state_text: 'Allow edit?', state_at: new Date(Date.now() - 10 * 60 * 1000).toISOString() });
+
+  const res = await callTool(app, 'send_key', args);
+
+  expect(resultOf(res).isError).toBeUndefined();
+  expect(typed).toEqual(['key:Enter']); // the exemption itself still stands
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, true, null, expect.any(Number));
+});
+
+it('asks before an irreversible action too, and kills nothing meanwhile', async () => {
+  const typed: string[] = [];
+  const conn = attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+
+  const res = await callTool(app, 'close_tab', { tab_id: 't1' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(actions.rows[0]).toMatchObject({ tool: 'close_tab', class: 'irreversible', status: 'pending', tab_id: 't1' });
+  expect(conn.rpc).not.toHaveBeenCalled();
+  expect(collected.map((e) => e.class)).toEqual(['irreversible']);
+});
+
+it('refuses a tool it does not know before the gate is ever reached', async () => {
+  attachFakeTmux([]);
+  const { app, actions, apiTokens } = build({ gated: true });
+
+  // The route's allowlist answers an unknown name itself, so `actionClass`'s irreversible default for
+  // one is a second line of defence, never the first: no proposal is recorded and nothing is asked.
+  const res = await callTool(app, 'drop_everything', { tab_id: 't1' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/desconhecida/i);
+  expect(actions.insertPending).not.toHaveBeenCalled();
+  expect(collected).toEqual([]);
+  await settle();
+  expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'drop_everything', ok: false, error_code: 'TOOL_NOT_ALLOWED' });
+});
+
+it('fails closed when the actions table cannot be read', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.findOpenByKey.mockRejectedValueOnce(new Error('connection terminated'));
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  // A gate that cannot read its own table must not let the write through.
+  expect(resultOf(res).isError).toBe(true);
+  expect(typed).toEqual([]);
+  expect(actions.insertPending).not.toHaveBeenCalled();
+});
+
+it('does not carry the proposal in the error when the proposal cannot be recorded', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  // A rejected write carries the rejected data; whatever comes out of the gate must not.
+  actions.insertPending.mockRejectedValueOnce(new Error('null value in column "args" violates ... { text: "npm test" }'));
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).not.toContain('npm test');
+  expect(textOf(res)).toMatch(/registrar esta ação/i);
+  expect(typed).toEqual([]);
 });
 
 it("lets a person's own token through untouched", async () => {
