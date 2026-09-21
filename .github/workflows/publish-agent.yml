@@ -1,20 +1,53 @@
 name: Publish @termhub/agent
 
-# Publishes apps/agent to npm when a tag agent-vX.Y.Z is pushed (the tag must match the
-# version in apps/agent/package.json). Uses npm trusted publishing (OIDC): no npm token is
-# stored in GitHub — the package's "Trusted publisher" on npmjs.com must point at this
-# repository and this workflow file. Provenance is attached automatically.
+# Publishes apps/agent to npm. A bump of the version in apps/agent/package.json landing on main
+# is the release: the `decide` job compares that version with what npm already has and, when it
+# is new, publishes and creates the matching agent-vX.Y.Z tag. Pushing the tag by hand still
+# works (and is what the tag trigger is for), as does running this workflow manually; a version
+# already on npm is skipped, so none of the three paths can publish twice.
+#
+# Uses npm trusted publishing (OIDC): no npm token is stored in GitHub — the package's
+# "Trusted publisher" on npmjs.com must point at this repository and this workflow file.
+# Provenance is attached automatically.
 on:
   push:
+    branches: [main]
     tags: ['agent-v*']
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # the tag this workflow creates after a publish from main
   id-token: write
 
 jobs:
+  # ── Is this version still missing from npm? ────────────────────────
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: check
+        name: Versão do pacote x versão no npm
+        run: |
+          v=$(node -p 'require("./apps/agent/package.json").version')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if npm view "@termhub/agent@$v" version >/dev/null 2>&1; then
+            echo "@termhub/agent@$v já está no npm; nada a publicar"
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          else
+            echo "@termhub/agent@$v ainda não está no npm"
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
+    needs: decide
+    if: needs.decide.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -48,3 +81,15 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ''
         run: npm publish -w @termhub/agent --access public --provenance
+      # Keeps the tag history even when the release came from a bump on main. A tag pushed with
+      # GITHUB_TOKEN does not start another run, so this cannot loop back into itself.
+      - name: Marcar a versão publicada (agent-vX.Y.Z)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.decide.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag "agent-v$VERSION"
+          git push origin "agent-v$VERSION"
