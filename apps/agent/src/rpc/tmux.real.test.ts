@@ -26,6 +26,24 @@ function listBuffers(): string {
   }
 }
 
+/**
+ * Polls the pane with `capture` until it contains `needle` or `timeoutMs` passes, instead of a
+ * fixed sleep before a single capture — a timing assumption that flakes on a loaded CI runner for
+ * a reason unrelated to the behaviour under test (same shape as `screenWith` in
+ * start-agent.e2e.test.ts). On timeout it throws naming the pane and what never showed, so a real
+ * regression reads as a clear failure instead of looking like flakiness.
+ */
+async function captureUntil(session: string, needle: string, timeoutMs = 5_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let text = '';
+  for (;;) {
+    ({ text } = await capture({ session, lines: 50 }));
+    if (text.includes(needle)) return text;
+    if (Date.now() >= deadline) throw new Error(`pane "${session}" never showed ${JSON.stringify(needle)} within ${timeoutMs}ms; last capture:\n${text}`);
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
+
 describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
   // TMUX_PATH is what exec.ts reads; the wrapper pins every call to our own socket. Created here
   // (not at module top level) so it is only ever made — and cleaned up — when the suite actually runs.
@@ -103,14 +121,13 @@ describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
       sendText({ session: sessionA, text: 'echo texto-a', enter: true, paste: true }),
       sendText({ session: sessionB, text: 'echo texto-b', enter: true, paste: true }),
     ]);
-    await new Promise((r) => setTimeout(r, 800));
 
-    const a = await capture({ session: sessionA, lines: 50 });
-    const b = await capture({ session: sessionB, lines: 50 });
-    expect(a.text).toContain('texto-a');
-    expect(a.text).not.toContain('texto-b');
-    expect(b.text).toContain('texto-b');
-    expect(b.text).not.toContain('texto-a');
+    const aText = await captureUntil(sessionA, 'texto-a');
+    const bText = await captureUntil(sessionB, 'texto-b');
+    expect(aText).toContain('texto-a');
+    expect(aText).not.toContain('texto-b');
+    expect(bText).toContain('texto-b');
+    expect(bText).not.toContain('texto-a');
 
     expect(await kill({ session: sessionA })).toEqual({ killed: true });
     expect(await kill({ session: sessionB })).toEqual({ killed: true });
