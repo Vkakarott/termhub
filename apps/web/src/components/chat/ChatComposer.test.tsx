@@ -19,10 +19,15 @@ describe('ChatComposer', () => {
     render(<Harness />);
     const box = screen.getByPlaceholderText(/pergunte/i) as HTMLTextAreaElement;
 
-    // jsdom lays nothing out and clamps nothing, so the *order of writes* is what is observed here:
-    // a real browser clamps `scrollTop` to the collapsed box while it is collapsed, and restoring
-    // the rows does not bring the scroll back — a message past MAX_ROWS jumped to its first line on
-    // every keystroke.
+    // What this proves: the autosize effect reads the box's `scrollTop` and writes it back after it
+    // has finished setting `rows`, so the save/restore cannot be deleted without a test going red.
+    //
+    // What it does NOT prove: that the scroll position actually survives in a browser. jsdom performs
+    // no layout and clamps nothing, so `scrollTop` here is just a number this test set — and a save
+    // placed *after* the collapse instead of before it, which is the exact wrong order that
+    // reproduces the bug on a phone, would read the already-clamped value in a real browser and still
+    // pass here. Only a phone can show that. Instrumenting property access to pin the order was
+    // judged to cost more than the bug it would guard.
     const writes: string[] = [];
     let scrollTop = 120;
     let rows = 8;
