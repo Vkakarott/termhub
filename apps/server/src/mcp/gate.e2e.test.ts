@@ -145,13 +145,14 @@ function build(opts: { gated: boolean }) {
     chat,
     chatActions: actions,
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
-    machines: { findById: vi.fn(async () => machine), list: vi.fn(async () => [machine]) },
-    projects: { findById: vi.fn(async () => project) },
+    machines: { findById: vi.fn(async () => machine), list: vi.fn(async () => [machine]), findByIds: vi.fn(async (ids: string[]) => (ids.includes(machine.id) ? [machine] : [])) },
+    projects: { findById: vi.fn(async () => project), findByIds: vi.fn(async (ids: string[]) => (ids.includes(project.id) ? [project] : [])) },
     tasks: { listByProject: vi.fn(async () => []) },
     tabs: {
       listByProject: vi.fn(async () => [...tabs.values()]),
       countOpenByToken: vi.fn(async () => 0),
       findById: vi.fn(async (id: string) => tabs.get(id)),
+      findByIds: vi.fn(async (ids: string[]) => [...tabs.values()].filter((t) => ids.includes(t.id as string))),
       delete: vi.fn(async (id: string) => tabs.delete(id)),
     },
   } as unknown as Repositories;
@@ -491,7 +492,7 @@ it('publishes the question to the chat, with the arguments and no terminal conte
   await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
 
   expect(collected).toHaveLength(1);
-  expect(Object.keys(collected[0]).sort()).toEqual(['action_id', 'args', 'class', 'machine_id', 'project_id', 'tab_id', 'tool', 'type', 'user_id']);
+  expect(Object.keys(collected[0]).sort()).toEqual(['action_id', 'args', 'class', 'machine_id', 'project_id', 'summary', 'tab_id', 'tool', 'type', 'user_id']);
   expect(collected[0]).toEqual({
     type: 'confirmation',
     user_id: 'u1',
@@ -502,6 +503,8 @@ it('publishes the question to the chat, with the arguments and no terminal conte
     machine_id: null,
     project_id: null,
     tab_id: 't1',
+    // Enriched through the tab: t1 belongs to project "app" on machine "jarvis" (this test's fixtures).
+    summary: 'digitar `npm test` na aba Terminal 1 do projeto app, no jarvis',
   });
   expect(JSON.stringify(collected[0])).not.toContain('segredo na tela');
 });

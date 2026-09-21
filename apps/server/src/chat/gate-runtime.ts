@@ -7,6 +7,7 @@
  */
 import { ControlError, type ControlContext } from '../control/context.js';
 import type { ChatAction, ChatActionClass } from '../db/repositories/chat-actions.js';
+import { describeActions } from '../db/repositories/chat-actions-view.js';
 import type { Tab } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
@@ -184,6 +185,9 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
       'Não foi possível registrar esta ação para o usuário confirmar, então nada foi executado. Avise que houve uma falha ao registrar o pedido e tente de novo em alguns segundos.',
     );
   }
+  // Enriched the same way, and only in this one place, as `GET /api/chat`'s trail — the browser
+  // must never resolve a machine/project/tab name or build the sentence itself.
+  const [card] = await describeActions(ctx.repos, [row]);
   chatBus.publish({
     type: 'confirmation',
     user_id: ctx.scope.user.id,
@@ -194,6 +198,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
     machine_id: row.machine_id,
     project_id: row.project_id,
     tab_id: row.tab_id,
+    summary: card.summary,
   });
   return { ok: false, code: 'CONFIRMATION_PENDING', message: PENDING(call.tool) };
 }

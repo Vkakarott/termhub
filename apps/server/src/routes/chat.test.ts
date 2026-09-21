@@ -11,19 +11,30 @@ function build(opts: {
   resumeAfterDecision?: ReturnType<typeof vi.fn>;
   decide?: ReturnType<typeof vi.fn>;
   findByIdForUser?: ReturnType<typeof vi.fn>;
+  listByConversation?: ReturnType<typeof vi.fn>;
+  tabs?: { id: string; project_id: string; name: string }[];
+  projects?: { id: string; machine_id: string; name: string }[];
+  machines?: { id: string; name: string }[];
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
   const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => undefined);
+  const listByConversation = opts.listByConversation ?? vi.fn(async () => []);
   const service = {
     conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false })),
     send,
     resumeAfterDecision,
   };
+  const tabs = opts.tabs ?? [];
+  const projects = opts.projects ?? [];
+  const machines = opts.machines ?? [];
   const repos = {
     chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]) },
-    chatActions: { decide, findByIdForUser },
+    chatActions: { decide, findByIdForUser, listByConversation },
+    tabs: { findByIds: vi.fn(async (ids: string[]) => tabs.filter((t) => ids.includes(t.id))) },
+    projects: { findByIds: vi.fn(async (ids: string[]) => projects.filter((p) => ids.includes(p.id))) },
+    machines: { findByIds: vi.fn(async (ids: string[]) => machines.filter((m) => ids.includes(m.id))) },
   };
   const app = Fastify();
   applyErrorHandler(app);
@@ -32,7 +43,7 @@ function build(opts: {
     (req as unknown as { scope: unknown }).scope = { user: { id: 'u1' }, viewAs: { kind: 'self' }, ownerId: 'u1', createAs: 'u1' };
   });
   app.register((a) => chatRoutes(a, repos as never, { service: service as never }), { prefix: '/chat' });
-  return { app, service, decide, findByIdForUser, resumeAfterDecision };
+  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision };
 }
 
 it('returns the conversation with its messages', async () => {
@@ -40,6 +51,33 @@ it('returns the conversation with its messages', async () => {
   const res = await app.inject({ method: 'GET', url: '/chat' });
   expect(res.statusCode).toBe(200);
   expect(res.json()).toMatchObject({ conversation: { id: 'c1' }, messages: [{ id: 'm1', text: 'oi' }] });
+});
+
+it('returns the trail as sentences enriched with real names, keyed by each row\'s own id — not a raw tool name and ids', async () => {
+  // The trail must come from here, not be rebuilt from live events, so a reload still shows it
+  // (step 1's bug this task closes) — and every row is keyed by its own id, since a lapsed denial
+  // leaves an old decided row beside a newer pending one for the very same proposal.
+  const rows = [
+    { ...pendingAction, id: 'act1', status: 'pending', args: { tab_id: 't1', text: 'npm test' } },
+    { ...pendingAction, id: 'act0', status: 'denied', args: { tab_id: 't1', text: 'rm -rf /' } },
+  ];
+  const { app } = build({
+    listByConversation: vi.fn(async () => rows),
+    tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 2' }],
+    projects: [{ id: 'p1', machine_id: 'm1', name: 'reactivando' }],
+    machines: [{ id: 'm1', name: 'macbook m3' }],
+  });
+
+  const res = await app.inject({ method: 'GET', url: '/chat' });
+  expect(res.statusCode).toBe(200);
+  const { actions } = res.json();
+  expect(actions).toHaveLength(2);
+  const pending = actions.find((a: { id: string }) => a.id === 'act1');
+  const denied = actions.find((a: { id: string }) => a.id === 'act0');
+  expect(pending).toMatchObject({ id: 'act1', status: 'pending' });
+  expect(pending.summary).toBe('digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3');
+  expect(denied).toMatchObject({ id: 'act0', status: 'denied' });
+  expect(denied.summary).toBe('digitar `rm -rf /` na aba Terminal 2 do projeto reactivando, no macbook m3');
 });
 
 it('sends a message and answers with the assistant row', async () => {

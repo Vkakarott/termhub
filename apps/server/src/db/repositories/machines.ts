@@ -30,6 +30,13 @@ export class MachinesRepository {
     return m ? mapMachine(m) : undefined;
   }
 
+  /** Batched by id, one query regardless of how many ids are asked for — used to enrich a list of
+   * rows (e.g. the chat action trail) without a lookup per row. */
+  async findByIds(ids: string[]): Promise<Machine[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.machine.findMany({ where: { id: { in: ids } }, include: withOwner })).map(mapMachine);
+  }
+
   async findByType(type: MachineType): Promise<Machine[]> {
     return (await this.db.machine.findMany({ where: { type } })).map(mapMachine);
   }

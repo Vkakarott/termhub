@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
+import { describeActions } from '../db/repositories/chat-actions-view.js';
 import type { ChatService } from '../chat/service.js';
 import { chatBus } from '../chat/bus.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
@@ -20,7 +21,12 @@ const QUEUED_NOTE = 'A decisão foi registrada e será aplicada assim que a resp
 export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps: { service: ChatService }) {
   app.get('/', async (request) => {
     const conversation = await deps.service.conversationFor(request.scope.user);
-    return { conversation, messages: await repos.chat.listMessages(conversation.id) };
+    // The trail comes from here, not from live events (which only update what is already on
+    // screen): a reload must see every pending/decided action exactly as the server has it,
+    // including an old denied row sitting beside a newer pending one for the same proposal.
+    const [messages, rows] = await Promise.all([repos.chat.listMessages(conversation.id), repos.chatActions.listByConversation(conversation.id)]);
+    const actions = await describeActions(repos, rows);
+    return { conversation, messages, actions };
   });
 
   app.post('/messages', { config: { action: 'create' } }, async (request, reply) => {

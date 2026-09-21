@@ -14,8 +14,10 @@ export type ChatEvent =
   | { type: 'reset'; user_id: string; message_id: string }
   /** A write the concierge proposed on a gated token and may not make until the user confirms it in
    * the chat. It carries the proposal only — the tool, what it targets and the arguments as proposed
-   * — never a tool's result: nothing typed back, no screen, no command output. */
-  | { type: 'confirmation'; user_id: string; action_id: string; tool: string; args: unknown; class: ChatActionClass; machine_id: string | null; project_id: string | null; tab_id: string | null }
+   * — never a tool's result: nothing typed back, no screen, no command output. `summary` is the same
+   * server-composed sentence `GET /api/chat`'s trail carries for this row (see
+   * `db/repositories/chat-actions-view.ts`), so the browser never resolves a name itself. */
+  | { type: 'confirmation'; user_id: string; action_id: string; tool: string; args: unknown; class: ChatActionClass; machine_id: string | null; project_id: string | null; tab_id: string | null; summary: string }
   /** The user answered a pending action. Every open tab gets this, not only the one that clicked —
    * the confirmation card in each of them must update the same way. */
   | { type: 'decision'; user_id: string; action_id: string; status: 'approved' | 'denied' };

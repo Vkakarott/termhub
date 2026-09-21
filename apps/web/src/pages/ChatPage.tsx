@@ -1,18 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useChatStream } from '../lib/chat';
-import type { ChatEvent, ChatMessage } from '../lib/types';
+import type { ChatAction, ChatEvent, ChatMessage } from '../lib/types';
+
+/** How a decided action reads once there is nothing left to click. `pending` has its own buttons
+ * instead of a label here. */
+const ACTION_STATUS_LABEL: Record<Exclude<ChatAction['status'], 'pending'>, string> = {
+  approved: 'Autorizado',
+  denied: 'Recusado',
+  expired: 'Expirou sem resposta',
+  executed: 'Executado',
+  failed: 'Falhou',
+};
 
 /** The concierge chat: one conversation per user, streamed live over /ws/chat and persisted over REST. */
 export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  /**
+   * The gate's action trail. Always sourced from `GET /api/chat` on load/reconnect — never rebuilt
+   * from live events alone, which is what made it vanish on a reload before this task. A `confirmation`
+   * event adds a card without waiting for a refetch; a `decision` event (possibly from another tab)
+   * updates one by its id. Every row is keyed by its own `id`: a denial that lapsed leaves the old
+   * decided row sitting beside a newer pending one for the very same proposal, so this must never
+   * assume one row per proposal or per tool.
+   */
+  const [actions, setActions] = useState<ChatAction[]>([]);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  /** A `queued: true` decision is not an error: the pt-BR note the server sent, shown under that card
+   * until the next reload replaces it with the real, applied state. */
+  const [queuedNotes, setQueuedNotes] = useState<Record<string, string>>({});
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const { messages } = await api.chat();
+    const { messages, actions } = await api.chat();
     setMessages(messages);
+    setActions(actions ?? []);
   }, []);
 
   useEffect(() => {
@@ -25,10 +50,38 @@ export function ChatPage() {
   const onEvent = useCallback(
     (e: ChatEvent) => {
       if (e.type === 'message') void load();
+      else if (e.type === 'confirmation') {
+        // Enriched server-side exactly like GET /api/chat's trail (same summary, same ids): no name
+        // is resolved and no sentence is built here.
+        setActions((prev) =>
+          prev.some((a) => a.id === e.action_id)
+            ? prev
+            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary }],
+        );
+      } else if (e.type === 'decision') {
+        // Someone answered — possibly in another open tab. Keyed on the action id alone.
+        setActions((prev) => prev.map((a) => (a.id === e.action_id ? { ...a, status: e.status } : a)));
+      }
     },
     [load],
   );
   const { events, connected } = useChatStream(load, onEvent);
+
+  const decide = async (id: string, decision: 'approve' | 'deny') => {
+    setDecidingId(id);
+    setActionError(null);
+    try {
+      const res = await api.decideChatAction(id, decision);
+      // The response's `action` is the raw decided row, not the enriched card (no `summary`): only
+      // its status is applied, keeping the card's already-known summary and other fields as they are.
+      setActions((prev) => prev.map((a) => (a.id === id ? { ...a, status: res.action.status } : a)));
+      if (res.queued && res.note) setQueuedNotes((prev) => ({ ...prev, [id]: res.note! }));
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : 'Não foi possível registrar a decisão');
+    } finally {
+      setDecidingId(null);
+    }
+  };
 
   /**
    * Deltas and the action trail of the answer being written, keyed by message id. A `reset`
@@ -124,6 +177,30 @@ export function ChatPage() {
           );
         })}
       </ol>
+      {actions.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {actions.map((a) => (
+            <li key={a.id} className="rounded-lg border border-line bg-bg-2 px-3 py-2 text-sm">
+              {/* Plain text only — never HTML: this sentence can carry a command the model read off a real terminal screen. */}
+              <p className="whitespace-pre-wrap">{a.summary}</p>
+              {a.status === 'pending' ? (
+                <div className="mt-1 flex gap-2">
+                  <button type="button" className="btn-primary" disabled={decidingId === a.id} onClick={() => void decide(a.id, 'approve')}>
+                    Autorizar
+                  </button>
+                  <button type="button" className="btn-danger" disabled={decidingId === a.id} onClick={() => void decide(a.id, 'deny')}>
+                    Recusar
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-fg-dim">{ACTION_STATUS_LABEL[a.status]}</p>
+              )}
+              {queuedNotes[a.id] && <p className="mt-1 text-xs text-fg-dim">{queuedNotes[a.id]}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {actionError && <p className="mt-2 text-sm text-danger">{actionError}</p>}
       {error && <p className="mt-2 text-sm text-danger">{error}</p>}
       <div className="mt-3 flex items-end gap-2">
         <textarea

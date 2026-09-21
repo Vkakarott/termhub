@@ -31,6 +31,13 @@ export class ProjectsRepository {
     return p ? mapProject(p) : undefined;
   }
 
+  /** Batched by id, one query regardless of how many ids are asked for — used to enrich a list of
+   * rows (e.g. the chat action trail) without a lookup per row. */
+  async findByIds(ids: string[]): Promise<Project[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.project.findMany({ where: { id: { in: ids } } })).map(mapProject);
+  }
+
   async create(input: ProjectInput): Promise<Project> {
     const p = await this.db.project.create({
       data: {

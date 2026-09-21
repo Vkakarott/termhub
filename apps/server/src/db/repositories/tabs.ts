@@ -21,6 +21,13 @@ export class TabsRepository {
     return t ? mapTab(t) : undefined;
   }
 
+  /** Batched by id, one query regardless of how many ids are asked for — used to enrich a list of
+   * rows (e.g. the chat action trail) without a lookup per row. */
+  async findByIds(ids: string[]): Promise<Tab[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.tab.findMany({ where: { id: { in: ids } } })).map(mapTab);
+  }
+
   /** Tab by tmux session name, restricted to the machine that reported it (session names are unique anyway). */
   async findByTmuxSession(machineId: string, session: string): Promise<Tab | undefined> {
     const t = await this.db.tab.findFirst({ where: { tmuxSession: session, project: { machineId } } });

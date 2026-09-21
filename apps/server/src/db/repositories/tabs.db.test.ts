@@ -79,6 +79,13 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     expect(cleared).toMatchObject({ state: null, state_at: null, state_seen_at: null });
   });
 
+  it('finds tabs by id in one query, ignoring an id that does not exist', async () => {
+    const other = await repo.create(projectId, 'other');
+    const found = await repo.findByIds([tabId, other.id, 'nope']);
+    expect(found.map((t) => t.id).sort()).toEqual([other.id, tabId].sort());
+    expect(await repo.findByIds([])).toEqual([]);
+  });
+
   describe('created_by_token_id / countOpenByToken', () => {
     it('records which token opened a tab and counts the ones still open', async () => {
       const a = await repo.create(projectId, 'T1', { created_by_token_id: 'tok1' });
