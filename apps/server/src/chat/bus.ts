@@ -17,8 +17,20 @@ class ChatBus {
   constructor() {
     this.emitter.setMaxListeners(0);
   }
+  /**
+   * `emit` runs listeners synchronously and in-process: a WebSocket listener that throws (a
+   * closed socket, a `JSON.stringify` failure on a circular `args`) would otherwise propagate
+   * back into `ChatService.send`'s stream loop and mark a perfectly healthy answer as failed.
+   * Each listener gets its own try/catch so one bad subscriber never breaks the others or the run.
+   */
   publish(event: ChatEvent): void {
-    this.emitter.emit('chat', event);
+    for (const listener of this.emitter.listeners('chat') as ((event: ChatEvent) => void)[]) {
+      try {
+        listener(event);
+      } catch (err) {
+        console.error('chatBus: subscriber threw while handling an event', err);
+      }
+    }
   }
   subscribe(listener: (event: ChatEvent) => void): () => void {
     this.emitter.on('chat', listener);
