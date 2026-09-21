@@ -13,7 +13,7 @@ export function httpRunner(): RunnerClient {
         const res = await fetch(`${settings.url}/run`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-concierge-secret': settings.secret },
-          body: JSON.stringify({ ...input, mcp_url: config.mcpUrl ?? `${config.publicUrl}/mcp` }),
+          body: JSON.stringify({ ...input, mcp_url: settings.mcpUrl }),
         });
         if (!res.ok || !res.body) throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED');
         const reader = res.body.getReader();

@@ -47,3 +47,22 @@ it('passes the service busy error through as 409', async () => {
   expect(res.statusCode).toBe(409);
   expect(res.json().code).toBe('CHAT_BUSY');
 });
+
+it('surfaces a concierge that is not configured as 503, not as a stored failure', async () => {
+  // Merged with no container running, every message would otherwise be answered 201 with a message
+  // marked as failed, and the page would say "tente de novo" for ever. The status must reach the
+  // browser so it can show the server's own pt-BR explanation.
+  const { HttpError } = await import('../lib/errors.js');
+  const { app } = build(vi.fn(async () => { throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED'); }));
+  const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi' } });
+  expect(res.statusCode).toBe(503);
+  expect(res.json()).toMatchObject({ code: 'CONCIERGE_DISABLED', error: 'O chat não está configurado neste servidor' });
+});
+
+it('surfaces a concierge that did not answer as 502', async () => {
+  const { HttpError } = await import('../lib/errors.js');
+  const { app } = build(vi.fn(async () => { throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED'); }));
+  const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi' } });
+  expect(res.statusCode).toBe(502);
+  expect(res.json().code).toBe('CONCIERGE_FAILED');
+});

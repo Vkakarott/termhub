@@ -52,7 +52,8 @@ const envSchema = z.object({
 
   /**
    * Public MCP endpoint (https://termhub.dev/mcp in production), shown in the "claude mcp add"
-   * command when a token is created. Unset = the command is not shown.
+   * command when a token is created. Unset = the command is not shown, and the chat concierge
+   * counts as not configured: it has no endpoint to reach the machines through.
    */
   MCP_URL: z.string().url().optional(),
 
@@ -80,7 +81,8 @@ const envSchema = z.object({
   /** language hint passed to whisper ("auto" = detect) */
   WHISPER_LANGUAGE: z.string().default('pt'),
 
-  // Chat concierge (docker/concierge): headless Claude Code runner. Unset = the chat answers 503.
+  // Chat concierge (docker/concierge): headless Claude Code runner. With either of these (or
+  // MCP_URL) unset the chat is off and every message answers 503 CONCIERGE_DISABLED.
   CONCIERGE_URL: z.string().url().optional(),
   CONCIERGE_SECRET: z.string().optional(),
 });
@@ -170,7 +172,18 @@ export const config = {
   seedLocalMachine: env.SEED_LOCAL_MACHINE === 'true',
   encryptionKey: env.ENCRYPTION_KEY ?? null,
   transcription: env.WHISPER_URL ? { url: env.WHISPER_URL.replace(/\/$/, ''), language: env.WHISPER_LANGUAGE } : null,
-  concierge: env.CONCIERGE_URL && env.CONCIERGE_SECRET ? { url: env.CONCIERGE_URL, secret: env.CONCIERGE_SECRET } : undefined,
+  /**
+   * The chat counts as configured only with all three: the runner's address, the shared secret and
+   * the public MCP endpoint it must be given. MCP_URL has no fallback on purpose — PUBLIC_URL is
+   * the app host (app.termhub.dev), which sits behind Cloudflare Access, so `${PUBLIC_URL}/mcp`
+   * answers an Access redirect instead of MCP and the concierge would talk about the user's
+   * machines with no data at all. `/mcp` is exposed outside Access only on the landing host
+   * (deploy/nginx/termhub.dev.conf.tmpl).
+   */
+  concierge:
+    env.CONCIERGE_URL && env.CONCIERGE_SECRET && env.MCP_URL
+      ? { url: env.CONCIERGE_URL, secret: env.CONCIERGE_SECRET, mcpUrl: env.MCP_URL }
+      : undefined,
   terminal: {
     localShell: env.LOCAL_SHELL || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh'),
     tmuxPath: env.TMUX_PATH,
