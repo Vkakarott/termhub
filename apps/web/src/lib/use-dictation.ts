@@ -5,13 +5,19 @@ import { voiceStore } from './voice-store';
 
 /**
  * Voice input: checking whether it is available at all, off (server has no whisper / browser can't
- * record), idle, recording a clip, sending it, waiting for the text.
+ * record), idle, starting the mic, recording a clip, sending it, waiting for the text.
  *
  * `checking` is the first state every instance reports, and it exists for the UI's sake: telling
  * `off` from `idle` needs one round trip to the server, and a composer that assumed `off` until the
  * answer arrived flashed a disabled send button before turning into a microphone on first paint.
+ *
+ * `starting` is the browser's own permission sheet being up: `getUserMedia` has been called and has
+ * not settled, so there is no recorder yet and nothing can be recorded or stopped. It is public for
+ * two reasons — a button that looks ready while nothing is listening lies, and a prompt the person
+ * never answers must leave a state the UI can see instead of a hidden flag that wedges this hook
+ * until the page is reloaded.
  */
-export type DictationState = 'checking' | 'off' | 'idle' | 'recording' | 'uploading' | 'transcribing';
+export type DictationState = 'checking' | 'off' | 'idle' | 'starting' | 'recording' | 'uploading' | 'transcribing';
 
 export interface Dictation {
   state: DictationState;
@@ -144,10 +150,22 @@ export function useDictation(onText: (text: string) => void): Dictation {
     // like the user clicking stop: same upload, same transcription, same error handling.
     const rec = new VoiceRecorder('chat', { onAutoStop: () => stop() });
     recorderRef.current = rec;
-    stateRef.current = 'recording'; // block a second start while the mic prompt is open
+    // Blocks a second start while the prompt is open, exactly as the hidden ref used to — but this
+    // one is the state the composer renders, so the button is a disabled microphone for as long as
+    // the sheet is up, and a sheet that is never answered leaves the hook somewhere it can be seen.
+    setState('starting');
     void rec
       .start()
       .then(() => {
+        // The mic only opened now. If this hook has moved on — unmounted, or cancelled — the cleanup
+        // that ran while `rec` still had no MediaRecorder inside it stopped nothing, so this is the
+        // only place left that can close the stream. Install no clock: nothing is left to clear it.
+        // `cancel()` and not `cancel(true)`: nothing in the chat reads the stored clip back (see the
+        // note on the 'chat' key below), so there is nothing to keep it for.
+        if (recorderRef.current !== rec) {
+          rec.cancel();
+          return;
+        }
         setState('recording');
         setSeconds(0);
         const startedAt = Date.now();
@@ -155,8 +173,10 @@ export function useDictation(onText: (text: string) => void): Dictation {
         clockTimer.current = window.setInterval(() => setSeconds(Math.floor((Date.now() - startedAt) / 1000)), 500);
       })
       .catch((err: unknown) => {
+        // Same guard, nothing to close: the mic was never opened, so a hook that has moved on has
+        // nothing to undo and no state left to report this in.
+        if (recorderRef.current !== rec) return;
         recorderRef.current = null;
-        stateRef.current = 'idle';
         setState('idle');
         setError(micErrorMessage(err));
       });

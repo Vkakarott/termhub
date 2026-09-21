@@ -149,13 +149,39 @@ describe('useDictation', () => {
     expect(result.current.seconds).toBe(2);
   });
 
-  it('a getUserMedia rejection leaves it idle with a pt-BR permission error', async () => {
+  it('reports starting while the mic prompt is open, and recording only once it is granted', async () => {
+    const { result } = await boot();
+    let grant = () => {};
+    mocks.recorder.start.mockImplementationOnce(() => new Promise<void>((resolve) => (grant = () => resolve())));
+
+    act(() => {
+      result.current.start();
+    });
+
+    // The hidden ref this replaced left `state` at 'idle' here, so the composer offered an enabled
+    // "Ditar" button that did nothing for as long as the browser's own permission sheet was up.
+    expect(result.current.state).toBe('starting');
+
+    await act(async () => {
+      grant();
+    });
+
+    expect(result.current.state).toBe('recording');
+  });
+
+  it('a getUserMedia rejection leaves it idle with a pt-BR permission error, and does not wedge the next start()', async () => {
     const { result } = await boot();
     const err = Object.assign(new Error('denied'), { name: 'NotAllowedError' });
     mocks.recorder.start.mockRejectedValueOnce(err);
     await startRecording(result);
     expect(result.current.state).toBe('idle');
     expect(result.current.error).toMatch(/permiss/i);
+
+    // The old code parked `'recording'` in a ref that only the success path ever moved: a prompt that
+    // was denied, or never answered, made every later start() a no-op until the page was reloaded.
+    await startRecording(result);
+
+    expect(result.current.state).toBe('recording');
   });
 
   it('stop() with a clip under 2048 bytes says "Gravação muito curta" as a notice, not as an error, and clears the stored clip', async () => {

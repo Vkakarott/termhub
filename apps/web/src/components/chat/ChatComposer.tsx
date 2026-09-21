@@ -100,9 +100,12 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   // ordinary (disabled) send button and nothing explains the missing microphone, because a browser
   // that cannot record is not a fault the person can fix from this screen. While the hook is still
   // `checking` the button is already the microphone, just disabled: dictation is what an empty box is
-  // about to offer, and showing a send arrow for that instant only to swap it is a flicker.
+  // about to offer, and showing a send arrow for that instant only to swap it is a flicker. `starting`
+  // is the same microphone, also disabled: the browser's permission sheet is up, nothing is listening
+  // yet, and a button that looks pressable there does nothing when it is pressed.
   const role: PrimaryRole = dictation.state === 'recording' ? 'stop' : hasText || dictation.state === 'off' ? 'send' : 'dictate';
-  const disabled = role === 'stop' ? false : role === 'send' ? !hasText || sending || busy : busy || dictation.state === 'checking';
+  const notReadyToDictate = busy || dictation.state === 'checking' || dictation.state === 'starting';
+  const disabled = role === 'stop' ? false : role === 'send' ? !hasText || sending || busy : notReadyToDictate;
 
   return (
     // `env(safe-area-inset-bottom)` resolves to 0px in every browser today, because the app-wide

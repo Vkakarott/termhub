@@ -110,6 +110,16 @@ describe('ChatComposer dictation', () => {
     expect(primary(/ditar/i).disabled).toBe(true);
   });
 
+  it('shows a disabled microphone while the browser is still asking for the microphone', () => {
+    renderComposer({ state: 'starting', value: '' });
+
+    // `starting` is the permission sheet being up: nothing is listening yet, so there is nothing to
+    // stop, and a button that looks pressable would do nothing when pressed.
+    expect(screen.queryByRole('button', { name: /parar/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /enviar/i })).toBeNull();
+    expect(primary(/ditar/i).disabled).toBe(true);
+  });
+
   it('says it is transcribing, disables the primary button, and offers no cancel', () => {
     renderComposer({ state: 'transcribing', value: '' });
 
@@ -168,6 +178,7 @@ describe('ChatComposer dictation', () => {
   it('keeps every glyph decorative: the accessible name is on the button, never on the svg', () => {
     const roles: Array<[{ state: DictationState; value: string }, RegExp]> = [
       [{ state: 'checking', value: '' }, /ditar/i],
+      [{ state: 'starting', value: '' }, /ditar/i],
       [{ state: 'idle', value: '' }, /ditar/i],
       [{ state: 'idle', value: 'olha' }, /enviar/i],
       [{ state: 'recording', value: '' }, /parar/i],
