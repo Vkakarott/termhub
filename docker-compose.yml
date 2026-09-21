@@ -123,6 +123,10 @@ services:
       dockerfile: docker/concierge/Dockerfile
     image: termhub-concierge
     restart: unless-stopped
+    # The host user, not root: the account config dirs below are mounted read-write (the CLI
+    # refreshes its own token) and a root-owned rewrite of those files makes the host user's own
+    # `claude` fail with EACCES. Override for a host whose uid:gid is not 1000:1000.
+    user: "${CONCIERGE_UID:-1000}:${CONCIERGE_GID:-1000}"
     environment:
       # Empty = the service refuses every request (see src/index.ts) and the app answers 503.
       # Generate with: openssl rand -base64 32

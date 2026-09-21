@@ -34,6 +34,12 @@ COPY --from=build /app/apps/concierge/dist ./dist
 COPY apps/concierge/package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 EXPOSE 4100
+# Runs as a non-root user (compose pins it to the host user's uid:gid, see docker-compose.yml): root
+# writing in the mounted ~/.claude* dirs would leave them root-owned and break the host user's own
+# `claude`. Nothing under /srv is written at runtime, and the CLI needs a writable HOME for its own
+# caches, which it never gets as an arbitrary uid — /tmp is the one path always writable here.
+ENV HOME=/tmp
+USER node
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/index.js"]
