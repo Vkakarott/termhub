@@ -1,0 +1,172 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../lib/auth';
+import { useData } from '../lib/data';
+import { useFocusMode } from '../lib/focus';
+import { useMonitor } from '../lib/monitor';
+import { buildModel, missingFromSnapshot } from '../office/model';
+import { OfficeScene } from '../office/scene/OfficeScene';
+import { useOfficeSnapshot } from '../office/useOfficeSnapshot';
+
+/** The office: one machine's floor, live. URL is the state: /office/:machineId?room=<projectId>&focus=1 */
+export function OfficePage() {
+  const { machineId } = useParams();
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { can } = useAuth();
+  const { machines, projects, statuses, loading } = useData();
+  const { items, needsYou, tabState, connected } = useMonitor();
+  const { focus, setFocus } = useFocusMode();
+  const { snapshot, error, reload } = useOfficeSnapshot(machineId ?? null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<OfficeScene | null>(null);
+  const room = params.get('room');
+  const autoDrilled = useRef(false);
+  const [failed, setFailed] = useState(false);
+
+  const setRoom = (id: string | null, replace = false) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (id) next.set('room', id);
+        else next.delete('room');
+        return next;
+      },
+      { replace },
+    );
+  const setRoomRef = useRef(setRoom);
+  setRoomRef.current = setRoom;
+
+  const model = useMemo(() => (snapshot ? buildModel(snapshot, tabState) : null), [snapshot, tabState, items]);
+
+  // a tab opened since the snapshot: re-read it
+  useEffect(() => {
+    const mine = new Set(projects.filter((p) => p.machine_id === machineId).map((p) => p.id));
+    const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
+    if (missingFromSnapshot(snapshot, items.map((i) => i.tab.id), mine, projectOf)) reload();
+  }, [items, snapshot, projects, machineId, reload]);
+
+  useEffect(() => {
+    if (!hostRef.current) return;
+    const scene = new OfficeScene({
+      onPickDesk: (tabId, projectId) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
+      onPickRoom: (id) => setRoomRef.current(id),
+      onPickSign: (id) => navigate(`/projects/${id}`),
+      onLeaveRoom: () => setRoomRef.current(null),
+    });
+    sceneRef.current = scene;
+    // Pixi falls back from WebGL to canvas by itself; this only fires when neither could start
+    scene.mount(hostRef.current).catch(() => setFailed(true));
+    return () => {
+      scene.destroy();
+      sceneRef.current = null;
+    };
+  }, [navigate, machineId]);
+
+  useEffect(() => {
+    if (model) sceneRef.current?.setModel(model);
+  }, [model]);
+
+  // auto-drill once per machine: exactly one room with desks opens straight into it
+  useEffect(() => {
+    if (!model || autoDrilled.current) return;
+    autoDrilled.current = true;
+    const withDesks = model.rooms.filter((r) => r.desks.length > 0);
+    if (!room && withDesks.length === 1) setRoomRef.current(withDesks[0].id, true);
+  }, [model, room]);
+  useEffect(() => {
+    autoDrilled.current = false;
+  }, [machineId]);
+
+  const roomExists = !!model?.rooms.some((r) => r.id === room);
+  // deliberate: frame once the first model arrives (the boolean, not the model itself, is what should retrigger this)
+  const hasModel = model !== null;
+  useEffect(() => {
+    if (model) sceneRef.current?.focusRoom(roomExists ? room : null);
+  }, [room, roomExists, hasModel]);
+
+  // Esc leaves the room first, then focus mode; F toggles focus mode
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (e.key === 'Escape') {
+        if (room) setRoomRef.current(null);
+        else if (focus) setFocus(false);
+      } else if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        setFocus(!focus);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [room, focus, setFocus]);
+
+  if (!can('projects', 'read') || !can('terminals', 'read')) return <Navigate to="/" replace />;
+  if (loading) return <Message>Carregando…</Message>;
+  if (machines.length === 0) {
+    return (
+      <Message>
+        Nenhuma máquina cadastrada ainda. <Link className="text-accent hover:underline" to="/">Cadastre a primeira</Link> para ver o escritório.
+      </Message>
+    );
+  }
+  if (!machineId || !machines.some((m) => m.id === machineId)) return <Navigate to={`/office/${machines[0].id}`} replace />;
+
+  // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with an
+  // `online` field: only an explicit 'offline' should dim the floor and show the banner.
+  const online = statuses[machineId] !== 'offline';
+  const needsYouByMachine = (id: string) => needsYou.some((i) => i.machine.id === id);
+
+  return (
+    <div className="flex h-full flex-col">
+      {!focus && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-line bg-bg-2 px-3 py-2 text-xs text-fg-muted">
+          <span className="text-sm font-semibold text-fg">Escritório</span>
+          {machines.length > 1 && (
+            <select aria-label="Máquina" className="rounded border border-line bg-bg-3 px-2 py-1 text-fg" value={machineId} onChange={(e) => navigate(`/office/${e.target.value}`)}>
+              {machines.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {needsYouByMachine(m.id) ? '● ' : ''}
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {room && roomExists && (
+            <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setRoom(null)}>
+              ← voltar ao andar
+            </button>
+          )}
+          <span className="ml-auto flex items-center gap-3">
+            {!online && <span className="text-warn">máquina offline</span>}
+            {snapshot && !snapshot.reachable && online && <span className="text-warn">sem resposta do tmux: abas aparecem como fechadas</span>}
+            {!connected && <span className="text-warn">reconectando…</span>}
+            <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
+              modo foco
+            </button>
+          </span>
+        </div>
+      )}
+      <div className="relative min-h-0 flex-1">
+        <div ref={hostRef} className={`absolute inset-0 overflow-hidden ${online ? '' : 'opacity-60'}`} />
+        {focus && (
+          <button className="absolute right-3 top-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted hover:text-fg" onClick={() => setFocus(false)}>
+            sair do foco (Esc)
+          </button>
+        )}
+        {failed && <Overlay>Seu navegador não conseguiu desenhar o escritório.</Overlay>}
+        {error && <Overlay>{error}</Overlay>}
+        {!error && !snapshot && <Overlay>Carregando o andar…</Overlay>}
+        {model && model.rooms.length === 0 && <Overlay>Esta máquina ainda não tem projetos.</Overlay>}
+      </div>
+    </div>
+  );
+}
+
+function Message({ children }: { children: React.ReactNode }) {
+  return <div className="flex h-full items-center justify-center px-6 text-center text-sm text-fg-muted">{children}</div>;
+}
+
+function Overlay({ children }: { children: React.ReactNode }) {
+  return <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-fg-muted">{children}</div>;
+}

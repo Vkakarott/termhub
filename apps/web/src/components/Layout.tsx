@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
+import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { NeedsYouToasts } from './NeedsYouToasts';
@@ -19,21 +20,30 @@ export function Layout() {
   if (loading) return <FullScreenMessage>Carregando…</FullScreenMessage>;
   if (!user) return <Navigate to="/login" replace />;
   return (
-    <DataProvider>
-      <MonitorProvider>
-        <ToastProvider>
-          <div className="flex h-full">
-            {collapsed ? <SidebarRail onExpand={() => setCollapsed(false)} /> : <Sidebar onCollapse={() => setCollapsed(true)} />}
-            <main className="relative min-w-0 flex-1">
-              <Outlet />
-            </main>
-          </div>
-          <NeedsYouToasts />
-          <Toaster />
-        </ToastProvider>
-      </MonitorProvider>
-    </DataProvider>
+    <FocusProvider>
+      <DataProvider>
+        <MonitorProvider>
+          <ToastProvider>
+            <div className="flex h-full">
+              <Chrome collapsed={collapsed} setCollapsed={setCollapsed} />
+              <main className="relative min-w-0 flex-1">
+                <Outlet />
+              </main>
+            </div>
+            <NeedsYouToasts />
+            <Toaster />
+          </ToastProvider>
+        </MonitorProvider>
+      </DataProvider>
+    </FocusProvider>
   );
+}
+
+/** Hides the sidebar entirely while the page is in focus mode (a second monitor left open all day). */
+function Chrome({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) {
+  const { focus } = useFocusMode();
+  if (focus) return null;
+  return collapsed ? <SidebarRail onExpand={() => setCollapsed(false)} /> : <Sidebar onCollapse={() => setCollapsed(true)} />;
 }
 
 /** Sidebar recolhida: uma faixa estreita com o logo e o botão de expandir (o terminal ganha o espaço). */

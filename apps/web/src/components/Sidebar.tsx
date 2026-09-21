@@ -41,7 +41,7 @@ export function agentVersionBadge(m: Machine): { text: string; title: string; ou
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can, viewAs } = useAuth();
   const { machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
-  const { items: monitorItems } = useMonitor();
+  const { items: monitorItems, needsYou } = useMonitor();
   const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
   const navigate = useNavigate();
   const location = useLocation();
@@ -225,6 +225,12 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
       <ViewAsSwitch />
       <div className="border-t border-line px-3 py-1.5">
+        {can('projects', 'read') && can('terminals', 'read') && (
+          <NavLink to="/office" className={({ isActive }) => `flex items-center justify-between rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
+            Escritório
+            {needsYou.length > 0 && <i className="h-1.5 w-1.5 rounded-full bg-attention" aria-label="alguém precisa de você" />}
+          </NavLink>
+        )}
         {can('chat') && (
           <NavLink to="/chat" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
             💬 Chat
