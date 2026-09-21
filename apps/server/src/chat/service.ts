@@ -4,8 +4,16 @@ import type { ChatConversation, ChatMessage } from '../db/repositories/chat.js';
 import type { User } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
-import { parseFrame } from './stream.js';
+import { parseFrame, type ChatFailureReason } from './stream.js';
 import { mintConciergeToken } from './token.js';
+
+/** What a stored failure says. The reason codes come from the container's closed set, so a failed
+ * row explains itself: CLI_REJECTED is our own flags being refused, MISSING_SESSION is a session the
+ * account no longer has, RUN_FAILED is the CLI failing on its own terms. */
+export type ChatErrorCode = 'TOKEN_FAILED' | 'RUNNER_FAILED' | 'MISSING_SESSION' | 'CLI_REJECTED' | 'RUN_FAILED' | null;
+
+const codeForReason = (reason?: ChatFailureReason): ChatErrorCode =>
+  reason === 'missing_session' ? 'MISSING_SESSION' : reason === 'cli_rejected' ? 'CLI_REJECTED' : reason === 'run_failed' ? 'RUN_FAILED' : 'RUNNER_FAILED';
 
 export interface RunnerInput {
   session_id: string;
@@ -65,7 +73,7 @@ export class ChatService {
        * because the server itself could not mint a credential (nothing the account can fix by
        * being switched), vs. a run that started and died mid-stream (often account/quota, which
        * account fallback can act on). */
-      let errorCode: 'TOKEN_FAILED' | 'RUNNER_FAILED' | null = null;
+      let errorCode: ChatErrorCode = null;
 
       const consume = async (run: RunnerInput) => {
         for await (const line of this.deps.runner.run(run)) {
@@ -83,7 +91,11 @@ export class ChatService {
             usage = frame.usage ?? null;
             if (frame.session_id && frame.session_id !== conversation.cli_session_id) await this.deps.repos.chat.setCliSession(conversation.id, frame.session_id);
           } else if (frame.type === 'error') {
-            errorCode = 'RUNNER_FAILED';
+            // The reason is the container's closed-set classification, so a failure is diagnosable
+            // from the stored row alone: CLI_REJECTED means our own flags were refused, which no
+            // amount of retrying fixes. Without this, every failure looked the same and finding the
+            // cause meant probing the container by hand.
+            errorCode = codeForReason(frame.reason);
             if (frame.reason === 'missing_session') missingSession = true;
             // A failed run still leaves its session, and the whole transcript, on disk: this server
             // generated the uuid and passed it as --session-id, so there is nothing unknown about

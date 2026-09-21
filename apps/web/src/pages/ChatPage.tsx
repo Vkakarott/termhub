@@ -75,14 +75,19 @@ export function ChatPage() {
     if (!value || sending) return;
     setSending(true);
     setError(null);
+    // Cleared before the request, not after: the POST only resolves when the whole answer is
+    // written, which can take a minute, and a box that keeps the sent text that long reads as a
+    // chat that swallowed the message. On failure the text comes back below.
+    setText('');
     try {
       await api.sendChatMessage(value);
-      setText('');
       await load();
     } catch (e) {
       // a 409 CHAT_BUSY or a 503 CONCIERGE_DISABLED carries its own pt-BR message, shown as-is;
       // anything else falls back to a generic line
       setError(e instanceof ApiError ? e.message : 'Não foi possível enviar a mensagem');
+      // Give the text back so nothing is lost — unless something new was typed meanwhile.
+      setText((current) => current || value);
       // The server may have dropped the empty assistant row it had already announced (a run that
       // never started at all), so re-read instead of keeping a bubble that will never fill.
       await load();

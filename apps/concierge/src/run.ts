@@ -21,8 +21,11 @@ const DISALLOWED = 'Bash,Read,Write,Edit,WebFetch,WebSearch';
 export function buildArgs(req: RunRequest & { mcp_config_path: string }): string[] {
   return [
     '-p',
-    '--session-id', req.session_id,
-    ...(req.resume ? ['--resume', req.session_id] : []),
+    // Exactly one of the two, never both: the CLI answers "--session-id can only be used with
+    // --continue or --resume if --fork-session is also specified" and exits 1 before doing any
+    // work, which broke every message after the first. --session-id is how the server names a new
+    // session; --resume is how it continues one it already named.
+    ...(req.resume ? ['--resume', req.session_id] : ['--session-id', req.session_id]),
     '--output-format', 'stream-json',
     // required by the CLI: with --print, --output-format=stream-json refuses to run without it
     // ("Error: When using --print, --output-format=stream-json requires --verbose"). It only
@@ -50,7 +53,7 @@ function writeMcpConfig(dir: string, req: RunRequest): string {
  * never leaves the container: it can carry terminal content and the prompt (spec §7.1), so only
  * this label travels.
  */
-export type FailureReason = 'missing_session' | 'run_failed';
+export type FailureReason = 'missing_session' | 'cli_rejected' | 'run_failed';
 
 /**
  * The CLI prints "No conversation found with session ID <uuid>" when `--resume` names a session the
@@ -59,7 +62,11 @@ export type FailureReason = 'missing_session' | 'run_failed';
  * failures and make the app throw away a perfectly good session.
  */
 export function classifyFailure(stderr: string): FailureReason {
-  return /No conversation found/i.test(stderr) ? 'missing_session' : 'run_failed';
+  if (/No conversation found/i.test(stderr)) return 'missing_session';
+  // The CLI rejecting our own flags is our bug, not the user's, and it exits before doing any work.
+  // Classifying it apart is what makes it findable in one query instead of a container probe.
+  if (/^Error: --/m.test(stderr)) return 'cli_rejected';
+  return 'run_failed';
 }
 
 export class RunFailed extends Error {
