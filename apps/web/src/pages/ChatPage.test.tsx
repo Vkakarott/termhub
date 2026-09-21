@@ -46,6 +46,7 @@ const action = (over: Partial<ChatAction> & { id: string }): ChatAction => ({
   project_id: null,
   tab_id: 't1',
   summary: 'digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3',
+  created_at: '2026-09-21T00:00:00.000Z',
   ...over,
 });
 
@@ -333,6 +334,8 @@ it('a confirmation event on the socket adds the question as a card without a ref
     project_id: null,
     tab_id: 't1',
     summary: 'digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3',
+    // The event carries the row's own timestamp — the thread places the card by it.
+    created_at: '2026-09-21T00:00:01.000Z',
   });
 
   expect(await screen.findByText('digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3')).toBeTruthy();
@@ -357,4 +360,83 @@ it('a decision event on the socket updates the card by its action id, for a deci
 
   await waitFor(() => expect(screen.queryByRole('button', { name: /autorizar/i })).toBeNull());
   expect(await screen.findByText(/recusado/i)).toBeTruthy();
+});
+
+it("renders the concierge's answer as Markdown, not as a literal", async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm2', role: 'assistant', text: '**pronto**' })],
+  });
+  render(<ChatPage />);
+
+  const el = await screen.findByText('pronto');
+  expect(el.tagName).toBe('STRONG');
+});
+
+it('never parses the user\'s own words as Markdown', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm1', role: 'user', text: '**oi**' })],
+  });
+  render(<ChatPage />);
+
+  // What the user typed is what the user sees: no bold, and the asterisks are still there.
+  expect(await screen.findByText('**oi**')).toBeTruthy();
+  expect(document.querySelector('strong')).toBeNull();
+});
+
+it('sanitises the answer: a script tag in the model text never becomes a script element', async () => {
+  // The concierge reads real terminal screens, so its text can carry anything a prompt injected
+  // into a terminal produced.
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm2', role: 'assistant', text: 'olha isso <script>alert(1)</script>' })],
+  });
+  render(<ChatPage />);
+
+  await screen.findByText(/olha isso/);
+  expect(document.querySelector('script')).toBeNull();
+});
+
+it('puts a card between the two messages it was proposed between', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [
+      msg({ id: 'm1', role: 'user', text: 'roda o teste', created_at: '2026-09-21T00:00:00.000Z' }),
+      msg({ id: 'm2', role: 'assistant', text: 'feito', created_at: '2026-09-21T00:00:02.000Z' }),
+    ],
+    actions: [action({ id: 'act1', created_at: '2026-09-21T00:00:01.000Z' })],
+  });
+  render(<ChatPage />);
+  await screen.findByRole('button', { name: /autorizar/i });
+
+  const items = Array.from(screen.getByRole('list').children).map((li) => li.textContent ?? '');
+  expect(items).toHaveLength(3);
+  expect(items[0]).toContain('roda o teste');
+  expect(items[1]).toContain('digitar `npm test`');
+  expect(items[2]).toContain('feito');
+});
+
+it('is one single thread, not a message list with a card list glued below it', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm1', role: 'user', text: 'roda o teste' })],
+    actions: [action({ id: 'act1' })],
+  });
+  render(<ChatPage />);
+  await screen.findByRole('button', { name: /autorizar/i });
+
+  expect(screen.getAllByRole('list')).toHaveLength(1);
+});
+
+it('renders a streamed delta as Markdown too, while it is still being written', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm2', role: 'assistant', text: '' })],
+  });
+  streamMock.mockReturnValue({ events: [{ type: 'delta', message_id: 'm2', delta: '**parcial**' }], connected: true });
+  render(<ChatPage />);
+
+  const el = await screen.findByText('parcial');
+  expect(el.tagName).toBe('STRONG');
 });
