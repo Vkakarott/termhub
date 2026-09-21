@@ -72,14 +72,14 @@ export class DeskView {
     hair.tint = this.manifest.hair[model.look];
     if (this.reducedMotion) [body, shirt].forEach((s) => s.gotoAndStop(0));
     this.person.addChild(body, shirt, hair);
+    this.fade = 0; // crossfade in (150 ms at 60 fps ≈ 9 frames); before the tint, or the new pose pops
     this.tintShirt();
-    this.fade = 0; // crossfade in (150 ms at 60 fps ≈ 9 frames)
   }
 
   private tintShirt(): void {
     const shirt = this.person.children[1] as Sprite | undefined;
     if (shirt) shirt.tint = SHIRT[this.model.state ?? 'none'];
-    this.person.alpha = this.model.dimmed ? 0.55 : 1;
+    this.person.alpha = (this.model.dimmed ? 0.55 : 1) * this.fade;
   }
 
   update(): void {

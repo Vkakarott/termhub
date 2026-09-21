@@ -3,7 +3,7 @@
  * live outside `world`, so furniture never covers them and they keep a fixed screen size;
  * `place()` puts each one back over its world point every frame.
  */
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
 import type { DeskModel, Marker, RoomModel } from '../model';
 import type { View } from './camera';
 
@@ -12,7 +12,19 @@ const MARKER: Record<Exclude<Marker, null>, { color: number; glyph: string }> = 
   permission: { color: 0xf0883e, glyph: '!' },
   error: { color: 0xf85149, glyph: '×' },
 };
-const text = (size: number, fill: number, weight: '400' | '700' = '400') => ({ fontSize: size, fill, fontWeight: weight, fontFamily: 'JetBrains Mono, Menlo, monospace' });
+
+/**
+ * Overlay text is read over furniture and people. It carries its own outline instead of a plate,
+ * because anything opaque up here would hide the room behind it. `outline` is the colour it is
+ * read against: the background for a label, the disc itself for a marker's glyph.
+ */
+const text = (size: number, fill: number, weight: '400' | '700' = '400', outline = 0x0f1115): TextStyleOptions => ({
+  fontSize: size,
+  fill,
+  fontWeight: weight,
+  fontFamily: 'JetBrains Mono, Menlo, monospace',
+  stroke: { color: outline, width: 3, join: 'round' },
+});
 
 /** Screen-space pieces of one desk. `world` is the desk's head point in world coordinates. */
 export class DeskOverlay {
@@ -45,7 +57,7 @@ export class DeskOverlay {
       this.marker.removeChildren().forEach((c) => c.destroy());
       if (model.marker) {
         const m = MARKER[model.marker];
-        const glyph = new Text({ text: m.glyph, style: text(14, 0x0f1115, '700') });
+        const glyph = new Text({ text: m.glyph, style: text(14, 0x0f1115, '700', m.color) });
         glyph.anchor.set(0.5);
         this.marker.addChild(new Graphics().circle(0, 0, 10).fill(m.color).stroke({ color: 0x0f1115, width: 2 }), glyph);
       }
@@ -86,7 +98,6 @@ export class DeskOverlay {
 /** The sign over a room's back corner: name, board progress, how many need you. */
 export class RoomSign {
   readonly root = new Container();
-  private readonly plate = new Graphics();
   private readonly name: Text;
   private readonly detail: Text;
 
@@ -98,7 +109,7 @@ export class RoomSign {
     this.detail = new Text({ text: '', style: text(11, 0x9aa1b1) });
     this.name.anchor.set(0.5, 1);
     this.detail.anchor.set(0.5, 0);
-    this.root.addChild(this.plate, this.name, this.detail);
+    this.root.addChild(this.name, this.detail);
     this.root.eventMode = 'static';
     this.root.cursor = 'pointer';
     this.apply(model);
@@ -112,10 +123,6 @@ export class RoomSign {
     this.detail.text = parts.join(' · ');
     this.detail.style.fill = model.needsYou > 0 ? 0xf0883e : 0x9aa1b1;
     this.root.alpha = model.lit ? 1 : 0.6;
-    // a sign hangs over whatever room is behind it, so it carries its own backdrop
-    const w = Math.max(this.name.width, this.detail.width) + 14;
-    const h = this.name.height + (this.detail.text ? this.detail.height : 0) + 8;
-    this.plate.clear().roundRect(-w / 2, -this.name.height - 4, w, h, 4).fill({ color: 0x0f1115, alpha: 0.72 });
   }
 
   place(view: View): void {
