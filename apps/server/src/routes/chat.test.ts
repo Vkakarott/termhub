@@ -10,12 +10,12 @@ function build(opts: {
   send?: ReturnType<typeof vi.fn>;
   resumeAfterDecision?: ReturnType<typeof vi.fn>;
   decide?: ReturnType<typeof vi.fn>;
-  listByConversation?: ReturnType<typeof vi.fn>;
+  findByIdForUser?: ReturnType<typeof vi.fn>;
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
-  const listByConversation = opts.listByConversation ?? vi.fn(async () => []);
+  const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => undefined);
   const service = {
     conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false })),
     send,
@@ -23,7 +23,7 @@ function build(opts: {
   };
   const repos = {
     chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]) },
-    chatActions: { decide, listByConversation },
+    chatActions: { decide, findByIdForUser },
   };
   const app = Fastify();
   applyErrorHandler(app);
@@ -32,7 +32,7 @@ function build(opts: {
     (req as unknown as { scope: unknown }).scope = { user: { id: 'u1' }, viewAs: { kind: 'self' }, ownerId: 'u1', createAs: 'u1' };
   });
   app.register((a) => chatRoutes(a, repos as never, { service: service as never }), { prefix: '/chat' });
-  return { app, service, decide, listByConversation, resumeAfterDecision };
+  return { app, service, decide, findByIdForUser, resumeAfterDecision };
 }
 
 it('returns the conversation with its messages', async () => {
@@ -113,18 +113,20 @@ it('denies a row the user owns: 200, decided as denied, and the run is resumed',
 });
 
 it('answers 404 for a row that does not exist, or belongs to another user, without ever calling resumeAfterDecision', async () => {
-  // `decide` filters ownership in SQL and returns undefined either way; the route tells the two
-  // apart only by looking at this user's own conversation, never at the row's actual owner.
-  const { app, resumeAfterDecision } = build({ decide: vi.fn(async () => undefined), listByConversation: vi.fn(async () => []) });
+  // `decide` filters ownership in SQL and returns undefined either way; `findByIdForUser` is scoped
+  // the same way (the owning conversation's user_id), so a wrong id or another user's row both come
+  // back undefined from it too, and the route answers 404 rather than 409.
+  const { app, resumeAfterDecision, findByIdForUser } = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/nope/decision', payload: { decision: 'approve' } });
 
   expect(res.statusCode).toBe(404);
+  expect(findByIdForUser).toHaveBeenCalledWith('nope', 'u1');
   expect(resumeAfterDecision).not.toHaveBeenCalled();
 });
 
 it('answers 409 for a row this user already decided, without deciding it again or resuming', async () => {
   const decided = { ...pendingAction, id: 'act1', status: 'approved' };
-  const { app, resumeAfterDecision } = build({ decide: vi.fn(async () => undefined), listByConversation: vi.fn(async () => [decided]) });
+  const { app, resumeAfterDecision } = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => decided) });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
 
   expect(res.statusCode).toBe(409);

@@ -34,14 +34,11 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // row of this user's all come back as `undefined` here, indistinguishably.
     const action = await repos.chatActions.decide(id, user.id, status);
     if (!action) {
-      // Telling "not found" apart from "already decided" without a second ownership check: look at
-      // this user's own conversation (the same boundary `decide` used) rather than at the row's
-      // owner, so a wrong id or another user's row still reads as 404 and only a settled row of this
-      // user's reads as 409. The limit is large rather than absent so a long-lived conversation's
-      // older decided rows are not misread as "not found"; this only runs on the error path.
-      const conversation = await deps.service.conversationFor(user);
-      const alreadyMine = (await repos.chatActions.listByConversation(conversation.id, 1_000_000)).some((a) => a.id === id);
-      throw alreadyMine ? conflict('Esta ação já foi decidida') : notFound('Ação não encontrada');
+      // Telling "not found" apart from "already decided": `findByIdForUser` is scoped by the same
+      // owning-conversation `user_id` join `decide` uses, so this is not a second authorisation path
+      // — it never says who owns a row it will not show, only whether one exists for this user.
+      const existing = await repos.chatActions.findByIdForUser(id, user.id);
+      throw existing ? conflict('Esta ação já foi decidida') : notFound('Ação não encontrada');
     }
 
     // Every open tab must see the decision, not only the one that clicked it.

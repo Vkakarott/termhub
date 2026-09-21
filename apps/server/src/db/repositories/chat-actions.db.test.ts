@@ -62,6 +62,13 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect((await repo.findOpenByKey(conversationId, 'k5'))?.status).toBe('pending');
   });
 
+  it('finds a row by id for its owner, and not for another user', async () => {
+    const row = await pending('k14');
+    expect((await repo.findByIdForUser(row.id, userId))?.id).toBe(row.id);
+    expect(await repo.findByIdForUser(row.id, newId())).toBeUndefined();
+    expect(await repo.findByIdForUser(newId(), userId)).toBeUndefined();
+  });
+
   it('finds a denial by its key, with when it was decided, and ignores an executed row', async () => {
     const refused = await pending('k8');
     await repo.decide(refused.id, userId, 'denied');

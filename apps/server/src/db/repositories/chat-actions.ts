@@ -88,6 +88,19 @@ export class ChatActionsRepository {
     return row ? mapAction(row) : undefined;
   }
 
+  /**
+   * A single row by id, scoped to its owner exactly as `decide` scopes its update — through the
+   * owning conversation's `user_id`, in the same query. Another user's row, or no row at all, both
+   * come back `undefined`; a caller cannot tell them apart from this alone, which is the point: this
+   * read never says who owns a row it will not show. It exists so a caller that already tried
+   * `decide` and got `undefined` can tell "nothing here" from "here, but already decided" with one
+   * indexed lookup, instead of scanning the whole trail or re-deriving the ownership rule itself.
+   */
+  async findByIdForUser(id: string, userId: string): Promise<ChatAction | undefined> {
+    const row = await this.db.chatAction.findFirst({ where: { id, conversation: { userId } } });
+    return row ? mapAction(row) : undefined;
+  }
+
   async insertPending(input: InsertPendingInput): Promise<ChatAction> {
     const row = await this.db.chatAction.create({
       data: {
