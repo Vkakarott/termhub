@@ -22,14 +22,14 @@ afterEach(() => {
 });
 
 describe('ChatTurn', () => {
-  it('forbids images in the answer it renders', () => {
+  it('renders the answer through the markdown-only path, not the notes one', () => {
     render(
       <ol>
         <ChatTurn message={answer()} waiting={false} failed={false} />
       </ol>,
     );
 
-    expect(renderMarkdown).toHaveBeenCalledWith('feito', { allowImages: false });
+    expect(renderMarkdown).toHaveBeenCalledWith('feito', { markdownOnly: true });
   });
 
   it('does not re-parse the answer when the thread re-renders with the same props', () => {

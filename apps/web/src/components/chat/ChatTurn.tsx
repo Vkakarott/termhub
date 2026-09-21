@@ -31,7 +31,7 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
   const body = message.role === 'user' ? '' : message.text || streaming || (waiting ? 'pensando…' : '');
   // Keyed on the body alone: the same text always sanitises to the same HTML, so a delta only ever
   // re-parses the row it lands in.
-  const html = useMemo(() => (body ? renderMarkdown(body, { allowImages: false }) : ''), [body]);
+  const html = useMemo(() => (body ? renderMarkdown(body, { markdownOnly: true }) : ''), [body]);
 
   if (message.role === 'user') {
     return (
@@ -45,8 +45,8 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
   return (
     <li className="text-fg">
       {/* The one place in the chat that renders HTML, and only ever `renderMarkdown`'s output: this
-       * text comes from an agent that reads real terminal screens, so images are forbidden here —
-       * a remote `img` it chose the URL of would be a GET the browser makes with no click.
+       * text comes from an agent that reads real terminal screens, so `markdownOnly` keeps this to
+       * the elements Markdown itself produces — nothing here can make the browser fetch a URL.
        *
        * `break-words` on this container, not on `.prose-termhub` (the notes editor shares that
        * class): a `ol` with `overflow-y-auto` computes `overflow-x` to `auto`, so one unbroken path

