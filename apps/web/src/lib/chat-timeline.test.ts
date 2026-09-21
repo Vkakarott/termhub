@@ -92,6 +92,46 @@ describe('chatTimeline', () => {
     expect(chatTimeline([], [])).toEqual([]);
   });
 
+  it('drops an action older than the oldest message, which the two windows let through', () => {
+    // The message window is capped at 200 rows, the action window at 200 gated writes: past 200
+    // messages the message window starts mid-history while the action window still reaches the
+    // beginning of the conversation, so this card has no answer on screen to sit next to.
+    const messages = [message({ id: 'm1', created_at: T1 })];
+    const actions = [action({ id: 'a-old', created_at: T0 })];
+
+    const result = chatTimeline(messages, actions);
+
+    expect(result.map((e) => (e.kind === 'message' ? e.message.id : e.action.id))).toEqual(['m1']);
+  });
+
+  it('keeps an action newer than the oldest message, including one tied with it', () => {
+    const messages = [message({ id: 'm1', created_at: T1 }), message({ id: 'm2', created_at: T2 })];
+    const actions = [action({ id: 'a-tied', created_at: T1 }), action({ id: 'a-newer', created_at: T2 })];
+
+    const result = chatTimeline(messages, actions);
+
+    expect(result.map((e) => (e.kind === 'message' ? e.message.id : e.action.id))).toEqual(['m1', 'a-tied', 'm2', 'a-newer']);
+  });
+
+  it('measures the cutoff from the oldest message, not from the array\'s first element', () => {
+    // `messages` is whatever the fetch and the live events left in state; nothing guarantees it is
+    // sorted, so reading `messages[0]` as the cutoff would drop a card that belongs on screen.
+    const messages = [message({ id: 'm2', created_at: T2 }), message({ id: 'm1', created_at: T0 })];
+    const actions = [action({ id: 'a1', created_at: T1 })];
+
+    const result = chatTimeline(messages, actions);
+
+    expect(result.map((e) => (e.kind === 'message' ? e.message.id : e.action.id))).toEqual(['m1', 'a1', 'm2']);
+  });
+
+  it('keeps every action when there are no messages at all: there is nothing to compare against', () => {
+    const actions = [action({ id: 'a1', created_at: T0 }), action({ id: 'a2', created_at: T2 })];
+
+    const result = chatTimeline([], actions);
+
+    expect(result.map((e) => (e.kind === 'message' ? e.message.id : e.action.id))).toEqual(['a1', 'a2']);
+  });
+
   it('carries the row\'s own created_at as the entry\'s at', () => {
     const messages = [message({ id: 'm1', created_at: T0 })];
     const actions = [action({ id: 'a1', created_at: T1 })];
