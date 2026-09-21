@@ -62,6 +62,24 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect((await repo.findOpenByKey(conversationId, 'k5'))?.status).toBe('pending');
   });
 
+  it('finds a refusal by its key, and does not mistake an executed row for one', async () => {
+    const refused = await pending('k8');
+    await repo.decide(refused.id, userId, 'denied');
+    expect((await repo.findRefusedByKey(conversationId, 'k8'))?.id).toBe(refused.id);
+
+    const done = await pending('k9');
+    await repo.decide(done.id, userId, 'approved');
+    await repo.markExecuted(done.id, true, null, 5);
+    expect(await repo.findRefusedByKey(conversationId, 'k9')).toBeUndefined();
+  });
+
+  it('counts a question left to expire as a refusal', async () => {
+    const forgotten = await pending('k10');
+    await db.$executeRawUnsafe(`update chat_actions set created_at = now() - interval '2 days' where id = $1`, forgotten.id);
+    await repo.expireOlderThan(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    expect((await repo.findRefusedByKey(conversationId, 'k10'))?.status).toBe('expired');
+  });
+
   it('expires rows older than the cutoff and leaves fresh ones alone', async () => {
     const old = await pending('k6');
     await db.$executeRawUnsafe(`update chat_actions set created_at = now() - interval '2 days' where id = $1`, old.id);
