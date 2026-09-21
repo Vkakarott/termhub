@@ -15,14 +15,15 @@ const REFRESH_MS = 60_000;
  * request's `inFlight` flag — the new machine's first read has to fire immediately, not wait for
  * the next tick or a window focus.
  */
-export function useOfficeSnapshot(machineId: string | null): { snapshot: OfficeSnapshot | null; error: string | null; reload: () => void } {
+export function useOfficeSnapshot(machineId: string | null): { snapshot: OfficeSnapshot | null; error: string | null; reload: () => boolean } {
   const [snapshot, setSnapshot] = useState<OfficeSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const generation = useRef(0);
 
-  const reload = useCallback(() => {
-    if (!machineId || inFlight.current) return;
+  /** Returns whether a request was actually started (false while one is already in flight). */
+  const reload = useCallback((): boolean => {
+    if (!machineId || inFlight.current) return false;
     inFlight.current = true;
     const gen = generation.current;
     api
@@ -39,6 +40,7 @@ export function useOfficeSnapshot(machineId: string | null): { snapshot: OfficeS
       .finally(() => {
         if (gen === generation.current) inFlight.current = false;
       });
+    return true;
   }, [machineId]);
 
   useEffect(() => {

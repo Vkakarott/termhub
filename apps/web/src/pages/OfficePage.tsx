@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
-import { buildModel, missingTabIds } from '../office/model';
+import { buildModel, missingTabIds, type FloorModel } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import { useOfficeSnapshot } from '../office/useOfficeSnapshot';
 
@@ -44,45 +44,49 @@ export function OfficePage() {
     [setParams],
   );
 
+  // react-router's setSearchParams (and so setRoom, built on it) gets a new identity on every
+  // query-string change — picking a room, leaving it, toggling focus mode. The scene's handlers read
+  // through this ref instead, kept current every render, so the scene-mount effect further down never
+  // has to depend on setRoom/navigate: depending on them would recreate the scene (destroy + mount a
+  // blank canvas) on every query-string change, since setModel only fires again on a real model change.
+  const handlers = useRef({
+    onPickDesk: (tabId: string, projectId: string) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
+    onPickRoom: (id: string) => setRoom(id),
+    onPickSign: (id: string) => navigate(`/projects/${id}`),
+    onLeaveRoom: () => setRoom(null),
+  });
+  useEffect(() => {
+    handlers.current = {
+      onPickDesk: (tabId, projectId) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
+      onPickRoom: (id) => setRoom(id),
+      onPickSign: (id) => navigate(`/projects/${id}`),
+      onLeaveRoom: () => setRoom(null),
+    };
+  });
+
   // tabState reads a ref (lib/monitor.tsx), so it never changes identity; `items` is what actually
   // changes on a live push — keep it as a dep, or the model stops updating on monitor pushes.
   const model = useMemo(() => (snapshot ? buildModel(snapshot, tabState) : null), [snapshot, tabState, items]);
+  // mirrors `model` for the scene-mount effect below: a scene created there (host/machineId change,
+  // or recovering from a failed mount) must be seeded with whatever's already known, not sit blank
+  // waiting for this push effect to fire again — it won't, since the model itself hasn't changed.
+  const modelRef = useRef<FloorModel | null>(null);
+  useEffect(() => {
+    modelRef.current = model;
+    if (model) sceneRef.current?.setModel(model);
+  }, [model]);
 
-  // a tab opened since the snapshot: re-read it, but only once per newly-missing id, so a tab the
-  // server never puts in the snapshot (e.g. one in an archived project) can't loop GET /office forever
+  // a tab opened since the snapshot: re-read it, but only once per newly-missing id that actually
+  // started a request — a re-read that bounced off an in-flight one must not be marked "asked", or
+  // that tab is stuck on screen until the next 60s tick
   useEffect(() => {
     const mine = new Set(projects.filter((p) => p.machine_id === machineId && p.status !== 'archived').map((p) => p.id));
     const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
     const missing = missingTabIds(snapshot, items.map((i) => i.tab.id), mine, projectOf);
     if (notifiedMissing.current.machineId !== machineId) notifiedMissing.current = { machineId, ids: new Set() };
     const grew = missing.some((id) => !notifiedMissing.current.ids.has(id));
-    if (grew) {
-      missing.forEach((id) => notifiedMissing.current.ids.add(id));
-      reload();
-    }
+    if (grew && reload()) missing.forEach((id) => notifiedMissing.current.ids.add(id));
   }, [items, snapshot, projects, machineId, reload]);
-
-  useEffect(() => {
-    if (!host) return;
-    setFailed(false);
-    const scene = new OfficeScene({
-      onPickDesk: (tabId, projectId) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
-      onPickRoom: (id) => setRoom(id),
-      onPickSign: (id) => navigate(`/projects/${id}`),
-      onLeaveRoom: () => setRoom(null),
-    });
-    sceneRef.current = scene;
-    // Pixi falls back from WebGL to canvas by itself; this only fires when neither could start
-    scene.mount(host).catch(() => setFailed(true));
-    return () => {
-      scene.destroy();
-      sceneRef.current = null;
-    };
-  }, [host, navigate, machineId, setRoom]);
-
-  useEffect(() => {
-    if (model) sceneRef.current?.setModel(model);
-  }, [model]);
 
   // auto-drill once per machine: exactly one room with desks opens straight into it
   useEffect(() => {
@@ -98,9 +102,34 @@ export function OfficePage() {
   const roomExists = !!model?.rooms.some((r) => r.id === room);
   // deliberate: frame once the first model arrives (the boolean, not the model itself, is what should retrigger this)
   const hasModel = model !== null;
+  // mirrors the current focus target, for the same reason as modelRef above
+  const focusRef = useRef<string | null>(null);
   useEffect(() => {
-    if (model) sceneRef.current?.focusRoom(roomExists ? room : null);
+    focusRef.current = roomExists ? room : null;
+    if (model) sceneRef.current?.focusRoom(focusRef.current);
   }, [room, roomExists, hasModel]);
+
+  useEffect(() => {
+    if (!host) return;
+    setFailed(false);
+    const scene = new OfficeScene({
+      onPickDesk: (tabId, projectId) => handlers.current.onPickDesk(tabId, projectId),
+      onPickRoom: (id) => handlers.current.onPickRoom(id),
+      onPickSign: (id) => handlers.current.onPickSign(id),
+      onLeaveRoom: () => handlers.current.onLeaveRoom(),
+    });
+    sceneRef.current = scene;
+    // setModel/focusRoom are safe to call before mount() resolves — the scene stores them and
+    // replays them once it can draw, so a scene created here is never left blank
+    if (modelRef.current) scene.setModel(modelRef.current);
+    scene.focusRoom(focusRef.current, true);
+    // Pixi falls back from WebGL to canvas by itself; this only fires when neither could start
+    scene.mount(host).catch(() => setFailed(true));
+    return () => {
+      scene.destroy();
+      sceneRef.current = null;
+    };
+  }, [host, machineId]);
 
   // Esc leaves the room first, then focus mode; F toggles focus mode
   useEffect(() => {

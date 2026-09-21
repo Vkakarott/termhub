@@ -75,4 +75,29 @@ describe('useOfficeSnapshot', () => {
     expect(result.current.snapshot).toEqual(snap('m1'));
     expect(result.current.error).toBeNull();
   });
+
+  it('reload reports whether it actually started a request', async () => {
+    let resolvePending: ((s: OfficeSnapshot) => void) | undefined;
+    const pending = new Promise<OfficeSnapshot>((resolve) => {
+      resolvePending = resolve;
+    });
+    officeMock.mockImplementationOnce(() => pending).mockResolvedValue(snap('m1'));
+    const { result } = renderHook(() => useOfficeSnapshot('m1'));
+    await act(async () => {});
+
+    // the mount effect's own reload() is still in flight (the pending promise hasn't resolved)
+    let started = true;
+    act(() => {
+      started = result.current.reload();
+    });
+    expect(started).toBe(false);
+
+    await act(async () => {
+      resolvePending?.(snap('m1'));
+    });
+    act(() => {
+      started = result.current.reload();
+    });
+    expect(started).toBe(true);
+  });
 });
