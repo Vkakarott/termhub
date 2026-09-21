@@ -225,9 +225,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
       <ViewAsSwitch />
       <div className="border-t border-line px-3 py-1.5">
-        <NavLink to="/chat" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-          💬 Chat
-        </NavLink>
+        {can('chat') && (
+          <NavLink to="/chat" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
+            💬 Chat
+          </NavLink>
+        )}
         {can('integrations') && (
           <NavLink to="/integrations" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
             ⚙ Integrações
