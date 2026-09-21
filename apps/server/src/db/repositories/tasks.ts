@@ -60,6 +60,13 @@ export class TasksRepository {
     return t ? mapTask(t) : undefined;
   }
 
+  /** Batched by id, one query regardless of how many ids are asked for — used to enrich a list of
+   * rows (e.g. the chat action trail) without a lookup per row. */
+  async findByIds(ids: string[]): Promise<Task[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.task.findMany({ where: { id: { in: ids } } })).map(mapTask);
+  }
+
   /** Top-level: created at the top of its column (position 0), pushing the others down. Subtask: appended last. */
   async create(projectId: string, input: TaskInput): Promise<Task> {
     if (input.parent_id) {

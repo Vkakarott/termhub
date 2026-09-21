@@ -147,7 +147,7 @@ function build(opts: { gated: boolean }) {
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
     machines: { findById: vi.fn(async () => machine), list: vi.fn(async () => [machine]), findByIds: vi.fn(async (ids: string[]) => (ids.includes(machine.id) ? [machine] : [])) },
     projects: { findById: vi.fn(async () => project), findByIds: vi.fn(async (ids: string[]) => (ids.includes(project.id) ? [project] : [])) },
-    tasks: { listByProject: vi.fn(async () => []) },
+    tasks: { listByProject: vi.fn(async () => []), findByIds: vi.fn(async () => []) },
     tabs: {
       listByProject: vi.fn(async () => [...tabs.values()]),
       countOpenByToken: vi.fn(async () => 0),

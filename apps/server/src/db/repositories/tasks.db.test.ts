@@ -39,6 +39,14 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
 
   const titles = (ts: { title: string }[]) => ts.map((t) => t.title);
 
+  it('finds tasks by id in one query, ignoring an id that does not exist', async () => {
+    const a = await repo.create(projectId, { title: 'a' });
+    const b = await repo.create(projectId, { title: 'b' });
+    const found = await repo.findByIds([a.id, b.id, 'nope']);
+    expect(titles(found).sort()).toEqual(['a', 'b']);
+    expect(await repo.findByIds([])).toEqual([]);
+  });
+
   it('appends subtasks in call order and nests them in the list', async () => {
     const parent = await repo.create(projectId, { title: 'parent' });
     await repo.createSubtasks(parent.id, [{ title: 's1' }, { title: 's2' }]);

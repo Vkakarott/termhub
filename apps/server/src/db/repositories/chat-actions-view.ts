@@ -1,5 +1,6 @@
 import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
+import type { Task } from './types.js';
 
 /**
  * The trimmed, human-facing shape of a chat action: what the card needs to read like a sentence
@@ -21,10 +22,23 @@ export interface ChatActionCard {
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-/** What the sentence says was proposed, before naming where. Unknown tools (the gate classifies
+/** The `task_id` an action's args name, if any — the four task tools below all require one, but it
+ * is never copied onto the row itself (unlike machine/project/tab_id, which the gate's `targetOf`
+ * does store): the sentence has to read it straight from `args`. */
+const taskIdOf = (action: ChatAction): string => asString((action.args as Record<string, unknown> | null)?.task_id);
+
+/**
+ * What the sentence says was proposed, before naming where. Unknown tools (the gate classifies
  * anything it does not recognise as irreversible rather than silently allowing it) still read as a
- * sentence, naming the tool rather than showing it bare. */
-function verbPhrase(action: ChatAction): string {
+ * sentence, naming the tool rather than showing it bare.
+ *
+ * A task tool (`add_subtasks`/`update_task`/`move_task`/`delete_task`) names the task by its title —
+ * never its bare id — resolved from `task`. `delete_task` is in the irreversible class, so this card
+ * is the only thing the user sees before authorising it: approving a deletion by id alone would be
+ * approving blind. When the task has already been deleted (answered too late), that is said plainly
+ * rather than falling back to a bare id, since it is itself useful information for deciding.
+ */
+function verbPhrase(action: ChatAction, task: Task | undefined): string {
   const args = (action.args ?? {}) as Record<string, unknown>;
   switch (action.tool) {
     case 'send_input':
@@ -42,13 +56,13 @@ function verbPhrase(action: ChatAction): string {
     case 'create_task':
       return `criar a tarefa "${asString(args.title)}"`;
     case 'add_subtasks':
-      return 'adicionar subtarefas a uma tarefa';
+      return task ? `adicionar subtarefas à tarefa "${task.title}"` : 'adicionar subtarefas a uma tarefa que não existe mais';
     case 'update_task':
-      return 'atualizar uma tarefa';
+      return task ? `atualizar a tarefa "${task.title}"` : 'atualizar uma tarefa que não existe mais';
     case 'move_task':
-      return 'mover uma tarefa';
+      return task ? `mover a tarefa "${task.title}"` : 'mover uma tarefa que não existe mais';
     case 'delete_task':
-      return 'apagar uma tarefa';
+      return task ? `apagar a tarefa "${task.title}"` : 'apagar uma tarefa que não existe mais';
     default:
       return `usar a ferramenta ${action.tool}`;
   }
@@ -65,8 +79,8 @@ function targetPhrase(names: { tab?: string; project?: string; machine?: string 
   return place ? `${place}, no ${names.machine}` : `no ${names.machine}`;
 }
 
-function summarize(action: ChatAction, names: { tab?: string; project?: string; machine?: string }): string {
-  const verb = verbPhrase(action);
+function summarize(action: ChatAction, task: Task | undefined, names: { tab?: string; project?: string; machine?: string }): string {
+  const verb = verbPhrase(action, task);
   const where = targetPhrase(names);
   return where ? `${verb} ${where}` : verb;
 }
@@ -84,20 +98,25 @@ const toCard = (action: ChatAction, summary: string): ChatActionCard => ({
 });
 
 /**
- * Enriches a batch of chat actions with the sentence their card shows, resolving machine/project/tab
- * names in three batched lookups total — never one lookup per action, and never one per id chain
+ * Enriches a batch of chat actions with the sentence their card shows, resolving task/machine/project/tab
+ * names in four batched lookups total — never one lookup per action, and never one per id chain
  * either. A row that only carries a tab_id (most terminal tools) still gets its project's and
  * machine's names: the tab is looked up first, and its project_id and the project's machine_id feed
- * the next two batches.
+ * the next two batches. A task tool (whose args carry a task_id the gate never copies onto the row)
+ * is resolved the same way: the task is looked up alongside the tabs, and its project_id feeds the
+ * same project batch a tab's would.
  */
 export async function describeActions(repos: Repositories, actions: ChatAction[]): Promise<ChatActionCard[]> {
   const tabIds = [...new Set(actions.map((a) => a.tab_id).filter((v): v is string => v !== null))];
-  const tabs = tabIds.length ? await repos.tabs.findByIds(tabIds) : [];
+  const taskIds = [...new Set(actions.map(taskIdOf).filter((v) => v.length > 0))];
+  const [tabs, tasks] = await Promise.all([tabIds.length ? repos.tabs.findByIds(tabIds) : [], taskIds.length ? repos.tasks.findByIds(taskIds) : []]);
   const tabById = new Map(tabs.map((t) => [t.id, t]));
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
 
   const projectIds = new Set<string>();
   for (const a of actions) if (a.project_id) projectIds.add(a.project_id);
   for (const t of tabs) projectIds.add(t.project_id);
+  for (const t of tasks) projectIds.add(t.project_id);
   const projects = projectIds.size ? await repos.projects.findByIds([...projectIds]) : [];
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
@@ -109,9 +128,11 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
 
   return actions.map((action) => {
     const tab = action.tab_id ? tabById.get(action.tab_id) : undefined;
-    const project = (action.project_id ? projectById.get(action.project_id) : undefined) ?? (tab ? projectById.get(tab.project_id) : undefined);
+    const task = taskById.get(taskIdOf(action));
+    const project =
+      (action.project_id ? projectById.get(action.project_id) : undefined) ?? (tab ? projectById.get(tab.project_id) : undefined) ?? (task ? projectById.get(task.project_id) : undefined);
     const machine = (action.machine_id ? machineById.get(action.machine_id) : undefined) ?? (project ? machineById.get(project.machine_id) : undefined);
-    const summary = summarize(action, { tab: tab?.name, project: project?.name, machine: machine?.name });
+    const summary = summarize(action, task, { tab: tab?.name, project: project?.name, machine: machine?.name });
     return toCard(action, summary);
   });
 }
