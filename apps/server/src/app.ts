@@ -17,6 +17,7 @@ import { tabRoutes } from './routes/tabs.js';
 import { projectTaskRoutes, taskRoutes } from './routes/tasks.js';
 import { noteRoutes } from './routes/notes.js';
 import { dashboardRoutes } from './routes/dashboard.js';
+import { officeRoutes } from './routes/office.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
@@ -141,6 +142,7 @@ export async function buildApp(): Promise<App> {
       await guarded('notes', (a) => noteRoutes(a, repos), '/projects');
       await guarded('tasks', (a) => taskRoutes(a, repos), '/tasks');
       await guarded('projects', (a) => dashboardRoutes(a, repos), '/dashboard');
+      await guarded('projects', (a) => officeRoutes(a, repos, { simulators }), '/office');
       await guarded('integrations', (a) => integrationRoutes(a, repos), '/integrations');
       await guarded('projects', (a) => setupRoutes(a, repos), '/projects');
       await guarded('tickets', (a) => projectTicketRoutes(a, repos), '/projects');

@@ -137,6 +137,28 @@ export interface TaskWithSubtasks extends Task {
   subtask_counts: { done: number; total: number };
 }
 
+/** Board columns that count as "the project's work" on the office floor; the backlog does not. */
+export interface OfficeTaskCounts {
+  todo: number;
+  doing: number;
+  done: number;
+}
+
+/** The `doing` task bound to a tab. `total = 0` means it has no subtasks: a title, no bar. */
+export interface OfficeTabProgress {
+  task_id: string;
+  title: string;
+  done: number;
+  total: number;
+}
+
+export interface OfficeProgress {
+  /** by project id; a project with no todo/doing/done task has no entry */
+  counts: Record<string, OfficeTaskCounts>;
+  /** by tab id */
+  byTab: Record<string, OfficeTabProgress>;
+}
+
 export interface Ticket {
   id: string;
   project_id: string;
