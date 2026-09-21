@@ -177,7 +177,11 @@ function promptChangedSince(tab: Tab, row: ChatAction): boolean {
  */
 async function staleApproval(ctx: ControlContext, call: GatedCall, row: ChatAction): Promise<{ code: string; message: string } | undefined> {
   if (!row.tab_id) return undefined;
-  const tab = await ctx.repos.tabs.findById(row.tab_id);
+  // Owner-scoped, batched read — the same one the card's enrichment uses, and for the same reason: a
+  // gated model can name any tab id it likes (a prompt injected into a terminal screen would aim for
+  // exactly that), and an unscoped read would resolve a stranger's tab and hand the model the tool's
+  // own "not found" instead of `TAB_GONE` — an existence oracle for somebody else's tab.
+  const [tab] = await ctx.repos.tabs.findByIdsForOwner([row.tab_id], ctx.scope.user.id);
   if (!tab) return TAB_GONE(row.tab_id);
   if (tab.state === 'waiting_permission') {
     if (typesFreeText(call)) return TAB_WAITING_PERMISSION(row.tab_id);

@@ -140,9 +140,14 @@ function fakeChatActions() {
 }
 
 function build(opts: { gated: boolean }) {
+  const tab = (id: string, name: string) => ({ id, project_id: 'p1', name, kind: 'terminal', tmux_session: `termhub-p1-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: null });
   const tabs = new Map<string, Record<string, unknown>>([
-    ['t1', { id: 't1', project_id: 'p1', name: 'Terminal 1', kind: 'terminal', tmux_session: 'termhub-p1-t1', simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: null }],
+    ['t1', tab('t1', 'Terminal 1')],
+    // Somebody else's tab: it exists, so an unscoped `findById` resolves it, and the owner-scoped read
+    // below does not — the difference the gate's re-validation must be built on.
+    ['t9', tab('t9', 'Terminal do vizinho')],
   ]);
+  const foreignTabIds = new Set(['t9']);
   const apiTokens = {
     findActiveByHash: vi.fn(async (h: string) => (h === hashApiToken(SECRET) ? { id: 'tok1', user_id: 'u1', name: 'concierge', scopes: ['read', 'terminals'], expires_at: null, revoked_at: null, last_used_at: null, created_at: '', gated: opts.gated } : undefined)),
     touchLastUsed: vi.fn(async () => {}),
@@ -169,7 +174,9 @@ function build(opts: { gated: boolean }) {
       listByProject: vi.fn(async () => [...tabs.values()]),
       countOpenByToken: vi.fn(async () => 0),
       findById: vi.fn(async (id: string) => tabs.get(id)),
-      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === machine.owner_id ? [...tabs.values()].filter((t) => ids.includes(t.id as string)) : [])),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) =>
+        ownerId === machine.owner_id ? [...tabs.values()].filter((t) => ids.includes(t.id as string) && !foreignTabIds.has(t.id as string)) : [],
+      ),
       delete: vi.fn(async (id: string) => tabs.delete(id)),
     },
   } as unknown as Repositories;
@@ -600,4 +607,22 @@ it('fails an approved action an outdated agent cannot run, with that error code'
   expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'AGENT_OUTDATED', expect.any(Number));
   expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'AGENT_OUTDATED' });
   expect(actions.insertPending).not.toHaveBeenCalled();
+});
+
+it("never resolves another user's tab when re-validating an approval", async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  // `t9` exists, and belongs to somebody else. The re-validation must read it through the
+  // owner-scoped batch, so it is simply absent — the model learns `TAB_GONE`, not that the tab exists
+  // (which the tool's own "not found" further down would have told it).
+  const row = actions.seed('approved', 'send_input', { tab_id: 't9', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't9', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toContain('t9');
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'TAB_GONE', expect.any(Number));
+  expect(actions.rows[0].status).toBe('failed');
 });
