@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { renderMarkdown } from '../../lib/markdown';
 import type { ChatMessage } from '../../lib/types';
 
@@ -21,8 +22,17 @@ export interface ChatTurnProps {
  *
  * Purely presentational: `waiting` and `failed` are decisions `ChatPage` owns (they were each paid
  * for with a production bug) and must never be re-derived here.
+ *
+ * Memoised, and the parsing memoised inside it: a streamed answer re-renders the whole thread on
+ * every delta, and parsing plus sanitising one message costs about 1 ms — a 50-message thread was
+ * paying ~51 ms per delta, on the same main thread the answer is being written on.
  */
-export function ChatTurn({ message, streaming, tools, waiting, failed }: ChatTurnProps) {
+export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, waiting, failed }: ChatTurnProps) {
+  const body = message.role === 'user' ? '' : message.text || streaming || (waiting ? 'pensando…' : '');
+  // Keyed on the body alone: the same text always sanitises to the same HTML, so a delta only ever
+  // re-parses the row it lands in.
+  const html = useMemo(() => (body ? renderMarkdown(body, { allowImages: false }) : ''), [body]);
+
   if (message.role === 'user') {
     return (
       <li className="flex justify-end">
@@ -32,12 +42,18 @@ export function ChatTurn({ message, streaming, tools, waiting, failed }: ChatTur
     );
   }
 
-  const body = message.text || streaming || (waiting ? 'pensando…' : '');
   return (
     <li className="text-fg">
       {/* The one place in the chat that renders HTML, and only ever `renderMarkdown`'s output: this
-       * text comes from an agent that reads real terminal screens. */}
-      {body && <div className="prose-termhub" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />}
+       * text comes from an agent that reads real terminal screens, so images are forbidden here —
+       * a remote `img` it chose the URL of would be a GET the browser makes with no click.
+       *
+       * `break-words` on this container, not on `.prose-termhub` (the notes editor shares that
+       * class): a `ol` with `overflow-y-auto` computes `overflow-x` to `auto`, so one unbroken path
+       * quoted off a terminal would make the whole conversation — the reader's own bubbles included
+       * — scroll sideways on a phone. `pre` keeps its own horizontal scroll: it does not wrap, so
+       * `overflow-wrap` has nothing to do inside it. */}
+      {body && <div className="prose-termhub break-words" dangerouslySetInnerHTML={{ __html: html }} />}
       {(tools ?? []).length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {(tools ?? []).map((a, i) => (
@@ -50,4 +66,4 @@ export function ChatTurn({ message, streaming, tools, waiting, failed }: ChatTur
       {failed && <p className="mt-1 text-xs text-danger">A resposta não terminou — tente de novo.</p>}
     </li>
   );
-}
+});

