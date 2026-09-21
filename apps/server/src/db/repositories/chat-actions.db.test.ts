@@ -146,4 +146,37 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect(await repo.expireOlderThan(new Date(Date.now() - 24 * 60 * 60 * 1000))).toBe(1);
     expect((await repo.findOpenByKey(conversationId, 'k7'))?.id).toBe(fresh.id);
   });
+
+  it('expires an approval no run ever came back for, and leaves a fresh approval alone', async () => {
+    // The asymmetry this closes: a question nobody answered expired, while a "yes" nobody consumed sat
+    // approved for ever — and a byte-identical proposal weeks later would have claimed it and executed.
+    const stale = await pending('k15');
+    await repo.decide(stale.id, userId, 'approved');
+    await db.$executeRawUnsafe(`update chat_actions set decided_at = now() - interval '2 days' where id = $1`, stale.id);
+    const fresh = await pending('k16');
+    await repo.decide(fresh.id, userId, 'approved');
+
+    expect(await repo.expireOlderThan(new Date(Date.now() - 24 * 60 * 60 * 1000))).toBe(1);
+    expect(await repo.findOpenByKey(conversationId, 'k15')).toBeUndefined(); // no longer authorising anything
+    expect(await repo.claimApproved(stale.id)).toBe(false);
+    expect(await repo.findDeniedByKey(conversationId, 'k15')).toBeUndefined(); // and it is still not a "no"
+    // An approval that is merely slow to be re-injected is well inside the window: untouched.
+    expect((await repo.findOpenByKey(conversationId, 'k16'))?.status).toBe('approved');
+  });
+
+  it('ages an approval out exactly once, and never one already claimed for execution', async () => {
+    const row = await pending('k17');
+    await repo.decide(row.id, userId, 'approved');
+    const aged = await Promise.all([repo.expireApproved(row.id), repo.expireApproved(row.id)]);
+    expect(aged.filter(Boolean)).toHaveLength(1);
+    expect((await repo.findByIdForUser(row.id, userId))?.status).toBe('expired');
+    expect(await repo.claimApproved(row.id)).toBe(false); // an aged-out approval can never be executed
+
+    // The other side of the same race: the claim won, so the action is executing and is not the gate's
+    // to retire — `false` is what tells the gate to answer "already claimed" instead of "expired".
+    const claimed = await pending('k18');
+    await repo.decide(claimed.id, userId, 'approved');
+    expect(await repo.claimApproved(claimed.id)).toBe(true);
+    expect(await repo.expireApproved(claimed.id)).toBe(false);
+  });
 });

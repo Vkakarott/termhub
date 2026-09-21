@@ -12,6 +12,7 @@ import type { Tab } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
 import { actionClass, gateDecision, idempotencyKeyFor } from './gate.js';
+import { ACTION_TTL_MS } from './service.js';
 
 /** What the gate did: the tool's own value, or a pt-BR error for the caller to answer with. The
  * error's `code` is what the existing per-call audit row records; the gate writes no audit row. */
@@ -48,6 +49,20 @@ const ALREADY_CLAIMED: GateOutcome = {
     'Uma chamada idêntica que chegou antes já está executando esta ação, então esta não executou nada. Não repita a chamada: espere o resultado da primeira e siga a partir dele.',
 };
 
+/**
+ * An approval that aged out before any call came back to use it. Deliberately not `REFUSED`: the user
+ * said yes and nobody ever said no, so the model must read this as a permission that lapsed, not as a
+ * decision against the action. Repeating the call is the right next step and is exactly what the model
+ * is told to do — the row has just been expired, so that repeat asks the user again instead of finding
+ * the same dead approval.
+ */
+const APPROVAL_EXPIRED: GateOutcome = {
+  ok: false,
+  code: 'CONFIRMATION_EXPIRED',
+  message:
+    'A confirmação que o usuário deu para esta ação é antiga e expirou, então nada foi executado. Isto não é uma recusa: se a ação ainda fizer sentido, repita a chamada para propô-la de novo e o usuário confirma outra vez.',
+};
+
 const REFUSED: GateOutcome = {
   ok: false,
   code: 'CONFIRMATION_DENIED',
@@ -69,12 +84,45 @@ const REFUSED: GateOutcome = {
  */
 const DENIAL_HOLDS_MS = 15 * 60 * 1000;
 
+/**
+ * How long a "yes" keeps authorising the identical proposal. An approval is the user's answer to a
+ * question asked *now*: the model is expected to re-issue the gated call within the same conversation,
+ * seconds later. The row, though, outlives the run — and an approval nobody ever consumed (the model
+ * never came back, the run died, the session was dropped) would otherwise stay `approved` for ever:
+ * weeks later a byte-identical proposal would find it, claim it and act on the user's machine without
+ * anybody being asked. A "yes" has to be as mortal as the "no" it mirrors.
+ *
+ * The window is the same 24 h the spec fixes for a question the user never answered (`ACTION_TTL_MS`,
+ * imported rather than repeated), for two reasons: it is a number the spec already chose, and it is
+ * the very window the hourly sweep uses — so the gate's clock and the sweep's clock are one clock, and
+ * a row the sweep has not reached yet is judged here exactly as the sweep would judge it.
+ */
+const APPROVAL_HOLDS_MS = ACTION_TTL_MS;
+
 /** The user's "no" while it still holds. An older one is history: the same proposal is asked again. */
 async function denialInForce(ctx: ControlContext, conversationId: string, key: string): Promise<ChatAction | undefined> {
   const row = await ctx.repos.chatActions.findDeniedByKey(conversationId, key);
   if (!row) return undefined;
   const decidedAt = Date.parse(row.decided_at ?? row.created_at);
   return Number.isFinite(decidedAt) && Date.now() - decidedAt < DENIAL_HOLDS_MS ? row : undefined;
+}
+
+/** The mirror of `denialInForce` for a "yes": whether this approval is still the user's current
+ * answer. An unparseable `decided_at` counts as too old — the safe direction for a permission. */
+const approvalInForce = (row: ChatAction): boolean => {
+  const decidedAt = Date.parse(row.decided_at ?? row.created_at);
+  return Number.isFinite(decidedAt) && Date.now() - decidedAt < APPROVAL_HOLDS_MS;
+};
+
+/**
+ * Retires an approval the clock has outlived, and says so. The update is conditional on the row still
+ * being approved (`expireApproved`), so this can never race a parallel arrival that already claimed
+ * the very same approval: if the claim won, that call is executing the action and this one must stop
+ * and wait for it, exactly as any other loser of the claim does.
+ */
+async function expireApproval(ctx: ControlContext, row: ChatAction): Promise<GateOutcome> {
+  if (!(await ctx.repos.chatActions.expireApproved(row.id))) return ALREADY_CLAIMED;
+  return APPROVAL_EXPIRED;
 }
 
 const TAB_GONE = (tabId: string) => ({
@@ -217,9 +265,15 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
   // token find the chat to ask in. Per-machine conversations will have to carry the id on the token.
   const conversation = await ctx.repos.chat.getOrCreateForUser(ctx.scope.user.id);
   const key = idempotencyKeyFor(conversation.id, call.tool, call.args);
+  const open = await ctx.repos.chatActions.findOpenByKey(conversation.id, key);
+  // An approval is only an approval while it is fresh (`APPROVAL_HOLDS_MS`). An older one is retired
+  // here, before any decision is taken on it, so a "yes" nobody consumed can never authorise a write
+  // days after the fact. A stale `pending` row is not this branch's business: it keeps waiting until
+  // the hourly sweep expires it, which is what makes the same question askable again.
+  if (open?.status === 'approved' && !approvalInForce(open)) return expireApproval(ctx, open);
   // The open row decides; with none, a recent "no" to the same proposal still does. Anything else —
   // no row, an executed one, a question left to expire, a denial older than the window — is asked.
-  const row = (await ctx.repos.chatActions.findOpenByKey(conversation.id, key)) ?? (await denialInForce(ctx, conversation.id, key));
+  const row = open ?? (await denialInForce(ctx, conversation.id, key));
 
   const decision = gateDecision(row, cls);
   // `allow` and `refuse` only come back with a row (without one the decision is `ask`), so the guard

@@ -28,16 +28,20 @@ export interface RunnerClient {
   run(input: RunnerInput): AsyncIterable<string>;
 }
 
-/** How long a proposed action waits for the user's decision before it is nobody's question anymore.
- * Kept in step with `mintConciergeToken`'s own TTL_MS: a token outlives every action minted under it. */
-const ACTION_TTL_MS = 24 * 60 * 60 * 1000;
+/** How long a proposed action waits for the user's decision before it is nobody's question anymore —
+ * and, since an approval nobody consumed is just as stale, how long a "yes" stays good (the gate reads
+ * this same constant for `APPROVAL_HOLDS_MS`). Kept in step with `mintConciergeToken`'s own TTL_MS: a
+ * token outlives every action minted under it. */
+export const ACTION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The hourly timer's other half (app.ts, next to `authService.purgeExpired()`): a proposed write the
- * user never answered must not sit `pending` forever — it would keep blocking the same proposal's
- * idempotency key and keep showing as an open question on every reload. Approved-but-not-yet-executed
- * rows are untouched (`expireOlderThan` only ever moves `pending`), so an approval that is merely slow
- * to be re-injected is never mistaken for one nobody answered.
+ * The hourly timer's other half (app.ts, next to `authService.purgeExpired()`): an open row must not
+ * sit open forever — it would keep blocking the same proposal's idempotency key and keep showing as an
+ * open question on every reload. Both ways of being open age out, each from its own clock: a question
+ * the user never answered from when it was asked, an approval no run ever came back to consume from
+ * when it was given (see `expireOlderThan`). An approval that is merely slow to be re-injected is well
+ * inside the window; one still here a day later is one nobody will ever use, and the gate would
+ * otherwise honour it indefinitely.
  *
  * A standalone function, not a `ChatService` method: it only ever needs `repos`, and keeping it out of
  * the class means the hourly timer can call it without constructing a runner or config dirs it has no

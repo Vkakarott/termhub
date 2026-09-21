@@ -66,6 +66,14 @@ function fakeChatActions() {
       row.status = 'executed'; // the claim itself, exactly as the conditional UPDATE does it
       return true;
     }),
+    /** The same conditional update as the claim, landing on `expired`: only a row still approved can
+     * be aged out, so a claim and an expiry of one approval can never both win. */
+    expireApproved: vi.fn(async (id: string) => {
+      const row = rows.find((r) => r.id === id && r.status === 'approved');
+      if (!row) return false;
+      row.status = 'expired';
+      return true;
+    }),
     insertPending: vi.fn(async (input: InsertPendingInput) => {
       if (rows.some((r) => sameKey(r, input.conversation_id, input.idempotency_key ?? '') && isOpen(r))) {
         throw new Error('duplicate key value violates unique constraint "chat_actions_one_open_per_key"');
@@ -514,4 +522,45 @@ it('publishes the question to the chat, with the arguments and no terminal conte
     summary: 'digitar `npm test` na aba Terminal 1 do projeto app, no jarvis',
   });
   expect(JSON.stringify(collected[0])).not.toContain('segredo na tela');
+});
+
+it('stops honouring an approval nobody consumed for a day, and asks again instead of executing', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  // The "yes" is a day old: no call ever came back to use it (the run died, the session was dropped,
+  // the model moved on). Without the clock, this byte-identical proposal would claim it and type.
+  actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' }, 60 * 25);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(typed).toEqual([]); // nothing ran on the machine
+  expect(textOf(res)).toMatch(/expirou/i);
+  expect(textOf(res)).not.toMatch(/recusou/i); // an approval that lapsed is not a "no"
+  expect(actions.claimApproved).not.toHaveBeenCalled();
+  expect(actions.rows[0].status).toBe('expired');
+  expect(collected).toEqual([]); // no question either: this call only retired the dead approval
+
+  // And "propose it again" is now something the model can actually do: the retired row no longer
+  // occupies the key, so the identical call asks the user instead of finding the same dead approval.
+  const again = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  expect(textOf(again)).toMatch(/pendente de confirmação/i);
+  expect(actions.rows.map((r) => r.status)).toEqual(['expired', 'pending']);
+  expect(typed).toEqual([]);
+  expect(collected.map((e) => e.type)).toEqual(['confirmation']);
+});
+
+it('still executes an approval given hours ago, inside the window', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' }, 60 * 23);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBeUndefined();
+  expect(typed).toEqual(['npm test']);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, true, null, expect.any(Number));
+  expect(actions.expireApproved).not.toHaveBeenCalled();
 });

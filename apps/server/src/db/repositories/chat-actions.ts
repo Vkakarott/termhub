@@ -159,6 +159,25 @@ export class ChatActionsRepository {
     return count === 1;
   }
 
+  /**
+   * Ages an approval out: the same conditional `UPDATE` as `claimApproved`, landing on `expired`
+   * instead of `executed`, so an approval the gate judged too old and a caller claiming that very
+   * approval can never both win. `false` means the row was no longer `approved` — somebody claimed it
+   * first and is executing it — and the caller must answer that, not that the approval lapsed.
+   *
+   * Why the gate expires the row itself instead of leaving it to the hourly sweep: the row is still
+   * *open* as far as the partial unique index is concerned, so while it sits there the identical
+   * proposal cannot be recorded again. Without this the model would be told to propose the action
+   * again and then be unable to, for ever.
+   */
+  async expireApproved(id: string): Promise<boolean> {
+    const { count } = await this.db.chatAction.updateMany({
+      where: { id, status: 'approved' satisfies ChatActionStatus },
+      data: { status: 'expired' satisfies ChatActionStatus },
+    });
+    return count === 1;
+  }
+
   async markExecuted(id: string, ok: boolean, errorCode?: string | null, durationMs?: number | null): Promise<void> {
     await this.db.chatAction.updateMany({
       where: { id },
@@ -200,12 +219,26 @@ export class ChatActionsRepository {
     return rows.reverse().map(mapAction);
   }
 
-  /** Moves stale pending rows to `expired`; approved-but-not-yet-executed rows are left alone.
-   * Returns the number of rows changed. */
+  /**
+   * Moves stale open rows to `expired`, whichever way they are open, and returns how many changed.
+   *
+   * Both halves of "open" age, and they age from the clock that means something for each: a question
+   * nobody answered from when it was *asked* (`created_at`), an approval nobody consumed from when it
+   * was *given* (`decided_at`) — the same instant the gate measures an approval against, so the sweep
+   * and the gate can never disagree about which approvals are still good. An approval that is merely
+   * slow to be re-injected is well inside the window; one still sitting here a day later is one no run
+   * ever came back for, and leaving it would let a byte-identical proposal claim it weeks afterwards
+   * without anybody being asked again.
+   */
   async expireOlderThan(cutoff: Date): Promise<number> {
     const { count } = await this.db.chatAction.updateMany({
-      where: { status: 'pending', createdAt: { lt: cutoff } },
-      data: { status: 'expired' },
+      where: {
+        OR: [
+          { status: 'pending' satisfies ChatActionStatus, createdAt: { lt: cutoff } },
+          { status: 'approved' satisfies ChatActionStatus, decidedAt: { lt: cutoff } },
+        ],
+      },
+      data: { status: 'expired' satisfies ChatActionStatus },
     });
     return count;
   }
