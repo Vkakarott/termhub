@@ -19,12 +19,12 @@ const MARKDOWN_TAGS = ['p', 'br', 'strong', 'em', 'del', 'code', 'pre', 'a', 'ul
 
 /**
  * What `marked` gives those elements: `href`/`title` on a link, `align` on a GFM table cell, `class`
- * on a fence's `code` (`language-bash`). None of them can make the browser fetch anything, and
+ * on a fence's `code` (`language-bash`), `start` on an ordered list that does not begin at 1. None of them can make the browser fetch anything, and
  * DOMPurify still sanitises `href`'s scheme. `.prose-termhub` styles by element and relies on neither
  * `class` nor `align` today — its `th`/`td` rule already overrides the `align` hint — so those two are
  * here to keep Markdown's own output intact, not because a style needs them.
  */
-const MARKDOWN_ATTR = ['href', 'title', 'align', 'class'];
+const MARKDOWN_ATTR = ['href', 'title', 'align', 'class', 'start'];
 
 export interface RenderMarkdownOptions {
   /**

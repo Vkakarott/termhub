@@ -88,7 +88,7 @@ describe('renderMarkdown', () => {
   it('keeps everything Markdown legitimately produces: an allowlist that ate a table would be worse', () => {
     const el = parse(
       renderMarkdown(
-        '# Título\n\n## Dois\n\ntexto **forte** *ênfase* ~~riscado~~ `inline` [link](https://exemplo "t")\n\n- um\n  - aninhado\n\n1. primeiro\n\n> citação\n\n---\n\n| a | b |\n| :- | -: |\n| 1 | 2 |\n\n```bash\nnpm test\n```\n',
+        '# Título\n\n## Dois\n\ntexto **forte** *ênfase* ~~riscado~~ `inline` [link](https://exemplo "t")\n\n- um\n  - aninhado\n\n1. primeiro\n\nentre\n\n3. terceiro\n\n> citação\n\n---\n\n| a | b |\n| :- | -: |\n| 1 | 2 |\n\n```bash\nnpm test\n```\n',
         { markdownOnly: true },
       ),
     );
@@ -103,6 +103,8 @@ describe('renderMarkdown', () => {
     expect(anchor?.getAttribute('title')).toBe('t');
     expect(el.querySelector('ul > li > ul > li')?.textContent).toBe('aninhado'); // nested lists survive
     expect(el.querySelector('ol > li')?.textContent).toBe('primeiro');
+    // `start` is in the allowlist: a list that begins at 3 must not silently renumber itself to 1.
+    expect(el.querySelectorAll('ol')[1]?.getAttribute('start')).toBe('3');
     expect(el.querySelector('blockquote p')?.textContent).toBe('citação');
     expect(el.querySelector('hr')).not.toBeNull();
     expect(el.querySelectorAll('table thead th')).toHaveLength(2);
