@@ -18,6 +18,11 @@ fallback (§4.2 — step 1 always uses the primary config dir), the permission g
 confirmations (§5), the vector memory and learning (§6), *modo revisão* and the per-conversation
 model picker in the UI (§4.3, §6 — the columns exist, the screen does not expose them yet).
 
+Also deferred: the **40 tool calls per turn** cap of §8. The installed CLI (2.1.278) has no turn or
+tool-call cap to pass — `claude --help` offers `--max-budget-usd`, nothing counting turns — and the
+runner will not invent a flag, so a runaway loop is bounded in step 1 only by the token's 120
+calls/minute and the 10-minute per-message timeout.
+
 ## Global Constraints
 
 - Commit messages, PR titles/descriptions, code comments, identifiers and repo docs in **English**; **UI copy in pt-BR** (project language) — `CLAUDE.md`.
