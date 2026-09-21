@@ -47,6 +47,21 @@ describe('buildModel', () => {
     expect(desks.map((d) => d.pose)).toEqual(['type', 'sit']);
   });
 
+  it('takes only the live state from the monitor tab, keeping the snapshot identity fields and ordering', () => {
+    const snapshotTab = tab('a', { name: 'new name', position: 1, kind: 'terminal' });
+    const other = tab('b', { name: 'b', position: 0 });
+    const live = (id: string) =>
+      id === 'a'
+        ? ({ ...tab('a'), name: 'old name', position: 0, kind: 'simulator', state: 'working', state_at: '2026-09-21T10:00:00.000Z' } as Tab)
+        : undefined;
+    const desks = buildModel(snap([room('p1', [snapshotTab, other])]), live).rooms[0].desks;
+    expect(desks.map((d) => d.id)).toEqual(['b', 'a']);
+    const desk = desks[1];
+    expect(desk.name).toBe('new name');
+    expect(desk.kind).toBe('person');
+    expect(desk.pose).toBe('type');
+  });
+
   it('shows an empty chair for a dead terminal tab and a phone for a simulator tab', () => {
     const desks = buildModel(snap([room('p1', [tab('dead', { alive: false, state: 'working', state_at: 'x' }), tab('sim', { kind: 'simulator', alive: true })])]), none).rooms[0].desks;
     expect([desks[0].pose, desks[0].marker, desks[0].screenOn]).toEqual(['empty', null, false]);

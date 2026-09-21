@@ -64,7 +64,9 @@ export function lookOf(id: string, variants: number): number {
 }
 
 function deskOf(tab: OfficeTab, live: Tab | undefined): DeskModel {
-  const t: OfficeTab = live ? { ...tab, ...live, alive: tab.alive, progress: tab.progress } : tab;
+  const t: OfficeTab = live
+    ? { ...tab, state: live.state, state_text: live.state_text, state_tool: live.state_tool, state_at: live.state_at, state_seen_at: live.state_seen_at }
+    : tab;
   const base = { id: t.id, projectId: t.project_id, name: t.name, label: truncateLabel(t.name, DESK_LABEL_MAX), look: lookOf(t.id, LOOK_VARIANTS), progress: t.progress ? { done: t.progress.done, total: t.progress.total, title: t.progress.title } : null };
   if (t.kind === 'simulator') return { ...base, kind: 'phone', pose: 'empty', marker: null, dimmed: false, screenOn: t.alive, state: null };
   if (!t.alive) return { ...base, kind: 'person', pose: 'empty', marker: null, dimmed: false, screenOn: false, state: t.state };
