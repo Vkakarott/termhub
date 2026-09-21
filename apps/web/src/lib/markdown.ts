@@ -15,7 +15,9 @@ marked.setOptions({ gfm: true, breaks: true });
  * GFM task list renders its checkbox, so on this path `- [ ] tarefa` reads as a plain bullet. That is
  * the price, and it is paid on the chat path only.
  */
-const MARKDOWN_TAGS = ['p', 'br', 'strong', 'em', 'del', 'code', 'pre', 'a', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
+/* Exported for one assertion in markdown.test.ts: `code-blocks.ts` re-parses this output, which is
+ * only safe while nothing here parses by foreign-content or raw-text rules. See its header comment. */
+export const MARKDOWN_TAGS = ['p', 'br', 'strong', 'em', 'del', 'code', 'pre', 'a', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'];
 
 /**
  * What `marked` gives those elements: `href`/`title` on a link, `align` on a GFM table cell, `class`

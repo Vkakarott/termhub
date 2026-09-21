@@ -1,6 +1,75 @@
 import { memo, useMemo } from 'react';
+import type { MouseEvent } from 'react';
+import { decorateCodeBlocks } from '../../lib/code-blocks';
 import { renderMarkdown } from '../../lib/markdown';
 import type { ChatMessage } from '../../lib/types';
+
+const COPY_FEEDBACK_MS = 1500;
+
+/** The two things a copy attempt can end as, in the words the block shows and the ones it announces. */
+const COPY_OUTCOME = {
+  copied: { label: 'copiado', announced: 'Código copiado', name: 'Código copiado' },
+  failed: { label: 'falhou', announced: 'Não foi possível copiar o código', name: 'Não foi possível copiar' },
+} as const;
+
+/**
+ * The one delegated handler for every copy button a message's decorated HTML may contain — there is
+ * no React node per block, since the blocks come from an HTML string. `event.target` is whatever the
+ * click actually landed on inside the button (its label span, most likely), so this walks up to the
+ * element `decorateCodeBlocks` marked with `data-copy`.
+ *
+ * Every way this can fail ends in the same visible "falhou": a missing `navigator.clipboard` (an
+ * insecure context, an older browser), a `writeText` that rejects (Firefox without the permission, a
+ * document that is not focused), and a `writeText` that is not a promise at all, which used to throw
+ * out of this handler on `.then`. Copying the block is the whole point of the button — a tap that
+ * silently does nothing, again and again, is the one outcome it must never have.
+ */
+function handleCopyClick(event: MouseEvent<HTMLDivElement>): void {
+  const target = event.target as HTMLElement;
+  const button = target.closest('[data-copy]') as HTMLElement | null;
+  if (!button) return;
+
+  const pre = button.closest('figure')?.querySelector('pre');
+  // `<code>`'s `textContent` for a fenced block always carries the fence's own trailing newline (see
+  // markdown.test.ts) — that is a serialiser artefact, not part of what the user typed, so it is
+  // trimmed before anything reaches the clipboard.
+  const text = (pre?.textContent ?? '').replace(/\n$/, '');
+
+  try {
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      flashCopy(button, COPY_OUTCOME.failed);
+      return;
+    }
+    // `Promise.resolve` so a `writeText` that returns undefined (or anything else) is handled here
+    // instead of throwing on `.then`.
+    void Promise.resolve(clipboard.writeText(text)).then(
+      () => flashCopy(button, COPY_OUTCOME.copied),
+      () => flashCopy(button, COPY_OUTCOME.failed),
+    );
+  } catch {
+    // `writeText` threw synchronously, or reading `navigator.clipboard` itself did.
+    flashCopy(button, COPY_OUTCOME.failed);
+  }
+}
+
+/** Transient, DOM-only feedback on the button that was clicked — there is no React state to hold it,
+ * since the button is not a React node. The outcome also goes into the block's own live region, which
+ * `decorateCodeBlocks` mounted with the block. Reverts on its own after `COPY_FEEDBACK_MS`. */
+function flashCopy(button: HTMLElement, outcome: (typeof COPY_OUTCOME)[keyof typeof COPY_OUTCOME]): void {
+  const live = button.closest('figure')?.querySelector('[data-copy-live]') ?? null;
+  if (live) live.textContent = outcome.announced;
+
+  const label = button.querySelector('[data-copy-label]');
+  const original = label?.textContent ?? null;
+  if (label) label.textContent = outcome.label;
+  button.setAttribute('aria-label', outcome.name);
+  window.setTimeout(() => {
+    if (live) live.textContent = '';
+    if (label) label.textContent = original;
+    button.setAttribute('aria-label', 'Copiar código');
+  }, COPY_FEEDBACK_MS);
+}
 
 export interface ChatTurnProps {
   message: ChatMessage;
@@ -30,8 +99,15 @@ export interface ChatTurnProps {
 export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, waiting, failed }: ChatTurnProps) {
   const body = message.role === 'user' ? '' : message.text || streaming || (waiting ? 'pensando…' : '');
   // Keyed on the body alone: the same text always sanitises to the same HTML, so a delta only ever
-  // re-parses the row it lands in.
-  const html = useMemo(() => (body ? renderMarkdown(body, { markdownOnly: true }) : ''), [body]);
+  // re-parses the row it lands in. `decorateCodeBlocks` runs inside the same memo rather than a
+  // second pass elsewhere — it, too, would otherwise re-run on every streamed delta.
+  const html = useMemo(() => {
+    if (!body) return '';
+    const rendered = renderMarkdown(body, { markdownOnly: true });
+    // No fence in this answer, nothing to decorate: every delta of a prose-only reply would otherwise
+    // pay for a full DOMParser round trip that cannot change anything.
+    return rendered.includes('<pre') ? decorateCodeBlocks(rendered) : rendered;
+  }, [body]);
 
   if (message.role === 'user') {
     return (
@@ -55,7 +131,16 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
        * path quoted off a terminal; `overflow-x-auto` contains what cannot wrap, since a six-column
        * GFM table's min-content width does not shrink, and gives that scroll to the answer instead of
        * to the thread. `pre` keeps its own horizontal scroll either way. */}
-      {body && <div className="prose-termhub overflow-x-auto break-words" dangerouslySetInnerHTML={{ __html: html }} />}
+      {body && (
+        <div
+          className="prose-termhub overflow-x-auto break-words"
+          // The one delegated handler for every copy button this row's HTML may contain (there can be
+          // several, one per fence) — a per-block React handler is impossible anyway, since the blocks
+          // come from an HTML string, not from JSX.
+          onClick={handleCopyClick}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
       {(tools ?? []).length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {(tools ?? []).map((a, i) => (

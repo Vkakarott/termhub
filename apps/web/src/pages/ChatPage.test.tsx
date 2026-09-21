@@ -547,7 +547,13 @@ it('fetches nothing from an answer: no element in the model text can make the br
   render(<ChatPage />);
 
   await screen.findByText(/olha isso/);
-  expect(document.querySelectorAll('img, video, input, iframe, svg, image')).toHaveLength(0);
+  // The whole document for everything this page never draws itself — the error paragraphs today, a
+  // streaming preview or a conversation title tomorrow, all outside the thread and all able to fetch.
+  expect(document.querySelectorAll('img, video, input, iframe, image')).toHaveLength(0);
+  // `svg` alone is scoped to the thread, which is where the model's text lands: the page's own chrome
+  // legitimately draws inline SVG (the composer's one send/mic glyph), and that is not model markup.
+  const thread = screen.getByRole('list', { name: 'Conversa' });
+  expect(thread.querySelectorAll('svg')).toHaveLength(0);
 });
 
 it('puts a card between the two messages it was proposed between', async () => {
@@ -589,7 +595,10 @@ it('cannot be widened past the viewport by an unbreakable token in an answer', a
   const thread = await screen.findByRole('list', { name: 'Conversa' });
   expect(thread.className).toContain('min-w-0');
   expect(thread.parentElement?.className).toContain('min-w-0');
-  expect(screen.getByPlaceholderText(/pergunte/i).className).toContain('min-w-0');
+  // Nothing is asserted about the composer any more: its textarea stopped being the flex item of a
+  // row and is now a block filling the rounded box, and that box is a stretched item of a *column*
+  // flex container, where the automatic minimum size acts on the vertical axis. So the composer's own
+  // horizontal guard is not observable in jsdom — only a real device shows it.
 });
 
 it('is one single thread, not a message list with a card list glued below it', async () => {

@@ -39,3 +39,18 @@ body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, 
 .prose-termhub th, .prose-termhub td { @apply border border-line px-2 py-1 text-left; }
 .prose-termhub hr { @apply my-4 border-line; }
 .prose-termhub input[type="checkbox"] { @apply mr-1 align-middle; }
+
+/* Code block header + copy button (chat only: decorateCodeBlocks wraps a fence in this figure; the
+   notes preview never calls it, so its <pre> keeps the plain rule above untouched). The figure takes
+   over the border/radius/background `.prose-termhub pre` already gives a fence, so the header sits on
+   top of that block instead of stacking a second one below it. */
+.prose-termhub .code-block { @apply my-2 overflow-hidden rounded-md border border-line bg-bg-2; }
+.prose-termhub .code-block pre { @apply my-0 rounded-none border-0 bg-transparent; }
+.prose-termhub .code-block__header { @apply flex items-center justify-between gap-2 border-b border-line px-3 py-1.5; }
+.prose-termhub .code-block__language { @apply font-mono text-[11px] uppercase tracking-wide text-fg-dim; }
+/* No permanent dimming and no `opacity-60`: the full-strength state was reached only through `hover`
+   or `focus-visible`, which a touch screen never produces, so a phone — the device this whole feature
+   was asked for — got the faint state for ever, at about 2.1:1 against the background. `fg-muted`
+   keeps it quiet next to the code without making it unreadable, and the box is at least 24x24 CSS px
+   (WCAG 2.5.8) so a thumb can actually land on it. */
+.prose-termhub .code-block__copy { @apply inline-flex min-h-[24px] items-center rounded px-2 py-1 font-mono text-[11px] uppercase tracking-wide text-fg-muted transition-colors hover:bg-bg-3 hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent; }

@@ -1,20 +1,68 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatComposer } from './ChatComposer';
 
 /** The composer is controlled, and its autosize only runs when the value it is given changes. */
-function Harness() {
+function Harness({ onSend = () => {} }: { onSend?: () => void } = {}) {
   const [value, setValue] = useState('');
-  return <ChatComposer value={value} onChange={setValue} onSend={() => {}} sending={false} />;
+  return <ChatComposer value={value} onChange={setValue} onSend={onSend} sending={false} />;
 }
 
 afterEach(() => {
   cleanup();
+  // enterSends() asks `matchMedia` on every keystroke; the coarse-pointer test installs one.
+  delete (window as { matchMedia?: unknown }).matchMedia;
 });
 
 describe('ChatComposer', () => {
+  it('asks for the message in the box itself', () => {
+    render(<Harness />);
+
+    expect(screen.getByPlaceholderText('Pergunte ou peça algo às suas máquinas')).toBeTruthy();
+  });
+
+  it('sends on Enter with a fine pointer, and writes a newline with Shift', () => {
+    const onSend = vi.fn();
+    // Installed, not assumed: with no `matchMedia` at all `enterSends()` returns true anyway, so this
+    // test used to pass without ever touching the branch its own name is about.
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = () => ({ matches: false }) as MediaQueryList;
+    render(<Harness onSend={onSend} />);
+    const box = screen.getByPlaceholderText(/pergunte/i);
+
+    fireEvent.change(box, { target: { value: 'oi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send on Enter with a coarse pointer, where Enter is how a line gets started', () => {
+    const onSend = vi.fn();
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>
+      ({ matches: query.includes('coarse') }) as MediaQueryList;
+    render(<Harness onSend={onSend} />);
+    const box = screen.getByPlaceholderText(/pergunte/i);
+
+    fireEvent.change(box, { target: { value: 'oi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('floors the autosize at one row, since jsdom measures nothing', () => {
+    render(<Harness />);
+    const box = screen.getByPlaceholderText(/pergunte/i) as HTMLTextAreaElement;
+
+    // `scrollHeight` is 0 under jsdom, so the measured row count is 0 or negative: the floor is the
+    // only thing standing between the box and an invalid `rows`.
+    fireEvent.change(box, { target: { value: 'linha' } });
+
+    expect(box.rows).toBe(1);
+  });
+
   it('restores the box\'s own scroll position across the autosize measurement', () => {
     render(<Harness />);
     const box = screen.getByPlaceholderText(/pergunte/i) as HTMLTextAreaElement;

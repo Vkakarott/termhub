@@ -20,6 +20,15 @@ function pickMimeType(): string | undefined {
 export const canRecordVoice = () =>
   typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && window.isSecureContext;
 
+/** User-facing message for a getUserMedia failure. */
+export function micErrorMessage(err: unknown): string {
+  const name = err instanceof Error ? err.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Permissão do microfone negada';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Nenhum microfone encontrado';
+  if (name === 'NotReadableError') return 'O microfone está em uso por outro app';
+  return 'Não foi possível acessar o microfone';
+}
+
 export interface Clip {
   audio: Blob;
   /** recorded length in seconds */

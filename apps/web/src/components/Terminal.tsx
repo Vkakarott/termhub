@@ -5,7 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalConnection, type ConnectionState } from '../lib/terminal-connection';
 import { api, ApiError } from '../lib/api';
-import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, resumeTranscription, transcribeClip, type Clip, type TranscribePhase } from '../lib/voice-recorder';
+import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, micErrorMessage, resumeTranscription, transcribeClip, type Clip, type TranscribePhase } from '../lib/voice-recorder';
 import { voiceStore } from '../lib/voice-store';
 
 interface Props {
@@ -85,15 +85,6 @@ function formatClock(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-/** User-facing message for a getUserMedia failure. */
-function micErrorMessage(err: unknown): string {
-  const name = err instanceof Error ? err.name : '';
-  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Permissão do microfone negada';
-  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Nenhum microfone encontrado';
-  if (name === 'NotReadableError') return 'O microfone está em uso por outro app';
-  return 'Não foi possível acessar o microfone';
 }
 
 function MicIcon({ size = 11 }: { size?: number }) {
