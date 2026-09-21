@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ChatConversation, ChatMessage } from '../db/repositories/chat.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
+import { describeActions } from '../db/repositories/chat-actions-view.js';
 import type { User } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
@@ -73,24 +74,41 @@ const targetDescription = (action: ChatAction): string => {
 };
 
 /**
- * The re-injection (spec §5, Task 5): a fixed pt-BR sentence the server composes — the tool name and
- * the target ids, never a tool result and never free-form argument text — so the model can re-issue
- * the exact call that was gated (an approval) or drop it for good (a denial), without being asked to
- * guess which of its proposals the user was answering or to read the user's own words for it.
+ * The re-injection (spec §5, Task 5): a fixed pt-BR sentence the server composes — the tool name, the
+ * target ids and, on a fresh session, the approved proposal itself; never a tool result — so the model
+ * can re-issue the exact call that was gated (an approval) or drop it for good (a denial), without
+ * being asked to guess which of its proposals the user was answering or to read the user's own words.
  *
  * When no CLI session is alive (Review Focus 2: an approval can arrive an hour later, or the CLI may
- * have dropped the session), `send` already starts a fresh run on its own — this only adds the line
- * that tells the user so in the chat, instead of a fresh run happening silently.
+ * have dropped the session), `send` already starts a fresh run on its own — this adds the line that
+ * tells the user so in the chat, instead of a fresh run happening silently, and the proposal the lost
+ * transcript would otherwise have carried (`approvedProposal`).
  */
-const injectionText = (action: ChatAction, freshSession: boolean): string => {
+const injectionText = (action: ChatAction, freshSession: boolean, summary?: string): string => {
   const target = targetDescription(action);
   const sessionNote = freshSession
     ? ' A sessão de trabalho anterior não está mais disponível, então esta é uma nova sessão, sem o histórico da conversa anterior.'
     : '';
-  return action.status === 'denied'
-    ? `O usuário recusou: ${action.tool} em ${target}.${sessionNote} Não faça essa ação: explique ao usuário o que ficou sem fazer e, se fizer sentido, proponha uma alternativa.`
-    : `O usuário autorizou: ${action.tool} em ${target}.${sessionNote} Siga com essa ação.`;
+  if (action.status === 'denied')
+    return `O usuário recusou: ${action.tool} em ${target}.${sessionNote} Não faça essa ação: explique ao usuário o que ficou sem fazer e, se fizer sentido, proponha uma alternativa.`;
+  return `O usuário autorizou: ${action.tool} em ${target}.${sessionNote}${freshSession ? approvedProposal(action, summary) : ''} Siga com essa ação.`;
 };
+
+/**
+ * What the user approved, spelled out — for a fresh session only. Without a transcript, "o usuário
+ * autorizou: send_input em aba t1" names the tool and the target and nothing else: the model cannot
+ * know *what text to type*, so it either asks again or invents different arguments, which hash to a
+ * different idempotency key and raise a second question for an action already authorised, while the
+ * approved row it never used lingers.
+ *
+ * Both halves are the user's own proposal, which §7.1 explicitly permits storing and showing, and
+ * neither is a tool result: `summary` is the very sentence the card the user answered showed them, and
+ * `args` is the call the concierge itself proposed — the exact bytes the gate hashed, so re-issuing
+ * them lands on the approved row instead of opening a new question. A resumed session gets none of
+ * this: its transcript already carries the context, and the shorter sentence is the better one there.
+ */
+const approvedProposal = (action: ChatAction, summary?: string): string =>
+  `${summary ? ` A ação autorizada foi: ${summary}.` : ''} Refaça exatamente esta chamada, com estes argumentos e nenhuma alteração: ${JSON.stringify(action.args)}.`;
 
 export class ChatService {
   /** One run per conversation: two `claude -p` processes on the same --session-id would race. */
@@ -123,9 +141,21 @@ export class ChatService {
    */
   async resumeAfterDecision(user: User, action: ChatAction): Promise<ChatMessage> {
     const conversation = await this.conversationFor(user);
-    return this.send(user, injectionText(action, conversation.cli_session_id === null), {
+    return this.send(user, await this.injectionFor(user, action, conversation.cli_session_id === null), {
       beforeRun: () => this.deps.repos.chatActions.markInjected(action.id),
     });
+  }
+
+  /**
+   * The sentence a decision is injected as. Only a fresh session pays for the enriched summary — three
+   * owner-scoped batched reads, resolved by the very function that built the card the user answered
+   * (`describeActions`, so a foreign id in the proposal still resolves to nothing here) — because only
+   * a fresh session has lost the transcript that would otherwise say what was approved.
+   */
+  private async injectionFor(user: User, action: ChatAction, freshSession: boolean): Promise<string> {
+    if (!freshSession || action.status === 'denied') return injectionText(action, freshSession);
+    const [card] = await describeActions(this.deps.repos, [action], user.id);
+    return injectionText(action, freshSession, card.summary);
   }
 
   /**
@@ -151,7 +181,7 @@ export class ChatService {
     const conversation = await this.conversationFor(user);
     const next = await this.deps.repos.chatActions.findNextToInject(conversation.id);
     if (!next) return;
-    await this.send(user, injectionText(next, conversation.cli_session_id === null), {
+    await this.send(user, await this.injectionFor(user, next, conversation.cli_session_id === null), {
       beforeRun: () => this.deps.repos.chatActions.markInjected(next.id),
     });
   }

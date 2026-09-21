@@ -68,10 +68,20 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       return open[0];
     }),
   };
+  // What `describeActions` resolves the approved proposal's sentence from, owner-scoped exactly like
+  // the real repositories: another user's id is simply absent from the batch.
+  const tab = { id: 't1', project_id: 'p1', name: 'Terminal 1' };
+  const project = { id: 'p1', name: 'app', machine_id: 'm1' };
+  const machine = { id: 'm1', name: 'jarvis' };
+  const ownedBy = <T extends { id: string }>(row: T) => vi.fn(async (ids: string[], ownerId: string) => (ownerId === user.id && ids.includes(row.id) ? [row] : []));
   const repos = {
     chat,
     apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) },
     chatActions,
+    tabs: { findByIdsForOwner: ownedBy(tab) },
+    tasks: { findByIdsForOwner: vi.fn(async () => []) },
+    projects: { findByIdsForOwner: ownedBy(project) },
+    machines: { findByIdsForOwner: ownedBy(machine) },
   } as unknown as Repositories;
   const runner: RunnerClient = {
     run: vi.fn(() => (typeof lines === 'function' ? lines() : (async function* () { for (const l of lines) yield l; })())),
@@ -315,6 +325,46 @@ it('resumeAfterDecision starts a fresh session and says so in the chat when no C
   expect(messages[0].text).toMatch(/nova sessão/i);
   expect(answer.text).toBe('ok');
   expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000002');
+});
+
+it('resumeAfterDecision spells out the approved proposal when the session is a fresh one', async () => {
+  // With no transcript, "o usuário autorizou: send_input em aba t1" tells the model nothing about what
+  // text to type: it would ask again, or invent different arguments — which hash to a different
+  // idempotency key and raise a second question for an action the user already authorised.
+  const { service, messages, repos } = build([delta('feito'), done()]);
+
+  await service.resumeAfterDecision(user, action());
+
+  expect(messages[0].text).toMatch(/nova sessão/i);
+  // The card's own sentence, resolved exactly as the card the user answered was, and the proposal's
+  // arguments verbatim — the user's own proposal (§7.1), never a tool result.
+  expect(messages[0].text).toContain('digitar `npm test` na aba Terminal 1 do projeto app, no jarvis');
+  expect(messages[0].text).toContain('{"tab_id":"t1","text":"npm test"}');
+  // Resolved through the owner-scoped batch, so a foreign id in the proposal never names anything.
+  expect(repos.tabs.findByIdsForOwner).toHaveBeenCalledWith(['t1'], 'u1');
+});
+
+it('resumeAfterDecision keeps the short sentence, and reads nothing extra, when the session is resumed', async () => {
+  const { service, conversation, messages, repos } = build([delta('feito'), done()]);
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+
+  await service.resumeAfterDecision(user, action());
+
+  // The transcript already carries what was proposed: repeating it would only be noise.
+  expect(messages[0].text).not.toContain('npm test');
+  expect(messages[0].text).not.toMatch(/nova sessão/i);
+  expect(repos.tabs.findByIdsForOwner).not.toHaveBeenCalled();
+});
+
+it('resumeAfterDecision never repeats the proposal for a denial, fresh session or not', async () => {
+  const { service, messages, repos } = build([delta('entendido'), done()]);
+
+  await service.resumeAfterDecision(user, action({ status: 'denied' }));
+
+  expect(messages[0].text).toMatch(/^O usuário recusou:/);
+  expect(messages[0].text).toMatch(/nova sessão/i);
+  expect(messages[0].text).not.toContain('npm test'); // nothing to re-issue: it must not be re-proposed
+  expect(repos.tabs.findByIdsForOwner).not.toHaveBeenCalled();
 });
 
 it('resumeAfterDecision answers busy when a run is already in flight, without marking the decision injected or typing anything', async () => {
