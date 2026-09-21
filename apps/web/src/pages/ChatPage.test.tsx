@@ -535,6 +535,18 @@ it('is one single thread, not a message list with a card list glued below it', a
   // …and the fixture does put a second, unnamed list on the page, so the assertion above is scoped
   // work and not a restatement of "there is only one list".
   expect(screen.getAllByRole('list').length).toBeGreaterThan(1);
+
+  // The two assertions above both survive a second, *unlabelled* list of cards glued below the
+  // thread — exactly the layout this test exists to forbid. So: every card is a row of the named
+  // thread itself, wherever else a list may appear on the page.
+  const thread = screen.getByRole('list', { name: 'Conversa' });
+  const cards = screen.getAllByRole('button', { name: /autorizar/i });
+  expect(cards).toHaveLength(1); // the fixture's one pending card really is on screen
+  for (const button of cards) {
+    const row = button.closest('li');
+    expect(row).not.toBeNull();
+    expect(row?.parentElement).toBe(thread);
+  }
 });
 
 it('renders a streamed delta as Markdown too, while it is still being written', async () => {

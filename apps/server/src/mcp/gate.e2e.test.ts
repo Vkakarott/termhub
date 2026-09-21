@@ -15,6 +15,8 @@ vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof impor
 
 const SECRET = 'thb_pat_' + 'A'.repeat(43);
 const CONVERSATION = 'c1';
+/** What `insertPending` stamps a new pending row with: a value nothing else in a run can produce. */
+const PENDING_CREATED_AT = '2020-05-05T05:05:05.050Z';
 const machine = { id: 'm1', name: 'jarvis', type: 'agent', os: 'linux', capabilities: ['tmux'], owner_id: 'u1' };
 const project = { id: 'p1', name: 'app', cwd: '/home/u/app', machine_id: 'm1', status: 'active', owner_id: 'u1' };
 
@@ -98,7 +100,11 @@ function fakeChatActions() {
         duration_ms: null,
         decided_by: null,
         decided_at: null,
-        created_at: new Date().toISOString(),
+        // Distinctive and fixed, never "now": the card's timestamp must be read off the row, and
+        // publishing `new Date().toISOString()` instead would be indistinguishable from that if this
+        // were the current time — the row and "now" land in the same millisecond in practically
+        // every run.
+        created_at: PENDING_CREATED_AT,
       };
       rows.push(row);
       return row;
