@@ -101,7 +101,13 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
   // Keyed on the body alone: the same text always sanitises to the same HTML, so a delta only ever
   // re-parses the row it lands in. `decorateCodeBlocks` runs inside the same memo rather than a
   // second pass elsewhere — it, too, would otherwise re-run on every streamed delta.
-  const html = useMemo(() => (body ? decorateCodeBlocks(renderMarkdown(body, { markdownOnly: true })) : ''), [body]);
+  const html = useMemo(() => {
+    if (!body) return '';
+    const rendered = renderMarkdown(body, { markdownOnly: true });
+    // No fence in this answer, nothing to decorate: every delta of a prose-only reply would otherwise
+    // pay for a full DOMParser round trip that cannot change anything.
+    return rendered.includes('<pre') ? decorateCodeBlocks(rendered) : rendered;
+  }, [body]);
 
   if (message.role === 'user') {
     return (

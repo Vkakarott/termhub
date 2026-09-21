@@ -15,11 +15,14 @@ const MAX_ROWS = 8;
 /**
  * Appends a transcription to whatever is already in the box.
  *
- * Whisper returns its own leading/trailing spaces, and a person who dictates twice in a row must
- * end up with a sentence they can read — so the clip is trimmed and a single space is inserted,
- * except when the box is empty (no leading space) or already ends in whitespace, where the
- * separator the person typed is kept exactly: a newline they wrote stays a newline. A clip that
- * trims away to nothing (silence, a stray tap) leaves the box untouched.
+ * Whisper returns its own leading/trailing spaces, so the clip is trimmed and a single space is
+ * inserted, except when the box is empty (no leading space) or already ends in whitespace, where the
+ * separator the person typed is kept exactly: a newline they wrote stays a newline. A clip that trims
+ * away to nothing (silence, a stray tap) leaves the box untouched.
+ *
+ * In this product a transcription can only ever arrive into an empty or whitespace-only box: with text
+ * in it the single button is the send arrow, so there is no microphone left to press. The joining
+ * branch is the guard for a future where the mic survives typed text, not a path anyone walks today.
  */
 function appendDictated(current: string, text: string): string {
   const clip = text.trim();
@@ -109,6 +112,10 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   const disabled = role === 'stop' ? false : role === 'send' ? !hasText || sending || busy : notReadyToDictate;
   /** The one condition sending obeys, so the keyboard can never send what the button would refuse. */
   const canSend = role === 'send' && !disabled;
+  // While the answer streams, the send button is disabled with nothing saying why — and dictation still
+  // invites more text into that box and puts the cursor back in it. One short line closes that loop,
+  // and only for the button that is actually refusing: an empty box is still a microphone.
+  const statusText = busy ? 'transcrevendo…' : sending && role === 'send' ? 'aguarde a resposta terminar' : '';
 
   return (
     // `env(safe-area-inset-bottom)` resolves to 0px in every browser today, because the app-wide
@@ -150,7 +157,7 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
               would otherwise hold open while empty. Deliberately not on the clock next door: a live
               region that ticks every second is worse than one that says nothing. */}
           <span role="status" className="text-xs text-fg-muted empty:-mr-2">
-            {busy ? 'transcrevendo…' : ''}
+            {statusText}
           </span>
           <button
             type="button"

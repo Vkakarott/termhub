@@ -4,6 +4,13 @@
 // answer's own fence info string. Everything this module writes into the DOM goes through DOM APIs
 // (`createElement`/`textContent`), never string concatenation, so even an unrestricted class value
 // could not reintroduce markup — `codeLanguage`'s charset allowlist is defence in depth on top of that.
+//
+// The parse/re-serialise round trip this does is only safe because that sanitiser's allowlist
+// (`MARKDOWN_TAGS` in markdown.ts) holds no foreign-content or raw-text element: no `svg`, `math`,
+// `template`, `noscript`, `style`, `textarea`, `title`. Inside any of those, HTML parses by different
+// rules than it serialises, so re-parsing sanitised output can turn inert text back into live markup
+// (mXSS) without this module writing anything. `markdown.test.ts` asserts their absence, so the day
+// someone allows `svg` for an inline diagram that fails loudly instead of quietly becoming a hole.
 
 const LANGUAGE_TOKEN = /^[a-z0-9+#-]{1,20}$/i;
 const FALLBACK_LABEL = 'código';

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { renderMarkdown } from './markdown';
+import { MARKDOWN_TAGS, renderMarkdown } from './markdown';
 
 // Parses HTML through the DOM instead of matching substrings, since a
 // substring check like `not.toContain('<script')` also passes for escaped
@@ -130,6 +130,17 @@ describe('renderMarkdown', () => {
     for (const options of [undefined, { markdownOnly: true }, { markdownOnly: false }]) {
       const anchor = parse(renderMarkdown('<a href="https://exemplo" target="_blank">x</a>', options)).querySelector('a');
       expect(anchor?.hasAttribute('target')).toBe(false);
+    }
+  });
+
+  it('allows no foreign-content or raw-text element, which is what makes the code-block round trip safe', () => {
+    // `decorateCodeBlocks` parses this output again and re-serialises it. Inside `svg`, `math`,
+    // `template`, `noscript`, `style`, `textarea` or `title`, HTML parses by different rules than it
+    // serialises, so that second parse can turn inert text into live markup (mXSS). The day one of
+    // them is allowed — `svg` for an inline diagram, say — this has to fail instead of the injection
+    // appearing silently in the chat.
+    for (const tag of ['svg', 'math', 'template', 'noscript', 'style', 'textarea', 'title']) {
+      expect(MARKDOWN_TAGS).not.toContain(tag);
     }
   });
 

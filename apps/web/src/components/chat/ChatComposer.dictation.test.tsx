@@ -212,6 +212,21 @@ describe('ChatComposer dictation', () => {
     }
   });
 
+  it('says why the send button is disabled while the answer is still streaming', () => {
+    renderComposer({ state: 'idle', value: 'oi', sending: true });
+
+    // Dictation keeps inviting text into a box whose button cannot be pressed; without a word about it
+    // the person is left tapping a dead arrow.
+    expect(primary(/enviar/i).disabled).toBe(true);
+    expect(liveRegions().map((r) => r.textContent)).toContain('aguarde a resposta terminar');
+    cleanup();
+
+    // Not said for a button that is not refusing anything: an empty box is still a microphone while
+    // the answer streams, and dictation is allowed there on purpose.
+    renderComposer({ state: 'idle', value: '', sending: true });
+    expect(liveRegions().map((r) => r.textContent)).toEqual(['', '', '']);
+  });
+
   it('lets Enter send only what the button would send: never while recording, never while transcribing', () => {
     installFinePointer();
     const press = () => fireEvent.keyDown(screen.getByPlaceholderText(/pergunte/i), { key: 'Enter' });

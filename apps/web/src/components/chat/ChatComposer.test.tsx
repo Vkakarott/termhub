@@ -25,6 +25,9 @@ describe('ChatComposer', () => {
 
   it('sends on Enter with a fine pointer, and writes a newline with Shift', () => {
     const onSend = vi.fn();
+    // Installed, not assumed: with no `matchMedia` at all `enterSends()` returns true anyway, so this
+    // test used to pass without ever touching the branch its own name is about.
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = () => ({ matches: false }) as MediaQueryList;
     render(<Harness onSend={onSend} />);
     const box = screen.getByPlaceholderText(/pergunte/i);
 

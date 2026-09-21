@@ -9,12 +9,21 @@ import type { ChatMessage } from '../../lib/types';
 const renderMarkdown = vi.hoisted(() => vi.fn((text: string) => `<p>${text}</p>`));
 vi.mock('../../lib/markdown', () => ({ renderMarkdown }));
 
+// Spied, not replaced: the code-block tests below need the real decoration. What the spy is for is
+// counting the calls, since an answer with no fence must not be parsed a second time at all.
+const decorateCodeBlocks = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/code-blocks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/code-blocks')>();
+  return { ...actual, decorateCodeBlocks: decorateCodeBlocks.mockImplementation(actual.decorateCodeBlocks) };
+});
+
 function answer(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return { id: 'm1', conversation_id: 'c1', role: 'assistant', text: 'feito', error_code: null, created_at: '2026-09-21T00:00:00.000Z', ...overrides };
 }
 
 beforeEach(() => {
   renderMarkdown.mockClear();
+  decorateCodeBlocks.mockClear();
 });
 
 afterEach(() => {
@@ -125,6 +134,30 @@ describe('ChatTurn', () => {
     const prose = container.querySelector('.prose-termhub');
     expect(prose?.classList.contains('break-words')).toBe(true);
     expect(prose?.classList.contains('overflow-x-auto')).toBe(true);
+  });
+
+  it('does not decorate an answer with no fence in it at all', () => {
+    render(
+      <ol>
+        <ChatTurn message={answer()} waiting={false} failed={false} />
+      </ol>,
+    );
+
+    // The rendered body is `<p>feito</p>`: there is no `<pre>` for the decoration to find, so it is
+    // not run. It would return the same HTML — this is about not paying for a DOMParser round trip on
+    // every delta of every prose-only answer.
+    expect(decorateCodeBlocks).not.toHaveBeenCalled();
+  });
+
+  it('does decorate an answer that has a fence', () => {
+    renderMarkdown.mockReturnValueOnce('<pre><code class="language-bash">npm test</code></pre>');
+    render(
+      <ol>
+        <ChatTurn message={answer()} waiting={false} failed={false} />
+      </ol>,
+    );
+
+    expect(decorateCodeBlocks).toHaveBeenCalledTimes(1);
   });
 
   it('never parses the user\'s own words as Markdown', () => {
