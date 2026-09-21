@@ -102,8 +102,14 @@ export class ChatRepository {
     return mapMessage(row);
   }
 
+  /**
+   * The newest `limit` messages, returned oldest-first. The window must be anchored at the end of
+   * the conversation, not at its start: taking the *oldest* rows means that past `limit` messages
+   * the payload never again contains the message the user just sent or its answer — the screen
+   * would freeze on ancient history with no error and no way out.
+   */
   async listMessages(conversationId: string, limit = 200): Promise<ChatMessage[]> {
-    const rows = await this.db.chatMessage.findMany({ where: { conversationId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit });
-    return rows.map(mapMessage);
+    const rows = await this.db.chatMessage.findMany({ where: { conversationId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit });
+    return rows.reverse().map(mapMessage);
   }
 }

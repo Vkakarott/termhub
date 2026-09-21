@@ -58,6 +58,39 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     expect(failed.text).toBe('comecei a olhar');
   });
 
+  it('returns the newest messages, in chronological order, when the conversation is longer than the limit', async () => {
+    // Regression: `asc` + `take` pinned the window to the *oldest* messages, so past the limit the
+    // user's own message and its answer were never in the payload again.
+    const longUserId = newId();
+    await db.user.create({ data: { id: longUserId, email: `${longUserId}@test.local`, name: 'test' } });
+    try {
+      const c = await repo.getOrCreateForUser(longUserId);
+      const base = Date.UTC(2026, 0, 1);
+      // Explicit, distinct timestamps: rows written in the same millisecond would leave the order
+      // to the (random) id tiebreak and make the assertion meaningless.
+      await db.chatMessage.createMany({
+        data: Array.from({ length: 205 }, (_, i) => ({
+          id: newId(),
+          conversationId: c.id,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          text: `#${i + 1}`,
+          createdAt: new Date(base + i * 1000),
+        })),
+      });
+
+      const page = await repo.listMessages(c.id);
+      expect(page).toHaveLength(200);
+      expect(page[0].text).toBe('#6'); // the 5 oldest fell off the window, not the 5 newest
+      expect(page.at(-1)!.text).toBe('#205');
+      expect(page.map((m) => m.text)).toEqual(Array.from({ length: 200 }, (_, i) => `#${i + 6}`));
+
+      const three = await repo.listMessages(c.id, 3);
+      expect(three.map((m) => m.text)).toEqual(['#203', '#204', '#205']);
+    } finally {
+      await db.user.delete({ where: { id: longUserId } }); // cascades the conversation and its messages
+    }
+  });
+
   it('never creates two conversations for the same user under a concurrent first load', async () => {
     const raceUserId = newId();
     await db.user.create({ data: { id: raceUserId, email: `${raceUserId}@test.local`, name: 'test' } });
