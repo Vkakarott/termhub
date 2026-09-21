@@ -88,8 +88,9 @@ describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
     expect(await ensure({ session, cwd: tmpdir() })).toEqual({ created: true });
 
     await sendText({ session, text: 'echo linha-um\necho linha-dois', enter: true, paste: true });
-    await new Promise((r) => setTimeout(r, 800));
-    const { text } = await capture({ session, lines: 50 });
+    // Polled, not slept: the second line is what the paste has to prove landed, and a fixed sleep
+    // before a single capture flakes on a loaded runner for reasons unrelated to the paste.
+    const text = await captureUntil(session, 'linha-dois');
     expect(text).toContain('linha-um');
     expect(text).toContain('linha-dois');
 
