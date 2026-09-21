@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChatActionCard } from '../components/chat/ChatActionCard';
+import { ChatComposer } from '../components/chat/ChatComposer';
+import { ChatTurn } from '../components/chat/ChatTurn';
 import { api, ApiError } from '../lib/api';
 import { useChatStream } from '../lib/chat';
+import { chatTimeline } from '../lib/chat-timeline';
+import { isNearBottom } from '../lib/chat-scroll';
 import type { ChatAction, ChatEvent, ChatMessage } from '../lib/types';
-
-/** How a decided action reads once there is nothing left to click. `pending` has its own buttons
- * instead of a label here. */
-const ACTION_STATUS_LABEL: Record<Exclude<ChatAction['status'], 'pending'>, string> = {
-  approved: 'Autorizado',
-  denied: 'Recusado',
-  expired: 'Expirou sem resposta',
-  executed: 'Executado',
-  failed: 'Falhou',
-};
 
 /** The concierge chat: one conversation per user, streamed live over /ws/chat and persisted over REST. */
 export function ChatPage() {
@@ -34,10 +29,18 @@ export function ChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Whether `GET /api/chat` has ever answered. Only the empty state reads it: without it, opening a
+   * long conversation shows "peça algo…" over an empty thread until the fetch resolves, and a fetch
+   * that fails leaves that line on screen for ever.
+   */
+  const [loaded, setLoaded] = useState(false);
+
   const load = useCallback(async () => {
     const { messages, actions } = await api.chat();
     setMessages(messages);
     setActions(actions ?? []);
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -56,7 +59,7 @@ export function ChatPage() {
         setActions((prev) =>
           prev.some((a) => a.id === e.action_id)
             ? prev
-            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary }],
+            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary, created_at: e.created_at }],
         );
       } else if (e.type === 'decision') {
         // Someone answered — possibly in another open tab. Keyed on the action id alone.
@@ -115,17 +118,43 @@ export function ChatPage() {
     return { deltas, actions, started };
   }, [events]);
 
+  /** Messages and gate cards as one chronological thread, so a card reads where it was proposed. */
+  const timeline = useMemo(() => chatTimeline(messages, actions), [messages, actions]);
+  /**
+   * The row a running answer would be written into: only the newest one can still be the live one.
+   * Keyed on the id, not on a position: the loop below walks the merged timeline, where an index
+   * counts cards too and so no longer means "the newest message" — turning this back into
+   * `index === messages.length - 1` would put "pensando…" on the wrong row.
+   */
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+
   const listRef = useRef<HTMLOListElement>(null);
-  // Keep the newest content in view: past one viewport the user would send a message and see
-  // nothing move. Runs on every new message and on every streamed delta.
+  /**
+   * Whether the thread should keep following new content. Starts `true` (a page just opened is at
+   * its own bottom) and is written only from the list's `onScroll` handler below and from `send`
+   * — never recomputed from the list's live geometry inside the effect that follows it: jsdom lays
+   * nothing out, so a never-scrolled list would read as "far from the bottom" and this would stop
+   * following new messages in every test, and in any real browser the moment the content is
+   * shorter than the viewport.
+   */
+  const stick = useRef(true);
+  // Keep the newest content in view, but only while the reader hasn't scrolled away to read back
+  // through history: past one viewport they would otherwise send a message, or watch an answer
+  // stream in, and see the page yank itself out from under them. Runs on every new message and on
+  // every streamed delta.
+  // Keyed on the timeline, not on `messages`: a card is a row of this thread too, so a change to
+  // `actions` alone — a `decide()` response, a queued note — must be able to move the scroll.
   useEffect(() => {
     const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
-  }, [messages, events]);
+    if (list && stick.current) list.scrollTop = list.scrollHeight;
+  }, [timeline, events]);
 
   const send = async () => {
     const value = text.trim();
     if (!value || sending) return;
+    // Sending is the reader's own way of saying "take me to the bottom" — the answer will stream
+    // in below whatever they typed.
+    stick.current = true;
     setSending(true);
     setError(null);
     // Cleared before the request, not after: the POST only resolves when the whole answer is
@@ -150,76 +179,40 @@ export function ChatPage() {
   };
 
   return (
-    <div className="flex h-full flex-col p-6">
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="text-lg font-semibold">Chat</h1>
-        {!connected && <span className="text-xs text-warn">Reconectando…</span>}
-      </div>
-      <ol ref={listRef} className="flex-1 space-y-3 overflow-y-auto">
-        {messages.map((m, index) => {
+    // Height and overflow belong to ChatLayout; this page owns the reading column: centred, capped
+    // at a comfortable measure and padded so a long answer survives a phone. The bottom safe area
+    // is the composer's own (`ChatComposer`), since it — not this column — is anchored to the edge.
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4">
+      {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
+      {/* A new conversation is otherwise a header, an empty thread and a box: one line saying what
+       * this screen is for. Deliberately just the one — no example prompts, no tour. */}
+      {loaded && messages.length === 0 && <p className="pt-6 text-center text-sm text-fg-dim">Peça algo às suas máquinas: o concierge lê os terminais e pede sua autorização antes de qualquer alteração.</p>}
+      {/* Named, because a rendered answer can contain Markdown lists of its own: this is how the
+       * thread is told apart from them — by screen readers, and by the tests. */}
+      <ol
+        ref={listRef}
+        aria-label="Conversa"
+        className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4"
+        onScroll={(e) => {
+          stick.current = isNearBottom(e.currentTarget);
+        }}
+      >
+        {timeline.map((entry) => {
+          if (entry.kind === 'action')
+            return <ChatActionCard key={entry.action.id} action={entry.action} deciding={decidingId === entry.action.id} note={queuedNotes[entry.action.id]} onDecide={(decision) => void decide(entry.action.id, decision)} />;
+          const m = entry.message;
           const streaming = live.deltas.get(m.id);
           // An assistant row with no text and no error is either the answer being written right now
           // or a leftover from a run that died with the process. Only the newest row can still be
           // the live one, and only while this page knows its run is under way.
           const empty = m.role === 'assistant' && !m.text && !streaming && !m.error_code;
-          const waiting = empty && index === messages.length - 1 && (sending || live.started.has(m.id));
-          const body = m.text || streaming || (waiting ? 'pensando…' : '');
-          return (
-            <li key={m.id} className={`max-w-2xl rounded-lg border border-line px-3 py-2 text-sm ${m.role === 'user' ? 'ml-auto bg-accent/10' : 'bg-bg-2'}`}>
-              <p className="whitespace-pre-wrap">{body}</p>
-              {(live.actions.get(m.id) ?? []).map((a, i) => (
-                <span key={i} className="mr-1 mt-1 inline-block rounded bg-bg-4 px-1.5 py-0.5 text-[10px] text-fg-dim">
-                  {a.tool}
-                </span>
-              ))}
-              {(m.error_code || (empty && !waiting)) && <p className="mt-1 text-xs text-danger">A resposta não terminou — tente de novo.</p>}
-            </li>
-          );
+          const waiting = empty && m.id === lastMessageId && (sending || live.started.has(m.id));
+          return <ChatTurn key={m.id} message={m} streaming={streaming} tools={live.actions.get(m.id)} waiting={waiting} failed={Boolean(m.error_code) || (empty && !waiting)} />;
         })}
       </ol>
-      {actions.length > 0 && (
-        <ul className="mt-3 space-y-2">
-          {actions.map((a) => (
-            <li key={a.id} className="rounded-lg border border-line bg-bg-2 px-3 py-2 text-sm">
-              {/* Plain text only — never HTML: this sentence can carry a command the model read off a real terminal screen. */}
-              <p className="whitespace-pre-wrap">{a.summary}</p>
-              {a.status === 'pending' ? (
-                <div className="mt-1 flex gap-2">
-                  <button type="button" className="btn-primary" disabled={decidingId === a.id} onClick={() => void decide(a.id, 'approve')}>
-                    Autorizar
-                  </button>
-                  <button type="button" className="btn-danger" disabled={decidingId === a.id} onClick={() => void decide(a.id, 'deny')}>
-                    Recusar
-                  </button>
-                </div>
-              ) : (
-                <p className="mt-1 text-xs text-fg-dim">{ACTION_STATUS_LABEL[a.status]}</p>
-              )}
-              {queuedNotes[a.id] && <p className="mt-1 text-xs text-fg-dim">{queuedNotes[a.id]}</p>}
-            </li>
-          ))}
-        </ul>
-      )}
-      {actionError && <p className="mt-2 text-sm text-danger">{actionError}</p>}
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
-      <div className="mt-3 flex items-end gap-2">
-        <textarea
-          className="flex-1 resize-none rounded-lg border border-line bg-bg-2 px-3 py-2 text-sm"
-          rows={2}
-          value={text}
-          placeholder="Pergunte ou peça algo às suas máquinas"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <button type="button" className="btn-primary" onClick={() => void send()} disabled={sending}>
-          Enviar
-        </button>
-      </div>
+      {actionError && <p className="mb-2 text-sm text-danger">{actionError}</p>}
+      {error && <p className="mb-2 text-sm text-danger">{error}</p>}
+      <ChatComposer value={text} onChange={setText} onSend={() => void send()} sending={sending} />
     </div>
   );
 }

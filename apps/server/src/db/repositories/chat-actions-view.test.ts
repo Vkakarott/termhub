@@ -59,6 +59,15 @@ it('reads like a sentence about the real world: the command, the tab, the projec
   expect(card.status).toBe('pending');
 });
 
+// A card cannot be placed in a chronological thread without its own timestamp. Asserting the exact
+// value the row was given (not just "a string") catches a card built from `new Date()`, which would
+// pass a shape check yet silently reorder the thread.
+it('carries the row\'s created_at unchanged', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ created_at: '2020-01-02T03:04:05.000Z' })], OWNER);
+  expect(card.created_at).toBe('2020-01-02T03:04:05.000Z');
+});
+
 it('resolves the project and machine through the tab when the row itself only carries a tab_id', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ tool: 'run_command', args: { tab_id: 't1', command: 'ls -la' }, tab_id: 't1' })], OWNER);

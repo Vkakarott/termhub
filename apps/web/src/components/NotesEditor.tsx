@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import { api, ApiError } from '../lib/api';
+import { renderMarkdown } from '../lib/markdown';
 
 interface Props {
   projectId: string;
@@ -9,8 +8,6 @@ interface Props {
 
 type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 const DEBOUNCE_MS = 800;
-
-marked.setOptions({ gfm: true, breaks: true });
 
 export function NotesEditor({ projectId }: Props) {
   const [content, setContent] = useState<string | null>(null);
@@ -93,7 +90,7 @@ export function NotesEditor({ projectId }: Props) {
 
   const html = useMemo(() => {
     if (!content) return '';
-    return DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
+    return renderMarkdown(content);
   }, [content]);
 
   if (content === null) return <div className="flex h-full items-center justify-center text-sm text-fg-dim">Carregando notas…</div>;
