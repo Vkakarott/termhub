@@ -92,9 +92,9 @@ export function buildModel(snapshot: OfficeSnapshot, liveTab: (tabId: string) =>
   return { rooms, needsYou: rooms.reduce((n, r) => n + r.needsYou, 0) };
 }
 
-/** True when the monitor knows a tab of this machine that the snapshot lacks: time to re-read it. */
-export function missingFromSnapshot(snapshot: OfficeSnapshot | null, monitorTabIds: string[], machineProjectIds: Set<string>, projectOf: (tabId: string) => string | undefined): boolean {
-  if (!snapshot) return false;
+/** Ids of this machine's tabs that the monitor knows about and the snapshot doesn't yet: time to re-read it. */
+export function missingTabIds(snapshot: OfficeSnapshot | null, monitorTabIds: string[], machineProjectIds: Set<string>, projectOf: (tabId: string) => string | undefined): string[] {
+  if (!snapshot) return [];
   const known = new Set(snapshot.rooms.flatMap((r) => r.tabs.map((t) => t.id)));
-  return monitorTabIds.some((id) => !known.has(id) && machineProjectIds.has(projectOf(id) ?? ''));
+  return monitorTabIds.filter((id) => !known.has(id) && machineProjectIds.has(projectOf(id) ?? ''));
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project, Tab } from '../lib/types';
-import { buildModel, lookOf, missingFromSnapshot, truncateLabel } from './model';
+import { buildModel, lookOf, missingTabIds, truncateLabel } from './model';
 
 const tab = (id: string, over: Partial<OfficeTab> = {}): OfficeTab =>
   ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, alive: true, progress: null, ...over }) as OfficeTab;
@@ -118,15 +118,17 @@ describe('lookOf', () => {
   });
 });
 
-describe('missingFromSnapshot', () => {
+describe('missingTabIds', () => {
   const s = snap([room('p1', [tab('a')])]);
   const projects = new Set(['p1']);
   const projectOf = (id: string) => ({ a: 'p1', b: 'p1', other: 'p9' })[id];
-  it('is true when the monitor knows a tab of this machine the snapshot lacks', () => {
-    expect(missingFromSnapshot(s, ['a', 'b'], projects, projectOf)).toBe(true);
+  it('returns the ids of this machine that the monitor knows and the snapshot lacks', () => {
+    expect(missingTabIds(s, ['a', 'b'], projects, projectOf)).toEqual(['b']);
   });
-  it('is false for tabs of other machines, for known tabs, and before the first snapshot', () => {
-    expect(missingFromSnapshot(s, ['a', 'other'], projects, projectOf)).toBe(false);
-    expect(missingFromSnapshot(null, ['b'], projects, projectOf)).toBe(false);
+  it('leaves out tabs of other machines and tabs the snapshot already knows', () => {
+    expect(missingTabIds(s, ['a', 'other'], projects, projectOf)).toEqual([]);
+  });
+  it('returns [] before the first snapshot', () => {
+    expect(missingTabIds(null, ['b'], projects, projectOf)).toEqual([]);
   });
 });

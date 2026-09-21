@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
-import { buildModel, missingFromSnapshot } from '../office/model';
+import { buildModel, missingTabIds } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import { useOfficeSnapshot } from '../office/useOfficeSnapshot';
 
@@ -18,50 +18,67 @@ export function OfficePage() {
   const { items, needsYou, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
   const { snapshot, error, reload } = useOfficeSnapshot(machineId ?? null);
-  const hostRef = useRef<HTMLDivElement>(null);
+  // a callback ref, not useRef: the host <div> is absent on the first render (loading/no-machines/
+  // permission branches return early below), and a ref alone would never re-trigger the mount effect
+  // once it finally renders — which left the scene blank on a direct load or reload of the URL.
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
   const sceneRef = useRef<OfficeScene | null>(null);
   const room = params.get('room');
   const autoDrilled = useRef(false);
   const [failed, setFailed] = useState(false);
+  // ids that already triggered a re-read for the current machine, so a permanently-missing tab
+  // (e.g. one in an archived project the snapshot never lists) can't fire a GET on every render
+  const notifiedMissing = useRef<{ machineId: string | undefined; ids: Set<string> }>({ machineId: undefined, ids: new Set() });
 
-  const setRoom = (id: string | null, replace = false) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (id) next.set('room', id);
-        else next.delete('room');
-        return next;
-      },
-      { replace },
-    );
-  const setRoomRef = useRef(setRoom);
-  setRoomRef.current = setRoom;
+  const setRoom = useCallback(
+    (id: string | null, replace = false) =>
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id) next.set('room', id);
+          else next.delete('room');
+          return next;
+        },
+        { replace },
+      ),
+    [setParams],
+  );
 
+  // tabState reads a ref (lib/monitor.tsx), so it never changes identity; `items` is what actually
+  // changes on a live push — keep it as a dep, or the model stops updating on monitor pushes.
   const model = useMemo(() => (snapshot ? buildModel(snapshot, tabState) : null), [snapshot, tabState, items]);
 
-  // a tab opened since the snapshot: re-read it
+  // a tab opened since the snapshot: re-read it, but only once per newly-missing id, so a tab the
+  // server never puts in the snapshot (e.g. one in an archived project) can't loop GET /office forever
   useEffect(() => {
-    const mine = new Set(projects.filter((p) => p.machine_id === machineId).map((p) => p.id));
+    const mine = new Set(projects.filter((p) => p.machine_id === machineId && p.status !== 'archived').map((p) => p.id));
     const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
-    if (missingFromSnapshot(snapshot, items.map((i) => i.tab.id), mine, projectOf)) reload();
+    const missing = missingTabIds(snapshot, items.map((i) => i.tab.id), mine, projectOf);
+    if (notifiedMissing.current.machineId !== machineId) notifiedMissing.current = { machineId, ids: new Set() };
+    const grew = missing.some((id) => !notifiedMissing.current.ids.has(id));
+    if (grew) {
+      missing.forEach((id) => notifiedMissing.current.ids.add(id));
+      reload();
+    }
   }, [items, snapshot, projects, machineId, reload]);
 
   useEffect(() => {
-    if (!hostRef.current) return;
+    if (!host) return;
+    setFailed(false);
     const scene = new OfficeScene({
       onPickDesk: (tabId, projectId) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
-      onPickRoom: (id) => setRoomRef.current(id),
+      onPickRoom: (id) => setRoom(id),
       onPickSign: (id) => navigate(`/projects/${id}`),
-      onLeaveRoom: () => setRoomRef.current(null),
+      onLeaveRoom: () => setRoom(null),
     });
     sceneRef.current = scene;
     // Pixi falls back from WebGL to canvas by itself; this only fires when neither could start
-    scene.mount(hostRef.current).catch(() => setFailed(true));
+    scene.mount(host).catch(() => setFailed(true));
     return () => {
       scene.destroy();
       sceneRef.current = null;
     };
-  }, [navigate, machineId]);
+  }, [host, navigate, machineId, setRoom]);
 
   useEffect(() => {
     if (model) sceneRef.current?.setModel(model);
@@ -72,8 +89,8 @@ export function OfficePage() {
     if (!model || autoDrilled.current) return;
     autoDrilled.current = true;
     const withDesks = model.rooms.filter((r) => r.desks.length > 0);
-    if (!room && withDesks.length === 1) setRoomRef.current(withDesks[0].id, true);
-  }, [model, room]);
+    if (!room && withDesks.length === 1) setRoom(withDesks[0].id, true);
+  }, [model, room, setRoom]);
   useEffect(() => {
     autoDrilled.current = false;
   }, [machineId]);
@@ -88,10 +105,11 @@ export function OfficePage() {
   // Esc leaves the room first, then focus mode; F toggles focus mode
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return; // a dialog already handled it — don't also kick out of the room
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
       if (e.key === 'Escape') {
-        if (room) setRoomRef.current(null);
+        if (room) setRoom(null);
         else if (focus) setFocus(false);
       } else if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setFocus(!focus);
@@ -99,7 +117,7 @@ export function OfficePage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [room, focus, setFocus]);
+  }, [room, focus, setFocus, setRoom]);
 
   if (!can('projects', 'read') || !can('terminals', 'read')) return <Navigate to="/" replace />;
   if (loading) return <Message>Carregando…</Message>;
@@ -148,7 +166,7 @@ export function OfficePage() {
         </div>
       )}
       <div className="relative min-h-0 flex-1">
-        <div ref={hostRef} className={`absolute inset-0 overflow-hidden ${online ? '' : 'opacity-60'}`} />
+        <div ref={setHost} className={`absolute inset-0 overflow-hidden ${online ? '' : 'opacity-60'}`} />
         {focus && (
           <button className="absolute right-3 top-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted hover:text-fg" onClick={() => setFocus(false)}>
             sair do foco (Esc)
