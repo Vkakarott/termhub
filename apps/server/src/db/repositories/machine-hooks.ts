@@ -14,6 +14,13 @@ export class MachineHooksRepository {
     return h ? { machine_id: h.machineId, installed_at: h.installedAt.toISOString() } : undefined;
   }
 
+  /** installed_at per machine id, for the machine list: one query instead of one request per machine. */
+  async installedAtByMachine(machineIds: string[]): Promise<Record<string, string>> {
+    if (machineIds.length === 0) return {};
+    const rows = await this.db.machineHook.findMany({ where: { machineId: { in: machineIds } }, select: { machineId: true, installedAt: true } });
+    return Object.fromEntries(rows.map((h) => [h.machineId, h.installedAt.toISOString()]));
+  }
+
   /** Machine id for a token hash, or undefined (unknown / revoked). */
   async machineIdForTokenHash(tokenHash: string): Promise<string | undefined> {
     const h = await this.db.machineHook.findUnique({ where: { tokenHash }, select: { machineId: true } });

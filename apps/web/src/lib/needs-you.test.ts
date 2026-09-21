@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { MonitorItem, Tab } from './types';
-import { entersNeedsYou, needsYouByProject, needsYouText, optimisticSeenAt, shouldMarkSeen, tabDotClass, tabNeedsYou } from './needs-you';
+import type { Machine, MonitorItem, Tab } from './types';
+import { emptyMonitorHint, entersNeedsYou, needsYouByProject, needsYouText, optimisticSeenAt, shouldMarkSeen, tabDotClass, tabNeedsYou } from './needs-you';
 import { isTabOnScreen, setTabsOnScreen } from './visible-tabs';
 
 const T1 = '2026-01-01T00:00:00.000Z';
@@ -179,5 +179,47 @@ describe('visible tabs', () => {
     setTabsOnScreen('p1', []);
     expect(isTabOnScreen('a')).toBe(false);
     expect(isTabOnScreen('c')).toBe(true);
+  });
+});
+
+describe('emptyMonitorHint', () => {
+  const machine = (over: Partial<Machine> & { id: string }): Machine => ({
+    name: over.id,
+    host: null,
+    ssh_user: null,
+    ssh_port: 22,
+    type: 'agent',
+    os: null,
+    capabilities: [],
+    checked_at: null,
+    agent_version: null,
+    agent_last_seen_at: null,
+    agent_auto_update: false,
+    is_local: false,
+    owner_id: 'u1',
+    owner_name: null,
+    created_at: T1,
+    hooks_installed_at: T1,
+    tabs: 1,
+    tabs_reporting: 1,
+    ...over,
+  });
+
+  it('names the machines whose monitor hooks are missing', () => {
+    const hint = emptyMonitorHint([machine({ id: 'm1', name: 'jarvis', hooks_installed_at: null }), machine({ id: 'm2', name: 'mac mini' })]);
+    expect(hint).toContain('jarvis');
+    expect(hint).not.toContain('mac mini');
+  });
+
+  it('stays quiet when every machine already has the hooks (nothing is simply happening)', () => {
+    expect(emptyMonitorHint([machine({ id: 'm1' })])).toBeNull();
+  });
+
+  it('stays quiet when there is no machine yet', () => {
+    expect(emptyMonitorHint([])).toBeNull();
+  });
+
+  it('ignores legacy ssh machines, which have no agent to install hooks through', () => {
+    expect(emptyMonitorHint([machine({ id: 'm1', type: 'ssh', hooks_installed_at: null })])).toBeNull();
   });
 });

@@ -83,6 +83,11 @@ export interface Machine {
   owner_id: string | null;
   owner_name: string | null;
   created_at: string;
+  /** monitor hooks installed on the machine; null = never installed (nothing reports state) */
+  hooks_installed_at?: string | null;
+  /** terminal tabs on the machine, and how many of them ever reported a state to the monitor */
+  tabs?: number;
+  tabs_reporting?: number;
 }
 
 /** Admin data-scope switch: null = own data, "all" = everything, or the impersonated user. */

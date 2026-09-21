@@ -130,6 +130,16 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                     sem tmux
                   </span>
                 )}
+                {m.type === 'agent' && m.hooks_installed_at === null && (
+                  <button
+                    type="button"
+                    className="rounded px-1 text-[10px] text-warn hover:bg-bg-3"
+                    title="Os hooks do monitor não estão instalados: as tabs desta máquina não aparecem em “Precisando de você”. Clique para instalar."
+                    onClick={() => setMachineForm({ open: true, machine: m })}
+                  >
+                    sem monitor
+                  </button>
+                )}
                 <span className="ml-auto hidden items-center gap-0.5 group-hover:flex">
                   <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" title="Novo projeto" onClick={() => setProjectForm(m.id)}>
                     +
