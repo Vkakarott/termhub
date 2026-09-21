@@ -403,30 +403,43 @@ it('puts a card between the two messages it was proposed between', async () => {
     conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
     messages: [
       msg({ id: 'm1', role: 'user', text: 'roda o teste', created_at: '2026-09-21T00:00:00.000Z' }),
-      msg({ id: 'm2', role: 'assistant', text: 'feito', created_at: '2026-09-21T00:00:02.000Z' }),
+      // The answer carries a Markdown bullet list of its own, which renders as a real `ul` nested in
+      // the thread: the thread is found by its name and read by its direct children, so the answer's
+      // own list is never mistaken for a second thread nor for a turn of the conversation.
+      msg({ id: 'm2', role: 'assistant', text: 'feito:\n\n- um\n- dois', created_at: '2026-09-21T00:00:02.000Z' }),
     ],
     actions: [action({ id: 'act1', created_at: '2026-09-21T00:00:01.000Z' })],
   });
   render(<ChatPage />);
   await screen.findByRole('button', { name: /autorizar/i });
 
-  const items = Array.from(screen.getByRole('list').children).map((li) => li.textContent ?? '');
+  const thread = screen.getByRole('list', { name: 'Conversa' });
+  const items = Array.from(thread.children).map((li) => li.textContent ?? '');
   expect(items).toHaveLength(3);
   expect(items[0]).toContain('roda o teste');
   expect(items[1]).toContain('digitar `npm test`');
   expect(items[2]).toContain('feito');
+  expect(thread.querySelector('ul')).toBeTruthy(); // the fixture's bullets really are on screen
 });
 
 it('is one single thread, not a message list with a card list glued below it', async () => {
   chatMock.mockResolvedValue({
     conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
-    messages: [msg({ id: 'm1', role: 'user', text: 'roda o teste' })],
-    actions: [action({ id: 'act1' })],
+    messages: [
+      msg({ id: 'm1', role: 'user', text: 'roda o teste', created_at: '2026-09-21T00:00:00.000Z' }),
+      // Bullets in the answer again: what this pins is one *thread*, not one list element in the
+      // document — a rendered answer is free to contain as many lists as the model wrote.
+      msg({ id: 'm2', role: 'assistant', text: 'feito:\n\n- um\n- dois', created_at: '2026-09-21T00:00:02.000Z' }),
+    ],
+    actions: [action({ id: 'act1', created_at: '2026-09-21T00:00:01.000Z' })],
   });
   render(<ChatPage />);
   await screen.findByRole('button', { name: /autorizar/i });
 
-  expect(screen.getAllByRole('list')).toHaveLength(1);
+  expect(screen.getAllByRole('list', { name: 'Conversa' })).toHaveLength(1);
+  // …and the fixture does put a second, unnamed list on the page, so the assertion above is scoped
+  // work and not a restatement of "there is only one list".
+  expect(screen.getAllByRole('list').length).toBeGreaterThan(1);
 });
 
 it('renders a streamed delta as Markdown too, while it is still being written', async () => {

@@ -35,6 +35,11 @@ describe('ChatLayout', () => {
     expect(screen.queryByRole('navigation')).toBeNull();
   });
 
+  it('names the page in its header, so the screen has a heading', () => {
+    mount();
+    expect(screen.getByRole('heading', { name: 'Chat' })).toBeTruthy();
+  });
+
   it('offers a labelled way back to the app', () => {
     mount();
     const back = screen.getByRole('link', { name: /voltar/i });

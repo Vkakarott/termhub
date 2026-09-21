@@ -110,7 +110,12 @@ export function ChatPage() {
 
   /** Messages and gate cards as one chronological thread, so a card reads where it was proposed. */
   const timeline = useMemo(() => chatTimeline(messages, actions), [messages, actions]);
-  /** The row a running answer would be written into: only the newest one can still be the live one. */
+  /**
+   * The row a running answer would be written into: only the newest one can still be the live one.
+   * Keyed on the id, not on a position: the loop below walks the merged timeline, where an index
+   * counts cards too and so no longer means "the newest message" — turning this back into
+   * `index === messages.length - 1` would put "pensando…" on the wrong row.
+   */
   const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
 
   const listRef = useRef<HTMLOListElement>(null);
@@ -152,7 +157,9 @@ export function ChatPage() {
     // centred, capped at a comfortable measure and padded so a long answer survives a phone.
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4">
       {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
-      <ol ref={listRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4">
+      {/* Named, because a rendered answer can contain Markdown lists of its own: this is how the
+       * thread is told apart from them — by screen readers, and by the tests. */}
+      <ol ref={listRef} aria-label="Conversa" className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4">
         {timeline.map((entry) => {
           if (entry.kind === 'action')
             return <ChatActionCard key={entry.action.id} action={entry.action} deciding={decidingId === entry.action.id} note={queuedNotes[entry.action.id]} onDecide={(decision) => void decide(entry.action.id, decision)} />;

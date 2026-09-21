@@ -12,6 +12,7 @@ export function ChatLayout() {
         <Link to="/" className="text-sm text-fg-dim hover:text-fg" aria-label="Voltar para o início" title="Voltar para o início">
           ← Voltar
         </Link>
+        <h1 className="text-sm font-semibold text-fg">Chat</h1>
       </header>
       <div className="min-h-0 flex-1">
         <Outlet />
