@@ -38,7 +38,12 @@ export function ChatLayout() {
       </header>
       {/* `main`, like every sidebar route's own region (`Layout.tsx`): /chat is a full page too, and
        * a screen reader needs the landmark to skip the header. */}
-      <main className="min-h-0 flex-1">
+      {/* A flex column, not a plain block: the page inside stretches to this region instead of
+       * asking for `height: 100%` of it. A percentage height against a flex item that has no
+       * explicit height is the case Safari does not resolve — the column collapsed to its content,
+       * the thread stopped filling the screen, the box floated above a slab of empty space, and the
+       * document became the thing that scrolled. */}
+      <main className="flex min-h-0 flex-1 flex-col">
         <Outlet />
       </main>
     </div>

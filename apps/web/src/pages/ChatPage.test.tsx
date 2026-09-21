@@ -580,6 +580,18 @@ it('puts a card between the two messages it was proposed between', async () => {
   expect(thread.querySelector('ul')).toBeTruthy(); // the fixture's bullets really are on screen
 });
 
+it('stretches to its region instead of asking for a percentage of it', async () => {
+  // Safari does not resolve `height: 100%` against a flex item that has no explicit height, so a
+  // column asking for it collapsed to its content: the thread stopped filling the screen, the box
+  // floated above a slab of empty space, and the document became the thing that scrolled. jsdom
+  // lays nothing out, so the class is what can be pinned — the symptom only shows on a device.
+  render(<ChatPage />);
+  const thread = await screen.findByRole('list', { name: 'Conversa' });
+  const column = thread.parentElement;
+  expect(column?.className).toContain('flex-1');
+  expect(column?.className).not.toContain('h-full');
+});
+
 it('does not hand its scroll to the document when the thread reaches its end', async () => {
   // Without `overscroll-contain` the thread chains its scroll to the page: on a phone the whole
   // document rubber-bands past the end of the conversation, which reads as a screen that scrolls
