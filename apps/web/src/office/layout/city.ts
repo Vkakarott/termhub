@@ -1,0 +1,65 @@
+/** Where each machine's floor sits in the city. Pure; the scene only draws the result. */
+import { layoutFloor, placedRoomBounds, type FloorLayout, type PlacedRoom, type RoomInput } from './floor';
+import { toScreen, type Cell } from './iso';
+import { packShelves } from './shelves';
+
+/** Tiles between two blocks: wider than a floor's corridor, so where a machine ends reads by itself. */
+export const STREET = 4;
+/** A machine with no projects still gets ground for its sign. */
+const MIN_BLOCK = { width: 5, height: 3 };
+
+export interface BlockInput {
+  id: string;
+  rooms: RoomInput[];
+}
+
+export interface PlacedBlock {
+  id: string;
+  /** the block's (0,0) tile on the city grid */
+  origin: Cell;
+  /** the machine's floor, in block-local coordinates */
+  floor: FloorLayout;
+  width: number;
+  height: number;
+}
+
+export interface CityLayout {
+  blocks: PlacedBlock[];
+  width: number;
+  height: number;
+}
+
+export function layoutCity(blocks: BlockInput[], targetWidth?: number): CityLayout {
+  const items = blocks.map((b) => {
+    const floor = layoutFloor(b.rooms);
+    return { id: b.id, floor, width: Math.max(floor.width, MIN_BLOCK.width), height: Math.max(floor.height, MIN_BLOCK.height) };
+  });
+  const packed = packShelves(items, STREET, STREET, targetWidth);
+  return { blocks: packed.placed.map(({ item, origin }) => ({ ...item, origin })), width: packed.width, height: packed.height };
+}
+
+/** A block-local room in city coordinates. */
+export function roomOnCity(block: PlacedBlock, room: PlacedRoom): PlacedRoom {
+  return { ...room, origin: { gx: block.origin.gx + room.origin.gx, gy: block.origin.gy + room.origin.gy } };
+}
+
+/** Screen-space box of a block's footprint, `wallH` pixels of walls included. */
+export function blockBounds(block: PlacedBlock, wallH: number): { x: number; y: number; w: number; h: number } {
+  const { gx, gy } = block.origin;
+  const left = toScreen(gx, gy + block.height).x;
+  const right = toScreen(gx + block.width, gy).x;
+  const top = toScreen(gx, gy).y - wallH;
+  const bottom = toScreen(gx + block.width, gy + block.height).y;
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+/** Screen-space box of the whole city; a zero-size box at the origin when there are no blocks. */
+export function cityBounds(city: CityLayout, wallH: number): { x: number; y: number; w: number; h: number } {
+  if (city.blocks.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
+  const boxes = city.blocks.map((b) => blockBounds(b, wallH));
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  return { x, y, w: Math.max(...boxes.map((b) => b.x + b.w)) - x, h: Math.max(...boxes.map((b) => b.y + b.h)) - y };
+}
+
+export { placedRoomBounds };
