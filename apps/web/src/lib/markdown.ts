@@ -5,9 +5,10 @@ marked.setOptions({ gfm: true, breaks: true });
 
 /**
  * A link that opens in a new tab keeps a handle on this one through `window.opener` unless it says
- * `rel="noopener"`, and `target` is an attribute DOMPurify preserves. Untrusted text is free to
- * write `<a target="_blank">`, so every anchor that carries a `target` gets the `rel` — for both
- * consumers, since the notes editor's own text is pasted from everywhere too.
+ * `rel="noopener"`, and untrusted text is free to write `<a target="_blank">`. This DOMPurify
+ * version drops `target` itself — measured, not assumed — so this hook fires for nothing today and
+ * is here for the day that default changes or something allows the attribute back: an anchor that
+ * keeps a `target` gets the `rel`, for both consumers.
  */
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.nodeName === 'A' && node.hasAttribute('target')) node.setAttribute('rel', 'noopener noreferrer');
