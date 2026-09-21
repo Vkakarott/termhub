@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useChatStream } from '../lib/chat';
-import type { ChatMessage } from '../lib/types';
+import type { ChatEvent, ChatMessage } from '../lib/types';
 
 /** The concierge chat: one conversation per user, streamed live over /ws/chat and persisted over REST. */
 export function ChatPage() {
@@ -19,7 +19,16 @@ export function ChatPage() {
     void load();
   }, [load]);
 
-  const { events, connected } = useChatStream(load);
+  // A `message` event means the answer was persisted: re-read it over REST to get the final
+  // text. Delivered once per event by the hook, regardless of its own capped buffer, so this
+  // never depends on — or breaks against — that buffer's length.
+  const onEvent = useCallback(
+    (e: ChatEvent) => {
+      if (e.type === 'message') void load();
+    },
+    [load],
+  );
+  const { events, connected } = useChatStream(load, onEvent);
 
   /**
    * Deltas and the action trail of the answer being written, keyed by message id. A `reset`
@@ -39,15 +48,6 @@ export function ChatPage() {
     }
     return { deltas, actions };
   }, [events]);
-
-  // A `message` event means the answer was persisted: re-read it over REST to get the final
-  // text (and drop it from `live`). Tracked by count, not content, so this never re-fires for
-  // events already handled on a previous render.
-  const handledEvents = useRef(0);
-  useEffect(() => {
-    if (events.slice(handledEvents.current).some((e) => e.type === 'message')) void load();
-    handledEvents.current = events.length;
-  }, [events, load]);
 
   const send = async () => {
     const value = text.trim();
