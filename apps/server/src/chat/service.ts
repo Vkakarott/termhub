@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ChatConversation, ChatMessage } from '../db/repositories/chat.js';
+import type { ChatAction } from '../db/repositories/chat-actions.js';
 import type { User } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
@@ -37,6 +38,35 @@ export interface RunnerClient {
 const isSetupFailure = (e: unknown): e is HttpError =>
   e instanceof HttpError && (e.code === 'CONCIERGE_DISABLED' || e.code === 'CONCIERGE_FAILED');
 
+/** What the action targets, in the one line the model needs to tell this proposal apart from any
+ * other it may have made — the same ids it used to make the call in the first place. */
+const targetDescription = (action: ChatAction): string => {
+  if (action.tab_id) return `aba ${action.tab_id}`;
+  if (action.project_id) return `projeto ${action.project_id}`;
+  if (action.machine_id) return `máquina ${action.machine_id}`;
+  return 'sem alvo específico';
+};
+
+/**
+ * The re-injection (spec §5, Task 5): a fixed pt-BR sentence the server composes, never the model's
+ * own words and never a tool result. It names the tool and its target so the model can re-issue the
+ * exact call that was gated (an approval) or drop it for good (a denial) — the model is never asked
+ * to guess which of its proposals the user was answering.
+ *
+ * When no CLI session is alive (Review Focus 2: an approval can arrive an hour later, or the CLI may
+ * have dropped the session), `send` already starts a fresh run on its own — this only adds the line
+ * that tells the user so in the chat, instead of a fresh run happening silently.
+ */
+const injectionText = (action: ChatAction, freshSession: boolean): string => {
+  const target = targetDescription(action);
+  const sessionNote = freshSession
+    ? ' A sessão de trabalho anterior não está mais disponível, então esta é uma nova sessão, sem o histórico da conversa anterior.'
+    : '';
+  return action.status === 'denied'
+    ? `O usuário recusou: ${action.tool} em ${target}.${sessionNote} Não faça essa ação: explique ao usuário o que ficou sem fazer e, se fizer sentido, proponha uma alternativa.`
+    : `O usuário autorizou: ${action.tool} em ${target}.${sessionNote} Siga com essa ação.`;
+};
+
 export class ChatService {
   /** One run per conversation: two `claude -p` processes on the same --session-id would race. */
   private running = new Set<string>();
@@ -45,6 +75,22 @@ export class ChatService {
 
   conversationFor(user: User): Promise<ChatConversation> {
     return this.deps.repos.chat.getOrCreateForUser(user.id);
+  }
+
+  /**
+   * Answers the user's decision on a gated action by re-injecting it into the same CLI session, so
+   * the model re-issues the call (an approval, which Task 4's `allow` branch then executes) or drops
+   * it (a denial). This is exactly one message: `decide()` already made sure the caller cannot reach
+   * here twice for the same row (ruling R9 — the second click of the same decision gets a 409 in the
+   * route before this is ever called), so nothing here retries or de-dupes on its own.
+   *
+   * Reuses `send` wholesale rather than duplicating its streaming, retry and locking logic: the
+   * injected sentence is just another user turn, so the busy lock, the fresh-session fallback and the
+   * bus events all behave exactly as they do for anything the user types.
+   */
+  async resumeAfterDecision(user: User, action: ChatAction): Promise<ChatMessage> {
+    const conversation = await this.conversationFor(user);
+    return this.send(user, injectionText(action, conversation.cli_session_id === null));
   }
 
   async send(user: User, text: string): Promise<ChatMessage> {

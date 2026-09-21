@@ -1,11 +1,32 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
+import type { ChatAction } from '../db/repositories/chat-actions.js';
 import { chatBus, type ChatEvent } from './bus.js';
 import { HttpError } from '../lib/errors.js';
 import { ChatService, type RunnerClient } from './service.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
+
+const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
+  id: 'a1',
+  conversation_id: 'c1',
+  message_id: null,
+  tool: 'send_input',
+  args: { tab_id: 't1', text: 'npm test' },
+  class: 'write',
+  status: 'approved',
+  idempotency_key: 'k1',
+  machine_id: null,
+  project_id: null,
+  tab_id: 't1',
+  error_code: null,
+  duration_ms: null,
+  decided_by: 'u1',
+  decided_at: '2026-09-21T12:00:00.000Z',
+  created_at: '2026-09-21T11:59:00.000Z',
+  ...overrides,
+});
 
 function build(lines: string[] | (() => AsyncIterable<string>)) {
   const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null, model: null, review_mode: false, last_message_at: null, created_at: '' };
@@ -215,4 +236,49 @@ it('marks the message with TOKEN_FAILED instead of throwing when minting the tok
   expect(answer.error_code).toBe('TOKEN_FAILED');
   expect(answer.text).toBe('');
   expect(messages.at(-1)!.text).toBe('');
+});
+
+it('resumeAfterDecision resumes the same session with a fixed authorization sentence, and the run behaves like any other message', async () => {
+  const { service, runner, conversation, messages } = build([delta('feito'), done()]);
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+
+  const answer = await service.resumeAfterDecision(user, action());
+
+  // resume: true — the same CLI session the run was gated in, not a fresh one.
+  expect(vi.mocked(runner.run).mock.calls[0][0]).toMatchObject({ resume: true, session_id: '3f1e9b1e-0000-4000-8000-000000000001' });
+  // The injected line is the server's own fixed sentence, never the model's words, naming the tool
+  // and its target so the model can re-issue the exact call that was gated.
+  expect(messages[0].role).toBe('user');
+  expect(messages[0].text).toMatch(/^O usuário autorizou:/);
+  expect(messages[0].text).toContain('send_input');
+  expect(messages[0].text).toContain('t1');
+  // The run that follows is indistinguishable from an ordinary message: deltas, trail, stored answer.
+  expect(answer.text).toBe('feito');
+  expect(messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+});
+
+it('resumeAfterDecision sends a fixed refusal sentence for a denied action, naming the tool and target', async () => {
+  const { service, conversation, messages } = build([delta('entendido'), done()]);
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+
+  await service.resumeAfterDecision(user, action({ status: 'denied', tool: 'close_tab', tab_id: 't9', args: { tab_id: 't9' } }));
+
+  expect(messages[0].text).toMatch(/^O usuário recusou:/);
+  expect(messages[0].text).toContain('close_tab');
+  expect(messages[0].text).toContain('t9');
+});
+
+it('resumeAfterDecision starts a fresh session and says so in the chat when no CLI session is alive', async () => {
+  // Review Focus 2: an approval can arrive an hour later, when no CLI session is alive — the
+  // conversation was never given one, or the CLI dropped it. `send`'s own resume/fresh choice
+  // already keys off cli_session_id being null, so this must not fail or pretend to resume.
+  const { service, runner, conversation, messages } = build([delta('ok'), done('3f1e9b1e-0000-4000-8000-000000000002')]);
+  expect(conversation.cli_session_id).toBeNull();
+
+  const answer = await service.resumeAfterDecision(user, action());
+
+  expect(vi.mocked(runner.run).mock.calls[0][0]).toMatchObject({ resume: false });
+  expect(messages[0].text).toMatch(/nova sessão/i);
+  expect(answer.text).toBe('ok');
+  expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000002');
 });

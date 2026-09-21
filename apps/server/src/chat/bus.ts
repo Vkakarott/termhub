@@ -15,7 +15,10 @@ export type ChatEvent =
   /** A write the concierge proposed on a gated token and may not make until the user confirms it in
    * the chat. It carries the proposal only — the tool, what it targets and the arguments as proposed
    * — never a tool's result: nothing typed back, no screen, no command output. */
-  | { type: 'confirmation'; user_id: string; action_id: string; tool: string; args: unknown; class: ChatActionClass; machine_id: string | null; project_id: string | null; tab_id: string | null };
+  | { type: 'confirmation'; user_id: string; action_id: string; tool: string; args: unknown; class: ChatActionClass; machine_id: string | null; project_id: string | null; tab_id: string | null }
+  /** The user answered a pending action. Every open tab gets this, not only the one that clicked —
+   * the confirmation card in each of them must update the same way. */
+  | { type: 'decision'; user_id: string; action_id: string; status: 'approved' | 'denied' };
 
 class ChatBus {
   private emitter = new EventEmitter();
