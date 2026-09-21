@@ -55,7 +55,7 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
     <div className="mb-4 flex items-end gap-2 pb-[env(safe-area-inset-bottom)]">
       <textarea
         ref={ref}
-        className="flex-1 resize-none overflow-y-auto rounded-lg border border-line bg-bg-2 px-3 py-2 text-sm"
+        className="min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-line bg-bg-2 px-3 py-2 text-sm"
         rows={MIN_ROWS}
         value={value}
         placeholder="Pergunte ou peça algo às suas máquinas"

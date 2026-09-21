@@ -574,6 +574,24 @@ it('puts a card between the two messages it was proposed between', async () => {
   expect(thread.querySelector('ul')).toBeTruthy(); // the fixture's bullets really are on screen
 });
 
+it('cannot be widened past the viewport by an unbreakable token in an answer', async () => {
+  // A flex item's automatic minimum size is its min-content width, and `break-words` does not
+  // reduce that — so without `min-w-0` one backticked `waiting_permission` in an answer stretched
+  // the whole column and pushed the send button off a phone screen. jsdom lays nothing out, so the
+  // class is what can be asserted here; the geometry itself only shows on a real device.
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1' },
+    messages: [msg({ id: 'm1', role: 'assistant', text: 'a aba está em `waiting_permission` agora' })],
+    actions: [],
+  });
+  render(<ChatPage />);
+
+  const thread = await screen.findByRole('list', { name: 'Conversa' });
+  expect(thread.className).toContain('min-w-0');
+  expect(thread.parentElement?.className).toContain('min-w-0');
+  expect(screen.getByPlaceholderText(/pergunte/i).className).toContain('min-w-0');
+});
+
 it('is one single thread, not a message list with a card list glued below it', async () => {
   chatMock.mockResolvedValue({
     conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
