@@ -191,10 +191,20 @@ export class ChatActionsRepository {
    * never started. Oldest first, so a backlog drains in the order the user answered it, one per run
    * completion (Task 5 fix round 2, Review Focus 2's sibling: an answer given while busy, not while
    * dead).
+   *
+   * `excludeIds` are rows the caller has already failed to mark injected in this process. Marking is
+   * what makes the injection at-most-once, so a row it failed on stays uninjected on purpose — and
+   * would be handed back here immediately, for ever. Excluding it in SQL (rather than the caller
+   * dropping what it reads) is what keeps a later decision behind it from being stuck too.
    */
-  async findNextToInject(conversationId: string): Promise<ChatAction | undefined> {
+  async findNextToInject(conversationId: string, excludeIds: string[] = []): Promise<ChatAction | undefined> {
     const row = await this.db.chatAction.findFirst({
-      where: { conversationId, status: { in: ['approved', 'denied'] satisfies ChatActionStatus[] }, injectedAt: null },
+      where: {
+        conversationId,
+        status: { in: ['approved', 'denied'] satisfies ChatActionStatus[] },
+        injectedAt: null,
+        ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
+      },
       orderBy: [{ decidedAt: 'asc' }, { id: 'asc' }],
     });
     return row ? mapAction(row) : undefined;

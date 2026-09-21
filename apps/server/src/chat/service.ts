@@ -113,6 +113,9 @@ const approvedProposal = (action: ChatAction, summary?: string): string =>
 export class ChatService {
   /** One run per conversation: two `claude -p` processes on the same --session-id would race. */
   private running = new Set<string>();
+  /** Decisions whose `markInjected` failed in this process — see `drainNextDecision`. In memory on
+   * purpose: the row itself is untouched, so a restart tries it again with a healthy database. */
+  private unmarkable = new Set<string>();
 
   constructor(private deps: { repos: Repositories; runner: RunnerClient; configDirs: { primary: string; secondary?: string } }) {}
 
@@ -172,17 +175,28 @@ export class ChatService {
    * One user has exactly one conversation (the same v1 assumption `gate-runtime.ts` relies on), so
    * reusing the caller's own `user` for the injected run is safe — there is no other user it could be.
    *
-   * Never lets a failure here reach its own caller: it always runs from a `finally` block, so it must
+   * Never lets a failure here reach its own caller: it is scheduled from a `finally` block, so it must
    * never turn a clean, already-finished run into a thrown error over an unrelated decision's failed
    * retry (a lock grabbed by an unrelated message in the moment between the lookup and the injected
    * `send` call, a concierge outage). The caller wraps this call in `.catch(() => {})` for that reason.
    */
   private async drainNextDecision(user: User): Promise<void> {
     const conversation = await this.conversationFor(user);
-    const next = await this.deps.repos.chatActions.findNextToInject(conversation.id);
+    const next = await this.deps.repos.chatActions.findNextToInject(conversation.id, [...this.unmarkable]);
     if (!next) return;
     await this.send(user, await this.injectionFor(user, next, conversation.cli_session_id === null), {
-      beforeRun: () => this.deps.repos.chatActions.markInjected(next.id),
+      // Marking is what makes the injection at-most-once, so a row it failed on stays uninjected and
+      // would be picked again by the drain this very failure schedules — a spin on one row for as long
+      // as the database keeps refusing. Remembering it here is what stops that; the row is not lost,
+      // the next process (or `GET /api/chat`'s trail) still shows the decision the user gave.
+      beforeRun: async () => {
+        try {
+          await this.deps.repos.chatActions.markInjected(next.id);
+        } catch (err) {
+          this.unmarkable.add(next.id);
+          throw err;
+        }
+      },
     });
   }
 
@@ -326,9 +340,16 @@ export class ChatService {
     } finally {
       this.running.delete(conversation.id);
       // The lock is free: if a decision was recorded while it was held (fix round 2) and could not
-      // be injected immediately, this is where it finally gets its turn. Swallowed on purpose — see
-      // `drainNextDecision`'s own doc for why a failure here must never become this run's outcome.
-      await this.drainNextDecision(user).catch(() => {});
+      // be injected immediately, this is where it finally gets its turn. Scheduled, never awaited:
+      // the drain starts a CLI run of its own, whose completion schedules another — awaiting it would
+      // hold this request open across every run the backlog needs (a user who approves two actions
+      // during one run would keep their original `POST /api/chat/messages` open across three runs, and
+      // nginx would cut the client while the runs carried on). The answer this request came for is
+      // already stored and published, so the client loses nothing by being answered now: the injected
+      // runs reach it over the chat's own stream, exactly as they do for a decision taken while idle.
+      // Swallowed on purpose — see `drainNextDecision`'s own doc for why a failure here must never
+      // become this run's outcome.
+      void this.drainNextDecision(user).catch(() => {});
     }
   }
 }

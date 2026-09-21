@@ -129,6 +129,12 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
 
       expect((await repo.findNextToInject(otherConversationId))?.id).toBe(a.id);
 
+      // A row the caller could not mark injected is excluded in SQL, so the drain neither spins on it
+      // nor blocks the decision behind it (the marking is what makes an injection at-most-once, so a
+      // row it failed on stays uninjected and would otherwise be handed back for ever).
+      expect((await repo.findNextToInject(otherConversationId, [a.id]))?.id).toBe(b.id);
+      expect(await repo.findNextToInject(otherConversationId, [a.id, b.id])).toBeUndefined();
+
       await repo.markInjected(a.id);
       expect((await repo.findNextToInject(otherConversationId))?.id).toBe(b.id);
 

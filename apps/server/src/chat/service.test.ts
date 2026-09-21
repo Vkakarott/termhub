@@ -61,9 +61,11 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       const row = actionsStore.find((a) => a.id === id);
       if (row) row.injected_at = new Date().toISOString();
     }),
-    findNextToInject: vi.fn(async (conversationId: string) => {
+    findNextToInject: vi.fn(async (conversationId: string, excludeIds: string[] = []) => {
       const open = actionsStore
-        .filter((a) => a.conversation_id === conversationId && (a.status === 'approved' || a.status === 'denied') && a.injected_at === null)
+        .filter(
+          (a) => a.conversation_id === conversationId && (a.status === 'approved' || a.status === 'denied') && a.injected_at === null && !excludeIds.includes(a.id),
+        )
         .sort((a, b) => Date.parse(a.decided_at ?? a.created_at) - Date.parse(b.decided_at ?? b.created_at));
       return open[0];
     }),
@@ -94,6 +96,10 @@ const done = (session = '3f1e9b1e-0000-4000-8000-000000000001') => JSON.stringif
 /** Exactly what the container writes when the CLI exits non-zero: a code and a classified reason,
  * never stderr's text (see apps/concierge/src/index.ts). */
 const errorFrame = (reason: 'missing_session' | 'run_failed') => JSON.stringify({ type: 'termhub_error', code: 1, reason });
+
+/** One macrotask turn: enough for a drain scheduled from `send`'s `finally` — and for the drain that
+ * one would schedule in turn — to have run, so a "nothing more was injected" assertion means it. */
+const settled = () => new Promise((r) => setTimeout(r, 10));
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -392,9 +398,9 @@ it('injects a decision left queued by a busy run exactly once, when that run fin
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('feito'); yield done(); })());
 
-  await service.send(user, 'mensagem original'); // its own completion drains the queue before resolving
+  await service.send(user, 'mensagem original'); // its completion schedules the drain, without waiting for it
 
-  expect(runner.run).toHaveBeenCalledTimes(2);
+  await vi.waitFor(() => expect(runner.run).toHaveBeenCalledTimes(2));
   expect(chatActions.markInjected).toHaveBeenCalledWith('a1');
   const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text);
   expect(userTexts).toEqual(['mensagem original', expect.stringMatching(/^O usuário autorizou:.*send_input/s)]);
@@ -402,8 +408,44 @@ it('injects a decision left queued by a busy run exactly once, when that run fin
   // A second, unrelated completion must not inject the same decision again: it is already marked.
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('outra resposta'); yield done(); })());
   await service.send(user, 'outra mensagem');
+  await settled();
   expect(runner.run).toHaveBeenCalledTimes(3); // one more call, not two — nothing left to drain
   expect(chatActions.markInjected).toHaveBeenCalledTimes(1);
+});
+
+it('returns the finished run without waiting for the queued decision it hands over to', async () => {
+  // The drain re-enters `send`, and that run's own completion drains again: awaiting it inside
+  // `finally` kept one `POST /api/chat/messages` open across every run a backlog needed, until nginx
+  // cut the client while the runs carried on. The request must be answered as soon as its own answer
+  // is stored; the injected runs reach the browser over the chat's stream, as they do when it is idle.
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  const { service, runner, chatActions } = build([], { chatActions: [action({ id: 'a1' })] });
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { await held; yield delta('feito'); yield done(); })());
+
+  const answer = await service.send(user, 'mensagem original');
+
+  expect(answer.text).toBe('resposta original'); // answered while the injected run is still streaming
+  await vi.waitFor(() => expect(chatActions.markInjected).toHaveBeenCalledWith('a1'));
+  expect(runner.run).toHaveBeenCalledTimes(2);
+  release();
+  await vi.waitFor(() => expect(vi.mocked(runner.run).mock.results).toHaveLength(2));
+});
+
+it('stops draining a decision whose injection cannot even be marked, instead of retrying it forever', async () => {
+  // Marking is what makes the injection at-most-once, so a row it failed on stays uninjected — and the
+  // drain that failure schedules would pick the very same row again, for as long as the database kept
+  // refusing. Now that the drain is not awaited, that spin would be unbounded and invisible.
+  const { service, runner, chatActions } = build([delta('resposta original'), done()], { chatActions: [action({ id: 'a1' })] });
+  chatActions.markInjected.mockRejectedValue(new Error('connection terminated'));
+
+  await service.send(user, 'mensagem original');
+  await vi.waitFor(() => expect(chatActions.markInjected).toHaveBeenCalledTimes(1));
+  await settled();
+
+  expect(chatActions.markInjected).toHaveBeenCalledTimes(1); // tried once, never again
+  expect(runner.run).toHaveBeenCalledTimes(1); // and the injected run never started
 });
 
 it('drains two decisions queued behind one run, one per completion, oldest first', async () => {
@@ -416,7 +458,7 @@ it('drains two decisions queued behind one run, one per completion, oldest first
 
   await service.send(user, 'mensagem original');
 
-  expect(runner.run).toHaveBeenCalledTimes(3);
+  await vi.waitFor(() => expect(runner.run).toHaveBeenCalledTimes(3));
   const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text);
   expect(userTexts[0]).toBe('mensagem original');
   expect(userTexts[1]).toContain('send_input'); // a1: decided first
