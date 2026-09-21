@@ -45,7 +45,11 @@ export class ChatService {
 
       let collected = '';
       let usage: unknown = null;
-      let failure: string | null = null;
+      /** Set once something went wrong. Distinct from a runner failure: the run never started
+       * because the server itself could not mint a credential (nothing the account can fix by
+       * being switched), vs. a run that started and died mid-stream (often account/quota, which
+       * account fallback can act on). */
+      let errorCode: 'TOKEN_FAILED' | 'RUNNER_FAILED' | null = null;
 
       const consume = async (run: RunnerInput) => {
         for await (const line of this.deps.runner.run(run)) {
@@ -62,7 +66,7 @@ export class ChatService {
             usage = frame.usage ?? null;
             if (frame.session_id && frame.session_id !== conversation.cli_session_id) await this.deps.repos.chat.setCliSession(conversation.id, frame.session_id);
           } else if (frame.type === 'error') {
-            failure = frame.message;
+            errorCode = 'RUNNER_FAILED';
           }
         }
       };
@@ -73,8 +77,8 @@ export class ChatService {
       let token: string | undefined;
       try {
         token = await mintConciergeToken(this.deps.repos, user.id, ['read']);
-      } catch (e) {
-        failure = e instanceof Error ? e.message : 'falha ao gerar o token do concierge';
+      } catch {
+        errorCode = 'TOKEN_FAILED';
       }
 
       if (token !== undefined) {
@@ -97,16 +101,16 @@ export class ChatService {
             await this.deps.repos.chat.setCliSession(conversation.id, null);
             try {
               await consume(fresh);
-            } catch (again) {
-              failure = again instanceof Error ? again.message : 'runner failed';
+            } catch {
+              errorCode = 'RUNNER_FAILED';
             }
           } else {
-            failure = e instanceof Error ? e.message : 'runner failed';
+            errorCode = 'RUNNER_FAILED';
           }
         }
       }
 
-      answer = await this.deps.repos.chat.updateMessage(answer.id, { text: collected, usage, error_code: failure ? 'RUNNER_FAILED' : null });
+      answer = await this.deps.repos.chat.updateMessage(answer.id, { text: collected, usage, error_code: errorCode });
       chatBus.publish({ type: 'message', user_id: user.id, message: answer });
       return answer;
     } finally {

@@ -94,12 +94,12 @@ it('starts a fresh session when resuming the old one fails', async () => {
   expect(answer.text).toBe('oi');
 });
 
-it('marks the message with an error instead of throwing when minting the token fails', async () => {
+it('marks the message with TOKEN_FAILED instead of throwing when minting the token fails', async () => {
   const { service, messages, repos } = build([delta('nunca chega'), done()]);
   vi.mocked(repos.apiTokens.create).mockRejectedValueOnce(new Error('db down'));
 
   const answer = await service.send(user, 'oi');
-  expect(answer.error_code).toBe('RUNNER_FAILED');
+  expect(answer.error_code).toBe('TOKEN_FAILED');
   expect(answer.text).toBe('');
   expect(messages.at(-1)!.text).toBe('');
 });
