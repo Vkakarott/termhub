@@ -11,12 +11,14 @@ export type ChatFrame =
 const toolName = (raw: string) => (raw.startsWith('mcp__termhub__') ? raw.slice('mcp__termhub__'.length) : raw);
 
 export function parseFrame(line: string): ChatFrame | null {
-  let f: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    f = JSON.parse(line) as Record<string, unknown>;
+    parsed = JSON.parse(line);
   } catch {
     return null;
   }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const f = parsed as Record<string, unknown>;
   const type = f.type;
 
   if (type === 'stream_event') {

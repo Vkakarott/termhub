@@ -32,4 +32,6 @@ it('reports the runner error line the container appends', () => {
 it('ignores a malformed line instead of throwing', () => {
   expect(parseFrame('not json')).toBeNull();
   expect(parseFrame(JSON.stringify({ type: 'something_new' }))).toBeNull();
+  expect(parseFrame('null')).toBeNull();
+  expect(parseFrame('[1,2,3]')).toBeNull();
 });
