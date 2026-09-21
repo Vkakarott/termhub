@@ -48,7 +48,13 @@ export function parseFrame(line: string): ChatFrame | null {
     }
     return null;
   }
-  if (type === 'result') return { type: 'done', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, usage: f.usage };
+  if (type === 'result') {
+    // A `result` frame is not by itself an answer: `is_error` marks a run that ended badly (max
+    // turns, an API error, every tool denied). Treating it as `done` stored it as a clean message
+    // — often an empty one, which the page then showed as "pensando…" forever.
+    if (f.is_error === true) return { type: 'error', message: 'run ended with is_error', reason: 'run_failed' };
+    return { type: 'done', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, usage: f.usage };
+  }
   if (type === 'termhub_error') return { type: 'error', message: String(f.message ?? 'runner failed'), reason: toReason(f.reason) };
   return null;
 }

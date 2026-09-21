@@ -64,6 +64,16 @@ it('drops a reason it does not know instead of guessing at it', () => {
   expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'something_new' }))).toEqual({ type: 'error', message: 'runner failed' });
 });
 
+// A recorded `result` frame is the real shape: same keys, plus is_error. A run that ends this way
+// (max turns, an API error, every tool denied) is not an answer, and used to be stored as a clean
+// one — empty more often than not, which the page then showed as "pensando…" for ever.
+it('treats a result frame that reports is_error as a failure, not as a clean finish', () => {
+  const real = JSON.parse(fixture.at(-1)!) as Record<string, unknown>;
+  expect(real.type).toBe('result');
+  expect(parseFrame(JSON.stringify({ ...real, is_error: false }))).toMatchObject({ type: 'done', session_id: real.session_id });
+  expect(parseFrame(JSON.stringify({ ...real, is_error: true }))).toEqual({ type: 'error', message: 'run ended with is_error', reason: 'run_failed' });
+});
+
 it('ignores a malformed line instead of throwing', () => {
   expect(parseFrame('not json')).toBeNull();
   expect(parseFrame(JSON.stringify({ type: 'something_new' }))).toBeNull();

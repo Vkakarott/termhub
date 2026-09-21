@@ -166,6 +166,17 @@ it('fails the run when the stream ends without a done frame', async () => {
   expect(conversation.cli_session_id).toBeNull();
 });
 
+it('marks the run as failed when the result frame reports is_error', async () => {
+  // A run that ends with is_error (max turns, an API error, every tool denied) used to be stored as
+  // a clean answer with error_code null — and, with nothing streamed, an empty bubble for ever.
+  const failedResult = JSON.stringify({ type: 'result', is_error: true, session_id: '3f1e9b1e-0000-4000-8000-000000000009', usage: { input_tokens: 5 } });
+  const { service, conversation } = build([delta('comecei'), failedResult]);
+  const answer = await service.send(user, 'faz tudo');
+  expect(answer.error_code).toBe('RUNNER_FAILED');
+  expect(answer.text).toBe('comecei');
+  expect(conversation.cli_session_id).toBeNull(); // an errored run confirms no session to resume
+});
+
 it('publishes the action and a shape-locked action_result over the bus, never the tool result payload', async () => {
   const call = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu_1', name: 'mcp__termhub__open_tab', input: { project_id: 'p1' } }] } });
   const result = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu_1', is_error: true }] } });
