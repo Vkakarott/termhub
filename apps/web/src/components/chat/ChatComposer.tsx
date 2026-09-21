@@ -133,13 +133,14 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
         />
         <div className="mt-1 flex items-center justify-end gap-2">
           {dictation.state === 'recording' && <RecordingStatus dictation={dictation} />}
-          {/* `role="status"` so a screen reader hears the wait it cannot see. Not on the clock next
-              door: a live region that ticks every second is worse than one that says nothing. */}
-          {busy && (
-            <span role="status" className="text-xs text-fg-muted">
-              transcrevendo…
-            </span>
-          )}
+          {/* Mounted at all times and empty until there is something to say: a live region a browser
+              inserts together with its text is not reliably announced — the region has to be in the
+              accessibility tree before the text changes. `empty:-mr-2` gives back the flex gap it
+              would otherwise hold open while empty. Deliberately not on the clock next door: a live
+              region that ticks every second is worse than one that says nothing. */}
+          <span role="status" className="text-xs text-fg-muted empty:-mr-2">
+            {busy ? 'transcrevendo…' : ''}
+          </span>
           <button
             type="button"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
@@ -152,11 +153,16 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
           </button>
         </div>
       </div>
-      {dictation.error && (
-        <p role="status" className="mt-1 px-1 text-xs text-danger">
-          {dictation.error}
-        </p>
-      )}
+      {/* Both mounted at all times, for the same reason as the status above, and told apart by colour
+          rather than by wording: an error is a failure (`danger`), a notice is not (`fg-muted`) — a
+          clip too short to hold speech, or one with no words in it, is nobody's fault. `empty:mt-0`
+          keeps an empty one from holding a line of space open. */}
+      <p role="status" className="mt-1 px-1 text-xs text-danger empty:mt-0">
+        {dictation.error ?? ''}
+      </p>
+      <p role="status" className="mt-1 px-1 text-xs text-fg-muted empty:mt-0">
+        {dictation.notice ?? ''}
+      </p>
     </div>
   );
 }

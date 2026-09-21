@@ -23,9 +23,23 @@ vi.mock('../../lib/use-dictation', () => ({
 
 import { ChatComposer } from './ChatComposer';
 
-function renderComposer(opts: { state?: DictationState; value?: string; sending?: boolean; seconds?: number; error?: string | null } = {}) {
-  dictation = { state: opts.state ?? 'idle', seconds: opts.seconds ?? 0, error: opts.error ?? null, start, stop, cancel };
+interface ComposerOpts {
+  state?: DictationState;
+  value?: string;
+  sending?: boolean;
+  seconds?: number;
+  error?: string | null;
+  notice?: string | null;
+}
+
+function renderComposer(opts: ComposerOpts = {}) {
+  dictation = { state: opts.state ?? 'idle', seconds: opts.seconds ?? 0, error: opts.error ?? null, notice: opts.notice ?? null, start, stop, cancel };
   return render(<ChatComposer value={opts.value ?? ''} onChange={onChange} onSend={onSend} sending={opts.sending ?? false} />);
+}
+
+/** The composer's three live regions, in document order: the action row's status, the error, the notice. */
+function liveRegions(): HTMLElement[] {
+  return screen.getAllByRole('status');
 }
 
 /** The one circular button on the right of the action row, whichever role it currently has. */
@@ -99,8 +113,9 @@ describe('ChatComposer dictation', () => {
   it('says it is transcribing, disables the primary button, and offers no cancel', () => {
     renderComposer({ state: 'transcribing', value: '' });
 
-    // A wait nobody can see must be a wait a screen reader hears.
-    expect(screen.getByRole('status').textContent).toMatch(/transcrevendo/i);
+    // What is pinned is that the wait has words and that they land in a live region — whether a
+    // screen reader actually speaks them is not something jsdom can show (see the live-region test).
+    expect(liveRegions().map((r) => r.textContent)).toContain('transcrevendo…');
     expect(primary(/ditar/i).disabled).toBe(true);
     // `cancel()` cannot stop an upload that is already on its way — offering it here would lie.
     expect(screen.queryByRole('button', { name: /cancelar/i })).toBeNull();
@@ -114,11 +129,40 @@ describe('ChatComposer dictation', () => {
     expect(primary(/enviar/i).disabled).toBe(true);
   });
 
-  it('shows the dictation error, and announces it', () => {
+  it('shows the dictation error, in a live region, in the danger colour', () => {
     renderComposer({ state: 'idle', value: '', error: 'Permissão do microfone negada' });
 
-    expect(screen.getByText('Permissão do microfone negada')).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toBe('Permissão do microfone negada');
+    const shown = screen.getByText('Permissão do microfone negada');
+    expect(shown.getAttribute('role')).toBe('status');
+    expect(shown.className).toContain('text-danger');
+  });
+
+  it('shows a notice in the same place as an error but not in the danger colour, because it is not a failure', () => {
+    // The hook's `notice` carries "Gravação muito curta" and "Nenhuma fala reconhecida": nothing
+    // failed, so rendering either as an error would tell the person their machine broke.
+    renderComposer({ state: 'idle', value: '', notice: 'Gravação muito curta' });
+
+    const shown = screen.getByText('Gravação muito curta');
+    expect(shown.getAttribute('role')).toBe('status');
+    expect(shown.className).not.toContain('text-danger');
+    expect(shown.className).toContain('text-fg-muted');
+  });
+
+  it('writes into live regions that were already mounted, which is the part a browser needs to announce them', () => {
+    const { rerender } = renderComposer({ state: 'idle', value: '' });
+    const before = liveRegions();
+    // Three regions, all empty: the action row's status, the error and the notice.
+    expect(before.map((r) => r.textContent)).toEqual(['', '', '']);
+
+    dictation = { state: 'transcribing', seconds: 0, error: 'Falha ao transcrever o áudio', notice: 'Gravação muito curta', start, stop, cancel };
+    // A rerender, not a fresh render: what this pins is node identity — the very same elements now
+    // carry the text. A region a browser inserts together with its content is the case that is not
+    // reliably announced, and it is the one this rules out.
+    rerender(<ChatComposer value="" onChange={onChange} onSend={onSend} sending={false} />);
+    const after = liveRegions();
+
+    after.forEach((node, i) => expect(node).toBe(before[i]));
+    expect(after.map((r) => r.textContent)).toEqual(['transcrevendo…', 'Falha ao transcrever o áudio', 'Gravação muito curta']);
   });
 
   it('keeps every glyph decorative: the accessible name is on the button, never on the svg', () => {

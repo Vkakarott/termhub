@@ -19,6 +19,13 @@ export interface Dictation {
   seconds: number;
   /** pt-BR, already user-facing; cleared by the next start() */
   error: string | null;
+  /**
+   * pt-BR feedback that is not a failure: a clip too short to hold speech, a transcription that came
+   * back with no words. Kept apart from `error` because neither is a fault — the plan forbids an
+   * error for the short clip — and silence for both is indistinguishable from a broken microphone.
+   * Cleared by the next start().
+   */
+  notice: string | null;
   start: () => void;
   /** stop and transcribe; the text is delivered through `onText` */
   stop: () => void;
@@ -51,6 +58,7 @@ export function useDictation(onText: (text: string) => void): Dictation {
   const stateRef = useRef<DictationState>('checking');
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const clockTimer = useRef(0);
   const onTextRef = useRef(onText);
@@ -87,7 +95,15 @@ export function useDictation(onText: (text: string) => void): Dictation {
         // a refresh mid-recording can recover it) — despite the `tabId` parameter name, it is not a tab.
         const result = await transcribeClip('chat', clip, onPhase);
         setError(null);
-        onTextRef.current(result.text ?? '');
+        const text = result.text ?? '';
+        // Whisper answers an empty string for a clip it heard nothing in. Delivering that would leave
+        // the box exactly as it was, with "transcrevendo…" having come and gone for no visible reason.
+        if (text.trim()) {
+          setNotice(null);
+          onTextRef.current(text);
+        } else {
+          setNotice('Nenhuma fala reconhecida');
+        }
         void voiceStore.clear('chat'); // text delivered: the stored audio has done its job
       } catch (err) {
         // NOT cleared here: a failed upload/transcription is exactly what the store exists to
@@ -109,8 +125,10 @@ export function useDictation(onText: (text: string) => void): Dictation {
     recorderRef.current = null;
     void rec.stop().then((clip) => {
       if (clip.audio.size < MIN_CLIP_BYTES) {
-        // too short to be speech: return to idle quietly, this isn't a failure worth reporting
+        // Too short to be speech. Not an error — nothing failed, the person let go too early — but not
+        // silence either: the same wording the terminals use, carried as a notice.
         void voiceStore.clear('chat'); // nothing worth keeping
+        setNotice('Gravação muito curta');
         setState('idle');
         return;
       }
@@ -121,6 +139,7 @@ export function useDictation(onText: (text: string) => void): Dictation {
   const start = useCallback(() => {
     if (stateRef.current !== 'idle') return;
     setError(null);
+    setNotice(null);
     // onAutoStop reuses `stop()` itself (not a parallel path) so the 5-minute cut behaves exactly
     // like the user clicking stop: same upload, same transcription, same error handling.
     const rec = new VoiceRecorder('chat', { onAutoStop: () => stop() });
@@ -162,7 +181,7 @@ export function useDictation(onText: (text: string) => void): Dictation {
     [],
   );
 
-  return { state, seconds, error, start, stop, cancel };
+  return { state, seconds, error, notice, start, stop, cancel };
 }
 
 // Re-exported so callers (the chat composer) can show the 5-minute cap without importing voice-recorder.ts directly.

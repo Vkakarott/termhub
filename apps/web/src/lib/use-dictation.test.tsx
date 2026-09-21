@@ -158,7 +158,7 @@ describe('useDictation', () => {
     expect(result.current.error).toMatch(/permiss/i);
   });
 
-  it('stop() with a clip under 2048 bytes returns to idle, sets no error, and clears the stored clip', async () => {
+  it('stop() with a clip under 2048 bytes says "Gravação muito curta" as a notice, not as an error, and clears the stored clip', async () => {
     const { result } = await boot();
     await startRecording(result);
     mocks.recorder.stop.mockResolvedValueOnce({ audio: new Blob(['x']), seconds: 1 });
@@ -167,10 +167,44 @@ describe('useDictation', () => {
     });
     await act(async () => {});
     expect(result.current.state).toBe('idle');
+    // Silence here is indistinguishable from a broken microphone: "transcrevendo…" appears and
+    // vanishes into an unchanged box. It is still not a failure, so it must not arrive as `error`.
+    expect(result.current.notice).toBe('Gravação muito curta');
     expect(result.current.error).toBeNull();
     expect(mocks.transcribeClip).not.toHaveBeenCalled();
     // nothing worth keeping: the too-short clip shouldn't linger in IndexedDB
     expect(mocks.voiceStoreClear).toHaveBeenCalledWith('chat');
+  });
+
+  it('a transcription that comes back with no words says "Nenhuma fala reconhecida" as a notice, not as an error', async () => {
+    const { result, onText } = await boot();
+    await startRecording(result);
+    mocks.transcribeClip.mockResolvedValueOnce({ text: '   ' });
+    act(() => {
+      result.current.stop();
+    });
+    await act(async () => {});
+    expect(result.current.state).toBe('idle');
+    expect(result.current.notice).toBe('Nenhuma fala reconhecida');
+    expect(result.current.error).toBeNull();
+    // Nothing to append: the box is left exactly as it was, and the notice is the only thing that
+    // tells the person why.
+    expect(onText).not.toHaveBeenCalled();
+  });
+
+  it('start() clears a notice left over from the last attempt', async () => {
+    const { result } = await boot();
+    await startRecording(result);
+    mocks.recorder.stop.mockResolvedValueOnce({ audio: new Blob(['x']), seconds: 1 });
+    act(() => {
+      result.current.stop();
+    });
+    await act(async () => {});
+    expect(result.current.notice).toBe('Gravação muito curta');
+
+    await startRecording(result);
+
+    expect(result.current.notice).toBeNull();
   });
 
   it('stop() with a real clip goes uploading -> transcribing -> idle and calls onText once', async () => {
