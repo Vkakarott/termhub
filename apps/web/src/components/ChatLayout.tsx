@@ -30,10 +30,12 @@ export function ChatLayout() {
           ← Voltar
         </Link>
         <h1 className="text-sm font-semibold text-fg">Chat</h1>
-        {/* Which bundle this screen is running, so "it did not change on my phone" can be answered
-            by reading it instead of guessing between a stale page and a fix that does not work. */}
+        {/* Which bundle this screen is running, so "it did not change on my phone" can be answered by
+            reading it instead of guessing between a stale page and a fix that does not work. The
+            version is what the person asked for; the commit is what actually tells two deploys apart,
+            since the version has not moved since 0.1.0. */}
         <span className="ml-auto font-mono text-[10px] text-fg-dim" title="build">
-          {__BUILD_STAMP__}
+          v{__APP_VERSION__} · {import.meta.env.VITE_BUILD_SHA || __BUILD_STAMP__}
         </span>
       </header>
       {/* `main`, like every sidebar route's own region (`Layout.tsx`): /chat is a full page too, and

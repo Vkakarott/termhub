@@ -34,6 +34,12 @@ DRY_RUN="${DRY_RUN:-0}"
 VHOST_TEMPLATE="$REPO_ROOT/deploy/nginx/termhub.dev.conf.tmpl"
 STATE_DIR="$(dirname "$STATE_FILE")"
 
+# The commit this build comes from, baked into the web bundle and shown in the chat's header: it is
+# what tells a screen apart from a cached one without anybody guessing. Empty outside a checkout,
+# where the bundle falls back to its build time.
+VITE_BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || true)"
+export VITE_BUILD_SHA
+
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod)
 
 log() {

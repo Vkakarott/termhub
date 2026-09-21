@@ -83,6 +83,9 @@ it('shows which bundle it is running', () => {
       </Routes>
     </MemoryRouter>,
   );
-  expect(screen.getByTitle('build').textContent).toMatch(/^\d{2}-\d{2} \d{2}:\d{2}$/);
+  // Version first, because that is what was asked for; then whatever identifies the build — the
+  // commit in a deployed image, the build time in a local one, since the version alone has not
+  // moved since 0.1.0 and could never tell two deploys apart.
+  expect(screen.getByTitle('build').textContent).toMatch(/^v\d+\.\d+\.\d+ · .+/);
 });
 });
