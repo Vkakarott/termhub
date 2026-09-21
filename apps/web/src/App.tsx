@@ -5,6 +5,7 @@ import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
+import { ChatPage } from './pages/ChatPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -20,6 +21,7 @@ export function App() {
               <Route path="/ai" element={<HomePage />} />
               <Route path="/hardware" element={<HomePage />} />
               <Route path="/waitlist" element={<HomePage />} />
+              <Route path="/chat" element={<ChatPage />} />
               <Route path="/integrations" element={<IntegrationsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/settings/:section" element={<SettingsPage />} />

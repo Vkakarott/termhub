@@ -446,6 +446,34 @@ export interface HardwareSnapshot {
   collected_at: string;
 }
 
+/** GET /chat: one conversation per user (v1). */
+export interface ChatConversation {
+  id: string;
+  title: string | null;
+  model: string | null;
+  review_mode: boolean;
+  last_message_at: string | null;
+}
+
+/** `error_code` set (either value) means the answer did not finish; the UI never distinguishes them. */
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  error_code: 'RUNNER_FAILED' | 'TOKEN_FAILED' | null;
+  created_at: string;
+}
+
+/** Pushed over /ws/chat for the signed-in user only; carries no history. */
+export type ChatEvent =
+  | { type: 'message'; message: ChatMessage }
+  | { type: 'delta'; message_id: string; delta: string }
+  | { type: 'action'; message_id: string; tool: string; tool_use_id: string; args: unknown }
+  | { type: 'action_result'; message_id: string; tool_use_id: string; ok: boolean }
+  /** the server retried the run on a fresh CLI session: drop whatever streamed for this message so far */
+  | { type: 'reset'; message_id: string };
+
 /** Cloud waitlist sign-up (GET /waitlist) */
 export interface WaitlistEntry {
   id: string;

@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, CreatedApiToken, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatConversation, ChatMessage, CreatedApiToken, InviteResult, ViewAs, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -136,6 +136,10 @@ export const api = {
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
+  /** derived from the session — there is no id to pass or guess (v1: one conversation per user) */
+  chat: () => request<{ conversation: ChatConversation; messages: ChatMessage[] }>('GET', '/chat'),
+  /** 400 for empty/over-8000-char text; 409 CHAT_BUSY (its pt-BR message shown as-is) while a previous answer is still running */
+  sendChatMessage: (text: string) => request<{ message: ChatMessage }>('POST', '/chat/messages', { text }),
   monitor: {
     tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
   },
