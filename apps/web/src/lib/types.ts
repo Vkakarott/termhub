@@ -465,6 +465,27 @@ export interface ChatMessage {
   created_at: string;
 }
 
+export type ChatActionClass = 'read' | 'write' | 'irreversible';
+export type ChatActionStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'executed' | 'failed';
+
+/**
+ * A write the concierge proposed on a gated token, as the server enriches it: `summary` is the
+ * server-composed pt-BR sentence ("digitar `npm test` na aba Terminal 2 do projeto reactivando, no
+ * macbook m3") — never a tool name and three ids. Never render it as HTML: it can carry a command a
+ * model read off a real terminal screen.
+ */
+export interface ChatAction {
+  id: string;
+  tool: string;
+  args: unknown;
+  class: ChatActionClass;
+  status: ChatActionStatus;
+  machine_id: string | null;
+  project_id: string | null;
+  tab_id: string | null;
+  summary: string;
+}
+
 /** Pushed over /ws/chat for the signed-in user only; carries no history. */
 export type ChatEvent =
   | { type: 'message'; message: ChatMessage }
@@ -472,7 +493,12 @@ export type ChatEvent =
   | { type: 'action'; message_id: string; tool: string; tool_use_id: string; args: unknown }
   | { type: 'action_result'; message_id: string; tool_use_id: string; ok: boolean }
   /** the server retried the run on a fresh CLI session: drop whatever streamed for this message so far */
-  | { type: 'reset'; message_id: string };
+  | { type: 'reset'; message_id: string }
+  /** A new pending action to show a card for, enriched exactly like `GET /api/chat`'s `actions` —
+   * never resolve a name from this event, the server already did it. */
+  | ({ type: 'confirmation'; action_id: string } & Omit<ChatAction, 'id' | 'status'>)
+  /** Someone answered a pending action (possibly in another tab): update the card by its id. */
+  | { type: 'decision'; action_id: string; status: 'approved' | 'denied' };
 
 /** Cloud waitlist sign-up (GET /waitlist) */
 export interface WaitlistEntry {

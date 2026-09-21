@@ -39,6 +39,34 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
 
   const titles = (ts: { title: string }[]) => ts.map((t) => t.title);
 
+  it('finds tasks by id in one query, filtered to one owner — another owner\'s task does not resolve', async () => {
+    const ownerId = newId();
+    const otherOwnerId = newId();
+    const otherMachineId = newId();
+    const foreignProjectId = newId();
+    await db.user.createMany({ data: [
+      { id: ownerId, email: `${ownerId}@test.local`, name: 'owner' },
+      { id: otherOwnerId, email: `${otherOwnerId}@test.local`, name: 'other' },
+    ] });
+    try {
+      // This suite's shared `machineId` fixture is orphaned (no owner) — give it to `ownerId` for
+      // this test only, and set up a second, foreign machine/project for the other user's task.
+      await db.machine.update({ where: { id: machineId }, data: { ownerId } });
+      await db.machine.create({ data: { id: otherMachineId, name: 'theirs', type: 'agent', ownerId: otherOwnerId } });
+      await db.project.create({ data: { id: foreignProjectId, machineId: otherMachineId, name: 'p2', cwd: '/tmp' } });
+
+      const mine = await repo.create(projectId, { title: 'mine' });
+      const theirs = await repo.create(foreignProjectId, { title: 'theirs' });
+
+      const found = await repo.findByIdsForOwner([mine.id, theirs.id, 'nope'], ownerId);
+      expect(titles(found)).toEqual(['mine']); // another owner's task is absent, indistinguishable from "does not exist"
+      expect(await repo.findByIdsForOwner([], ownerId)).toEqual([]);
+    } finally {
+      await db.machine.deleteMany({ where: { id: otherMachineId } }); // cascades the foreign project and task
+      await db.user.deleteMany({ where: { id: { in: [ownerId, otherOwnerId] } } });
+    }
+  });
+
   it('appends subtasks in call order and nests them in the list', async () => {
     const parent = await repo.create(projectId, { title: 'parent' });
     await repo.createSubtasks(parent.id, [{ title: 's1' }, { title: 's2' }]);

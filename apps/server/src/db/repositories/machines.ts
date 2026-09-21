@@ -30,6 +30,17 @@ export class MachinesRepository {
     return m ? mapMachine(m) : undefined;
   }
 
+  /**
+   * Batched by id, one query regardless of how many ids are asked for, filtered to one owner's
+   * machines — never "no filter": a caller that resolves names for one person's screen (e.g. the
+   * chat action trail) must not be able to pass `null` and see everyone's. Another owner's machine
+   * id, or an orphan's, is simply absent from the result, exactly like a row that does not exist.
+   */
+  async findByIdsForOwner(ids: string[], ownerId: string): Promise<Machine[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.machine.findMany({ where: { id: { in: ids }, ownerId }, include: withOwner })).map(mapMachine);
+  }
+
   async findByType(type: MachineType): Promise<Machine[]> {
     return (await this.db.machine.findMany({ where: { type } })).map(mapMachine);
   }

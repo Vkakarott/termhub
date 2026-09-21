@@ -26,7 +26,7 @@ import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
 import { registerMonitorWs } from './monitor/ws.js';
 import { chatRoutes } from './routes/chat.js';
-import { ChatService } from './chat/service.js';
+import { ChatService, purgeExpiredActions } from './chat/service.js';
 import { httpRunner } from './chat/runner.js';
 import { registerChatWs } from './chat/ws.js';
 import { roleRoutes } from './routes/roles.js';
@@ -181,8 +181,11 @@ export async function buildApp(): Promise<App> {
     fastify.log.warn('apps/web/dist não encontrado — rodando só a API (use "npm run build" para servir o frontend)');
   }
 
-  // Limpeza periódica de sessões expiradas
-  const purge = setInterval(() => void authService.purgeExpired().catch(() => {}), 60 * 60 * 1000);
+  // Limpeza periódica de sessões expiradas e de perguntas do chat que ninguém respondeu
+  const purge = setInterval(() => {
+    void authService.purgeExpired().catch(() => {});
+    void purgeExpiredActions(repos).catch(() => {});
+  }, 60 * 60 * 1000);
   const stopSync = startTicketSyncScheduler(repos, fastify.log);
   const stopAgentUpdates = startAgentUpdateScheduler(repos, fastify.log);
   fastify.addHook('onClose', async () => {

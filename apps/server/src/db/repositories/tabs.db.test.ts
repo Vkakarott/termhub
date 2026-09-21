@@ -79,6 +79,42 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     expect(cleared).toMatchObject({ state: null, state_at: null, state_seen_at: null });
   });
 
+  it('finds tabs by id in one query, filtered to one owner — another owner\'s tab does not resolve', async () => {
+    const ownerId = newId();
+    const otherOwnerId = newId();
+    const ownedMachineId = newId();
+    const otherMachineId = newId();
+    const ownedProjectId = newId();
+    const otherProjectId = newId();
+    const ownedTabId = newId();
+    const otherTabId = newId();
+    await db.user.createMany({ data: [
+      { id: ownerId, email: `${ownerId}@test.local`, name: 'owner' },
+      { id: otherOwnerId, email: `${otherOwnerId}@test.local`, name: 'other' },
+    ] });
+    try {
+      await db.machine.createMany({ data: [
+        { id: ownedMachineId, name: 'mine', type: 'agent', ownerId },
+        { id: otherMachineId, name: 'theirs', type: 'agent', ownerId: otherOwnerId },
+      ] });
+      await db.project.createMany({ data: [
+        { id: ownedProjectId, machineId: ownedMachineId, name: 'p', cwd: '/tmp' },
+        { id: otherProjectId, machineId: otherMachineId, name: 'p2', cwd: '/tmp' },
+      ] });
+      await db.tab.createMany({ data: [
+        { id: ownedTabId, projectId: ownedProjectId, name: 'mine', tmuxSession: `th-${ownedTabId}` },
+        { id: otherTabId, projectId: otherProjectId, name: 'theirs', tmuxSession: `th-${otherTabId}` },
+      ] });
+
+      const found = await repo.findByIdsForOwner([ownedTabId, otherTabId, 'nope'], ownerId);
+      expect(found.map((t) => t.id)).toEqual([ownedTabId]); // another owner's tab is absent, indistinguishable from "does not exist"
+      expect(await repo.findByIdsForOwner([], ownerId)).toEqual([]);
+    } finally {
+      await db.machine.deleteMany({ where: { id: { in: [ownedMachineId, otherMachineId] } } }); // cascades projects and tabs
+      await db.user.deleteMany({ where: { id: { in: [ownerId, otherOwnerId] } } });
+    }
+  });
+
   describe('created_by_token_id / countOpenByToken', () => {
     it('records which token opened a tab and counts the ones still open', async () => {
       const a = await repo.create(projectId, 'T1', { created_by_token_id: 'tok1' });

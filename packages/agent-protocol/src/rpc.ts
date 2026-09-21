@@ -32,8 +32,12 @@ export const RPC = {
   'tmux.capture': def(z.object({ session: sessionName, lines: z.number().int().min(1).max(5000) }), z.object({ text: z.string() })),
   /** Idempotent: creates the detached session in `cwd` when it is missing. `created` says whether it had to. */
   'tmux.ensure': def(z.object({ session: sessionName, cwd: machinePath }), z.object({ created: z.boolean() }), 10_000),
-  /** Types `text` literally, then (with `enter`) presses Enter on its own after a short pause. */
-  'tmux.sendText': def(z.object({ session: sessionName, text: z.string().max(TEXT_MAX_CHARS), enter: z.boolean() }), z.object({ sent: z.literal(true) }), 10_000),
+  /**
+   * Types `text` literally, then (with `enter`) presses Enter on its own after a short pause.
+   * `paste`: deliver `text` as a tmux buffer paste instead of typed keystrokes, so a TUI reads
+   * an embedded newline as part of the pasted text rather than as Enter (since agent 0.3.0).
+   */
+  'tmux.sendText': def(z.object({ session: sessionName, text: z.string().max(TEXT_MAX_CHARS), enter: z.boolean(), paste: z.boolean().optional() }), z.object({ sent: z.literal(true) }), 10_000),
   'tmux.sendKey': def(z.object({ session: sessionName, key: tmuxKey }), z.object({ sent: z.literal(true) }), 10_000),
   'tools.detect': def(z.object({}), z.object({ os: z.string().nullable(), tools: z.array(z.string().max(32)) })),
   'hw.probe': def(z.object({}), z.object({ stdout: z.string() }), 15_000),

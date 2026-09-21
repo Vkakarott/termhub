@@ -105,6 +105,16 @@ describe('sendInput', () => {
     expect(sendTextToSession).toHaveBeenCalledWith(machine, 'termhub-p1-t1', 'oi', true);
   });
 
+  it('requests paste when the text has an embedded newline (a multi-line prompt)', async () => {
+    await sendInput(ctxWith(), { tab_id: 't1', text: 'linha um\nlinha dois', enter: true });
+    expect(sendTextToSession).toHaveBeenCalledWith(machine, 'termhub-p1-t1', 'linha um\nlinha dois', true, { paste: true });
+  });
+
+  it('does not request paste for single-line text', async () => {
+    await sendInput(ctxWith(), { tab_id: 't1', text: 'oi', enter: true });
+    expect(sendTextToSession).toHaveBeenCalledWith(machine, 'termhub-p1-t1', 'oi', true);
+  });
+
   it('refuses a pending permission unless the caller says it is answering it', async () => {
     const ctx = ctxWith({ tab: tab({ state: 'waiting_permission', state_text: 'Permitir escrever em src/app.ts?' }) });
     await expect(sendInput(ctx, { tab_id: 't1', text: 'sim' })).rejects.toMatchObject({ code: 'WAITING_PERMISSION', message: expect.stringContaining('Permitir escrever em src/app.ts?') });

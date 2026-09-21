@@ -1,0 +1,657 @@
+import Fastify from 'fastify';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { AgentConnection } from '../agent/connection.js';
+import { agents } from '../agent/registry.js';
+import { hashApiToken } from '../auth/api-tokens.js';
+import { canAccess } from '../auth/permissions.js';
+import { chatBus } from '../chat/bus.js';
+import { idempotencyKeyFor } from '../chat/gate.js';
+import type { ChatAction, InsertPendingInput } from '../db/repositories/chat-actions.js';
+import type { Repositories } from '../db/repositories/index.js';
+import { applyErrorHandler } from '../lib/errors.js';
+import { mcpRoutes } from './route.js';
+
+vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess: vi.fn(async () => true) }));
+
+const SECRET = 'thb_pat_' + 'A'.repeat(43);
+const CONVERSATION = 'c1';
+const machine = { id: 'm1', name: 'jarvis', type: 'agent', os: 'linux', capabilities: ['tmux'], owner_id: 'u1' };
+const project = { id: 'p1', name: 'app', cwd: '/home/u/app', machine_id: 'm1', status: 'active', owner_id: 'u1' };
+
+/** The fake machine: one tmux session whose screen is whatever was typed into it. `agentVersion` is
+ * how the "this machine cannot do it" failures are staged: an agent older than the terminal RPCs makes
+ * the tool throw `AGENT_OUTDATED` before it ever reaches tmux. */
+function attachFakeTmux(typed: string[], agentVersion = '0.2.0') {
+  const conn = {
+    machineId: machine.id,
+    hello: { agent_version: agentVersion, os: 'linux', tools: ['tmux'] },
+    connectedAt: Date.now(),
+    close: vi.fn(),
+    openPty: vi.fn(),
+    on() {
+      return this;
+    },
+    rpc: vi.fn(async (method: string, params: unknown) => {
+      const p = params as { text?: string };
+      if (method === 'tmux.ensure') return { created: true };
+      if (method === 'tmux.sendText') {
+        typed.push(p.text ?? '');
+        return { sent: true };
+      }
+      if (method === 'tmux.sendKey') {
+        typed.push(`key:${(params as { key?: string }).key ?? ''}`);
+        return { sent: true };
+      }
+      if (method === 'tmux.capture') return { text: typed.join('\n') };
+      throw new Error(`unexpected rpc ${method}`);
+    }),
+  } as unknown as AgentConnection;
+  agents.attach(machine.id, conn);
+  return conn;
+}
+
+/** The repository's real semantics in memory: the partial unique index means a second *open* row for
+ * a key throws, a decided row is invisible to `findOpenByKey`, a claim only succeeds while the row is
+ * still approved, and every read hands back a snapshot — never a live reference into the store. */
+function fakeChatActions() {
+  const rows: ChatAction[] = [];
+  const isOpen = (r: ChatAction) => r.status === 'pending' || r.status === 'approved';
+  const sameKey = (r: ChatAction, conversationId: string, key: string) => r.conversation_id === conversationId && r.idempotency_key === key;
+  const snapshot = (r: ChatAction | undefined) => (r ? { ...r } : undefined);
+  return {
+    rows,
+    findOpenByKey: vi.fn(async (conversationId: string, key: string) => snapshot(rows.find((r) => sameKey(r, conversationId, key) && isOpen(r)))),
+    findDeniedByKey: vi.fn(async (conversationId: string, key: string) => snapshot([...rows].reverse().find((r) => sameKey(r, conversationId, key) && r.status === 'denied'))),
+    claimApproved: vi.fn(async (id: string) => {
+      const row = rows.find((r) => r.id === id && r.status === 'approved');
+      if (!row) return false;
+      row.status = 'executed'; // the claim itself, exactly as the conditional UPDATE does it
+      return true;
+    }),
+    /** The same conditional update as the claim, landing on `expired`: only a row still approved can
+     * be aged out, so a claim and an expiry of one approval can never both win. */
+    expireApproved: vi.fn(async (id: string) => {
+      const row = rows.find((r) => r.id === id && r.status === 'approved');
+      if (!row) return false;
+      row.status = 'expired';
+      return true;
+    }),
+    /** Owner-scoped, exactly like the repository: this is how the gate asks a row which race it lost. */
+    findByIdForUser: vi.fn(async (id: string, userId: string) => (userId === 'u1' ? snapshot(rows.find((r) => r.id === id)) : undefined)),
+    insertPending: vi.fn(async (input: InsertPendingInput) => {
+      if (rows.some((r) => sameKey(r, input.conversation_id, input.idempotency_key ?? '') && isOpen(r))) {
+        throw new Error('duplicate key value violates unique constraint "chat_actions_one_open_per_key"');
+      }
+      const row: ChatAction = {
+        id: `a${rows.length + 1}`,
+        conversation_id: input.conversation_id,
+        message_id: input.message_id ?? null,
+        tool: input.tool,
+        args: input.args,
+        class: input.class,
+        status: 'pending',
+        idempotency_key: input.idempotency_key ?? null,
+        machine_id: input.machine_id ?? null,
+        project_id: input.project_id ?? null,
+        tab_id: input.tab_id ?? null,
+        error_code: null,
+        duration_ms: null,
+        decided_by: null,
+        decided_at: null,
+        created_at: new Date().toISOString(),
+      };
+      rows.push(row);
+      return row;
+    }),
+    markExecuted: vi.fn(async (id: string, ok: boolean, errorCode?: string | null, durationMs?: number | null) => {
+      const row = rows.find((r) => r.id === id);
+      if (!row) return;
+      row.status = ok ? 'executed' : 'failed';
+      row.error_code = errorCode ?? null;
+      row.duration_ms = durationMs ?? null;
+    }),
+    /**
+     * A row already decided on, as the chat's confirmation endpoint (or the expiry sweep) leaves it.
+     * `decidedMinutesAgo` dates the decision: the gate's refusal window is measured from `decided_at`,
+     * so backdating the row is how the clock is moved — no fake timers, no waiting.
+     */
+    seed: (status: 'approved' | 'denied' | 'expired', tool: string, args: Record<string, unknown>, decidedMinutesAgo = 0) => {
+      const decidedAt = new Date(Date.now() - decidedMinutesAgo * 60 * 1000).toISOString();
+      const row: ChatAction = {
+        id: `a${rows.length + 1}`,
+        conversation_id: CONVERSATION,
+        message_id: null,
+        tool,
+        args,
+        class: 'write',
+        status,
+        idempotency_key: idempotencyKeyFor(CONVERSATION, tool, args),
+        machine_id: null,
+        project_id: null,
+        tab_id: typeof args.tab_id === 'string' ? args.tab_id : null,
+        error_code: null,
+        duration_ms: null,
+        decided_by: status === 'expired' ? null : 'u1',
+        decided_at: status === 'expired' ? null : decidedAt,
+        created_at: decidedAt,
+      };
+      rows.push(row);
+      return row;
+    },
+  };
+}
+
+function build(opts: { gated: boolean }) {
+  const tab = (id: string, name: string) => ({ id, project_id: 'p1', name, kind: 'terminal', tmux_session: `termhub-p1-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: null });
+  const tabs = new Map<string, Record<string, unknown>>([
+    ['t1', tab('t1', 'Terminal 1')],
+    // Somebody else's tab: it exists, so an unscoped `findById` resolves it, and the owner-scoped read
+    // below does not — the difference the gate's re-validation must be built on.
+    ['t9', tab('t9', 'Terminal do vizinho')],
+  ]);
+  const foreignTabIds = new Set(['t9']);
+  const apiTokens = {
+    findActiveByHash: vi.fn(async (h: string) => (h === hashApiToken(SECRET) ? { id: 'tok1', user_id: 'u1', name: 'concierge', scopes: ['read', 'terminals'], expires_at: null, revoked_at: null, last_used_at: null, created_at: '', gated: opts.gated } : undefined)),
+    touchLastUsed: vi.fn(async () => {}),
+    recordEvent: vi.fn(async () => {}),
+  };
+  const actions = fakeChatActions();
+  const chat = { getOrCreateForUser: vi.fn(async (userId: string) => ({ id: CONVERSATION, user_id: userId, cli_session_id: null, created_at: '' })) };
+  const repos = {
+    apiTokens,
+    chat,
+    chatActions: actions,
+    users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
+    machines: {
+      findById: vi.fn(async () => machine),
+      list: vi.fn(async () => [machine]),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === machine.owner_id && ids.includes(machine.id) ? [machine] : [])),
+    },
+    projects: {
+      findById: vi.fn(async () => project),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === machine.owner_id && ids.includes(project.id) ? [project] : [])),
+    },
+    tasks: { listByProject: vi.fn(async () => []), findByIdsForOwner: vi.fn(async () => []) },
+    tabs: {
+      listByProject: vi.fn(async () => [...tabs.values()]),
+      countOpenByToken: vi.fn(async () => 0),
+      findById: vi.fn(async (id: string) => tabs.get(id)),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) =>
+        ownerId === machine.owner_id ? [...tabs.values()].filter((t) => ids.includes(t.id as string) && !foreignTabIds.has(t.id as string)) : [],
+      ),
+      delete: vi.fn(async (id: string) => tabs.delete(id)),
+    },
+  } as unknown as Repositories;
+
+  const app = Fastify();
+  applyErrorHandler(app);
+  app.register((a) => mcpRoutes(a, { repos, version: '0.0.0-test' }));
+  return { app, apiTokens, actions, tabs };
+}
+
+const callTool = (app: ReturnType<typeof Fastify>, name: string, args: object) =>
+  app.inject({
+    method: 'POST',
+    url: '/mcp',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${SECRET}` },
+    payload: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+  });
+
+type Injected = Awaited<ReturnType<typeof callTool>>;
+const resultOf = (res: Injected) => (res.json() as { result: { content: { text: string }[]; isError?: boolean } }).result;
+const textOf = (res: Injected) => resultOf(res).content[0].text;
+const payloadOf = (res: Injected) => JSON.parse(textOf(res));
+/** `recordEvent` is fired and forgotten by the route; a macrotask turn is enough for it to land. */
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+const collected: Record<string, unknown>[] = [];
+let unsubscribe: (() => void) | undefined;
+
+beforeEach(() => {
+  agents.reset();
+  vi.mocked(canAccess).mockResolvedValue(true);
+  collected.length = 0;
+  unsubscribe = chatBus.subscribe((event) => collected.push(event as unknown as Record<string, unknown>));
+});
+
+afterEach(() => unsubscribe?.());
+
+it('asks instead of acting, and says so in a way the model can act on', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions, apiTokens } = build({ gated: true });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(actions.insertPending).toHaveBeenCalledTimes(1);
+  expect(typed).toEqual([]); // nothing was typed
+  expect(actions.rows[0]).toMatchObject({ status: 'pending', tool: 'send_input', class: 'write', tab_id: 't1', args: { tab_id: 't1', text: 'npm test' } });
+
+  // the per-call audit row is still written exactly once, with the existing shape
+  await settle();
+  expect(apiTokens.recordEvent).toHaveBeenCalledTimes(1);
+  expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ token_id: 'tok1', tool: 'send_input', tab_id: 't1', ok: false, error_code: 'CONFIRMATION_PENDING' });
+  expect(JSON.stringify(apiTokens.recordEvent.mock.calls[0][0])).not.toContain('npm test');
+});
+
+it('does not ask twice for the same proposal', async () => {
+  attachFakeTmux([]);
+  const { app, actions } = build({ gated: true });
+
+  await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  const again = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(again).isError).toBe(true);
+  expect(textOf(again)).toMatch(/ainda está aguardando a confirmação/i);
+  expect(actions.insertPending).toHaveBeenCalledTimes(1);
+  expect(actions.rows).toHaveLength(1);
+});
+
+it('asks only once when a concurrent duplicate insert loses the unique index', async () => {
+  attachFakeTmux([]);
+  const { app, actions } = build({ gated: true });
+  await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  // The racing request read the table before the first insert committed, so it still tries to
+  // insert: the partial unique index rejects it, and it must answer "waiting" instead of failing.
+  actions.findOpenByKey.mockResolvedValueOnce(undefined);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/ainda está aguardando a confirmação/i);
+  expect(actions.insertPending).toHaveBeenCalledTimes(2);
+  expect(actions.rows).toHaveLength(1);
+});
+
+it('executes once the row is approved, and marks it executed', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBeUndefined();
+  expect(payloadOf(res)).toMatchObject({ tab_id: 't1', sent: true });
+  expect(typed).toEqual(['npm test']);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, true, null, expect.any(Number));
+  expect(actions.rows[0].status).toBe('executed');
+  expect(actions.insertPending).not.toHaveBeenCalled();
+});
+
+it('keeps refusing right after a denial, without asking again', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.seed('denied', 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/recusou/i);
+  expect(typed).toEqual([]);
+  expect(actions.insertPending).not.toHaveBeenCalled();
+  expect(actions.rows).toHaveLength(1);
+});
+
+it('still refuses the identical proposal a minute after the denial', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.seed('denied', 'send_input', { tab_id: 't1', text: 'npm test' }, 1);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/recusou/i);
+  expect(typed).toEqual([]);
+  expect(actions.insertPending).not.toHaveBeenCalled();
+});
+
+it('asks again once the denial is older than the window: the user may have changed their mind', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.seed('denied', 'send_input', { tab_id: 't1', text: 'npm test' }, 16);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(typed).toEqual([]); // still nothing typed: it is a question, not an action
+  expect(actions.insertPending).toHaveBeenCalledTimes(1);
+  expect(actions.rows.map((r) => r.status)).toEqual(['denied', 'pending']);
+  expect(collected.map((e) => e.type)).toEqual(['confirmation']);
+});
+
+it('asks a question left to expire again, because nobody ever answered it', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.seed('expired', 'send_input', { tab_id: 't1', text: 'npm test' }, 60 * 25);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(typed).toEqual([]);
+  expect(actions.insertPending).toHaveBeenCalledTimes(1);
+  expect(actions.rows.map((r) => r.status)).toEqual(['expired', 'pending']);
+  expect(collected.map((e) => e.type)).toEqual(['confirmation']);
+});
+
+it('re-validates the tab before executing an approved action', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions, tabs } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+  tabs.delete('t1'); // the tab was killed while the question waited
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toContain('t1');
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'TAB_GONE', expect.any(Number));
+  expect(actions.rows[0].status).toBe('failed');
+});
+
+it('refuses an approved keystroke into a tab that is now waiting for a permission', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions, tabs } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+  tabs.set('t1', { ...tabs.get('t1')!, state: 'waiting_permission', state_text: 'Allow edit?' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'WAITING_PERMISSION', expect.any(Number));
+  expect(actions.rows[0].status).toBe('failed');
+});
+
+it('types once when two identical calls both read the same approved row', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+  // Both arrivals read the row while it was still approved — a client that issues the call twice in
+  // parallel, or a re-injection delivered twice. Only the claim can keep the second one from typing.
+  actions.findOpenByKey.mockResolvedValue({ ...row });
+
+  const first = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  const second = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(first).isError).toBeUndefined();
+  expect(typed).toEqual(['npm test']); // one approval, one command
+  expect(resultOf(second).isError).toBe(true);
+  expect(textOf(second)).toMatch(/já está executando esta ação/i);
+  // The loser asked the row which race it lost: it is `executed`, so "wait for the first call" is the
+  // truth. It must not read as an expiry — there is a result coming.
+  expect(textOf(second)).not.toMatch(/expirou/i);
+  expect(actions.claimApproved).toHaveBeenCalledTimes(2);
+  expect(actions.markExecuted).toHaveBeenCalledTimes(1);
+});
+
+it('says the approval expired, not that another call is running, when the sweep took the row', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+  // The gate read the row while it was still approved, and the hourly sweep retired it before the claim
+  // landed. The claim loses either way — but here nobody is executing anything, so telling the model to
+  // wait for another call's result would leave it waiting for a result that never comes: the user would
+  // see nothing happen and never be asked again.
+  actions.claimApproved.mockImplementationOnce(async () => {
+    row.status = 'expired';
+    return false;
+  });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/expirou/i);
+  expect(textOf(res)).not.toMatch(/já está executando/i);
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).not.toHaveBeenCalled(); // the row is the sweep's now, not this call's
+  expect(actions.rows[0].status).toBe('expired');
+});
+
+it('answers the permission the user saw, and refuses one asked after it', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions, tabs } = build({ gated: true });
+  const args = { tab_id: 't1', key: 'Enter' };
+  const stale = actions.seed('approved', 'send_key', args, 40);
+  // The prompt the user confirmed was answered, and another one appeared while the approval waited:
+  // `state_at` is newer than the question, so pressing Enter now would accept something unseen.
+  tabs.set('t1', { ...tabs.get('t1')!, state: 'waiting_permission', state_text: 'Allow rm -rf?', state_at: new Date().toISOString() });
+
+  const res = await callTool(app, 'send_key', args);
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/outra permissão/i);
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(stale.id, false, 'PROMPT_CHANGED', expect.any(Number));
+  expect(actions.rows[0].status).toBe('failed');
+});
+
+it('still answers a permission that was already on screen when the user confirmed', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions, tabs } = build({ gated: true });
+  const args = { tab_id: 't1', key: 'Enter' };
+  const row = actions.seed('approved', 'send_key', args);
+  tabs.set('t1', { ...tabs.get('t1')!, state: 'waiting_permission', state_text: 'Allow edit?', state_at: new Date(Date.now() - 10 * 60 * 1000).toISOString() });
+
+  const res = await callTool(app, 'send_key', args);
+
+  expect(resultOf(res).isError).toBeUndefined();
+  expect(typed).toEqual(['key:Enter']); // the exemption itself still stands
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, true, null, expect.any(Number));
+});
+
+it('asks before an irreversible action too, and kills nothing meanwhile', async () => {
+  const typed: string[] = [];
+  const conn = attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+
+  const res = await callTool(app, 'close_tab', { tab_id: 't1' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(actions.rows[0]).toMatchObject({ tool: 'close_tab', class: 'irreversible', status: 'pending', tab_id: 't1' });
+  expect(conn.rpc).not.toHaveBeenCalled();
+  expect(collected.map((e) => e.class)).toEqual(['irreversible']);
+});
+
+it('refuses a tool it does not know before the gate is ever reached', async () => {
+  attachFakeTmux([]);
+  const { app, actions, apiTokens } = build({ gated: true });
+
+  // The route's allowlist answers an unknown name itself, so `actionClass`'s irreversible default for
+  // one is a second line of defence, never the first: no proposal is recorded and nothing is asked.
+  const res = await callTool(app, 'drop_everything', { tab_id: 't1' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/desconhecida/i);
+  expect(actions.insertPending).not.toHaveBeenCalled();
+  expect(collected).toEqual([]);
+  await settle();
+  expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'drop_everything', ok: false, error_code: 'TOOL_NOT_ALLOWED' });
+});
+
+it('fails closed when the actions table cannot be read', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.findOpenByKey.mockRejectedValueOnce(new Error('connection terminated'));
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  // A gate that cannot read its own table must not let the write through.
+  expect(resultOf(res).isError).toBe(true);
+  expect(typed).toEqual([]);
+  expect(actions.insertPending).not.toHaveBeenCalled();
+});
+
+it('does not carry the proposal in the error when the proposal cannot be recorded', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  // A rejected write carries the rejected data; whatever comes out of the gate must not.
+  actions.insertPending.mockRejectedValueOnce(new Error('null value in column "args" violates ... { text: "npm test" }'));
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).not.toContain('npm test');
+  expect(textOf(res)).toMatch(/registrar esta ação/i);
+  expect(typed).toEqual([]);
+});
+
+it("lets a person's own token through untouched", async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: false });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBeUndefined();
+  expect(typed).toEqual(['npm test']);
+  expect(actions.insertPending).not.toHaveBeenCalled();
+  expect(actions.findOpenByKey).not.toHaveBeenCalled();
+  expect(collected).toEqual([]);
+});
+
+it('never gates a read', async () => {
+  attachFakeTmux(['npm test']);
+  const { app, actions } = build({ gated: true });
+
+  const res = await callTool(app, 'read_screen', { tab_id: 't1', lines: 10 });
+
+  expect(resultOf(res).isError).toBeUndefined();
+  expect(payloadOf(res).text).toContain('npm test');
+  expect(actions.insertPending).not.toHaveBeenCalled();
+  expect(actions.findOpenByKey).not.toHaveBeenCalled();
+});
+
+it('publishes the question to the chat, with the arguments and no terminal content', async () => {
+  attachFakeTmux(['segredo na tela']);
+  const { app, actions } = build({ gated: true });
+
+  await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(collected).toHaveLength(1);
+  expect(Object.keys(collected[0]).sort()).toEqual(['action_id', 'args', 'class', 'machine_id', 'project_id', 'summary', 'tab_id', 'tool', 'type', 'user_id']);
+  expect(collected[0]).toEqual({
+    type: 'confirmation',
+    user_id: 'u1',
+    action_id: actions.rows[0].id,
+    tool: 'send_input',
+    args: { tab_id: 't1', text: 'npm test' },
+    class: 'write',
+    machine_id: null,
+    project_id: null,
+    tab_id: 't1',
+    // Enriched through the tab: t1 belongs to project "app" on machine "jarvis" (this test's fixtures).
+    summary: 'digitar `npm test` na aba Terminal 1 do projeto app, no jarvis',
+  });
+  expect(JSON.stringify(collected[0])).not.toContain('segredo na tela');
+});
+
+it('stops honouring an approval nobody consumed for a day, and asks again instead of executing', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  // The "yes" is a day old: no call ever came back to use it (the run died, the session was dropped,
+  // the model moved on). Without the clock, this byte-identical proposal would claim it and type.
+  actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' }, 60 * 25);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(typed).toEqual([]); // nothing ran on the machine
+  expect(textOf(res)).toMatch(/expirou/i);
+  expect(textOf(res)).not.toMatch(/recusou/i); // an approval that lapsed is not a "no"
+  expect(actions.claimApproved).not.toHaveBeenCalled();
+  expect(actions.rows[0].status).toBe('expired');
+  expect(collected).toEqual([]); // no question either: this call only retired the dead approval
+
+  // And "propose it again" is now something the model can actually do: the retired row no longer
+  // occupies the key, so the identical call asks the user instead of finding the same dead approval.
+  const again = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  expect(textOf(again)).toMatch(/pendente de confirmação/i);
+  expect(actions.rows.map((r) => r.status)).toEqual(['expired', 'pending']);
+  expect(typed).toEqual([]);
+  expect(collected.map((e) => e.type)).toEqual(['confirmation']);
+});
+
+it('still executes an approval given hours ago, inside the window', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' }, 60 * 23);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBeUndefined();
+  expect(typed).toEqual(['npm test']);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, true, null, expect.any(Number));
+  expect(actions.expireApproved).not.toHaveBeenCalled();
+});
+
+it('fails an approved action the machine cannot do, and never puts the row back to pending', async () => {
+  // Ruling R2: an offline machine, an agent too old, any failure at all ends as a `failed` row
+  // carrying the real error code, and the error reaches the model. Never back to `pending`, and never
+  // a new question — asking again for what the machine cannot do is a loop with no exit.
+  const { app, actions, apiTokens } = build({ gated: true }); // no agent attached: the machine is offline
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/offline/i); // the machine's own failure, as any ungated call would get it
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'MACHINE_OFFLINE', expect.any(Number));
+  expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'MACHINE_OFFLINE' });
+  expect(actions.insertPending).not.toHaveBeenCalled();
+  expect(collected).toEqual([]);
+  // The error reached the caller, which is what the per-call audit row records.
+  await settle();
+  expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'send_input', ok: false, error_code: 'MACHINE_OFFLINE' });
+});
+
+it('fails an approved action an outdated agent cannot run, with that error code', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed, '0.0.1'); // older than the terminal RPCs
+  const { app, actions } = build({ gated: true });
+  const row = actions.seed('approved', 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'AGENT_OUTDATED', expect.any(Number));
+  expect(actions.rows[0]).toMatchObject({ status: 'failed', error_code: 'AGENT_OUTDATED' });
+  expect(actions.insertPending).not.toHaveBeenCalled();
+});
+
+it("never resolves another user's tab when re-validating an approval", async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  // `t9` exists, and belongs to somebody else. The re-validation must read it through the
+  // owner-scoped batch, so it is simply absent — the model learns `TAB_GONE`, not that the tab exists
+  // (which the tool's own "not found" further down would have told it).
+  const row = actions.seed('approved', 'send_input', { tab_id: 't9', text: 'npm test' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't9', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toContain('t9');
+  expect(typed).toEqual([]);
+  expect(actions.markExecuted).toHaveBeenCalledWith(row.id, false, 'TAB_GONE', expect.any(Number));
+  expect(actions.rows[0].status).toBe('failed');
+});

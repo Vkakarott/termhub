@@ -13,6 +13,7 @@ const token = (over: Partial<ApiToken> & { id: string }): ApiToken => ({
   last_used_at: null,
   revoked_at: null,
   created_at: '2026-09-19T00:00:00.000Z',
+  gated: false,
   ...over,
 });
 
@@ -28,9 +29,11 @@ function buildApp(opts: { active?: number; viewAs?: string } = {}) {
   const apiTokens = {
     listByUser: vi.fn(async (userId: string) => [token({ id: 't1', user_id: userId })]),
     countActive: vi.fn(async () => opts.active ?? 0),
-    create: vi.fn(async (userId: string, input: { name: string; scopes: ApiToken['scopes']; expiresAt: Date | null }, hash: string) => {
+    create: vi.fn(async (userId: string, input: { name: string; scopes: ApiToken['scopes']; expiresAt: Date | null; gated?: boolean }, hash: string) => {
       void hash;
-      return token({ id: 'new', user_id: userId, name: input.name, scopes: input.scopes, expires_at: input.expiresAt?.toISOString() ?? null });
+      // Mirrors the real repository's own default (api-tokens.ts: `input.gated ?? false`): this
+      // route never passes `gated` itself, so a Settings token comes out ungated.
+      return token({ id: 'new', user_id: userId, name: input.name, scopes: input.scopes, expires_at: input.expiresAt?.toISOString() ?? null, gated: input.gated ?? false });
     }),
     revoke: vi.fn(async (id: string, userId: string) => (id === 't1' && userId === 'u1' ? token({ id, revoked_at: '2026-09-19T01:00:00.000Z' }) : undefined)),
   };
@@ -55,6 +58,14 @@ describe('api token routes', () => {
     expect(input.expiresAt.getTime() - Date.now()).toBeGreaterThan(89.9 * 24 * 3600 * 1000);
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(hash).not.toBe(body.token);
+  });
+
+  it('creates a token through Settings ungated: only the concierge\'s own mint ever sets the gate flag', async () => {
+    const { app, apiTokens } = buildApp();
+    const r = await app.inject({ method: 'POST', url: '/api-tokens', payload: { name: 'meu notebook', scopes: ['read', 'terminals'] } });
+    expect(r.statusCode).toBe(201);
+    expect(r.json().api_token.gated).toBe(false);
+    expect(apiTokens.create.mock.calls[0][1]).not.toHaveProperty('gated');
   });
 
   it('creates a token without expiry', async () => {

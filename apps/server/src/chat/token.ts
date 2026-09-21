@@ -13,6 +13,8 @@ export async function mintConciergeToken(repos: Repositories, userId: string, sc
   for (const t of previous) await repos.apiTokens.revoke(t.id, userId);
 
   const { token, hash } = newApiToken();
-  await repos.apiTokens.create(userId, { name: CONCIERGE_TOKEN_NAME, scopes, expiresAt: new Date(Date.now() + TTL_MS) }, hash);
+  // `gated: true` is hardcoded here, never taken from a caller — this is the one function that
+  // mints the concierge's own token, so wide scopes and the gate flag can only ever arrive together.
+  await repos.apiTokens.create(userId, { name: CONCIERGE_TOKEN_NAME, scopes, expiresAt: new Date(Date.now() + TTL_MS), gated: true }, hash);
   return token;
 }

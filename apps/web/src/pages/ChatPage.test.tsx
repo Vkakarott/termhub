@@ -2,11 +2,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatPage } from './ChatPage';
-import type { ChatMessage } from '../lib/types';
+import type { ChatAction, ChatMessage } from '../lib/types';
 
 const chatMock = vi.fn();
 const sendMock = vi.fn();
 const streamMock = vi.fn();
+const decideMock = vi.fn();
 
 vi.mock('../lib/api', () => {
   // Same signature as the real one: the page shows `message`, so a stand-in that swallows it would
@@ -22,7 +23,7 @@ vi.mock('../lib/api', () => {
   }
   return {
     ApiError,
-    api: { chat: (...a: unknown[]) => chatMock(...a), sendChatMessage: (...a: unknown[]) => sendMock(...a) },
+    api: { chat: (...a: unknown[]) => chatMock(...a), sendChatMessage: (...a: unknown[]) => sendMock(...a), decideChatAction: (...a: unknown[]) => decideMock(...a) },
   };
 });
 vi.mock('../lib/chat', () => ({ useChatStream: (...a: unknown[]) => streamMock(...a) }));
@@ -36,11 +37,24 @@ const msg = (over: Partial<ChatMessage> & { id: string }): ChatMessage => ({
   ...over,
 });
 
+const action = (over: Partial<ChatAction> & { id: string }): ChatAction => ({
+  tool: 'send_input',
+  args: { tab_id: 't1', text: 'npm test' },
+  class: 'write',
+  status: 'pending',
+  machine_id: null,
+  project_id: null,
+  tab_id: 't1',
+  summary: 'digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3',
+  ...over,
+});
+
 beforeEach(() => {
   chatMock.mockReset();
   sendMock.mockReset();
   streamMock.mockReset();
-  chatMock.mockResolvedValue({ conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })] });
+  decideMock.mockReset();
+  chatMock.mockResolvedValue({ conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })], actions: [] });
   sendMock.mockResolvedValue({ message: msg({ id: 'm3', role: 'assistant', text: 'pronto' }) });
   streamMock.mockReturnValue({ events: [], connected: true });
 });
@@ -201,4 +215,146 @@ it('does not call a tool-only phase a dead run', async () => {
   expect(await screen.findByText('list_tabs')).toBeTruthy();
   expect(screen.queryByText(/não terminou/i)).toBeNull();
   expect(screen.getByText(/pensando/i)).toBeTruthy();
+});
+
+it('shows a pending action as a sentence about the real world, with Autorizar and Recusar', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [],
+    actions: [action({ id: 'act1' })],
+  });
+  render(<ChatPage />);
+
+  expect(await screen.findByText('digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3')).toBeTruthy();
+  expect(screen.getByRole('button', { name: /autorizar/i })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /recusar/i })).toBeTruthy();
+});
+
+it('the trail survives a reload: an old denied row and a newer pending one for the same proposal both show, keyed by their own id', async () => {
+  // Task 4's gate depends on exactly this: a lapsed denial leaves the old row beside a new pending
+  // one, so the page must never assume one row per proposal or per tool.
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [],
+    actions: [action({ id: 'act0', status: 'denied' }), action({ id: 'act1', status: 'pending' })],
+  });
+  render(<ChatPage />);
+
+  expect(await screen.findByText(/recusado/i)).toBeTruthy();
+  expect(screen.getByRole('button', { name: /autorizar/i })).toBeTruthy(); // the newer question still asks
+});
+
+it('a denied action reads as denied, with no buttons', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [],
+    actions: [action({ id: 'act0', status: 'denied' })],
+  });
+  render(<ChatPage />);
+
+  expect(await screen.findByText(/recusado/i)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /autorizar/i })).toBeNull();
+  expect(screen.queryByRole('button', { name: /recusar/i })).toBeNull();
+});
+
+it('clicking Autorizar calls the decision endpoint and the buttons go away', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [],
+    actions: [action({ id: 'act1' })],
+  });
+  // The real endpoint returns the raw decided row, not the enriched card — no `summary` here; the
+  // page must keep the card's already-known summary and apply only the new status.
+  decideMock.mockResolvedValue({ action: { id: 'act1', status: 'approved' }, message: msg({ id: 'm9', role: 'assistant', text: 'Feito.' }) });
+  render(<ChatPage />);
+
+  fireEvent.click(await screen.findByRole('button', { name: /autorizar/i }));
+
+  await waitFor(() => expect(decideMock).toHaveBeenCalledWith('act1', 'approve'));
+  await waitFor(() => expect(screen.queryByRole('button', { name: /autorizar/i })).toBeNull());
+  expect(screen.queryByRole('button', { name: /recusar/i })).toBeNull();
+  expect(await screen.findByText(/autorizado/i)).toBeTruthy();
+  // The decision endpoint's response carries no `summary` (that field only ever comes from GET
+  // /api/chat or the confirmation event) — the sentence must still be on screen, not dropped.
+  expect(screen.getByText('digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3')).toBeTruthy();
+});
+
+it('clicking Recusar calls the decision endpoint with the refusal and the buttons go away', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [],
+    actions: [action({ id: 'act1' })],
+  });
+  decideMock.mockResolvedValue({ action: { id: 'act1', status: 'denied' }, message: msg({ id: 'm9', role: 'assistant', text: 'Ok.' }) });
+  render(<ChatPage />);
+
+  fireEvent.click(await screen.findByRole('button', { name: /recusar/i }));
+
+  await waitFor(() => expect(decideMock).toHaveBeenCalledWith('act1', 'deny'));
+  expect(await screen.findByText(/recusado/i)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /autorizar/i })).toBeNull();
+});
+
+it('shows the server\'s pt-BR note when the decision is queued behind a busy run, not an error', async () => {
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [],
+    actions: [action({ id: 'act1' })],
+  });
+  decideMock.mockResolvedValue({
+    action: { id: 'act1', status: 'approved' },
+    queued: true,
+    note: 'A decisão foi registrada e será aplicada assim que a resposta atual do concierge terminar.',
+  });
+  render(<ChatPage />);
+
+  fireEvent.click(await screen.findByRole('button', { name: /autorizar/i }));
+
+  expect(await screen.findByText(/será aplicada assim que a resposta atual/i)).toBeTruthy();
+  expect(screen.queryByText(/não foi possível/i)).toBeNull(); // not treated as a failure
+});
+
+it('a confirmation event on the socket adds the question as a card without a refetch', async () => {
+  let deliver: (e: unknown) => void = () => {};
+  streamMock.mockImplementation((_onReconnect: () => void, onEvent: (e: unknown) => void) => {
+    deliver = onEvent;
+    return { events: [], connected: true };
+  });
+  render(<ChatPage />);
+  await waitFor(() => expect(chatMock).toHaveBeenCalledTimes(1));
+
+  deliver({
+    type: 'confirmation',
+    action_id: 'act1',
+    tool: 'send_input',
+    args: { tab_id: 't1', text: 'npm test' },
+    class: 'write',
+    machine_id: null,
+    project_id: null,
+    tab_id: 't1',
+    summary: 'digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3',
+  });
+
+  expect(await screen.findByText('digitar `npm test` na aba Terminal 2 do projeto reactivando, no macbook m3')).toBeTruthy();
+  expect(chatMock).toHaveBeenCalledTimes(1); // no refetch — the event alone carries the card
+});
+
+it('a decision event on the socket updates the card by its action id, for a decision made in another tab', async () => {
+  let deliver: (e: unknown) => void = () => {};
+  streamMock.mockImplementation((_onReconnect: () => void, onEvent: (e: unknown) => void) => {
+    deliver = onEvent;
+    return { events: [], connected: true };
+  });
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [],
+    actions: [action({ id: 'act1' })],
+  });
+  render(<ChatPage />);
+  await screen.findByRole('button', { name: /autorizar/i });
+
+  deliver({ type: 'decision', action_id: 'act1', status: 'denied' });
+
+  await waitFor(() => expect(screen.queryByRole('button', { name: /autorizar/i })).toBeNull());
+  expect(await screen.findByText(/recusado/i)).toBeTruthy();
 });

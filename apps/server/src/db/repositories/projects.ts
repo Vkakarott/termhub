@@ -31,6 +31,18 @@ export class ProjectsRepository {
     return p ? mapProject(p) : undefined;
   }
 
+  /**
+   * Batched by id, one query regardless of how many ids are asked for, filtered to one owner's
+   * projects through their machine — never "no filter": a caller that resolves names for one
+   * person's screen (e.g. the chat action trail) must not be able to pass `null` and see everyone's.
+   * Another owner's project id is simply absent from the result, like a row that does not exist. The
+   * owner filter is a join condition, not a reason to query per row.
+   */
+  async findByIdsForOwner(ids: string[], ownerId: string): Promise<Project[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.project.findMany({ where: { id: { in: ids }, machine: { ownerId } } })).map(mapProject);
+  }
+
   async create(input: ProjectInput): Promise<Project> {
     const p = await this.db.project.create({
       data: {

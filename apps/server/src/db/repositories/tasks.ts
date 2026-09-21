@@ -60,6 +60,18 @@ export class TasksRepository {
     return t ? mapTask(t) : undefined;
   }
 
+  /**
+   * Batched by id, one query regardless of how many ids are asked for, filtered to one owner's tasks
+   * through their project and machine — never "no filter": a caller that resolves names for one
+   * person's screen (e.g. the chat action trail) must not be able to pass `null` and see everyone's.
+   * Another owner's task id is simply absent from the result, like a row that does not exist. The
+   * owner filter is a join condition, not a reason to query per row.
+   */
+  async findByIdsForOwner(ids: string[], ownerId: string): Promise<Task[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.task.findMany({ where: { id: { in: ids }, project: { machine: { ownerId } } } })).map(mapTask);
+  }
+
   /** Top-level: created at the top of its column (position 0), pushing the others down. Subtask: appended last. */
   async create(projectId: string, input: TaskInput): Promise<Task> {
     if (input.parent_id) {

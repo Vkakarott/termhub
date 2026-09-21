@@ -17,6 +17,33 @@ const hasTmux = (() => {
   }
 })();
 
+/** tmux exits non-zero when the server has no buffers at all; stdout is still what we want. */
+function listBuffers(): string {
+  try {
+    return execFileSync(process.env.TMUX_PATH!, ['list-buffers'], { encoding: 'utf8' });
+  } catch (e) {
+    return (e as { stdout?: string }).stdout ?? '';
+  }
+}
+
+/**
+ * Polls the pane with `capture` until it contains `needle` or `timeoutMs` passes, instead of a
+ * fixed sleep before a single capture — a timing assumption that flakes on a loaded CI runner for
+ * a reason unrelated to the behaviour under test (same shape as `screenWith` in
+ * start-agent.e2e.test.ts). On timeout it throws naming the pane and what never showed, so a real
+ * regression reads as a clear failure instead of looking like flakiness.
+ */
+async function captureUntil(session: string, needle: string, timeoutMs = 5_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let text = '';
+  for (;;) {
+    ({ text } = await capture({ session, lines: 50 }));
+    if (text.includes(needle)) return text;
+    if (Date.now() >= deadline) throw new Error(`pane "${session}" never showed ${JSON.stringify(needle)} within ${timeoutMs}ms; last capture:\n${text}`);
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
+
 describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
   // TMUX_PATH is what exec.ts reads; the wrapper pins every call to our own socket. Created here
   // (not at module top level) so it is only ever made — and cleaned up — when the suite actually runs.
@@ -54,5 +81,56 @@ describe.skipIf(!hasTmux)('tmux RPCs against a real tmux', () => {
 
   it('refuses to type into a session that is not there', async () => {
     await expect(sendText({ session: `${SESSION}-gone`, text: 'x', enter: false })).rejects.toMatchObject({ code: 'notfound' });
+  });
+
+  it('pastes a multi-line prompt as one paste, both lines landing in the pane', async () => {
+    const session = `${SESSION}-paste`;
+    expect(await ensure({ session, cwd: tmpdir() })).toEqual({ created: true });
+
+    await sendText({ session, text: 'echo linha-um\necho linha-dois', enter: true, paste: true });
+    // Polled, not slept: the second line is what the paste has to prove landed, and a fixed sleep
+    // before a single capture flakes on a loaded runner for reasons unrelated to the paste.
+    const text = await captureUntil(session, 'linha-dois');
+    expect(text).toContain('linha-um');
+    expect(text).toContain('linha-dois');
+
+    expect(await kill({ session })).toEqual({ killed: true });
+  });
+
+  it('leaves no named paste buffer behind after a failed paste', async () => {
+    // A session has to be alive somewhere on this socket, or tmux itself has no server to run
+    // load-buffer against ("no server running") — this keeps one up so the failure below is
+    // paste-buffer not finding `${SESSION}-gone`, not the whole server being absent.
+    const keepAlive = `${SESSION}-keepalive`;
+    expect(await ensure({ session: keepAlive, cwd: tmpdir() })).toEqual({ created: true });
+
+    await expect(sendText({ session: `${SESSION}-gone`, text: 'linha um\nlinha dois', enter: false, paste: true })).rejects.toMatchObject({ code: 'notfound' });
+    expect(listBuffers()).not.toContain('termhub-paste-');
+
+    expect(await kill({ session: keepAlive })).toEqual({ killed: true });
+  });
+
+  it('runs two concurrent pastes to different tabs without one crossing into the other', async () => {
+    const sessionA = `${SESSION}-concA`;
+    const sessionB = `${SESSION}-concB`;
+    expect(await ensure({ session: sessionA, cwd: tmpdir() })).toEqual({ created: true });
+    expect(await ensure({ session: sessionB, cwd: tmpdir() })).toEqual({ created: true });
+
+    // Started together (not awaited one at a time) so their load-buffer/paste-buffer calls can
+    // actually interleave — an unnamed buffer would flake here; a named one must not.
+    await Promise.all([
+      sendText({ session: sessionA, text: 'echo texto-a', enter: true, paste: true }),
+      sendText({ session: sessionB, text: 'echo texto-b', enter: true, paste: true }),
+    ]);
+
+    const aText = await captureUntil(sessionA, 'texto-a');
+    const bText = await captureUntil(sessionB, 'texto-b');
+    expect(aText).toContain('texto-a');
+    expect(aText).not.toContain('texto-b');
+    expect(bText).toContain('texto-b');
+    expect(bText).not.toContain('texto-a');
+
+    expect(await kill({ session: sessionA })).toEqual({ killed: true });
+    expect(await kill({ session: sessionB })).toEqual({ killed: true });
   });
 });

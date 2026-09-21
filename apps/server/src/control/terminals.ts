@@ -89,7 +89,14 @@ export async function sendInput(ctx: ControlContext, input: { tab_id: string; te
     throw new ControlError('WAITING_PERMISSION', `Esta aba está esperando uma permissão: "${tab.state_text ?? 'pergunta não registrada'}". Se a sua resposta é para essa pergunta, repita com answering_permission: true.`);
   }
   await ensureSession(machine, session, project.cwd);
-  await sendTextToSession(machine, session, input.text, input.enter ?? true);
+  const enter = input.enter ?? true;
+  // An embedded newline means a multi-line prompt: paste it so the TUI reads the newline as part
+  // of the text, not as Enter submitting a half-typed line (spec: bracketed paste).
+  if (input.text.includes('\n')) {
+    await sendTextToSession(machine, session, input.text, enter, { paste: true });
+  } else {
+    await sendTextToSession(machine, session, input.text, enter);
+  }
   return { tab_id: tab.id, sent: true };
 }
 

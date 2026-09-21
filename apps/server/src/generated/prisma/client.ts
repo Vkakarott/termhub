@@ -175,3 +175,10 @@ export type ChatConversation = Prisma.ChatConversationModel
  * command output never are (spec §7.1).
  */
 export type ChatMessage = Prisma.ChatMessageModel
+/**
+ * Model ChatAction
+ * One action the concierge proposed, and what became of it. `args` holds what it proposed — the
+ * command, the prompt, the target — never a tool result's payload (spec §7.1). Also the chat's
+ * action trail: step 1 rendered the trail from live events only, so it vanished on reload.
+ */
+export type ChatAction = Prisma.ChatActionModel

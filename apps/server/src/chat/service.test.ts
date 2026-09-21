@@ -1,13 +1,35 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
+import type { ChatAction } from '../db/repositories/chat-actions.js';
 import { chatBus, type ChatEvent } from './bus.js';
 import { HttpError } from '../lib/errors.js';
-import { ChatService, type RunnerClient } from './service.js';
+import { ChatService, purgeExpiredActions, type RunnerClient } from './service.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
 
-function build(lines: string[] | (() => AsyncIterable<string>)) {
+const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
+  id: 'a1',
+  conversation_id: 'c1',
+  message_id: null,
+  tool: 'send_input',
+  args: { tab_id: 't1', text: 'npm test' },
+  class: 'write',
+  status: 'approved',
+  idempotency_key: 'k1',
+  machine_id: null,
+  project_id: null,
+  tab_id: 't1',
+  error_code: null,
+  duration_ms: null,
+  decided_by: 'u1',
+  decided_at: '2026-09-21T12:00:00.000Z',
+  injected_at: null,
+  created_at: '2026-09-21T11:59:00.000Z',
+  ...overrides,
+});
+
+function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[] } = {}) {
   const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null, model: null, review_mode: false, last_message_at: null, created_at: '' };
   const messages: { id: string; role: string; text: string; error_code: string | null }[] = [];
   const chat = {
@@ -30,11 +52,43 @@ function build(lines: string[] | (() => AsyncIterable<string>)) {
     }),
     listMessages: vi.fn(async () => messages),
   };
-  const repos = { chat, apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) } } as unknown as Repositories;
+  // An in-memory stand-in for the two chatActions reads/writes ChatService now uses, real enough to
+  // exercise the queue: findNextToInject only ever sees a decided (approved/denied) row nobody has
+  // marked injected, oldest decided_at first, exactly like the repository's own ordering.
+  const actionsStore: ChatAction[] = opts.chatActions ? opts.chatActions.map((a) => ({ ...a })) : [];
+  const chatActions = {
+    markInjected: vi.fn(async (id: string) => {
+      const row = actionsStore.find((a) => a.id === id);
+      if (row) row.injected_at = new Date().toISOString();
+    }),
+    findNextToInject: vi.fn(async (conversationId: string, excludeIds: string[] = []) => {
+      const open = actionsStore
+        .filter(
+          (a) => a.conversation_id === conversationId && (a.status === 'approved' || a.status === 'denied') && a.injected_at === null && !excludeIds.includes(a.id),
+        )
+        .sort((a, b) => Date.parse(a.decided_at ?? a.created_at) - Date.parse(b.decided_at ?? b.created_at));
+      return open[0];
+    }),
+  };
+  // What `describeActions` resolves the approved proposal's sentence from, owner-scoped exactly like
+  // the real repositories: another user's id is simply absent from the batch.
+  const tab = { id: 't1', project_id: 'p1', name: 'Terminal 1' };
+  const project = { id: 'p1', name: 'app', machine_id: 'm1' };
+  const machine = { id: 'm1', name: 'jarvis' };
+  const ownedBy = <T extends { id: string }>(row: T) => vi.fn(async (ids: string[], ownerId: string) => (ownerId === user.id && ids.includes(row.id) ? [row] : []));
+  const repos = {
+    chat,
+    apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) },
+    chatActions,
+    tabs: { findByIdsForOwner: ownedBy(tab) },
+    tasks: { findByIdsForOwner: vi.fn(async () => []) },
+    projects: { findByIdsForOwner: ownedBy(project) },
+    machines: { findByIdsForOwner: ownedBy(machine) },
+  } as unknown as Repositories;
   const runner: RunnerClient = {
     run: vi.fn(() => (typeof lines === 'function' ? lines() : (async function* () { for (const l of lines) yield l; })())),
   };
-  return { service: new ChatService({ repos, runner, configDirs: { primary: '/accounts/primary' } }), chat, runner, messages, conversation, repos };
+  return { service: new ChatService({ repos, runner, configDirs: { primary: '/accounts/primary' } }), chat, chatActions, actionsStore, runner, messages, conversation, repos };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -42,6 +96,10 @@ const done = (session = '3f1e9b1e-0000-4000-8000-000000000001') => JSON.stringif
 /** Exactly what the container writes when the CLI exits non-zero: a code and a classified reason,
  * never stderr's text (see apps/concierge/src/index.ts). */
 const errorFrame = (reason: 'missing_session' | 'run_failed') => JSON.stringify({ type: 'termhub_error', code: 1, reason });
+
+/** One macrotask turn: enough for a drain scheduled from `send`'s `finally` — and for the drain that
+ * one would schedule in turn — to have run, so a "nothing more was injected" assertion means it. */
+const settled = () => new Promise((r) => setTimeout(r, 10));
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -207,6 +265,16 @@ it('publishes the action and a shape-locked action_result over the bus, never th
   expect(actionResult).toMatchObject({ ok: false });
 });
 
+it('mints the concierge token with the write scopes and the gate flag together', async () => {
+  // Pinned here, at the actual call site, not just inside mintConciergeToken: this is what would
+  // regress if send() ever went back to minting `['read']` — the exact dangerous combination this
+  // branch closes is wide scopes with no gate, and only this call site decides the scopes.
+  const { service, repos } = build([delta('ok'), done()]);
+  await service.send(user, 'abre uma aba');
+  const [, input] = vi.mocked(repos.apiTokens.create).mock.calls[0];
+  expect(input).toMatchObject({ scopes: ['read', 'tasks', 'terminals'], gated: true });
+});
+
 it('marks the message with TOKEN_FAILED instead of throwing when minting the token fails', async () => {
   const { service, messages, repos } = build([delta('nunca chega'), done()]);
   vi.mocked(repos.apiTokens.create).mockRejectedValueOnce(new Error('db down'));
@@ -215,4 +283,261 @@ it('marks the message with TOKEN_FAILED instead of throwing when minting the tok
   expect(answer.error_code).toBe('TOKEN_FAILED');
   expect(answer.text).toBe('');
   expect(messages.at(-1)!.text).toBe('');
+});
+
+it('resumeAfterDecision resumes the same session with a fixed authorization sentence, and the run behaves like any other message', async () => {
+  const { service, runner, conversation, messages, chatActions } = build([delta('feito'), done()]);
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+
+  const answer = await service.resumeAfterDecision(user, action());
+
+  // resume: true — the same CLI session the run was gated in, not a fresh one.
+  expect(vi.mocked(runner.run).mock.calls[0][0]).toMatchObject({ resume: true, session_id: '3f1e9b1e-0000-4000-8000-000000000001' });
+  // The injected line is the server's own fixed sentence, never the model's words, naming the tool
+  // and its target so the model can re-issue the exact call that was gated.
+  expect(messages[0].role).toBe('user');
+  expect(messages[0].text).toMatch(/^O usuário autorizou:/);
+  expect(messages[0].text).toContain('send_input');
+  expect(messages[0].text).toContain('t1');
+  // The run that follows is indistinguishable from an ordinary message: deltas, trail, stored answer.
+  expect(answer.text).toBe('feito');
+  expect(messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+  // The ordinary (unblocked) path marks the row injected itself, through the same `beforeRun` hook
+  // `drainNextDecision` uses — the two paths cannot diverge (fix round 2).
+  expect(chatActions.markInjected).toHaveBeenCalledWith('a1');
+});
+
+it('resumeAfterDecision sends a fixed refusal sentence for a denied action, naming the tool and target', async () => {
+  const { service, conversation, messages } = build([delta('entendido'), done()]);
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+
+  await service.resumeAfterDecision(user, action({ status: 'denied', tool: 'close_tab', tab_id: 't9', args: { tab_id: 't9' } }));
+
+  expect(messages[0].text).toMatch(/^O usuário recusou:/);
+  expect(messages[0].text).toContain('close_tab');
+  expect(messages[0].text).toContain('t9');
+});
+
+it('resumeAfterDecision starts a fresh session and says so in the chat when no CLI session is alive', async () => {
+  // Review Focus 2: an approval can arrive an hour later, when no CLI session is alive — the
+  // conversation was never given one, or the CLI dropped it. `send`'s own resume/fresh choice
+  // already keys off cli_session_id being null, so this must not fail or pretend to resume.
+  const { service, runner, conversation, messages } = build([delta('ok'), done('3f1e9b1e-0000-4000-8000-000000000002')]);
+  expect(conversation.cli_session_id).toBeNull();
+
+  const answer = await service.resumeAfterDecision(user, action());
+
+  expect(vi.mocked(runner.run).mock.calls[0][0]).toMatchObject({ resume: false });
+  expect(messages[0].text).toMatch(/nova sessão/i);
+  expect(answer.text).toBe('ok');
+  expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000002');
+});
+
+it('resumeAfterDecision spells out the approved proposal when the session is a fresh one', async () => {
+  // With no transcript, "o usuário autorizou: send_input em aba t1" tells the model nothing about what
+  // text to type: it would ask again, or invent different arguments — which hash to a different
+  // idempotency key and raise a second question for an action the user already authorised.
+  const { service, messages, repos } = build([delta('feito'), done()]);
+
+  await service.resumeAfterDecision(user, action());
+
+  expect(messages[0].text).toMatch(/nova sessão/i);
+  // The card's own sentence, resolved exactly as the card the user answered was, and the proposal's
+  // arguments verbatim — the user's own proposal (§7.1), never a tool result.
+  expect(messages[0].text).toContain('digitar `npm test` na aba Terminal 1 do projeto app, no jarvis');
+  expect(messages[0].text).toContain('{"tab_id":"t1","text":"npm test"}');
+  // Resolved through the owner-scoped batch, so a foreign id in the proposal never names anything.
+  expect(repos.tabs.findByIdsForOwner).toHaveBeenCalledWith(['t1'], 'u1');
+});
+
+it('resumeAfterDecision keeps the short sentence, and reads nothing extra, when the session is resumed', async () => {
+  const { service, conversation, messages, repos } = build([delta('feito'), done()]);
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+
+  await service.resumeAfterDecision(user, action());
+
+  // The transcript already carries what was proposed: repeating it would only be noise.
+  expect(messages[0].text).not.toContain('npm test');
+  expect(messages[0].text).not.toMatch(/nova sessão/i);
+  expect(repos.tabs.findByIdsForOwner).not.toHaveBeenCalled();
+});
+
+it('resumeAfterDecision never repeats the proposal for a denial, fresh session or not', async () => {
+  const { service, messages, repos } = build([delta('entendido'), done()]);
+
+  await service.resumeAfterDecision(user, action({ status: 'denied' }));
+
+  expect(messages[0].text).toMatch(/^O usuário recusou:/);
+  expect(messages[0].text).toMatch(/nova sessão/i);
+  expect(messages[0].text).not.toContain('npm test'); // nothing to re-issue: it must not be re-proposed
+  expect(repos.tabs.findByIdsForOwner).not.toHaveBeenCalled();
+});
+
+it('resumeAfterDecision answers busy when a run is already in flight, without marking the decision injected or typing anything', async () => {
+  // Fix round 2: `decide()` (the route) has already flipped the row durably and published it before
+  // this is ever reached — a busy lock must leave the row exactly as `decide` left it (approved or
+  // denied, not yet injected) rather than mark it injected without ever sending it.
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const { service, runner, chatActions } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+
+  const first = service.send(user, 'primeira'); // holds the conversation's lock
+  await expect(service.resumeAfterDecision(user, action())).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+  expect(chatActions.markInjected).not.toHaveBeenCalled();
+  expect(runner.run).toHaveBeenCalledTimes(1); // only the first run's own call — nothing typed for the decision
+
+  release();
+  await first;
+});
+
+it('injects a decision left queued by a busy run exactly once, when that run finishes', async () => {
+  // The state `resumeAfterDecision` would have left behind after losing the race for the lock:
+  // already approved, not yet injected — `chatActions.decide` already ran in the route before the
+  // busy 409 was ever thrown.
+  const { service, runner, messages, chatActions } = build([], { chatActions: [action({ id: 'a1' })] });
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('feito'); yield done(); })());
+
+  await service.send(user, 'mensagem original'); // its completion schedules the drain, without waiting for it
+
+  await vi.waitFor(() => expect(runner.run).toHaveBeenCalledTimes(2));
+  expect(chatActions.markInjected).toHaveBeenCalledWith('a1');
+  const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text);
+  expect(userTexts).toEqual(['mensagem original', expect.stringMatching(/^O usuário autorizou:.*send_input/s)]);
+
+  // A second, unrelated completion must not inject the same decision again: it is already marked.
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('outra resposta'); yield done(); })());
+  await service.send(user, 'outra mensagem');
+  await settled();
+  expect(runner.run).toHaveBeenCalledTimes(3); // one more call, not two — nothing left to drain
+  expect(chatActions.markInjected).toHaveBeenCalledTimes(1);
+});
+
+it('returns the finished run without waiting for the queued decision it hands over to', async () => {
+  // The drain re-enters `send`, and that run's own completion drains again: awaiting it inside
+  // `finally` kept one `POST /api/chat/messages` open across every run a backlog needed, until nginx
+  // cut the client while the runs carried on. The request must be answered as soon as its own answer
+  // is stored; the injected runs reach the browser over the chat's stream, as they do when it is idle.
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  const { service, runner, chatActions, messages } = build([], { chatActions: [action({ id: 'a1' })] });
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { await held; yield delta('feito'); yield done(); })());
+
+  const answer = await service.send(user, 'mensagem original');
+
+  expect(answer.text).toBe('resposta original'); // answered while the injected run is still streaming
+  await vi.waitFor(() => expect(chatActions.markInjected).toHaveBeenCalledWith('a1'));
+  expect(runner.run).toHaveBeenCalledTimes(2);
+  expect(messages.at(-1)!.text).toBe(''); // the injected run's answer is still empty: it is still held
+  release();
+  // Only true once the held run actually finished: its answer is stored, after this request was answered.
+  await vi.waitFor(() => expect(messages.at(-1)!.text).toBe('feito'));
+});
+
+it('stops draining a decision whose injection cannot even be marked, instead of retrying it forever', async () => {
+  // Marking is what makes the injection at-most-once, so a row it failed on stays uninjected — and the
+  // drain that failure schedules would pick the very same row again, for as long as the database kept
+  // refusing. Now that the drain is not awaited, that spin would be unbounded and invisible.
+  const logged: unknown[][] = [];
+  const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void logged.push(args));
+  try {
+    const { service, runner, chatActions } = build([delta('resposta original'), done()], { chatActions: [action({ id: 'a1' })] });
+    chatActions.markInjected.mockRejectedValue(new Error('connection terminated'));
+
+    await service.send(user, 'mensagem original');
+    await vi.waitFor(() => expect(chatActions.markInjected).toHaveBeenCalledTimes(1));
+    await settled();
+
+    expect(chatActions.markInjected).toHaveBeenCalledTimes(1); // tried once, never again
+    expect(runner.run).toHaveBeenCalledTimes(1); // and the injected run never started
+    // It is not silent, and the driver's own message ("connection terminated") is not what is logged:
+    // a rejected write carries the rejected data, so only the failure's label ever is.
+    expect(logged).toHaveLength(1);
+    expect(logged[0][1]).toEqual({ conversation_id: 'c1', action_id: 'a1', error: 'Error' });
+    expect(JSON.stringify(logged)).not.toContain('connection terminated');
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('leaves a metadata-only trace when the drain dies, and still swallows the failure', async () => {
+  // A drain that dies after marking the row injected loses that decision for good: the user answered
+  // and nothing will ever carry the answer to the model. Swallowing it silently made that loss
+  // untraceable. What is logged must still be metadata only — no injected sentence, no arguments.
+  const logged: unknown[][] = [];
+  const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void logged.push(args));
+  try {
+    const { service, runner, chatActions } = build([], { chatActions: [action({ id: 'a1' })] });
+    vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
+    // The concierge went away between the two runs: `send` rethrows this one instead of storing it.
+    vi.mocked(runner.run).mockImplementationOnce(() => {
+      throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED');
+    });
+
+    const answer = await service.send(user, 'mensagem original');
+
+    expect(answer.text).toBe('resposta original'); // the request that scheduled the drain is unaffected
+    await vi.waitFor(() => expect(logged).toHaveLength(1));
+    expect(chatActions.markInjected).toHaveBeenCalledWith('a1'); // marked, then lost: exactly the case
+    expect(logged[0][0]).toMatch(/re-injected/i);
+    expect(logged[0][1]).toEqual({ conversation_id: 'c1', action_id: 'a1', error: 'CONCIERGE_DISABLED' });
+    // The whole trace, checked as one string: no proposal, no injected sentence, no prompt.
+    const trace = JSON.stringify(logged);
+    expect(trace).not.toContain('npm test');
+    expect(trace).not.toContain('autorizou');
+    expect(trace).not.toContain('mensagem original');
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('drains two decisions queued behind one run, one per completion, oldest first', async () => {
+  const first = action({ id: 'a1', tool: 'send_input', tab_id: 't1', decided_at: '2026-09-21T12:00:00.000Z' });
+  const second = action({ id: 'a2', tool: 'close_tab', tab_id: 't2', decided_at: '2026-09-21T12:01:00.000Z' });
+  const { service, runner, messages, chatActions } = build([], { chatActions: [second, first] }); // seeded out of order: the drain must still go by decided_at
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r0'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r1'); yield done(); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r2'); yield done(); })());
+
+  await service.send(user, 'mensagem original');
+
+  await vi.waitFor(() => expect(runner.run).toHaveBeenCalledTimes(3));
+  const userTexts = messages.filter((m) => m.role === 'user').map((m) => m.text);
+  expect(userTexts[0]).toBe('mensagem original');
+  expect(userTexts[1]).toContain('send_input'); // a1: decided first
+  expect(userTexts[2]).toContain('close_tab'); // a2: decided second
+  expect(chatActions.markInjected).toHaveBeenNthCalledWith(1, 'a1');
+  expect(chatActions.markInjected).toHaveBeenNthCalledWith(2, 'a2');
+});
+
+describe('purgeExpiredActions', () => {
+  // A unit test of the function itself (ruling R3): this must be pinned without booting the app, so
+  // it calls the exported function directly against a stubbed repository, the same way app.ts's
+  // hourly timer will — never through ChatService, which has no reason to hold a runner or config
+  // dirs just to expire rows nobody answered.
+  it('expires pending rows older than 24h and returns the repository\'s count', async () => {
+    const expireOlderThan = vi.fn(async () => 3);
+    const repos = { chatActions: { expireOlderThan } } as unknown as Repositories;
+    const now = new Date('2026-09-21T12:00:00.000Z');
+
+    const count = await purgeExpiredActions(repos, now);
+
+    expect(count).toBe(3);
+    expect(expireOlderThan).toHaveBeenCalledTimes(1);
+    const cutoff = expireOlderThan.mock.calls[0][0] as Date;
+    expect(cutoff.toISOString()).toBe('2026-09-20T12:00:00.000Z');
+  });
+
+  it('defaults to now when no clock is given', async () => {
+    const expireOlderThan = vi.fn(async () => 0);
+    const repos = { chatActions: { expireOlderThan } } as unknown as Repositories;
+    const before = Date.now();
+
+    await purgeExpiredActions(repos);
+
+    const cutoff = expireOlderThan.mock.calls[0][0] as Date;
+    expect(before - cutoff.getTime()).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 1000);
+    expect(before - cutoff.getTime()).toBeLessThan(24 * 60 * 60 * 1000 + 5000);
+  });
 });

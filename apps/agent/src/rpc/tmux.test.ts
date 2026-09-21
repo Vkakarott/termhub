@@ -5,6 +5,11 @@ vi.mock('../exec.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../exec.js')>();
   return { ...actual, run };
 });
+// Deterministic buffer name so the paste tests can assert the exact argv instead of a pattern.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, randomUUID: () => 'fixed-uuid' };
+});
 
 import { capture, ensure, kill, list, sendKey, sendText } from './tmux.js';
 
@@ -124,6 +129,53 @@ describe('sendText', () => {
   it('reports a missing session instead of pretending it typed', async () => {
     run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: "can't find pane", timedOut: false });
     await expect(sendText({ session: 's1', text: 'oi', enter: false })).rejects.toMatchObject({ code: 'notfound' });
+  });
+
+  it('pastes via a named tmux buffer instead of typing when paste is true, deletes it, then sends Enter separately', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(sendText({ session: 's1', text: 'linha um\nlinha dois', enter: true, paste: true })).resolves.toEqual({ sent: true });
+    expect(run.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+      ['tmux', ['load-buffer', '-b', 'termhub-paste-fixed-uuid', '-']],
+      ['tmux', ['paste-buffer', '-p', '-d', '-b', 'termhub-paste-fixed-uuid', '-t', '=s1:']],
+      ['tmux', ['delete-buffer', '-b', 'termhub-paste-fixed-uuid']],
+      ['tmux', ['send-keys', '-t', '=s1:', 'Enter']],
+    ]);
+    // the text travels on stdin, never as an argv element or a shell string
+    expect(run.mock.calls[0][2]).toMatchObject({ input: Buffer.from('linha um\nlinha dois') });
+  });
+
+  it('does not paste when paste is false (still the old send-keys -l -- path)', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendText({ session: 's1', text: 'oi', enter: false, paste: false });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([['send-keys', '-t', '=s1:', '-l', '--', 'oi']]);
+  });
+
+  it('does not paste when paste is absent (still the old send-keys -l -- path)', async () => {
+    run.mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
+    await sendText({ session: 's1', text: 'oi', enter: false });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([['send-keys', '-t', '=s1:', '-l', '--', 'oi']]);
+  });
+
+  it('reports a missing session on paste too, when paste-buffer cannot find the pane, and still deletes the named buffer', async () => {
+    run.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }); // load-buffer
+    run.mockResolvedValueOnce({ code: 1, stdout: '', stderr: "can't find pane", timedOut: false }); // paste-buffer
+    run.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }); // delete-buffer cleanup
+    await expect(sendText({ session: 's1', text: 'oi', enter: false, paste: true })).rejects.toMatchObject({ code: 'notfound' });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([
+      ['load-buffer', '-b', 'termhub-paste-fixed-uuid', '-'],
+      ['paste-buffer', '-p', '-d', '-b', 'termhub-paste-fixed-uuid', '-t', '=s1:'],
+      ['delete-buffer', '-b', 'termhub-paste-fixed-uuid'],
+    ]);
+  });
+
+  it('deletes the named buffer even when load-buffer itself fails', async () => {
+    run.mockResolvedValueOnce({ code: null, stdout: '', stderr: '', timedOut: false, error: 'enoent' }); // load-buffer
+    run.mockResolvedValueOnce({ code: 0, stdout: '', stderr: '', timedOut: false }); // delete-buffer cleanup
+    await expect(sendText({ session: 's1', text: 'oi', enter: false, paste: true })).rejects.toMatchObject({ code: 'no_tmux' });
+    expect(run.mock.calls.map((c) => c[1])).toEqual([
+      ['load-buffer', '-b', 'termhub-paste-fixed-uuid', '-'],
+      ['delete-buffer', '-b', 'termhub-paste-fixed-uuid'],
+    ]);
   });
 });
 
