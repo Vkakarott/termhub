@@ -53,7 +53,7 @@ function fakeChatActions() {
   return {
     rows,
     findOpenByKey: vi.fn(async (conversationId: string, key: string) => rows.find((r) => sameKey(r, conversationId, key) && isOpen(r))),
-    findRefusedByKey: vi.fn(async (conversationId: string, key: string) => [...rows].reverse().find((r) => sameKey(r, conversationId, key) && (r.status === 'denied' || r.status === 'expired'))),
+    findDeniedByKey: vi.fn(async (conversationId: string, key: string) => [...rows].reverse().find((r) => sameKey(r, conversationId, key) && r.status === 'denied')),
     insertPending: vi.fn(async (input: InsertPendingInput) => {
       if (rows.some((r) => sameKey(r, input.conversation_id, input.idempotency_key ?? '') && isOpen(r))) {
         throw new Error('duplicate key value violates unique constraint "chat_actions_one_open_per_key"');
@@ -86,8 +86,13 @@ function fakeChatActions() {
       row.error_code = errorCode ?? null;
       row.duration_ms = durationMs ?? null;
     }),
-    /** A row already decided on, as the chat's confirmation endpoint (or the expiry sweep) leaves it. */
-    seed: (status: 'approved' | 'denied' | 'expired', tool: string, args: Record<string, unknown>) => {
+    /**
+     * A row already decided on, as the chat's confirmation endpoint (or the expiry sweep) leaves it.
+     * `decidedMinutesAgo` dates the decision: the gate's refusal window is measured from `decided_at`,
+     * so backdating the row is how the clock is moved — no fake timers, no waiting.
+     */
+    seed: (status: 'approved' | 'denied' | 'expired', tool: string, args: Record<string, unknown>, decidedMinutesAgo = 0) => {
+      const decidedAt = new Date(Date.now() - decidedMinutesAgo * 60 * 1000).toISOString();
       const row: ChatAction = {
         id: `a${rows.length + 1}`,
         conversation_id: CONVERSATION,
@@ -103,8 +108,8 @@ function fakeChatActions() {
         error_code: null,
         duration_ms: null,
         decided_by: status === 'expired' ? null : 'u1',
-        decided_at: status === 'expired' ? null : new Date().toISOString(),
-        created_at: new Date().toISOString(),
+        decided_at: status === 'expired' ? null : decidedAt,
+        created_at: decidedAt,
       };
       rows.push(row);
       return row;
@@ -236,7 +241,7 @@ it('executes once the row is approved, and marks it executed', async () => {
   expect(actions.insertPending).not.toHaveBeenCalled();
 });
 
-it('keeps refusing after a denial, without asking again', async () => {
+it('keeps refusing right after a denial, without asking again', async () => {
   const typed: string[] = [];
   attachFakeTmux(typed);
   const { app, actions } = build({ gated: true });
@@ -251,19 +256,50 @@ it('keeps refusing after a denial, without asking again', async () => {
   expect(actions.rows).toHaveLength(1);
 });
 
-it('refuses a question the user left to expire, instead of asking it again', async () => {
+it('still refuses the identical proposal a minute after the denial', async () => {
   const typed: string[] = [];
   attachFakeTmux(typed);
   const { app, actions } = build({ gated: true });
-  actions.seed('expired', 'send_input', { tab_id: 't1', text: 'npm test' });
+  actions.seed('denied', 'send_input', { tab_id: 't1', text: 'npm test' }, 1);
 
   const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
 
   expect(resultOf(res).isError).toBe(true);
-  expect(textOf(res)).toMatch(/expirou/i);
+  expect(textOf(res)).toMatch(/recusou/i);
   expect(typed).toEqual([]);
   expect(actions.insertPending).not.toHaveBeenCalled();
-  expect(actions.rows).toHaveLength(1);
+});
+
+it('asks again once the denial is older than the window: the user may have changed their mind', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.seed('denied', 'send_input', { tab_id: 't1', text: 'npm test' }, 16);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(typed).toEqual([]); // still nothing typed: it is a question, not an action
+  expect(actions.insertPending).toHaveBeenCalledTimes(1);
+  expect(actions.rows.map((r) => r.status)).toEqual(['denied', 'pending']);
+  expect(collected.map((e) => e.type)).toEqual(['confirmation']);
+});
+
+it('asks a question left to expire again, because nobody ever answered it', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true });
+  actions.seed('expired', 'send_input', { tab_id: 't1', text: 'npm test' }, 60 * 25);
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(typed).toEqual([]);
+  expect(actions.insertPending).toHaveBeenCalledTimes(1);
+  expect(actions.rows.map((r) => r.status)).toEqual(['expired', 'pending']);
+  expect(collected.map((e) => e.type)).toEqual(['confirmation']);
 });
 
 it('re-validates the tab before executing an approved action', async () => {

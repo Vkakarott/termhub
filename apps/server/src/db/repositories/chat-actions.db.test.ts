@@ -62,22 +62,32 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect((await repo.findOpenByKey(conversationId, 'k5'))?.status).toBe('pending');
   });
 
-  it('finds a refusal by its key, and does not mistake an executed row for one', async () => {
+  it('finds a denial by its key, with when it was decided, and ignores an executed row', async () => {
     const refused = await pending('k8');
     await repo.decide(refused.id, userId, 'denied');
-    expect((await repo.findRefusedByKey(conversationId, 'k8'))?.id).toBe(refused.id);
+    const found = await repo.findDeniedByKey(conversationId, 'k8');
+    expect(found?.id).toBe(refused.id);
+    expect(found?.decided_at).not.toBeNull(); // the gate dates its refusal window from this
 
     const done = await pending('k9');
     await repo.decide(done.id, userId, 'approved');
     await repo.markExecuted(done.id, true, null, 5);
-    expect(await repo.findRefusedByKey(conversationId, 'k9')).toBeUndefined();
+    expect(await repo.findDeniedByKey(conversationId, 'k9')).toBeUndefined();
   });
 
-  it('counts a question left to expire as a refusal', async () => {
+  it('does not treat a question left to expire as a denial: nobody answered it', async () => {
     const forgotten = await pending('k10');
     await db.$executeRawUnsafe(`update chat_actions set created_at = now() - interval '2 days' where id = $1`, forgotten.id);
     await repo.expireOlderThan(new Date(Date.now() - 24 * 60 * 60 * 1000));
-    expect((await repo.findRefusedByKey(conversationId, 'k10'))?.status).toBe('expired');
+    expect(await repo.findDeniedByKey(conversationId, 'k10')).toBeUndefined();
+  });
+
+  it('returns the newest denial when the same proposal was refused twice', async () => {
+    const first = await pending('k11');
+    await repo.decide(first.id, userId, 'denied');
+    const second = await pending('k11'); // allowed again: the index only covers the open statuses
+    await repo.decide(second.id, userId, 'denied');
+    expect((await repo.findDeniedByKey(conversationId, 'k11'))?.id).toBe(second.id);
   });
 
   it('expires rows older than the cutoff and leaves fresh ones alone', async () => {

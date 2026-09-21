@@ -73,16 +73,17 @@ export class ChatActionsRepository {
   }
 
   /**
-   * The newest row for a key the user did not authorise — refused outright, or asked and left to
-   * expire (spec §5.2 step 4 treats both as "not authorised"). `findOpenByKey` cannot see a decided
-   * row, and the partial unique index deliberately lets a key be proposed again once it is decided:
-   * right for an executed action, since the same command may legitimately be run twice, and wrong for
-   * a refused one, because asking again for what the user already said no to is a loop with no exit.
+   * The newest "no" the user gave for a key. `findOpenByKey` cannot see a decided row, and the partial
+   * unique index deliberately lets a key be proposed again once it is decided — right for an executed
+   * action, since the same command may legitimately be run twice, and wrong for one refused a moment
+   * ago, which the model would otherwise just retry. How long a "no" keeps refusing is the gate's call,
+   * not this read's: it returns the row and its `decided_at`. An `expired` row is not a "no" at all —
+   * nobody answered it — so it is not returned and the question gets asked again.
    */
-  async findRefusedByKey(conversationId: string, idempotencyKey: string): Promise<ChatAction | undefined> {
+  async findDeniedByKey(conversationId: string, idempotencyKey: string): Promise<ChatAction | undefined> {
     const row = await this.db.chatAction.findFirst({
-      where: { conversationId, idempotencyKey, status: { in: ['denied', 'expired'] satisfies ChatActionStatus[] } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      where: { conversationId, idempotencyKey, status: 'denied' satisfies ChatActionStatus },
+      orderBy: [{ decidedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     });
     return row ? mapAction(row) : undefined;
   }

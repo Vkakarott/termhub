@@ -34,22 +34,34 @@ const WAITING: GateOutcome = {
     'Esta ação ainda está aguardando a confirmação do usuário no chat: a pergunta já foi enviada e nada foi executado. Não repita a chamada: diga a ele que está esperando e pare.',
 };
 
-/** Spec §5.2 step 4: refused outright and asked-but-never-answered both mean "not authorised", but
- * the model has to explain the right one to the user. */
-const REFUSED = (row: ChatAction): GateOutcome =>
-  row.status === 'expired'
-    ? {
-        ok: false,
-        code: 'CONFIRMATION_EXPIRED',
-        message:
-          'A confirmação desta ação expirou sem resposta do usuário, então nada foi executado e esta chamada não vale mais. Não repita a chamada: diga a ele que a pergunta expirou e espere o que ele decidir.',
-      }
-    : {
-        ok: false,
-        code: 'CONFIRMATION_DENIED',
-        message:
-          'O usuário recusou esta ação no chat, então ela não será executada. Não tente de novo nem por outro caminho: explique a ele o que ficou sem fazer e, se houver, proponha uma alternativa diferente.',
-      };
+const REFUSED: GateOutcome = {
+  ok: false,
+  code: 'CONFIRMATION_DENIED',
+  message:
+    'O usuário recusou esta ação no chat, então ela não será executada. Não tente de novo nem por outro caminho: explique a ele o que ficou sem fazer e, se houver, proponha uma alternativa diferente.',
+};
+
+/**
+ * How long a "no" keeps refusing the identical proposal. What a denial has to defend against is the
+ * immediate retry — a model told no that asks again three times in the same turn, wearing the user
+ * down and burning quota — and that risk lives in minutes, not for ever: after that the user may well
+ * have changed their mind, and a permanent refusal would leave them no way to say so. A question the
+ * user never answered (`expired`) is not a "no" at all, and is simply asked again.
+ *
+ * Scoping this to the assistant turn would be the better rule, since the retry is a within-turn
+ * behaviour, but it needs the runtime to know which message is current and a call carrying only a
+ * token has no such plumbing. A clock window is cruder and entirely predictable, which is the right
+ * trade until that plumbing exists.
+ */
+const DENIAL_HOLDS_MS = 15 * 60 * 1000;
+
+/** The user's "no" while it still holds. An older one is history: the same proposal is asked again. */
+async function denialInForce(ctx: ControlContext, conversationId: string, key: string): Promise<ChatAction | undefined> {
+  const row = await ctx.repos.chatActions.findDeniedByKey(conversationId, key);
+  if (!row) return undefined;
+  const decidedAt = Date.parse(row.decided_at ?? row.created_at);
+  return Number.isFinite(decidedAt) && Date.now() - decidedAt < DENIAL_HOLDS_MS ? row : undefined;
+}
 
 const TAB_GONE = (tabId: string) => ({
   code: 'TAB_GONE',
@@ -152,8 +164,9 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
   // token find the chat to ask in. Per-machine conversations will have to carry the id on the token.
   const conversation = await ctx.repos.chat.getOrCreateForUser(ctx.scope.user.id);
   const key = idempotencyKeyFor(conversation.id, call.tool, call.args);
-  // The open row decides; with none, a refusal of the same proposal still does.
-  const row = (await ctx.repos.chatActions.findOpenByKey(conversation.id, key)) ?? (await ctx.repos.chatActions.findRefusedByKey(conversation.id, key));
+  // The open row decides; with none, a recent "no" to the same proposal still does. Anything else —
+  // no row, an executed one, a question left to expire, a denial older than the window — is asked.
+  const row = (await ctx.repos.chatActions.findOpenByKey(conversation.id, key)) ?? (await denialInForce(ctx, conversation.id, key));
 
   const decision = gateDecision(row, cls);
   // `allow` and `refuse` only come back with a row (without one the decision is `ask`), so the guard
@@ -161,5 +174,5 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
   if (!row || decision === 'ask') return ask(ctx, call, conversation.id, key, cls);
   if (decision === 'waiting') return WAITING;
   if (decision === 'allow') return execute(ctx, call, row);
-  return REFUSED(row);
+  return REFUSED;
 }
