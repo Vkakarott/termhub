@@ -58,9 +58,13 @@ export const server = createServer(async (req, res) => {
       for await (const line of runClaude(parsed.data)) res.write(line + '\n');
       res.end();
     } catch (e) {
-      // The frames already sent stay valid; the last line says why it stopped. Never log the body.
-      const code = e instanceof RunFailed ? e.code : null;
-      res.write(JSON.stringify({ type: 'termhub_error', code, message: e instanceof Error ? e.message : 'unknown' }) + '\n');
+      // The frames already sent stay valid; the last line says why it stopped. The failure is
+      // classified here, in the only place that has the CLI's stderr, and only the resulting label
+      // crosses the wire: stderr itself can carry terminal content and the prompt (spec §7.1), so
+      // neither it nor an arbitrary error message is ever put on the frame. `missing_session` is
+      // what lets the app retry on a fresh session instead of failing forever.
+      const failed = e instanceof RunFailed ? e : null;
+      res.write(JSON.stringify({ type: 'termhub_error', code: failed?.code ?? null, reason: failed?.reason ?? 'run_failed' }) + '\n');
       res.end();
     }
   } catch {

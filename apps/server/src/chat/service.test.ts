@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import { chatBus, type ChatEvent } from './bus.js';
+import { HttpError } from '../lib/errors.js';
 import { ChatService, type RunnerClient } from './service.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
@@ -23,6 +24,10 @@ function build(lines: string[] | (() => AsyncIterable<string>)) {
       if (patch.error_code !== undefined) row.error_code = patch.error_code;
       return row;
     }),
+    deleteMessage: vi.fn(async (id: string) => {
+      const i = messages.findIndex((m) => m.id === id);
+      if (i >= 0) messages.splice(i, 1);
+    }),
     listMessages: vi.fn(async () => messages),
   };
   const repos = { chat, apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) } } as unknown as Repositories;
@@ -34,6 +39,9 @@ function build(lines: string[] | (() => AsyncIterable<string>)) {
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
 const done = (session = '3f1e9b1e-0000-4000-8000-000000000001') => JSON.stringify({ type: 'result', session_id: session, usage: { input_tokens: 5 } });
+/** Exactly what the container writes when the CLI exits non-zero: a code and a classified reason,
+ * never stderr's text (see apps/concierge/src/index.ts). */
+const errorFrame = (reason: 'missing_session' | 'run_failed') => JSON.stringify({ type: 'termhub_error', code: 1, reason });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -85,9 +93,12 @@ it('records an action and its failed result without breaking the answer', async 
 });
 
 it('starts a fresh session when resuming the old one fails, and tells the client to reset the answer', async () => {
-  const { service, runner, conversation } = build(() => (async function* () { throw new Error('No conversation found with session ID'); })());
+  // The runner never throws the CLI's phrase: the container classifies the failure (it is the only
+  // side that sees stderr) and appends an error frame carrying `missing_session`. This is the shape
+  // production really produces, so the retry is triggered off the frame, not off an error's text.
+  const { service, runner, conversation } = build([errorFrame('missing_session')]);
   conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
-  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('deixa eu ver'); throw new Error('No conversation found with session ID'); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('deixa eu ver'); yield errorFrame('missing_session'); })());
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('oi'); yield done('3f1e9b1e-0000-4000-8000-000000000002'); })());
 
   const events: ChatEvent[] = [];
@@ -103,7 +114,46 @@ it('starts a fresh session when resuming the old one fails, and tells the client
   // The discarded attempt's partial text ("deixa eu ver") must not survive into the stored
   // answer, and the browser must be told to drop what it already rendered for it.
   expect(answer.text).toBe('oi');
+  expect(answer.error_code).toBeNull(); // the retry succeeded: the first attempt's failure is not the answer's
   expect(events).toContainEqual({ type: 'reset', user_id: 'u1', message_id: answer.id });
+});
+
+it('does not retry on an error frame that is not a missing session', async () => {
+  const { service, runner, conversation } = build([delta('comecei'), errorFrame('run_failed')]);
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+  const answer = await service.send(user, 'e agora?');
+  expect(vi.mocked(runner.run)).toHaveBeenCalledTimes(1);
+  expect(answer.error_code).toBe('RUNNER_FAILED');
+  expect(answer.text).toBe('comecei'); // whatever streamed before the failure is kept
+});
+
+it('does not retry a first (non-resumed) run even when the session is reported missing', async () => {
+  const { service, runner } = build([errorFrame('missing_session')]);
+  const answer = await service.send(user, 'oi');
+  expect(vi.mocked(runner.run)).toHaveBeenCalledTimes(1);
+  expect(answer.error_code).toBe('RUNNER_FAILED');
+});
+
+it('lets a concierge that is not configured escape as 503 and leaves no empty bubble behind', async () => {
+  // Merged with no container running, every message would otherwise be stored as "the answer died"
+  // and the page would say "tente de novo" for ever. The route must answer 503 instead.
+  const { service, runner, messages } = build([]);
+  vi.mocked(runner.run).mockImplementationOnce(() => {
+    throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED');
+  });
+
+  await expect(service.send(user, 'oi')).rejects.toMatchObject({ statusCode: 503, code: 'CONCIERGE_DISABLED' });
+  expect(messages.map((m) => m.role)).toEqual(['user']); // the empty assistant row is gone
+});
+
+it('lets a concierge that did not answer escape as 502', async () => {
+  const { service, runner, messages } = build([]);
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () {
+    throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED');
+  })());
+
+  await expect(service.send(user, 'oi')).rejects.toMatchObject({ statusCode: 502, code: 'CONCIERGE_FAILED' });
+  expect(messages.map((m) => m.role)).toEqual(['user']);
 });
 
 it('fails the run when the stream ends without a done frame', async () => {

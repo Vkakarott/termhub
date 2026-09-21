@@ -5,7 +5,15 @@ export type ChatFrame =
   | { type: 'action'; tool: string; tool_use_id: string; args: unknown }
   | { type: 'action_result'; tool_use_id: string; ok: boolean }
   | { type: 'done'; session_id?: string; usage?: unknown }
-  | { type: 'error'; message: string };
+  /** `reason` is the container's machine-readable classification of the failure (never stderr's
+   * text): `missing_session` is the one the service acts on, by retrying on a fresh CLI session. */
+  | { type: 'error'; message: string; reason?: ChatFailureReason };
+
+/** Mirrors the concierge's `FailureReason`; an unknown label is dropped rather than guessed at. */
+export type ChatFailureReason = 'missing_session' | 'run_failed';
+
+const toReason = (raw: unknown): ChatFailureReason | undefined =>
+  raw === 'missing_session' || raw === 'run_failed' ? raw : undefined;
 
 /** `mcp__termhub__list_tabs` -> `list_tabs`; anything else is kept as it came. */
 const toolName = (raw: string) => (raw.startsWith('mcp__termhub__') ? raw.slice('mcp__termhub__'.length) : raw);
@@ -41,6 +49,6 @@ export function parseFrame(line: string): ChatFrame | null {
     return null;
   }
   if (type === 'result') return { type: 'done', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, usage: f.usage };
-  if (type === 'termhub_error') return { type: 'error', message: String(f.message ?? 'runner failed') };
+  if (type === 'termhub_error') return { type: 'error', message: String(f.message ?? 'runner failed'), reason: toReason(f.reason) };
   return null;
 }

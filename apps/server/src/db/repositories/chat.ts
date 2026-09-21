@@ -103,6 +103,15 @@ export class ChatRepository {
   }
 
   /**
+   * Removes a message. Used when a run never started at all (the concierge is not configured, or
+   * refused the request): the empty assistant row must not stay behind as a bubble that waits for
+   * an answer that will never come. `deleteMany` so a row already gone is not an error.
+   */
+  async deleteMessage(id: string): Promise<void> {
+    await this.db.chatMessage.deleteMany({ where: { id } });
+  }
+
+  /**
    * The newest `limit` messages, returned oldest-first. The window must be anchored at the end of
    * the conversation, not at its start: taking the *oldest* rows means that past `limit` messages
    * the payload never again contains the message the user just sent or its answer — the screen

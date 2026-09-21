@@ -47,7 +47,21 @@ it('marks a tool result as failed when is_error is true', () => {
 });
 
 it('reports the runner error line the container appends', () => {
-  expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, message: 'claude exited with 1' }))).toEqual({ type: 'error', message: 'claude exited with 1' });
+  expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'run_failed' }))).toEqual({ type: 'error', message: 'runner failed', reason: 'run_failed' });
+});
+
+// This reason is the whole fresh-session fallback: the container classifies the CLI's stderr (which
+// never leaves it) and the service retries off this label, not off an exception's text.
+it('carries the container\'s missing-session reason through', () => {
+  expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'missing_session' }))).toEqual({
+    type: 'error',
+    message: 'runner failed',
+    reason: 'missing_session',
+  });
+});
+
+it('drops a reason it does not know instead of guessing at it', () => {
+  expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'something_new' }))).toEqual({ type: 'error', message: 'runner failed' });
 });
 
 it('ignores a malformed line instead of throwing', () => {

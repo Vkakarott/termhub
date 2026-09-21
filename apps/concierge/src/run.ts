@@ -45,9 +45,28 @@ function writeMcpConfig(dir: string, req: RunRequest): string {
   return path;
 }
 
+/**
+ * Why a run failed, in a form the app is allowed to act on. The stderr that this is derived from
+ * never leaves the container: it can carry terminal content and the prompt (spec §7.1), so only
+ * this label travels.
+ */
+export type FailureReason = 'missing_session' | 'run_failed';
+
+/**
+ * The CLI prints "No conversation found with session ID <uuid>" when `--resume` names a session the
+ * mounted config dir does not have (a rotated account, a pruned history). Anchored on that exact
+ * phrase only: a broader match (anything mentioning "session ID") would also catch unrelated
+ * failures and make the app throw away a perfectly good session.
+ */
+export function classifyFailure(stderr: string): FailureReason {
+  return /No conversation found/i.test(stderr) ? 'missing_session' : 'run_failed';
+}
+
 export class RunFailed extends Error {
+  readonly reason: FailureReason;
   constructor(readonly code: number | null, readonly stderr: string) {
     super(`claude exited with ${code ?? 'signal'}`);
+    this.reason = classifyFailure(stderr);
   }
 }
 
@@ -63,6 +82,10 @@ export async function* runClaude(req: RunRequest, opts: { cliPath?: string; tmpD
   const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs ?? 10 * 60 * 1000);
   let stderr = '';
   child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+  // A CLI that exits before reading the prompt — which is exactly what a rejected `--resume` does,
+  // it fails at startup — makes this write fail with EPIPE. Unhandled, that `error` event takes the
+  // whole container down, and the classified failure frame the app needs is never written.
+  child.stdin.on('error', () => {});
   child.stdin.end(req.text);
 
   let buffer = '';

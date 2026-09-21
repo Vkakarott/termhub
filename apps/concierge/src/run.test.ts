@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildArgs, runClaude } from './run.js';
+import { buildArgs, classifyFailure, RunFailed, runClaude } from './run.js';
 
 const req = {
   session_id: '3f1e9b1e-0000-4000-8000-000000000001',
@@ -50,6 +50,16 @@ it('passes --verbose whenever it passes --output-format stream-json', () => {
       expect(args).toContain('--verbose');
     }
   }
+});
+
+// The app can never see the CLI's stderr (it may carry terminal content and the prompt, spec §7.1),
+// so this classification is the only thing it has to decide whether a session is worth retrying.
+it('classifies the CLI complaining about a missing session, and nothing else', () => {
+  expect(classifyFailure('No conversation found with session ID 3f1e9b1e-0000-4000-8000-000000000001')).toBe('missing_session');
+  expect(classifyFailure('no conversation found')).toBe('missing_session'); // case-insensitive
+  expect(classifyFailure('Error: Invalid session ID: not-a-uuid')).toBe('run_failed');
+  expect(classifyFailure('')).toBe('run_failed');
+  expect(classifyFailure('Credit balance is too low')).toBe('run_failed');
 });
 
 // --- streaming, against a fake CLI: no login, no network, runs in CI ---
@@ -133,3 +143,38 @@ echo '{"type":"result","session_id":"'"$2"'"}'
   },
   8000,
 );
+
+it('fails a non-zero exit with the reason read from stderr, keeping stderr inside the container', async () => {
+  const runsDir = mkdtempSync(join(bin, 'missing-'));
+  const failing = join(bin, 'missing-claude');
+  // No `cat` of stdin: a rejected --resume really does exit before reading the prompt.
+  writeFileSync(failing, `#!/bin/sh\necho 'No conversation found with session ID abc' >&2\nexit 1\n`);
+  chmodSync(failing, 0o755);
+
+  const error = await (async () => {
+    try {
+      for await (const _line of runClaude({ ...req, resume: true, config_dir: join(bin, 'cfg') }, { cliPath: failing, tmpDir: runsDir })) void _line;
+      return null;
+    } catch (e) {
+      return e;
+    }
+  })();
+
+  expect(error).toBeInstanceOf(RunFailed);
+  expect((error as RunFailed).reason).toBe('missing_session');
+  expect((error as RunFailed).code).toBe(1);
+  expect(readdirSync(runsDir)).toEqual([]); // the token-bearing MCP config still goes away
+});
+
+it('reports any other non-zero exit as a generic failure', async () => {
+  const runsDir = mkdtempSync(join(bin, 'other-'));
+  const failing = join(bin, 'other-claude');
+  writeFileSync(failing, `#!/bin/sh\necho 'Credit balance is too low' >&2\nexit 1\n`);
+  chmodSync(failing, 0o755);
+
+  await expect(
+    (async () => {
+      for await (const _line of runClaude({ ...req, config_dir: join(bin, 'cfg') }, { cliPath: failing, tmpDir: runsDir })) void _line;
+    })(),
+  ).rejects.toMatchObject({ reason: 'run_failed' });
+});

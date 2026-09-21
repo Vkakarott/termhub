@@ -19,11 +19,15 @@ export interface RunnerClient {
   run(input: RunnerInput): AsyncIterable<string>;
 }
 
-/** The CLI says this when --resume names a session the account's config dir does not have. Anchored
- * on this exact phrase only: a broader match (e.g. anything mentioning "session ID") would also
- * catch unrelated failures such as the runner rejecting a malformed session_id, and wrongly throw
- * away a perfectly good session. */
-const isMissingSession = (e: unknown) => /No conversation found/i.test(e instanceof Error ? e.message : '');
+/**
+ * Errors that mean "the chat could not even be attempted" rather than "the answer failed": the
+ * concierge is not configured on this server (503) or did not accept the request at all (502).
+ * They escape `send()` so the route answers with that status and its pt-BR message, instead of
+ * every message forever being stored as a run that died — retrying a missing configuration never
+ * helps, and the page has nothing to say about it.
+ */
+const isSetupFailure = (e: unknown): e is HttpError =>
+  e instanceof HttpError && (e.code === 'CONCIERGE_DISABLED' || e.code === 'CONCIERGE_FAILED');
 
 export class ChatService {
   /** One run per conversation: two `claude -p` processes on the same --session-id would race. */
@@ -53,6 +57,10 @@ export class ChatService {
        * clean finish: the text collected so far looks complete but isn't, and cli_session_id would
        * silently stay unset. */
       let sawDone = false;
+      /** Set by an error frame whose reason says the CLI does not have the session we asked it to
+       * resume. It is the container that classifies this (it is the only side that sees the CLI's
+       * stderr, which never travels): the app reads the frame's `reason`, never an error's text. */
+      let missingSession = false;
       /** Set once something went wrong. Distinct from a runner failure: the run never started
        * because the server itself could not mint a credential (nothing the account can fix by
        * being switched), vs. a run that started and died mid-stream (often account/quota, which
@@ -76,6 +84,7 @@ export class ChatService {
             if (frame.session_id && frame.session_id !== conversation.cli_session_id) await this.deps.repos.chat.setCliSession(conversation.id, frame.session_id);
           } else if (frame.type === 'error') {
             errorCode = 'RUNNER_FAILED';
+            if (frame.reason === 'missing_session') missingSession = true;
           }
         }
       };
@@ -105,23 +114,43 @@ export class ChatService {
           await consume(input);
           if (!sawDone) errorCode = 'RUNNER_FAILED';
         } catch (e) {
-          // A resume that the account cannot honour is not a failure: start a fresh session once.
-          if (input.resume && isMissingSession(e)) {
-            const fresh = { ...input, resume: false, session_id: randomUUID() };
-            // The failed attempt may have streamed partial text before dying; that text (and
-            // whatever the browser already rendered for it) belongs to a session the CLI has
-            // discarded, so both sides must start the answer over.
-            collected = '';
-            sawDone = false;
-            chatBus.publish({ type: 'reset', user_id: user.id, message_id: answer.id });
-            await this.deps.repos.chat.setCliSession(conversation.id, null);
-            try {
-              await consume(fresh);
-              if (!sawDone) errorCode = 'RUNNER_FAILED';
-            } catch {
-              errorCode = 'RUNNER_FAILED';
+          if (isSetupFailure(e)) {
+            // Nothing ran and nothing will: drop the empty assistant row instead of leaving a
+            // bubble that would say "pensando…" for ever, and let the status reach the browser.
+            await this.deps.repos.chat.deleteMessage(answer.id);
+            // Re-publishing the question makes every open tab re-read the conversation, which is
+            // how they learn the assistant row is gone (the bus has no "removed" event).
+            chatBus.publish({ type: 'message', user_id: user.id, message: question });
+            throw e;
+          }
+          // The stream itself broke (the container closed the socket, the deadline aborted it):
+          // there is no frame to read a reason from, so this can only be a plain failure.
+          errorCode = 'RUNNER_FAILED';
+        }
+
+        // A resume the account cannot honour is not a failure: start a fresh session once. The
+        // signal is the error frame's reason, the only thing the container can tell us about the
+        // CLI's stderr without forwarding it.
+        if (input.resume && missingSession) {
+          const fresh = { ...input, resume: false, session_id: randomUUID() };
+          // The failed attempt may have streamed partial text before dying; that text (and
+          // whatever the browser already rendered for it) belongs to a session the CLI has
+          // discarded, so both sides must start the answer over.
+          collected = '';
+          sawDone = false;
+          missingSession = false;
+          errorCode = null;
+          chatBus.publish({ type: 'reset', user_id: user.id, message_id: answer.id });
+          await this.deps.repos.chat.setCliSession(conversation.id, null);
+          try {
+            await consume(fresh);
+            if (!sawDone) errorCode = 'RUNNER_FAILED';
+          } catch (e) {
+            if (isSetupFailure(e)) {
+              await this.deps.repos.chat.deleteMessage(answer.id);
+              chatBus.publish({ type: 'message', user_id: user.id, message: question });
+              throw e;
             }
-          } else {
             errorCode = 'RUNNER_FAILED';
           }
         }
