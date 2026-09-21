@@ -101,10 +101,27 @@ describe('useDictation', () => {
     mocks.canRecordVoice.mockReturnValue(false);
     const { useDictation } = await load();
     const { result } = renderHook(() => useDictation(vi.fn()));
-    expect(result.current.state).toBe('off');
+    // The first render cannot know yet — see the `checking` test below — but nothing is ever asked of
+    // the server for a browser that cannot record.
+    expect(result.current.state).toBe('checking');
     await act(async () => {});
     expect(result.current.state).toBe('off');
     expect(mocks.configEnabled).not.toHaveBeenCalled();
+  });
+
+  it('starts in checking, because telling off from idle costs one round trip', async () => {
+    // Whoever renders this has to be able to say "not yet known" instead of guessing: the chat
+    // composer used to guess `off` and flashed a disabled send button before its microphone.
+    let settle: (c: { enabled: boolean }) => void = () => {};
+    mocks.configEnabled.mockReturnValue(new Promise<{ enabled: boolean }>((resolve) => (settle = resolve)));
+    const { useDictation } = await load();
+    const { result } = renderHook(() => useDictation(vi.fn()));
+
+    expect(result.current.state).toBe('checking');
+    await act(async () => {
+      settle({ enabled: true });
+    });
+    expect(result.current.state).toBe('idle');
   });
 
   it('reports off when the server has transcription disabled, idle when enabled', async () => {

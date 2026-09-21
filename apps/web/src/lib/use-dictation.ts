@@ -3,8 +3,15 @@ import { api } from './api';
 import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, micErrorMessage, transcribeClip, type Clip, type TranscribePhase } from './voice-recorder';
 import { voiceStore } from './voice-store';
 
-/** Voice input: off (server has no whisper / browser can't record), idle, recording a clip, sending it, waiting for the text. */
-export type DictationState = 'off' | 'idle' | 'recording' | 'uploading' | 'transcribing';
+/**
+ * Voice input: checking whether it is available at all, off (server has no whisper / browser can't
+ * record), idle, recording a clip, sending it, waiting for the text.
+ *
+ * `checking` is the first state every instance reports, and it exists for the UI's sake: telling
+ * `off` from `idle` needs one round trip to the server, and a composer that assumed `off` until the
+ * answer arrived flashed a disabled send button before turning into a microphone on first paint.
+ */
+export type DictationState = 'checking' | 'off' | 'idle' | 'recording' | 'uploading' | 'transcribing';
 
 export interface Dictation {
   state: DictationState;
@@ -39,9 +46,9 @@ function isVoiceEnabled(): Promise<boolean> {
  * composer can drive the exact same pipeline the terminal already relies on.
  */
 export function useDictation(onText: (text: string) => void): Dictation {
-  const [state, setStateValue] = useState<DictationState>('off');
+  const [state, setStateValue] = useState<DictationState>('checking');
   /** mirrors `state` for the closures below (recorder callbacks fire outside React's render cycle) */
-  const stateRef = useRef<DictationState>('off');
+  const stateRef = useRef<DictationState>('checking');
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
@@ -56,8 +63,11 @@ export function useDictation(onText: (text: string) => void): Dictation {
 
   useEffect(() => {
     let alive = true;
+    // Only while still `checking`, so a late answer can never overwrite a state the hook has already
+    // moved on to (nothing can leave `checking` today — `start()` needs `idle` — but this is the one
+    // write that comes from outside the state machine, and it stays confined to the state it owns).
     void isVoiceEnabled().then((ok) => {
-      if (alive && ok && stateRef.current === 'off') setState('idle');
+      if (alive && stateRef.current === 'checking') setState(ok ? 'idle' : 'off');
     });
     return () => {
       alive = false;
