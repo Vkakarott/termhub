@@ -39,16 +39,22 @@ export function ChatPage() {
     const deltas = new Map<string, string>();
     const actions = new Map<string, { tool: string }[]>();
     /**
-     * Assistant rows whose run started while this page was open. An empty bubble only deserves a
-     * "pensando…" while its run can still be alive: a row left empty by a process death — which
-     * happens on every deploy — is never announced here, so it reads as the failure it is instead
-     * of waiting for ever.
+     * Assistant rows this page has seen any sign of life from: the `message` event that announces a
+     * run, but also its deltas and its tool calls — a page opened (or reloaded, or a second tab)
+     * after the run began never sees the announcement, and a tool-only phase can run for tens of
+     * seconds with nothing else to show. An empty bubble only deserves a "pensando…" while its run
+     * can still be alive; a row left empty by a process death — which happens on every deploy — is
+     * never mentioned here at all, so it reads as the failure it is instead of waiting for ever.
      */
     const started = new Set<string>();
     for (const e of events) {
-      if (e.type === 'delta') deltas.set(e.message_id, (deltas.get(e.message_id) ?? '') + e.delta);
-      else if (e.type === 'action') actions.set(e.message_id, [...(actions.get(e.message_id) ?? []), { tool: e.tool }]);
-      else if (e.type === 'reset') {
+      if (e.type === 'delta') {
+        deltas.set(e.message_id, (deltas.get(e.message_id) ?? '') + e.delta);
+        started.add(e.message_id);
+      } else if (e.type === 'action') {
+        actions.set(e.message_id, [...(actions.get(e.message_id) ?? []), { tool: e.tool }]);
+        started.add(e.message_id);
+      } else if (e.type === 'reset') {
         deltas.delete(e.message_id);
         actions.delete(e.message_id);
       } else if (e.type === 'message' && e.message.role === 'assistant' && !e.message.text && !e.message.error_code) started.add(e.message.id);

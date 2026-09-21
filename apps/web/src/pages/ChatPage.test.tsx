@@ -158,3 +158,22 @@ it('re-reads the conversation when sending fails, so no bubble is left waiting',
   expect(await screen.findByText(/não está configurado/i)).toBeTruthy();
   await waitFor(() => expect(chatMock.mock.calls.length).toBeGreaterThanOrEqual(2));
 });
+
+it('does not call a tool-only phase a dead run', async () => {
+  // A page opened (or a second tab) after the run began never sees the `message` event that
+  // announced it, and a tool-only phase can run for tens of seconds with no delta: the failure line
+  // beside the tool chips would be a lie about a perfectly healthy run.
+  chatMock.mockResolvedValue({
+    conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+    messages: [msg({ id: 'm1', role: 'user', text: 'o que está rodando?' }), msg({ id: 'm2', role: 'assistant', text: '' })],
+  });
+  streamMock.mockReturnValue({
+    events: [{ type: 'action', message_id: 'm2', tool: 'list_tabs', tool_use_id: 'tu_1', args: {} }],
+    connected: true,
+  });
+  render(<ChatPage />);
+
+  expect(await screen.findByText('list_tabs')).toBeTruthy();
+  expect(screen.queryByText(/não terminou/i)).toBeNull();
+  expect(screen.getByText(/pensando/i)).toBeTruthy();
+});
