@@ -1,0 +1,97 @@
+import type { PrismaClient } from '../prisma.js';
+import type { ChatConversation as PrismaConversation, ChatMessage as PrismaMessage } from '../../generated/prisma/client.js';
+import { newId } from '../../lib/ids.js';
+
+export type ChatRole = 'user' | 'assistant';
+
+export interface ChatConversation {
+  id: string;
+  user_id: string;
+  title: string | null;
+  cli_session_id: string | null;
+  model: string | null;
+  review_mode: boolean;
+  last_message_at: string | null;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  role: ChatRole;
+  text: string;
+  usage: unknown | null;
+  error_code: string | null;
+  created_at: string;
+}
+
+const mapConversation = (c: PrismaConversation): ChatConversation => ({
+  id: c.id,
+  user_id: c.userId,
+  title: c.title,
+  cli_session_id: c.cliSessionId,
+  model: c.model,
+  review_mode: c.reviewMode,
+  last_message_at: c.lastMessageAt?.toISOString() ?? null,
+  created_at: c.createdAt.toISOString(),
+});
+
+const mapMessage = (m: PrismaMessage): ChatMessage => ({
+  id: m.id,
+  conversation_id: m.conversationId,
+  role: m.role as ChatRole,
+  text: m.text,
+  usage: m.usage ?? null,
+  error_code: m.errorCode,
+  created_at: m.createdAt.toISOString(),
+});
+
+export class ChatRepository {
+  constructor(private db: PrismaClient) {}
+
+  /** v1 keeps one conversation per user; the oldest one wins if several ever exist. */
+  async getOrCreateForUser(userId: string): Promise<ChatConversation> {
+    const existing = await this.db.chatConversation.findFirst({ where: { userId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    if (existing) return mapConversation(existing);
+    const created = await this.db.chatConversation.create({ data: { id: newId(), userId } });
+    return mapConversation(created);
+  }
+
+  async setCliSession(id: string, sessionId: string | null): Promise<void> {
+    await this.db.chatConversation.update({ where: { id }, data: { cliSessionId: sessionId } });
+  }
+
+  async addMessage(input: { conversation_id: string; role: ChatRole; text: string; usage?: unknown; error_code?: string | null }): Promise<ChatMessage> {
+    const [message] = await this.db.$transaction([
+      this.db.chatMessage.create({
+        data: {
+          id: newId(),
+          conversationId: input.conversation_id,
+          role: input.role,
+          text: input.text,
+          usage: (input.usage ?? null) as never,
+          errorCode: input.error_code ?? null,
+        },
+      }),
+      this.db.chatConversation.update({ where: { id: input.conversation_id }, data: { lastMessageAt: new Date() } }),
+    ]);
+    return mapMessage(message);
+  }
+
+  async updateMessage(id: string, patch: { text?: string; usage?: unknown; error_code?: string | null }): Promise<ChatMessage> {
+    const row = await this.db.chatMessage.update({
+      where: { id },
+      data: {
+        ...(patch.text === undefined ? {} : { text: patch.text }),
+        ...(patch.usage === undefined ? {} : { usage: patch.usage as never }),
+        ...(patch.error_code === undefined ? {} : { errorCode: patch.error_code }),
+      },
+    });
+    return mapMessage(row);
+  }
+
+  async listMessages(conversationId: string, limit = 200): Promise<ChatMessage[]> {
+    const rows = await this.db.chatMessage.findMany({ where: { conversationId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit });
+    return rows.map(mapMessage);
+  }
+}

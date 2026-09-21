@@ -71,7 +71,9 @@ export const ModelName = {
   WaitlistEntry: 'WaitlistEntry',
   Upload: 'Upload',
   ApiToken: 'ApiToken',
-  ApiTokenEvent: 'ApiTokenEvent'
+  ApiTokenEvent: 'ApiTokenEvent',
+  ChatConversation: 'ChatConversation',
+  ChatMessage: 'ChatMessage'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -394,6 +396,35 @@ export const ApiTokenEventScalarFieldEnum = {
 } as const
 
 export type ApiTokenEventScalarFieldEnum = (typeof ApiTokenEventScalarFieldEnum)[keyof typeof ApiTokenEventScalarFieldEnum]
+
+
+export const ChatConversationScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  title: 'title',
+  cliSessionId: 'cliSessionId',
+  model: 'model',
+  machineId: 'machineId',
+  tabId: 'tabId',
+  reviewMode: 'reviewMode',
+  lastMessageAt: 'lastMessageAt',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatConversationScalarFieldEnum = (typeof ChatConversationScalarFieldEnum)[keyof typeof ChatConversationScalarFieldEnum]
+
+
+export const ChatMessageScalarFieldEnum = {
+  id: 'id',
+  conversationId: 'conversationId',
+  role: 'role',
+  text: 'text',
+  usage: 'usage',
+  errorCode: 'errorCode',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatMessageScalarFieldEnum = (typeof ChatMessageScalarFieldEnum)[keyof typeof ChatMessageScalarFieldEnum]
 
 
 export const SortOrder = {

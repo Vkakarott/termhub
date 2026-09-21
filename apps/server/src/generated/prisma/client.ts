@@ -154,3 +154,15 @@ export type ApiToken = Prisma.ApiTokenModel
  * Pruned after 30 days.
  */
 export type ApiTokenEvent = Prisma.ApiTokenEventModel
+/**
+ * Model ChatConversation
+ * One chat with the concierge. v1 keeps a single conversation per user; machineId/tabId stay
+ * nullable so per-machine and per-tab chats can arrive without a migration (spec §7).
+ */
+export type ChatConversation = Prisma.ChatConversationModel
+/**
+ * Model ChatMessage
+ * A turn of the conversation. The assistant's own prose is stored in full; captured screens and
+ * command output never are (spec §7.1).
+ */
+export type ChatMessage = Prisma.ChatMessageModel

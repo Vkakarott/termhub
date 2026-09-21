@@ -54,6 +54,7 @@ model User {
   integrations Integration[] @relation("IntegrationOwner")
   uploads      Upload[]
   apiTokens    ApiToken[]
+  chatConversations ChatConversation[]
 
   @@index([roleId])
   @@map("users")
@@ -463,4 +464,42 @@ model ApiTokenEvent {
   @@index([tokenId, createdAt])
   @@index([createdAt])
   @@map("api_token_events")
+}
+
+/// One chat with the concierge. v1 keeps a single conversation per user; machineId/tabId stay
+/// nullable so per-machine and per-tab chats can arrive without a migration (spec §7).
+model ChatConversation {
+  id            String        @id
+  userId        String        @map("user_id")
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String?
+  /// uuid passed to claude -p as --session-id / --resume
+  cliSessionId  String?       @map("cli_session_id")
+  model         String?
+  machineId     String?       @map("machine_id")
+  tabId         String?       @map("tab_id")
+  reviewMode    Boolean       @default(false) @map("review_mode")
+  lastMessageAt DateTime?     @map("last_message_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  messages      ChatMessage[]
+
+  @@index([userId, createdAt])
+  @@map("chat_conversations")
+}
+
+/// A turn of the conversation. The assistant's own prose is stored in full; captured screens and
+/// command output never are (spec §7.1).
+model ChatMessage {
+  id             String           @id
+  conversationId String           @map("conversation_id")
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// user | assistant
+  role           String
+  text           String
+  usage          Json?
+  errorCode      String?          @map("error_code")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
 }
