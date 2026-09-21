@@ -53,6 +53,18 @@ export async function purgeExpiredActions(repos: Repositories, now = new Date())
 }
 
 /**
+ * What a failure is called, never what it says. Our own errors (`HttpError`, `ControlError`) and the
+ * database driver's carry a `code`; anything else is named by its class. A message is deliberately out
+ * of reach: a rejected write carries the rejected data, so logging one would put the injected sentence
+ * or the proposed command in a log line — the one thing that must never be logged (spec §7.1).
+ */
+const failureLabel = (err: unknown): string => {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && code.length > 0) return code;
+  return err instanceof Error ? err.name : typeof err;
+};
+
+/**
  * Errors that mean "the chat could not even be attempted" rather than "the answer failed": the
  * concierge is not configured on this server (503) or did not accept the request at all (502).
  * They escape `send()` so the route answers with that status and its pt-BR message, instead of
@@ -178,26 +190,38 @@ export class ChatService {
    * Never lets a failure here reach its own caller: it is scheduled from a `finally` block, so it must
    * never turn a clean, already-finished run into a thrown error over an unrelated decision's failed
    * retry (a lock grabbed by an unrelated message in the moment between the lookup and the injected
-   * `send` call, a concierge outage). The caller wraps this call in `.catch(() => {})` for that reason.
+   * `send` call, a concierge outage). It is still swallowed at the call site, and it leaves a trace
+   * before it is: a failure between marking a row injected and storing the injected message loses that
+   * decision for good, and a loss nobody can find afterwards is exactly the failure this branch spent a
+   * round ruling out. The trace is metadata only — the conversation, the action, and the failure's label
+   * — never the injected sentence, the arguments, the prompt or the token.
    */
   private async drainNextDecision(user: User): Promise<void> {
-    const conversation = await this.conversationFor(user);
-    const next = await this.deps.repos.chatActions.findNextToInject(conversation.id, [...this.unmarkable]);
-    if (!next) return;
-    await this.send(user, await this.injectionFor(user, next, conversation.cli_session_id === null), {
-      // Marking is what makes the injection at-most-once, so a row it failed on stays uninjected and
-      // would be picked again by the drain this very failure schedules — a spin on one row for as long
-      // as the database keeps refusing. Remembering it here is what stops that; the row is not lost,
-      // the next process (or `GET /api/chat`'s trail) still shows the decision the user gave.
-      beforeRun: async () => {
-        try {
-          await this.deps.repos.chatActions.markInjected(next.id);
-        } catch (err) {
-          this.unmarkable.add(next.id);
-          throw err;
-        }
-      },
-    });
+    let conversationId: string | null = null;
+    let actionId: string | null = null;
+    try {
+      const conversation = await this.conversationFor(user);
+      conversationId = conversation.id;
+      const next = await this.deps.repos.chatActions.findNextToInject(conversation.id, [...this.unmarkable]);
+      if (!next) return;
+      actionId = next.id;
+      await this.send(user, await this.injectionFor(user, next, conversation.cli_session_id === null), {
+        // Marking is what makes the injection at-most-once, so a row it failed on stays uninjected and
+        // would be picked again by the drain this very failure schedules — a spin on one row for as long
+        // as the database keeps refusing. Remembering it here is what stops that; the row is not lost,
+        // the next process (or `GET /api/chat`'s trail) still shows the decision the user gave.
+        beforeRun: async () => {
+          try {
+            await this.deps.repos.chatActions.markInjected(next.id);
+          } catch (err) {
+            this.unmarkable.add(next.id);
+            throw err;
+          }
+        },
+      });
+    } catch (err) {
+      console.error('chat: a decided action could not be re-injected', { conversation_id: conversationId, action_id: actionId, error: failureLabel(err) });
+    }
   }
 
   async send(user: User, text: string, opts?: { beforeRun?: () => Promise<void> }): Promise<ChatMessage> {
@@ -347,8 +371,8 @@ export class ChatService {
       // nginx would cut the client while the runs carried on). The answer this request came for is
       // already stored and published, so the client loses nothing by being answered now: the injected
       // runs reach it over the chat's own stream, exactly as they do for a decision taken while idle.
-      // Swallowed on purpose — see `drainNextDecision`'s own doc for why a failure here must never
-      // become this run's outcome.
+      // `drainNextDecision` logs its own failure (metadata only) and resolves; the `catch` is the last
+      // guard that nothing from it can ever become this run's outcome or an unhandled rejection.
       void this.drainNextDecision(user).catch(() => {});
     }
   }

@@ -420,7 +420,7 @@ it('returns the finished run without waiting for the queued decision it hands ov
   // is stored; the injected runs reach the browser over the chat's stream, as they do when it is idle.
   let release: () => void = () => {};
   const held = new Promise<void>((r) => (release = r));
-  const { service, runner, chatActions } = build([], { chatActions: [action({ id: 'a1' })] });
+  const { service, runner, chatActions, messages } = build([], { chatActions: [action({ id: 'a1' })] });
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { await held; yield delta('feito'); yield done(); })());
 
@@ -429,23 +429,67 @@ it('returns the finished run without waiting for the queued decision it hands ov
   expect(answer.text).toBe('resposta original'); // answered while the injected run is still streaming
   await vi.waitFor(() => expect(chatActions.markInjected).toHaveBeenCalledWith('a1'));
   expect(runner.run).toHaveBeenCalledTimes(2);
+  expect(messages.at(-1)!.text).toBe(''); // the injected run's answer is still empty: it is still held
   release();
-  await vi.waitFor(() => expect(vi.mocked(runner.run).mock.results).toHaveLength(2));
+  // Only true once the held run actually finished: its answer is stored, after this request was answered.
+  await vi.waitFor(() => expect(messages.at(-1)!.text).toBe('feito'));
 });
 
 it('stops draining a decision whose injection cannot even be marked, instead of retrying it forever', async () => {
   // Marking is what makes the injection at-most-once, so a row it failed on stays uninjected — and the
   // drain that failure schedules would pick the very same row again, for as long as the database kept
   // refusing. Now that the drain is not awaited, that spin would be unbounded and invisible.
-  const { service, runner, chatActions } = build([delta('resposta original'), done()], { chatActions: [action({ id: 'a1' })] });
-  chatActions.markInjected.mockRejectedValue(new Error('connection terminated'));
+  const logged: unknown[][] = [];
+  const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void logged.push(args));
+  try {
+    const { service, runner, chatActions } = build([delta('resposta original'), done()], { chatActions: [action({ id: 'a1' })] });
+    chatActions.markInjected.mockRejectedValue(new Error('connection terminated'));
 
-  await service.send(user, 'mensagem original');
-  await vi.waitFor(() => expect(chatActions.markInjected).toHaveBeenCalledTimes(1));
-  await settled();
+    await service.send(user, 'mensagem original');
+    await vi.waitFor(() => expect(chatActions.markInjected).toHaveBeenCalledTimes(1));
+    await settled();
 
-  expect(chatActions.markInjected).toHaveBeenCalledTimes(1); // tried once, never again
-  expect(runner.run).toHaveBeenCalledTimes(1); // and the injected run never started
+    expect(chatActions.markInjected).toHaveBeenCalledTimes(1); // tried once, never again
+    expect(runner.run).toHaveBeenCalledTimes(1); // and the injected run never started
+    // It is not silent, and the driver's own message ("connection terminated") is not what is logged:
+    // a rejected write carries the rejected data, so only the failure's label ever is.
+    expect(logged).toHaveLength(1);
+    expect(logged[0][1]).toEqual({ conversation_id: 'c1', action_id: 'a1', error: 'Error' });
+    expect(JSON.stringify(logged)).not.toContain('connection terminated');
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('leaves a metadata-only trace when the drain dies, and still swallows the failure', async () => {
+  // A drain that dies after marking the row injected loses that decision for good: the user answered
+  // and nothing will ever carry the answer to the model. Swallowing it silently made that loss
+  // untraceable. What is logged must still be metadata only — no injected sentence, no arguments.
+  const logged: unknown[][] = [];
+  const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void logged.push(args));
+  try {
+    const { service, runner, chatActions } = build([], { chatActions: [action({ id: 'a1' })] });
+    vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('resposta original'); yield done(); })());
+    // The concierge went away between the two runs: `send` rethrows this one instead of storing it.
+    vi.mocked(runner.run).mockImplementationOnce(() => {
+      throw new HttpError(503, 'O chat não está configurado neste servidor', 'CONCIERGE_DISABLED');
+    });
+
+    const answer = await service.send(user, 'mensagem original');
+
+    expect(answer.text).toBe('resposta original'); // the request that scheduled the drain is unaffected
+    await vi.waitFor(() => expect(logged).toHaveLength(1));
+    expect(chatActions.markInjected).toHaveBeenCalledWith('a1'); // marked, then lost: exactly the case
+    expect(logged[0][0]).toMatch(/re-injected/i);
+    expect(logged[0][1]).toEqual({ conversation_id: 'c1', action_id: 'a1', error: 'CONCIERGE_DISABLED' });
+    // The whole trace, checked as one string: no proposal, no injected sentence, no prompt.
+    const trace = JSON.stringify(logged);
+    expect(trace).not.toContain('npm test');
+    expect(trace).not.toContain('autorizou');
+    expect(trace).not.toContain('mensagem original');
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 it('drains two decisions queued behind one run, one per completion, oldest first', async () => {
