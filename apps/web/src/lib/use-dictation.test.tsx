@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
     canRecordVoice: vi.fn(() => true),
     transcribeClip: vi.fn(async () => ({ text: 'hello' })),
     configEnabled: vi.fn(async () => ({ enabled: true })),
+    voiceStoreClear: vi.fn(),
   };
 });
 
@@ -51,6 +52,10 @@ vi.mock('./voice-recorder', () => ({
 
 vi.mock('./api', () => ({
   api: { transcriptions: { config: mocks.configEnabled } },
+}));
+
+vi.mock('./voice-store', () => ({
+  voiceStore: { clear: mocks.voiceStoreClear },
 }));
 
 /** Reloads the module fresh so its module-level `isVoiceEnabled()` cache doesn't leak between tests. */
@@ -83,6 +88,7 @@ beforeEach(() => {
   mocks.canRecordVoice.mockReset().mockReturnValue(true);
   mocks.transcribeClip.mockReset().mockResolvedValue({ text: 'hello' });
   mocks.configEnabled.mockReset().mockResolvedValue({ enabled: true });
+  mocks.voiceStoreClear.mockReset();
 });
 
 afterEach(() => {
@@ -135,7 +141,7 @@ describe('useDictation', () => {
     expect(result.current.error).toMatch(/permiss/i);
   });
 
-  it('stop() with a clip under 2048 bytes returns to idle and sets no error', async () => {
+  it('stop() with a clip under 2048 bytes returns to idle, sets no error, and clears the stored clip', async () => {
     const { result } = await boot();
     await startRecording(result);
     mocks.recorder.stop.mockResolvedValueOnce({ audio: new Blob(['x']), seconds: 1 });
@@ -146,6 +152,8 @@ describe('useDictation', () => {
     expect(result.current.state).toBe('idle');
     expect(result.current.error).toBeNull();
     expect(mocks.transcribeClip).not.toHaveBeenCalled();
+    // nothing worth keeping: the too-short clip shouldn't linger in IndexedDB
+    expect(mocks.voiceStoreClear).toHaveBeenCalledWith('chat');
   });
 
   it('stop() with a real clip goes uploading -> transcribing -> idle and calls onText once', async () => {
@@ -179,9 +187,11 @@ describe('useDictation', () => {
     expect(result.current.state).toBe('idle');
     expect(onText).toHaveBeenCalledTimes(1);
     expect(onText).toHaveBeenCalledWith('hello world');
+    // the text has been delivered: the stored audio has done its job and should not linger
+    expect(mocks.voiceStoreClear).toHaveBeenCalledWith('chat');
   });
 
-  it('a transcribeClip rejection leaves it idle with the thrown message as error', async () => {
+  it('a transcribeClip rejection leaves it idle with the thrown message as error, and does NOT clear the stored clip', async () => {
     const { result } = await boot();
     await startRecording(result);
     mocks.transcribeClip.mockRejectedValueOnce(new Error('Falha ao transcrever o áudio'));
@@ -191,6 +201,8 @@ describe('useDictation', () => {
     await act(async () => {});
     expect(result.current.state).toBe('idle');
     expect(result.current.error).toBe('Falha ao transcrever o áudio');
+    // the audio is the only copy of a failed transcription: the store exists to survive exactly this
+    expect(mocks.voiceStoreClear).not.toHaveBeenCalled();
   });
 
   it('cancel() during a recording returns to idle, calls the recorder cancel, never transcribes', async () => {

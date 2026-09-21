@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { MAX_RECORDING_MS, VoiceRecorder, canRecordVoice, micErrorMessage, transcribeClip, type Clip, type TranscribePhase } from './voice-recorder';
+import { voiceStore } from './voice-store';
 
 /** Voice input: off (server has no whisper / browser can't record), idle, recording a clip, sending it, waiting for the text. */
 export type DictationState = 'off' | 'idle' | 'recording' | 'uploading' | 'transcribing';
@@ -77,7 +78,10 @@ export function useDictation(onText: (text: string) => void): Dictation {
         const result = await transcribeClip('chat', clip, onPhase);
         setError(null);
         onTextRef.current(result.text ?? '');
+        void voiceStore.clear('chat'); // text delivered: the stored audio has done its job
       } catch (err) {
+        // NOT cleared here: a failed upload/transcription is exactly what the store exists to
+        // survive (a refresh can still recover the audio) — do not "tidy" this away.
         setError(err instanceof Error ? err.message : 'Falha ao transcrever o áudio');
       } finally {
         setState('idle');
@@ -96,6 +100,7 @@ export function useDictation(onText: (text: string) => void): Dictation {
     void rec.stop().then((clip) => {
       if (clip.audio.size < MIN_CLIP_BYTES) {
         // too short to be speech: return to idle quietly, this isn't a failure worth reporting
+        void voiceStore.clear('chat'); // nothing worth keeping
         setState('idle');
         return;
       }
