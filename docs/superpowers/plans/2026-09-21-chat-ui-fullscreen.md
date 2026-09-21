@@ -17,7 +17,7 @@
 - **Model text is untrusted.** Every string that came from the concierge — message text, a card's `summary` — can carry content a model read off a real terminal screen. Assistant message bodies are rendered through `renderMarkdown` (sanitised) and nothing else; a card's `summary` stays plain text and is never passed to `dangerouslySetInnerHTML`. The user's own message text is never parsed as Markdown.
 - **The existing tests are the behavioural contract.** `apps/web/src/pages/ChatPage.test.tsx` (21 tests) and `ChatPage.stream.test.tsx` must stay green. Where the new design deliberately changes a behaviour, change that one test and say why in the commit message; never delete a test to make a rewrite pass.
 - **Colours come from the Tailwind tokens** already in `apps/web/tailwind.config.js` (`bg`, `bg-2`…`bg-4`, `fg`, `fg-muted`, `fg-dim`, `line`, `accent`, `warn`, `danger`, `ok`, `attention`). No hex literals in components.
-- **Green means:** `npm run typecheck` at the repo root, `npm test -w @termhub/web`, and — for Task 1 — `npm test -w @termhub/server`. The web baseline on this branch is 21 files / 181 tests passing.
+- **Green means:** `npm run typecheck --workspaces --if-present` (there is no root `typecheck` script), `npm test -w @termhub/web`, and — for Task 1 — `npm test -w @termhub/server`. The web baseline on this branch is 21 files / 181 tests passing.
 - **Reuse `.prose-termhub`** (already in `apps/web/src/index.css`) for rendered Markdown instead of writing a second set of Markdown styles.
 - Only Task 1 touches `apps/server`. Tasks 2-6 are `apps/web` only.
 
@@ -62,7 +62,7 @@ In `gate.e2e.test.ts`, the test "publishes the question to the chat, with the ar
 
 - [ ] **Step 4: Green**
 
-`npm test -w @termhub/server` and `npm run typecheck`.
+`npm test -w @termhub/server` and `npm run typecheck --workspaces --if-present`.
 
 - [ ] **Step 5: Commit**
 
@@ -197,7 +197,7 @@ Extract `AppShell` from `Layout` — a pure move: the loading message, the `Navi
 
 - [ ] **Step 4: Green**
 
-`npm test -w @termhub/web` (all 22 files) and `npm run typecheck`. Every existing route test must still pass: the providers moved, nothing changed about them.
+`npm test -w @termhub/web` (all 22 files) and `npm run typecheck --workspaces --if-present`. Every existing route test must still pass: the providers moved, nothing changed about them.
 
 - [ ] **Step 5: Commit**
 
@@ -243,7 +243,7 @@ Add to `ChatPage.test.tsx`, reusing its `msg`/`action` factories and mocks (give
 
 - [ ] **Step 4: Green**
 
-`npm test -w @termhub/web` — the new tests and all 21 originals. `npm run typecheck`.
+`npm test -w @termhub/web` — the new tests and all 21 originals. `npm run typecheck --workspaces --if-present`.
 
 - [ ] **Step 5: Commit**
 
@@ -295,7 +295,7 @@ In `ChatPage.test.tsx`:
 
 - [ ] **Step 4: Green**
 
-`npm test -w @termhub/web`, `npm run typecheck`, and `npm run build -w @termhub/web` (Tailwind's arbitrary-value classes are only checked at build time).
+`npm test -w @termhub/web`, `npm run typecheck --workspaces --if-present`, and `npm run build -w @termhub/web` (Tailwind's arbitrary-value classes are only checked at build time).
 
 - [ ] **Step 5: Commit**
 
