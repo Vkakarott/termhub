@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { ChatMessage } from '../db/repositories/chat.js';
+import type { ChatActionClass } from '../db/repositories/chat-actions.js';
 
 /** What the browser is told while an answer is being written. Terminal content never travels here:
  * an action carries the tool and its arguments, never a captured screen (spec §7.1). */
@@ -10,7 +11,11 @@ export type ChatEvent =
   | { type: 'action_result'; user_id: string; message_id: string; tool_use_id: string; ok: boolean }
   /** A retried run restarts the answer from scratch (a resumed session the CLI no longer has):
    * whatever deltas the browser already appended for this message must be dropped. */
-  | { type: 'reset'; user_id: string; message_id: string };
+  | { type: 'reset'; user_id: string; message_id: string }
+  /** A write the concierge proposed on a gated token and may not make until the user confirms it in
+   * the chat. It carries the proposal only — the tool, what it targets and the arguments as proposed
+   * — never a tool's result: nothing typed back, no screen, no command output. */
+  | { type: 'confirmation'; user_id: string; action_id: string; tool: string; args: unknown; class: ChatActionClass; machine_id: string | null; project_id: string | null; tab_id: string | null };
 
 class ChatBus {
   private emitter = new EventEmitter();

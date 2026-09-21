@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ApiToken } from '../db/repositories/api-tokens.js';
+import { applyGate } from '../chat/gate-runtime.js';
 import { controlContextFor, ControlError, type ControlContext } from '../control/context.js';
 import { HttpError } from '../lib/errors.js';
 import { authenticateToken } from './auth.js';
@@ -107,7 +108,17 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
           out = rateLimited(rate.retryInSeconds);
         } else {
           try {
-            out = text(JSON.stringify(await tool.run(ctx, args, extra.signal), null, 2));
+            // The chat's confirmation gate sits here: after the scope check and the argument
+            // validation, around the one place a tool actually runs. On a gated token a write is
+            // answered as pending instead of being executed — the row in chat_actions remembers it,
+            // and this request does not wait for the user (spec §5.2). One audit row either way.
+            const gated = await applyGate(ctx, { token, tool: tool.name, args, run: () => tool.run(ctx, args, extra.signal) });
+            if (gated.ok) {
+              out = text(JSON.stringify(gated.value, null, 2));
+            } else {
+              errorCode = gated.code;
+              out = text(gated.message, true);
+            }
           } catch (e) {
             if (e instanceof ControlError || e instanceof HttpError) {
               errorCode = e.code ?? 'ERROR';
