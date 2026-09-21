@@ -62,19 +62,21 @@ Five things the spec implies that no task's happy path exercises; each one's tes
 
 ```ts
 import { beforeAll, describe, expect, it } from 'vitest';
-import { getPrisma } from '../prisma.js';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { ChatRepository } from './chat.js';
 
 // Needs a migrated Postgres: TERMHUB_DB_TESTS=1 DATABASE_URL=… (CI sets both).
 describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)', () => {
-  const db = getPrisma();
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
   const repo = new ChatRepository(db);
   let userId: string;
 
   beforeAll(async () => {
     userId = newId();
-    await db.user.create({ data: { id: userId, email: `${userId}@test.local`, roleId: 'role_authenticated' } });
+    // User.name is required and roleId is nullable; roles are seeded by the app, not by migrations.
+    await db.user.create({ data: { id: userId, email: `${userId}@test.local`, name: 'test' } });
   });
 
   it('creates one conversation per user and returns the same one after that', async () => {
@@ -117,7 +119,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `DATABASE_URL=postgresql://termhub:termhub@127.0.0.1:5432/termhub TERMHUB_DB_TESTS=1 npm test -w @termhub/server -- src/db/repositories/chat.db`
+Run: `DATABASE_URL=postgresql://termhub:termhub@172.17.0.3:5432/termhub_test TERMHUB_DB_TESTS=1 npm test -w @termhub/server -- src/db/repositories/chat.db`
 Expected: FAIL — `Cannot find module './chat.js'`.
 
 - [ ] **Step 3: Add the Prisma models**
@@ -328,15 +330,22 @@ Register it in `apps/server/src/db/repositories/index.ts`: import `ChatRepositor
 - [ ] **Step 6: Generate the client and run the test**
 
 ```bash
-DATABASE_URL=postgresql://termhub:termhub@127.0.0.1:5432/termhub npm run prisma:generate -w @termhub/server
-DATABASE_URL=postgresql://termhub:termhub@127.0.0.1:5432/termhub npx prisma migrate deploy --schema apps/server/prisma/schema.prisma
-DATABASE_URL=postgresql://termhub:termhub@127.0.0.1:5432/termhub TERMHUB_DB_TESTS=1 npm test -w @termhub/server -- src/db/repositories/chat.db
+DATABASE_URL=postgresql://termhub:termhub@172.17.0.3:5432/termhub_test npm run prisma:generate -w @termhub/server
+DATABASE_URL=postgresql://termhub:termhub@172.17.0.3:5432/termhub_test npx prisma migrate deploy --schema apps/server/prisma/schema.prisma
+DATABASE_URL=postgresql://termhub:termhub@172.17.0.3:5432/termhub_test TERMHUB_DB_TESTS=1 npm test -w @termhub/server -- src/db/repositories/chat.db
 ```
 Expected: PASS (3 tests).
 
 - [ ] **Step 7: Verify there is no schema drift**
 
-Run: `DATABASE_URL=postgresql://termhub:termhub@127.0.0.1:5432/termhub npx prisma migrate diff --from-migrations apps/server/prisma/migrations --to-schema-datamodel apps/server/prisma/schema.prisma --shadow-database-url postgresql://termhub:termhub@127.0.0.1:5432/termhub_shadow --exit-code`
+Run, from `apps/server` (the same check CI runs in `.github/workflows/deploy.yml`; the
+`--from-migrations` / `--to-schema-datamodel` flags do not exist in Prisma 7.10):
+
+```bash
+cd apps/server
+DATABASE_URL=postgresql://termhub:termhub@172.17.0.3:5432/termhub_test npx prisma migrate deploy
+DATABASE_URL=postgresql://termhub:termhub@172.17.0.3:5432/termhub_test npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+```
 Expected: exit code 0, "No difference detected".
 
 - [ ] **Step 8: Commit**
