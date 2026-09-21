@@ -1,7 +1,7 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
 import { nestTasks } from './task-tree.js';
-import { mapTask, type Task, type TaskStatus, type TaskWithSubtasks } from './types.js';
+import { mapTask, type OfficeProgress, type Task, type TaskStatus, type TaskWithSubtasks } from './types.js';
 
 /** JSON com chaves ordenadas (JSONB do Postgres reordena as chaves). */
 function stableStringify(v: unknown): string {
@@ -284,5 +284,37 @@ export class TasksRepository {
       orderBy: [{ projectId: 'asc' }, { position: 'asc' }],
     });
     return rows.map(mapTask);
+  }
+
+  /**
+   * What the office floor shows of the board: per project, how many top-level tasks sit in
+   * todo/doing/done (the backlog is not work in progress); per tab, the `doing` task bound to it
+   * with its subtask counts. Two `doing` tasks on one tab: the first by position wins.
+   */
+  async officeProgress(projectIds: string[]): Promise<OfficeProgress> {
+    if (projectIds.length === 0) return { counts: {}, byTab: {} };
+    const [groups, bound] = await Promise.all([
+      this.db.task.groupBy({
+        by: ['projectId', 'status'],
+        where: { projectId: { in: projectIds }, parentId: null, status: { in: ['todo', 'doing', 'done'] } },
+        _count: { _all: true },
+      }),
+      this.db.task.findMany({
+        where: { projectId: { in: projectIds }, parentId: null, status: 'doing', tabId: { not: null } },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        select: { id: true, title: true, tabId: true, subtasks: { select: { status: true } } },
+      }),
+    ]);
+    const counts: OfficeProgress['counts'] = {};
+    for (const g of groups) {
+      const c = (counts[g.projectId] ??= { todo: 0, doing: 0, done: 0 });
+      c[g.status as 'todo' | 'doing' | 'done'] = g._count._all;
+    }
+    const byTab: OfficeProgress['byTab'] = {};
+    for (const t of bound) {
+      if (!t.tabId || byTab[t.tabId]) continue;
+      byTab[t.tabId] = { task_id: t.id, title: t.title, done: t.subtasks.filter((s) => s.status === 'done').length, total: t.subtasks.length };
+    }
+    return { counts, byTab };
   }
 }

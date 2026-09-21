@@ -115,6 +115,13 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     }
   });
 
+  it('listByProjects returns the tabs of the given projects in tab-bar order, and nothing for none', async () => {
+    const second = newId();
+    await db.tab.create({ data: { id: second, projectId, name: 'second', position: 1, tmuxSession: `th-${second}` } });
+    expect((await repo.listByProjects([projectId])).map((t) => t.id)).toEqual([tabId, second]);
+    expect(await repo.listByProjects([])).toEqual([]);
+  });
+
   describe('created_by_token_id / countOpenByToken', () => {
     it('records which token opened a tab and counts the ones still open', async () => {
       const a = await repo.create(projectId, 'T1', { created_by_token_id: 'tok1' });

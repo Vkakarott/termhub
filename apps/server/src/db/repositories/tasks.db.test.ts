@@ -221,4 +221,46 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
     expect(imported.position).toBe(1);
     expect(imported.parent_id).toBeNull();
   });
+
+  describe('officeProgress', () => {
+    it('counts top-level todo/doing/done per project and leaves the backlog and subtasks out', async () => {
+      await repo.create(projectId, { title: 'b', status: 'backlog' });
+      await repo.create(projectId, { title: 't', status: 'todo' });
+      const doing = await repo.create(projectId, { title: 'd', status: 'doing' });
+      await repo.create(projectId, { title: 'x', status: 'done' });
+      await repo.createSubtasks(doing.id, [{ title: 's1' }, { title: 's2' }]);
+      const { counts } = await repo.officeProgress([projectId]);
+      expect(counts[projectId]).toEqual({ todo: 1, doing: 1, done: 1 });
+    });
+
+    it('reports the doing task bound to a tab with its subtask counts', async () => {
+      const tabId = newId();
+      await db.tab.create({ data: { id: tabId, projectId, name: 't', tmuxSession: `th-${tabId}` } });
+      const doing = await repo.create(projectId, { title: 'Ship it', status: 'doing' });
+      await repo.setTab(doing.id, tabId);
+      const subs = await repo.createSubtasks(doing.id, [{ title: 's1' }, { title: 's2' }, { title: 's3' }]);
+      await repo.update(subs[0].id, { status: 'done' });
+      const { byTab } = await repo.officeProgress([projectId]);
+      expect(byTab[tabId]).toEqual({ task_id: doing.id, title: 'Ship it', done: 1, total: 3 });
+    });
+
+    it('ignores a bound task that is not in doing, and picks the first by position when two are', async () => {
+      const tabId = newId();
+      await db.tab.create({ data: { id: tabId, projectId, name: 't', tmuxSession: `th-${tabId}` } });
+      const todo = await repo.create(projectId, { title: 'not doing', status: 'todo' });
+      await repo.setTab(todo.id, tabId);
+      expect((await repo.officeProgress([projectId])).byTab[tabId]).toBeUndefined();
+      // create() puts a new top-level task at position 0 of its column, pushing older ones down
+      // (see create()'s own doc comment), so `later` ends up at position 0 and `earlier` at 1.
+      const earlier = await repo.create(projectId, { title: 'earlier', status: 'doing' });
+      const later = await repo.create(projectId, { title: 'later', status: 'doing' });
+      await repo.setTab(earlier.id, tabId);
+      await repo.setTab(later.id, tabId);
+      expect((await repo.officeProgress([projectId])).byTab[tabId].title).toBe('later');
+    });
+
+    it('answers empty for no projects without touching the database', async () => {
+      expect(await repo.officeProgress([])).toEqual({ counts: {}, byTab: {} });
+    });
+  });
 });

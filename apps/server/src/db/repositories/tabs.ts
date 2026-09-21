@@ -16,6 +16,13 @@ export class TabsRepository {
     return rows.map(mapTab);
   }
 
+  /** Every tab of the given projects, in tab-bar order within each project (the office floor). */
+  async listByProjects(projectIds: string[]): Promise<Tab[]> {
+    if (projectIds.length === 0) return [];
+    const rows = await this.db.tab.findMany({ where: { projectId: { in: projectIds } }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+    return rows.map(mapTab);
+  }
+
   async findById(id: string): Promise<Tab | undefined> {
     const t = await this.db.tab.findUnique({ where: { id } });
     return t ? mapTab(t) : undefined;
