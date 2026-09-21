@@ -203,6 +203,41 @@ export async function probeTmuxSessions(machine: Machine): Promise<TmuxProbe> {
   return unreachable(`exit ${r.code ?? 'null'}`);
 }
 
+/** How long a probe answer is reused. An unreachable machine is asked again less often: over ssh it costs a timeout. */
+export const PROBE_TTL_MS = { reachable: 15_000, unreachable: 60_000 } as const;
+
+const probeMemo = new Map<string, { at: number; probe: TmuxProbe }>();
+const probesInFlight = new Map<string, Promise<TmuxProbe>>();
+
+/**
+ * `probeTmuxSessions` behind a per-machine memo: the office city asks every machine every minute
+ * from every open browser tab, and they can all share one round-trip. Only the probe is reused —
+ * callers read projects, tabs and tasks from the database every time. `fresh` skips the memo (a
+ * tab was just opened and must not read as "no session yet") and refreshes it. Concurrent callers
+ * share one in-flight probe.
+ */
+export function probeTmuxSessionsCached(machine: Machine, opts: { fresh?: boolean; now?: () => number } = {}): Promise<TmuxProbe> {
+  const now = opts.now ?? Date.now;
+  const hit = probeMemo.get(machine.id);
+  if (!opts.fresh && hit && now() - hit.at < (hit.probe.reachable ? PROBE_TTL_MS.reachable : PROBE_TTL_MS.unreachable)) return Promise.resolve(hit.probe);
+  const running = probesInFlight.get(machine.id);
+  if (running) return running;
+  const started = probeTmuxSessions(machine)
+    .then((probe) => {
+      probeMemo.set(machine.id, { at: now(), probe });
+      return probe;
+    })
+    .finally(() => probesInFlight.delete(machine.id));
+  probesInFlight.set(machine.id, started);
+  return started;
+}
+
+/** Tests only. */
+export function clearTmuxProbeMemo(): void {
+  probeMemo.clear();
+  probesInFlight.clear();
+}
+
 export async function killTmuxSession(machine: Machine, session: string): Promise<boolean> {
   assertSessionName(session);
   if (machine.type === 'agent') {

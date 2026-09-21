@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import { applyErrorHandler } from '../lib/errors.js';
 
-const probeTmuxSessions = vi.fn();
+const probe = vi.fn();
 const canAccess = vi.fn();
-vi.mock('../terminal/machine-exec.js', () => ({ probeTmuxSessions: (...a: unknown[]) => probeTmuxSessions(...a) }));
+vi.mock('../terminal/machine-exec.js', () => ({ probeTmuxSessionsCached: (...a: unknown[]) => probe(...a) }));
 vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess: (...a: unknown[]) => canAccess(...a) }));
 
 const { officeRoutes } = await import('./office.js');
@@ -38,7 +38,7 @@ function buildApp() {
 
 describe('GET /office/:machineId', () => {
   beforeEach(() => {
-    probeTmuxSessions.mockReset().mockResolvedValue({ reachable: true, sessions: new Set(['th-t1']) });
+    probe.mockReset().mockResolvedValue({ reachable: true, sessions: new Set(['th-t1']) });
     canAccess.mockReset().mockResolvedValue(true);
   });
 
@@ -55,7 +55,7 @@ describe('GET /office/:machineId', () => {
   // The probe never throws for the ways a machine really goes silent (offline agent, ssh timeout,
   // non-zero exit): it answers `reachable: false`, and that is what has to reach the snapshot.
   it('answers 200 with reachable: false when the probe could not ask the machine', async () => {
-    probeTmuxSessions.mockResolvedValue({ reachable: false, sessions: new Set(), cause: 'timeout' });
+    probe.mockResolvedValue({ reachable: false, sessions: new Set(), cause: 'timeout' });
     const { app } = buildApp();
     const body = (await app.inject({ method: 'GET', url: '/office/m1' })).json();
     expect(body.reachable).toBe(false);
@@ -63,7 +63,7 @@ describe('GET /office/:machineId', () => {
   });
 
   it('logs the unreachable cause as metadata only, and the snapshot line at debug', async () => {
-    probeTmuxSessions.mockResolvedValue({ reachable: false, sessions: new Set(), cause: 'exit 255' });
+    probe.mockResolvedValue({ reachable: false, sessions: new Set(), cause: 'exit 255' });
     const { app, logs } = buildApp();
     await app.inject({ method: 'GET', url: '/office/m1' });
     const warning = logs.find((l) => l.msg === 'office: machine unreachable');
@@ -76,7 +76,7 @@ describe('GET /office/:machineId', () => {
     const { app, repos } = buildApp();
     vi.mocked(repos.tabs.listByProjects).mockResolvedValue([{ id: 's1', project_id: 'p1', name: 's1', kind: 'simulator', tmux_session: null, simulator_udid: 'u1' }] as never);
     const body = (await app.inject({ method: 'GET', url: '/office/m1' })).json();
-    expect(probeTmuxSessions).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
     expect(body.reachable).toBe(true);
   });
 
@@ -93,5 +93,18 @@ describe('GET /office/:machineId', () => {
     const { app } = buildApp();
     expect((await app.inject({ method: 'GET', url: '/office/m2' })).statusCode).toBe(404);
     expect((await app.inject({ method: 'GET', url: '/office/nope' })).statusCode).toBe(404);
+  });
+
+  it('asks for a fresh probe only when ?fresh=1', async () => {
+    const { app } = buildApp();
+    await app.inject({ method: 'GET', url: '/office/m1' });
+    expect(probe).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'm1' }), { fresh: false });
+    await app.inject({ method: 'GET', url: '/office/m1?fresh=1' });
+    expect(probe).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'm1' }), { fresh: true });
+  });
+
+  it('rejects a malformed fresh value', async () => {
+    const { app } = buildApp();
+    expect((await app.inject({ method: 'GET', url: '/office/m1?fresh=yes' })).statusCode).toBe(400);
   });
 });
