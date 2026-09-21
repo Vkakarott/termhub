@@ -130,6 +130,15 @@ export async function machineStatus(machine: Machine): Promise<MachineStatus> {
   return { online, tmux: det.capabilities.includes('tmux'), ...det };
 }
 
+function parseSessions(stdout: string): Set<string> {
+  const set = new Set<string>();
+  for (const line of stdout.split('\n')) {
+    const name = line.trim();
+    if (name) set.add(name);
+  }
+  return set;
+}
+
 /** Lista as sessões tmux ativas na máquina (vazio se o servidor tmux não está rodando). */
 export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
   if (machine.type === 'agent') {
@@ -147,13 +156,51 @@ export async function listTmuxSessions(machine: Machine): Promise<Set<string>> {
     { file: tmux(), args: ['list-sessions', '-F', '#{session_name}'] },
     `${REMOTE_PATH_PREFIX}tmux list-sessions -F '#{session_name}' 2>/dev/null || true`,
   );
-  const set = new Set<string>();
-  if (r.code !== 0) return set;
-  for (const line of r.stdout.split('\n')) {
-    const name = line.trim();
-    if (name) set.add(name);
+  if (r.code !== 0) return new Set();
+  return parseSessions(r.stdout);
+}
+
+export interface TmuxProbe {
+  /** false = the machine could not be asked at all; `sessions` is then empty and means nothing */
+  reachable: boolean;
+  sessions: Set<string>;
+  /** short, metadata-only reason for `reachable: false` — safe to log, never command output */
+  cause?: string;
+}
+
+/** tmux answering "there is no server" — the machine replied, it simply has no sessions. */
+const NO_TMUX_SERVER = /no server running|error connecting to|no sessions/i;
+
+/**
+ * Like `listTmuxSessions`, but tells "could not ask the machine" from "asked, nothing is running".
+ * `listTmuxSessions` cannot: an offline agent, a timed-out ssh and a machine with no sessions all
+ * answer the same empty set, so a caller that draws state from it reads every tab as dead. The
+ * office snapshot uses this instead; `listTmuxSessions` keeps its behaviour for its own callers.
+ */
+export async function probeTmuxSessions(machine: Machine): Promise<TmuxProbe> {
+  const unreachable = (cause: string): TmuxProbe => ({ reachable: false, sessions: new Set(), cause });
+  if (machine.type === 'agent') {
+    // the registry's own connection state, as control/inventory.ts checks it
+    if (!agents.isOnline(machine.id)) return unreachable('agent offline');
+    try {
+      const { sessions } = await agents.rpc(machine.id, 'tmux.list', {});
+      return { reachable: true, sessions: new Set(sessions) };
+    } catch (err) {
+      return unreachable(err instanceof AgentOfflineError ? 'agent offline' : 'agent rpc failed');
+    }
   }
-  return set;
+  const r = await runOnMachine(
+    machine,
+    { file: tmux(), args: ['list-sessions', '-F', '#{session_name}'] },
+    `${REMOTE_PATH_PREFIX}tmux list-sessions -F '#{session_name}' 2>/dev/null || true`,
+  );
+  if (r.code === 0) return { reachable: true, sessions: parseSessions(r.stdout) };
+  if (r.timedOut) return unreachable('timeout');
+  // The remote command swallows tmux's own failure (`2>/dev/null || true`), so over ssh a non-zero
+  // exit is ssh failing. Locally tmux runs directly, and "no server running" is its normal answer
+  // when nothing is up — that is a reachable machine with zero sessions, not a failure.
+  if (machine.type === 'local' && NO_TMUX_SERVER.test(r.stderr)) return { reachable: true, sessions: new Set() };
+  return unreachable(`exit ${r.code ?? 'null'}`);
 }
 
 export async function killTmuxSession(machine: Machine, session: string): Promise<boolean> {

@@ -22,7 +22,9 @@ export interface OfficeSnapshot {
 /**
  * The floor of one machine: a room per non-archived project (in the order given — the repository
  * sorts by name, like the sidebar), its tabs, and the board's progress when the person may see it.
- * Pure: the route does the loading. Only names and task titles travel, never terminal content.
+ * Pure: the route does the loading. It carries the same Project/Machine/Tab records the person
+ * already receives from /projects, /machines and /monitor, plus task counts — no terminal content,
+ * and the route logs nothing beyond ids and counts.
  */
 export function buildOfficeSnapshot(input: {
   machine: Machine;

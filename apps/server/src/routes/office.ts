@@ -5,7 +5,7 @@ import { scoped } from '../auth/scope.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { buildOfficeSnapshot } from '../office/snapshot.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
-import { listTmuxSessions } from '../terminal/machine-exec.js';
+import { probeTmuxSessions } from '../terminal/machine-exec.js';
 
 const params = z.object({ machineId: z.string().min(1).max(64) });
 
@@ -27,13 +27,12 @@ export async function officeRoutes(app: FastifyInstance, repos: Repositories, de
     let aliveSessions = new Set<string>();
     let reachable = true;
     if (tabs.some((t) => t.kind === 'terminal')) {
-      try {
-        aliveSessions = await listTmuxSessions(machine);
-      } catch {
-        reachable = false;
-      }
+      // the probe, not listTmuxSessions: a silent machine must not read as "every tab closed"
+      const probe = await probeTmuxSessions(machine);
+      ({ reachable, sessions: aliveSessions } = probe);
+      if (!reachable) request.log.warn({ machineId: machine.id, cause: probe.cause }, 'office: machine unreachable');
     }
-    request.log.info({ machineId: machine.id, rooms: projectIds.length, tabs: tabs.length, reachable }, 'office: snapshot');
+    request.log.debug({ machineId: machine.id, rooms: projectIds.length, tabs: tabs.length, reachable }, 'office: snapshot');
     return buildOfficeSnapshot({ machine, projects, tabs, aliveSessions, reachable, simulatorReady: (udid) => deps.simulators.isReady(machine.id, udid), progress });
   });
 }

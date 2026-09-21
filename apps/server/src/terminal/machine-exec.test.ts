@@ -1,0 +1,111 @@
+import { execFile } from 'node:child_process';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
+
+import type { AgentConnection } from '../agent/connection.js';
+import { AgentRpcError } from '../agent/connection.js';
+import { agents } from '../agent/registry.js';
+import type { Machine } from '../db/repositories/types.js';
+import { listTmuxSessions, probeTmuxSessions } from './machine-exec.js';
+
+const machine = (type: Machine['type'], id = 'm1'): Machine =>
+  ({ id, name: 'box', type, host: type === 'ssh' ? 'box.local' : null, ssh_user: 'u', ssh_port: 22, os: 'linux', capabilities: ['tmux'] }) as Machine;
+
+/** Attaches a fake AgentConnection whose rpc() is driven by `rpcImpl` (same shape as agent/ops.test.ts). */
+function attachFakeConn(machineId: string, rpcImpl: (method: string) => unknown) {
+  const conn = {
+    machineId,
+    hello: { agent_version: '0.1.0', os: 'linux', tools: ['tmux'] },
+    connectedAt: Date.now(),
+    close: vi.fn(),
+    rpc: vi.fn(async (method: string) => rpcImpl(method)),
+    openPty: vi.fn(),
+    on() {
+      return this;
+    },
+  } as unknown as AgentConnection;
+  agents.attach(machineId, conn);
+  return conn;
+}
+
+/** Makes the next execFile() answer with this result, the way node's callback does. */
+function execAnswers(result: { code: number | null; stdout?: string; stderr?: string; killed?: boolean }) {
+  vi.mocked(execFile).mockImplementation(((_file: string, _args: string[], _opts: unknown, cb: (err: unknown, stdout: string, stderr: string) => void) => {
+    const err = result.code === 0 ? null : Object.assign(new Error('exec failed'), { code: result.code ?? undefined, killed: result.killed, signal: result.killed ? 'SIGTERM' : undefined });
+    cb(err, result.stdout ?? '', result.stderr ?? '');
+    return undefined as never;
+  }) as never);
+}
+
+beforeEach(() => {
+  agents.reset();
+  vi.clearAllMocks();
+});
+
+describe('probeTmuxSessions', () => {
+  it('reports the sessions of an online agent as reachable', async () => {
+    attachFakeConn('m1', () => ({ sessions: ['th-a', 'th-b'] }));
+    expect(await probeTmuxSessions(machine('agent'))).toEqual({ reachable: true, sessions: new Set(['th-a', 'th-b']) });
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('reports an offline agent as unreachable instead of "no sessions"', async () => {
+    const probe = await probeTmuxSessions(machine('agent', 'offline-agent'));
+    expect(probe.reachable).toBe(false);
+    expect(probe.sessions.size).toBe(0);
+    expect(probe.cause).toBe('agent offline');
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed agent RPC as unreachable', async () => {
+    attachFakeConn('m1', () => {
+      throw new AgentRpcError({ code: 'failed', message: 'tmux exploded' });
+    });
+    const probe = await probeTmuxSessions(machine('agent'));
+    expect(probe.reachable).toBe(false);
+    // metadata only: the machine's own message never reaches the log line
+    expect(probe.cause).toBe('agent rpc failed');
+  });
+
+  it('reports an ssh failure (non-zero exit) as unreachable, not as an empty floor', async () => {
+    execAnswers({ code: 255, stderr: 'ssh: connect to host box.local port 22: Connection refused' });
+    const probe = await probeTmuxSessions(machine('ssh'));
+    expect(probe.reachable).toBe(false);
+    expect(probe.sessions.size).toBe(0);
+    expect(probe.cause).toBe('exit 255');
+  });
+
+  it('reports a timed-out execution as unreachable', async () => {
+    execAnswers({ code: null, killed: true });
+    const probe = await probeTmuxSessions(machine('ssh'));
+    expect(probe.reachable).toBe(false);
+    expect(probe.cause).toBe('timeout');
+  });
+
+  it('is reachable with zero sessions when tmux answered that no server is running', async () => {
+    // the remote command swallows tmux's own failure (`2>/dev/null || true`): exit 0, no output
+    execAnswers({ code: 0, stdout: '' });
+    expect(await probeTmuxSessions(machine('ssh'))).toEqual({ reachable: true, sessions: new Set() });
+  });
+
+  it('is reachable with zero sessions for a local machine whose tmux server is not running', async () => {
+    // local runs tmux directly, so "no server" arrives as a non-zero exit with tmux's message
+    execAnswers({ code: 1, stderr: 'no server running on /tmp/tmux-1000/default' });
+    expect(await probeTmuxSessions(machine('local'))).toEqual({ reachable: true, sessions: new Set() });
+  });
+
+  it('parses the session names and ignores blank lines', async () => {
+    execAnswers({ code: 0, stdout: 'th-a\n\nth-b\n' });
+    expect(await probeTmuxSessions(machine('ssh'))).toEqual({ reachable: true, sessions: new Set(['th-a', 'th-b']) });
+  });
+});
+
+describe('listTmuxSessions', () => {
+  // Pinned on purpose: other routes read this as "no sessions" and changing it is not part of the
+  // office work — probeTmuxSessions is what tells "could not ask" from "asked, nothing running".
+  it('still answers an empty set on a failed execution', async () => {
+    execAnswers({ code: 255, stderr: 'ssh: connect timed out' });
+    expect(await listTmuxSessions(machine('ssh'))).toEqual(new Set());
+  });
+});
