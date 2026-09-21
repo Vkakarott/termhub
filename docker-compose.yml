@@ -124,7 +124,9 @@ services:
     image: termhub-concierge
     restart: unless-stopped
     environment:
-      CONCIERGE_SECRET: ${CONCIERGE_SECRET:?set CONCIERGE_SECRET in .env}
+      # Empty = the service refuses every request (see src/index.ts) and the app answers 503.
+      # Generate with: openssl rand -base64 32
+      CONCIERGE_SECRET: ${CONCIERGE_SECRET:-}
       PORT: 4100
     volumes:
       - ${CONCIERGE_PRIMARY_CONFIG_DIR:-/home/pedrogoiania/.claude_pedrogoiania}:/accounts/primary
