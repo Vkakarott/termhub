@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useChatStream } from '../lib/chat';
 import type { ChatEvent, ChatMessage } from '../lib/types';
@@ -38,16 +38,31 @@ export function ChatPage() {
   const live = useMemo(() => {
     const deltas = new Map<string, string>();
     const actions = new Map<string, { tool: string }[]>();
+    /**
+     * Assistant rows whose run started while this page was open. An empty bubble only deserves a
+     * "pensando…" while its run can still be alive: a row left empty by a process death — which
+     * happens on every deploy — is never announced here, so it reads as the failure it is instead
+     * of waiting for ever.
+     */
+    const started = new Set<string>();
     for (const e of events) {
       if (e.type === 'delta') deltas.set(e.message_id, (deltas.get(e.message_id) ?? '') + e.delta);
       else if (e.type === 'action') actions.set(e.message_id, [...(actions.get(e.message_id) ?? []), { tool: e.tool }]);
       else if (e.type === 'reset') {
         deltas.delete(e.message_id);
         actions.delete(e.message_id);
-      }
+      } else if (e.type === 'message' && e.message.role === 'assistant' && !e.message.text && !e.message.error_code) started.add(e.message.id);
     }
-    return { deltas, actions };
+    return { deltas, actions, started };
   }, [events]);
+
+  const listRef = useRef<HTMLOListElement>(null);
+  // Keep the newest content in view: past one viewport the user would send a message and see
+  // nothing move. Runs on every new message and on every streamed delta.
+  useEffect(() => {
+    const list = listRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [messages, events]);
 
   const send = async () => {
     const value = text.trim();
@@ -59,8 +74,12 @@ export function ChatPage() {
       setText('');
       await load();
     } catch (e) {
-      // a 409 CHAT_BUSY carries its own pt-BR message, shown as-is; anything else falls back to a generic line
+      // a 409 CHAT_BUSY or a 503 CONCIERGE_DISABLED carries its own pt-BR message, shown as-is;
+      // anything else falls back to a generic line
       setError(e instanceof ApiError ? e.message : 'Não foi possível enviar a mensagem');
+      // The server may have dropped the empty assistant row it had already announced (a run that
+      // never started at all), so re-read instead of keeping a bubble that will never fill.
+      await load();
     } finally {
       setSending(false);
     }
@@ -72,10 +91,15 @@ export function ChatPage() {
         <h1 className="text-lg font-semibold">Chat</h1>
         {!connected && <span className="text-xs text-warn">Reconectando…</span>}
       </div>
-      <ol className="flex-1 space-y-3 overflow-y-auto">
-        {messages.map((m) => {
+      <ol ref={listRef} className="flex-1 space-y-3 overflow-y-auto">
+        {messages.map((m, index) => {
           const streaming = live.deltas.get(m.id);
-          const body = m.text || streaming || (m.role === 'assistant' ? 'pensando…' : '');
+          // An assistant row with no text and no error is either the answer being written right now
+          // or a leftover from a run that died with the process. Only the newest row can still be
+          // the live one, and only while this page knows its run is under way.
+          const empty = m.role === 'assistant' && !m.text && !streaming && !m.error_code;
+          const waiting = empty && index === messages.length - 1 && (sending || live.started.has(m.id));
+          const body = m.text || streaming || (waiting ? 'pensando…' : '');
           return (
             <li key={m.id} className={`max-w-2xl rounded-lg border border-line px-3 py-2 text-sm ${m.role === 'user' ? 'ml-auto bg-accent/10' : 'bg-bg-2'}`}>
               <p className="whitespace-pre-wrap">{body}</p>
@@ -84,7 +108,7 @@ export function ChatPage() {
                   {a.tool}
                 </span>
               ))}
-              {m.error_code && <p className="mt-1 text-xs text-danger">A resposta não terminou — tente de novo.</p>}
+              {(m.error_code || (empty && !waiting)) && <p className="mt-1 text-xs text-danger">A resposta não terminou — tente de novo.</p>}
             </li>
           );
         })}
