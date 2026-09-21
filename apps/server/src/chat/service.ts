@@ -19,8 +19,11 @@ export interface RunnerClient {
   run(input: RunnerInput): AsyncIterable<string>;
 }
 
-/** The CLI says this when --resume names a session the account's config dir does not have. */
-const isMissingSession = (e: unknown) => /No conversation found|session ID/i.test(e instanceof Error ? e.message : '');
+/** The CLI says this when --resume names a session the account's config dir does not have. Anchored
+ * on this exact phrase only: a broader match (e.g. anything mentioning "session ID") would also
+ * catch unrelated failures such as the runner rejecting a malformed session_id, and wrongly throw
+ * away a perfectly good session. */
+const isMissingSession = (e: unknown) => /No conversation found/i.test(e instanceof Error ? e.message : '');
 
 export class ChatService {
   /** One run per conversation: two `claude -p` processes on the same --session-id would race. */
@@ -45,6 +48,11 @@ export class ChatService {
 
       let collected = '';
       let usage: unknown = null;
+      /** Whether a `done` frame was seen for the run currently being consumed. A stream that ends
+       * (the container closes the body, e.g. an OOM kill) without one must not be mistaken for a
+       * clean finish: the text collected so far looks complete but isn't, and cli_session_id would
+       * silently stay unset. */
+      let sawDone = false;
       /** Set once something went wrong. Distinct from a runner failure: the run never started
        * because the server itself could not mint a credential (nothing the account can fix by
        * being switched), vs. a run that started and died mid-stream (often account/quota, which
@@ -63,6 +71,7 @@ export class ChatService {
           } else if (frame.type === 'action_result') {
             chatBus.publish({ type: 'action_result', user_id: user.id, message_id: answer.id, tool_use_id: frame.tool_use_id, ok: frame.ok });
           } else if (frame.type === 'done') {
+            sawDone = true;
             usage = frame.usage ?? null;
             if (frame.session_id && frame.session_id !== conversation.cli_session_id) await this.deps.repos.chat.setCliSession(conversation.id, frame.session_id);
           } else if (frame.type === 'error') {
@@ -94,13 +103,21 @@ export class ChatService {
 
         try {
           await consume(input);
+          if (!sawDone) errorCode = 'RUNNER_FAILED';
         } catch (e) {
           // A resume that the account cannot honour is not a failure: start a fresh session once.
           if (input.resume && isMissingSession(e)) {
             const fresh = { ...input, resume: false, session_id: randomUUID() };
+            // The failed attempt may have streamed partial text before dying; that text (and
+            // whatever the browser already rendered for it) belongs to a session the CLI has
+            // discarded, so both sides must start the answer over.
+            collected = '';
+            sawDone = false;
+            chatBus.publish({ type: 'reset', user_id: user.id, message_id: answer.id });
             await this.deps.repos.chat.setCliSession(conversation.id, null);
             try {
               await consume(fresh);
+              if (!sawDone) errorCode = 'RUNNER_FAILED';
             } catch {
               errorCode = 'RUNNER_FAILED';
             }

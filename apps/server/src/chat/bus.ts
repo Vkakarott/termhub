@@ -7,7 +7,10 @@ export type ChatEvent =
   | { type: 'message'; user_id: string; message: ChatMessage }
   | { type: 'delta'; user_id: string; message_id: string; delta: string }
   | { type: 'action'; user_id: string; message_id: string; tool: string; tool_use_id: string; args: unknown }
-  | { type: 'action_result'; user_id: string; message_id: string; tool_use_id: string; ok: boolean };
+  | { type: 'action_result'; user_id: string; message_id: string; tool_use_id: string; ok: boolean }
+  /** A retried run restarts the answer from scratch (a resumed session the CLI no longer has):
+   * whatever deltas the browser already appended for this message must be dropped. */
+  | { type: 'reset'; user_id: string; message_id: string };
 
 class ChatBus {
   private emitter = new EventEmitter();

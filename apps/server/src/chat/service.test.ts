@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
+import { chatBus, type ChatEvent } from './bus.js';
 import { ChatService, type RunnerClient } from './service.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
@@ -83,15 +84,60 @@ it('records an action and its failed result without breaking the answer', async 
   expect(answer.error_code).toBeNull();
 });
 
-it('starts a fresh session when resuming the old one fails', async () => {
+it('starts a fresh session when resuming the old one fails, and tells the client to reset the answer', async () => {
   const { service, runner, conversation } = build(() => (async function* () { throw new Error('No conversation found with session ID'); })());
   conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
-  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { throw new Error('No conversation found with session ID'); })());
+  vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('deixa eu ver'); throw new Error('No conversation found with session ID'); })());
   vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('oi'); yield done('3f1e9b1e-0000-4000-8000-000000000002'); })());
 
-  const answer = await service.send(user, 'oi');
+  const events: ChatEvent[] = [];
+  const unsubscribe = chatBus.subscribe((e) => events.push(e));
+  let answer;
+  try {
+    answer = await service.send(user, 'oi');
+  } finally {
+    unsubscribe();
+  }
+
   expect(vi.mocked(runner.run).mock.calls[1][0]).toMatchObject({ resume: false });
+  // The discarded attempt's partial text ("deixa eu ver") must not survive into the stored
+  // answer, and the browser must be told to drop what it already rendered for it.
   expect(answer.text).toBe('oi');
+  expect(events).toContainEqual({ type: 'reset', user_id: 'u1', message_id: answer.id });
+});
+
+it('fails the run when the stream ends without a done frame', async () => {
+  const { service, messages, conversation } = build(() => (async function* () { yield delta('parcial'); })());
+  const answer = await service.send(user, 'e agora?');
+  expect(answer.error_code).toBe('RUNNER_FAILED');
+  expect(answer.text).toBe('parcial');
+  expect(messages.at(-1)!.text).toBe('parcial');
+  // cli_session_id was never confirmed by a done frame, so the next message must not resume it.
+  expect(conversation.cli_session_id).toBeNull();
+});
+
+it('publishes the action and a shape-locked action_result over the bus, never the tool result payload', async () => {
+  const call = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu_1', name: 'mcp__termhub__open_tab', input: { project_id: 'p1' } }] } });
+  const result = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu_1', is_error: true }] } });
+  const { service } = build([call, result, delta('não consegui abrir a aba'), done()]);
+
+  const events: ChatEvent[] = [];
+  const unsubscribe = chatBus.subscribe((e) => events.push(e));
+  try {
+    await service.send(user, 'abre uma aba');
+  } finally {
+    unsubscribe();
+  }
+
+  const action = events.find((e) => e.type === 'action');
+  expect(action).toMatchObject({ type: 'action', tool: 'open_tab', tool_use_id: 'tu_1' });
+
+  const actionResult = events.find((e) => e.type === 'action_result');
+  expect(actionResult).toBeDefined();
+  // The exact key set pins the constraint that no terminal content — the tool's actual result
+  // payload — ever crosses the bus: only whether the call failed, never its content.
+  expect(Object.keys(actionResult!).sort()).toEqual(['message_id', 'ok', 'tool_use_id', 'type', 'user_id'].sort());
+  expect(actionResult).toMatchObject({ ok: false });
 });
 
 it('marks the message with TOKEN_FAILED instead of throwing when minting the token fails', async () => {
