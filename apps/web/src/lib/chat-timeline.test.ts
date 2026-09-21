@@ -63,16 +63,19 @@ describe('chatTimeline', () => {
     expect(tiedPair.map((e) => e.kind)).toEqual(['message', 'action']);
   });
 
-  it('does not depend on input order: shuffled inputs produce the same result', () => {
+  it('does not depend on input order: shuffled inputs produce the same result, including a tied pair', () => {
     const messages = [message({ id: 'm1', created_at: T0 }), message({ id: 'm2', created_at: T2 })];
-    const actions = [action({ id: 'a1', created_at: T1 })];
+    // a2 ties with m2 at T2, so shuffling must not disturb the message-before-action tiebreak either.
+    const actions = [action({ id: 'a1', created_at: T1 }), action({ id: 'a2', created_at: T2 })];
 
     const forward = chatTimeline(messages, actions);
     const shuffledMessages = [messages[1], messages[0]];
-    const backward = chatTimeline(shuffledMessages, actions);
+    const shuffledActions = [actions[1], actions[0]];
+    const backward = chatTimeline(shuffledMessages, shuffledActions);
 
     const idsOf = (entries: typeof forward) => entries.map((e) => (e.kind === 'message' ? e.message.id : e.action.id));
     expect(idsOf(backward)).toEqual(idsOf(forward));
+    expect(idsOf(forward)).toEqual(['m1', 'a1', 'm2', 'a2']);
   });
 
   it('does not mutate its inputs', () => {

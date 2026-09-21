@@ -9,9 +9,13 @@ export type ChatEntry = { kind: 'message'; at: string; message: ChatMessage } | 
  * them in place would be a re-render bug that only shows up under StrictMode.
  */
 export function chatTimeline(messages: ChatMessage[], actions: ChatAction[]): ChatEntry[] {
+  // Actions first, deliberately: a stable sort with no tiebreak would just preserve this
+  // concatenation order, so putting actions ahead of messages here means the "message before
+  // action" rule below is doing the work, not an accident of array order. Removing that tiebreak
+  // would now surface the wrong order (action before message on a tie) instead of hiding it.
   const entries: ChatEntry[] = [
-    ...messages.map((message): ChatEntry => ({ kind: 'message', at: message.created_at, message })),
     ...actions.map((action): ChatEntry => ({ kind: 'action', at: action.created_at, action })),
+    ...messages.map((message): ChatEntry => ({ kind: 'message', at: message.created_at, message })),
   ];
 
   return entries.sort((a, b) => {
