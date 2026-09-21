@@ -16,6 +16,7 @@ import {
   stripClaudeSettings,
   stripCodexConfig,
 } from '@termhub/machine-ops';
+import { discoverClaudeDirs } from '../claude-dirs.js';
 import { RpcFailure } from '../exec.js';
 
 /**
@@ -73,10 +74,14 @@ interface ClaudeTarget {
   shown: string;
 }
 
-/** ~/.claude always (created when missing); an account's own dir only when it exists here. */
+/**
+ * ~/.claude always (created when missing); every other dir only when it exists here. Besides the
+ * ones termhub registered, the machine's own config dirs are found here (see claude-dirs.ts), so a
+ * person who runs Claude through a CLAUDE_CONFIG_DIR alias is hooked without configuring anything.
+ */
 async function claudeTargets(dirs: string[] | undefined, home: string): Promise<ClaudeTarget[]> {
   const out: ClaudeTarget[] = [];
-  for (const d of claudeConfigDirs(dirs ?? [])) {
+  for (const d of claudeConfigDirs([...(dirs ?? []), ...(await discoverClaudeDirs(home))])) {
     const dir = expandHome(d, home);
     if (d !== CLAUDE_DEFAULT_DIR && !(await isDir(dir))) continue;
     out.push({ dir, file: path.join(dir, 'settings.json'), shown: `${d}/settings.json` });
@@ -128,6 +133,36 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
     codex: mergedCodex !== null ? 'installed' : 'skipped',
     claude_dirs: merged.map(({ target }) => target.shown.replace(/\/settings\.json$/, '')),
   };
+}
+
+/**
+ * Puts our entries back in the config dirs that do not have them yet, reusing the url and token
+ * already installed here — the agent calls it on startup and on every reconnect, so a config dir
+ * created after the install (a new account, a new alias) starts notifying on its own. A machine
+ * without our hooks is left untouched: installing is the server's call, not ours.
+ *
+ * Answers the dirs it repaired.
+ */
+export async function heal(home = os.homedir()): Promise<string[]> {
+  const scriptPath = path.join(home, HOOK_SCRIPT_REL);
+  const env = await readOrEmpty(path.join(home, HOOK_ENV_REL));
+  if (!env.trim() || !(await readOrEmpty(scriptPath))) return [];
+
+  const healed: string[] = [];
+  for (const dir of await discoverClaudeDirs(home)) {
+    const file = path.join(expandHome(dir, home), 'settings.json');
+    const current = await readOrEmpty(file);
+    let body: string;
+    try {
+      body = mergeClaudeSettings(current, scriptPath);
+    } catch {
+      continue; // not a settings file we understand: leave it as the person wrote it
+    }
+    if (body === current) continue;
+    await writeAtomic(file, body, 0o644);
+    healed.push(dir);
+  }
+  return healed;
 }
 
 export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.homedir()): Promise<RpcResult<'hooks.uninstall'>> {

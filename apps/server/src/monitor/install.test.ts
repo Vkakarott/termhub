@@ -50,4 +50,22 @@ describe('installHooks on a local/ssh machine', () => {
     await expect(installHooks(machine, 'thb_hk_abc', url, ['~/.claude_pedro'])).rejects.toThrow('~/.claude_pedro/settings.json não é JSON válido');
     await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it('finds the machine\'s own config dirs when nothing is registered, and gives them back on uninstall', async () => {
+    await mkdir(path.join(home, '.claude-work'), { recursive: true });
+    await writeFile(path.join(home, '.claude-work/settings.json'), '{}\n');
+    await mkdir(path.join(home, '.claude-notes'), { recursive: true });
+    await writeFile(path.join(home, '.zshrc'), "alias cw='CLAUDE_CONFIG_DIR=~/.claude-work claude'\n");
+
+    const r = await installHooks(machine, 'thb_hk_abc', url);
+
+    expect(r.claude_dirs).toEqual(['~/.claude', '~/.claude-work']);
+    const found = JSON.parse(await read('.claude-work/settings.json')) as Settings;
+    expect(found.hooks?.Stop[0].hooks[0].command).toBe(`${home}/.termhub/bin/termhub-hook claude`);
+    await expect(stat(path.join(home, '.claude-notes/settings.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+
+    await uninstallHooks(machine);
+    expect(JSON.parse(await read('.claude-work/settings.json'))).toEqual({});
+  });
 });
+

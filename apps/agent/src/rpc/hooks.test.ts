@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { HOOK_SCRIPT } from '@termhub/machine-ops';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { install, uninstall } from './hooks.js';
+import { heal, install, uninstall } from './hooks.js';
 
 let home: string;
 const params = { hooks_url: 'https://app.termhub.dev/api/hooks', token: 'thb_hk_abc-123' };
@@ -58,6 +58,21 @@ describe('hooks.install', () => {
     expect(JSON.parse(await read('.claude_pedro/settings.json'))).toEqual({ model: 'sonnet' });
   });
 
+  it('finds the config dirs of the machine itself when none are registered, and gives them back on uninstall', async () => {
+    await mkdir(path.join(home, '.claude-work'), { recursive: true });
+    await writeFile(path.join(home, '.claude-work/settings.json'), '{}');
+    await writeFile(path.join(home, '.zshrc'), "alias cw='CLAUDE_CONFIG_DIR=~/.claude-work claude'\n");
+
+    const r = await install(params, home);
+
+    expect(r.claude_dirs).toEqual(['~/.claude', '~/.claude-work']);
+    const settings = JSON.parse(await read('.claude-work/settings.json')) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
+    expect(settings.hooks.Stop[0].hooks[0].command).toBe(`${path.join(home, '.termhub/bin/termhub-hook')} claude`);
+
+    await uninstall({}, home);
+    expect(JSON.parse(await read('.claude-work/settings.json'))).toEqual({});
+  });
+
   it('checks every settings file before writing any', async () => {
     await mkdir(path.join(home, '.claude_pedro'), { recursive: true });
     await writeFile(path.join(home, '.claude_pedro/settings.json'), '[1]');
@@ -95,5 +110,40 @@ describe('hooks.uninstall', () => {
     await writeFile(path.join(home, '.claude/settings.json'), '{not json');
     await expect(uninstall({}, home)).resolves.toEqual({ removed: true });
     expect(await read('.claude/settings.json')).toBe('{not json');
+  });
+});
+
+describe('heal', () => {
+  it('does nothing on a machine where termhub never installed its hooks', async () => {
+    await mkdir(path.join(home, '.claude'), { recursive: true });
+    await writeFile(path.join(home, '.claude/settings.json'), '{}');
+
+    await expect(heal(home)).resolves.toEqual([]);
+
+    expect(JSON.parse(await read('.claude/settings.json'))).toEqual({});
+  });
+
+  it('hooks a config dir that showed up after the install and leaves the settled ones alone', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.claude-new'), { recursive: true });
+    await writeFile(path.join(home, '.claude-new/settings.json'), JSON.stringify({ model: 'opus' }));
+    const before = await read('.claude/settings.json');
+
+    await expect(heal(home)).resolves.toEqual(['~/.claude-new']);
+
+    const settings = JSON.parse(await read('.claude-new/settings.json')) as { model: string; hooks: Record<string, { hooks: { command: string }[] }[]> };
+    expect(settings.model).toBe('opus');
+    expect(settings.hooks.Notification[0].hooks[0].command).toBe(`${path.join(home, '.termhub/bin/termhub-hook')} claude`);
+    expect(await read('.claude/settings.json')).toBe(before);
+  });
+
+  it('leaves a settings file it cannot parse where it is', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.claude-broken'), { recursive: true });
+    await writeFile(path.join(home, '.claude-broken/settings.json'), '{not json');
+
+    await expect(heal(home)).resolves.toEqual([]);
+
+    expect(await read('.claude-broken/settings.json')).toBe('{not json');
   });
 });

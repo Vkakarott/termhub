@@ -4,10 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData } from 'ws';
 import { CLOSE, CONTROL_CHANNEL, decodeFrame, helloMessage } from '@termhub/agent-protocol';
 
-const { runForeverMock, stopRestartLoopMock } = vi.hoisted(() => ({ runForeverMock: vi.fn(), stopRestartLoopMock: vi.fn(async () => {}) }));
+const { runForeverMock, stopRestartLoopMock, healMock } = vi.hoisted(() => ({ runForeverMock: vi.fn(), stopRestartLoopMock: vi.fn(async () => {}), healMock: vi.fn(async () => [] as string[]) }));
 vi.mock('./client.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./client.js')>();
   return { ...actual, runForever: (...args: unknown[]) => runForeverMock(...args) };
+});
+vi.mock('./rpc/hooks.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./rpc/hooks.js')>();
+  return { ...actual, heal: (...args: unknown[]) => healMock(...(args as [])) };
 });
 vi.mock('./service/launchd.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./service/launchd.js')>();
@@ -157,6 +161,15 @@ describe('runAgent — terminal errors (exit 78)', () => {
     expect(errors.join('\n')).toContain('Atualize o agente');
     expect(stopRestartLoopMock).toHaveBeenCalledTimes(1);
     expect(exitCodes).toEqual([78]);
+  });
+
+  it('heals the monitor hooks on startup and on every session that comes up', async () => {
+    healMock.mockClear();
+    runForeverMock.mockImplementation(async (opts: { onConnect?: () => void }) => {
+      opts.onConnect?.();
+    });
+    await runAgent(config, { log: () => {} });
+    expect(healMock.mock.calls.length).toBe(2);
   });
 
   it('rethrows any other error without touching the service or exiting', async () => {

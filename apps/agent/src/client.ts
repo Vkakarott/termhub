@@ -28,6 +28,11 @@ export interface ClientOptions {
    * `connectOnce()` callers and tests that don't care about this can omit it.
    */
   onDisconnect?(): void;
+  /**
+   * Called right after the hello goes out, once per session. `run.ts` uses it to put the monitor
+   * hooks back in place (`heal()`), so a config dir created since the install starts notifying.
+   */
+  onConnect?(): void;
   /** Liveness ping period (default 20 s); a ping left unanswered by the next tick terminates the socket. Tests shorten it. */
   pingIntervalMs?: number;
 }
@@ -171,6 +176,7 @@ export function connectOnce(
       };
       const hello: HelloMessage = { type: 'hello', protocol: PROTOCOL_VERSION, ...opts.hello };
       socket.sendControl(hello);
+      opts.onConnect?.();
       resolve({ socket, closed });
     });
 

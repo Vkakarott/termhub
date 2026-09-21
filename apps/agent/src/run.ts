@@ -2,6 +2,7 @@ import os from 'node:os';
 import type { HelloMessage } from '@termhub/agent-protocol';
 import { CLOSE } from '@termhub/agent-protocol';
 import { connectOnce, runForever, RevokedError, ProtocolMismatchError, UpgradeRejectedError } from './client.js';
+import { heal } from './rpc/hooks.js';
 import type { AgentConfig } from './config.js';
 import { createDispatcher } from './dispatch.js';
 import { createPtyManager } from './pty.js';
@@ -129,6 +130,21 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
   const pty = createPtyManager({ log: opts.log });
   const dispatch = createDispatcher({ handlers, pty, log: opts.log });
 
+  /**
+   * Config dirs come and go on a machine (a new account, a new CLAUDE_CONFIG_DIR alias), and a dir
+   * without our entries is a tool that never tells termhub it is waiting for the person. Repairing
+   * on startup and on every session keeps that from needing a visit to the machine. It reuses what
+   * is already installed here, so it does nothing on a machine that has no hooks.
+   */
+  const healHooks = () => {
+    heal()
+      .then((dirs) => {
+        if (dirs.length) opts.log('monitor hooks repaired', { dirs: dirs.length });
+      })
+      .catch((err: unknown) => opts.log('monitor hooks could not be repaired', { error: err instanceof Error ? err.message : String(err) }));
+  };
+  healHooks();
+
   try {
     await runForever(
       {
@@ -137,6 +153,7 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
         hello,
         onServerMessage: dispatch,
         onStream: (ch, data) => pty.write(ch, data),
+        onConnect: healHooks,
         onDisconnect: () => pty.closeAll(),
         log: opts.log,
       },

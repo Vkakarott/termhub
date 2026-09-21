@@ -125,6 +125,26 @@ describe('connectOnce', () => {
     expect(msg).toMatchObject({ type: 'hello', protocol: PROTOCOL_VERSION, ...baseHello });
   });
 
+  it('calls onConnect once the session is up', async () => {
+    srv = await startServer({ acceptAll: true });
+    let connected = 0;
+
+    const { closed } = await connectOnce({
+      url: base(srv),
+      token: TOKEN,
+      hello: baseHello,
+      onServerMessage: () => {},
+      onStream: () => {},
+      onConnect: () => {
+        connected += 1;
+      },
+      log: noopLog(),
+    });
+    closed.catch(() => {});
+
+    expect(connected).toBe(1);
+  });
+
   it('rejects with UpgradeRejectedError(401) when the server rejects the upgrade (bad token)', async () => {
     srv = await startServer({});
     const attempt = connectOnce({
