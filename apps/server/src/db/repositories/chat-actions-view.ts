@@ -18,6 +18,7 @@ export interface ChatActionCard {
   project_id: string | null;
   tab_id: string | null;
   summary: string;
+  created_at: string;
 }
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -120,6 +121,7 @@ const toCard = (action: ChatAction, summary: string): ChatActionCard => ({
   project_id: action.project_id,
   tab_id: action.tab_id,
   summary,
+  created_at: action.created_at,
 });
 
 /**

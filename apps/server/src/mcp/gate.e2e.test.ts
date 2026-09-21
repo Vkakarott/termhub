@@ -545,7 +545,7 @@ it('publishes the question to the chat, with the arguments and no terminal conte
   await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
 
   expect(collected).toHaveLength(1);
-  expect(Object.keys(collected[0]).sort()).toEqual(['action_id', 'args', 'class', 'machine_id', 'project_id', 'summary', 'tab_id', 'tool', 'type', 'user_id']);
+  expect(Object.keys(collected[0]).sort()).toEqual(['action_id', 'args', 'class', 'created_at', 'machine_id', 'project_id', 'summary', 'tab_id', 'tool', 'type', 'user_id']);
   expect(collected[0]).toEqual({
     type: 'confirmation',
     user_id: 'u1',
@@ -558,6 +558,7 @@ it('publishes the question to the chat, with the arguments and no terminal conte
     tab_id: 't1',
     // Enriched through the tab: t1 belongs to project "app" on machine "jarvis" (this test's fixtures).
     summary: 'digitar `npm test` na aba Terminal 1 do projeto app, no jarvis',
+    created_at: actions.rows[0].created_at,
   });
   expect(JSON.stringify(collected[0])).not.toContain('segredo na tela');
 });

@@ -484,6 +484,7 @@ export interface ChatAction {
   project_id: string | null;
   tab_id: string | null;
   summary: string;
+  created_at: string;
 }
 
 /** Pushed over /ws/chat for the signed-in user only; carries no history. */

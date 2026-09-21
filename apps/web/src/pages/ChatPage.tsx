@@ -56,7 +56,7 @@ export function ChatPage() {
         setActions((prev) =>
           prev.some((a) => a.id === e.action_id)
             ? prev
-            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary }],
+            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary, created_at: e.created_at }],
         );
       } else if (e.type === 'decision') {
         // Someone answered — possibly in another open tab. Keyed on the action id alone.
