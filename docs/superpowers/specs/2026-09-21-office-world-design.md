@@ -1,7 +1,7 @@
 # Office world: an animated, navigable view of a machine's projects and tabs — design
 
-Date: 2026-09-21. Status: **design approved section by section in conversation; awaiting review
-of this written spec.** Supersedes the open questions of
+Date: 2026-09-21. Status: **implemented, on branch `feat/office-world`, pending review and merge.**
+Supersedes the open questions of
 `2026-09-19-office-world-brainstorm.md`, which stays as the record of the idea.
 
 ## 1. Goal
@@ -48,7 +48,7 @@ progress from the kanban, the
 `/office` route with focus mode, an in-house generated art pack, removal of the spike.
 
 **Out of v1, recorded for v2:** the world level (machines as buildings on a street), progress
-from the agent's own todo list and any time estimate (section 7 explains why), culling of off-screen rooms, third-party or commissioned art packs, sound.
+from the agent's own todo list and any time estimate (section 7 explains why), culling of off-screen rooms, third-party or commissioned art packs, per-room slide tweens on a repack, a folder-based pack loader, sound.
 
 ## 4. Levels and navigation
 
@@ -59,10 +59,12 @@ transitions and they hide a raised hand in another room.
 
 Two camera rests:
 
-- **Floor.** All rooms framed. People are small and unlabelled. The marker of someone who needs
-  you keeps a fixed size on screen, so it reads from far away. Each room has a sign with the
-  project name, its progress (section 7) and a counter such as "2 precisam de você".
-- **Room.** One room framed: tab names, progress bars and full animations.
+- **Floor.** All rooms framed. People are small; desk labels and progress bars stay off here — a
+  desk anywhere still reveals its label on hover. The marker of someone who needs you keeps a
+  fixed size on screen, so it reads from far away. Each room has a sign with the project name, its
+  progress (section 7) and a counter such as "2 precisam de você".
+- **Room.** One room framed: tab names, progress bars and full animations, but only for the
+  focused room's desks; any other desk stays unlabelled until hovered.
 
 Interaction:
 
@@ -107,14 +109,22 @@ rejected for reordering rooms on every change.
 **Stability.**
 
 - A state change moves nothing.
-- A tab created or closed rebuilds that room. If the room's size changed, the floor is repacked
-  and rooms slide to their new place with a tween of about 300 ms; nothing teleports.
-- During a repack the camera follows the room in focus, so the framing is not lost.
+- A project pausing or resuming repaints that room in place — its lights go on or off; nothing
+  rebuilds.
+- A tab created or closed rebuilds the floor: room order is kept, but the shelf-packing pass above
+  can still move every room that comes after the one whose size changed. The rebuild eases the
+  camera to the new framing rather than cutting to it, but only for the room in focus, if one is
+  focused — past the very first build, the scene never re-frames the floor view by itself, so a
+  person looking around the floor keeps the view they chose. Per-room slide tweens, so a resized
+  room does not simply cut its neighbours to a new place, are a follow-up (section 3).
 
-**Walls and depth.** Each room has only its two back walls; nothing in front covers the people.
-Depth order is by tile (`gx + gy`) across the whole floor, in one sorted container. Names,
-markers and progress bars live in a separate overlay layer above the scene, positioned from the
-scene's coordinates every frame — so furniture never covers them.
+**Walls and depth.** Each room has only its two back walls, and they are partitions rather than
+full walls: 28 px high, tall enough to read as a room but low enough that a room in front never
+hides the floor and the people of the room behind it — every room and every person must read from
+the floor view, and a full-height wall broke that for whatever sat behind it. Depth order is by
+tile (`gx + gy`) across the whole floor, in one sorted container. Names, markers and progress bars
+live in a separate overlay layer above the scene, positioned from the scene's coordinates every
+frame — so furniture never covers them.
 
 **Data sources.** Rooms and desks come from the office snapshot endpoint (section 7), so tabs
 that never reported a state still get a desk. `useMonitor()` contributes only the live state of
@@ -146,17 +156,26 @@ scene:
 - **Transitions.** A state change crossfades between sprites in 150 ms. A tab that starts
   waiting gets one pulse on its "!" to catch the eye. There is no sound; the existing toasts
   remain the notification.
+- **Overlay.** Room signs, desk labels, markers and progress bars are text carrying its own
+  outline, never an opaque plate behind it — anything opaque up in the overlay would hide the
+  person or the room standing behind it.
 
 **Sprite contract.** What makes the art replaceable:
 
-- One Pixi spritesheet atlas with fixed frame names: `person/<anim>/<n>`, `desk`, `chair`,
-  `monitor/on`, `monitor/off`, `phone/on`, `phone/off`, `floor/a`, `floor/b`, `wall/left`,
-  `wall/right`. Animations: `sit`, `type`, `raise`, `sleep`, `shake`.
+- One Pixi spritesheet atlas with fixed frame names: `person/<anim>/body`, `person/<anim>/shirt`,
+  `person/hair`, `desk`, `chair`, `monitor/on`, `monitor/off`, `phone/on`, `phone/off`. Animations:
+  `sit`, `type`, `raise`, `sleep`, `shake`. Floor tiles and the room walls are not pack sprites at
+  all — the scene draws them from colours, so they scale with the room instead of tiling a fixed
+  texture; a person is not one sprite per state either, but three tinted layers over one
+  silhouette (`body`, `shirt`, `hair`).
 - A `manifest.json` next to it declares the tile size, each sprite's anchor (the point that
   touches the tile), frames per second per animation, and the head point of a person (used to
   place the "!" and as the click target).
-- The scene knows only the manifest. A pack lives in `apps/web/public/office/<pack>/`; changing
-  the art is changing that folder.
+- The scene knows only the manifest. A pack is meant to live as a folder under
+  `apps/web/public/office/<pack>/`, read through that same contract — but v1's pack has no such
+  folder: it is painted at runtime, straight onto a canvas, by `office/pack/generated.ts`, which is
+  enough for one pack. The folder-based loader is a follow-up, due with the first second pack
+  (section 3).
 - State colours are a tint applied to a white layer of the sprite (the shirt), not separate
   frames. This cuts the amount of art by the number of states.
 
@@ -195,9 +214,16 @@ returns the floor snapshot: the machine's non-archived projects, every tab of ea
 computed from one tmux session listing for the machine, as the project tabs route does), kanban
 progress per tab and task counts per project. The machine is loaded through
 `scoped(repos, request).machine(id)`, the params are validated with zod, and the repositories are
-the only path to Prisma. The browser re-reads it on window focus, every 60 s, and when a monitor
-push names a tab the snapshot does not have (a tab opened since). Live state comes from
-`useMonitor()` and overrides the snapshot's.
+the only path to Prisma. The browser re-reads it on window focus, every 60 s, and whenever the set
+of tab ids the monitor knows about and the snapshot does not **grows** — not on every push: a tab
+that can never appear in the snapshot (one that lives in an archived project, say) would otherwise
+trigger a re-read forever, since it stays missing after every read. Growth is judged against ids
+already asked for, so a tab that stays missing is asked for once, not on every render. Live state
+from `useMonitor()` overrides only the state fields (`state`, `state_text`, `state_tool`,
+`state_at`, `state_seen_at`); a tab's name, kind, order and everything else always come from the
+snapshot — a rename is not pushed over `/ws/monitor`, so only a re-read of the snapshot would ever
+carry it to the floor. A snapshot is used only once its `machine.id` matches the route's machine,
+closing the one-render window where switching machines would otherwise draw the previous floor.
 
 **Display.**
 
@@ -216,6 +242,12 @@ the board. Terminal content stays out, as everywhere else.
 in the same `NavLink` style, with the same dot the tabs use when someone needs you. The page is
 `lazy()`, as in the spike.
 
+**The scene's lifetime.** The Pixi scene is mounted once per machine, not once per render: it
+survives every query-string change (`?room=`, `?focus=1`), which would otherwise tear it down and
+rebuild a blank canvas on every click, since `useSearchParams`'s setter gets a new identity on
+each change. `OfficePage`'s click handlers reach the current scene through a ref kept up to date
+every render, so the mount effect itself never has to depend on them.
+
 **Focus mode.** A button and the `F` key hide the sidebar and the page's top bar, leaving the
 scene and a discreet "sair" in a corner. The state is in the URL (`?focus=1`): the use case is a
 second monitor left open all day, which must survive a reload. In focus, `Esc` first leaves the
@@ -232,8 +264,9 @@ enforces its own access.
 **States of the page.**
 
 - No machines: a message with a link to enroll the first one.
-- Machine offline: the floor with the lights off and people still at their last known state,
-  with "offline desde …".
+- Machine offline: "máquina offline" in the header and the whole floor dimmed; people keep their
+  last known state, since nothing pushes anything newer. A timestamp ("offline desde …") is a
+  follow-up — `MachineStatus` does not carry one yet.
 - WebSocket down: a discreet "reconectando…" strip; the scene keeps the last snapshot, and
   `MonitorProvider` already resyncs.
 - No WebGL: Pixi falls back to its canvas renderer by itself; if that fails too, a message with a
