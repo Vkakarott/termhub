@@ -12,10 +12,10 @@ export type ChatFrame =
   | { type: 'error'; message: string; reason?: ChatFailureReason; session_id?: string };
 
 /** Mirrors the concierge's `FailureReason`; an unknown label is dropped rather than guessed at. */
-export type ChatFailureReason = 'missing_session' | 'run_failed';
+export type ChatFailureReason = 'missing_session' | 'cli_rejected' | 'run_failed';
 
 const toReason = (raw: unknown): ChatFailureReason | undefined =>
-  raw === 'missing_session' || raw === 'run_failed' ? raw : undefined;
+  raw === 'missing_session' || raw === 'cli_rejected' || raw === 'run_failed' ? raw : undefined;
 
 /** `mcp__termhub__list_tabs` -> `list_tabs`; anything else is kept as it came. */
 const toolName = (raw: string) => (raw.startsWith('mcp__termhub__') ? raw.slice('mcp__termhub__'.length) : raw);

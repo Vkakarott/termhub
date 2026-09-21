@@ -80,6 +80,11 @@ it('treats a result frame that reports is_error as a failure, not as a clean fin
   });
 });
 
+it('carries cli_rejected through, so a refused flag is not filed as a generic failure', () => {
+  expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'cli_rejected' }))).toMatchObject({ type: 'error', reason: 'cli_rejected' });
+  expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'something_new' }))).toMatchObject({ type: 'error', reason: undefined });
+});
+
 it('ignores a malformed line instead of throwing', () => {
   expect(parseFrame('not json')).toBeNull();
   expect(parseFrame(JSON.stringify({ type: 'something_new' }))).toBeNull();

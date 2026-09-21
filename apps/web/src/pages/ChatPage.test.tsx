@@ -61,6 +61,31 @@ it('sends what was typed and clears the box', async () => {
   expect((box as HTMLTextAreaElement).value).toBe('');
 });
 
+it('clears the box as soon as the message is sent, not when the answer lands', async () => {
+  // The POST only resolves when the whole answer is written, which can take a minute.
+  let resolveSend: (v: unknown) => void = () => {};
+  sendMock.mockImplementationOnce(() => new Promise((r) => (resolveSend = r)));
+
+  render(<ChatPage />);
+  const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: 'quais máquinas estão online?' } });
+  fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+
+  await waitFor(() => expect(box.value).toBe(''));
+  resolveSend({ message: { id: 'm9', role: 'assistant', text: 'pronto', error_code: null } });
+});
+
+it('gives the text back when the send fails, so nothing is lost', async () => {
+  sendMock.mockRejectedValueOnce(new Error('rede caiu'));
+
+  render(<ChatPage />);
+  const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: 'não perde isso' } });
+  fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+
+  await waitFor(() => expect(box.value).toBe('não perde isso'));
+});
+
 it('re-reads the conversation whenever the socket (re)connects', async () => {
   // Review Focus 5: /ws/chat carries no history, so a reconnect mid-answer must refetch.
   streamMock.mockImplementation((onReconnect: () => void) => {

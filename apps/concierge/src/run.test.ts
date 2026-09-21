@@ -30,8 +30,23 @@ it('builds the exact argv the spec fixes, with no permission bypass', () => {
 
 it('resumes the session and passes the model when asked', () => {
   const args = buildArgs({ ...req, resume: true, model: 'sonnet', mcp_config_path: '/tmp/mcp.json' });
-  expect(args.slice(0, 6)).toEqual(['-p', '--session-id', req.session_id, '--resume', req.session_id, '--output-format']);
+  expect(args.slice(0, 4)).toEqual(['-p', '--resume', req.session_id, '--output-format']);
   expect(args.slice(-2)).toEqual(['--model', 'sonnet']);
+});
+
+it('resumes with --resume alone: the CLI refuses it next to --session-id', () => {
+  // Error: --session-id can only be used with --continue or --resume if --fork-session is also
+  // specified. Passing both broke every message after the first, and a fake CLI cannot catch it.
+  const args = buildArgs({ ...req, resume: true, mcp_config_path: '/tmp/mcp.json' });
+  expect(args).toContain('--resume');
+  expect(args).not.toContain('--session-id');
+  expect(args.slice(0, 3)).toEqual(['-p', '--resume', req.session_id]);
+});
+
+it('names the session on a first run, where --session-id is the only way to choose the id', () => {
+  const args = buildArgs({ ...req, resume: false, mcp_config_path: '/tmp/mcp.json' });
+  expect(args.slice(0, 3)).toEqual(['-p', '--session-id', req.session_id]);
+  expect(args).not.toContain('--resume');
 });
 
 it('never passes a permission bypass, whatever the input', () => {
@@ -164,6 +179,10 @@ it('fails a non-zero exit with the reason read from stderr, keeping stderr insid
   expect((error as RunFailed).reason).toBe('missing_session');
   expect((error as RunFailed).code).toBe(1);
   expect(readdirSync(runsDir)).toEqual([]); // the token-bearing MCP config still goes away
+});
+
+it('classifies the CLI rejecting our own flags apart from a run that failed', () => {
+  expect(classifyFailure('Error: --session-id can only be used with --continue or --resume\n')).toBe('cli_rejected');
 });
 
 it('reports any other non-zero exit as a generic failure', async () => {
