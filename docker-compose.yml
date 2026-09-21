@@ -113,6 +113,23 @@ services:
     volumes:
       - whisper-models:/models
 
+  # ── Headless Claude Code for the chat concierge (docker/concierge) ────────────
+  # Mounts the account config dirs read-write (the CLI refreshes its own token) and holds no
+  # credential in the image. Not rebuilt by a blue/green deploy, so a conversation survives one.
+  concierge:
+    profiles: ["dev", "prod"]
+    build:
+      context: .
+      dockerfile: docker/concierge/Dockerfile
+    image: termhub-concierge
+    restart: unless-stopped
+    environment:
+      CONCIERGE_SECRET: ${CONCIERGE_SECRET:?set CONCIERGE_SECRET in .env}
+      PORT: 4100
+    volumes:
+      - ${CONCIERGE_PRIMARY_CONFIG_DIR:-/home/pedrogoiania/.claude_pedrogoiania}:/accounts/primary
+      - ${CONCIERGE_SECONDARY_CONFIG_DIR:-/home/pedrogoiania/.claude}:/accounts/secondary
+
   # ── Dev: hot-reload (tsx watch + vite) ─────────────────────────────
   app-dev:
     profiles: ["dev"]

@@ -11,6 +11,7 @@ COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY apps/landing/package.json apps/landing/
 COPY apps/agent/package.json apps/agent/
+COPY apps/concierge/package.json apps/concierge/
 COPY packages/agent-protocol/package.json packages/agent-protocol/
 COPY packages/machine-ops/package.json packages/machine-ops/
 COPY scripts/postinstall.mjs scripts/

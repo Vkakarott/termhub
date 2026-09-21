@@ -79,6 +79,10 @@ const envSchema = z.object({
   WHISPER_URL: z.string().url().optional(),
   /** language hint passed to whisper ("auto" = detect) */
   WHISPER_LANGUAGE: z.string().default('pt'),
+
+  // Chat concierge (docker/concierge): headless Claude Code runner. Unset = the chat answers 503.
+  CONCIERGE_URL: z.string().url().optional(),
+  CONCIERGE_SECRET: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -166,6 +170,7 @@ export const config = {
   seedLocalMachine: env.SEED_LOCAL_MACHINE === 'true',
   encryptionKey: env.ENCRYPTION_KEY ?? null,
   transcription: env.WHISPER_URL ? { url: env.WHISPER_URL.replace(/\/$/, ''), language: env.WHISPER_LANGUAGE } : null,
+  concierge: env.CONCIERGE_URL && env.CONCIERGE_SECRET ? { url: env.CONCIERGE_URL, secret: env.CONCIERGE_SECRET } : undefined,
   terminal: {
     localShell: env.LOCAL_SHELL || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh'),
     tmuxPath: env.TMUX_PATH,
