@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChatActionCard } from '../components/chat/ChatActionCard';
+import { ChatComposer } from '../components/chat/ChatComposer';
 import { ChatTurn } from '../components/chat/ChatTurn';
 import { api, ApiError } from '../lib/api';
 import { useChatStream } from '../lib/chat';
 import { chatTimeline } from '../lib/chat-timeline';
+import { isNearBottom } from '../lib/chat-scroll';
 import type { ChatAction, ChatEvent, ChatMessage } from '../lib/types';
 
 /** The concierge chat: one conversation per user, streamed live over /ws/chat and persisted over REST. */
@@ -119,16 +121,30 @@ export function ChatPage() {
   const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
 
   const listRef = useRef<HTMLOListElement>(null);
-  // Keep the newest content in view: past one viewport the user would send a message and see
-  // nothing move. Runs on every new message and on every streamed delta.
+  /**
+   * Whether the thread should keep following new content. Starts `true` (a page just opened is at
+   * its own bottom) and is written only from the list's `onScroll` handler below and from `send`
+   * — never recomputed from the list's live geometry inside the effect that follows it: jsdom lays
+   * nothing out, so a never-scrolled list would read as "far from the bottom" and this would stop
+   * following new messages in every test, and in any real browser the moment the content is
+   * shorter than the viewport.
+   */
+  const stick = useRef(true);
+  // Keep the newest content in view, but only while the reader hasn't scrolled away to read back
+  // through history: past one viewport they would otherwise send a message, or watch an answer
+  // stream in, and see the page yank itself out from under them. Runs on every new message and on
+  // every streamed delta.
   useEffect(() => {
     const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
+    if (list && stick.current) list.scrollTop = list.scrollHeight;
   }, [messages, events]);
 
   const send = async () => {
     const value = text.trim();
     if (!value || sending) return;
+    // Sending is the reader's own way of saying "take me to the bottom" — the answer will stream
+    // in below whatever they typed.
+    stick.current = true;
     setSending(true);
     setError(null);
     // Cleared before the request, not after: the POST only resolves when the whole answer is
@@ -153,13 +169,21 @@ export function ChatPage() {
   };
 
   return (
-    // Height, overflow and the safe area belong to ChatLayout; this page owns the reading column:
-    // centred, capped at a comfortable measure and padded so a long answer survives a phone.
+    // Height and overflow belong to ChatLayout; this page owns the reading column: centred, capped
+    // at a comfortable measure and padded so a long answer survives a phone. The bottom safe area
+    // is the composer's own (`ChatComposer`), since it — not this column — is anchored to the edge.
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4">
       {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
       {/* Named, because a rendered answer can contain Markdown lists of its own: this is how the
        * thread is told apart from them — by screen readers, and by the tests. */}
-      <ol ref={listRef} aria-label="Conversa" className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4">
+      <ol
+        ref={listRef}
+        aria-label="Conversa"
+        className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4"
+        onScroll={(e) => {
+          stick.current = isNearBottom(e.currentTarget);
+        }}
+      >
         {timeline.map((entry) => {
           if (entry.kind === 'action')
             return <ChatActionCard key={entry.action.id} action={entry.action} deciding={decidingId === entry.action.id} note={queuedNotes[entry.action.id]} onDecide={(decision) => void decide(entry.action.id, decision)} />;
@@ -175,24 +199,7 @@ export function ChatPage() {
       </ol>
       {actionError && <p className="mb-2 text-sm text-danger">{actionError}</p>}
       {error && <p className="mb-2 text-sm text-danger">{error}</p>}
-      <div className="mb-4 flex items-end gap-2">
-        <textarea
-          className="flex-1 resize-none rounded-lg border border-line bg-bg-2 px-3 py-2 text-sm"
-          rows={2}
-          value={text}
-          placeholder="Pergunte ou peça algo às suas máquinas"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <button type="button" className="btn-primary" onClick={() => void send()} disabled={sending}>
-          Enviar
-        </button>
-      </div>
+      <ChatComposer value={text} onChange={setText} onSend={() => void send()} sending={sending} />
     </div>
   );
 }

@@ -62,6 +62,16 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
+/** Stubs `matchMedia('(pointer: coarse)')` for one test and hands back a restorer, so a failure
+ * partway through a test can never leave `window` different from how this file found it. */
+function mockPointer(coarse: boolean): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({ matches: coarse && query.includes('coarse') })) as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
 it('shows the stored conversation', async () => {
   render(<ChatPage />);
   expect(await screen.findByText('oi')).toBeTruthy();
@@ -183,6 +193,78 @@ it('scrolls the list to the newest message when one arrives', async () => {
   expect(list.scrollTop).toBe(0);
 
   deliver({ type: 'message', message: msg({ id: 'm2', role: 'assistant', text: 'pronto' }) });
+  await waitFor(() => expect(list.scrollTop).toBe(480));
+});
+
+it('does not send on Enter with a coarse pointer (a touch keyboard), and keeps the text', async () => {
+  const restore = mockPointer(true);
+  try {
+    render(<ChatPage />);
+    const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'oi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(box.value).toBe('oi');
+  } finally {
+    restore();
+  }
+});
+
+it('still sends on Enter with a fine pointer, so desktop keeps today\'s behaviour', async () => {
+  const restore = mockPointer(false);
+  try {
+    render(<ChatPage />);
+    const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'oi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith('oi'));
+  } finally {
+    restore();
+  }
+});
+
+it('leaves the scroll position alone once the reader has scrolled away from the bottom', async () => {
+  let deliver: (e: unknown) => void = () => {};
+  streamMock.mockImplementation((_onReconnect: () => void, onEvent: (e: unknown) => void) => {
+    deliver = onEvent;
+    return { events: [], connected: true };
+  });
+  chatMock
+    .mockResolvedValueOnce({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })] })
+    .mockResolvedValue({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' }), msg({ id: 'm2', role: 'assistant', text: 'pronto' })] });
+
+  render(<ChatPage />);
+  const list = await screen.findByRole('list');
+  // Far from the bottom by isNearBottom's own rule (100 + 200 < 1000 - 48). The scroll event is
+  // the only thing that can tell the page the reader moved: nothing here reads live geometry.
+  Object.defineProperty(list, 'scrollHeight', { value: 1000, configurable: true });
+  Object.defineProperty(list, 'clientHeight', { value: 200, configurable: true });
+  Object.defineProperty(list, 'scrollTop', { value: 100, configurable: true, writable: true });
+  fireEvent.scroll(list);
+
+  deliver({ type: 'message', message: msg({ id: 'm2', role: 'assistant', text: 'pronto' }) });
+  await screen.findByText('pronto');
+  expect(list.scrollTop).toBe(100);
+});
+
+it('returns to the bottom on send, even if the reader had scrolled away', async () => {
+  // load() runs again after a successful send: it must resolve a genuinely new list (not the same
+  // object `mockResolvedValue` would keep handing back) for React to see `messages` change and the
+  // pin effect to run at all.
+  chatMock
+    .mockResolvedValueOnce({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })] })
+    .mockResolvedValue({ conversation: { id: 'c1' }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' }), msg({ id: 'm3', role: 'assistant', text: 'pronto' })] });
+  render(<ChatPage />);
+  const list = await screen.findByRole('list');
+  Object.defineProperty(list, 'scrollHeight', { value: 480, configurable: true });
+  Object.defineProperty(list, 'clientHeight', { value: 200, configurable: true });
+  Object.defineProperty(list, 'scrollTop', { value: 50, configurable: true, writable: true });
+  fireEvent.scroll(list); // reader scrolled up: the page stops following
+
+  const box = (await screen.findByPlaceholderText(/pergunte/i)) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: 'oi' } });
+  fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+
   await waitFor(() => expect(list.scrollTop).toBe(480));
 });
 
