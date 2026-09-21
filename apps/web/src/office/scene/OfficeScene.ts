@@ -156,6 +156,11 @@ export class OfficeScene {
     }
   }
 
+  /** Dev/test aid: forces one desk's hovered state (`null` clears it), so a screenshot can show it. */
+  debugHover(deskId: string | null): void {
+    for (const [id, desk] of this.desks) desk.overlay.hovered = id === deskId;
+  }
+
   focusRoom(roomId: string | null, snap = false): void {
     if (this.destroyed) return;
     this.focused = roomId;
