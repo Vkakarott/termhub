@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project } from '../lib/types';
 
@@ -61,9 +61,11 @@ const snap = (machineId: string, rooms: OfficeRoom[]): OfficeSnapshot => ({ mach
 // lets a test drive real react-router navigation (path AND query string) the same way a production
 // click or a pasted URL would, instead of only ever changing props — this is what actually exercises
 // the "snapshot/model still belongs to the previous machine for one render" window the bug lived in
-let testNavigate: ((to: string) => void) | undefined;
+let testNavigate: NavigateFunction | undefined;
+let testSearch = '';
 function NavCapture() {
   testNavigate = useNavigate();
+  testSearch = useLocation().search;
   return null;
 }
 
@@ -86,6 +88,7 @@ beforeEach(() => {
   canMock.mockReset();
   canMock.mockReturnValue(true);
   testNavigate = undefined;
+  testSearch = '';
   dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' }, loading: true };
   monitorState.current = { items: [], needsYou: [], tabState: () => undefined, connected: true };
 });
@@ -158,6 +161,26 @@ describe('OfficePage scene lifecycle', () => {
     expect(FakeOfficeScene.instances[0].models.length).toBeGreaterThan(0);
   });
 
+  it('leaves a room without pushing history, so Back does not walk straight back in', async () => {
+    // two rooms with desks: no auto-drill, so the room is entered by a real click (a push)
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p2', [tab('t2', 'p2')])]));
+    dataState.current = { ...dataState.current, loading: false };
+    renderPage();
+    await act(async () => {});
+
+    act(() => FakeOfficeScene.instances[0].handlers.onPickRoom('p1'));
+    await act(async () => {});
+    expect(testSearch).toBe('?room=p1');
+
+    fireEvent.click(screen.getByText('← voltar ao andar'));
+    await act(async () => {});
+    expect(testSearch).toBe('');
+
+    // the spec: "the browser's back button leaves the room" — it must not put us back inside it
+    await act(async () => testNavigate?.(-1));
+    expect(testSearch).toBe('');
+  });
+
   it('never seeds a machine-changed scene with the previous machine\'s model or focus target', async () => {
     let resolveM2: ((s: OfficeSnapshot) => void) | undefined;
     const pendingM2 = new Promise<OfficeSnapshot>((resolve) => {
@@ -189,5 +212,36 @@ describe('OfficePage scene lifecycle', () => {
     });
     expect(m2Scene.models.length).toBeGreaterThan(0);
     expect(m2Scene.models.at(-1)).toMatchObject({ rooms: [{ id: 'p2' }] });
+  });
+});
+
+describe('OfficePage status notices', () => {
+  // focus mode is the second monitor left open all day: a dropped WebSocket there used to be a
+  // frozen picture that looked live, because the whole top bar (notices included) was not rendered
+  it('shows "reconectando…" in focus mode, where the top bar is gone', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [])]));
+    dataState.current = { ...dataState.current, loading: false };
+    monitorState.current = { ...monitorState.current, connected: false };
+    renderPage('/office/m1?focus=1');
+    await act(async () => {});
+
+    expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
+    expect(screen.queryByText('modo foco')).toBeNull();
+    expect(screen.getByText('reconectando…')).toBeTruthy();
+  });
+
+  it('shows "máquina offline" and the tmux notice in both modes', async () => {
+    officeMock.mockResolvedValue({ ...snap('m1', [room('p1', [])]), reachable: false });
+    dataState.current = { ...dataState.current, loading: false, statuses: { m1: 'offline' as const } };
+    const { unmount } = renderPage();
+    await act(async () => {});
+    expect(screen.getByText('máquina offline')).toBeTruthy();
+    unmount();
+
+    renderPage('/office/m1?focus=1');
+    await act(async () => {});
+    expect(screen.getByText('máquina offline')).toBeTruthy();
+    // an offline machine already explains the silence; the tmux notice is for a machine that answers
+    expect(screen.queryByText(/sem resposta do tmux/)).toBeNull();
   });
 });

@@ -24,6 +24,10 @@ describe('focus mode', () => {
     mount('/office/m1?room=p1&focus=1');
     expect(screen.getByRole('button').textContent).toBe('on');
   });
+  it('ignores ?focus=1 outside /office, where nothing would bring the sidebar back', () => {
+    mount('/projects/p1?focus=1');
+    expect(screen.getByRole('button').textContent).toBe('off');
+  });
   it('writes the flag to the URL without losing the other params, and removes it when off', () => {
     mount('/office/m1?room=p1');
     const b = screen.getByRole('button');

@@ -15,8 +15,15 @@ const snap = (machineId: string): OfficeSnapshot => ({ machine: { id: machineId,
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.resetAllMocks();
+  setVisibility('visible');
 });
+
+function setVisibility(state: 'visible' | 'hidden') {
+  Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
 
 describe('useOfficeSnapshot', () => {
   it('reads on mount and exposes the snapshot', async () => {
@@ -74,6 +81,49 @@ describe('useOfficeSnapshot', () => {
     });
     expect(result.current.snapshot).toEqual(snap('m1'));
     expect(result.current.error).toBeNull();
+  });
+
+  it('stops polling while the browser tab is hidden and re-reads when it comes back', async () => {
+    vi.useFakeTimers();
+    officeMock.mockResolvedValue(snap('m1'));
+    renderHook(() => useOfficeSnapshot('m1'));
+    await act(async () => {});
+    expect(officeMock).toHaveBeenCalledTimes(1);
+
+    // a dashboard left open on another desktop must not ask for a floor nobody is looking at
+    act(() => setVisibility('hidden'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(180_000);
+    });
+    expect(officeMock).toHaveBeenCalledTimes(1);
+
+    // coming back, the floor on screen is up to three minutes old: read it now, don't wait for the tick
+    await act(async () => setVisibility('visible'));
+    expect(officeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps focus and visibility from re-reading more often than every 10 s, but never throttles reload()', async () => {
+    vi.useFakeTimers();
+    officeMock.mockResolvedValue(snap('m1'));
+    const { result } = renderHook(() => useOfficeSnapshot('m1'));
+    await act(async () => {});
+    expect(officeMock).toHaveBeenCalledTimes(1);
+
+    // alt-tabbing in and out is cheap for the person and a GET per switch for the server
+    await act(async () => void window.dispatchEvent(new Event('focus')));
+    act(() => setVisibility('hidden'));
+    await act(async () => setVisibility('visible'));
+    expect(officeMock).toHaveBeenCalledTimes(1);
+
+    // the page's own reload() (a monitor push named a tab the snapshot lacks) is exempt
+    await act(async () => void result.current.reload());
+    expect(officeMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await act(async () => void window.dispatchEvent(new Event('focus')));
+    expect(officeMock).toHaveBeenCalledTimes(3);
   });
 
   it('reload reports whether it actually started a request', async () => {

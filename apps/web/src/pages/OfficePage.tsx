@@ -49,18 +49,20 @@ export function OfficePage() {
   // through this ref instead, kept current every render, so the scene-mount effect further down never
   // has to depend on setRoom/navigate: depending on them would recreate the scene (destroy + mount a
   // blank canvas) on every query-string change, since setModel only fires again on a real model change.
+  // entering a room pushes (the spec: "the browser's back button leaves the room"); leaving it
+  // replaces, or Back would walk straight back into the room the person just left
   const handlers = useRef({
     onPickDesk: (tabId: string, projectId: string) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
     onPickRoom: (id: string) => setRoom(id),
     onPickSign: (id: string) => navigate(`/projects/${id}`),
-    onLeaveRoom: () => setRoom(null),
+    onLeaveRoom: () => setRoom(null, true),
   });
   useEffect(() => {
     handlers.current = {
       onPickDesk: (tabId, projectId) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
       onPickRoom: (id) => setRoom(id),
       onPickSign: (id) => navigate(`/projects/${id}`),
-      onLeaveRoom: () => setRoom(null),
+      onLeaveRoom: () => setRoom(null, true),
     };
   });
 
@@ -149,7 +151,7 @@ export function OfficePage() {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
       if (e.key === 'Escape') {
-        if (room) setRoom(null);
+        if (room) setRoom(null, true);
         else if (focus) setFocus(false);
       } else if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setFocus(!focus);
@@ -173,6 +175,8 @@ export function OfficePage() {
   // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with an
   // `online` field: only an explicit 'offline' should dim the floor and show the banner.
   const online = statuses[machineId] !== 'offline';
+  // an offline machine already explains the silence; this is the machine that answers but whose tmux could not be read
+  const tmuxSilent = !!currentSnapshot && !currentSnapshot.reachable && online;
   const needsYouByMachine = (id: string) => needsYou.some((i) => i.machine.id === id);
 
   return (
@@ -191,14 +195,12 @@ export function OfficePage() {
             </select>
           )}
           {room && roomExists && (
-            <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setRoom(null)}>
+            <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setRoom(null, true)}>
               ← voltar ao andar
             </button>
           )}
           <span className="ml-auto flex items-center gap-3">
-            {!online && <span className="text-warn">máquina offline</span>}
-            {currentSnapshot && !currentSnapshot.reachable && online && <span className="text-warn">sem resposta do tmux: abas aparecem como fechadas</span>}
-            {!connected && <span className="text-warn">reconectando…</span>}
+            <StatusNotices online={online} tmuxSilent={tmuxSilent} connected={connected} />
             <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
               modo foco
             </button>
@@ -208,9 +210,12 @@ export function OfficePage() {
       <div className="relative min-h-0 flex-1">
         <div ref={setHost} className={`absolute inset-0 overflow-hidden ${online ? '' : 'opacity-60'}`} />
         {focus && (
-          <button className="absolute right-3 top-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted hover:text-fg" onClick={() => setFocus(false)}>
-            sair do foco (Esc)
-          </button>
+          <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
+            <StatusNotices online={online} tmuxSilent={tmuxSilent} connected={connected} />
+            <button className="rounded hover:text-fg" onClick={() => setFocus(false)}>
+              sair do foco (Esc)
+            </button>
+          </div>
         )}
         {failed && <Overlay>Seu navegador não conseguiu desenhar o escritório.</Overlay>}
         {error && <Overlay>{error}</Overlay>}
@@ -218,6 +223,21 @@ export function OfficePage() {
         {model && model.rooms.length === 0 && <Overlay>Esta máquina ainda não tem projetos.</Overlay>}
       </div>
     </div>
+  );
+}
+
+/**
+ * Why the scene may not be telling the truth right now. Rendered in the top bar and, in focus mode
+ * (where there is no top bar), in the corner: a second monitor left open all day must never show a
+ * frozen picture that looks live.
+ */
+function StatusNotices({ online, tmuxSilent, connected }: { online: boolean; tmuxSilent: boolean; connected: boolean }) {
+  return (
+    <>
+      {!online && <span className="text-warn">máquina offline</span>}
+      {tmuxSilent && <span className="text-warn">sem resposta do tmux: estado pode estar desatualizado</span>}
+      {!connected && <span className="text-warn">reconectando…</span>}
+    </>
   );
 }
 

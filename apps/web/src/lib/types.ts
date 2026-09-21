@@ -341,7 +341,7 @@ export interface OfficeTab extends Tab {
 export interface OfficeRoom {
   project: Project;
   tabs: OfficeTab[];
-  /** null when the board could not be read (no permission or the project has none) */
+  /** null when the board could not be read (no `tasks:read`); a project with no tasks sends zeros */
   tasks: OfficeTaskCounts | null;
 }
 

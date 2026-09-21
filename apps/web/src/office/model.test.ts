@@ -5,7 +5,7 @@ import { buildModel, lookOf, missingTabIds, truncateLabel } from './model';
 const tab = (id: string, over: Partial<OfficeTab> = {}): OfficeTab =>
   ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, alive: true, progress: null, ...over }) as OfficeTab;
 const room = (id: string, tabs: OfficeTab[], over: Partial<OfficeRoom> = {}): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null, ...over });
-const snap = (rooms: OfficeRoom[]): OfficeSnapshot => ({ machine: { id: 'm1', name: 'jarvis' } as never, reachable: true, rooms });
+const snap = (rooms: OfficeRoom[], over: Partial<OfficeSnapshot> = {}): OfficeSnapshot => ({ machine: { id: 'm1', name: 'jarvis' } as never, reachable: true, rooms, ...over });
 const none = () => undefined;
 
 describe('buildModel', () => {
@@ -66,6 +66,37 @@ describe('buildModel', () => {
     const desks = buildModel(snap([room('p1', [tab('dead', { alive: false, state: 'working', state_at: 'x' }), tab('sim', { kind: 'simulator', alive: true })])]), none).rooms[0].desks;
     expect([desks[0].pose, desks[0].marker, desks[0].screenOn]).toEqual(['empty', null, false]);
     expect([desks[1].kind, desks[1].screenOn]).toEqual(['phone', true]);
+  });
+
+  it('keeps people, markers and needsYou when the snapshot could not ask the machine', () => {
+    // reachable: false means the tmux listing failed, so `alive: false` is not evidence of anything:
+    // emptying the chairs there would erase every raised hand for up to a minute
+    const desks = buildModel(
+      snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' }), tab('sim', { kind: 'simulator', alive: false })])], { reachable: false }),
+      none,
+    ).rooms[0].desks;
+    expect([desks[0].pose, desks[0].marker]).toEqual(['raise', 'input']);
+    // a simulator's `alive` comes from the simulator manager, not from tmux: it still holds
+    expect([desks[1].kind, desks[1].screenOn]).toEqual(['phone', false]);
+    expect(buildModel(snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' })])], { reachable: false }), none).needsYou).toBe(1);
+  });
+
+  it('takes the state fields from whichever side saw them last', () => {
+    const older = '2026-09-21T10:00:00.000Z';
+    const newer = '2026-09-21T10:05:00.000Z';
+    const liveWith = (over: Partial<Tab>) => (id: string) => (id === 'a' ? ({ ...tab('a'), ...over } as Tab) : undefined);
+
+    // a monitor push newer than the snapshot wins (the normal case: the WebSocket is ahead)
+    const fresh = buildModel(snap([room('p1', [tab('a', { state: 'idle', state_at: older })])]), liveWith({ state: 'working', state_at: newer })).rooms[0].desks[0];
+    expect([fresh.state, fresh.pose]).toEqual(['working', 'type']);
+
+    // with the WebSocket down the monitor goes stale (it resyncs every 3 min): the snapshot wins
+    const stale = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: newer })])]), liveWith({ state: 'idle', state_at: older })).rooms[0].desks[0];
+    expect([stale.state, stale.pose]).toEqual(['working', 'type']);
+
+    // same state_at: only a fresher "seen" (the hand was lowered in another browser tab) wins
+    const seen = buildModel(snap([room('p1', [tab('a', { state: 'waiting_input', state_at: older })])]), liveWith({ state: 'waiting_input', state_at: older, state_seen_at: newer })).rooms[0].desks[0];
+    expect(seen.marker).toBeNull();
   });
 
   it('draws progress only from a bound task, and a bar only when it has subtasks', () => {

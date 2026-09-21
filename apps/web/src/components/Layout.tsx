@@ -39,7 +39,7 @@ export function Layout() {
   );
 }
 
-/** Hides the sidebar entirely while the page is in focus mode (a second monitor left open all day). */
+/** Hides the sidebar entirely while the page is in focus mode — only `/office` has one (lib/focus). */
 function Chrome({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) {
   const { focus } = useFocusMode();
   if (focus) return null;

@@ -66,7 +66,15 @@ export class OfficeScene {
     if (this.app || this.mounting || this.destroyed) return;
     this.mounting = true;
     const app = new Application();
-    await app.init({ resizeTo: host, background: 0x0f1115, antialias: false, autoDensity: true, resolution: window.devicePixelRatio || 1 });
+    try {
+      await app.init({ resizeTo: host, background: 0x0f1115, antialias: false, autoDensity: true, resolution: window.devicePixelRatio || 1 });
+    } catch (err) {
+      // neither WebGL nor canvas started: free the half-built app and let the page show its message,
+      // leaving the scene mountable again (a stuck `mounting` would refuse every later attempt)
+      this.mounting = false;
+      app.destroy(true, { children: true });
+      throw err;
+    }
     this.mounting = false;
     if (this.destroyed) return app.destroy(true, { children: true });
     this.app = app;

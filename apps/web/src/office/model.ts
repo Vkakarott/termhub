@@ -63,13 +63,35 @@ export function lookOf(id: string, variants: number): number {
   return (h >>> 0) % variants;
 }
 
-function deskOf(tab: OfficeTab, live: Tab | undefined): DeskModel {
-  const t: OfficeTab = live
-    ? { ...tab, state: live.state, state_text: live.state_text, state_tool: live.state_tool, state_at: live.state_at, state_seen_at: live.state_seen_at }
-    : tab;
+const time = (iso: string | null): number | null => {
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isNaN(ms) ? null : ms;
+};
+
+/**
+ * Which side's state fields to draw. The monitor is normally ahead of the snapshot, but with the
+ * WebSocket down its items go stale (it resyncs every 3 min) while a 60 s snapshot read keeps
+ * coming — so the newer `state_at` wins, and on a tie only a fresher `state_seen_at` (the hand was
+ * lowered elsewhere) moves the tab.
+ */
+function withLiveState(tab: OfficeTab, live: Tab | undefined): OfficeTab {
+  if (!live) return tab;
+  const fromLive = (): OfficeTab => ({ ...tab, state: live.state, state_text: live.state_text, state_tool: live.state_tool, state_at: live.state_at, state_seen_at: live.state_seen_at });
+  const liveAt = time(live.state_at);
+  const tabAt = time(tab.state_at);
+  if (liveAt !== tabAt) return (liveAt ?? -Infinity) > (tabAt ?? -Infinity) ? fromLive() : tab;
+  return (time(live.state_seen_at) ?? -Infinity) > (time(tab.state_seen_at) ?? -Infinity) ? fromLive() : tab;
+}
+
+/** `reachable`: false = the machine could not be asked which tmux sessions exist (see below). */
+function deskOf(tab: OfficeTab, live: Tab | undefined, reachable: boolean): DeskModel {
+  const t = withLiveState(tab, live);
   const base = { id: t.id, projectId: t.project_id, name: t.name, label: truncateLabel(t.name, DESK_LABEL_MAX), look: lookOf(t.id, LOOK_VARIANTS), progress: t.progress ? { done: t.progress.done, total: t.progress.total, title: t.progress.title } : null };
+  // a simulator's `alive` comes from the simulator manager, so tmux being unreachable says nothing about it
   if (t.kind === 'simulator') return { ...base, kind: 'phone', pose: 'empty', marker: null, dimmed: false, screenOn: t.alive, state: null };
-  if (!t.alive) return { ...base, kind: 'person', pose: 'empty', marker: null, dimmed: false, screenOn: false, state: t.state };
+  // an unreachable machine answers `alive: false` for every terminal tab, which is not evidence that
+  // anyone left: keep the last known state (and its raised hand); the page's banner says it is stale
+  if (!t.alive && reachable) return { ...base, kind: 'person', pose: 'empty', marker: null, dimmed: false, screenOn: false, state: t.state };
   const needs = tabNeedsYou(t);
   const marker: Marker = t.state === 'error' ? 'error' : !needs ? null : t.state === 'waiting_permission' ? 'permission' : 'input';
   return { ...base, kind: 'person', pose: t.state ? POSE[t.state] : 'sit', marker, dimmed: !t.state, screenOn: t.state === 'working', state: t.state };
@@ -77,7 +99,7 @@ function deskOf(tab: OfficeTab, live: Tab | undefined): DeskModel {
 
 export function buildModel(snapshot: OfficeSnapshot, liveTab: (tabId: string) => Tab | undefined): FloorModel {
   const rooms = snapshot.rooms.map((r): RoomModel => {
-    const desks = [...r.tabs].sort((a, b) => a.position - b.position).map((t) => deskOf(t, liveTab(t.id)));
+    const desks = [...r.tabs].sort((a, b) => a.position - b.position).map((t) => deskOf(t, liveTab(t.id), snapshot.reachable));
     const total = r.tasks ? r.tasks.todo + r.tasks.doing + r.tasks.done : 0;
     return {
       id: r.project.id,
