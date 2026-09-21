@@ -85,7 +85,10 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
     }
     if (!user) return rejectUpgrade(socket, 401, 'Unauthorized');
     const scope = await resolveScope(deps.auth.repos, user, cookies);
-    // every WebSocket is a terminal or simulator stream: needs terminals:read
+    // One gate for every WebSocket here: terminals:read. It fits the terminal and simulator streams
+    // it was written for, and /ws/chat rides on it too — the chat is the global terminal as a
+    // conversation, so nobody who cannot read a terminal has any business on it either.
+    // (The chat's own per-user filter lives in chat/ws.ts; this only decides who may connect.)
     if (!(await canAccess(deps.auth.repos, user, 'terminals', 'read'))) return rejectUpgrade(socket, 403, 'Forbidden');
     try {
       await route.r.handler({ req, socket, head, url, params: route.m.slice(1), user, scope });
