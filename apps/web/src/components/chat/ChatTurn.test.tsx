@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatTurn } from './ChatTurn';
 import type { ChatMessage } from '../../lib/types';
@@ -135,5 +135,55 @@ describe('ChatTurn', () => {
     );
 
     expect(renderMarkdown).not.toHaveBeenCalled();
+  });
+
+  describe('code blocks', () => {
+    afterEach(() => {
+      // jsdom has no clipboard by default; each test that added one must not leak it to the next.
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    });
+
+    it('shows the language header and a copy button whose accessible name says copying', () => {
+      renderMarkdown.mockReturnValueOnce('<pre><code class="language-bash">npm test\n</code></pre>');
+      const { getByRole, getByText } = render(
+        <ol>
+          <ChatTurn message={answer()} waiting={false} failed={false} />
+        </ol>,
+      );
+
+      expect(getByText('bash')).not.toBeNull();
+      expect(getByRole('button', { name: /copiar/i })).not.toBeNull();
+    });
+
+    it('clicking copy calls navigator.clipboard.writeText with exactly the code\'s text', () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      // A trailing newline is how a fenced block's `<code>` renders (see markdown.test.ts) — it must
+      // not land on the clipboard, and neither must the header's own text.
+      renderMarkdown.mockReturnValueOnce('<pre><code class="language-bash">npm test &amp;&amp; echo &lt;ok&gt;\n</code></pre>');
+      const { getByRole } = render(
+        <ol>
+          <ChatTurn message={answer()} waiting={false} failed={false} />
+        </ol>,
+      );
+
+      fireEvent.click(getByRole('button', { name: /copiar/i }));
+
+      expect(writeText).toHaveBeenCalledWith('npm test && echo <ok>');
+    });
+
+    it('does not throw and does not claim success when navigator.clipboard is undefined', () => {
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+      renderMarkdown.mockReturnValueOnce('<pre><code class="language-bash">npm test</code></pre>');
+      const { getByRole } = render(
+        <ol>
+          <ChatTurn message={answer()} waiting={false} failed={false} />
+        </ol>,
+      );
+
+      const button = getByRole('button', { name: /copiar/i });
+      expect(() => fireEvent.click(button)).not.toThrow();
+      expect(button.textContent?.toLowerCase()).not.toContain('copiado');
+    });
   });
 });

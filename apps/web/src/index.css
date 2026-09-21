@@ -39,3 +39,14 @@ body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, 
 .prose-termhub th, .prose-termhub td { @apply border border-line px-2 py-1 text-left; }
 .prose-termhub hr { @apply my-4 border-line; }
 .prose-termhub input[type="checkbox"] { @apply mr-1 align-middle; }
+
+/* Code block header + copy button (chat only: decorateCodeBlocks wraps a fence in this figure; the
+   notes preview never calls it, so its <pre> keeps the plain rule above untouched). The figure takes
+   over the border/radius/background `.prose-termhub pre` already gives a fence, so the header sits on
+   top of that block instead of stacking a second one below it. */
+.prose-termhub .code-block { @apply my-2 overflow-hidden rounded-md border border-line bg-bg-2; }
+.prose-termhub .code-block pre { @apply my-0 rounded-none border-0 bg-transparent; }
+.prose-termhub .code-block__header { @apply flex items-center justify-between gap-2 border-b border-line px-3 py-1.5; }
+.prose-termhub .code-block__language { @apply font-mono text-[11px] uppercase tracking-wide text-fg-dim; }
+.prose-termhub .code-block__copy { @apply rounded px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wide text-fg-dim opacity-60 transition-opacity hover:bg-bg-3 hover:text-fg hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent; }
+.prose-termhub .code-block__header:hover .code-block__copy { @apply opacity-100; }

@@ -1,6 +1,50 @@
 import { memo, useMemo } from 'react';
+import type { MouseEvent } from 'react';
+import { decorateCodeBlocks } from '../../lib/code-blocks';
 import { renderMarkdown } from '../../lib/markdown';
 import type { ChatMessage } from '../../lib/types';
+
+const COPY_FEEDBACK_MS = 1500;
+
+/**
+ * The one delegated handler for every copy button a message's decorated HTML may contain — there is
+ * no React node per block, since the blocks come from an HTML string. `event.target` is whatever the
+ * click actually landed on inside the button (its label span, most likely), so this walks up to the
+ * element `decorateCodeBlocks` marked with `data-copy`.
+ */
+function handleCopyClick(event: MouseEvent<HTMLDivElement>): void {
+  const target = event.target as HTMLElement;
+  const button = target.closest('[data-copy]') as HTMLElement | null;
+  if (!button) return;
+
+  const pre = button.closest('figure')?.querySelector('pre');
+  // `<code>`'s `textContent` for a fenced block always carries the fence's own trailing newline (see
+  // markdown.test.ts) — that is a serialiser artefact, not part of what the user typed, so it is
+  // trimmed before anything reaches the clipboard.
+  const text = (pre?.textContent ?? '').replace(/\n$/, '');
+
+  const clipboard = navigator.clipboard;
+  if (!clipboard) return; // No clipboard API (jsdom, an insecure context): report failure, not success.
+
+  clipboard.writeText(text).then(
+    () => flashCopied(button),
+    () => {},
+  );
+}
+
+/** Transient, DOM-only feedback on the button that was clicked — there is no React state to hold it,
+ * since the button is not a React node. Reverts on its own after `COPY_FEEDBACK_MS`. */
+function flashCopied(button: HTMLElement): void {
+  const label = button.querySelector('[data-copy-label]');
+  if (!label) return;
+  const original = label.textContent;
+  label.textContent = 'copiado';
+  button.setAttribute('aria-label', 'Código copiado');
+  window.setTimeout(() => {
+    label.textContent = original;
+    button.setAttribute('aria-label', 'Copiar código');
+  }, COPY_FEEDBACK_MS);
+}
 
 export interface ChatTurnProps {
   message: ChatMessage;
@@ -30,8 +74,9 @@ export interface ChatTurnProps {
 export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, waiting, failed }: ChatTurnProps) {
   const body = message.role === 'user' ? '' : message.text || streaming || (waiting ? 'pensando…' : '');
   // Keyed on the body alone: the same text always sanitises to the same HTML, so a delta only ever
-  // re-parses the row it lands in.
-  const html = useMemo(() => (body ? renderMarkdown(body, { markdownOnly: true }) : ''), [body]);
+  // re-parses the row it lands in. `decorateCodeBlocks` runs inside the same memo rather than a
+  // second pass elsewhere — it, too, would otherwise re-run on every streamed delta.
+  const html = useMemo(() => (body ? decorateCodeBlocks(renderMarkdown(body, { markdownOnly: true })) : ''), [body]);
 
   if (message.role === 'user') {
     return (
@@ -55,7 +100,16 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
        * path quoted off a terminal; `overflow-x-auto` contains what cannot wrap, since a six-column
        * GFM table's min-content width does not shrink, and gives that scroll to the answer instead of
        * to the thread. `pre` keeps its own horizontal scroll either way. */}
-      {body && <div className="prose-termhub overflow-x-auto break-words" dangerouslySetInnerHTML={{ __html: html }} />}
+      {body && (
+        <div
+          className="prose-termhub overflow-x-auto break-words"
+          // The one delegated handler for every copy button this row's HTML may contain (there can be
+          // several, one per fence) — a per-block React handler is impossible anyway, since the blocks
+          // come from an HTML string, not from JSX.
+          onClick={handleCopyClick}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
       {(tools ?? []).length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {(tools ?? []).map((a, i) => (
