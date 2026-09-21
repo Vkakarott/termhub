@@ -42,10 +42,23 @@ function launcher(provider: AiProvider): { binary: string; configEnv: string } {
   return l;
 }
 
+/**
+ * An account's config dir as the machine's shell must read it. A dir of `~` or `~/x` is expanded **there**,
+ * never here — the contract the rest of the code already follows (`configDirPrefix`, the hooks' paths), and
+ * the form the accounts are stored in. Only the tilde is left outside the quotes; the path itself stays inert.
+ * Quoting the tilde as well made the CLI read `~` as a directory name: it started logged out, in its
+ * first-run onboarding, and wrote a fresh config into `<project cwd>/~/`.
+ */
+function configDirArg(dir: string): string {
+  if (dir === '~') return '"$HOME"';
+  if (dir.startsWith('~/')) return `"$HOME"/${shellQuote(dir.slice(2))}`;
+  return shellQuote(dir);
+}
+
 /** The exact line typed into the tab; every value goes through `shellQuote`, so nothing in it is interpreted. */
 export function launchLine(provider: AiProvider, configDir: string | null, prompt: string): string {
   const { binary, configEnv } = launcher(provider);
-  const env = configDir ? `${configEnv}=${shellQuote(configDir)} ` : '';
+  const env = configDir ? `${configEnv}=${configDirArg(configDir)} ` : '';
   return `${env}${binary} ${shellQuote(prompt)}`;
 }
 

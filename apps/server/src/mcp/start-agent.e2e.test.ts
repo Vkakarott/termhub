@@ -42,6 +42,8 @@ const machine = { id: 'm1', name: 'jarvis', type: 'local', os: 'linux', capabili
 const accounts = [
   { id: 'a1', provider: 'claude', label: 'pedrogoiania', machine_id: 'm1', config_dir: '', created_at: '' },
   { id: 'a2', provider: 'chatgpt', label: 'ChatGPT', machine_id: 'm1', config_dir: '', created_at: '' },
+  // Stored the way the app stores it: relative to the machine's home, expanded on the machine.
+  { id: 'a3', provider: 'claude', label: 'til', machine_id: 'm1', config_dir: '~/cfg', created_at: '' },
 ];
 
 function build(cwd: string) {
@@ -105,6 +107,7 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
   let cwd: string;
   let cfg: string;
   let path: string | undefined;
+  let homeEnv: string | undefined;
 
   beforeAll(() => {
     home = mkdtempSync(join(tmpdir(), 'termhub-start-agent-'));
@@ -131,6 +134,9 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
     // Both the shell scripts session-ops runs and the tmux server they start inherit this PATH.
     path = process.env.PATH;
     process.env.PATH = `${bin}:${path ?? ''}`;
+    // The session's $HOME, so an account stored as "~/cfg" resolves to a directory we control.
+    homeEnv = process.env.HOME;
+    process.env.HOME = home;
     accounts[0].config_dir = cfg;
     accounts[1].config_dir = cfg;
   });
@@ -142,6 +148,7 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
       /* no server to kill */
     }
     process.env.PATH = path;
+    process.env.HOME = homeEnv;
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -184,6 +191,17 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
     expect(flat).toContain('fake-cli args=1');
     expect(flat).toContain('fake-cli prompt=[linha um');
     expect(flat).toContain('linha dois]');
+  }, 30_000);
+
+  it("expands a config dir stored as ~/x on the machine, not here", async () => {
+    const { app } = build(cwd);
+
+    const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a3', prompt: 'ola' }));
+    const flat = await screenWith(app, out.tab_id, 'fake-cli args=');
+    // Quoting the tilde along with the path made the CLI take "~" for a directory name: it started
+    // logged out, in onboarding, and wrote its config into <cwd>/~/ instead of the account's dir.
+    expect(flat).toContain(`fake-cli cfg=${cfg}`);
+    expect(flat).not.toContain('fake-cli cfg=~');
   }, 30_000);
 
   it('starts codex under CODEX_HOME for a ChatGPT account', async () => {
