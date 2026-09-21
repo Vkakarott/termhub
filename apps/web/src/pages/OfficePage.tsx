@@ -64,9 +64,15 @@ export function OfficePage() {
     };
   });
 
+  // Only a snapshot for the machine currently on screen is usable. Right after a machine switch,
+  // `snapshot` still holds the *previous* machine's data for one render — useOfficeSnapshot resets
+  // it to null in its own effect, which runs after this commit — so treating it as current here
+  // would build a model (and seed a freshly created scene, below) with the wrong machine's floor.
+  const currentSnapshot = snapshot && snapshot.machine.id === machineId ? snapshot : null;
+
   // tabState reads a ref (lib/monitor.tsx), so it never changes identity; `items` is what actually
   // changes on a live push — keep it as a dep, or the model stops updating on monitor pushes.
-  const model = useMemo(() => (snapshot ? buildModel(snapshot, tabState) : null), [snapshot, tabState, items]);
+  const model = useMemo(() => (currentSnapshot ? buildModel(currentSnapshot, tabState) : null), [currentSnapshot, tabState, items]);
   // mirrors `model` for the scene-mount effect below: a scene created there (host/machineId change,
   // or recovering from a failed mount) must be seeded with whatever's already known, not sit blank
   // waiting for this push effect to fire again — it won't, since the model itself hasn't changed.
@@ -75,29 +81,6 @@ export function OfficePage() {
     modelRef.current = model;
     if (model) sceneRef.current?.setModel(model);
   }, [model]);
-
-  // a tab opened since the snapshot: re-read it, but only once per newly-missing id that actually
-  // started a request — a re-read that bounced off an in-flight one must not be marked "asked", or
-  // that tab is stuck on screen until the next 60s tick
-  useEffect(() => {
-    const mine = new Set(projects.filter((p) => p.machine_id === machineId && p.status !== 'archived').map((p) => p.id));
-    const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
-    const missing = missingTabIds(snapshot, items.map((i) => i.tab.id), mine, projectOf);
-    if (notifiedMissing.current.machineId !== machineId) notifiedMissing.current = { machineId, ids: new Set() };
-    const grew = missing.some((id) => !notifiedMissing.current.ids.has(id));
-    if (grew && reload()) missing.forEach((id) => notifiedMissing.current.ids.add(id));
-  }, [items, snapshot, projects, machineId, reload]);
-
-  // auto-drill once per machine: exactly one room with desks opens straight into it
-  useEffect(() => {
-    if (!model || autoDrilled.current) return;
-    autoDrilled.current = true;
-    const withDesks = model.rooms.filter((r) => r.desks.length > 0);
-    if (!room && withDesks.length === 1) setRoom(withDesks[0].id, true);
-  }, [model, room, setRoom]);
-  useEffect(() => {
-    autoDrilled.current = false;
-  }, [machineId]);
 
   const roomExists = !!model?.rooms.some((r) => r.id === room);
   // deliberate: frame once the first model arrives (the boolean, not the model itself, is what should retrigger this)
@@ -108,6 +91,34 @@ export function OfficePage() {
     focusRef.current = roomExists ? room : null;
     if (model) sceneRef.current?.focusRoom(focusRef.current);
   }, [room, roomExists, hasModel]);
+
+  // a tab opened since the snapshot: re-read it, but only once per newly-missing id that actually
+  // started a request — a re-read that bounced off an in-flight one must not be marked "asked", or
+  // that tab is stuck on screen until the next 60s tick
+  useEffect(() => {
+    const mine = new Set(projects.filter((p) => p.machine_id === machineId && p.status !== 'archived').map((p) => p.id));
+    const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
+    const missing = missingTabIds(currentSnapshot, items.map((i) => i.tab.id), mine, projectOf);
+    if (notifiedMissing.current.machineId !== machineId) notifiedMissing.current = { machineId, ids: new Set() };
+    const grew = missing.some((id) => !notifiedMissing.current.ids.has(id));
+    if (grew && reload()) missing.forEach((id) => notifiedMissing.current.ids.add(id));
+  }, [items, currentSnapshot, projects, machineId, reload]);
+
+  // auto-drill once per machine: exactly one room with desks opens straight into it
+  useEffect(() => {
+    if (!model || autoDrilled.current) return;
+    autoDrilled.current = true;
+    const withDesks = model.rooms.filter((r) => r.desks.length > 0);
+    if (!room && withDesks.length === 1) setRoom(withDesks[0].id, true);
+  }, [model, room, setRoom]);
+  // runs before the scene-mount effect below (declared earlier) — belt-and-suspenders with the
+  // `currentSnapshot` gate above: a scene created for the new machine must never be seeded with the
+  // previous machine's model/focus, whichever of the two guards would have caught it on its own.
+  useEffect(() => {
+    autoDrilled.current = false;
+    modelRef.current = null;
+    focusRef.current = null;
+  }, [machineId]);
 
   useEffect(() => {
     if (!host) return;
@@ -186,7 +197,7 @@ export function OfficePage() {
           )}
           <span className="ml-auto flex items-center gap-3">
             {!online && <span className="text-warn">máquina offline</span>}
-            {snapshot && !snapshot.reachable && online && <span className="text-warn">sem resposta do tmux: abas aparecem como fechadas</span>}
+            {currentSnapshot && !currentSnapshot.reachable && online && <span className="text-warn">sem resposta do tmux: abas aparecem como fechadas</span>}
             {!connected && <span className="text-warn">reconectando…</span>}
             <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
               modo foco
@@ -203,7 +214,7 @@ export function OfficePage() {
         )}
         {failed && <Overlay>Seu navegador não conseguiu desenhar o escritório.</Overlay>}
         {error && <Overlay>{error}</Overlay>}
-        {!error && !snapshot && <Overlay>Carregando o andar…</Overlay>}
+        {!error && !currentSnapshot && <Overlay>Carregando o andar…</Overlay>}
         {model && model.rooms.length === 0 && <Overlay>Esta máquina ainda não tem projetos.</Overlay>}
       </div>
     </div>
