@@ -268,7 +268,7 @@ describe('useDictation', () => {
     expect(mocks.voiceStoreClear).toHaveBeenCalledWith('chat');
   });
 
-  it('a transcribeClip rejection leaves it idle with the thrown message as error, and does NOT clear the stored clip', async () => {
+  it('a transcribeClip rejection leaves it idle with the thrown message as error, and clears the stored clip too, because the chat has no reader for the \'chat\' key', async () => {
     const { result } = await boot();
     await startRecording(result);
     mocks.transcribeClip.mockRejectedValueOnce(new Error('Falha ao transcrever o áudio'));
@@ -278,8 +278,11 @@ describe('useDictation', () => {
     await act(async () => {});
     expect(result.current.state).toBe('idle');
     expect(result.current.error).toBe('Falha ao transcrever o áudio');
-    // the audio is the only copy of a failed transcription: the store exists to survive exactly this
-    expect(mocks.voiceStoreClear).not.toHaveBeenCalled();
+    // Keeping it was meant to let a refresh recover the audio, but nothing in this app loads the
+    // `'chat'` key — `voiceStore.load`/`resumeTranscription` are Terminal.tsx's, keyed by real tab ids.
+    // So the retained clip was only the person's voice left in IndexedDB after they were told the text
+    // was lost, with nothing on screen offering it back.
+    expect(mocks.voiceStoreClear).toHaveBeenCalledWith('chat');
   });
 
   it('cancel() during a recording returns to idle, calls the recorder cancel, never transcribes', async () => {

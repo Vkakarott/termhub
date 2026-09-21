@@ -42,6 +42,17 @@ export interface Dictation {
 /** Below this size (~0.3 s of opus) there is nothing to transcribe. */
 const MIN_CLIP_BYTES = 2048;
 
+/*
+ * About the `'chat'` key every call below passes: it is the IndexedDB key `VoiceRecorder` and
+ * `transcribeClip` write the clip under (despite the `tabId` parameter name, it is not a tab), and
+ * nothing in this codebase ever reads it back — `voiceStore.load` and `resumeTranscription` are
+ * Terminal.tsx's, keyed by real tab ids. So the clip is written and cleared here and never recovered,
+ * which is why no path keeps it: audio kept after a failure the person was told about, with nothing on
+ * screen saying it is there, is only a cost. It is also a fixed key, so two browser tabs open on the
+ * same chat write over each other — giving the chat a real recovery flow (a follow-up) would have to
+ * key this per instance first.
+ */
+
 /** Whether the server transcribes audio — asked once per page load, shared by every hook instance (same caching as Terminal.tsx used to do locally). */
 let voiceEnabled: Promise<boolean> | null = null;
 function isVoiceEnabled(): Promise<boolean> {
@@ -97,8 +108,6 @@ export function useDictation(onText: (text: string) => void): Dictation {
     async (clip: Clip) => {
       const onPhase = (p: TranscribePhase) => setState(p.phase);
       try {
-        // 'chat' is the IndexedDB storage key VoiceRecorder/transcribeClip save the clip under (so
-        // a refresh mid-recording can recover it) — despite the `tabId` parameter name, it is not a tab.
         const result = await transcribeClip('chat', clip, onPhase);
         setError(null);
         const text = result.text ?? '';
@@ -110,12 +119,12 @@ export function useDictation(onText: (text: string) => void): Dictation {
         } else {
           setNotice('Nenhuma fala reconhecida');
         }
-        void voiceStore.clear('chat'); // text delivered: the stored audio has done its job
       } catch (err) {
-        // NOT cleared here: a failed upload/transcription is exactly what the store exists to
-        // survive (a refresh can still recover the audio) — do not "tidy" this away.
         setError(err instanceof Error ? err.message : 'Falha ao transcrever o áudio');
       } finally {
+        // Either way the clip is done: delivered, or failed with nothing in this app able to read it
+        // back (see the note on the `'chat'` key above).
+        void voiceStore.clear('chat');
         setState('idle');
       }
     },
@@ -190,8 +199,9 @@ export function useDictation(onText: (text: string) => void): Dictation {
     setState('idle');
   }, [setState]);
 
-  // Unmount mid-recording (composer closed, tab switched away): free the mic, keep the audio in
-  // IndexedDB (VoiceRecorder.cancel(true)) — mirrors Terminal.tsx's own unmount cleanup.
+  // Unmount mid-recording (composer closed, tab switched away): free the mic. `cancel(true)` leaves
+  // what is already in IndexedDB alone rather than deleting it, which is what Terminal.tsx's own
+  // unmount cleanup does — for the chat's key nothing will read it either way (see the note above).
   useEffect(
     () => () => {
       recorderRef.current?.cancel(true);
