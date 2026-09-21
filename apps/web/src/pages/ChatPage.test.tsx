@@ -277,6 +277,20 @@ it('says what the screen is for while the conversation is empty', async () => {
   expect(await screen.findByText(/concierge/i)).toBeTruthy();
 });
 
+it('says nothing about an empty conversation while the history is still loading', async () => {
+  // A long conversation would otherwise open with "peça algo…" over an empty thread until the fetch
+  // resolves — and keep it for ever if the fetch fails.
+  let resolve: (value: unknown) => void = () => {};
+  chatMock.mockReturnValue(new Promise((r) => (resolve = r)));
+  render(<ChatPage />);
+
+  await screen.findByRole('list', { name: 'Conversa' });
+  expect(screen.queryByText(/concierge/i)).toBeNull();
+
+  resolve({ conversation: { id: 'c1' }, messages: [], actions: [] });
+  expect(await screen.findByText(/concierge/i)).toBeTruthy();
+});
+
 it('drops that line as soon as the conversation has a message', async () => {
   render(<ChatPage />); // the default fixture has one message
 

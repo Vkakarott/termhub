@@ -29,10 +29,18 @@ export function ChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Whether `GET /api/chat` has ever answered. Only the empty state reads it: without it, opening a
+   * long conversation shows "peça algo…" over an empty thread until the fetch resolves, and a fetch
+   * that fails leaves that line on screen for ever.
+   */
+  const [loaded, setLoaded] = useState(false);
+
   const load = useCallback(async () => {
     const { messages, actions } = await api.chat();
     setMessages(messages);
     setActions(actions ?? []);
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -178,7 +186,7 @@ export function ChatPage() {
       {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
       {/* A new conversation is otherwise a header, an empty thread and a box: one line saying what
        * this screen is for. Deliberately just the one — no example prompts, no tour. */}
-      {messages.length === 0 && <p className="pt-6 text-center text-sm text-fg-dim">Peça algo às suas máquinas: o concierge lê os terminais e pede sua autorização antes de qualquer alteração.</p>}
+      {loaded && messages.length === 0 && <p className="pt-6 text-center text-sm text-fg-dim">Peça algo às suas máquinas: o concierge lê os terminais e pede sua autorização antes de qualquer alteração.</p>}
       {/* Named, because a rendered answer can contain Markdown lists of its own: this is how the
        * thread is told apart from them — by screen readers, and by the tests. */}
       <ol
