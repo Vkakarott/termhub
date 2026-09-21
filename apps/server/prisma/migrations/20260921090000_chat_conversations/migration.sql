@@ -33,6 +33,14 @@ CREATE INDEX "chat_conversations_user_id_created_at_idx" ON "chat_conversations"
 -- CreateIndex
 CREATE INDEX "chat_messages_conversation_id_created_at_idx" ON "chat_messages"("conversation_id", "created_at");
 
+-- One account-wide conversation per user. Partial on purpose: spec §2 reserves machine_id/tab_id
+-- for per-machine and per-tab conversations, which a plain unique index on user_id would forbid.
+-- Not representable in schema.prisma (Prisma has no partial-index syntax); confirmed by hand that
+-- `prisma migrate diff --from-config-datasource --to-schema` does not flag this index as drift
+-- (see the ChatConversation model's doc comment in schema.prisma).
+CREATE UNIQUE INDEX "chat_conversations_one_per_user" ON "chat_conversations"("user_id")
+    WHERE "machine_id" IS NULL AND "tab_id" IS NULL;
+
 -- AddForeignKey
 ALTER TABLE "chat_conversations" ADD CONSTRAINT "chat_conversations_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

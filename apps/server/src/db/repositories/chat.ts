@@ -1,5 +1,5 @@
 import type { PrismaClient } from '../prisma.js';
-import type { ChatConversation as PrismaConversation, ChatMessage as PrismaMessage } from '../../generated/prisma/client.js';
+import { Prisma, type ChatConversation as PrismaConversation, type ChatMessage as PrismaMessage } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 
 export type ChatRole = 'user' | 'assistant';
@@ -49,12 +49,24 @@ const mapMessage = (m: PrismaMessage): ChatMessage => ({
 export class ChatRepository {
   constructor(private db: PrismaClient) {}
 
-  /** v1 keeps one conversation per user; the oldest one wins if several ever exist. */
+  /**
+   * v1 keeps one conversation per user, enforced by a partial unique index on `user_id` (see the
+   * migration) so two concurrent first loads (e.g. two browser tabs) can't both create one. The
+   * common path is a single SELECT; only a lost race falls back to create-then-re-read.
+   */
   async getOrCreateForUser(userId: string): Promise<ChatConversation> {
     const existing = await this.db.chatConversation.findFirst({ where: { userId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
     if (existing) return mapConversation(existing);
-    const created = await this.db.chatConversation.create({ data: { id: newId(), userId } });
-    return mapConversation(created);
+    try {
+      const created = await this.db.chatConversation.create({ data: { id: newId(), userId } });
+      return mapConversation(created);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const winner = await this.db.chatConversation.findFirst({ where: { userId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+        if (winner) return mapConversation(winner);
+      }
+      throw err;
+    }
   }
 
   async setCliSession(id: string, sessionId: string | null): Promise<void> {

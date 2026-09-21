@@ -57,4 +57,20 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     expect(failed.error_code).toBe('RUNNER_FAILED');
     expect(failed.text).toBe('comecei a olhar');
   });
+
+  it('never creates two conversations for the same user under a concurrent first load', async () => {
+    const raceUserId = newId();
+    await db.user.create({ data: { id: raceUserId, email: `${raceUserId}@test.local`, name: 'test' } });
+    try {
+      // 2 calls alone are not enough to reliably overlap on a fresh connection pool in this suite
+      // (the pool's connection warm-up serializes a first small burst); 20 concurrent calls do
+      // reliably race, exercising the partial unique index and the create/re-read fallback.
+      const results = await Promise.all(Array.from({ length: 20 }, () => repo.getOrCreateForUser(raceUserId)));
+      const ids = new Set(results.map((r) => r.id));
+      expect(ids.size).toBe(1);
+      expect(await db.chatConversation.count({ where: { userId: raceUserId } })).toBe(1);
+    } finally {
+      await db.user.delete({ where: { id: raceUserId } }); // cascades the conversation
+    }
+  });
 });
