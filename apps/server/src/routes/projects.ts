@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine } from '../db/repositories/types.js';
 import { badRequest } from '../lib/errors.js';
+import { nextTerminalName } from '../lib/tab-names.js';
 import { scoped } from '../auth/scope.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
@@ -120,7 +121,9 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     const kind = body.kind ?? 'terminal';
     const existing = await repos.tabs.listByProject(id);
     const count = existing.filter((t) => t.kind === kind).length + 1;
-    const name = body.name ?? (kind === 'simulator' ? `Simulador ${count}` : `Terminal ${count}`);
+    const name =
+      body.name ??
+      (kind === 'simulator' ? `Simulador ${count}` : nextTerminalName(existing.map((t) => t.name)));
     if (kind === 'simulator' && !machine.capabilities.includes('wda')) throw badRequest('Prepare o WDA nesta máquina antes de abrir um simulador');
     const tab = await repos.tabs.create(id, name, { kind, simulator_udid: body.simulator_udid ?? null });
     return reply.code(201).send({ tab: { ...tab, alive: false } });
