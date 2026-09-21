@@ -28,6 +28,25 @@ export interface RunnerClient {
   run(input: RunnerInput): AsyncIterable<string>;
 }
 
+/** How long a proposed action waits for the user's decision before it is nobody's question anymore.
+ * Kept in step with `mintConciergeToken`'s own TTL_MS: a token outlives every action minted under it. */
+const ACTION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The hourly timer's other half (app.ts, next to `authService.purgeExpired()`): a proposed write the
+ * user never answered must not sit `pending` forever — it would keep blocking the same proposal's
+ * idempotency key and keep showing as an open question on every reload. Approved-but-not-yet-executed
+ * rows are untouched (`expireOlderThan` only ever moves `pending`), so an approval that is merely slow
+ * to be re-injected is never mistaken for one nobody answered.
+ *
+ * A standalone function, not a `ChatService` method: it only ever needs `repos`, and keeping it out of
+ * the class means the hourly timer can call it without constructing a runner or config dirs it has no
+ * use for, and it can be unit-tested the same way.
+ */
+export async function purgeExpiredActions(repos: Repositories, now = new Date()): Promise<number> {
+  return repos.chatActions.expireOlderThan(new Date(now.getTime() - ACTION_TTL_MS));
+}
+
 /**
  * Errors that mean "the chat could not even be attempted" rather than "the answer failed": the
  * concierge is not configured on this server (503) or did not accept the request at all (502).
@@ -203,7 +222,9 @@ export class ChatService {
       // not escape send() and leave an empty bubble with no explanation.
       let token: string | undefined;
       try {
-        token = await mintConciergeToken(this.deps.repos, user.id, ['read']);
+        // Wide scopes are safe here only because mintConciergeToken always pairs them with
+        // `gated: true` — every write this token can attempt still stops at the chat's gate.
+        token = await mintConciergeToken(this.deps.repos, user.id, ['read', 'tasks', 'terminals']);
       } catch {
         errorCode = 'TOKEN_FAILED';
       }

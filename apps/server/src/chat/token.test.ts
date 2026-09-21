@@ -22,6 +22,22 @@ it('creates a token that looks like an API token and never returns the hash', as
   expect(hash).not.toContain(token);
 });
 
+it('mints with the concierge\'s write scopes and the gate flag together, never one without the other', async () => {
+  const r = repos();
+  await mintConciergeToken(r, 'u1', ['read', 'tasks', 'terminals']);
+  const [, input] = r.apiTokens.create.mock.calls[0];
+  expect(input).toMatchObject({ scopes: ['read', 'tasks', 'terminals'], gated: true });
+});
+
+it('gates the token even when asked to mint a narrower scope list', async () => {
+  // gated:true is hardcoded in mintConciergeToken itself, not derived from the scopes it is given —
+  // the dangerous combination (wide scopes, no gate) must be structurally impossible, not just untested.
+  const r = repos();
+  await mintConciergeToken(r, 'u1', ['read']);
+  const [, input] = r.apiTokens.create.mock.calls[0];
+  expect((input as { gated: boolean }).gated).toBe(true);
+});
+
 it('revokes the previous concierge token and leaves the user other tokens alone', async () => {
   const r = repos([
     { id: 'tok_old', name: CONCIERGE_TOKEN_NAME, revoked_at: null },

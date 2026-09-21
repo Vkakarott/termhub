@@ -1,10 +1,10 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
 import { chatBus, type ChatEvent } from './bus.js';
 import { HttpError } from '../lib/errors.js';
-import { ChatService, type RunnerClient } from './service.js';
+import { ChatService, purgeExpiredActions, type RunnerClient } from './service.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
 
@@ -249,6 +249,16 @@ it('publishes the action and a shape-locked action_result over the bus, never th
   expect(actionResult).toMatchObject({ ok: false });
 });
 
+it('mints the concierge token with the write scopes and the gate flag together', async () => {
+  // Pinned here, at the actual call site, not just inside mintConciergeToken: this is what would
+  // regress if send() ever went back to minting `['read']` — the exact dangerous combination this
+  // branch closes is wide scopes with no gate, and only this call site decides the scopes.
+  const { service, repos } = build([delta('ok'), done()]);
+  await service.send(user, 'abre uma aba');
+  const [, input] = vi.mocked(repos.apiTokens.create).mock.calls[0];
+  expect(input).toMatchObject({ scopes: ['read', 'tasks', 'terminals'], gated: true });
+});
+
 it('marks the message with TOKEN_FAILED instead of throwing when minting the token fails', async () => {
   const { service, messages, repos } = build([delta('nunca chega'), done()]);
   vi.mocked(repos.apiTokens.create).mockRejectedValueOnce(new Error('db down'));
@@ -363,4 +373,35 @@ it('drains two decisions queued behind one run, one per completion, oldest first
   expect(userTexts[2]).toContain('close_tab'); // a2: decided second
   expect(chatActions.markInjected).toHaveBeenNthCalledWith(1, 'a1');
   expect(chatActions.markInjected).toHaveBeenNthCalledWith(2, 'a2');
+});
+
+describe('purgeExpiredActions', () => {
+  // A unit test of the function itself (ruling R3): this must be pinned without booting the app, so
+  // it calls the exported function directly against a stubbed repository, the same way app.ts's
+  // hourly timer will — never through ChatService, which has no reason to hold a runner or config
+  // dirs just to expire rows nobody answered.
+  it('expires pending rows older than 24h and returns the repository\'s count', async () => {
+    const expireOlderThan = vi.fn(async () => 3);
+    const repos = { chatActions: { expireOlderThan } } as unknown as Repositories;
+    const now = new Date('2026-09-21T12:00:00.000Z');
+
+    const count = await purgeExpiredActions(repos, now);
+
+    expect(count).toBe(3);
+    expect(expireOlderThan).toHaveBeenCalledTimes(1);
+    const cutoff = expireOlderThan.mock.calls[0][0] as Date;
+    expect(cutoff.toISOString()).toBe('2026-09-20T12:00:00.000Z');
+  });
+
+  it('defaults to now when no clock is given', async () => {
+    const expireOlderThan = vi.fn(async () => 0);
+    const repos = { chatActions: { expireOlderThan } } as unknown as Repositories;
+    const before = Date.now();
+
+    await purgeExpiredActions(repos);
+
+    const cutoff = expireOlderThan.mock.calls[0][0] as Date;
+    expect(before - cutoff.getTime()).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 1000);
+    expect(before - cutoff.getTime()).toBeLessThan(24 * 60 * 60 * 1000 + 5000);
+  });
 });
