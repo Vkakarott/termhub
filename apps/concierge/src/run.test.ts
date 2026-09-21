@@ -19,6 +19,7 @@ it('builds the exact argv the spec fixes, with no permission bypass', () => {
     '-p',
     '--session-id', req.session_id,
     '--output-format', 'stream-json',
+    '--verbose',
     '--include-partial-messages',
     '--mcp-config', '/tmp/mcp.json',
     '--strict-mcp-config',
@@ -35,6 +36,20 @@ it('resumes the session and passes the model when asked', () => {
 
 it('never passes a permission bypass, whatever the input', () => {
   expect(buildArgs({ ...req, mcp_config_path: '/tmp/mcp.json' }).join(' ')).not.toContain('dangerously');
+});
+
+// The installed CLI refuses to run otherwise: "Error: When using --print,
+// --output-format=stream-json requires --verbose" — this pins the flag so nobody drops it as noise.
+it('passes --verbose whenever it passes --output-format stream-json', () => {
+  const variants = [
+    buildArgs({ ...req, mcp_config_path: '/tmp/mcp.json' }),
+    buildArgs({ ...req, resume: true, model: 'sonnet', mcp_config_path: '/tmp/mcp.json' }),
+  ];
+  for (const args of variants) {
+    if (args.includes('--output-format') && args[args.indexOf('--output-format') + 1] === 'stream-json') {
+      expect(args).toContain('--verbose');
+    }
+  }
 });
 
 // --- streaming, against a fake CLI: no login, no network, runs in CI ---

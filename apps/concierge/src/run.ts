@@ -24,6 +24,10 @@ export function buildArgs(req: RunRequest & { mcp_config_path: string }): string
     '--session-id', req.session_id,
     ...(req.resume ? ['--resume', req.session_id] : []),
     '--output-format', 'stream-json',
+    // required by the CLI: with --print, --output-format=stream-json refuses to run without it
+    // ("Error: When using --print, --output-format=stream-json requires --verbose"). It only
+    // changes what the CLI writes to stdout, never logging the prompt.
+    '--verbose',
     '--include-partial-messages',
     '--mcp-config', req.mcp_config_path,
     '--strict-mcp-config',
