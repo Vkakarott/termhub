@@ -182,7 +182,12 @@ export function ChatPage() {
     // Height and overflow belong to ChatLayout; this page owns the reading column: centred, capped
     // at a comfortable measure and padded so a long answer survives a phone. The bottom safe area
     // is the composer's own (`ChatComposer`), since it — not this column — is anchored to the edge.
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4">
+    // `min-w-0` on this column and on the thread below is what keeps a phone honest: a flex item's
+    // automatic minimum size is its min-content width, and `break-words` does not reduce that (by
+    // spec, `overflow-wrap` never shrinks min-content). So one unbreakable token in an answer — a
+    // `waiting_permission` in backticks, a long path — widened this column past the viewport and
+    // took the composer's send button off screen with it.
+    <div className="mx-auto flex h-full w-full min-w-0 max-w-3xl flex-col px-4">
       {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
       {/* A new conversation is otherwise a header, an empty thread and a box: one line saying what
        * this screen is for. Deliberately just the one — no example prompts, no tour. */}
@@ -192,7 +197,7 @@ export function ChatPage() {
       <ol
         ref={listRef}
         aria-label="Conversa"
-        className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4"
+        className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto py-4"
         onScroll={(e) => {
           stick.current = isNearBottom(e.currentTarget);
         }}
