@@ -87,10 +87,20 @@ describe('ChatComposer dictation', () => {
     expect(primary(/parar/i).disabled).toBe(false);
   });
 
+  it('shows a disabled microphone while the hook is still checking, never a send arrow', () => {
+    renderComposer({ state: 'checking', value: '' });
+
+    // `checking` lasts one round trip, and dictation is what an empty box is about to offer: a send
+    // arrow for that instant, swapped for a mic when /config answers, is a flicker on first paint.
+    expect(screen.queryByRole('button', { name: /enviar/i })).toBeNull();
+    expect(primary(/ditar/i).disabled).toBe(true);
+  });
+
   it('says it is transcribing, disables the primary button, and offers no cancel', () => {
     renderComposer({ state: 'transcribing', value: '' });
 
-    expect(screen.getByText(/transcrevendo/i)).toBeTruthy();
+    // A wait nobody can see must be a wait a screen reader hears.
+    expect(screen.getByRole('status').textContent).toMatch(/transcrevendo/i);
     expect(primary(/ditar/i).disabled).toBe(true);
     // `cancel()` cannot stop an upload that is already on its way — offering it here would lie.
     expect(screen.queryByRole('button', { name: /cancelar/i })).toBeNull();
@@ -104,10 +114,38 @@ describe('ChatComposer dictation', () => {
     expect(primary(/enviar/i).disabled).toBe(true);
   });
 
-  it('shows the dictation error', () => {
+  it('shows the dictation error, and announces it', () => {
     renderComposer({ state: 'idle', value: '', error: 'Permissão do microfone negada' });
 
     expect(screen.getByText('Permissão do microfone negada')).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toBe('Permissão do microfone negada');
+  });
+
+  it('keeps every glyph decorative: the accessible name is on the button, never on the svg', () => {
+    const roles: Array<[{ state: DictationState; value: string }, RegExp]> = [
+      [{ state: 'checking', value: '' }, /ditar/i],
+      [{ state: 'idle', value: '' }, /ditar/i],
+      [{ state: 'idle', value: 'olha' }, /enviar/i],
+      [{ state: 'recording', value: '' }, /parar/i],
+    ];
+
+    for (const [opts, name] of roles) {
+      const { container } = renderComposer(opts);
+      const button = primary(name);
+
+      const glyphs = Array.from(container.querySelectorAll('svg'));
+      expect(glyphs).toHaveLength(1);
+      for (const glyph of glyphs) {
+        expect(glyph.getAttribute('aria-hidden')).toBe('true');
+        expect(glyph.getAttribute('aria-label')).toBeNull();
+        expect(glyph.querySelector('title')).toBeNull();
+      }
+      // The button carries the name itself, and has no text for a name to fall back to: moving the
+      // name onto the glyph tomorrow would leave the button with nothing to be called.
+      expect(button.getAttribute('aria-label')).toMatch(name);
+      expect(button.textContent).toBe('');
+      cleanup();
+    }
   });
 
   it('appends the transcription to what is already typed, with a space between', () => {
@@ -116,6 +154,20 @@ describe('ChatComposer dictation', () => {
     act(() => deliverText!('isso aqui'));
 
     expect(onChange).toHaveBeenCalledWith('olha isso aqui');
+  });
+
+  it('puts the keyboard back in the box when the transcription lands', () => {
+    renderComposer({ state: 'idle', value: 'olha' });
+    const box = screen.getByPlaceholderText(/pergunte/i);
+    // Where a keyboard user is standing when the text arrives: on the stop button, which is disabled
+    // the moment the upload starts, so the browser has already dropped focus to `body`.
+    (screen.getByRole('button', { name: /enviar/i }) as HTMLButtonElement).focus();
+    (document.activeElement as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+
+    act(() => deliverText!('isso aqui'));
+
+    expect(document.activeElement).toBe(box);
   });
 
   it('does not invent whitespace the box already has, and does not lose a newline', () => {

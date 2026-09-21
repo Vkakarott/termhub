@@ -66,6 +66,11 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   const dictation = useDictation((text) => {
     const next = appendDictated(value, text);
     if (next !== value) onChange(next);
+    // The button the person just pressed is disabled by now and about to change role, so a browser
+    // has already dropped focus to `body` — a keyboard user would lose their place at the exact
+    // moment the text appears. The box is also where they want to be: what anyone does with a
+    // transcription is read it and fix it.
+    ref.current?.focus();
   });
 
   useEffect(() => {
@@ -93,9 +98,11 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   // Recording outranks the text: a box that is listening stops, it never sends mid-sentence. With
   // nothing typed the button dictates — unless dictation is off, where the empty box keeps the
   // ordinary (disabled) send button and nothing explains the missing microphone, because a browser
-  // that cannot record is not a fault the person can fix from this screen.
+  // that cannot record is not a fault the person can fix from this screen. While the hook is still
+  // `checking` the button is already the microphone, just disabled: dictation is what an empty box is
+  // about to offer, and showing a send arrow for that instant only to swap it is a flicker.
   const role: PrimaryRole = dictation.state === 'recording' ? 'stop' : hasText || dictation.state === 'off' ? 'send' : 'dictate';
-  const disabled = role === 'stop' ? false : role === 'send' ? !hasText || sending || busy : busy;
+  const disabled = role === 'stop' ? false : role === 'send' ? !hasText || sending || busy : busy || dictation.state === 'checking';
 
   return (
     // `env(safe-area-inset-bottom)` resolves to 0px in every browser today, because the app-wide
@@ -105,7 +112,10 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
     <div className="mb-4 pb-[env(safe-area-inset-bottom)]">
       {/* One box, two rows: the text on top, the action row beneath it. The box, not the textarea,
           shows the focus — the textarea's own outline would draw inside the rounded border, so it is
-          dropped and the border lights up instead; a keyboard user must still see where they are. */}
+          dropped and the border lights up instead; a keyboard user must still see where they are.
+          `min-w-0` does nothing while the parent is a column flex container (the automatic minimum
+          size acts on the main axis, vertical there) and is kept only as the guard for the day this
+          box is a row's flex item again — which is also why no test can observe it. */}
       <div className="min-w-0 rounded-2xl border border-line bg-bg-2 px-3 py-2 focus-within:border-accent">
         <textarea
           ref={ref}
@@ -123,7 +133,13 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
         />
         <div className="mt-1 flex items-center justify-end gap-2">
           {dictation.state === 'recording' && <RecordingStatus dictation={dictation} />}
-          {busy && <span className="text-xs text-fg-muted">transcrevendo…</span>}
+          {/* `role="status"` so a screen reader hears the wait it cannot see. Not on the clock next
+              door: a live region that ticks every second is worse than one that says nothing. */}
+          {busy && (
+            <span role="status" className="text-xs text-fg-muted">
+              transcrevendo…
+            </span>
+          )}
           <button
             type="button"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
@@ -136,7 +152,11 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
           </button>
         </div>
       </div>
-      {dictation.error && <p className="mt-1 px-1 text-xs text-danger">{dictation.error}</p>}
+      {dictation.error && (
+        <p role="status" className="mt-1 px-1 text-xs text-danger">
+          {dictation.error}
+        </p>
+      )}
     </div>
   );
 }
