@@ -13,6 +13,9 @@ export interface ApiToken {
   last_used_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  /** True when the token's writes pass the chat's confirmation gate — the concierge's, never a
+   * person's own. */
+  gated: boolean;
 }
 
 /** One MCP tool call: metadata only (never typed text, screen content or prompts). */
@@ -38,6 +41,7 @@ const mapApiToken = (t: PrismaApiToken): ApiToken => ({
   last_used_at: t.lastUsedAt?.toISOString() ?? null,
   revoked_at: t.revokedAt?.toISOString() ?? null,
   created_at: t.createdAt.toISOString(),
+  gated: t.gated,
 });
 
 const activeWhere = (now: Date) => ({ revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] });
@@ -54,9 +58,9 @@ export class ApiTokensRepository {
     return this.db.apiToken.count({ where: { userId, ...activeWhere(now) } });
   }
 
-  async create(userId: string, input: { name: string; scopes: ApiTokenScope[]; expiresAt: Date | null }, tokenHash: string): Promise<ApiToken> {
+  async create(userId: string, input: { name: string; scopes: ApiTokenScope[]; expiresAt: Date | null; gated?: boolean }, tokenHash: string): Promise<ApiToken> {
     const t = await this.db.apiToken.create({
-      data: { id: newId(), userId, name: input.name, scopes: input.scopes, expiresAt: input.expiresAt, tokenHash },
+      data: { id: newId(), userId, name: input.name, scopes: input.scopes, expiresAt: input.expiresAt, tokenHash, gated: input.gated ?? false },
     });
     return mapApiToken(t);
   }

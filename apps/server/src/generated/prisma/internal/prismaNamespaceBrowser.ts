@@ -73,7 +73,8 @@ export const ModelName = {
   ApiToken: 'ApiToken',
   ApiTokenEvent: 'ApiTokenEvent',
   ChatConversation: 'ChatConversation',
-  ChatMessage: 'ChatMessage'
+  ChatMessage: 'ChatMessage',
+  ChatAction: 'ChatAction'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -376,7 +377,8 @@ export const ApiTokenScalarFieldEnum = {
   expiresAt: 'expiresAt',
   lastUsedAt: 'lastUsedAt',
   revokedAt: 'revokedAt',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  gated: 'gated'
 } as const
 
 export type ApiTokenScalarFieldEnum = (typeof ApiTokenScalarFieldEnum)[keyof typeof ApiTokenScalarFieldEnum]
@@ -425,6 +427,28 @@ export const ChatMessageScalarFieldEnum = {
 } as const
 
 export type ChatMessageScalarFieldEnum = (typeof ChatMessageScalarFieldEnum)[keyof typeof ChatMessageScalarFieldEnum]
+
+
+export const ChatActionScalarFieldEnum = {
+  id: 'id',
+  conversationId: 'conversationId',
+  messageId: 'messageId',
+  tool: 'tool',
+  args: 'args',
+  class: 'class',
+  status: 'status',
+  idempotencyKey: 'idempotencyKey',
+  machineId: 'machineId',
+  projectId: 'projectId',
+  tabId: 'tabId',
+  errorCode: 'errorCode',
+  durationMs: 'durationMs',
+  decidedBy: 'decidedBy',
+  decidedAt: 'decidedAt',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatActionScalarFieldEnum = (typeof ChatActionScalarFieldEnum)[keyof typeof ChatActionScalarFieldEnum]
 
 
 export const SortOrder = {

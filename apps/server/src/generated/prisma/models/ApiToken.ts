@@ -34,6 +34,7 @@ export type ApiTokenMinAggregateOutputType = {
   lastUsedAt: Date | null
   revokedAt: Date | null
   createdAt: Date | null
+  gated: boolean | null
 }
 
 export type ApiTokenMaxAggregateOutputType = {
@@ -45,6 +46,7 @@ export type ApiTokenMaxAggregateOutputType = {
   lastUsedAt: Date | null
   revokedAt: Date | null
   createdAt: Date | null
+  gated: boolean | null
 }
 
 export type ApiTokenCountAggregateOutputType = {
@@ -57,6 +59,7 @@ export type ApiTokenCountAggregateOutputType = {
   lastUsedAt: number
   revokedAt: number
   createdAt: number
+  gated: number
   _all: number
 }
 
@@ -70,6 +73,7 @@ export type ApiTokenMinAggregateInputType = {
   lastUsedAt?: true
   revokedAt?: true
   createdAt?: true
+  gated?: true
 }
 
 export type ApiTokenMaxAggregateInputType = {
@@ -81,6 +85,7 @@ export type ApiTokenMaxAggregateInputType = {
   lastUsedAt?: true
   revokedAt?: true
   createdAt?: true
+  gated?: true
 }
 
 export type ApiTokenCountAggregateInputType = {
@@ -93,6 +98,7 @@ export type ApiTokenCountAggregateInputType = {
   lastUsedAt?: true
   revokedAt?: true
   createdAt?: true
+  gated?: true
   _all?: true
 }
 
@@ -178,6 +184,7 @@ export type ApiTokenGroupByOutputType = {
   lastUsedAt: Date | null
   revokedAt: Date | null
   createdAt: Date
+  gated: boolean
   _count: ApiTokenCountAggregateOutputType | null
   _min: ApiTokenMinAggregateOutputType | null
   _max: ApiTokenMaxAggregateOutputType | null
@@ -211,6 +218,7 @@ export type ApiTokenWhereInput = {
   lastUsedAt?: Prisma.DateTimeNullableFilter<"ApiToken"> | Date | string | null
   revokedAt?: Prisma.DateTimeNullableFilter<"ApiToken"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ApiToken"> | Date | string
+  gated?: Prisma.BoolFilter<"ApiToken"> | boolean
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   events?: Prisma.ApiTokenEventListRelationFilter
 }
@@ -225,6 +233,7 @@ export type ApiTokenOrderByWithRelationInput = {
   lastUsedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   revokedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  gated?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
   events?: Prisma.ApiTokenEventOrderByRelationAggregateInput
 }
@@ -242,6 +251,7 @@ export type ApiTokenWhereUniqueInput = Prisma.AtLeast<{
   lastUsedAt?: Prisma.DateTimeNullableFilter<"ApiToken"> | Date | string | null
   revokedAt?: Prisma.DateTimeNullableFilter<"ApiToken"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ApiToken"> | Date | string
+  gated?: Prisma.BoolFilter<"ApiToken"> | boolean
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   events?: Prisma.ApiTokenEventListRelationFilter
 }, "id" | "tokenHash">
@@ -256,6 +266,7 @@ export type ApiTokenOrderByWithAggregationInput = {
   lastUsedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   revokedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  gated?: Prisma.SortOrder
   _count?: Prisma.ApiTokenCountOrderByAggregateInput
   _max?: Prisma.ApiTokenMaxOrderByAggregateInput
   _min?: Prisma.ApiTokenMinOrderByAggregateInput
@@ -274,6 +285,7 @@ export type ApiTokenScalarWhereWithAggregatesInput = {
   lastUsedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ApiToken"> | Date | string | null
   revokedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ApiToken"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ApiToken"> | Date | string
+  gated?: Prisma.BoolWithAggregatesFilter<"ApiToken"> | boolean
 }
 
 export type ApiTokenCreateInput = {
@@ -285,6 +297,7 @@ export type ApiTokenCreateInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
   user: Prisma.UserCreateNestedOneWithoutApiTokensInput
   events?: Prisma.ApiTokenEventCreateNestedManyWithoutTokenInput
 }
@@ -299,6 +312,7 @@ export type ApiTokenUncheckedCreateInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
   events?: Prisma.ApiTokenEventUncheckedCreateNestedManyWithoutTokenInput
 }
 
@@ -311,6 +325,7 @@ export type ApiTokenUpdateInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
   user?: Prisma.UserUpdateOneRequiredWithoutApiTokensNestedInput
   events?: Prisma.ApiTokenEventUpdateManyWithoutTokenNestedInput
 }
@@ -325,6 +340,7 @@ export type ApiTokenUncheckedUpdateInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
   events?: Prisma.ApiTokenEventUncheckedUpdateManyWithoutTokenNestedInput
 }
 
@@ -338,6 +354,7 @@ export type ApiTokenCreateManyInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
 }
 
 export type ApiTokenUpdateManyMutationInput = {
@@ -349,6 +366,7 @@ export type ApiTokenUpdateManyMutationInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 export type ApiTokenUncheckedUpdateManyInput = {
@@ -361,6 +379,7 @@ export type ApiTokenUncheckedUpdateManyInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 export type ApiTokenListRelationFilter = {
@@ -391,6 +410,7 @@ export type ApiTokenCountOrderByAggregateInput = {
   lastUsedAt?: Prisma.SortOrder
   revokedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  gated?: Prisma.SortOrder
 }
 
 export type ApiTokenMaxOrderByAggregateInput = {
@@ -402,6 +422,7 @@ export type ApiTokenMaxOrderByAggregateInput = {
   lastUsedAt?: Prisma.SortOrder
   revokedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  gated?: Prisma.SortOrder
 }
 
 export type ApiTokenMinOrderByAggregateInput = {
@@ -413,6 +434,7 @@ export type ApiTokenMinOrderByAggregateInput = {
   lastUsedAt?: Prisma.SortOrder
   revokedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  gated?: Prisma.SortOrder
 }
 
 export type ApiTokenScalarRelationFilter = {
@@ -494,6 +516,7 @@ export type ApiTokenCreateWithoutUserInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
   events?: Prisma.ApiTokenEventCreateNestedManyWithoutTokenInput
 }
 
@@ -506,6 +529,7 @@ export type ApiTokenUncheckedCreateWithoutUserInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
   events?: Prisma.ApiTokenEventUncheckedCreateNestedManyWithoutTokenInput
 }
 
@@ -548,6 +572,7 @@ export type ApiTokenScalarWhereInput = {
   lastUsedAt?: Prisma.DateTimeNullableFilter<"ApiToken"> | Date | string | null
   revokedAt?: Prisma.DateTimeNullableFilter<"ApiToken"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ApiToken"> | Date | string
+  gated?: Prisma.BoolFilter<"ApiToken"> | boolean
 }
 
 export type ApiTokenCreateWithoutEventsInput = {
@@ -559,6 +584,7 @@ export type ApiTokenCreateWithoutEventsInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
   user: Prisma.UserCreateNestedOneWithoutApiTokensInput
 }
 
@@ -572,6 +598,7 @@ export type ApiTokenUncheckedCreateWithoutEventsInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
 }
 
 export type ApiTokenCreateOrConnectWithoutEventsInput = {
@@ -599,6 +626,7 @@ export type ApiTokenUpdateWithoutEventsInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
   user?: Prisma.UserUpdateOneRequiredWithoutApiTokensNestedInput
 }
 
@@ -612,6 +640,7 @@ export type ApiTokenUncheckedUpdateWithoutEventsInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 export type ApiTokenCreateManyUserInput = {
@@ -623,6 +652,7 @@ export type ApiTokenCreateManyUserInput = {
   lastUsedAt?: Date | string | null
   revokedAt?: Date | string | null
   createdAt?: Date | string
+  gated?: boolean
 }
 
 export type ApiTokenUpdateWithoutUserInput = {
@@ -634,6 +664,7 @@ export type ApiTokenUpdateWithoutUserInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
   events?: Prisma.ApiTokenEventUpdateManyWithoutTokenNestedInput
 }
 
@@ -646,6 +677,7 @@ export type ApiTokenUncheckedUpdateWithoutUserInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
   events?: Prisma.ApiTokenEventUncheckedUpdateManyWithoutTokenNestedInput
 }
 
@@ -658,6 +690,7 @@ export type ApiTokenUncheckedUpdateManyWithoutUserInput = {
   lastUsedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   revokedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  gated?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 
@@ -701,6 +734,7 @@ export type ApiTokenSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   lastUsedAt?: boolean
   revokedAt?: boolean
   createdAt?: boolean
+  gated?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   events?: boolean | Prisma.ApiToken$eventsArgs<ExtArgs>
   _count?: boolean | Prisma.ApiTokenCountOutputTypeDefaultArgs<ExtArgs>
@@ -716,6 +750,7 @@ export type ApiTokenSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   lastUsedAt?: boolean
   revokedAt?: boolean
   createdAt?: boolean
+  gated?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiToken"]>
 
@@ -729,6 +764,7 @@ export type ApiTokenSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   lastUsedAt?: boolean
   revokedAt?: boolean
   createdAt?: boolean
+  gated?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["apiToken"]>
 
@@ -742,9 +778,10 @@ export type ApiTokenSelectScalar = {
   lastUsedAt?: boolean
   revokedAt?: boolean
   createdAt?: boolean
+  gated?: boolean
 }
 
-export type ApiTokenOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "name" | "tokenHash" | "scopes" | "expiresAt" | "lastUsedAt" | "revokedAt" | "createdAt", ExtArgs["result"]["apiToken"]>
+export type ApiTokenOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "name" | "tokenHash" | "scopes" | "expiresAt" | "lastUsedAt" | "revokedAt" | "createdAt" | "gated", ExtArgs["result"]["apiToken"]>
 export type ApiTokenInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   events?: boolean | Prisma.ApiToken$eventsArgs<ExtArgs>
@@ -776,6 +813,10 @@ export type $ApiTokenPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     lastUsedAt: Date | null
     revokedAt: Date | null
     createdAt: Date
+    /**
+     * A token whose writes pass the chat's confirmation gate — the concierge's, never a person's own.
+     */
+    gated: boolean
   }, ExtArgs["result"]["apiToken"]>
   composites: {}
 }
@@ -1210,6 +1251,7 @@ export interface ApiTokenFieldRefs {
   readonly lastUsedAt: Prisma.FieldRef<"ApiToken", 'DateTime'>
   readonly revokedAt: Prisma.FieldRef<"ApiToken", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"ApiToken", 'DateTime'>
+  readonly gated: Prisma.FieldRef<"ApiToken", 'Boolean'>
 }
     
 

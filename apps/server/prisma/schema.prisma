@@ -441,6 +441,8 @@ model ApiToken {
   revokedAt  DateTime?       @map("revoked_at")
   createdAt  DateTime        @default(now()) @map("created_at")
   events     ApiTokenEvent[]
+  /// A token whose writes pass the chat's confirmation gate — the concierge's, never a person's own.
+  gated      Boolean         @default(false)
 
   @@index([userId])
   @@map("api_tokens")
@@ -491,6 +493,7 @@ model ChatConversation {
   lastMessageAt DateTime?     @map("last_message_at")
   createdAt     DateTime      @default(now()) @map("created_at")
   messages      ChatMessage[]
+  actions       ChatAction[]
 
   @@index([userId, createdAt])
   @@map("chat_conversations")
@@ -511,4 +514,32 @@ model ChatMessage {
 
   @@index([conversationId, createdAt])
   @@map("chat_messages")
+}
+
+/// One action the concierge proposed, and what became of it. `args` holds what it proposed — the
+/// command, the prompt, the target — never a tool result's payload (spec §7.1). Also the chat's
+/// action trail: step 1 rendered the trail from live events only, so it vanished on reload.
+model ChatAction {
+  id             String           @id
+  conversationId String           @map("conversation_id")
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String?          @map("message_id")
+  tool           String
+  args           Json
+  /// read | write | irreversible
+  class          String
+  /// pending | approved | denied | expired | executed | failed
+  status         String
+  idempotencyKey String?          @map("idempotency_key")
+  machineId      String?          @map("machine_id")
+  projectId      String?          @map("project_id")
+  tabId          String?          @map("tab_id")
+  errorCode      String?          @map("error_code")
+  durationMs     Int?             @map("duration_ms")
+  decidedBy      String?          @map("decided_by")
+  decidedAt      DateTime?        @map("decided_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([conversationId, createdAt])
+  @@map("chat_actions")
 }
