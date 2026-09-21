@@ -580,6 +580,16 @@ it('puts a card between the two messages it was proposed between', async () => {
   expect(thread.querySelector('ul')).toBeTruthy(); // the fixture's bullets really are on screen
 });
 
+it('does not hand its scroll to the document when the thread reaches its end', async () => {
+  // Without `overscroll-contain` the thread chains its scroll to the page: on a phone the whole
+  // document rubber-bands past the end of the conversation, which reads as a screen that scrolls
+  // for ever under the one you are reading. jsdom does not scroll, so the class is what can be
+  // pinned; the behaviour itself only shows on a device.
+  render(<ChatPage />);
+  const thread = await screen.findByRole('list', { name: 'Conversa' });
+  expect(thread.className).toContain('overscroll-contain');
+});
+
 it('cannot be widened past the viewport by an unbreakable token in an answer', async () => {
   // A flex item's automatic minimum size is its min-content width, and `break-words` does not
   // reduce that — so without `min-w-0` one backticked `waiting_permission` in an answer stretched
