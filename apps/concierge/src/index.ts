@@ -1,9 +1,13 @@
-import { createServer } from 'node:http';
+import { createServer, IncomingMessage } from 'node:http';
 import { z } from 'zod';
 import { RunFailed, runClaude } from './run.js';
 
 const SECRET = process.env.CONCIERGE_SECRET ?? '';
 const PORT = Number(process.env.PORT ?? 4100);
+
+// An 8000-character message plus the rest of the JSON envelope fits comfortably under this; a
+// larger body is rejected before it is ever fully buffered.
+const MAX_BODY_BYTES = 64 * 1024;
 
 const body = z.object({
   session_id: z.string().uuid(),
@@ -15,26 +19,54 @@ const body = z.object({
   mcp_url: z.string().url(),
 });
 
-const server = createServer(async (req, res) => {
-  if (req.method === 'GET' && req.url === '/health') return res.writeHead(200).end('ok');
-  if (req.method !== 'POST' || req.url !== '/run') return res.writeHead(404).end();
-  // The compose network is not authentication: the shared secret is (spec §7.2).
-  if (!SECRET || req.headers['x-concierge-secret'] !== SECRET) return res.writeHead(401).end();
-
+/** Reads the request body, bailing out (without buffering the rest) once it exceeds the cap. */
+async function readBody(req: IncomingMessage): Promise<Buffer | null> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  const parsed = body.safeParse(JSON.parse(Buffer.concat(chunks).toString() || '{}'));
-  if (!parsed.success) return res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'invalid body' }));
+  let total = 0;
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length;
+    if (total > MAX_BODY_BYTES) return null;
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
 
-  res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store' });
+export const server = createServer(async (req, res) => {
   try {
-    for await (const line of runClaude(parsed.data)) res.write(line + '\n');
-    res.end();
-  } catch (e) {
-    // The frames already sent stay valid; the last line says why it stopped. Never log the body.
-    const code = e instanceof RunFailed ? e.code : null;
-    res.write(JSON.stringify({ type: 'termhub_error', code, message: e instanceof Error ? e.message : 'unknown' }) + '\n');
-    res.end();
+    if (req.method === 'GET' && req.url === '/health') return res.writeHead(200).end('ok');
+    if (req.method !== 'POST' || req.url !== '/run') return res.writeHead(404).end();
+    // The compose network is not authentication: the shared secret is (spec §7.2).
+    if (!SECRET || req.headers['x-concierge-secret'] !== SECRET) return res.writeHead(401).end();
+
+    const raw = await readBody(req);
+    if (raw === null) {
+      // Close the connection: the client may still be sending bytes we never finished reading.
+      return res.writeHead(413, { 'content-type': 'application/json', connection: 'close' }).end(JSON.stringify({ error: 'body too large' }));
+    }
+
+    let json: unknown;
+    try {
+      json = raw.length ? JSON.parse(raw.toString()) : {};
+    } catch {
+      return res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'invalid body' }));
+    }
+    const parsed = body.safeParse(json);
+    if (!parsed.success) return res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'invalid body' }));
+
+    res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store' });
+    try {
+      for await (const line of runClaude(parsed.data)) res.write(line + '\n');
+      res.end();
+    } catch (e) {
+      // The frames already sent stay valid; the last line says why it stopped. Never log the body.
+      const code = e instanceof RunFailed ? e.code : null;
+      res.write(JSON.stringify({ type: 'termhub_error', code, message: e instanceof Error ? e.message : 'unknown' }) + '\n');
+      res.end();
+    }
+  } catch {
+    // One bad request must never be able to end the process: nothing above may escape unhandled.
+    if (!res.headersSent) res.writeHead(500).end();
+    else res.end();
   }
 });
 

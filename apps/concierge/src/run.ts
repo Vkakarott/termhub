@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -74,5 +74,9 @@ export async function* runClaude(req: RunRequest, opts: { cliPath?: string; tmpD
     if (code !== 0) throw new RunFailed(code, stderr.slice(-2000));
   } finally {
     clearTimeout(timer);
+    // The consumer may have stopped early (client disconnected): the timeout that would have
+    // killed the child is gone, so kill it here or it keeps running with no safety net.
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    rmSync(dir, { recursive: true, force: true }); // the 0600 MCP config holds a live token
   }
 }

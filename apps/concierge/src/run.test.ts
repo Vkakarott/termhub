@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -67,3 +67,54 @@ it('streams the CLI frames as lines and feeds the prompt over stdin', async () =
   expect(readFileSync(join(bin, 'stdin'), 'utf8')).toBe('o que está rodando?');
   expect(readFileSync(join(bin, 'argv'), 'utf8')).toContain('--strict-mcp-config');
 });
+
+it('removes the per-run temp directory after a normal completion', async () => {
+  const runsDir = mkdtempSync(join(bin, 'after-'));
+  const lines: string[] = [];
+  for await (const line of runClaude({ ...req, config_dir: join(bin, 'cfg') }, { cliPath: join(bin, 'claude'), tmpDir: runsDir })) lines.push(line);
+
+  expect(lines).toHaveLength(2);
+  // the 0600 MCP config (a live bearer token) must not outlive the run
+  expect(readdirSync(runsDir)).toEqual([]);
+});
+
+it(
+  'a consumer that stops early kills the child and still removes the temp directory',
+  async () => {
+    const runsDir = mkdtempSync(join(bin, 'early-'));
+    const pidFile = join(bin, 'slow-pid');
+    const slow = join(bin, 'slow-claude');
+    writeFileSync(
+      slow,
+      `#!/bin/sh
+echo $$ > ${pidFile}
+echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"first"}}}'
+sleep 5
+echo '{"type":"result","session_id":"'"$2"'"}'
+`,
+    );
+    chmodSync(slow, 0o755);
+
+    for await (const _line of runClaude({ ...req, config_dir: join(bin, 'cfg') }, { cliPath: slow, tmpDir: runsDir })) {
+      break; // simulate an HTTP client disconnecting mid-stream
+    }
+
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    // SIGTERM lands asynchronously: poll briefly, but the sleeping child must not survive the disconnect
+    const deadline = Date.now() + 2000;
+    let alive = true;
+    while (Date.now() < deadline) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        alive = false;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    expect(alive).toBe(false);
+    expect(readdirSync(runsDir)).toEqual([]);
+  },
+  8000,
+);
