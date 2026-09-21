@@ -10,6 +10,14 @@ describe('isNearBottom', () => {
     expect(isNearBottom({ scrollTop: 0, scrollHeight: 1000, clientHeight: 100 })).toBe(false);
   });
 
+  it('brackets the default 48px slack itself, not just exact-bottom and far-away', () => {
+    // 880 + 100 = 980, and 1000 - 48 = 952: 980 is short of the bottom but within the slack — the
+    // real-world case of a reader a few pixels off the bottom who still counts as "following".
+    expect(isNearBottom({ scrollTop: 880, scrollHeight: 1000, clientHeight: 100 })).toBe(true);
+    // 850 + 100 = 950 < 952: just outside the slack, from the other side of the same boundary.
+    expect(isNearBottom({ scrollTop: 850, scrollHeight: 1000, clientHeight: 100 })).toBe(false);
+  });
+
   it('is true for the zero-height element jsdom gives every test', () => {
     // A list nobody has scrolled counts as at the bottom — this is what keeps "scrolls to the
     // newest message" meaningful instead of quietly inverting it.
