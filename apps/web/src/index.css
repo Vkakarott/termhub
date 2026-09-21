@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
+/* Only while the chat is mounted (ChatLayout adds the class): the document may not scroll or
+   rubber-band, so a drag that starts on the message box has nowhere to push the page. */
+body.chat-locked { overflow: hidden; overscroll-behavior: none; touch-action: pan-y; }
 body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 
 * { scrollbar-width: thin; scrollbar-color: #2a2f3a transparent; }

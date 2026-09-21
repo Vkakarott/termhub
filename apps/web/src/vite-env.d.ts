@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** Build-time stamp (`MM-DD HH:MM`, UTC) injected by `vite.config.ts`; shown in the chat header. */
+declare const __BUILD_STAMP__: string;
+
 /** Firebase Analytics config, injected at build time (Dockerfile build args). Same values as the landing. */
 interface ImportMetaEnv {
   readonly VITE_FIREBASE_API_KEY: string | undefined;
