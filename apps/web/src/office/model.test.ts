@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project, Tab } from '../lib/types';
-import { buildModel, lookOf, missingTabIds, truncateLabel } from './model';
+import { buildCityModel, buildModel, lookOf, missingTabIds, resolveFocus, sameFocus, truncateLabel, type MachineEntry } from './model';
 
 const tab = (id: string, over: Partial<OfficeTab> = {}): OfficeTab =>
   ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, alive: true, progress: null, ...over }) as OfficeTab;
 const room = (id: string, tabs: OfficeTab[], over: Partial<OfficeRoom> = {}): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null, ...over });
-const snap = (rooms: OfficeRoom[], over: Partial<OfficeSnapshot> = {}): OfficeSnapshot => ({ machine: { id: 'm1', name: 'jarvis' } as never, reachable: true, rooms, ...over });
+const snap = (rooms: OfficeRoom[], machineId = 'm1', over: Partial<OfficeSnapshot> = {}): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms, ...over });
 const none = () => undefined;
 
 describe('buildModel', () => {
@@ -72,13 +72,13 @@ describe('buildModel', () => {
     // reachable: false means the tmux listing failed, so `alive: false` is not evidence of anything:
     // emptying the chairs there would erase every raised hand for up to a minute
     const desks = buildModel(
-      snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' }), tab('sim', { kind: 'simulator', alive: false })])], { reachable: false }),
+      snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' }), tab('sim', { kind: 'simulator', alive: false })])], 'm1', { reachable: false }),
       none,
     ).rooms[0].desks;
     expect([desks[0].pose, desks[0].marker]).toEqual(['raise', 'input']);
     // a simulator's `alive` comes from the simulator manager, not from tmux: it still holds
     expect([desks[1].kind, desks[1].screenOn]).toEqual(['phone', false]);
-    expect(buildModel(snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' })])], { reachable: false }), none).needsYou).toBe(1);
+    expect(buildModel(snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' })])], 'm1', { reachable: false }), none).needsYou).toBe(1);
   });
 
   it('takes the state fields from whichever side saw them last', () => {
@@ -161,5 +161,61 @@ describe('missingTabIds', () => {
   });
   it('returns [] before the first snapshot', () => {
     expect(missingTabIds(null, ['b'], projects, projectOf)).toEqual([]);
+  });
+});
+
+describe('buildCityModel', () => {
+  const entry = (id: string, over: Partial<MachineEntry> = {}): MachineEntry => ({ id, name: id, online: true, snapshot: snap([room(`${id}-p`, [tab(`${id}-t`)])], id), failed: false, ...over });
+
+  it('orders machines by name and leaves out the ones still loading', () => {
+    const city = buildCityModel([entry('zeta'), entry('alpha'), entry('mid', { snapshot: null })], none);
+    expect(city.machines.map((m) => m.id)).toEqual(['alpha', 'zeta']);
+  });
+  it('turns a failed machine into an empty error block and keeps the rest', () => {
+    const city = buildCityModel([entry('a'), entry('b', { snapshot: null, failed: true })], none);
+    expect(city.machines.map((m) => [m.id, m.notice, m.floor.rooms.length])).toEqual([['a', null, 1], ['b', 'error', 0]]);
+  });
+  it('tells offline from silent, offline winning, and darkens only an offline block', () => {
+    const silent = snap([room('p', [tab('t')])], 's');
+    silent.reachable = false;
+    const city = buildCityModel([entry('o', { online: false }), entry('s', { snapshot: silent }), entry('k')], none);
+    expect(city.machines.map((m) => [m.id, m.notice, m.lit])).toEqual([['k', null, true], ['o', 'offline', false], ['s', 'silent', true]]);
+  });
+  it('sums who needs you per machine and for the city', () => {
+    const at = '2026-09-21T10:00:00.000Z';
+    const waiting = (id: string) => tab(id, { state: 'waiting_input', state_at: at });
+    const city = buildCityModel([entry('a', { snapshot: snap([room('p', [waiting('t1'), waiting('t2')])], 'a') }), entry('b', { snapshot: snap([room('q', [waiting('t3')])], 'b') })], none);
+    expect(city.machines.map((m) => m.needsYou)).toEqual([2, 1]);
+    expect(city.needsYou).toBe(3);
+  });
+  it('ignores a snapshot that belongs to another machine', () => {
+    expect(buildCityModel([entry('a', { snapshot: snap([], 'someone-else') })], none).machines).toEqual([]);
+  });
+  it('truncates the label and keeps the name', () => {
+    const long = 'm'.repeat(80);
+    const m = buildCityModel([entry('a', { name: long })], none).machines[0];
+    expect(m.name).toBe(long);
+    expect(m.label.length).toBeLessThanOrEqual(28);
+  });
+});
+
+describe('resolveFocus', () => {
+  const city = buildCityModel(
+    [{ id: 'm1', name: 'm1', online: true, failed: false, snapshot: snap([room('p1', [tab('t')])], 'm1') }, { id: 'm2', name: 'm2', online: true, failed: false, snapshot: snap([room('p2', [])], 'm2') }],
+    none,
+  );
+  it('frames the city with no machine, an unknown machine, or before anything loaded', () => {
+    expect(resolveFocus(city, undefined, null)).toEqual({ kind: 'city' });
+    expect(resolveFocus(city, 'ghost', 'p1')).toEqual({ kind: 'city' });
+    expect(resolveFocus(null, 'm1', 'p1')).toEqual({ kind: 'city' });
+  });
+  it('frames a machine, and a room only when it belongs to that machine', () => {
+    expect(resolveFocus(city, 'm1', null)).toEqual({ kind: 'machine', machineId: 'm1' });
+    expect(resolveFocus(city, 'm1', 'p1')).toEqual({ kind: 'room', machineId: 'm1', roomId: 'p1' });
+    expect(resolveFocus(city, 'm1', 'p2')).toEqual({ kind: 'machine', machineId: 'm1' });
+  });
+  it('compares targets by value', () => {
+    expect(sameFocus({ kind: 'room', machineId: 'a', roomId: 'r' }, { kind: 'room', machineId: 'a', roomId: 'r' })).toBe(true);
+    expect(sameFocus({ kind: 'machine', machineId: 'a' }, { kind: 'city' })).toBe(false);
   });
 });
