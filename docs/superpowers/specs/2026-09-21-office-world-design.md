@@ -1,9 +1,9 @@
 # Office world: an animated, navigable view of the account's machines, projects and tabs — design
 
 Date: 2026-09-21. Status: **v1 (one machine's floor) is in production since 2026-09-21 (PRs #89,
-#90). v2 (the city: every machine in one scene) is designed here, approved section by section in
-conversation, and awaits review of this written spec.** Supersedes the open questions of
-`2026-09-19-office-world-brainstorm.md`, which stays as the record of the idea.
+#90). v2 (the city: every machine in one scene) is implemented on branch `feat/office-city`,
+pending review and merge.** Supersedes the open questions of `2026-09-19-office-world-brainstorm.md`,
+which stays as the record of the idea.
 
 ## 1. Goal
 
@@ -95,8 +95,12 @@ Interaction:
 
 - Clicking a block (its floor outside any room, or the machine's sign) moves the camera to that
   machine. Clicking a room moves the camera into it, from the city as well as from the machine.
-- `Esc` goes up one rest at a time — room, machine, city — and then leaves focus mode. Zooming out
-  past a threshold also goes up one rest.
+- `Esc` and the breadcrumb walk the full ladder — room, machine, city, then out of focus mode —
+  one rung at a time. Zooming out past a threshold (the scene's own "go up") climbs the same
+  room → machine → city rungs but never takes the last one: leaving focus mode is a deliberate
+  act, not something a wheel or pinch gesture should do by itself. With a single machine the city
+  rung does not exist, so either kind of "up" stops at the machine rest — for `Esc` that means
+  leaving focus mode directly from there.
 - A breadcrumb in the top bar, `Cidade › <machine> › <project>`, shows where the camera rests;
   each part is a link to that rest. It replaces v1's machine selector and "voltar ao andar" button.
 - Clicking a person — the whole desk, person and furniture together, not only the head — opens the
@@ -107,7 +111,12 @@ Interaction:
 
 **Auto-drill.** An account with a single machine opens `/office` straight at that machine: a city
 of one block adds nothing. A machine with exactly one project that has tabs opens straight into
-that room, when it is reached by auto-drill or by its own URL with no `?room=`.
+that room, when it is reached by auto-drill or by its own URL with no `?room=`. What is not a
+choice is not asked: a machine reached "by hand" — a block clicked from the city, or a room left
+with `Esc` — has its auto-drill into that machine's only room suppressed once, so stepping back
+out of a room does not immediately drop the person straight back into it; a direct arrival at a
+different machine (a fresh load, Back/Forward, another block clicked) still auto-drills normally,
+since "by hand" is tracked per machine id and never leaks from one to another.
 
 **URL is the state.** `/office` is the city, `/office/:machineId` a machine, `?room=<projectId>` a
 room of it, `?focus=1` focus mode. v1's links keep working. Reloading or sharing the link lands in
@@ -140,11 +149,21 @@ next row, with a four-tile street between blocks and between rows — wider than
 corridor, so where one machine ends reads without drawing anything. A room's origin is its
 block's origin plus its own. A machine with no projects is a minimal empty block with its sign; a
 machine whose snapshot could not be loaded is the same block with "não foi possível carregar".
+Every block's ground is outlined, a 3 px line one shade lighter than its fill: filled alone, a
+dark block sat only a few values away from the page background, so its footprint and the street
+around it were simply not there — the machine people are waiting on became the least visible
+thing in the city. The outline also tells two neighbouring blocks apart from each other, not only
+from the street.
 
 **Stability.**
 
 - A machine going offline or coming back repaints its block in place (the dark palette a paused
-  project already uses); nothing rebuilds.
+  project already uses); nothing rebuilds. Its people and furniture dim with it — alpha 0.45,
+  applied in place to what is already drawn, not a rebuild — but its markers do not: a raised
+  hand must read the same whether or not its machine answers. On the block's sign only the name
+  and the notice dim with the rest of the sign; the needs-you counter is set apart as its own
+  piece of text and stays at full attention orange, since it is the one thing an offline machine
+  must not say quietly.
 - A machine's snapshot arriving, a machine added or removed, or a floor changing size rebuilds the
   city under the same camera rule as a floor rebuild below: block order is kept, later blocks may
   move, and the scene re-frames by itself only while the person has not moved the camera.
@@ -171,8 +190,26 @@ frame — so furniture never covers them.
 that never reported a state still get a desk. `useMonitor()` contributes only the live state of
 each desk.
 
-**Detail by zoom.** Below a scale threshold only machine signs show; above it, room signs. Markers
-show at every zoom, at a fixed screen size. Desk labels and bars follow the focused room, as in v1.
+**Detail by zoom.** A room's signs show once the camera scale reaches `ROOM_SIGN_SCALE` (0.7) or
+the room belongs to the focused machine — inside a machine its own rooms are always named, since
+that is what the person is looking at; elsewhere only once the zoom makes the name readable. A
+machine's own sign shows the opposite: below `ROOM_SIGN_SCALE`, or whenever the machine is not the
+focused one — the name of the machine you are already standing in is redundant until you zoom back
+out of it. Never both for the machine the person is inside. Markers show at every zoom, at a fixed
+screen size. Desk labels and bars follow the focused room, as in v1.
+
+**Sign anchors.** A room's sign hangs over its own back corner. A machine's sign hangs over its
+block's FRONT corner instead: every marker points upward out of its desk, so the ground below the
+block's last row is the one part of a block that nothing of its own reaches into, which keeps the
+sign clear of its own furniture and keeps it over the machine's own ground rather than drifting
+across the street onto the block behind it. Both anchors are lifted above their world point in
+SCREEN pixels — the block's world anchor shrinks with the zoom while the sign keeps its screen
+size, so a sign that clears what is under it at close range would otherwise land right on top of
+it once the camera pulls back; a machine's sign carries the larger lift, room for the diamond
+under it to widen enough to hold the text. Past a point a long machine name no longer fits over a
+block that has shrunk around a sign that has not: the machine sign's own scale gives way with the
+camera, down to a floor of 0.72, never past legibility. Either sign is hidden outright once its
+anchor point has left the viewport, or half a sign would stay glued to the screen edge.
 
 **Limits.** Past roughly 600 visible desks, culling of off-screen rooms becomes necessary. The
 city draws the whole account, which is still in the tens of desks. Culling is not implemented; the
@@ -287,10 +324,20 @@ arrived, in machine name order; "Carregando…" shows only while none has.
 per open browser tab — so `probeTmuxSessions` results are kept per machine: 15 s for a reachable
 answer, 60 s for an unreachable one. Several browser tabs, or the city next to a project page,
 share one ssh round-trip, and a machine that stays down costs the account one ssh timeout a
-minute instead of one per tab. Only the probe result is memoised; projects, tabs and tasks are
-read from the database on every request. The server has no stored online status for ssh machines
-(the browser polls it every 30 s), which is why the negative result is cached here rather than
-looked up.
+minute instead of one per tab. Concurrent callers for the same machine — two browser tabs polling
+in the same second, say — share the one probe already in flight rather than starting a second ssh
+round-trip; only a settled result is written into the memo. Only the probe result is memoised;
+projects, tabs and tasks are read from the database on every request. The server has no stored
+online status for ssh machines (the browser polls it every 30 s), which is why the negative result
+is cached here rather than looked up.
+
+**`?fresh=1` bypasses the memo.** `GET /api/office/:machineId?fresh=1` skips the cached probe and
+refreshes it, for the one case where the memo would actively mislead: a tab was just opened on the
+machine, and a snapshot read within the memo's window would still say "no session" for it, which
+the browser would then read as that tab having disappeared rather than as the memo being stale.
+The browser sends `?fresh=1` only from `reload(machineId)` — a monitor push naming a tab that
+machine's last snapshot does not have — never from its regular polling, so the account pays the
+extra ssh round-trip on this path only when a new person really has to be found.
 
 **Display.**
 
@@ -364,23 +411,32 @@ enforces its own access.
   each with its floor and its loading status), from the snapshots and `useMonitor`. Pure, tested.
   It is the boundary between React and the scene.
 - `apps/web/src/office/useOfficeSnapshots.ts` — the per-machine reads.
-- `apps/web/src/office/scene/` — `OfficeScene` (draws a city model; `focus(target)` frames the
-  city, a machine or a room), `Camera`, `RoomView`, `PersonView`, `Overlay` (now with machine
-  signs). The only code that knows PixiJS.
+- `apps/web/src/office/scene/` — the only place PixiJS is imported outside `office/pack/`:
+  `OfficeScene` (draws a city model; `focus(target)` frames the city, a machine or a room),
+  `Camera`, `RoomView` (rooms and, now, a block's ground), `PersonView`, `Overlay` (`RoomSign`
+  and, now, `MachineSign`). `detail.ts` sits beside them but imports no PixiJS itself — it is the
+  pure rule for which signs a given zoom and focus show, unit-tested on its own.
 - `apps/web/src/office/pack/` — manifest and atlas loader, and the script that generates the
   in-house atlas.
 - `apps/web/src/pages/OfficePage.tsx` — URL state, focus mode, mounting.
 - `apps/server/src/routes/office.ts` — the snapshot endpoint, over new repository reads;
   `apps/server/src/terminal/machine-exec.ts` — the tmux probe and its per-machine memo.
 
-**Testing.** Vitest for the layout (`packShelves`, floor, city), `model.ts`, the snapshots hook
-(a slow machine does not hold the others, a failing one becomes an error block, a newly missing
-tab re-reads only its machine), the probe memo (expiry, the longer negative result, separate keys
-per machine) and the office route (scope, permissions, progress arithmetic). `OfficePage` has a
-render test over a fake scene: one scene instance across city, machine and room; auto-drill with
-a single machine; the `Esc` ladder. The Pixi
-scene is verified by screenshot through the login-free harness, as in the spike, since jsdom has
-no WebGL.
+**Testing.** Vitest for the layout (`packShelves`, floor, city), `model.ts`, `detail.ts`'s sign
+visibility rule, the snapshots hook (a slow machine does not hold the others, a failing one becomes
+an error block, a newly missing tab re-reads only its machine), the probe memo (expiry, the longer
+negative result, separate keys per machine, concurrent callers sharing one in-flight probe) and the
+office route (scope, permissions, progress arithmetic). `OfficePage.test.tsx` pins the behaviour
+that is easy to regress by hand-testing only the happy path: one scene instance kept across a visit
+to the city, a machine, a room and back up — the canvas is never rebuilt or left blank; the
+single-machine ladder, where the city rung does not exist and `Esc` from the machine rest leaves
+focus mode directly; the auto-drill rules, including that a machine reached by hand (a clicked
+block, a room left with `Esc`) is not auto-drilled into again, while a different machine reached
+directly still is; focus mode preserved through every move up and down the ladder; the breadcrumb's
+own links, and that its city part is left out with a single machine; and that a machine's own
+notices (offline, unreachable tmux) surface in the top bar and, in focus mode, in its corner, but
+never in the city rest, where only the block's own sign carries them. The Pixi scene itself is
+verified by screenshot through the login-free harness, as in the spike, since jsdom has no WebGL.
 
 **The spike.** `/spike/office` is removed in the same pull request that ships `/office`. `iso.ts`
 and its tests are promoted to `office/layout/`; the rest of the spike is deleted; the login-free
