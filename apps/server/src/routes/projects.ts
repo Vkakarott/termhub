@@ -21,6 +21,8 @@ const createBody = z.object({
   description: z.string().trim().max(2000).optional().nullable(),
   /** cria a pasta na máquina (mkdir -p) se ela não existir */
   create_dir: z.boolean().optional(),
+  /** published: readable by anyone with the /city/@nickname link */
+  is_public: z.boolean().optional(),
 });
 
 const patchBody = createBody.omit({ machine_id: true }).partial();
@@ -48,7 +50,9 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
   });
 
   app.post('/', async (request, reply) => {
-    const { create_dir, ...body } = createBody.parse(request.body);
+    // is_public is accepted on the schema only so patchBody (derived from it) can take it — a new
+    // project is never born public, publishing is a deliberate later step guarded on PATCH.
+    const { create_dir, is_public: _is_public, ...body } = createBody.parse(request.body);
     const machine = await scoped(repos, request).machine(body.machine_id).catch(() => {
       throw badRequest('Máquina inexistente');
     });
@@ -63,12 +67,17 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     return { project };
   });
 
-  app.patch('/:id', async (request) => {
+  app.patch('/:id', async (request, reply) => {
     const { id } = idParam.parse(request.params);
     const { project: current, machine } = await scoped(repos, request).project(id);
     const { create_dir, ...patch } = patchBody.parse(request.body);
     if (patch.cwd !== undefined && patch.cwd !== current.cwd) {
       patch.cwd = await resolveCwd(machine, patch.cwd, create_dir);
+    }
+    if (patch.is_public === true && !current.is_public) {
+      if (!machine.owner_id) return reply.code(409).send({ error: 'Essa máquina não tem dono', code: 'MACHINE_UNOWNED' });
+      if (machine.owner_id !== request.user!.id) return reply.code(403).send({ error: 'Só quem é dono da máquina pode publicar', code: 'NOT_OWNER' });
+      if (!request.user!.nickname) return reply.code(409).send({ error: 'Escolha seu apelido antes de publicar', code: 'NICKNAME_REQUIRED' });
     }
     return { project: await repos.projects.update(id, patch) };
   });

@@ -8,6 +8,7 @@ export interface ProjectInput {
   cwd: string;
   status?: ProjectStatus;
   description?: string | null;
+  is_public?: boolean;
 }
 
 export class ProjectsRepository {
@@ -52,6 +53,7 @@ export class ProjectsRepository {
         cwd: input.cwd,
         status: input.status ?? 'active',
         description: input.description ?? null,
+        isPublic: input.is_public ?? false,
       },
     });
     return mapProject(p);
@@ -63,7 +65,7 @@ export class ProjectsRepository {
     const next = { ...current, ...patch };
     const p = await this.db.project.update({
       where: { id },
-      data: { name: next.name, cwd: next.cwd, status: next.status, description: next.description ?? null },
+      data: { name: next.name, cwd: next.cwd, status: next.status, description: next.description ?? null, isPublic: next.is_public },
     });
     return mapProject(p);
   }
