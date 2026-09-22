@@ -42,6 +42,8 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
     VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID \
     VITE_BUILD_SHA=$VITE_BUILD_SHA
 RUN npm run prisma:generate && npm run build
+# The public city, built on its own with base /city/ so it never shares an asset path with the app bundle above.
+RUN npm run build:city -w @termhub/web
 # Só dependências de produção na imagem final
 RUN npm prune --omit=dev
 
@@ -62,6 +64,7 @@ COPY --from=build --chown=app:app /app/apps/server/dist ./apps/server/dist
 COPY --from=build --chown=app:app /app/apps/server/prisma ./apps/server/prisma
 COPY --from=build --chown=app:app /app/apps/server/prisma.config.ts ./apps/server/
 COPY --from=build --chown=app:app /app/apps/web/dist ./apps/web/dist
+COPY --from=build --chown=app:app /app/apps/web/dist-city ./apps/web/dist-city
 # @termhub/server imports these at runtime through the node_modules/@termhub/* workspace symlinks
 # (copied above with node_modules), which point at ../../packages/<name> — the targets must exist
 # at that same relative path in the runner stage.
