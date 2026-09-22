@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectInput, ProjectMachineLink, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -128,11 +128,16 @@ export const api = {
   projects: {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),
     get: (id: string) => request<{ project: Project }>('GET', `/projects/${id}`),
+    keyAvailable: (key: string) => request<{ available: boolean; reason?: 'invalid' | 'taken' }>('GET', `/projects/key-available?key=${encodeURIComponent(key)}`),
     create: (input: ProjectInput) => request<{ project: Project }>('POST', '/projects', input),
     update: (id: string, input: ProjectInput) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),
+    machines: (id: string) => request<{ machines: Array<ProjectMachineLink & { machine: { id: string; name: string; type: MachineType } }> }>('GET', `/projects/${id}/machines`),
+    linkMachine: (id: string, input: { machine_id: string; cwd: string; create_dir?: boolean }) => request<{ link: ProjectMachineLink }>('POST', `/projects/${id}/machines`, input),
+    updateMachine: (id: string, machineId: string, input: { cwd: string; create_dir?: boolean }) => request<{ link: ProjectMachineLink }>('PATCH', `/projects/${id}/machines/${machineId}`, input),
+    unlinkMachine: (id: string, machineId: string) => request<{ ok: true; closed_tabs: number }>('DELETE', `/projects/${id}/machines/${machineId}`),
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),
-    createTab: (id: string, input: { name?: string; kind?: TabKind; simulator_udid?: string } = {}) =>
+    createTab: (id: string, input: { name?: string; kind?: TabKind; simulator_udid?: string; machine_id?: string } = {}) =>
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),

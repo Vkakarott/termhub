@@ -115,21 +115,41 @@ export interface FsListing {
   roots: FsRoot[];
 }
 
+/** One machine a project is linked to and its working directory there. */
+export interface ProjectMachineLink {
+  machine_id: string;
+  cwd: string;
+  position: number;
+}
+
 export interface Project {
   id: string;
-  machine_id: string;
+  /** null = orphan (visible only to admins viewing "all") */
+  owner_id: string | null;
+  /** short key: URLs and card numbers (TERMHUB-42); unique, never changes */
+  key: string;
+  next_task_number: number;
   name: string;
-  cwd: string;
   status: ProjectStatus;
   description: string | null;
   last_terminal_at: string | null;
   created_at: string;
+  /** machines the project runs on; empty = board and notes only */
+  machines: ProjectMachineLink[];
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
 
-/** Corpo de criação/edição de projeto. `create_dir`: cria a pasta na máquina se não existir. */
-export type ProjectInput = Partial<Project> & { create_dir?: boolean };
+/** Corpo de criação/edição. `machine_id` + `cwd` juntos criam o primeiro vínculo; `create_dir` cria a pasta na máquina. */
+export interface ProjectInput {
+  name?: string;
+  key?: string;
+  description?: string | null;
+  status?: ProjectStatus;
+  machine_id?: string;
+  cwd?: string;
+  create_dir?: boolean;
+}
 
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
@@ -255,7 +275,7 @@ export interface Note {
 
 export interface DashboardItem {
   project: Project;
-  machine: Machine | null;
+  machines: Machine[];
   doing: Task[];
   open_tasks: number;
 }
@@ -272,6 +292,7 @@ export type TabKind = 'terminal' | 'simulator';
 export interface Tab {
   id: string;
   project_id: string;
+  machine_id: string;
   name: string;
   kind: TabKind;
   tmux_session: string | null;
