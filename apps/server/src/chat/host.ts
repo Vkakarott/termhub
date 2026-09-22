@@ -42,7 +42,18 @@ export type HostAccount = { kind: 'chosen'; id: string; label: string } | { kind
 export type HostChoice =
   | { kind: 'ready'; machine: Machine; configDir: string | null; account: HostAccount }
   | { kind: 'no_machine' }
-  | { kind: 'not_chosen'; machines: Machine[] }
+  /**
+   * `sessionAtStake` is what tells the two ways of reaching this apart, because they deserve different
+   * screens: a conversation that never ran has nothing to lose by picking a machine, while one that
+   * already ran holds a `cli_session_id` in the config dir of a machine this conversation no longer
+   * names (unenrolled, or never stored because there was only one candidate at the time). Picking a
+   * machine that is not the one holding that session throws the model's memory away, and `setHost`
+   * cannot see it coming — the stored machine is already null, so it has nothing to compare and keeps
+   * the id. Spec §3 says the person hears that before the change, so the state travels instead of
+   * being guessed in the browser. Only ever true when something really is at stake: a warning that is
+   * usually false teaches people to click past the one that matters.
+   */
+  | { kind: 'not_chosen'; machines: Machine[]; sessionAtStake: boolean }
   | { kind: 'offline'; machine: Machine }
   | { kind: 'agent_too_old'; machine: Machine; version: string };
 
@@ -68,7 +79,7 @@ export async function resolveHost(ctx: HostContext, user: User): Promise<HostCho
   // A chosen machine that is gone (deleted, or no longer this user's) behaves exactly as if nothing
   // had ever been chosen: with one machine there is nothing to ask, with several the user picks.
   const machine = chosen ?? (candidates.length === 1 ? candidates[0] : undefined);
-  if (!machine) return { kind: 'not_chosen', machines: candidates };
+  if (!machine) return { kind: 'not_chosen', machines: candidates, sessionAtStake: conversation.cli_session_id !== null };
 
   const capabilities = ctx.agents.capabilities(machine.id);
   // Offline, or connected but still before `hello`: the same thing to a message that has to be sent
@@ -108,7 +119,14 @@ async function accountFor(ctx: HostContext, accountId: string | null, machine: M
   return { configDir: account.config_dir, account: { kind: 'chosen', id: account.id, label: account.label } };
 }
 
-/** `(versão 0.4.9)`, or nothing at all when the agent never said which one it is. */
+/**
+ * `(versão 0.4.9)`, or nothing at all when the agent never said which one it is.
+ *
+ * Deliberately duplicated in `apps/web/src/components/chat/ChatHost.tsx`, which renders the same note
+ * in the browser: this is one string on either side of a process boundary, and a shared package for it
+ * would cost more than it saves. If the shape of the note changes, change both — they are not wired
+ * together and nothing will fail if one is forgotten.
+ */
 const versionNote = (version: string): string => (version ? ` (versão ${version})` : '');
 
 /**

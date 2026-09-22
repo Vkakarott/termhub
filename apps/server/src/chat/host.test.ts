@@ -42,7 +42,7 @@ const account = (id: string, machineId: string, configDir: string | null, over: 
 function build(opts: {
   machines?: Machine[];
   accounts?: AiAccount[];
-  conversation?: { machine_id?: string | null; ai_account_id?: string | null };
+  conversation?: { machine_id?: string | null; ai_account_id?: string | null; cli_session_id?: string | null };
   online?: Record<string, { capabilities: string[]; agent_version: string }>;
 } = {}) {
   const machines = opts.machines ?? [];
@@ -52,7 +52,7 @@ function build(opts: {
     id: 'c1',
     user_id: 'u1',
     title: null,
-    cli_session_id: null,
+    cli_session_id: opts.conversation?.cli_session_id ?? null,
     model: null,
     machine_id: opts.conversation?.machine_id ?? null,
     ai_account_id: opts.conversation?.ai_account_id ?? null,
@@ -93,7 +93,7 @@ it('asks which machine when there is more than one and none was chosen', async (
 
   const choice = await resolveHost(ctx, user);
 
-  expect(choice).toEqual({ kind: 'not_chosen', machines: [one, two] });
+  expect(choice).toEqual({ kind: 'not_chosen', machines: [one, two], sessionAtStake: false });
 });
 
 it('says the chosen machine is offline instead of falling back to the container', async () => {
@@ -133,11 +133,30 @@ it('treats a chosen machine that no longer belongs to the user as never chosen',
   // A deleted machine, or one handed to someone else: either way it is absent from this user's own
   // list, and the only safe answer is to ask again — never to resolve to a machine they do not own.
   const { ctx } = build({ machines: [one, two], conversation: { machine_id: 'm-gone' } });
-  expect(await resolveHost(ctx, user)).toEqual({ kind: 'not_chosen', machines: [one, two] });
+  expect(await resolveHost(ctx, user)).toEqual({ kind: 'not_chosen', machines: [one, two], sessionAtStake: false });
 
   // With a single machine there is nothing to ask: the stale id is simply ignored.
   const single = build({ machines: [one], conversation: { machine_id: 'm-gone' } });
   expect(await resolveHost(single.ctx, user)).toEqual({ kind: 'ready', machine: one, configDir: null, account: { kind: 'default' } });
+});
+
+it('says a session is at stake when the conversation already ran and has no machine chosen', async () => {
+  const one = machine('m1', 'macbook');
+  const two = machine('m2', 'jarvis');
+
+  // Someone unenrolled the machine this conversation was running on: the FK nulled `machine_id` while
+  // `cli_session_id` stayed, so the session now points at a config dir on a machine that is gone. The
+  // same shape happens without any deletion: a conversation that ran while there was one machine never
+  // stored it, and a second machine turns it into a choice. Either way, picking a machine that is not
+  // the one holding that session throws the model's memory away — and the spec says the person hears
+  // that *before* the change, so the state travels to the screen instead of being guessed there.
+  const gone = build({ machines: [one, two], conversation: { machine_id: null, cli_session_id: 'sess-1' } });
+  expect(await resolveHost(gone.ctx, user)).toEqual({ kind: 'not_chosen', machines: [one, two], sessionAtStake: true });
+
+  // A conversation that never ran has nothing to lose, and must not be warned: a warning that is
+  // usually false is a warning nobody reads.
+  const fresh = build({ machines: [one, two], conversation: { machine_id: null, cli_session_id: null } });
+  expect(await resolveHost(fresh.ctx, user)).toEqual({ kind: 'not_chosen', machines: [one, two], sessionAtStake: false });
 });
 
 it('never chooses a machine that belongs to someone else, even when the conversation names it', async () => {
@@ -155,7 +174,7 @@ it('never chooses a machine that belongs to someone else, even when the conversa
   // With more than one machine of their own the same foreign id asks again, listing only their own.
   const two = machine('m3', 'servidor');
   const several = build({ machines: [mine, theirs, two], conversation: { machine_id: 'm2' } });
-  expect(await resolveHost(several.ctx, user)).toEqual({ kind: 'not_chosen', machines: [mine, two] });
+  expect(await resolveHost(several.ctx, user)).toEqual({ kind: 'not_chosen', machines: [mine, two], sessionAtStake: false });
 });
 
 it('falls back to the machine default account when the chosen one was deleted, and says the choice was lost', async () => {

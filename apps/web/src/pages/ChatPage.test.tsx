@@ -711,7 +711,7 @@ it('with no machine of their own, says so and stops the composer with that as th
 it('picking one of the machines sets the host and re-reads the conversation', async () => {
   const ready = { kind: 'ready', machine: { id: 'm2', name: 'jarvis' }, configDir: null, account: { kind: 'default' } };
   // First read: nothing chosen. Every read after the choice sees the host the server now has.
-  chatMock.mockResolvedValueOnce(conversationWith({ kind: 'not_chosen', machines: [{ id: 'm1', name: 'macbook' }, { id: 'm2', name: 'jarvis' }] })).mockResolvedValue(conversationWith(ready));
+  chatMock.mockResolvedValueOnce(conversationWith({ kind: 'not_chosen', machines: [{ id: 'm1', name: 'macbook' }, { id: 'm2', name: 'jarvis' }], sessionAtStake: false })).mockResolvedValue(conversationWith(ready));
   setHostMock.mockResolvedValue({ conversation: { id: 'c1' }, host: ready });
   renderChat();
 
@@ -784,7 +784,7 @@ it('closes the picker with the reason when the machines could not be read', asyn
 
 it('shows the server refusal when the host could not be set', async () => {
   const { ApiError } = await import('../lib/api');
-  chatMock.mockResolvedValue(conversationWith({ kind: 'not_chosen', machines: [{ id: 'm1', name: 'macbook' }] }));
+  chatMock.mockResolvedValue(conversationWith({ kind: 'not_chosen', machines: [{ id: 'm1', name: 'macbook' }], sessionAtStake: false }));
   setHostMock.mockRejectedValueOnce(new ApiError(404, 'Máquina não encontrada', 'NOT_FOUND'));
   renderChat();
 

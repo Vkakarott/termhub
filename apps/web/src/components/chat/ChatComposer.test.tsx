@@ -66,6 +66,27 @@ describe('ChatComposer', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it('refuses to send while the host cannot run it, says why, and still lets the message be typed', () => {
+    const onSend = vi.fn();
+    render(<ChatComposer value="o que está rodando?" onChange={() => {}} onSend={onSend} sending={false} blockedReason="a máquina do chat está offline" />);
+    const box = screen.getByPlaceholderText(/pergunte/i) as HTMLTextAreaElement;
+    const button = screen.getByRole('button', { name: /enviar/i }) as HTMLButtonElement;
+
+    // The reason is on screen, next to the button that is refusing — a box that goes grey in silence is
+    // the one thing this screen must never do.
+    expect(screen.getByText('a máquina do chat está offline')).toBeTruthy();
+    expect(button.disabled).toBe(true);
+    // …and the box itself stays usable: a message can be written while the machine is being woken up.
+    expect(box.readOnly).toBe(false);
+    expect(box.disabled).toBe(false);
+
+    // Neither the button nor the keyboard can get past it.
+    fireEvent.click(button);
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = () => ({ matches: false }) as MediaQueryList;
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('floors the autosize at one row, since jsdom measures nothing', () => {
     render(<Harness />);
     const box = screen.getByPlaceholderText(/pergunte/i) as HTMLTextAreaElement;

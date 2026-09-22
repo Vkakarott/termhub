@@ -10,7 +10,14 @@ function accountClause(account: ChatHostAccount): string {
   return account.kind === 'chosen' ? `na conta ${account.label}` : 'na conta padrão do Claude dela';
 }
 
-/** `(versão 0.4.9)`, or nothing when the agent never said which one it is — never an empty `(versão )`. */
+/**
+ * `(versão 0.4.9)`, or nothing when the agent never said which one it is — never an empty `(versão )`.
+ *
+ * The same one-liner lives in `apps/server/src/chat/host.ts`, for the sentence a *send* fails with
+ * (`hostFailure`). Copied on purpose — one string across a process boundary, where a shared package
+ * would cost more than it saves — so a change to the note's shape has to be made in both places, and
+ * nothing will complain if one is missed.
+ */
 const versionNote = (version: string): string => (version ? ` (versão ${version})` : '');
 
 export interface ChatHostProps {
@@ -79,7 +86,11 @@ export function ChatHost({ host, machines, picking, changing, error, onPick, onC
           {host.kind === 'not_chosen' && (
             <>
               <p>Você tem mais de uma máquina: escolha em qual o chat vai rodar.</p>
-              {/* No warning here: nothing is being replaced — this conversation has no host yet. */}
+              {/* Only when there really is a session to lose (`sessionAtStake`): this conversation ran
+                  on a machine it no longer names, so any other machine starts the model's memory over.
+                  A first pick has nothing to lose and is not warned about — a warning that is usually
+                  false is one nobody reads, and then the one that matters is invisible too. */}
+              {host.sessionAtStake && <p className="mt-1 text-fg">Esta conversa já tem uma sessão numa máquina que não está mais escolhida. Se você escolher outra, o histórico fica, mas a memória do modelo começa de novo.</p>}
               <MachineList machines={host.machines} current={null} changing={changing} onChoose={onChoose} />
             </>
           )}

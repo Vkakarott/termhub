@@ -552,7 +552,13 @@ export type ChatHostAccount = { kind: 'chosen'; id: string; label: string } | { 
 export type ChatHostState =
   | { kind: 'ready'; machine: ChatHostMachine; configDir: string | null; account: ChatHostAccount }
   | { kind: 'no_machine' }
-  | { kind: 'not_chosen'; machines: ChatHostMachine[] }
+  /**
+   * `sessionAtStake` is the server's answer to "is there a model memory to lose here": true when the
+   * conversation already ran and the machine holding that CLI session is no longer the chosen one
+   * (unenrolled, or never stored while there was only one machine). Picking any other machine starts
+   * the session over, so that — and only that — is warned about before the pick.
+   */
+  | { kind: 'not_chosen'; machines: ChatHostMachine[]; sessionAtStake: boolean }
   | { kind: 'offline'; machine: ChatHostMachine }
   /** `version` is empty when the agent never said which one it is: the sentence then drops it. */
   | { kind: 'agent_too_old'; machine: ChatHostMachine; version: string };

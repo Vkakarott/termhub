@@ -63,11 +63,31 @@ it('with no machine, states the product shape and offers the way to enrol one', 
 });
 
 it('lists the machines to choose between, and picking one sets the host', async () => {
-  const props = show({ kind: 'not_chosen', machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')] });
+  const props = show({ kind: 'not_chosen', machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')], sessionAtStake: false });
 
   expect(screen.getByText(/escolha em qual/i)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'jarvis' }));
 
+  expect(props.onChoose).toHaveBeenCalledWith('m2');
+});
+
+it('picking the first machine warns about nothing: there is no session to lose', async () => {
+  show({ kind: 'not_chosen', machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')], sessionAtStake: false });
+
+  // A warning that is usually false is a warning nobody reads — so this one is not shown here.
+  expect(screen.queryByText(/memória do modelo/i)).toBeNull();
+  expect(screen.getByRole('button', { name: 'jarvis' })).toBeTruthy();
+});
+
+it('warns before the pick when a session is at stake, because the machine that held it is no longer chosen', async () => {
+  const props = show({ kind: 'not_chosen', machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')], sessionAtStake: true });
+
+  // On screen before any machine is picked: this is the case where the model's memory really does go.
+  expect(screen.getByText(/já tem uma sessão/i)).toBeTruthy();
+  expect(screen.getByText(/memória do modelo começa de novo/i)).toBeTruthy();
+  expect(props.onChoose).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'jarvis' }));
   expect(props.onChoose).toHaveBeenCalledWith('m2');
 });
 
@@ -124,13 +144,13 @@ it('says the machines are still being read while the picker has none yet', async
 });
 
 it('shows what a failed host change failed with, in the server words', async () => {
-  show({ kind: 'not_chosen', machines: [machine('m1', 'macbook')] }, { error: 'O chat só roda em uma máquina com o agente do termhub instalado' });
+  show({ kind: 'not_chosen', machines: [machine('m1', 'macbook')], sessionAtStake: false }, { error: 'O chat só roda em uma máquina com o agente do termhub instalado' });
 
   expect(screen.getByText(/só roda em uma máquina com o agente/i)).toBeTruthy();
 });
 
 it('cannot be clicked twice while the change is in flight', async () => {
-  show({ kind: 'not_chosen', machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')] }, { changing: true });
+  show({ kind: 'not_chosen', machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')], sessionAtStake: false }, { changing: true });
 
   for (const name of ['macbook', 'jarvis']) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
 });
