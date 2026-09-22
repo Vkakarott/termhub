@@ -14,6 +14,11 @@ import { registerPublicWs } from './ws.js';
 
 const pedro = { id: 'u1', nickname: 'pedro' } as User;
 const p1 = { id: 'p1', is_public: true, status: 'active' } as Project;
+// p2 (private) and p3 (archived) belong to the same owner as p1: present in `projects.list`, so
+// a test that deletes the is_public/status filter and leaves only set membership would still pass
+// unless something asserts these two are excluded (see "filters by is_public and status" below).
+const p2 = { id: 'p2', is_public: false, status: 'active' } as Project;
+const p3 = { id: 'p3', is_public: true, status: 'archived' } as Project;
 
 const tab = (over: Partial<Tab> = {}): Tab =>
   ({
@@ -110,7 +115,7 @@ describe('registerPublicWs', () => {
   beforeEach(async () => {
     repos = {
       users: { findByNickname: vi.fn(async (nickname: string) => (nickname === 'pedro' ? pedro : undefined)) },
-      projects: { list: vi.fn(async () => [p1]) },
+      projects: { list: vi.fn(async () => [p1, p2, p3]) },
     };
     server = http.createServer();
     const router = createUpgradeRouter(server, { auth: {} as AuthContext });
@@ -148,5 +153,50 @@ describe('registerPublicWs', () => {
 
   it('refuses an unknown nickname', async () => {
     await expect(connect('/ws/public/ninguem')).rejects.toThrow(/404/);
+  });
+
+  it('answers 404, not 500, for a malformed percent-escape in the nickname', async () => {
+    await expect(connect('/ws/public/%')).rejects.toThrow(/404/);
+  });
+
+  it('filters by is_public and status, not merely by membership in the owner\'s projects', async () => {
+    const client = await connect('/ws/public/pedro');
+    // p2 is private, p3 is public but archived — both belong to pedro and are returned by
+    // `projects.list`, so only the predicate inside registerPublicWs keeps them out.
+    monitorBus.publish({ tab: tab({ id: 't2', project_id: 'p2' }), project_id: 'p2', machine_id: 'm1', owner_id: 'u1' });
+    monitorBus.publish({ tab: tab({ id: 't3', project_id: 'p3' }), project_id: 'p3', machine_id: 'm1', owner_id: 'u1' });
+    monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    const frame = await nextMessage(client);
+    expect(frame.room).toBe(publicId('project', 'p1'));
+    expect(frame.robot.id).toBe(publicId('tab', 't1'));
+    await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
+    client.terminate();
+  });
+
+  it('reports alive from the tab\'s own state, matching the snapshot\'s cold-memo rule — not from the fact that a change arrived', async () => {
+    const client = await connect('/ws/public/pedro');
+    monitorBus.publish({ tab: tab({ id: 't4', state: null }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    const asleep = await nextMessage(client);
+    expect(asleep.robot.alive).toBe(false);
+    monitorBus.publish({ tab: tab({ id: 't5', state: 'working' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    const awake = await nextMessage(client);
+    expect(awake.robot.alive).toBe(true);
+    client.terminate();
+  });
+
+  it('does not crash the process on an oversized frame, and cleans up its subscriptions', async () => {
+    const client = await connect('/ws/public/pedro');
+    const listenersBefore = monitorBus.listenerCount();
+    const wentClosed = closed(client);
+    client.send(Buffer.alloc(8 * 1024, 0x20)); // over the 4 KiB maxPayload — a protocol violation
+    await wentClosed;
+    expect(monitorBus.listenerCount()).toBe(listenersBefore - 1);
+
+    // The server process is still standing: a fresh connection still works end to end.
+    const client2 = await connect('/ws/public/pedro');
+    monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    const frame = await nextMessage(client2);
+    expect(frame.type).toBe('robot');
+    client2.terminate();
   });
 });

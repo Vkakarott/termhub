@@ -82,9 +82,14 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     }
     const project = await repos.projects.update(id, patch);
     // The public bus fans this out to any `/ws/public/:nickname` socket watching this room: a
-    // publish opens it up, an unpublish drops the connection at once (see public/ws.ts).
+    // publish opens it up, an unpublish drops the connection at once (see public/ws.ts). Archiving
+    // takes the room out of the snapshot's filter too (`status !== 'archived'`), so it counts as
+    // "no longer publicly visible" here as well — the two surfaces must not disagree.
     if (patch.is_public !== undefined && patch.is_public !== current.is_public) {
       publicBus.publish({ project_id: id, is_public: patch.is_public });
+    }
+    if (patch.status === 'archived' && current.status !== 'archived') {
+      publicBus.publish({ project_id: id, is_public: false });
     }
     return { project };
   });
@@ -97,6 +102,9 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
       (await repos.tabs.listByProject(id)).filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)),
     );
     await repos.projects.delete(id);
+    // A deleted room can never be publicly visible again either — tell the public bus regardless
+    // of whether this project was ever published; a socket that never had it just no-ops.
+    publicBus.publish({ project_id: id, is_public: false });
     return { ok: true };
   });
 

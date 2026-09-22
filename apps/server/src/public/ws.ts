@@ -19,7 +19,15 @@ export function registerPublicWs(router: ReturnType<typeof createUpgradeRouter>,
   const log = deps.log.child({ mod: 'public-ws' });
 
   router.addPublic(/^\/ws\/public\/([^/]+)\/?$/, async ({ req, socket, head, params }) => {
-    const parsed = normalizeNickname(decodeURIComponent(params[0] ?? ''));
+    // A malformed escape (`%`) makes decodeURIComponent throw; every rejected nickname answers
+    // the same 404, not a 500 that would tell a stranger their input broke something.
+    let raw: string;
+    try {
+      raw = decodeURIComponent(params[0] ?? '');
+    } catch {
+      return rejectUpgrade(socket, 404, 'Not Found');
+    }
+    const parsed = normalizeNickname(raw);
     if (!parsed.ok) return rejectUpgrade(socket, 404, 'Not Found');
     const owner = await deps.repos.users.findByNickname(parsed.value);
     if (!owner) return rejectUpgrade(socket, 404, 'Not Found');
@@ -31,14 +39,30 @@ export function registerPublicWs(router: ReturnType<typeof createUpgradeRouter>,
       const offTab = monitorBus.subscribe((change) => {
         if (change.owner_id !== owner.id || !published.has(change.project_id)) return;
         if (ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify({ type: 'robot', building: publicId('machine', change.machine_id), room: publicId('project', change.project_id), robot: toPublicRobot(change.tab, { alive: true, progress: null }) }));
+        // A change proves the tab's tmux session existed once, not that it still does (a plain
+        // "seen" click on the tab publishes here too) — matches readPublicCity's cold-memo rule
+        // (public/read.ts) so a visitor never sees the two public surfaces disagree.
+        const alive = change.tab.kind === 'terminal' && change.tab.state !== null;
+        ws.send(JSON.stringify({ type: 'robot', building: publicId('machine', change.machine_id), room: publicId('project', change.project_id), robot: toPublicRobot(change.tab, { alive, progress: null }) }));
       });
       const offPublic = publicBus.subscribe((change) => {
         if (!published.has(change.project_id) || change.is_public) return;
         published.delete(change.project_id);
         ws.close(1000, 'unpublished');
       });
-      ws.on('close', () => { offTab(); offPublic(); });
+      const teardown = () => { offTab(); offPublic(); };
+      log.info({ nickname: parsed.value, rooms: published.size }, 'public visitor connected');
+      ws.on('close', () => {
+        teardown();
+        log.info({ nickname: parsed.value, rooms: published.size }, 'public visitor disconnected');
+      });
+      // A server-side ws socket with no error listener throws on a protocol violation (e.g. a
+      // frame over maxPayload) — uncaught, that takes the whole process down. This route is
+      // unauthenticated on a vhost with no Cloudflare Access, so it gets no benefit of the doubt.
+      ws.on('error', (err) => {
+        teardown();
+        log.warn({ nickname: parsed.value, err: err.message }, 'public visitor socket error');
+      });
     });
   });
 
