@@ -26,12 +26,13 @@ function machine(id: string, name = id): Machine {
 }
 
 function project(id: string, machineId: string): Project {
-  return { id, machine_id: machineId, name: id, cwd: '/tmp', status: 'active', description: null, last_terminal_at: null, created_at: T1 };
+  return { id, owner_id: 'u1', key: id.toUpperCase(), next_task_number: 1, name: id, status: 'active', description: null, last_terminal_at: null, created_at: T1, machines: [{ machine_id: machineId, cwd: '/tmp', position: 0 }] };
 }
 
 function tab(overrides: Partial<Tab> & { id: string }): Tab {
   return {
     project_id: 'p1',
+    machine_id: 'm1',
     name: overrides.id,
     kind: 'terminal',
     tmux_session: `th-${overrides.id}`,

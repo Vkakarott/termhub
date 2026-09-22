@@ -26,9 +26,24 @@ function roomsOf(mi: number): OfficeRoom[] {
       const state = STATES[(r + i + mi) % STATES.length];
       // i = 1 carries a task with no subtasks: no bar anywhere, its title only on hover
       const progress = i % 3 === 0 ? { task_id: 'k', title: 'Tarefa com subtarefas', done: i % 4, total: 4 } : i === 1 ? { task_id: 'k0', title: 'Tarefa sem subtarefas', done: 0, total: 0 } : null;
-      return { id: `m${mi}-t${r}-${i}`, project_id: projectId, name: i === 0 ? 'um nome de aba bem comprido mesmo 🚀' : `aba ${i + 1}`, kind: i % 8 === 7 ? 'simulator' : 'terminal', tmux_session: null, simulator_udid: null, position: i, state, state_text: null, state_tool: null, state_at: state ? at : null, state_seen_at: null, created_at: at, alive: i % 9 !== 4, progress };
+      return { id: `m${mi}-t${r}-${i}`, project_id: projectId, machine_id: `m${mi}`, name: i === 0 ? 'um nome de aba bem comprido mesmo 🚀' : `aba ${i + 1}`, kind: i % 8 === 7 ? 'simulator' : 'terminal', tmux_session: null, simulator_udid: null, position: i, state, state_text: null, state_tool: null, state_at: state ? at : null, state_seen_at: null, created_at: at, alive: i % 9 !== 4, progress };
     });
-    return { project: { id: projectId, machine_id: `m${mi}`, name: r === 0 ? 'projeto com um nome enorme para testar o corte' : `projeto-${r}`, cwd: '/', status: r === 3 ? 'paused' : 'active', description: null, last_terminal_at: null, created_at: at }, tabs, tasks: r % 2 ? { todo: 2, doing: 1, done: r } : null };
+    return {
+      project: {
+        id: projectId,
+        owner_id: 'u1',
+        key: `P${r}`,
+        next_task_number: 1,
+        name: r === 0 ? 'projeto com um nome enorme para testar o corte' : `projeto-${r}`,
+        status: r === 3 ? 'paused' : 'active',
+        description: null,
+        last_terminal_at: null,
+        created_at: at,
+        machines: [{ machine_id: `m${mi}`, cwd: '/', position: 0 }],
+      },
+      tabs,
+      tasks: r % 2 ? { todo: 2, doing: 1, done: r } : null,
+    };
   });
 }
 

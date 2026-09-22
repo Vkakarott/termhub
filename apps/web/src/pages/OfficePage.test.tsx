@@ -47,7 +47,7 @@ const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoi
     canMock: vi.fn(() => true),
     // mutable containers: the mocked hooks below read `.current` fresh on every call, so the test
     // body can reassign it (e.g. flipping `loading`) and a rerender picks up the new value
-    dataState: { current: { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' as const }, loading: true } },
+    dataState: { current: { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], statuses: { m1: 'online' as const }, loading: true } },
     monitorState: { current: { items: [] as unknown[], needsYou: [] as unknown[], tabState: () => undefined, connected: true } },
     FakeOfficeScene,
   };
@@ -75,9 +75,9 @@ function twoMachines() {
       { id: 'm2', name: 'hal' },
     ],
     projects: [
-      { id: 'p1', machine_id: 'm1', status: 'active' },
-      { id: 'p1b', machine_id: 'm1', status: 'active' },
-      { id: 'p2', machine_id: 'm2', status: 'active' },
+      { id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+      { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+      { id: 'p2', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
     ],
     statuses: { m1: 'online', m2: 'online' },
     loading: false,
@@ -128,7 +128,7 @@ beforeEach(() => {
   testNavigate = undefined;
   testPath = '';
   testSearch = '';
-  dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' }, loading: true };
+  dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], statuses: { m1: 'online' }, loading: true };
   monitorState.current = { items: [], needsYou: [], tabState: () => undefined, connected: true };
 });
 
@@ -189,7 +189,7 @@ describe('OfficePage scene lifecycle', () => {
 
   it('keeps the same scene when focus mode is toggled by the real button, not just the fake scene', async () => {
     officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
     renderPage('/office/m1');
     await act(async () => {});
     expect(FakeOfficeScene.instances).toHaveLength(1);
@@ -252,7 +252,7 @@ describe('OfficePage scene lifecycle', () => {
 describe('OfficePage rests and the URL', () => {
   it('with a single machine, /office lands on that machine and keeps ?focus=1', async () => {
     officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
     renderPage('/office?focus=1');
     await act(async () => {});
 
@@ -284,7 +284,7 @@ describe('OfficePage rests and the URL', () => {
 
   it('a zoom-out gesture never leaves focus mode, even at the rest of a single machine', async () => {
     officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
     renderPage('/office/m1?focus=1'); // two rooms with desks: no auto-drill, rests at the machine
     await act(async () => {});
     expect(testPath).toBe('/office/m1');
