@@ -17,7 +17,7 @@
     "dev:server": "npm run dev -w @termhub/server",
     "dev:web": "npm run dev -w @termhub/web",
     "build": "npm run build:packages && npm run prisma:generate && npm run build -w @termhub/web && npm run build -w @termhub/server",
-    "build:packages": "npm run build -w @termhub/agent-protocol -w @termhub/machine-ops",
+    "build:packages": "npm run build -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli",
     "build:landing": "npm run build -w @termhub/landing",
     "dev:landing": "npm run dev -w @termhub/landing",
     "start": "npm run start -w @termhub/server",

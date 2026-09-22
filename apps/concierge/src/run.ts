@@ -1,3 +1,4 @@
+import { buildClaudeArgs, mcpConfig } from '@termhub/claude-cli';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,37 +15,10 @@ export interface RunRequest {
   mcp_url: string;
 }
 
-/** Tools the concierge must never have: with any of them it could reach a machine outside the MCP,
- * where the permission gate lives (spec §4.1). */
-const DISALLOWED = 'Bash,Read,Write,Edit,WebFetch,WebSearch';
-
-export function buildArgs(req: RunRequest & { mcp_config_path: string }): string[] {
-  return [
-    '-p',
-    // Exactly one of the two, never both: the CLI answers "--session-id can only be used with
-    // --continue or --resume if --fork-session is also specified" and exits 1 before doing any
-    // work, which broke every message after the first. --session-id is how the server names a new
-    // session; --resume is how it continues one it already named.
-    ...(req.resume ? ['--resume', req.session_id] : ['--session-id', req.session_id]),
-    '--output-format', 'stream-json',
-    // required by the CLI: with --print, --output-format=stream-json refuses to run without it
-    // ("Error: When using --print, --output-format=stream-json requires --verbose"). It only
-    // changes what the CLI writes to stdout, never logging the prompt.
-    '--verbose',
-    '--include-partial-messages',
-    '--mcp-config', req.mcp_config_path,
-    '--strict-mcp-config',
-    '--allowed-tools', 'mcp__termhub__*',
-    '--disallowed-tools', DISALLOWED,
-    ...(req.model ? ['--model', req.model] : []),
-  ];
-}
-
-/** The MCP config the CLI loads: one HTTP server, the token in the header. Written per run into a
- * private temp dir, never logged. */
+/** Writes the MCP config the CLI loads into a private temp dir, never logged. */
 function writeMcpConfig(dir: string, req: RunRequest): string {
   const path = join(dir, 'termhub-mcp.json');
-  writeFileSync(path, JSON.stringify({ mcpServers: { termhub: { type: 'http', url: req.mcp_url, headers: { Authorization: `Bearer ${req.token}` } } } }), { mode: 0o600 });
+  writeFileSync(path, mcpConfig(req.mcp_url, req.token), { mode: 0o600 });
   return path;
 }
 
@@ -81,7 +55,7 @@ export class RunFailed extends Error {
  * argv and a prompt starting with "-" cannot be read as a flag. */
 export async function* runClaude(req: RunRequest, opts: { cliPath?: string; tmpDir?: string; timeoutMs?: number } = {}): AsyncIterable<string> {
   const dir = mkdtempSync(join(opts.tmpDir ?? tmpdir(), 'run-'));
-  const args = buildArgs({ ...req, mcp_config_path: writeMcpConfig(dir, req) });
+  const args = buildClaudeArgs({ ...req, mcp_config_path: writeMcpConfig(dir, req) });
   const child = spawn(opts.cliPath ?? 'claude', args, {
     env: { ...process.env, CLAUDE_CONFIG_DIR: req.config_dir },
     stdio: ['pipe', 'pipe', 'pipe'],

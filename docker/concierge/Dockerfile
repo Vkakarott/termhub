@@ -13,11 +13,16 @@ COPY apps/agent/package.json apps/agent/
 COPY apps/concierge/package.json apps/concierge/
 COPY packages/agent-protocol/package.json packages/agent-protocol/
 COPY packages/machine-ops/package.json packages/machine-ops/
+COPY packages/claude-cli/package.json packages/claude-cli/
 COPY scripts/postinstall.mjs scripts/
 # --ignore-scripts: this image needs no native module (node-pty, argon2 are the server's)
 RUN npm ci --ignore-scripts
 
 FROM deps AS build
+# claude-cli builds first: the concierge imports it, and tsc needs its dist/*.d.ts to resolve the
+# import (Node-style module resolution reads the package's "types" field, unlike a project reference).
+COPY packages/claude-cli packages/claude-cli
+RUN npm run build -w @termhub/claude-cli
 COPY apps/concierge apps/concierge
 RUN npm run build -w @termhub/concierge
 
@@ -32,6 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && npm install -g @anthropic-ai/claude-code@2.1.278
 COPY --from=build /app/apps/concierge/dist ./dist
 COPY apps/concierge/package.json ./
+# @termhub/claude-cli is a workspace package, not a published one: place it in node_modules before
+# `npm install` so it never asks the registry for a private scope it will never find there.
+COPY --from=build /app/packages/claude-cli/package.json ./node_modules/@termhub/claude-cli/package.json
+COPY --from=build /app/packages/claude-cli/dist ./node_modules/@termhub/claude-cli/dist
 RUN npm install --omit=dev --no-audit --no-fund
 EXPOSE 4100
 # Runs as a non-root user (compose pins it to the host user's uid:gid, see docker-compose.yml): root
