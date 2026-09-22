@@ -152,6 +152,13 @@ export function ChatHost({ host, machines, accounts, accountId, picking, changin
         </div>
       )}
 
+      {host.kind === 'ready' && host.sessionAtStake && (
+        // The host moved without anyone asking: the machine that held this conversation's session is
+        // gone, the only one left was picked for them, and the next message starts the model over. Said
+        // here because nothing else ever will — the failed resume and the restart are both invisible.
+        <p className="mt-1 text-warn">A máquina que rodava esta conversa não está mais disponível, e ela passou para {host.machine.name}: o histórico fica, mas a memória do modelo começa de novo.</p>
+      )}
+
       {host.kind === 'ready' && host.account.kind === 'lost' && (
         // The silent degradation the payload knows about: the chosen account is not the one running.
         // …and it points at the picker below, which is the one place that can set this conversation's

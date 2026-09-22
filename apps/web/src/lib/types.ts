@@ -553,7 +553,14 @@ export type ChatHostAccount = { kind: 'chosen'; id: string; label: string } | { 
  * nothing re-derives any part of it in the browser.
  */
 export type ChatHostState =
-  | { kind: 'ready'; machine: ChatHostMachine; configDir: string | null; account: ChatHostAccount }
+  /**
+   * `sessionAtStake` on a host that *can* run: this conversation already ran, and the machine holding
+   * that CLI session is not the one about to answer — the only candidate left was picked for the person
+   * (their other machine was unenrolled), so the transcript stays and the model's memory starts over.
+   * The screen says that once, because nothing else will: the failed resume and the fresh session are
+   * both invisible from the browser.
+   */
+  | { kind: 'ready'; machine: ChatHostMachine; configDir: string | null; account: ChatHostAccount; sessionAtStake: boolean }
   | { kind: 'no_machine' }
   /**
    * `sessionAtStake` is the server's answer to "is there a model memory to lose here": true when the

@@ -40,7 +40,17 @@ export type HostAccount = { kind: 'chosen'; id: string; label: string } | { kind
  * generic failure; Task 6 renders them.
  */
 export type HostChoice =
-  | { kind: 'ready'; machine: Machine; configDir: string | null; account: HostAccount }
+  /**
+   * `sessionAtStake` means the same thing here as on `not_chosen`, on the path where nobody is asked
+   * anything: this conversation holds a `cli_session_id` and no longer names the machine that session
+   * lives in, so the single remaining candidate was auto-picked and the next message will resume a
+   * session that host has never seen — it fails, the server restarts on a fresh one, and the model's
+   * memory is gone. Right to pick it (there is nothing else to run on), wrong to do it in silence: with
+   * three machines the very same deletion produces `not_chosen` and its warning, and the person should
+   * not hear less because they had two. A run pins the host it used (`pinHostMachine`), which is what
+   * keeps this false for the ordinary single-machine conversation that never chose anything.
+   */
+  | { kind: 'ready'; machine: Machine; configDir: string | null; account: HostAccount; sessionAtStake: boolean }
   | { kind: 'no_machine' }
   /**
    * `sessionAtStake` is what tells the two ways of reaching this apart, because they deserve different
@@ -76,10 +86,15 @@ export async function resolveHost(ctx: HostContext, user: User): Promise<HostCho
   if (candidates.length === 0) return { kind: 'no_machine' };
 
   const chosen = conversation.machine_id === null ? undefined : candidates.find((m) => m.id === conversation.machine_id);
+  // Whether a session is at stake is the same question on both paths, and it has one answer: this
+  // conversation ran, and the machine it names is not one it can run on now (unenrolled, handed over,
+  // or — for a host a run pinned — nulled by the foreign key). Whatever happens next, the session that
+  // holds the model's memory is not on the machine that will answer.
+  const sessionAtStake = chosen === undefined && conversation.cli_session_id !== null;
   // A chosen machine that is gone (deleted, or no longer this user's) behaves exactly as if nothing
   // had ever been chosen: with one machine there is nothing to ask, with several the user picks.
   const machine = chosen ?? (candidates.length === 1 ? candidates[0] : undefined);
-  if (!machine) return { kind: 'not_chosen', machines: candidates, sessionAtStake: conversation.cli_session_id !== null };
+  if (!machine) return { kind: 'not_chosen', machines: candidates, sessionAtStake };
 
   const capabilities = ctx.agents.capabilities(machine.id);
   // Offline, or connected but still before `hello`: the same thing to a message that has to be sent
@@ -95,7 +110,7 @@ export async function resolveHost(ctx: HostContext, user: User): Promise<HostCho
     return { kind: 'agent_too_old', machine, version: ctx.agents.info(machine.id)?.agent_version ?? machine.agent_version ?? '' };
   }
 
-  return { kind: 'ready', machine, ...(await accountFor(ctx, conversation.ai_account_id, machine)) };
+  return { kind: 'ready', machine, sessionAtStake, ...(await accountFor(ctx, conversation.ai_account_id, machine)) };
 }
 
 /**

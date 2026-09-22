@@ -103,6 +103,24 @@ export class ChatRepository {
    * Ownership is the caller's business: the route resolves both ids through owner-scoped reads before
    * calling this, exactly like every other write that takes an id from the browser.
    */
+  /**
+   * Records the machine a run is about to use, but **only when the conversation names none** — never
+   * over a choice the user made, and never a second time.
+   *
+   * Without this, `machine_id === null` means two different things that need different screens: "nothing
+   * was ever chosen" (the single-machine user, where the auto-pick is simply right) and "the host this
+   * conversation ran on was unenrolled and the foreign key nulled it" (where `cli_session_id` still
+   * points at a session in that machine's config dir, and the next run on another machine loses the
+   * model's memory). Pinning the auto-pick the first time it actually runs is what makes the second one
+   * recognisable — and it is what `resolveHost` reads to warn before that loss instead of after it.
+   *
+   * `updateMany` with the null in the filter, so the guard is the database's and not a read-then-write:
+   * a host chosen between the resolve and this call keeps the user's choice.
+   */
+  async pinHostMachine(id: string, machineId: string): Promise<void> {
+    await this.db.chatConversation.updateMany({ where: { id, machineId: null }, data: { machineId } });
+  }
+
   async setHost(id: string, host: { machine_id: string; ai_account_id: string | null }): Promise<ChatConversation> {
     return this.db.$transaction(async (tx) => {
       const current = await tx.chatConversation.findUnique({ where: { id } });

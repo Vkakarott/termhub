@@ -33,11 +33,16 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   // The host pair every case but the host-specific ones takes for granted: one agent machine of this
   // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
   // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
-  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null, model: null, machine_id: 'm1', ai_account_id: opts.host?.account?.id ?? null, review_mode: false, last_message_at: null, created_at: '' };
+  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null as string | null, model: null, machine_id: 'm1' as string | null, ai_account_id: opts.host?.account?.id ?? null, review_mode: false, last_message_at: null, created_at: '' };
   const messages: { id: string; role: string; text: string; error_code: string | null }[] = [];
   const chat = {
     getOrCreateForUser: vi.fn(async () => conversation),
     setCliSession: vi.fn(async (_id: string, s: string | null) => void (conversation.cli_session_id = s)),
+    // Same guard as the repository's `updateMany ... where machineId: null`: it fills a host that was
+    // never chosen and never touches one that was.
+    pinHostMachine: vi.fn(async (_id: string, machineId: string) => {
+      if (conversation.machine_id === null) conversation.machine_id = machineId;
+    }),
     addMessage: vi.fn(async (m: { role: string; text: string }) => {
       const row = { id: `m${messages.length + 1}`, role: m.role, text: m.text, error_code: null };
       messages.push(row);
@@ -126,6 +131,33 @@ it('stores the question, the answer, and the session id the CLI reports', async 
   expect(answer.text).toBe('Nada rodando.');
   expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000001');
   expect(chat.setCliSession).toHaveBeenCalled();
+});
+
+it('pins the host it ran on when nothing was chosen, so a nulled host stops looking like a free choice', async () => {
+  const { service, chat, conversation } = build([delta('ok'), done()]);
+  // The single-machine conversation: nothing was ever chosen, `resolveHost` picked the only candidate.
+  conversation.machine_id = null;
+
+  await service.send(user, 'o que está rodando?');
+
+  expect(chat.pinHostMachine).toHaveBeenCalledWith('c1', 'm1');
+  expect(conversation.machine_id).toBe('m1');
+  // Why it matters: with this pin, a `machine_id` that is null *and* a session that exists can only
+  // mean the stored host was unenrolled under that session, which is what `resolveHost` warns about
+  // (`sessionAtStake` on `ready`). Without it every healthy single-machine conversation looks the same
+  // as that loss, and the warning would be permanently on screen and permanently false.
+  expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000001');
+});
+
+it('never moves a host the user chose, whatever it runs on', async () => {
+  const { service, chat, conversation } = build([delta('ok'), done()]);
+
+  await service.send(user, 'e agora?');
+
+  // Called unconditionally — the guard is the repository's `where machineId: null`, so this call can
+  // only ever fill an empty host, never overwrite a choice.
+  expect(chat.pinHostMachine).toHaveBeenCalledWith('c1', 'm1');
+  expect(conversation.machine_id).toBe('m1');
 });
 
 it('resumes the session on the next message', async () => {

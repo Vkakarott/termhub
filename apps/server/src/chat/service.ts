@@ -264,6 +264,13 @@ export class ChatService {
     const runner = this.deps.runnerFor(host.machine.id);
     this.running.add(conversation.id);
     try {
+      // The host this run uses is the host this conversation has, and from here on it says so: a
+      // conversation whose machine was auto-picked (one candidate, nothing stored) is otherwise
+      // indistinguishable from one whose stored host was unenrolled out from under a live session, and
+      // those two need opposite screens — see `pinHostMachine`. Only ever fills a null, so it can
+      // never move a host the user chose; after the lock, so it only ever records a run that happens.
+      await this.deps.repos.chat.pinHostMachine(conversation.id, host.machine.id);
+
       // Only ever set by a decision's re-injection, and only reached once the lock above is actually
       // held — marking the row happens here, never before the lock check, so a busy run can never
       // mark a decision injected that it never actually sent (fix round 2).

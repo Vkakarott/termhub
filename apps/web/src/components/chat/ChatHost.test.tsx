@@ -34,7 +34,7 @@ function show(host: ChatHostState, over: Partial<Parameters<typeof ChatHost>[0]>
 afterEach(() => cleanup());
 
 it('names the machine and the account running the conversation', async () => {
-  show({ kind: 'ready', machine: machine('m1', 'jarvis'), configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' } });
+  show({ kind: 'ready', machine: machine('m1', 'jarvis'), configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' }, sessionAtStake: false });
 
   // Nobody should have to guess whose computer is thinking, or on whose Claude account.
   expect(screen.getByText(/máquina jarvis/i)).toBeTruthy();
@@ -42,14 +42,14 @@ it('names the machine and the account running the conversation', async () => {
 });
 
 it('says the login is the machine default when no account was chosen', async () => {
-  show({ kind: 'ready', machine: machine('m1', 'jarvis'), configDir: null, account: { kind: 'default' } });
+  show({ kind: 'ready', machine: machine('m1', 'jarvis'), configDir: null, account: { kind: 'default' }, sessionAtStake: false });
 
   expect(screen.getByText(/conta padrão do Claude/i)).toBeTruthy();
   expect(screen.queryByText(/não serve/i)).toBeNull(); // nothing was lost: nothing to report
 });
 
 it('says so when the chosen account no longer serves this machine, instead of degrading in silence', async () => {
-  show({ kind: 'ready', machine: machine('m1', 'jarvis'), configDir: null, account: { kind: 'lost' } });
+  show({ kind: 'ready', machine: machine('m1', 'jarvis'), configDir: null, account: { kind: 'lost' }, sessionAtStake: false });
 
   expect(screen.getByText(/conta de IA que você escolheu não serve/i)).toBeTruthy();
   expect(screen.getByText(/conta padrão do Claude/i)).toBeTruthy(); // …and what is running instead
@@ -59,7 +59,7 @@ it('says so when the chosen account no longer serves this machine, instead of de
   expect(screen.queryByText(/escolha outra em contas de IA/i)).toBeNull();
 });
 
-const READY_M1: ChatHostState = { kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'default' } };
+const READY_M1: ChatHostState = { kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'default' }, sessionAtStake: false };
 const BOTH_MACHINES = [machine('m1', 'macbook'), machine('m2', 'jarvis')];
 
 it('offers the host machine accounts beside the machines, with its default login as an option of its own', async () => {
@@ -79,7 +79,7 @@ it('offers the host machine accounts beside the machines, with its default login
 
 it('offers the way back to the machine default login, as a choice and not as an absence', async () => {
   const props = show(
-    { kind: 'ready', machine: machine('m1', 'macbook'), configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' } },
+    { kind: 'ready', machine: machine('m1', 'macbook'), configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' }, sessionAtStake: false },
     { picking: true, machines: BOTH_MACHINES, accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: 'acc1' },
   );
 
@@ -89,7 +89,7 @@ it('offers the way back to the machine default login, as a choice and not as an 
 });
 
 it('marks nothing as current when the stored account is the lost one, so every option is a change', async () => {
-  show({ kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'lost' } }, { picking: true, machines: BOTH_MACHINES, accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: 'acc9' });
+  show({ kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'lost' }, sessionAtStake: false }, { picking: true, machines: BOTH_MACHINES, accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: 'acc9' });
 
   // The stored id names nothing on this machine: keeping it is not an option, and pretending the
   // default login was chosen would hide that the pick was lost.
@@ -126,6 +126,26 @@ it('still warns with one machine when the account can change, because the sessio
   // machine does, so the sentence is owed here too.
   expect(screen.getByText(/histórico desta conversa fica, mas a memória do modelo começa de novo/i)).toBeTruthy();
   expect(screen.getByRole('button', { name: /trocar para trabalho/i })).toBeTruthy();
+});
+
+it('says the host moved under a live session, instead of losing the model memory without a word', async () => {
+  show({ kind: 'ready', machine: machine('m2', 'jarvis'), configDir: null, account: { kind: 'default' }, sessionAtStake: true });
+
+  // The machine this conversation ran on is gone and the only one left was picked for the person: the
+  // failed resume and the fresh session that follows are both invisible from here, so this is the one
+  // place it can be said — and it is said before the next message, not after the memory is gone.
+  expect(screen.getByText(/não está mais disponível/i)).toBeTruthy();
+  // …and it names the machine the conversation passed to, so nobody has to work out where it went.
+  expect(screen.getByText(/passou para jarvis/i)).toBeTruthy();
+  expect(screen.getByText(/histórico fica, mas a memória do modelo começa de novo/i)).toBeTruthy();
+});
+
+it('says nothing of the sort on a host that has its own session', async () => {
+  show({ kind: 'ready', machine: machine('m2', 'jarvis'), configDir: null, account: { kind: 'default' }, sessionAtStake: false });
+
+  // The ordinary conversation: a warning shown here too would be false every day, and then the true
+  // one above would be invisible.
+  expect(screen.queryByText(/memória do modelo/i)).toBeNull();
 });
 
 it('with no machine, states the product shape and offers the way to enrol one', async () => {
@@ -196,7 +216,7 @@ it('drops the version when the agent never said which one it is', async () => {
 });
 
 it('warns that the session starts over before changing anything, and does nothing until it is confirmed', async () => {
-  const props = show({ kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'default' } }, { picking: true, machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')] });
+  const props = show({ kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'default' }, sessionAtStake: false }, { picking: true, machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')] });
 
   // The warning is on screen while nothing has been changed yet.
   expect(screen.getByText(/histórico desta conversa fica, mas a memória do modelo começa de novo/i)).toBeTruthy();
@@ -207,7 +227,7 @@ it('warns that the session starts over before changing anything, and does nothin
 });
 
 it('does not offer the current host as something to change to', async () => {
-  show({ kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'default' } }, { picking: true, machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')] });
+  show({ kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'default' }, sessionAtStake: false }, { picking: true, machines: [machine('m1', 'macbook'), machine('m2', 'jarvis')] });
 
   expect(screen.getByText(/macbook \(atual\)/i)).toBeTruthy();
   expect(screen.queryByRole('button', { name: /trocar para macbook/i })).toBeNull();
