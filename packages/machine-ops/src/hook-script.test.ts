@@ -4,7 +4,7 @@
  * body to a log, so the assertions are about what would have reached the server.
  */
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -74,6 +74,12 @@ describe('termhub-hook script', () => {
     expect(eventOf(sent[0])).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'Task' });
   });
 
+  it('posts an MCP-style tool name that contains a hyphen, intact', async () => {
+    run({ hook_event_name: 'PreToolUse', tool_name: 'mcp__claude-in-chrome__click' });
+    const sent = await bodies(1);
+    expect(eventOf(sent[0])).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'mcp__claude-in-chrome__click' });
+  });
+
   it('posts the same tool once and a different tool again', async () => {
     run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
     run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
@@ -114,5 +120,10 @@ describe('termhub-hook script', () => {
     await bodies(1);
     expect(existsSync(join(tmp, '..', 'evil name'))).toBe(false);
     expect(existsSync(join(home, 'evil name'))).toBe(false);
+    // the marker itself must actually have been written, inside TMPDIR — otherwise a script that
+    // stopped writing markers entirely (silently breaking de-dup) would pass this test too.
+    const markers = readdirSync(tmp);
+    expect(markers).toHaveLength(1);
+    expect(readFileSync(join(tmp, markers[0]), 'utf8')).toBe('Edit');
   });
 });

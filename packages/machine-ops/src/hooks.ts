@@ -61,15 +61,17 @@ case "$EVENT" in
   *'"hook_event_name":"PreToolUse"'*|*'"hook_event_name": "PreToolUse"'*)
     # The event's own tool name is the FIRST "tool_name" of the payload (Claude Code serialises it
     # before tool_input), so the shortest prefix is cut — a "tool_name" nested in a tool's input
-    # must not win. Only a bare identifier, the shape of every Claude Code tool name, is posted:
-    # anything else (a number, a name with a quote or a backslash) is dropped rather than sent.
+    # must not win. Only letters, digits, "_", "." and "-" are posted (a bare Claude Code tool name,
+    # or an MCP tool name such as mcp__claude-in-chrome__click): anything else (a number, a name with
+    # a quote or a backslash) is dropped rather than sent — those are the only characters the
+    # hand-built JSON body below cannot survive as-is.
     REST=\${EVENT#*'"tool_name"'}
     [ "$REST" != "$EVENT" ] || exit 0
     REST=\${REST#*'"'}
     NAME=\${REST%%'"'*}
-    case "$NAME" in '' | *[!A-Za-z0-9_]*) exit 0 ;; esac
+    case "$NAME" in '' | *[!A-Za-z0-9_.-]*) exit 0 ;; esac
     [ "$(cat "$MARK" 2>/dev/null)" = "$NAME" ] && exit 0
-    printf '%s' "$NAME" > "$MARK" 2>/dev/null
+    printf '%s' "$NAME" 2>/dev/null > "$MARK"
     EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"}' "$NAME")
     ;;
   *'"hook_event_name":"SessionStart"'*|*'"hook_event_name": "SessionStart"'*|*'"hook_event_name":"UserPromptSubmit"'*|*'"hook_event_name": "UserPromptSubmit"'*)
