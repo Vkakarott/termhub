@@ -1,0 +1,65 @@
+import { createHash } from 'node:crypto';
+import type { Machine, OfficeTabProgress, Project, Tab, TabActivity, TabState } from '../db/repositories/types.js';
+
+/**
+ * The public face of the office, and the only thing that reaches a visitor. Every field here was
+ * written on purpose: nothing is spread, so a column added to Tab, Project or Machine tomorrow
+ * stays inside the instance until somebody adds it here too.
+ */
+export interface PublicRobot {
+  id: string;
+  name: string;
+  kind: Tab['kind'];
+  state: TabState | null;
+  state_at: string | null;
+  activity: TabActivity | null;
+  alive: boolean;
+  progress: { done: number; total: number } | null;
+}
+
+export interface PublicRoom { id: string; name: string; robots: PublicRobot[] }
+export interface PublicBuilding { id: string; name: string; rooms: PublicRoom[] }
+export interface PublicCity { nickname: string; owner_name: string; buildings: PublicBuilding[] }
+
+/**
+ * A one-way id for the street. Real ids are random, so a hash of one cannot be walked back into it;
+ * confirming a match needs the real id, which only someone who already has access holds. Same input,
+ * same output on every container, so a snapshot from one and a socket frame from another agree
+ * during a blue/green switch.
+ */
+export function publicId(kind: 'machine' | 'project' | 'tab', realId: string): string {
+  return createHash('sha256').update(`${kind}:${realId}`).digest('base64url').slice(0, 22);
+}
+
+export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: OfficeTabProgress | null }): PublicRobot {
+  return {
+    id: publicId('tab', tab.id),
+    name: tab.name,
+    kind: tab.kind,
+    state: tab.state,
+    state_at: tab.state_at,
+    activity: tab.activity,
+    alive: opts.alive,
+    progress: opts.progress ? { done: opts.progress.done, total: opts.progress.total } : null,
+  };
+}
+
+export function toPublicCity(input: {
+  nickname: string;
+  ownerName: string;
+  buildings: { machine: Machine; rooms: { project: Project; tabs: { tab: Tab; alive: boolean; progress: OfficeTabProgress | null }[] }[] }[];
+}): PublicCity {
+  return {
+    nickname: input.nickname,
+    owner_name: input.ownerName,
+    buildings: input.buildings.map((b) => ({
+      id: publicId('machine', b.machine.id),
+      name: b.machine.name,
+      rooms: b.rooms.map((r) => ({
+        id: publicId('project', r.project.id),
+        name: r.project.name,
+        robots: r.tabs.map((t) => toPublicRobot(t.tab, { alive: t.alive, progress: t.progress })),
+      })),
+    })),
+  };
+}

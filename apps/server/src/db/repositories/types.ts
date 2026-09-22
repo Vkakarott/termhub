@@ -9,6 +9,7 @@ import type {
   Note as PrismaNote,
   Ticket as PrismaTicket,
 } from '../../generated/prisma/client.js';
+import { publicId } from '../../public/city.js';
 
 export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh' | 'agent';
@@ -75,6 +76,8 @@ export interface Machine {
   /** owner's display name (list/detail convenience for the "all" view) */
   owner_name: string | null;
   created_at: string;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
 }
 
 export interface Project {
@@ -88,6 +91,8 @@ export interface Project {
   is_public: boolean;
   last_terminal_at: string | null;
   created_at: string;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
 }
 
 export interface Tab {
@@ -235,6 +240,7 @@ export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null 
   owner_id: m.ownerId,
   owner_name: m.owner?.name ?? null,
   created_at: m.createdAt.toISOString(),
+  public_id: publicId('machine', m.id),
 });
 
 export const mapProject = (p: PrismaProject): Project => ({
@@ -247,6 +253,7 @@ export const mapProject = (p: PrismaProject): Project => ({
   is_public: p.isPublic,
   last_terminal_at: iso(p.lastTerminalAt),
   created_at: p.createdAt.toISOString(),
+  public_id: publicId('project', p.id),
 });
 
 export const mapTab = (t: PrismaTab): Tab => ({

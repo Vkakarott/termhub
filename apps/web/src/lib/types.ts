@@ -88,6 +88,8 @@ export interface Machine {
   /** terminal tabs on the machine, and how many of them ever reported a state to the monitor */
   tabs?: number;
   tabs_reporting?: number;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
 }
 
 /** Admin data-scope switch: null = own data, "all" = everything, or the impersonated user. */
@@ -124,6 +126,8 @@ export interface Project {
   description: string | null;
   last_terminal_at: string | null;
   created_at: string;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
