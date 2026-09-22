@@ -139,8 +139,21 @@ describe('interpretHookEvent — cursor', () => {
   });
 
   it('opens a wait on a stop that ended without an answer (aborted with Esc, or an error)', () => {
-    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'aborted', loop_count: 0 })).toEqual({ kind: 'waiting_input', text: null, meta: { event: 'stop', status: 'aborted' } });
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'aborted', loop_count: 0 })).toEqual({
+      kind: 'waiting_input',
+      text: null,
+      meta: { event: 'stop', status: 'aborted' },
+      continuesWait: true,
+    });
     expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'error', loop_count: 0 })?.kind).toBe('waiting_input');
+  });
+
+  it('marks every stop that is not completed as continuing a wait already open: never a second alert in one turn', () => {
+    // Esc sends two (error, then aborted); a status this code does not know, or none at all, may follow an answer
+    for (const status of ['aborted', 'error', 'renamed-in-a-later-release', undefined]) {
+      expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status })?.continuesWait).toBe(true);
+    }
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'um' })?.continuesWait).toBeUndefined();
   });
 
   it('marks the tab idle when the session ends', () => {

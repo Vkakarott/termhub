@@ -16,8 +16,9 @@ export interface Interpreted {
   activity?: TabActivity;
   /**
    * The event is a late echo of the wait already open, not a new one: a person who saw that wait
-   * must not be alerted again. Only the tool's interpreter can tell — Claude's idle_prompt follows
-   * its own Stop, while every Codex turn ends the same way with no working state in between.
+   * must not be alerted again, and one with no text of its own keeps the wait's text. Only the
+   * tool's interpreter can tell — Claude's idle_prompt follows its own Stop, Cursor's stop follows
+   * its answer, while every Codex turn ends the same way with no working state in between.
    */
   continuesWait?: true;
 }
@@ -117,7 +118,10 @@ function interpretCursor(ev: Record<string, unknown>): Interpreted | null {
       const status = str(ev.status);
       // completed: the answer right before it already opened the wait, and a second one would wipe its text
       if (status === 'completed') return null;
-      return { kind: 'waiting_input', text: null, meta: { event: name, status } };
+      // Any other status, known or not (Esc sends error then aborted, with no answer): it ends the turn,
+      // so the tab is waiting — but as a continuation, so a stop arriving after an answer the person
+      // already saw never alerts twice in one turn, nor wipes that answer (recordEvent keeps the text).
+      return { kind: 'waiting_input', text: null, meta: { event: name, status }, continuesWait: true };
     }
     case 'sessionEnd':
       return { kind: 'idle', text: null, meta: { event: name, reason: str(ev.reason) } };

@@ -90,8 +90,9 @@ export class TabsRepository {
    * now newer than it) — except for an event that `continuesWait`: Claude's hooks send `Stop` and,
    * ~1 min later, `Notification idle_prompt` for one turn, both mapped to `waiting_input`; if the
    * person already saw the tab for that wait, the idle_prompt must not re-open it, so the seen mark
-   * is carried forward to the new `stateAt` instead. Two `waiting_input` in a row are not enough to
-   * tell: Codex sends only that, once per turn, so its next turn is a new wait that must re-arm.
+   * is carried forward to the new `stateAt` instead; a continuation that brings no text keeps the
+   * wait's own. Two `waiting_input` in a row are not enough to tell: Codex sends only that, once
+   * per turn, so its next turn is a new wait that must re-arm.
    */
   async recordEvent(
     tabId: string,
@@ -99,13 +100,16 @@ export class TabsRepository {
   ): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
     const [e, t] = await this.db.$transaction(async (tx) => {
-      const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true } });
+      const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true } });
       const currentlySeen = !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt;
-      const carrySeen = !!event.continuesWait && current?.state === 'waiting_input' && event.kind === 'waiting_input' && currentlySeen;
+      const continuing = !!event.continuesWait && current?.state === 'waiting_input' && event.kind === 'waiting_input';
+      const carrySeen = continuing && currentlySeen;
+      // a continuation with nothing to say (Cursor's stop after its answer) must not wipe the question
+      const text = continuing && event.text === null ? (current?.stateText ?? null) : event.text;
       const ev = await tx.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } });
       const updated = await tx.tab.update({
         where: { id: tabId },
-        data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
+        data: { state: event.kind, stateText: text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
       });
       await tx.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`;
       return [ev, updated] as const;
