@@ -1,4 +1,5 @@
 import type { AgentMessage, ClaudeOpenParams } from '@termhub/agent-protocol';
+import { HEADER_BYTES, MAX_FRAME } from '@termhub/agent-protocol';
 import { buildClaudeArgs, mcpConfig } from '@termhub/claude-cli';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,18 +51,21 @@ function fakeCli(body: (out: string) => string): Fake {
   return { bin, out, runs };
 }
 
-/** Reports argv, the config dir, the MCP config (contents and mode) and stdin, then prints one line. */
-const RECORDER = (out: string) => `printf '%s\\n' "$@" > ${out}/argv
-printf '%s' "\${CLAUDE_CONFIG_DIR-UNSET}" > ${out}/cfg
+/** Reports argv, the config dir, the MCP config (contents and mode) and stdin, then prints one line.
+ *  Every file is appended to and each run adds a line to `starts`, so a second CLI cannot hide
+ *  behind a truncating `>`. */
+const RECORDER = (out: string) => `echo started >> ${out}/starts
+printf '%s\\n' "$@" >> ${out}/argv
+printf '%s' "\${CLAUDE_CONFIG_DIR-UNSET}" >> ${out}/cfg
 take=0
 mcp=""
 for a in "$@"; do
   if [ "$take" = 1 ]; then mcp="$a"; take=0; fi
   if [ "$a" = "--mcp-config" ]; then take=1; fi
 done
-cat "$mcp" > ${out}/mcp.json
-ls -l "$mcp" | cut -c1-10 > ${out}/mcp.mode
-cat > ${out}/stdin
+cat "$mcp" >> ${out}/mcp.json
+ls -l "$mcp" | cut -c1-10 >> ${out}/mcp.mode
+cat >> ${out}/stdin
 echo '{"type":"result","subtype":"success"}'
 `;
 
@@ -99,6 +103,11 @@ async function waitForClosed(sendControl: ReturnType<typeof vi.fn>): Promise<Age
 /** One entry per channel frame the manager wrote, decoded as text. */
 function frames(sendStream: ReturnType<typeof vi.fn>): string[] {
   return sendStream.mock.calls.map(([, data]) => (data as Buffer).toString('utf8'));
+}
+
+/** How many times the recorder fake was started. */
+function startCount(out: string): number {
+  return existsSync(join(out, 'starts')) ? readFileSync(join(out, 'starts'), 'utf8').split('\n').filter(Boolean).length : 0;
 }
 
 function argvOf(out: string): string[] {
@@ -268,8 +277,11 @@ exec sleep 30
 
     expect(await waitForClosed(sendControl)).toEqual({ type: 'closed', ch: 1, code: null, reason: 'cli_missing' });
     expect(sendStream).not.toHaveBeenCalled();
-    // A person reading the agent log must see which binary the machine is missing.
-    expect(JSON.stringify(log.mock.calls)).toContain('claude');
+    // A person reading the agent log must see *what* is missing, not just that something failed:
+    // every line in this file starts with "claude", so the assertion is on one call saying both the
+    // binary's name and that it was not found.
+    const missingLine = log.mock.calls.find(([msg]) => /not found/i.test(String(msg)));
+    expect(missingLine?.[0]).toMatch(/\bclaude\b/);
     expect(readdirSync(runs)).toEqual([]);
   });
 
@@ -284,8 +296,10 @@ exec sleep 30
     expect(sendControl).toHaveBeenCalledWith({ type: 'open_error', ch: 1, error: { code: 'invalid', message: 'channel in use' } });
     claude.close(1);
     await waitForClosed(sendControl);
+    // Counted, not merely "a file exists": the fake appends one line per start, so a second CLI
+    // behind the refused open would show up here.
+    expect(startCount(out)).toBe(1);
     expect(readdirSync(runs)).toEqual([]);
-    expect(existsSync(join(out, 'argv'))).toBe(true);
   });
 
   it('writes neither the prompt nor the token to any log line', async () => {
@@ -317,4 +331,80 @@ exec sleep 30
     expect(logged).not.toContain(PROMPT);
     expect(logged).not.toContain(TOKEN);
   });
+  it('kills the run outright when the agent itself is stopping, with no timer left to escalate', async () => {
+    // Ignores SIGTERM and keeps running: only SIGKILL ends it. The agent's own shutdown (an
+    // auto-update, on every machine, every release) calls `process.exit` right after closeAll, so a
+    // run that needs the 2 s escalation timer would be orphaned on the person's laptop.
+    const { bin, out, runs } = fakeCli((o) => `trap '' TERM
+echo $$ > ${o}/pid
+while :; do sleep 0.1; done
+`);
+    const { socket } = makeSocket();
+    const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs });
+
+    await claude.open(1, baseParams, socket);
+    await waitFor('the fake CLI to report its pid', () => existsSync(join(out, 'pid')));
+    const pid = Number(readFileSync(join(out, 'pid'), 'utf8').trim());
+
+    claude.closeAll();
+
+    // Well inside the escalation window: nothing but a SIGKILL sent by closeAll itself can have
+    // killed a process that ignores SIGTERM this soon.
+    await waitFor('the CLI process to die', () => dead(pid), 1_000);
+    expect(readdirSync(runs)).toEqual([]);
+  }, 10_000);
+
+  it('reports a session the CLI cannot resume as missing_session, keeping the stderr on this machine', async () => {
+    const { bin, runs } = fakeCli(() => `cat > /dev/null
+echo 'No conversation found with session ID 3f1e9b1e-0000-4000-8000-000000000001' >&2
+exit 1
+`);
+    const { socket, sendControl } = makeSocket();
+    const log = vi.fn();
+    const claude = createClaudeManager({ log, env: pathEnv(bin), tmpDir: runs });
+
+    await claude.open(1, { ...baseParams, resume: true }, socket);
+    claude.write(1, Buffer.from(PROMPT));
+
+    // A local history the user pruned or rotated is not a broken conversation: the server retries
+    // once on a fresh session when it hears this reason.
+    expect(await waitForClosed(sendControl)).toEqual({ type: 'closed', ch: 1, code: 1, reason: 'missing_session' });
+    // The label travelled; the text it was read from did not.
+    expect(JSON.stringify(log.mock.calls)).not.toContain('No conversation found');
+  });
+
+  it('drops a line too large for a frame instead of closing the machine whole socket', async () => {
+    // 1.2 MB on one line: framed as-is it would trip the server's 1 MiB maxPayload and close the
+    // socket with 1009, dropping every terminal on this machine along with the chat.
+    const { bin, runs } = fakeCli(() => `head -c 1200000 /dev/zero | tr '\\0' x
+printf '\\n'
+echo '{"type":"result"}'
+`);
+    const { socket, sendControl, sendStream } = makeSocket();
+    const log = vi.fn();
+    const claude = createClaudeManager({ log, env: pathEnv(bin), tmpDir: runs });
+
+    await claude.open(1, baseParams, socket);
+    expect(await waitForClosed(sendControl)).toEqual({ type: 'closed', ch: 1, code: 0 });
+
+    expect(frames(sendStream)).toEqual(['{"type":"result"}\n']);
+    for (const [, data] of sendStream.mock.calls) expect((data as Buffer).length).toBeLessThanOrEqual(MAX_FRAME - HEADER_BYTES);
+    expect(JSON.stringify(log.mock.calls)).toContain('too large');
+  }, 10_000);
+
+  it('does not sit on a live token when the prompt never arrives', async () => {
+    const { bin, out, runs } = fakeCli((o) => `echo $$ > ${o}/pid\nexec sleep 30\n`);
+    const { socket, sendControl } = makeSocket();
+    const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs, promptTimeoutMs: 200 });
+
+    await claude.open(1, baseParams, socket);
+    await waitFor('the fake CLI to report its pid', () => existsSync(join(out, 'pid')));
+    const pid = Number(readFileSync(join(out, 'pid'), 'utf8').trim());
+
+    // The prompt follows the open by one frame in practice: a channel nobody writes to must not hold
+    // the 0600 config — a live token — for the whole run deadline.
+    expect(await waitForClosed(sendControl)).toEqual({ type: 'closed', ch: 1, code: null, reason: 'run_failed' });
+    await waitFor('the CLI process to die', () => dead(pid));
+    expect(readdirSync(runs)).toEqual([]);
+  }, 10_000);
 });

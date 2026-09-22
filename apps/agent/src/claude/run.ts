@@ -1,5 +1,6 @@
 import type { AgentMessage, ClaudeOpenParams } from '@termhub/agent-protocol';
-import { buildClaudeArgs, mcpConfig } from '@termhub/claude-cli';
+import { HEADER_BYTES, MAX_FRAME } from '@termhub/agent-protocol';
+import { buildClaudeArgs, classifyFailure, mcpConfig } from '@termhub/claude-cli';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +14,16 @@ import { agentEnv } from '../exec.js';
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 /** How long a killed run gets to exit on SIGTERM before it is taken out with SIGKILL. */
 const KILL_GRACE_MS = 2_000;
+/** How long a run waits for the prompt the server sends right after `opened`. Seconds, because it
+ *  travels in the frame that follows the open: a channel nobody writes to would otherwise hold the
+ *  token-bearing config on disk (and a CLI on stdin) for the whole run deadline. */
+const PROMPT_TIMEOUT_MS = 30_000;
+/** Largest line a frame can carry: above this the server's `maxPayload` closes the whole socket
+ *  (1009), which would drop every terminal on this machine, not just the chat. The newline this
+ *  manager appends counts towards it. */
+const MAX_LINE_BYTES = MAX_FRAME - HEADER_BYTES - 1;
+/** How much of stderr is kept to classify the failure by — never forwarded, never logged. */
+const STDERR_TAIL_BYTES = 4_000;
 /** The CLI, resolved from the run's PATH like every other tool the agent runs — and what the log
  *  says is missing when this machine does not have it. */
 const CLI = 'claude';
@@ -29,6 +40,7 @@ export interface ClaudeManagerDeps {
   /** Where the per-run private directory is created; defaults to the OS temp dir. */
   tmpDir?: string;
   timeoutMs?: number;
+  promptTimeoutMs?: number;
 }
 
 function message(err: unknown): string {
@@ -39,8 +51,11 @@ interface Run {
   child: ChildProcess;
   /** The prompt already went in — and closed stdin with it, so later frames have nowhere to go. */
   promptSent: boolean;
-  /** Kills the CLI and everything it started, escalating to SIGKILL after the grace period. */
-  kill(): void;
+  /** Kills the CLI and everything it started, escalating to SIGKILL after the grace period —
+   *  `hard` sends SIGKILL right away, for a shutdown that will not be around to escalate. */
+  kill(hard?: boolean): void;
+  /** Cancels the wait for the prompt; called once it arrives. */
+  promptArrived(): void;
   /** Sends `closed` (once) and removes the run's private directory. `notify: false` for a session
    *  that is already gone, where there is nobody left to ack to. */
   settle(code: number | null, reason?: ClosedReason, notify?: boolean): void;
@@ -117,8 +132,12 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
 
       let settled = false;
       let escalation: ReturnType<typeof setTimeout> | undefined;
+      let stderr = '';
       let stderrBytes = 0;
       let buffer = '';
+      /** Inside a line too long to frame: dropped as it arrives rather than buffered whole. */
+      let overlong = false;
+      let droppedLines = 0;
 
       function signalRun(signal: NodeJS.Signals): void {
         try {
@@ -136,9 +155,17 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
         }
       }
 
-      function killRun(): void {
+      function killRun(hard = false): void {
         if (child.exitCode !== null || child.signalCode !== null) return;
         signalRun('SIGTERM');
+        if (hard) {
+          // The agent itself is stopping (a shutdown, and on every machine an auto-update is the
+          // most frequent one): `process.exit` follows this call, so no escalation timer would ever
+          // fire and a CLI that traps SIGTERM — or just takes a moment — would be left orphaned on
+          // the person's laptop. The group gets SIGKILL now, while there is still a process here.
+          signalRun('SIGKILL');
+          return;
+        }
         if (escalation) return;
         // A CLI that ignores SIGTERM must not survive the channel that asked for it to stop.
         escalation = setTimeout(() => signalRun('SIGKILL'), KILL_GRACE_MS);
@@ -149,6 +176,7 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearTimeout(promptTimer);
         if (runs.get(ch) === run) runs.delete(ch);
         try {
           rmSync(runDir, { recursive: true, force: true }); // the 0600 config holds a live token
@@ -163,6 +191,18 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
         } catch (err) {
           deps.log('claude closed send failed', { ch, error: message(err) });
         }
+      }
+
+      /** One stdout line: dropped when blank (stream-json never emits one) or too big to frame. */
+      function emitLine(line: string): void {
+        if (!line.trim()) return;
+        if (Buffer.byteLength(line, 'utf8') > MAX_LINE_BYTES) {
+          droppedLines += 1;
+          // The size, never the line: a frame this big would close the machine's whole socket.
+          deps.log('claude stdout line too large to frame, dropped', { ch, bytes: Buffer.byteLength(line, 'utf8') });
+          return;
+        }
+        sendLine(line);
       }
 
       function sendLine(line: string): void {
@@ -184,7 +224,20 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
       }, deps.timeoutMs ?? DEFAULT_TIMEOUT_MS);
       timer.unref();
 
-      const run: Run = { child, promptSent: false, kill: killRun, settle };
+      const promptTimer = setTimeout(() => {
+        deps.log('claude run got no prompt', { ch, promptTimeoutMs: deps.promptTimeoutMs ?? PROMPT_TIMEOUT_MS });
+        killRun();
+        settle(null, 'run_failed');
+      }, deps.promptTimeoutMs ?? PROMPT_TIMEOUT_MS);
+      promptTimer.unref();
+
+      const run: Run = {
+        child,
+        promptSent: false,
+        kill: killRun,
+        promptArrived: () => clearTimeout(promptTimer),
+        settle,
+      };
       runs.set(ch, run);
 
       // A CLI that exits before reading the prompt (a rejected `--resume` fails at startup) turns
@@ -194,16 +247,35 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
       child.stdout?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
         buffer += chunk;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) if (line.trim()) sendLine(line);
+        for (;;) {
+          const nl = buffer.indexOf('\n');
+          if (nl === -1) break;
+          const line = buffer.slice(0, nl);
+          buffer = buffer.slice(nl + 1);
+          // The tail of a line whose head was already dropped for its size.
+          if (overlong) overlong = false;
+          else emitLine(line);
+        }
+        if (Buffer.byteLength(buffer, 'utf8') <= MAX_LINE_BYTES) return;
+        // Neither framed nor held in memory: a CLI writing an endless line must not grow this buffer
+        // until the agent dies with it.
+        if (!overlong) {
+          overlong = true;
+          droppedLines += 1;
+          deps.log('claude stdout line too large to frame, dropped', { ch, bytes: Buffer.byteLength(buffer, 'utf8') });
+        }
+        buffer = '';
       });
 
-      // stderr is drained so a chatty CLI cannot block on a full pipe, and nothing but its size is
-      // kept: it can carry the prompt back, and terminal content with it (spec §7.1), while the
-      // closed set of end-of-run reasons gives it nowhere to travel to anyway.
+      // stderr is drained (a chatty CLI would otherwise block on a full pipe) and a tail of it is
+      // kept for one purpose: `classifyFailure` reads it to name the outcome. The text itself never
+      // leaves this machine and never reaches a log — it can carry the prompt back and terminal
+      // content with it (spec §7.1) — but a label is not text, and without it a local history that
+      // was pruned or rotated would make every message in the conversation fail for ever instead of
+      // being retried once on a fresh session.
       child.stderr?.on('data', (data: Buffer) => {
         stderrBytes += data.length;
+        stderr = (stderr + data.toString('utf8')).slice(-STDERR_TAIL_BYTES);
       });
 
       child.on('error', (err: NodeJS.ErrnoException) => {
@@ -219,13 +291,16 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
       // wrote is lost to the channel ending a beat too early.
       child.on('close', (code: number | null) => {
         if (escalation) clearTimeout(escalation);
-        if (buffer.trim()) sendLine(buffer);
+        if (!overlong) emitLine(buffer);
         buffer = '';
-        deps.log('claude run ended', { ch, code, stderrBytes });
+        deps.log('claude run ended', { ch, code, stderrBytes, droppedLines });
         // A run we killed ourselves has already settled (`killed`, or `cli_missing` on a spawn that
         // never happened); this decides only the outcome of a run that ended on its own terms.
         if (code === 0) settle(0);
-        else settle(code, 'run_failed');
+        // The label only: `missing_session` is the one the server can act on (it retries once on a
+        // fresh session), and it is the difference between a pruned local history costing one
+        // message and it ending the conversation for good.
+        else settle(code, classifyFailure(stderr) === 'missing_session' ? 'missing_session' : 'run_failed');
       });
     },
 
@@ -238,6 +313,7 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
         return true;
       }
       run.promptSent = true;
+      run.promptArrived();
       // The prompt goes in on stdin and nowhere else: argv is visible to every process on this
       // machine, and a prompt beginning with `-` would be read as a flag there. It arrives as one
       // frame and is the CLI's whole input, so stdin closes with it — `claude -p` waits for EOF.
@@ -255,10 +331,11 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
     },
 
     closeAll(): void {
-      // The session is over (the socket is gone): nobody is left to ack to, but nothing may be
-      // left running either.
+      // The session is over (the socket is gone, or the agent itself is stopping): nobody is left to
+      // ack to, and nothing may be left running either — this is the one kill nobody will be around
+      // to escalate, so it goes all the way now.
       for (const run of [...runs.values()]) {
-        run.kill();
+        run.kill(true);
         run.settle(null, 'killed', false);
       }
     },
