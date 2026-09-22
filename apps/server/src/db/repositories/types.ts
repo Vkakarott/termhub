@@ -17,6 +17,9 @@ export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 export type TabKind = 'terminal' | 'simulator';
 /** Monitor state of the tool running in a tab (see monitor/state.ts). */
 export type TabState = 'working' | 'waiting_input' | 'waiting_permission' | 'idle' | 'error';
+/** What a working agent is doing, from the tool it is about to call (monitor/activity.ts). */
+export type TabActivity = 'coding' | 'reading' | 'researching' | 'planning' | 'terminal' | 'working';
+export const TAB_ACTIVITIES: readonly TabActivity[] = ['coding', 'reading', 'researching', 'planning', 'terminal', 'working'];
 
 /**
  * Tipos expostos pela camada de dados (snake_case, datas em ISO string).

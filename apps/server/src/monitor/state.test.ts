@@ -37,6 +37,24 @@ describe('interpretHookEvent — claude', () => {
     expect(interpretHookEvent('claude', { hook_event_name: 'SubagentStop' })).toBeNull();
     expect(interpretHookEvent('claude', 'nope')).toBeNull();
   });
+
+  it('maps PreToolUse to working with the tool\'s activity, keeping nothing of the tool input', () => {
+    const withInput = interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '/secret', new_string: 'x' } });
+    const without = interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+    expect(withInput).toEqual({ kind: 'working', text: null, activity: 'coding', meta: { event: 'PreToolUse', tool: 'Edit' } });
+    expect(withInput).toEqual(without);
+    expect(JSON.stringify(withInput)).not.toContain('secret');
+  });
+
+  it('maps a PreToolUse without a tool name to plain working', () => {
+    expect(interpretHookEvent('claude', { hook_event_name: 'PreToolUse' })).toEqual({ kind: 'working', text: null, activity: 'working', meta: { event: 'PreToolUse', tool: null } });
+  });
+
+  it('leaves activity undefined on every other event', () => {
+    expect(interpretHookEvent('claude', { hook_event_name: 'UserPromptSubmit' })?.activity).toBeUndefined();
+    expect(interpretHookEvent('claude', { hook_event_name: 'Stop' })?.activity).toBeUndefined();
+    expect(interpretHookEvent('codex', { type: 'agent-turn-complete' })?.activity).toBeUndefined();
+  });
 });
 
 describe('interpretHookEvent — codex', () => {

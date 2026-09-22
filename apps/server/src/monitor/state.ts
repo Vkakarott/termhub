@@ -1,4 +1,5 @@
-import type { Tab, TabState } from '../db/repositories/types.js';
+import type { Tab, TabActivity, TabState } from '../db/repositories/types.js';
+import { activityOf } from './activity.js';
 
 /** Tools whose hooks we understand (the hook script names itself). */
 export const HOOK_TOOLS = ['claude', 'codex'] as const;
@@ -11,6 +12,8 @@ export interface Interpreted {
   kind: TabState;
   text: string | null;
   meta: Record<string, unknown>;
+  /** only for events that say which tool the agent is about to call */
+  activity?: TabActivity;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -24,9 +27,13 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
     case 'SessionStart':
     case 'UserPromptSubmit':
     case 'PreCompact':
-    case 'PreToolUse':
-      // the prompt / tool input is the user's or the tool's content: only the fact that it is busy is kept
+      // the prompt is the user's content: only the fact that it is busy is kept
       return { kind: 'working', text: null, meta: { event: name } };
+    case 'PreToolUse': {
+      // the script already reduced this event to the tool's name; whatever else arrives is ignored
+      const tool = str(ev.tool_name);
+      return { kind: 'working', text: null, activity: activityOf(tool), meta: { event: name, tool } };
+    }
     case 'Notification': {
       const type = str(ev.notification_type);
       const message = cap(str(ev.message));
