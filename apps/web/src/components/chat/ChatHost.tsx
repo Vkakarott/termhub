@@ -38,6 +38,20 @@ export interface ChatHostProps {
    */
   accounts: ChatHostAiAccount[] | null;
   /**
+   * The accounts could not be read at all. `ai_accounts` is its own resource in the permission matrix,
+   * so a role that may change the chat's machine but not read a machine's logins lands here — and it
+   * must still get the machine list, with the truth said about the half that is missing rather than
+   * "this machine has no other account".
+   */
+  accountsError: boolean;
+  /**
+   * An admin is looking at someone else's data ("ver como"). The chat is always the signed-in user's
+   * own, while the machines and the accounts on screen are the other person's, so neither list can
+   * offer anything here: the picker says that, instead of reporting an empty list as a fact about
+   * machines the person really has.
+   */
+  viewingAs: boolean;
+  /**
    * The account id stored on the conversation, so the picker can show which option is the current one.
    * `null` = the machine's default login. An id that no longer names an account of this machine (the
    * `lost` state) matches no option, and then nothing is marked current — which is exactly right:
@@ -71,7 +85,7 @@ export interface ChatHostProps {
  * that performs the change names the machine it changes to, so the sentence about the model's memory is
  * always read before the change happens, never after.
  */
-export function ChatHost({ host, machines, accounts, accountId, picking, changing, error, onPick, onCancelPick, onChoose, onChooseAccount }: ChatHostProps) {
+export function ChatHost({ host, machines, accounts, accountsError, accountId, viewingAs, picking, changing, error, onPick, onCancelPick, onChoose, onChooseAccount }: ChatHostProps) {
   // Which machine is the host right now, so the picker never offers to change to it.
   const current = host.kind === 'ready' || host.kind === 'offline' || host.kind === 'agent_too_old' ? host.machine : null;
   // The machine's own default login first, then its registered Claude accounts: the default is an
@@ -83,7 +97,7 @@ export function ChatHost({ host, machines, accounts, accountId, picking, changin
   // then offers nothing but the current pair and Cancelar is a dead end dressed as a choice.
   const otherMachines = (machines ?? []).filter((m) => m.id !== current?.id);
   const otherAccounts = accountOptions.filter((o) => o.key !== currentAccountKey);
-  const changeable = otherMachines.length > 0 || (current !== null && otherAccounts.length > 0);
+  const changeable = !viewingAs && (otherMachines.length > 0 || (current !== null && otherAccounts.length > 0));
 
   return (
     // `section`, named, so a screen reader can reach "where is this running" without walking the
@@ -153,10 +167,15 @@ export function ChatHost({ host, machines, accounts, accountId, picking, changin
       )}
 
       {host.kind === 'ready' && host.sessionAtStake && (
-        // The host moved without anyone asking: the machine that held this conversation's session is
-        // gone, the only one left was picked for them, and the next message starts the model over. Said
-        // here because nothing else ever will — the failed resume and the restart are both invisible.
-        <p className="mt-1 text-warn">A máquina que rodava esta conversa não está mais disponível, e ela passou para {host.machine.name}: o histórico fica, mas a memória do modelo começa de novo.</p>
+        // The host moved without anyone asking: the machine this conversation named cannot run it, the
+        // only one left was picked for them, and the next message starts the model over. Said here
+        // because nothing else ever will — the failed resume and the restart are both invisible.
+        //
+        // Deliberately says where the conversation is going and what that costs, and claims nothing
+        // about where it was: every conversation from before this feature has a session and no machine
+        // (it ran in the operator's container), and naming a machine that "went away" would be a
+        // sentence about something that was never recorded.
+        <p className="mt-1 text-warn">Esta conversa continua em {host.machine.name}, que não é onde a sessão anterior rodou: o histórico fica, mas a memória do modelo começa de novo.</p>
       )}
 
       {host.kind === 'ready' && host.account.kind === 'lost' && (
@@ -173,34 +192,48 @@ export function ChatHost({ host, machines, accounts, accountId, picking, changin
               does (the session lives in one config dir), so this one sentence covers both. A warning
               over a dead end is the kind nobody reads, and then the one that matters is invisible too. */}
           {changeable && <p className="text-fg">Trocar de máquina ou de conta começa uma sessão nova: o histórico desta conversa fica, mas a memória do modelo começa de novo.</p>}
-          {machines === null ? (
-            <p className="mt-2 text-fg-dim">Carregando suas máquinas…</p>
-          ) : otherMachines.length === 0 ? (
-            // No *other* machine is the same dead end as no machine at all: there is nothing to switch
-            // to, and saying so beats a list whose only row is the machine already running this.
-            <p className="mt-2 text-fg-dim">Nenhuma outra máquina com o agente do termhub.</p>
+          {viewingAs ? (
+            // The lists here would be the other person's machines and logins, and the host they would
+            // set is this admin's own conversation: nothing on screen can be offered, and an empty list
+            // would read as a fact about their own machines. One true sentence, and the way out.
+            <p className="text-fg">Você está vendo os dados de outra pessoa. Esta conversa é sempre sua: saia de “ver como” para trocar a máquina ou a conta dela.</p>
           ) : (
-            <ChoiceList options={machines.map((m) => ({ key: m.id, name: m.name }))} currentKey={current?.id ?? null} changing={changing} onChoose={onChoose} prefix="Trocar para " />
-          )}
-          {/* The other half of the pair (spec §3), on the machine that is hosting right now: without it
-              `ai_account_id` could only ever be null and the chosen/lost states were unreachable. Only
-              where there is a machine to read them from — `no_machine` has no accounts to speak of. */}
-          {current !== null && (
             <>
-              <p className="mt-3 text-fg-dim">Conta do Claude em {current.name}</p>
-              {accounts === null ? (
-                <p className="mt-1 text-fg-dim">Carregando as contas dessa máquina…</p>
-              ) : otherAccounts.length === 0 ? (
-                <p className="mt-1 text-fg-dim">Essa máquina não tem outra conta do Claude cadastrada em Contas de IA.</p>
-              ) : (
-                <ChoiceList
-                  options={accountOptions}
-                  currentKey={currentAccountKey}
-                  changing={changing}
-                  onChoose={(key) => onChooseAccount(key === DEFAULT_ACCOUNT ? null : key)}
-                  prefix="Trocar para "
-                />
-              )}
+            {machines === null ? (
+              <p className="mt-2 text-fg-dim">Carregando suas máquinas…</p>
+            ) : otherMachines.length === 0 ? (
+              // No *other* machine is the same dead end as no machine at all: there is nothing to switch
+              // to, and saying so beats a list whose only row is the machine already running this.
+              <p className="mt-2 text-fg-dim">Nenhuma outra máquina com o agente do termhub.</p>
+            ) : (
+              <ChoiceList options={machines.map((m) => ({ key: m.id, name: m.name }))} currentKey={current?.id ?? null} changing={changing} onChoose={onChoose} prefix="Trocar para " />
+            )}
+            {/* The other half of the pair (spec §3), on the machine that is hosting right now: without it
+                `ai_account_id` could only ever be null and the chosen/lost states were unreachable. Only
+                where there is a machine to read them from — `no_machine` has no accounts to speak of. */}
+            {current !== null && (
+              <>
+                <p className="mt-3 text-fg-dim">Conta do Claude em {current.name}</p>
+                {accountsError ? (
+                  // Not "this machine has no other account": nobody read them. The machine list above
+                  // still works, which is the point — one missing permission must not take the only way
+                  // off an offline host with it.
+                  <p className="mt-1 text-fg-dim">Não foi possível ler as contas de IA dessa máquina.</p>
+                ) : accounts === null ? (
+                  <p className="mt-1 text-fg-dim">Carregando as contas dessa máquina…</p>
+                ) : otherAccounts.length === 0 ? (
+                  <p className="mt-1 text-fg-dim">Essa máquina não tem outra conta do Claude cadastrada em Contas de IA.</p>
+                ) : (
+                  <ChoiceList
+                    options={accountOptions}
+                    currentKey={currentAccountKey}
+                    changing={changing}
+                    onChoose={(key) => onChooseAccount(key === DEFAULT_ACCOUNT ? null : key)}
+                    prefix="Trocar para "
+                  />
+                )}
+              </>
+            )}
             </>
           )}
           <button type="button" className="btn-ghost mt-2 px-2 py-1" onClick={onCancelPick}>

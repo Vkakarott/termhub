@@ -37,9 +37,11 @@ vi.mock('../lib/api', () => {
     },
   };
 });
-// The chat is the signed-in user's own, whoever an admin may be "viewing as": the page needs that id
-// to offer only machines `POST /chat/host` will accept.
-vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+// The chat is the signed-in user's own, whoever an admin may be "viewing as": the page needs that id to
+// offer only machines `POST /chat/host` will accept, and needs to know when it is looking at someone
+// else's rows. Held in a mutable box so one test can switch the scope without a second mock factory.
+const auth = vi.hoisted(() => ({ state: { user: { id: 'u1' }, viewAs: null } as { user: { id: string } | null; viewAs: unknown } }));
+vi.mock('../lib/auth', () => ({ useAuth: () => auth.state }));
 vi.mock('../lib/chat', () => ({ useChatStream: (...a: unknown[]) => streamMock(...a) }));
 
 const msg = (over: Partial<ChatMessage> & { id: string }): ChatMessage => ({
@@ -73,6 +75,7 @@ beforeEach(() => {
   machinesMock.mockReset();
   accountsMock.mockReset();
   accountsMock.mockResolvedValue({ accounts: [] });
+  auth.state = { user: { id: 'u1' }, viewAs: null };
   chatMock.mockResolvedValue({ conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })], actions: [] });
   sendMock.mockResolvedValue({ message: msg({ id: 'm3', role: 'assistant', text: 'pronto' }) });
   streamMock.mockReturnValue({ events: [], connected: true });
@@ -816,6 +819,47 @@ it('sends the account with the machine, so the chat can actually run on a chosen
   // …and the header now names it: the `chosen` state is reachable through the product, not only in
   // the server's type.
   expect(await screen.findByText(/conta trabalho/i)).toBeTruthy();
+});
+
+it('under “ver como” says how to make the host changeable, instead of showing empty lists', async () => {
+  // An admin viewing another user: every list the API answers is that user's, while the conversation is
+  // the admin's own. Reporting an empty pair would be a claim about machines they really do have.
+  auth.state = { user: { id: 'u1' }, viewAs: { id: 'u2', name: 'Ana', email: 'ana@test', avatar_url: null } };
+  chatMock.mockResolvedValue(conversationWith({ kind: 'offline', machine: { id: 'm2', name: 'jarvis' } }));
+  machinesMock.mockResolvedValue({ machines: [{ id: 'm9', name: 'da-ana', type: 'agent', owner_id: 'u2' }], latest_agent_version: null });
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: /trocar máquina/i }));
+
+  expect(await screen.findByText(/saia de “ver como”/i)).toBeTruthy();
+  expect(screen.queryByText(/nenhuma outra máquina/i)).toBeNull();
+  expect(screen.queryByRole('button', { name: /trocar para/i })).toBeNull();
+});
+
+it('keeps the machine picker when the accounts cannot be read at all', async () => {
+  chatMock.mockResolvedValue(conversationWith({ kind: 'offline', machine: { id: 'm2', name: 'jarvis' } }));
+  machinesMock.mockResolvedValue({
+    machines: [
+      { id: 'm1', name: 'macbook', type: 'agent', owner_id: 'u1' },
+      { id: 'm2', name: 'jarvis', type: 'agent', owner_id: 'u1' },
+    ],
+    latest_agent_version: null,
+  });
+  // `ai_accounts` is a resource of its own in the permission matrix: a role that may change the chat's
+  // machine can still be refused this read, and the host is offline — this picker is the only way out.
+  accountsMock.mockRejectedValueOnce(new Error('sem permissão'));
+  setHostMock.mockResolvedValue({ conversation: { id: 'c1', ai_account_id: null }, host: { kind: 'ready', machine: { id: 'm1', name: 'macbook' }, configDir: null, account: { kind: 'default' }, sessionAtStake: false } });
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: /trocar máquina/i }));
+
+  // The picker stays open, the machines are offered, and the half that failed says so.
+  expect(await screen.findByRole('button', { name: /trocar para macbook/i })).toBeTruthy();
+  expect(screen.getByText(/não foi possível ler as contas de IA/i)).toBeTruthy();
+  expect(screen.queryByText(/não foi possível ler as suas máquinas/i)).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: /trocar para macbook/i }));
+  await waitFor(() => expect(setHostMock).toHaveBeenCalledWith('m1', null));
 });
 
 it('closes the picker with the reason when the machines could not be read', async () => {

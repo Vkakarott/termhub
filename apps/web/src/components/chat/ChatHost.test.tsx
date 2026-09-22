@@ -13,7 +13,9 @@ function show(host: ChatHostState, over: Partial<Parameters<typeof ChatHost>[0]>
     host,
     machines: null,
     accounts: null,
+    accountsError: false,
     accountId: null,
+    viewingAs: false,
     picking: false,
     changing: false,
     error: null,
@@ -119,6 +121,31 @@ it('with a single machine and nothing else to run on, the picker is not a dead e
   expect(screen.getByRole('button', { name: /cancelar/i })).toBeTruthy();
 });
 
+it('under “ver como” says so, instead of reporting someone else empty lists as your own', async () => {
+  show(READY_M1, { picking: true, viewingAs: true, machines: BOTH_MACHINES, accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: null });
+
+  // The machines and logins on screen belong to the person being viewed, while the conversation belongs
+  // to the admin viewing: nothing here can be offered, and an empty list would read as a fact about
+  // their own machines — which may be several.
+  expect(screen.getByText(/saia de “ver como”/i)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /trocar para/i })).toBeNull();
+  expect(screen.queryByText(/nenhuma outra máquina/i)).toBeNull();
+  expect(screen.queryByText(/não tem outra conta do Claude/i)).toBeNull();
+  expect(screen.queryByText(/memória do modelo começa de novo/i)).toBeNull();
+  expect(screen.getByRole('button', { name: /cancelar/i })).toBeTruthy();
+});
+
+it('says the accounts could not be read, and still offers the machines', async () => {
+  const props = show(READY_M1, { picking: true, machines: BOTH_MACHINES, accountsError: true, accountId: null });
+
+  // `ai_accounts` is its own permission: a role without it must not lose the machine picker too —
+  // that is the only way off an offline host.
+  expect(screen.getByText(/não foi possível ler as contas de IA/i)).toBeTruthy();
+  expect(screen.queryByText(/não tem outra conta do Claude/i)).toBeNull(); // never a claim about the machine
+  fireEvent.click(screen.getByRole('button', { name: /trocar para jarvis/i }));
+  expect(props.onChoose).toHaveBeenCalledWith('m2');
+});
+
 it('still warns with one machine when the account can change, because the session goes either way', async () => {
   show(READY_M1, { picking: true, machines: [machine('m1', 'macbook')], accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: null });
 
@@ -134,10 +161,13 @@ it('says the host moved under a live session, instead of losing the model memory
   // The machine this conversation ran on is gone and the only one left was picked for the person: the
   // failed resume and the fresh session that follows are both invisible from here, so this is the one
   // place it can be said — and it is said before the next message, not after the memory is gone.
-  expect(screen.getByText(/não está mais disponível/i)).toBeTruthy();
-  // …and it names the machine the conversation passed to, so nobody has to work out where it went.
-  expect(screen.getByText(/passou para jarvis/i)).toBeTruthy();
+  // Where it is going, and what that costs. And nothing about where it was: a conversation from before
+  // this feature ran in the operator's container and has no machine recorded at all, so "a máquina que
+  // rodava esta conversa" would be a sentence about something that never existed.
+  expect(screen.getByText(/continua em jarvis/i)).toBeTruthy();
+  expect(screen.getByText(/não é onde a sessão anterior rodou/i)).toBeTruthy();
   expect(screen.getByText(/histórico fica, mas a memória do modelo começa de novo/i)).toBeTruthy();
+  expect(screen.queryByText(/não está mais disponível/i)).toBeNull();
 });
 
 it('says nothing of the sort on a host that has its own session', async () => {

@@ -38,7 +38,7 @@ export function ChatPage() {
    * user's own (`request.scope.user`, not `request.scope.ownerId`), so this is what the machines and
    * accounts offered here have to belong to.
    */
-  const { user } = useAuth();
+  const { user, viewAs } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   /**
    * The gate's action trail. Always sourced from `GET /api/chat` on load/reconnect — never rebuilt
@@ -68,8 +68,13 @@ export function ChatPage() {
   const [picking, setPicking] = useState(false);
   /** The machines to change to, read only when the change is asked for (`not_chosen` brings its own). */
   const [hostMachines, setHostMachines] = useState<ChatHostMachine[] | null>(null);
-  /** Every Claude account of the user's machines, read with the machines; filtered per host below. */
-  const [hostAccounts, setHostAccounts] = useState<HostAccountRow[] | null>(null);
+  /**
+   * Every Claude account of the user's machines, read beside the machines and filtered per host below.
+   * `'error'` when that read failed on its own — `ai_accounts` is a resource of its own in the
+   * permission matrix, so a role that can change the chat's machine may still not be allowed to read a
+   * machine's logins, and that must cost the account half of the picker and nothing more.
+   */
+  const [hostAccounts, setHostAccounts] = useState<HostAccountRow[] | 'error' | null>(null);
   /**
    * The account stored on the conversation — the raw column, not a resolved state: it is what says which
    * option in the picker is the current one, and an id that no longer names an account of the host
@@ -163,22 +168,37 @@ export function ChatPage() {
    *
    * The accounts are read whole and filtered per machine below, so changing the machine does not need a
    * second request; `not_chosen` brings its own machines but no accounts, and has no host to have them on.
+   *
+   * The two reads are sequential and answered separately on purpose. `ai_accounts` is its own resource
+   * in the permission matrix: read together, a role without `ai_accounts:read` could no longer change
+   * the chat's *machine* at all — including when the host is offline and this picker is the only way
+   * out. So the machines decide whether the picker opens, and the accounts only decide whether its
+   * second half has a list.
    */
   const openPicker = async () => {
     setPicking(true);
     setHostError(null);
     if (hostMachines !== null) return;
+    let own: Set<string>;
     try {
-      const [{ machines }, { accounts }] = await Promise.all([api.machines.list(), api.aiAccounts.list()]);
-      const own = new Set(machines.filter((m) => m.owner_id === user?.id).map((m) => m.id));
+      const { machines } = await api.machines.list();
+      own = new Set(machines.filter((m) => m.owner_id === user?.id).map((m) => m.id));
       setHostMachines(machines.filter((m) => m.type === 'agent' && own.has(m.id)).map((m) => ({ id: m.id, name: m.name })));
-      // The chat runs on Claude, so a login for another provider is not an option here.
-      setHostAccounts(accounts.filter((a) => a.provider === 'claude' && own.has(a.machine_id)).map((a) => ({ id: a.id, label: a.label, machine_id: a.machine_id })));
     } catch (e) {
       // The picker closes again: left open it would say "carregando…" over a list that is never coming.
       // The reason stays on screen, and the button that opened it is how it is tried again.
       setPicking(false);
       setHostError(e instanceof ApiError ? e.message : 'Não foi possível ler as suas máquinas');
+      return;
+    }
+    try {
+      const { accounts } = await api.aiAccounts.list();
+      // The chat runs on Claude, so a login for another provider is not an option here.
+      setHostAccounts(accounts.filter((a) => a.provider === 'claude' && own.has(a.machine_id)).map((a) => ({ id: a.id, label: a.label, machine_id: a.machine_id })));
+    } catch {
+      // Said as what it is, next to a machine list that still works — never as "this machine has no
+      // other account", which is a claim about the machine and not about a read that was refused.
+      setHostAccounts('error');
     }
   };
 
@@ -322,8 +342,12 @@ export function ChatPage() {
           machines={host.kind === 'not_chosen' ? host.machines : hostMachines}
           // Only the host machine's own logins: an account of another machine names a config dir that
           // does not exist there, which is exactly what the server refuses (404) and what `lost` means.
-          accounts={hostMachineId === null || hostAccounts === null ? null : hostAccounts.filter((a) => a.machine_id === hostMachineId)}
+          accounts={hostMachineId === null || hostAccounts === null || hostAccounts === 'error' ? null : hostAccounts.filter((a) => a.machine_id === hostMachineId)}
+          accountsError={hostAccounts === 'error'}
           accountId={hostAccountId}
+          // An admin reading someone else's data: the lists would be that person's, while the
+          // conversation is this admin's own, so the picker says so instead of offering nothing.
+          viewingAs={viewAs !== null && viewAs !== undefined}
           picking={picking}
           changing={changingHost}
           error={hostError}
