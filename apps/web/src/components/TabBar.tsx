@@ -119,7 +119,7 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
               ) : (
                 <span className="truncate">{t.name}</span>
               )}
-              {badges?.[t.id] && <span className="ml-1 rounded bg-bg-4 px-1 text-[10px] text-fg-dim">{badges[t.id]}</span>}
+              {badges?.[t.id] && <span className="ml-1 max-w-[72px] truncate rounded bg-bg-4 px-1 text-[10px] text-fg-dim">{badges[t.id]}</span>}
               <button
                 className={`ml-auto rounded px-1 text-fg-dim hover:bg-bg-4 hover:text-fg ${active ? '' : 'invisible group-hover:visible'}`}
                 onClick={(e) => {

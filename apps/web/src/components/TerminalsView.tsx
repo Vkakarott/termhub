@@ -50,9 +50,14 @@ interface Props {
 }
 
 export function TerminalsView({ project, visible }: Props) {
-  const { machinesOf, missingTmux } = useData();
+  const { machines, machinesOf, missingTmux } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
-  const projectMachines = machinesOf(project);
+  // `machinesOf` itself is not stable: it lives on `useData()`'s value, whose memo also depends on
+  // `statuses` (updated on every status poll), so its identity changes far more often than the
+  // machine list. Key on the actual inputs instead so this doesn't re-run `newTab`'s effects on
+  // every poll.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `machinesOf` itself is unstable (see above); the real inputs are `project.machines` and `machines`.
+  const projectMachines = useMemo(() => machinesOf(project), [project.machines, machines]);
   const machineById = (id: string) => projectMachines.find((m) => m.id === id);
   const noTmux = projectMachines.some((m) => missingTmux[m.id]);
   const canSimulator = projectMachines.some((m) => m.capabilities.includes('wda'));
