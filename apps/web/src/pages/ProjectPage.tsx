@@ -20,14 +20,22 @@ const SECTIONS: { key: ProjectSection; label: string; path: string }[] = [
 
 export function ProjectPage() {
   const { id, section } = useParams<{ id: string; section?: string }>();
-  const { projects, machines, statuses, loading } = useData();
+  const { projects, machinesOf, statuses, loading } = useData();
   const project = projects.find((p) => p.id === id);
   const current: ProjectSection = SECTIONS.find((s) => s.path === (section ?? ''))?.key ?? 'terminals';
 
   if (loading) return <FullScreenMessage>Carregando…</FullScreenMessage>;
   if (!project) return <FullScreenMessage>Projeto não encontrado.</FullScreenMessage>;
-  const machine = machines.find((m) => m.id === project.machine_id);
-  const status = machine ? (statuses[machine.id] ?? 'checking') : 'offline';
+  const projectMachines = machinesOf(project);
+  const online = projectMachines.some((m) => statuses[m.id] === 'online');
+  const status =
+    projectMachines.length === 0
+      ? null
+      : online
+        ? 'online'
+        : projectMachines.every((m) => statuses[m.id] === 'offline')
+          ? 'offline'
+          : 'checking';
 
   return (
     <div className="flex h-full flex-col">
@@ -40,10 +48,16 @@ export function ProjectPage() {
             )}
           </div>
         </div>
-        <span className="hidden truncate font-mono text-xs text-fg-dim md:inline" title={project.cwd}>
-          {machine?.name}:{project.cwd}
+        <span className="font-mono text-xs text-fg-dim">{project.key}</span>
+        <span className="hidden truncate text-xs text-fg-dim md:inline" title={project.machines.map((l) => l.cwd).join('\n')}>
+          {projectMachines.length === 0 ? 'sem máquina' : projectMachines.map((m) => m.name).join(', ')}
         </span>
-        <span className={`h-2 w-2 shrink-0 rounded-full ${status === 'online' ? 'bg-ok' : status === 'offline' ? 'bg-danger' : 'bg-warn animate-pulse'}`} title={status} />
+        {status && (
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${status === 'online' ? 'bg-ok' : status === 'offline' ? 'bg-danger' : 'bg-warn animate-pulse'}`}
+            title={status}
+          />
+        )}
         <nav className="ml-auto flex items-center gap-1 text-xs">
           {SECTIONS.map((s) => (
             <NavLink
@@ -65,7 +79,10 @@ export function ProjectPage() {
         {current === 'tickets' && <TicketsView key={`tickets-${project.id}`} project={project} />}
         {current === 'notes' && <NotesEditor key={`notes-${project.id}`} projectId={project.id} />}
         {current === 'settings' && (
-          <ProjectSettings key={`settings-${project.id}-${project.status}-${project.cwd}-${project.name}`} project={project} />
+          <ProjectSettings
+            key={`settings-${project.id}-${project.status}-${project.name}-${project.machines.map((l) => l.machine_id + l.cwd).join(',')}`}
+            project={project}
+          />
         )}
       </div>
     </div>

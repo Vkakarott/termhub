@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import {
   cellRects,
@@ -23,10 +23,26 @@ import { TerminalView } from './Terminal';
 import { SimulatorView } from './SimulatorView';
 import { PaneLayer, PANE_HEADER_HEIGHT } from './PaneLayer';
 import { FloatingWindow, FLOATING_TITLE_HEIGHT } from './FloatingWindow';
-import { ConfirmDialog } from './Modal';
+import { ConfirmDialog, Modal } from './Modal';
 import { useData } from '../lib/data';
 import { useMarkSeenOnFocus } from '../lib/monitor';
 import { setTabsOnScreen } from '../lib/visible-tabs';
+
+const LAST_MACHINE_KEY = (projectId: string) => `termhub:last-machine:${projectId}`;
+function readLastMachine(projectId: string): string | null {
+  try {
+    return localStorage.getItem(LAST_MACHINE_KEY(projectId));
+  } catch {
+    return null;
+  }
+}
+function writeLastMachine(projectId: string, machineId: string): void {
+  try {
+    localStorage.setItem(LAST_MACHINE_KEY(projectId), machineId);
+  } catch {
+    /* private mode */
+  }
+}
 
 interface Props {
   project: Project;
@@ -34,11 +50,13 @@ interface Props {
 }
 
 export function TerminalsView({ project, visible }: Props) {
-  const { machines, missingTmux } = useData();
+  const { machinesOf, missingTmux } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
-  const machine = machines.find((m) => m.id === project.machine_id);
-  const noTmux = !!missingTmux[project.machine_id];
-  const canSimulator = !!machine?.capabilities.includes('wda');
+  const projectMachines = machinesOf(project);
+  const machineById = (id: string) => projectMachines.find((m) => m.id === id);
+  const noTmux = projectMachines.some((m) => missingTmux[m.id]);
+  const canSimulator = projectMachines.some((m) => m.capabilities.includes('wda'));
+  const [picking, setPicking] = useState<{ kind: TabKind; cell?: number } | null>(null);
   const [tabs, setTabs] = useState<Tab[] | null>(null);
   const [reachable, setReachable] = useState(true);
   const [closing, setClosing] = useState<Tab | null>(null);
@@ -163,9 +181,19 @@ export function TerminalsView({ project, visible }: Props) {
   }, [searchParams, tabs, setSearchParams, load, dispatch]);
 
   const newTab = useCallback(
-    async (kind: TabKind = 'terminal', cell?: number) => {
+    async (kind: TabKind = 'terminal', cell?: number, machineId?: string) => {
+      if (projectMachines.length === 0) {
+        setError('Vincule uma máquina ao projeto em Setup → Máquinas para abrir terminais.');
+        return;
+      }
+      let chosen = machineId ?? (projectMachines.length === 1 ? projectMachines[0].id : undefined);
+      if (!chosen) {
+        setPicking({ kind, cell });
+        return;
+      }
       try {
-        const { tab } = await api.projects.createTab(project.id, { kind });
+        const { tab } = await api.projects.createTab(project.id, { kind, machine_id: chosen });
+        writeLastMachine(project.id, chosen);
         setTabs((t) => [...(t ?? []), tab]);
         setLayout((l) => {
           const target = cell ?? (l.cells.indexOf(null) === -1 ? l.focusedCell : l.cells.indexOf(null));
@@ -175,7 +203,7 @@ export function TerminalsView({ project, visible }: Props) {
         setError(e instanceof ApiError ? e.message : 'Erro ao criar tab');
       }
     },
-    [project.id, area],
+    [project.id, area, projectMachines],
   );
 
   const rename = useCallback(
@@ -268,11 +296,26 @@ export function TerminalsView({ project, visible }: Props) {
           const t = (tabs ?? []).find((x) => x.id === id);
           if (t) setClosing(t);
         }}
+        badges={
+          projectMachines.length > 1
+            ? Object.fromEntries((tabs ?? []).map((t) => [t.id, machineById(t.machine_id)?.name ?? '']))
+            : undefined
+        }
       />
+      {projectMachines.length === 0 && (
+        <div className="border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">
+          Este projeto não tem máquina vinculada.{' '}
+          <Link to={`/projects/${project.id}/settings`} className="underline">
+            Vincular em Setup → Máquinas
+          </Link>
+          .
+        </div>
+      )}
       {noTmux && (
         <div className="border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">
-          <strong>{machine?.name}</strong> está online mas não tem <code className="font-mono">tmux</code> instalado. Instale (ex.:{' '}
-          <code className="font-mono">sudo apt install tmux</code>) para abrir terminais.
+          <strong>{projectMachines.filter((m) => missingTmux[m.id]).map((m) => m.name).join(', ')}</strong> está online mas não tem{' '}
+          <code className="font-mono">tmux</code> instalado. Instale (ex.: <code className="font-mono">sudo apt install tmux</code>) para abrir
+          terminais.
         </div>
       )}
       {!reachable && (
@@ -328,7 +371,7 @@ export function TerminalsView({ project, visible }: Props) {
                   {t.kind === 'simulator' ? (
                     <SimulatorView
                       tab={t}
-                      machineId={project.machine_id}
+                      machineId={t.machine_id}
                       active={active}
                       focused={focused}
                       floating={isFloating}
@@ -400,6 +443,26 @@ export function TerminalsView({ project, visible }: Props) {
           if (closing) void closeTab(closing);
         }}
       />
+      <Modal title="Abrir em qual máquina?" open={!!picking} onClose={() => setPicking(null)}>
+        <ul className="space-y-1">
+          {projectMachines.map((m) => (
+            <li key={m.id}>
+              <button
+                type="button"
+                className={`btn w-full justify-start border ${readLastMachine(project.id) === m.id ? 'border-accent' : 'border-line'} hover:bg-bg-3`}
+                onClick={() => {
+                  const p = picking!;
+                  setPicking(null);
+                  void newTab(p.kind, p.cell, m.id);
+                }}
+              >
+                {m.name}
+                <span className="ml-2 font-mono text-[11px] text-fg-dim">{project.machines.find((l) => l.machine_id === m.id)?.cwd}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Modal>
     </div>
   );
 }
