@@ -1,5 +1,8 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { buildCardSvg, renderCard } from './card.js';
+import { buildCardSvg, renderCard, resolveFocus } from './card.js';
 import type { PublicCity } from './city.js';
 
 const city: PublicCity = {
@@ -42,4 +45,53 @@ describe('the link preview card', () => {
     await expect(renderCard('<svg xmlns="http://www.w3.org/2000/svg"/>')).resolves.toBeNull();
     vi.unstubAllEnvs();
   });
+
+  it('strips control characters that would make the rasteriser fail to parse', () => {
+    const hostile = { ...city, owner_name: 'Pedro\u0000\u0007 Bell' };
+    const svg = buildCardSvg(hostile, {});
+    expect(svg).not.toContain('\u0000');
+    expect(svg).not.toContain('\u0007');
+    expect(svg).toContain('Pedro Bell');
+  });
+
+  it('resolves an id from the query against the real city, and nothing for one that matches no building or room', () => {
+    expect(resolveFocus(city, { building: 'b1' }).building?.name).toBe('Jarvis');
+    expect(resolveFocus(city, { building: 'b1', room: 'r1' }).room?.name).toBe('Engage Easy');
+    const nothing = resolveFocus(city, { building: 'not-a-real-id' });
+    expect(nothing.building).toBeUndefined();
+    expect(nothing.room).toBeUndefined();
+  });
+
+  it('resolves null instead of hanging when the rasteriser never exits', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'termhub-card-hang-'));
+    const bin = join(dir, 'rsvg-convert');
+    writeFileSync(bin, '#!/bin/sh\nsleep 30\n');
+    chmodSync(bin, 0o755);
+    vi.stubEnv('TERMHUB_RSVG_BIN', bin);
+    vi.stubEnv('TERMHUB_RSVG_TIMEOUT_MS', '50');
+    try {
+      await expect(renderCard('<svg xmlns="http://www.w3.org/2000/svg"/>')).resolves.toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves null instead of buffering forever when the rasteriser floods stdout', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'termhub-card-flood-'));
+    const bin = join(dir, 'rsvg-convert');
+    // Emits well past a tiny cap, then hangs — a long timeout backstop proves it's the byte cap,
+    // not the timeout, that ends this one.
+    writeFileSync(bin, '#!/bin/sh\ndd if=/dev/zero bs=1024 count=64 2>/dev/null\nsleep 30\n');
+    chmodSync(bin, 0o755);
+    vi.stubEnv('TERMHUB_RSVG_BIN', bin);
+    vi.stubEnv('TERMHUB_RSVG_MAX_BYTES', '1024');
+    vi.stubEnv('TERMHUB_RSVG_TIMEOUT_MS', '5000');
+    try {
+      await expect(renderCard('<svg xmlns="http://www.w3.org/2000/svg"/>')).resolves.toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 2_000);
 });

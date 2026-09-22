@@ -15,15 +15,23 @@ const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;'
 
 /** Every name in the card was written by someone else (an owner's name, a building, a room): never trust it as markup. */
 function xml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ESCAPES[c]!);
+  // ASCII control characters (tab/newline/CR included — these are single-line labels) are not
+  // valid XML text content; rsvg-convert simply fails to parse them, silently breaking that one
+  // city's card while every other city keeps working. Strip before escaping the XML metacharacters.
+  return s.replace(/[\x00-\x1F\x7F]/g, '').replace(/[&<>"']/g, (c) => ESCAPES[c]!);
 }
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** The building and room a link points at, resolved from the public (obfuscated) ids in the query. */
-function resolveFocus(city: PublicCity, focus: { building?: string; room?: string }): { building?: PublicBuilding; room?: PublicRoom } {
+/**
+ * The building and room a link points at, resolved from the public (obfuscated) ids in the query.
+ * Exported so a caller (the route's cache) can key on what this actually resolved to rather than on
+ * the raw query string — an id that matches nothing must collapse onto the same entry as no id at
+ * all, not mint one cache entry per garbage value.
+ */
+export function resolveFocus(city: PublicCity, focus: { building?: string; room?: string }): { building?: PublicBuilding; room?: PublicRoom } {
   const building = focus.building ? city.buildings.find((b) => b.id === focus.building) : undefined;
   const room = building && focus.room ? building.rooms.find((r) => r.id === focus.room) : undefined;
   return { building, room };
@@ -92,10 +100,19 @@ export function buildCardSvg(city: PublicCity, focus: { building?: string; room?
  * Rasterises with the same tool `apps/landing/og/build.sh` uses at build time (librsvg's
  * `rsvg-convert`), but at runtime, as a subprocess of the server: no Node rasteriser tied to the
  * Node ABI. `TERMHUB_RSVG_BIN` lets a test (or an unusual deploy) point at a different binary; a
- * missing binary, a failed spawn or a non-zero exit all resolve `null` rather than throw — a
- * developer machine without librsvg must never turn a card request into a 500.
+ * missing binary, a failed spawn, a non-zero exit, a process that never exits, or one that floods
+ * stdout all resolve `null` rather than throw or hang — a developer machine without librsvg, or a
+ * misbehaving one, must never turn a card request into a 500 or a request that never ends. This is
+ * the one fully anonymous, process-spawning path in the product, so it owns its own limits rather
+ * than trusting the rasteriser to behave.
  */
 export function renderCard(svg: string): Promise<Buffer | null> {
+  // Read per call, not at module load: a test stubs these env vars around one specific call, and a
+  // module-level constant would have already frozen the default before the stub ever took effect.
+  const timeoutMs = Number(process.env.TERMHUB_RSVG_TIMEOUT_MS ?? 5_000);
+  // A card is a few tens of KB at most (1200x630, a handful of text runs); this is a generous cap
+  // against a rasteriser gone wrong, not a realistic size.
+  const maxBytes = Number(process.env.TERMHUB_RSVG_MAX_BYTES ?? 8 * 1024 * 1024);
   return new Promise((resolve) => {
     let proc;
     try {
@@ -107,14 +124,31 @@ export function renderCard(svg: string): Promise<Buffer | null> {
       return;
     }
     const chunks: Buffer[] = [];
+    let bytes = 0;
     let settled = false;
     const finish = (value: Buffer | null) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolve(value);
     };
+    // Neither limit trusts the process to die on its own: both explicitly kill it before giving up,
+    // so a hung or flooding rsvg-convert doesn't linger as an orphan after the request moves on.
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      finish(null);
+    }, timeoutMs);
     proc.on('error', () => finish(null));
-    proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+    proc.stdout.on('data', (chunk: Buffer) => {
+      if (settled) return;
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        proc.kill('SIGKILL');
+        finish(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
     proc.on('close', (code) => finish(code === 0 ? Buffer.concat(chunks) : null));
     // A missing binary makes stdin die too (EPIPE) right after the 'error' event above fires;
     // without a listener here that second, unrelated error would crash the process.

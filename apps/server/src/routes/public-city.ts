@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
-import { buildCardSvg, renderCard } from '../public/card.js';
+import { buildCardSvg, renderCard, resolveFocus } from '../public/card.js';
 import { normalizeNickname } from '../public/nickname.js';
 import { readPublicCity } from '../public/read.js';
 
@@ -20,22 +20,56 @@ const FALLBACK_CARD = '/og-image.png';
 
 const CARD_CACHE_MS = 5 * 60 * 1000;
 
+// A generous bound: this instance's own published cities plus their buildings/rooms are the only
+// keys that will ever actually be requested for real, and none of that should approach four figures.
+// It exists purely so a determined caller mining random ?building=/?room= values can't grow the map
+// forever — see the note on the key below for why it can't do that by minting new entries either.
+const CARD_CACHE_MAX_ENTRIES = 500;
+
 /**
- * The rendered card, cached in-process for a few minutes per nickname+depth: a crawler unfurling a
- * link fetches the same card several times in a row, and rasterising is the one real cost on this
- * whole anonymous surface. Never caches a fallback — those are just a redirect, not worth the shelf
- * space, and caching a miss would keep a newly published city's first card looking stale.
+ * The rendered card, cached in-process for a few minutes per nickname+resolved-depth: a crawler
+ * unfurling a link fetches the same card several times in a row, and rasterising is the one real
+ * cost on this whole anonymous surface. Never caches a fallback — those are just a redirect, not
+ * worth the shelf space, and caching a miss would keep a newly published city's first card looking
+ * stale.
+ *
+ * The key is built from the *resolved* building/room (their real public ids, once matched against
+ * the city just read), never from the raw query string: `cardQuery` accepts any string and an id
+ * that matches nothing silently falls back to the city-level card, so keying on the raw value would
+ * let a caller mint one cache entry — one DB read, one `rsvg-convert` spawn — per garbage id it
+ * feels like sending, unbounded and unrated. Keyed on what it resolved to, every garbage id for the
+ * same nickname collapses onto the one city-level entry that a real visitor would also hit.
  */
 const cardCache = new Map<string, { png: Buffer; expiresAt: number }>();
 
-function cachedCard(key: string): Buffer | undefined {
-  const hit = cardCache.get(key);
-  if (!hit) return undefined;
-  if (hit.expiresAt <= Date.now()) {
-    cardCache.delete(key);
-    return undefined;
+/** Dropped whenever the cache is touched (read or write), so an idle entry never outlives its TTL. */
+function sweepExpiredCards(now: number): void {
+  for (const [key, entry] of cardCache) {
+    if (entry.expiresAt <= now) cardCache.delete(key);
   }
-  return hit.png;
+}
+
+function cachedCard(key: string): Buffer | undefined {
+  const now = Date.now();
+  sweepExpiredCards(now);
+  const hit = cardCache.get(key);
+  return hit && hit.expiresAt > now ? hit.png : undefined;
+}
+
+function setCachedCard(key: string, png: Buffer): void {
+  sweepExpiredCards(Date.now());
+  if (!cardCache.has(key) && cardCache.size >= CARD_CACHE_MAX_ENTRIES) {
+    // Map iterates in insertion order: the first key is the oldest surviving entry. A crude FIFO
+    // eviction is enough — this cap exists to bound memory, not to optimise a hit rate.
+    const oldest = cardCache.keys().next().value;
+    if (oldest !== undefined) cardCache.delete(oldest);
+  }
+  cardCache.set(key, { png, expiresAt: Date.now() + CARD_CACHE_MS });
+}
+
+/** The cache key for a nickname at a resolved depth: two different unresolved ids fold onto the same key as no id at all. */
+function cardCacheKey(nickname: string, focus: { building?: { id: string }; room?: { id: string } }): string {
+  return `${nickname}:${focus.building?.id ?? ''}:${focus.room?.id ?? ''}`;
 }
 
 /**
@@ -63,18 +97,21 @@ export async function publicCityRoutes(app: FastifyInstance, repos: Repositories
     const parsed = normalizeNickname(params.parse(request.params).nickname);
     if (!parsed.ok) return reply.redirect(FALLBACK_CARD, 302);
     const { building, room } = cardQuery.parse(request.query);
-    const cacheKey = `${parsed.value}:${building ?? ''}:${room ?? ''}`;
+    const city = await readPublicCity(repos, parsed.value);
+    if (!city) return reply.redirect(FALLBACK_CARD, 302);
+    // Resolved before the cache is ever consulted: an id that matches nothing in this city (or one
+    // from a different city, or a stale id after unpublishing) must key exactly like no id at all.
+    const focus = resolveFocus(city, { building, room });
+    const cacheKey = cardCacheKey(parsed.value, focus);
     const cached = cachedCard(cacheKey);
     if (cached) {
       reply.header('content-type', 'image/png');
       reply.header('cache-control', 'public, max-age=300');
       return cached;
     }
-    const city = await readPublicCity(repos, parsed.value);
-    if (!city) return reply.redirect(FALLBACK_CARD, 302);
     const png = await renderCard(buildCardSvg(city, { building, room }));
     if (!png) return reply.redirect(FALLBACK_CARD, 302);
-    cardCache.set(cacheKey, { png, expiresAt: Date.now() + CARD_CACHE_MS });
+    setCachedCard(cacheKey, png);
     reply.header('content-type', 'image/png');
     reply.header('cache-control', 'public, max-age=300');
     return png;

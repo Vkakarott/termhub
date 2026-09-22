@@ -28,12 +28,29 @@ vi.mock('../terminal/machine-exec.js', () => ({
   cachedTmuxProbe: (...a: unknown[]) => cachedFn(...a),
 }));
 
+// A spy around the real renderCard (not a replacement): the "with a real rsvg-convert" tests below
+// still need the genuine subprocess to prove a real PNG comes back, but the cache tests need to
+// count how many times rasterising actually happened, which the response body alone can't show.
+const { renderCardSpy } = vi.hoisted(() => ({ renderCardSpy: vi.fn() }));
+vi.mock('../public/card.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../public/card.js')>();
+  return {
+    ...actual,
+    renderCard: async (svg: string) => {
+      renderCardSpy();
+      return actual.renderCard(svg);
+    },
+  };
+});
+
 const { publicCityRoutes } = await import('./public-city.js');
 
 const MACHINES = [
   { id: 'm1', name: 'Jarvis Office', owner_id: 'u1' },
   { id: 'm2', name: 'Empty HQ', owner_id: 'u2' },
   { id: 'm3', name: 'Rival HQ', owner_id: 'u3' },
+  { id: 'm4', name: 'Terceiro HQ', owner_id: 'u4' },
+  { id: 'm5', name: 'Quarto HQ', owner_id: 'u5' },
 ];
 
 const PROJECTS: Record<string, { id: string; machine_id: string; name: string; status: string; is_public: boolean }[]> = {
@@ -44,12 +61,16 @@ const PROJECTS: Record<string, { id: string; machine_id: string; name: string; s
   ],
   m2: [],
   m3: [{ id: 'p4', machine_id: 'm3', name: 'Rival Room', status: 'active', is_public: true }],
+  m4: [{ id: 'p5', machine_id: 'm4', name: 'Sala do Terceiro', status: 'active', is_public: true }],
+  m5: [{ id: 'p6', machine_id: 'm5', name: 'Sala do Quarto', status: 'active', is_public: true }],
 };
 
 const TABS: Record<string, { id: string; project_id: string; name: string; kind: string; tmux_session: string | null; simulator_udid: string | null; state: string | null }[]> = {
   p1: [{ id: 't1', project_id: 'p1', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' }],
   p2: [{ id: 't2', project_id: 'p2', name: 'segredo', kind: 'terminal', tmux_session: 'th-t2', simulator_udid: null, state: 'working' }],
   p4: [{ id: 't4', project_id: 'p4', name: 'rival shell', kind: 'terminal', tmux_session: 'th-t4', simulator_udid: null, state: 'working' }],
+  p5: [{ id: 't5', project_id: 'p5', name: 'terceira shell', kind: 'terminal', tmux_session: 'th-t5', simulator_udid: null, state: 'working' }],
+  p6: [{ id: 't6', project_id: 'p6', name: 'quarta shell', kind: 'terminal', tmux_session: 'th-t6', simulator_udid: null, state: 'working' }],
 };
 
 /** The public route with stubbed repositories, built the way office.test.ts builds its app. */
@@ -63,7 +84,11 @@ function buildApp() {
           ? { id: 'u1', name: 'Pedro' }
           : nickname === 'semnada'
             ? { id: 'u2', name: 'Semnada' }
-            : undefined,
+            : nickname === 'terceiro'
+              ? { id: 'u4', name: 'Terceiro' }
+              : nickname === 'quarto'
+                ? { id: 'u5', name: 'Quarto' }
+                : undefined,
       ),
     },
     machines: {
@@ -165,6 +190,7 @@ describe('GET /public/city/:nickname', () => {
 describe('GET /public/city/:nickname/card.png', () => {
   beforeEach(() => {
     cached = { reachable: true, sessions: new Set(['th-t1']) };
+    renderCardSpy.mockClear();
   });
 
   it('falls back to the landing card for a nickname that does not exist', async () => {
@@ -199,18 +225,29 @@ describe('GET /public/city/:nickname/card.png', () => {
       expect(res.rawPayload.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
     });
 
-    it('serves the second request for the same card from cache, without asking the repository again', async () => {
-      // A cache key of its own (an unused ?building=), so this test's first request is a genuine
-      // miss regardless of what the previous test already rendered and cached for the bare URL.
-      const url = '/public/city/pedro/card.png?building=cache-test-only';
-      const { app, repos } = buildApp();
+    it('serves the second request for the same card from cache, without rasterising again', async () => {
+      // A nickname of its own, never requested by any other test in this file, so the cache is
+      // guaranteed cold going in regardless of test order.
+      const url = '/public/city/terceiro/card.png';
+      const { app } = buildApp();
       const first = await app.inject({ method: 'GET', url });
       expect(first.statusCode).toBe(200);
-      const callsAfterFirst = vi.mocked(repos.users.findByNickname).mock.calls.length;
+      expect(renderCardSpy).toHaveBeenCalledTimes(1);
       const second = await app.inject({ method: 'GET', url });
       expect(second.statusCode).toBe(200);
       expect(second.rawPayload).toEqual(first.rawPayload);
-      expect(vi.mocked(repos.users.findByNickname).mock.calls.length).toBe(callsAfterFirst);
+      expect(renderCardSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('collapses two different unresolved ?building= ids onto the same cached city-level card, rendering once', async () => {
+      // Same isolation concern as above: a nickname this test alone touches.
+      const { app } = buildApp();
+      const first = await app.inject({ method: 'GET', url: '/public/city/quarto/card.png?building=not-a-real-id-one' });
+      const second = await app.inject({ method: 'GET', url: '/public/city/quarto/card.png?building=not-a-real-id-two' });
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(second.rawPayload).toEqual(first.rawPayload);
+      expect(renderCardSpy).toHaveBeenCalledTimes(1);
     });
   });
 });
