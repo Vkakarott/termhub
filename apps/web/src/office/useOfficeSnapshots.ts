@@ -23,8 +23,9 @@ const EMPTY: MachineSnapshotState = { snapshot: null, failed: false };
  * already on screen and must not read as "no session yet" from the server's memo.
  *
  * A removed machine's id can linger in `inFlight` until its request settles; if it is re-added
- * before then, that read is skipped once (see the "re-add" test) and the machine is picked up
- * again on the next tick, focus or visibility change — it never gets stuck.
+ * before then, that read is skipped once (see the "re-add" tests) and the machine is picked up
+ * again on the next tick or the next window focus — both pinned by a test, and a tab becoming
+ * visible asks through the same path as focus. It never gets stuck.
  */
 export function useOfficeSnapshots(machineIds: string[]): { byMachine: Record<string, MachineSnapshotState>; reload: (machineId: string) => boolean } {
   const key = [...machineIds].sort().join('\n');

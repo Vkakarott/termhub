@@ -102,7 +102,10 @@ Interaction:
   rung does not exist, so either kind of "up" stops at the machine rest — for `Esc` that means
   leaving focus mode directly from there.
 - A breadcrumb in the top bar, `Cidade › <machine> › <project>`, shows where the camera rests;
-  each part is a link to that rest. It replaces v1's machine selector and "voltar ao andar" button.
+  each part is a link to that rest, and a rest reached that way is one the person asked for: the
+  machine part steps out of a room to the block and stays there, even on a machine with a single
+  room, which auto-drill would otherwise open again. It replaces v1's machine selector and
+  "voltar ao andar" button.
 - Clicking a person — the whole desk, person and furniture together, not only the head — opens the
   terminal in a new browser tab at `/projects/<projectId>?tab=<tabId>`, at every level.
 - Clicking a room's sign opens the project (`/projects/<projectId>`).
@@ -114,9 +117,11 @@ of one block adds nothing. A machine with exactly one project that has tabs open
 that room, when it is reached by auto-drill or by its own URL with no `?room=`. What is not a
 choice is not asked: a machine reached "by hand" — a block clicked from the city, or a room left
 with `Esc` — has its auto-drill into that machine's only room suppressed once, so stepping back
-out of a room does not immediately drop the person straight back into it; a direct arrival at a
-different machine (a fresh load, Back/Forward, another block clicked) still auto-drills normally,
-since "by hand" is tracked per machine id and never leaks from one to another.
+out of a room does not immediately drop the person straight back into it. Standing inside a room
+counts as having arrived at its machine, however that room was reached (a pasted link, `Back`, a
+room clicked straight from the city), so the way out of it is never drilled back in. A direct
+arrival at a different machine (a fresh load, Back/Forward, another block clicked) still
+auto-drills normally, since "by hand" is tracked per machine id and never leaks from one to another.
 
 **URL is the state.** `/office` is the city, `/office/:machineId` a machine, `?room=<projectId>` a
 room of it, `?focus=1` focus mode. v1's links keep working. Reloading or sharing the link lands in
@@ -165,17 +170,22 @@ from the street.
   piece of text and stays at full attention orange, since it is the one thing an offline machine
   must not say quietly.
 - A machine's snapshot arriving, a machine added or removed, or a floor changing size rebuilds the
-  city under the same camera rule as a floor rebuild below: block order is kept, later blocks may
-  move, and the scene re-frames by itself only while the person has not moved the camera.
+  city: block order is kept, later blocks may move. What the camera does then depends on where it
+  stands. At the city it re-centres only while the person has not moved it by hand. At a machine or
+  a room it re-frames only when that block's or that room's own box actually moved — the whole city
+  is rebuilt by a tab opened on any machine, and one that leaves this block where it was must not
+  pull a person leaning in on one desk back out to the room they were looking at. When nothing is
+  re-framed the camera is not touched at all, hand-moved or not. A target that no longer exists
+  falls back to the city, again without moving the camera.
 
 - A state change moves nothing.
 - A project pausing or resuming repaints that room in place — its lights go on or off; nothing
   rebuilds.
 - A tab created or closed rebuilds the floor: room order is kept, but the shelf-packing pass above
   can still move every room that comes after the one whose size changed. The rebuild eases the
-  camera to the new framing rather than cutting to it, but only for the room in focus, if one is
-  focused — past the very first build, the scene never re-frames the floor view by itself, so a
-  person looking around the floor keeps the view they chose. Per-room slide tweens, so a resized
+  camera to the new framing rather than cutting to it, and only under the rule above — past the
+  very first build the scene re-frames nothing whose box did not move, so a person looking around
+  keeps the view they chose. Per-room slide tweens, so a resized
   room does not simply cut its neighbours to a new place, are a follow-up (section 3).
 
 **Walls and depth.** Each room has only its two back walls, and they are partitions rather than
@@ -202,11 +212,14 @@ screen size. Desk labels and bars follow the focused room, as in v1.
 block's FRONT corner instead: every marker points upward out of its desk, so the ground below the
 block's last row is the one part of a block that nothing of its own reaches into, which keeps the
 sign clear of its own furniture and keeps it over the machine's own ground rather than drifting
-across the street onto the block behind it. Both anchors are lifted above their world point in
-SCREEN pixels — the block's world anchor shrinks with the zoom while the sign keeps its screen
-size, so a sign that clears what is under it at close range would otherwise land right on top of
-it once the camera pulls back; a machine's sign carries the larger lift, room for the diamond
-under it to widen enough to hold the text. Past a point a long machine name no longer fits over a
+across the street onto the block behind it. Only the machine's sign is lifted above its world
+point in SCREEN pixels — the anchor shrinks toward the block with the zoom while the sign keeps
+its screen size, so a sign that clears what is under it at close range would otherwise land right
+on top of it once the camera pulls back, and the lift is what leaves the diamond under it room to
+widen enough to hold the text. A room's sign has no screen lift: its anchor is the room's back
+corner raised by the wall in WORLD units, so its clearance shrinks with everything else — which is
+enough, because room signs only show from `ROOM_SIGN_SCALE` up, or inside the focused machine.
+Past a point a long machine name no longer fits over a
 block that has shrunk around a sign that has not: the machine sign's own scale gives way with the
 camera, down to a floor of 0.72, never past legibility. Either sign is hidden outright once its
 anchor point has left the viewport, or half a sign would stay glued to the screen edge.
@@ -425,8 +438,9 @@ enforces its own access.
 **Testing.** Vitest for the layout (`packShelves`, floor, city), `model.ts`, `detail.ts`'s sign
 visibility rule, the snapshots hook (a slow machine does not hold the others, a failing one becomes
 an error block, a newly missing tab re-reads only its machine), the probe memo (expiry, the longer
-negative result, separate keys per machine, concurrent callers sharing one in-flight probe) and the
-office route (scope, permissions, progress arithmetic). `OfficePage.test.tsx` pins the behaviour
+negative result, separate keys per machine, concurrent callers sharing one in-flight probe, and a
+`fresh` call served from an answer only seconds old) and the office route (scope, permissions,
+progress arithmetic). `OfficePage.test.tsx` pins the behaviour
 that is easy to regress by hand-testing only the happy path: one scene instance kept across a visit
 to the city, a machine, a room and back up — the canvas is never rebuilt or left blank; the
 single-machine ladder, where the city rung does not exist and `Esc` from the machine rest leaves
@@ -434,8 +448,9 @@ focus mode directly; the auto-drill rules, including that a machine reached by h
 block, a room left with `Esc`) is not auto-drilled into again, while a different machine reached
 directly still is; focus mode preserved through every move up and down the ladder; the breadcrumb's
 own links, and that its city part is left out with a single machine; and that a machine's own
-notices (offline, unreachable tmux) surface in the top bar and, in focus mode, in its corner, but
-never in the city rest, where only the block's own sign carries them. The Pixi scene itself is
+notices (offline, unreachable tmux) surface in the top bar and, in focus mode, in its corner, and
+that a machine whose snapshot could not be read says so over its own empty block — but never in the
+city rest, where only the block's own sign carries either. The Pixi scene itself is
 verified by screenshot through the login-free harness, as in the spike, since jsdom has no WebGL.
 
 **The spike.** `/spike/office` is removed in the same pull request that ships `/office`. `iso.ts`

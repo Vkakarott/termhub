@@ -263,4 +263,29 @@ describe('useOfficeSnapshots', () => {
     });
     expect(officeMock.mock.calls.filter(([id]) => id === 'b').length).toBeGreaterThan(1);
   });
+
+  it('the same re-added machine is picked up by window focus too, without waiting for the tick', async () => {
+    vi.useFakeTimers();
+    let resolveB: ((s: OfficeSnapshot) => void) | undefined;
+    const pendingB = new Promise<OfficeSnapshot>((resolve) => {
+      resolveB = resolve;
+    });
+    officeMock.mockImplementation((id: string) => (id === 'b' ? pendingB : Promise.resolve(snap(id))));
+    const { rerender } = renderHook(({ ids }) => useOfficeSnapshots(ids), { initialProps: { ids: ['a', 'b'] } });
+    await act(async () => {});
+    rerender({ ids: ['a'] });
+    rerender({ ids: ['a', 'b'] });
+    await act(async () => {});
+    expect(officeMock).toHaveBeenCalledTimes(2); // b's re-add read was skipped, as above
+
+    await act(async () => {
+      resolveB?.(snap('b'));
+    });
+    officeMock.mockImplementation((id: string) => Promise.resolve(snap(id)));
+    await act(async () => void window.dispatchEvent(new Event('focus')));
+
+    // only b: leaving and re-entering the set cleared its 10 s floor, while a was read a moment ago
+    expect(officeMock).toHaveBeenCalledTimes(3);
+    expect(officeMock).toHaveBeenLastCalledWith('b', false);
+  });
 });
