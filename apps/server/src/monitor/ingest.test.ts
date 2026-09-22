@@ -63,10 +63,13 @@ describe('ingestHookEvent — activity', () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
-  it('never logs the tool input', async () => {
-    const { r } = repos(tab({ state: 'waiting_input' }));
-    await ingestHookEvent(r, log, { ...pre('Edit'), event: { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '/secret' } } });
-    const logged = JSON.stringify((log as { info: { mock: { calls: unknown[] } } }).info.mock.calls);
-    expect(logged).not.toContain('secret');
+  it('never logs the tool input, on either path', async () => {
+    const withInput = { ...pre('Edit'), event: { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '/secret' } } };
+    await ingestHookEvent(repos(tab({ state: 'waiting_input' })).r, log, withInput); // full path: log.info
+    await ingestHookEvent(repos(tab({ state: 'working', activity: 'reading' })).r, log, withInput); // light path: log.debug
+    const calls = log as unknown as { info: { mock: { calls: unknown[] } }; debug: { mock: { calls: unknown[] } } };
+    expect(calls.info.mock.calls).not.toHaveLength(0);
+    expect(calls.debug.mock.calls).not.toHaveLength(0);
+    expect(JSON.stringify([calls.info.mock.calls, calls.debug.mock.calls])).not.toContain('secret');
   });
 });

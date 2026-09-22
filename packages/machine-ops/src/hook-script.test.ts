@@ -98,6 +98,14 @@ describe('termhub-hook script', () => {
     expect(sent.map((b) => eventOf(b).hook_event_name)).toEqual(['PreToolUse', 'UserPromptSubmit', 'PreToolUse', 'SessionStart', 'PreToolUse']);
   });
 
+  it('resets on Notification, so the tool retried after an approved prompt is sent again', async () => {
+    run({ hook_event_name: 'PreToolUse', tool_name: 'Bash' });
+    run({ hook_event_name: 'Notification', message: 'Claude needs your permission to use Bash' });
+    run({ hook_event_name: 'PreToolUse', tool_name: 'Bash' });
+    const sent = await bodies(3);
+    expect(sent.map((b) => eventOf(b).hook_event_name)).toEqual(['PreToolUse', 'Notification', 'PreToolUse']);
+  });
+
   it('posts nothing for a PreToolUse without a plain identifier as the tool name', async () => {
     run({ hook_event_name: 'PreToolUse' });
     run({ hook_event_name: 'PreToolUse', tool_name: 42 });

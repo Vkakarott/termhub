@@ -74,7 +74,10 @@ case "$EVENT" in
     printf '%s' "$NAME" 2>/dev/null > "$MARK"
     EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"}' "$NAME")
     ;;
-  *'"hook_event_name":"SessionStart"'*|*'"hook_event_name": "SessionStart"'*|*'"hook_event_name":"UserPromptSubmit"'*|*'"hook_event_name": "UserPromptSubmit"'*)
+  # A new turn starts fresh, and so does an answered notification: a permission prompt takes the tab
+  # out of working, and the tool the person approves is the same one that set the marker, so without
+  # this reset the retry is suppressed and nothing says the tab is working again.
+  *'"hook_event_name":"SessionStart"'*|*'"hook_event_name": "SessionStart"'*|*'"hook_event_name":"UserPromptSubmit"'*|*'"hook_event_name": "UserPromptSubmit"'*|*'"hook_event_name":"Notification"'*|*'"hook_event_name": "Notification"'*)
     rm -f "$MARK"
     ;;
 esac
@@ -106,7 +109,7 @@ export function mergeClaudeSettings(current: string, scriptPath: string): string
     const list = (Array.isArray(hooks[event]) ? hooks[event] : []) as HookEntry[];
     const others = list.filter((e) => !isOurs(e));
     const entry: HookEntry = { hooks: [{ type: 'command', command: `${scriptPath} claude`, timeout: 10 } as { type: string; command: string }] };
-    // Claude Code only runs a tool event's entry when it has a matcher; the other events take none.
+    // A tool event's entry is filtered by tool name; '*' says every tool explicitly (so would no matcher).
     if (event === 'PreToolUse') entry.matcher = '*';
     others.push(entry);
     hooks[event] = others;
