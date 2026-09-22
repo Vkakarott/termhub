@@ -1,6 +1,6 @@
 {
   "name": "@termhub/agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Agente do termhub: conecta esta máquina ao servidor por WebSocket de saída (sem SSH) e expõe os terminais tmux no navegador.",
   "license": "MIT",
   "private": false,
@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@termhub/agent-protocol": "*",
+    "@termhub/claude-cli": "*",
     "@termhub/machine-ops": "*",
     "@types/node": "^22.10.5",
     "@types/ws": "^8.5.13",

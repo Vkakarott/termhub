@@ -7,7 +7,7 @@ export default defineConfig({
   platform: 'node',
   banner: { js: '#!/usr/bin/env node' },
   // Workspace packages are private and not published — bundle them into dist/cli.js.
-  noExternal: ['@termhub/agent-protocol', '@termhub/machine-ops'],
+  noExternal: ['@termhub/agent-protocol', '@termhub/claude-cli', '@termhub/machine-ops'],
   // Native/runtime deps stay external: node-pty ships a native addon, ws/zod are ordinary
   // npm deps resolved from the installed node_modules at runtime.
   external: ['node-pty', 'ws', 'zod'],

@@ -4,6 +4,7 @@ import { CLOSE } from '@termhub/agent-protocol';
 import { connectOnce, runForever, RevokedError, ProtocolMismatchError, UpgradeRejectedError } from './client.js';
 import { heal } from './rpc/hooks.js';
 import type { AgentConfig } from './config.js';
+import { createClaudeManager } from './claude/run.js';
 import { createDispatcher } from './dispatch.js';
 import { createPtyManager } from './pty.js';
 import { ensureSpawnHelperExecutable } from './pty-health.js';
@@ -22,6 +23,13 @@ export function detectOs(platform: NodeJS.Platform = process.platform): Supporte
 
 export type HelloFields = Omit<HelloMessage, 'type' | 'protocol'>;
 
+/**
+ * What this agent understands beyond the baseline `pty` channel. The server reads it from `hello`
+ * and only opens a `claude` channel on a machine that claims it — an agent too old to know the
+ * kind sends no `capabilities` at all, which reads as `[]` (see the protocol's `helloMessage`).
+ */
+export const CAPABILITIES = ['claude'];
+
 /** Builds the `hello` fields, probing `tools.detect` for the tool list (empty on failure). */
 export async function buildHello(osName: SupportedOs): Promise<HelloFields> {
   let tools: string[] = [];
@@ -38,6 +46,7 @@ export async function buildHello(osName: SupportedOs): Promise<HelloFields> {
     hostname: os.hostname(),
     tmux: tools.includes('tmux'),
     tools,
+    capabilities: CAPABILITIES,
   };
 }
 
@@ -66,7 +75,7 @@ export async function checkServerConnection(
       {
         url: config.url,
         token: config.token,
-        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [], probe: true },
+        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [], capabilities: CAPABILITIES, probe: true },
         onServerMessage: () => {},
         onStream: () => {},
         log: () => {},
@@ -128,7 +137,8 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
   if (helper.repaired) opts.log('spawn-helper exec bit repaired', { path: helper.path });
   else if (!helper.executable) opts.log('spawn-helper is not executable and could not be fixed', { path: helper.path, error: helper.error });
   const pty = createPtyManager({ log: opts.log });
-  const dispatch = createDispatcher({ handlers, pty, log: opts.log });
+  const claude = createClaudeManager({ log: opts.log });
+  const dispatch = createDispatcher({ handlers, pty, claude, log: opts.log });
 
   /**
    * Config dirs come and go on a machine (a new account, a new CLAUDE_CONFIG_DIR alias), and a dir
@@ -152,9 +162,16 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
         token: config.token,
         hello,
         onServerMessage: dispatch,
-        onStream: (ch, data) => pty.write(ch, data),
+        // A frame belongs to whichever manager holds that channel: the claude one says so, and
+        // anything it does not own is a terminal's.
+        onStream: (ch, data) => {
+          if (!claude.write(ch, data)) pty.write(ch, data);
+        },
         onConnect: healHooks,
-        onDisconnect: () => pty.closeAll(),
+        onDisconnect: () => {
+          pty.closeAll();
+          claude.closeAll();
+        },
         log: opts.log,
       },
       opts.signal,
