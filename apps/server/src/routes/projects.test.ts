@@ -152,6 +152,7 @@ describe('POST /projects', () => {
     const taken = await app.inject({ method: 'POST', url: '/projects', payload: { name: 'x', key: 'P1' } });
     expect(taken.statusCode).toBe(409);
     expect(taken.json().error).toBe('A chave P1 já está em uso');
+    expect(taken.json().code).toBe('KEY_TAKEN');
     const foreign = await app.inject({ method: 'POST', url: '/projects', payload: { name: 'x', key: 'X1', machine_id: 'mx', cwd: '/x' } });
     expect(foreign.statusCode).toBe(400);
     expect(foreign.json().error).toBe('Máquina inexistente');
@@ -195,7 +196,9 @@ describe('project machines', () => {
     expect(r.statusCode).toBe(201);
     expect(ensureDirectory).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }), '/w/', true);
     expect(repos.projectMachines.link).toHaveBeenCalledWith({ project_id: 'p3', machine_id: 'm2', cwd: '/w' });
-    expect((await app.inject({ method: 'POST', url: '/projects/p1/machines', payload: { machine_id: 'm1', cwd: '/x' } })).statusCode).toBe(409);
+    const alreadyLinked = await app.inject({ method: 'POST', url: '/projects/p1/machines', payload: { machine_id: 'm1', cwd: '/x' } });
+    expect(alreadyLinked.statusCode).toBe(409);
+    expect(alreadyLinked.json().code).toBe('MACHINE_ALREADY_LINKED');
     expect((await app.inject({ method: 'POST', url: '/projects/p1/machines', payload: { machine_id: 'mx', cwd: '/x' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/projects/px/machines', payload: { machine_id: 'm1', cwd: '/x' } })).statusCode).toBe(404);
   });

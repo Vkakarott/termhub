@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { ProjectRuleError } from '../db/repositories/projects.js';
 import type { Machine, Project, ProjectMachine, Tab } from '../db/repositories/types.js';
-import { badRequest, conflict } from '../lib/errors.js';
+import { badRequest, HttpError } from '../lib/errors.js';
 import { PROJECT_KEY_RE } from '../lib/project-key.js';
 import { nextTerminalName } from '../lib/tab-names.js';
 import { scoped } from '../auth/scope.js';
@@ -58,12 +58,12 @@ async function resolveCwd(machine: Machine, cwd: string, createDir: boolean | un
   return (await ensureDirectory(machine, cwd, createDir ?? false)).path;
 }
 
-/** Repository rule errors become 409 (conflicts) or 400 with their pt-BR message. */
+/** Repository rule errors become 409 (conflicts) or 400 with their pt-BR message, keeping the rule's own code. */
 async function rule<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (e) {
-    if (e instanceof ProjectRuleError) throw (e.code === 'KEY_TAKEN' || e.code === 'MACHINE_ALREADY_LINKED' ? conflict : badRequest)(e.message);
+    if (e instanceof ProjectRuleError) throw new HttpError(e.code === 'KEY_TAKEN' || e.code === 'MACHINE_ALREADY_LINKED' ? 409 : 400, e.message, e.code);
     throw e;
   }
 }
@@ -103,7 +103,8 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
       resolvedCwd = await resolveCwd(machine, cwd, create_dir);
     }
     const project = await rule(() => repos.projects.create({ owner_id: request.scope.createAs, key: body.key, name: body.name, description: body.description, status: body.status }));
-    const machines = machine && resolvedCwd ? [linkView(await repos.projectMachines.link({ project_id: project.id, machine_id: machine.id, cwd: resolvedCwd }))] : [];
+    const machines =
+      machine && resolvedCwd ? [linkView(await rule(() => repos.projectMachines.link({ project_id: project.id, machine_id: machine!.id, cwd: resolvedCwd! })))] : [];
     return reply.code(201).send({ project: { ...project, machines } });
   });
 
