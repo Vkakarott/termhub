@@ -7,7 +7,7 @@ import type { AgentConnection } from '../agent/connection.js';
 import { AgentRpcError } from '../agent/connection.js';
 import { agents } from '../agent/registry.js';
 import type { Machine } from '../db/repositories/types.js';
-import { PROBE_TTL_MS, clearTmuxProbeMemo, listTmuxSessions, probeTmuxSessions, probeTmuxSessionsCached } from './machine-exec.js';
+import { FRESH_GRACE_MS, PROBE_TTL_MS, clearTmuxProbeMemo, listTmuxSessions, probeTmuxSessions, probeTmuxSessionsCached } from './machine-exec.js';
 
 const machine = (type: Machine['type'], id = 'm1'): Machine =>
   ({ id, name: 'box', type, host: type === 'ssh' ? 'box.local' : null, ssh_user: 'u', ssh_port: 22, os: 'linux', capabilities: ['tmux'] }) as Machine;
@@ -151,15 +151,34 @@ describe('probeTmuxSessionsCached', () => {
   });
 
   it('fresh bypasses the memo and refreshes it', async () => {
-    const now = () => 0;
+    let t = 0;
+    const now = () => t;
     const m = machine('ssh');
     execAnswers({ code: 0, stdout: 'th-a\n' });
     await probeTmuxSessionsCached(m, { now });
     const calls = probeCallCount();
+    t += FRESH_GRACE_MS;
     await probeTmuxSessionsCached(m, { now, fresh: true });
     expect(probeCallCount()).toBe(calls + 1);
     await probeTmuxSessionsCached(m, { now });
     expect(probeCallCount()).toBe(calls + 1); // served by the refreshed entry
+  });
+
+  it('serves a fresh call from an answer only seconds old: one tab opened, many watching tabs', async () => {
+    let t = 1_000;
+    const now = () => t;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    // every browser tab watching this machine asks at once when a tab is opened on it
+    t += FRESH_GRACE_MS - 1;
+    await probeTmuxSessionsCached(m, { now, fresh: true });
+    expect(probeCallCount()).toBe(calls);
+    // past the grace it is a real question again, well before the 15 s the memo would serve
+    t += 2;
+    await probeTmuxSessionsCached(m, { now, fresh: true });
+    expect(probeCallCount()).toBe(calls + 1);
   });
 
   it('does not poison the memo when the probe promise rejects', async () => {

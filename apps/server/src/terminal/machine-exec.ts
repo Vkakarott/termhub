@@ -206,6 +206,13 @@ export async function probeTmuxSessions(machine: Machine): Promise<TmuxProbe> {
 /** How long a probe answer is reused. An unreachable machine is asked again less often: over ssh it costs a timeout. */
 export const PROBE_TTL_MS = { reachable: 15_000, unreachable: 60_000 } as const;
 
+/**
+ * How long even a `fresh` call is served from the memo. One tab opened on a machine makes EVERY
+ * open browser tab watching it ask for a fresh read, and they arrive one after the other — without
+ * this grace each of them starts its own ssh probe of the same machine for the same answer.
+ */
+export const FRESH_GRACE_MS = 2_000;
+
 const probeMemo = new Map<string, { at: number; probe: TmuxProbe }>();
 const probesInFlight = new Map<string, Promise<TmuxProbe>>();
 
@@ -213,13 +220,14 @@ const probesInFlight = new Map<string, Promise<TmuxProbe>>();
  * `probeTmuxSessions` behind a per-machine memo: the office city asks every machine every minute
  * from every open browser tab, and they can all share one round-trip. Only the probe is reused —
  * callers read projects, tabs and tasks from the database every time. `fresh` skips the memo (a
- * tab was just opened and must not read as "no session yet") and refreshes it. Concurrent callers
- * share one in-flight probe.
+ * tab was just opened and must not read as "no session yet") and refreshes it, but not an answer
+ * that is only seconds old — see FRESH_GRACE_MS. Concurrent callers share one in-flight probe.
  */
 export function probeTmuxSessionsCached(machine: Machine, opts: { fresh?: boolean; now?: () => number } = {}): Promise<TmuxProbe> {
   const now = opts.now ?? Date.now;
   const hit = probeMemo.get(machine.id);
-  if (!opts.fresh && hit && now() - hit.at < (hit.probe.reachable ? PROBE_TTL_MS.reachable : PROBE_TTL_MS.unreachable)) return Promise.resolve(hit.probe);
+  const ttl = opts.fresh ? FRESH_GRACE_MS : hit?.probe.reachable ? PROBE_TTL_MS.reachable : PROBE_TTL_MS.unreachable;
+  if (hit && now() - hit.at < ttl) return Promise.resolve(hit.probe);
   const running = probesInFlight.get(machine.id);
   if (running) return running;
   const started = probeTmuxSessions(machine)

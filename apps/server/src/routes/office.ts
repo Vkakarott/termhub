@@ -15,7 +15,8 @@ const query = z.object({ fresh: z.enum(['0', '1']).optional() });
  * the `projects` resource; the board part additionally needs `tasks:read` and is left out — not
  * even queried — without it. The tmux probe is memoised per machine (see `probeTmuxSessionsCached`)
  * so an account's tabs polling every machine once a minute share one round-trip per machine;
- * `?fresh=1` bypasses that memo and refreshes it, for a tab that was just opened.
+ * `?fresh=1` bypasses that memo and refreshes it, for a tab that was just opened — except for an
+ * answer read seconds ago, which the browser tabs that all noticed that same new tab share.
  */
 export async function officeRoutes(app: FastifyInstance, repos: Repositories, deps: { simulators: Pick<SimulatorSessionManager, 'isReady'> }) {
   app.get('/:machineId', async (request) => {
