@@ -5,7 +5,7 @@ import type { Project, ProjectMachineLink } from '../lib/types';
 import { ConfirmDialog } from './Modal';
 import { DirectoryBrowser } from './DirectoryBrowser';
 
-function LinkRow({ project, link }: { project: Project; link: ProjectMachineLink }) {
+function LinkRow({ project, link, onUnlinked }: { project: Project; link: ProjectMachineLink; onUnlinked: (closed: number) => void }) {
   const { machines, statuses, updateProjectMachine, unlinkMachine } = useData();
   const machine = machines.find((m) => m.id === link.machine_id);
   const status = statuses[link.machine_id] ?? 'checking';
@@ -67,13 +67,20 @@ function LinkRow({ project, link }: { project: Project; link: ProjectMachineLink
         danger
         onCancel={() => setConfirm(false)}
         onConfirm={async () => {
+          if (busy) return;
+          setBusy(true);
           try {
+            // unlinkMachine removes the link from project.machines, so this row unmounts on the
+            // parent's next render: any state set here would be dropped with it. The notice lives
+            // in ProjectMachines instead, past the row's lifetime.
             const closed = await unlinkMachine(project.id, link.machine_id);
-            setMsg({ ok: true, text: closed === 1 ? '1 tab fechada.' : `${closed} tabs fechadas.` });
+            onUnlinked(closed);
           } catch (err) {
             setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'Erro ao desvincular' });
+          } finally {
+            setBusy(false);
+            setConfirm(false);
           }
-          setConfirm(false);
         }}
       />
     </li>
@@ -90,12 +97,14 @@ export function ProjectMachines({ project }: { project: Project }) {
   const [browsing, setBrowsing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const available = machines.filter((m) => !project.machines.some((l) => l.machine_id === m.id));
 
   const add = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       await linkMachine(project.id, { machine_id: machineId, cwd, create_dir: createDir });
       setAdding(false);
@@ -114,9 +123,15 @@ export function ProjectMachines({ project }: { project: Project }) {
       {project.machines.length === 0 && <p className="text-xs text-fg-muted">Nenhuma máquina vinculada: o projeto tem quadro e notas, mas nenhum terminal.</p>}
       <ul className="space-y-2">
         {project.machines.map((l) => (
-          <LinkRow key={l.machine_id} project={project} link={l} />
+          <LinkRow
+            key={l.machine_id}
+            project={project}
+            link={l}
+            onUnlinked={(closed) => setNotice(closed === 1 ? '1 tab fechada.' : `${closed} tabs fechadas.`)}
+          />
         ))}
       </ul>
+      {notice && <p className="text-xs text-ok">{notice}</p>}
       {!adding ? (
         <button type="button" className="btn-ghost border border-line" onClick={() => setAdding(true)} disabled={available.length === 0}>
           Vincular máquina

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Machine, Project } from '../lib/types';
 
@@ -49,14 +50,29 @@ describe('ProjectMachines', () => {
 
   it('saves an edited directory and unlinks after confirming', async () => {
     updateProjectMachine.mockResolvedValue(undefined);
-    unlinkMachine.mockResolvedValue(2);
-    render(<ProjectMachines project={project} />);
+    // Real unlinkMachine removes the link from project.machines before returning, which unmounts the
+    // row in the same render pass as the parent updates. Reproduce that here (instead of just
+    // resolving a value) so the notice's lifetime — outliving the row — is actually exercised.
+    const setterRef: { current: ((updater: (p: Project) => Project) => void) | null } = { current: null };
+    unlinkMachine.mockImplementation(async (_projectId: string, machineId: string) => {
+      setterRef.current?.((p) => ({ ...p, machines: p.machines.filter((l) => l.machine_id !== machineId) }));
+      return 2;
+    });
+
+    function Harness({ initial }: { initial: Project }) {
+      const [p, setP] = useState(initial);
+      setterRef.current = setP;
+      return <ProjectMachines project={p} />;
+    }
+
+    render(<Harness initial={project} />);
     fireEvent.change(screen.getByDisplayValue('/src/p1'), { target: { value: '/moved' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     await waitFor(() => expect(updateProjectMachine).toHaveBeenCalledWith('p1', 'm1', '/moved', false));
     fireEvent.click(screen.getByRole('button', { name: 'Desvincular' })); // the row's link
     fireEvent.click(screen.getAllByRole('button', { name: 'Desvincular' })[1]); // the dialog's confirm
     await waitFor(() => expect(unlinkMachine).toHaveBeenCalledWith('p1', 'm1'));
+    expect(screen.queryByDisplayValue('/moved')).not.toBeInTheDocument();
     await screen.findByText('2 tabs fechadas.');
   });
 });
