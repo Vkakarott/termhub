@@ -4,173 +4,198 @@ import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
-import { buildCityModel, missingTabIds, type CityModel, type FocusTarget } from '../office/model';
+import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type CityModel, type FocusTarget, type MachineEntry, type MachineModel } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
-import { useOfficeSnapshot } from '../office/useOfficeSnapshot';
+import { useOfficeSnapshots } from '../office/useOfficeSnapshots';
 
-/** The office: one machine's floor, live. URL is the state: /office/:machineId?room=<projectId>&focus=1 */
+/**
+ * The office: the whole account as a city, live. The URL is the state, and each of its rests is a
+ * place the camera stands — /office the city, /office/:machineId a block, ?room=<projectId> a room
+ * inside it, ?focus=1 focus mode. Moving between rests only moves the camera: one scene is built
+ * per visit and kept, so the canvas never blanks on the way down or up.
+ */
 export function OfficePage() {
   const { machineId } = useParams();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const navigate = useNavigate();
   const { can } = useAuth();
   const { machines, projects, statuses, loading } = useData();
-  const { items, needsYou, tabState, connected } = useMonitor();
+  const { items, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
-  const { snapshot, error, reload } = useOfficeSnapshot(machineId ?? null);
+  // a fresh array every render is fine: the hook keys on the sorted ids, not on this identity
+  const { byMachine, reload } = useOfficeSnapshots(machines.map((m) => m.id));
   // a callback ref, not useRef: the host <div> is absent on the first render (loading/no-machines/
   // permission branches return early below), and a ref alone would never re-trigger the mount effect
   // once it finally renders — which left the scene blank on a direct load or reload of the URL.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const sceneRef = useRef<OfficeScene | null>(null);
   const room = params.get('room');
-  const autoDrilled = useRef(false);
   const [failed, setFailed] = useState(false);
-  // ids that already triggered a re-read for the current machine, so a permanently-missing tab
-  // (e.g. one in an archived project the snapshot never lists) can't fire a GET on every render
-  const notifiedMissing = useRef<{ machineId: string | undefined; ids: Set<string> }>({ machineId: undefined, ids: new Set() });
 
-  const setRoom = useCallback(
-    (id: string | null, replace = false) =>
-      setParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (id) next.set('room', id);
-          else next.delete('room');
-          return next;
-        },
-        { replace },
-      ),
-    [setParams],
+  const entries = useMemo(
+    (): MachineEntry[] =>
+      machines.map((m) => ({
+        id: m.id,
+        name: m.name,
+        // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with
+        // an `online` field: only an explicit 'offline' darkens a block and shows the banner.
+        online: statuses[m.id] !== 'offline',
+        snapshot: byMachine[m.id]?.snapshot ?? null,
+        failed: byMachine[m.id]?.failed ?? false,
+      })),
+    [machines, statuses, byMachine],
   );
-
-  // react-router's setSearchParams (and so setRoom, built on it) gets a new identity on every
-  // query-string change — picking a room, leaving it, toggling focus mode. The scene's handlers read
-  // through this ref instead, kept current every render, so the scene-mount effect further down never
-  // has to depend on setRoom/navigate: depending on them would recreate the scene (destroy + mount a
-  // blank canvas) on every query-string change, since setModel only fires again on a real model change.
-  // entering a room pushes (the spec: "the browser's back button leaves the room"); leaving it
-  // replaces, or Back would walk straight back into the room the person just left
-  const handlers = useRef({
-    onPickDesk: (tabId: string, projectId: string) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
-    onPickRoom: (id: string) => setRoom(id),
-    onPickSign: (id: string) => navigate(`/projects/${id}`),
-    onGoUp: () => setRoom(null, true),
-  });
-  useEffect(() => {
-    handlers.current = {
-      onPickDesk: (tabId, projectId) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
-      onPickRoom: (id) => setRoom(id),
-      onPickSign: (id) => navigate(`/projects/${id}`),
-      onGoUp: () => setRoom(null, true),
-    };
-  });
-
-  // Only a snapshot for the machine currently on screen is usable. Right after a machine switch,
-  // `snapshot` still holds the *previous* machine's data for one render — useOfficeSnapshot resets
-  // it to null in its own effect, which runs after this commit — so treating it as current here
-  // would build a model (and seed a freshly created scene, below) with the wrong machine's floor.
-  const currentSnapshot = snapshot && snapshot.machine.id === machineId ? snapshot : null;
-  // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with an
-  // `online` field: only an explicit 'offline' should dim the floor and show the banner.
-  const online = !machineId || statuses[machineId] !== 'offline';
-  const machineName = machines.find((m) => m.id === machineId)?.name ?? '';
-
   // tabState reads a ref (lib/monitor.tsx), so it never changes identity; `items` is what actually
   // changes on a live push — keep it as a dep, or the model stops updating on monitor pushes.
-  // Until Task 6 this page still shows one machine, so the city it hands the scene has one block.
-  const city = useMemo(
-    () => (currentSnapshot && machineId ? buildCityModel([{ id: machineId, name: machineName, online, snapshot: currentSnapshot, failed: false }], tabState) : null),
-    [currentSnapshot, tabState, items, machineId, machineName, online],
-  );
-  const model = city?.machines[0]?.floor ?? null;
-  // mirrors `city` for the scene-mount effect below: a scene created there (host/machineId change,
-  // or recovering from a failed mount) must be seeded with whatever's already known, not sit blank
-  // waiting for this push effect to fire again — it won't, since the model itself hasn't changed.
-  const cityRef = useRef<CityModel | null>(null);
+  const city = useMemo(() => buildCityModel(entries, tabState), [entries, tabState, items]);
+
+  // mirrors `city` for the scene-mount effect below: a scene created there (the host element
+  // arriving, a remount after a failed one) must be seeded with whatever is already known, not sit
+  // blank waiting for this effect to fire again — it won't, the model itself has not changed.
+  const cityRef = useRef<CityModel>(city);
   useEffect(() => {
     cityRef.current = city;
-    if (city) sceneRef.current?.setModel(city);
+    sceneRef.current?.setModel(city);
   }, [city]);
 
-  const roomExists = !!model?.rooms.some((r) => r.id === room);
-  // deliberate: frame once the first model arrives (the boolean, not the model itself, is what should retrigger this)
-  const hasModel = model !== null;
-  // mirrors the current focus target, for the same reason as cityRef above
-  const focusRef = useRef<FocusTarget | null>(null);
+  // What the URL asks the camera to frame, against what exists: an unknown machine or a ?room= of
+  // another machine falls back on its own (office/model.ts), so neither can throw here.
+  const target = resolveFocus(city, machineId, room);
+  // mirrors the target for the same reason as cityRef. The object itself is rebuilt on every render
+  // — a poll brings a fresh snapshot — so the scene is only told when the target changed BY VALUE:
+  // re-framing an equal target would undo a camera the person moved by hand.
+  const targetRef = useRef<FocusTarget>(target);
   useEffect(() => {
-    focusRef.current = machineId ? (room && roomExists ? { kind: 'room', machineId, roomId: room } : { kind: 'machine', machineId }) : null;
-    if (city && focusRef.current) sceneRef.current?.focus(focusRef.current);
-  }, [room, roomExists, hasModel, machineId]);
+    if (sameFocus(target, targetRef.current)) return;
+    targetRef.current = target;
+    sceneRef.current?.focus(target);
+  });
 
-  // a tab opened since the snapshot: re-read it, but only once per newly-missing id that actually
-  // started a request — a re-read that bounced off an in-flight one must not be marked "asked", or
-  // that tab is stuck on screen until the next 60s tick
+  // Every move keeps the rest of the query string — ?focus=1 above all: a screen left in focus mode
+  // must stay in it through a block, a room and the way back up. `room` is the only key this page owns.
+  const go = useCallback(
+    (id: string | null, roomId: string | null, replace = false) => {
+      const next = new URLSearchParams(params);
+      if (roomId) next.set('room', roomId);
+      else next.delete('room');
+      const query = next.toString();
+      navigate(`/office${id ? `/${id}` : ''}${query ? `?${query}` : ''}`, { replace });
+    },
+    [navigate, params],
+  );
+
+  // a rest the person asked for by hand (a click on a block, a step up the ladder): the auto-drill
+  // below must not undo it by opening a room again
+  const byHand = useRef(false);
+  /**
+   * The ladder: room -> machine -> city -> out of focus mode. Going up replaces, or Back would walk
+   * straight back into the room that was just left. With a single machine the city rung is skipped:
+   * /office would auto-drill straight back into that machine.
+   */
+  const up = () => {
+    byHand.current = true;
+    if (target.kind === 'room') go(target.machineId, null, true);
+    else if (machineId && machines.length > 1) go(null, null, true);
+    else if (focus) setFocus(false);
+  };
+
+  // react-router's `navigate` gets a new identity on every pathname change, and `useSearchParams` on
+  // every query-string change — so `go`, and everything built on it, is new after every move. The
+  // scene and the key listener call through this ref, re-synced after every render, which is what
+  // lets the scene-mount effect below depend on the host element ALONE: a handler in its dependency
+  // list would destroy the city and mount a blank canvas on every click.
+  const actions = {
+    onPickDesk: (tabId: string, projectId: string) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
+    onPickRoom: (id: string, roomId: string) => go(id, roomId),
+    onPickMachine: (id: string) => {
+      byHand.current = true;
+      go(id, null);
+    },
+    onPickSign: (roomId: string) => navigate(`/projects/${roomId}`),
+    onGoUp: up,
+    toggleFocus: () => setFocus(!focus),
+  };
+  const handlers = useRef(actions);
   useEffect(() => {
-    const mine = new Set(projects.filter((p) => p.machine_id === machineId && p.status !== 'archived').map((p) => p.id));
+    handlers.current = actions;
+  });
+
+  // a tab opened since a snapshot: re-read THAT machine, and only once per newly-missing id that
+  // really started a request — a re-read that bounced off an in-flight one must not be marked
+  // "asked", or that tab is stuck on screen until the machine's next 60 s tick
+  const notified = useRef(new Map<string, Set<string>>());
+  useEffect(() => {
+    const tabIds = items.map((i) => i.tab.id);
     const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
-    const missing = missingTabIds(currentSnapshot, items.map((i) => i.tab.id), mine, projectOf);
-    if (notifiedMissing.current.machineId !== machineId) notifiedMissing.current = { machineId, ids: new Set() };
-    const grew = missing.some((id) => !notifiedMissing.current.ids.has(id));
-    if (grew && reload()) missing.forEach((id) => notifiedMissing.current.ids.add(id));
-  }, [items, currentSnapshot, projects, machineId, reload]);
+    for (const machine of machines) {
+      const mine = new Set(projects.filter((p) => p.machine_id === machine.id && p.status !== 'archived').map((p) => p.id));
+      const missing = missingTabIds(byMachine[machine.id]?.snapshot ?? null, tabIds, mine, projectOf);
+      if (missing.length === 0) continue;
+      const asked = notified.current.get(machine.id) ?? new Set<string>();
+      notified.current.set(machine.id, asked);
+      if (missing.some((id) => !asked.has(id)) && reload(machine.id)) for (const id of missing) asked.add(id);
+    }
+  }, [items, byMachine, machines, projects, reload]);
 
-  // auto-drill once per machine: exactly one room with desks opens straight into it
+  // Auto-drill: what is not a choice is not asked. /office with a single machine IS that machine,
+  // and a machine with a single room that has desks is that room. At most once per arrival at a
+  // rest (`drilled`), and never after a click on a block or a step up the ladder (`byHand`) — those
+  // name the rest the person wants to stand at.
+  const drilled = useRef<string | null>(null);
   useEffect(() => {
-    if (!model || autoDrilled.current) return;
-    autoDrilled.current = true;
-    const withDesks = model.rooms.filter((r) => r.desks.length > 0);
-    if (!room && withDesks.length === 1) setRoom(withDesks[0].id, true);
-  }, [model, room, setRoom]);
-  // runs before the scene-mount effect below (declared earlier) — belt-and-suspenders with the
-  // `currentSnapshot` gate above: a scene created for the new machine must never be seeded with the
-  // previous machine's model/focus, whichever of the two guards would have caught it on its own.
-  useEffect(() => {
-    autoDrilled.current = false;
-    cityRef.current = null;
-    focusRef.current = null;
-  }, [machineId]);
+    if (loading) return;
+    if (!machineId) {
+      drilled.current = null;
+      if (machines.length === 1) go(machines[0].id, room, true);
+      return;
+    }
+    if (room || drilled.current === machineId) return;
+    const here = city.machines.find((m) => m.id === machineId);
+    if (!here) return; // its snapshot has not landed yet: there is nothing to drill into
+    drilled.current = machineId;
+    const asked = byHand.current;
+    byHand.current = false;
+    if (asked) return;
+    const withDesks = here.floor.rooms.filter((r) => r.desks.length > 0);
+    if (withDesks.length === 1) go(machineId, withDesks[0].id, true);
+  }, [loading, machineId, room, machines, city, go]);
 
   useEffect(() => {
     if (!host) return;
     setFailed(false);
     const scene = new OfficeScene({
       onPickDesk: (tabId, projectId) => handlers.current.onPickDesk(tabId, projectId),
-      // this page is still one machine's floor: which machine a room belongs to is never in doubt
-      onPickRoom: (_machineId, roomId) => handlers.current.onPickRoom(roomId),
-      onPickMachine: () => {},
+      onPickRoom: (id, roomId) => handlers.current.onPickRoom(id, roomId),
+      onPickMachine: (id) => handlers.current.onPickMachine(id),
       onPickSign: (id) => handlers.current.onPickSign(id),
       onGoUp: () => handlers.current.onGoUp(),
     });
     sceneRef.current = scene;
     // setModel/focus are safe to call before mount() resolves — the scene stores them and
     // replays them once it can draw, so a scene created here is never left blank
-    if (cityRef.current) scene.setModel(cityRef.current);
-    scene.focus(focusRef.current ?? { kind: 'city' }, true);
+    scene.setModel(cityRef.current);
+    scene.focus(targetRef.current, true);
     // Pixi falls back from WebGL to canvas by itself; this only fires when neither could start
     scene.mount(host).catch(() => setFailed(true));
     return () => {
       scene.destroy();
       sceneRef.current = null;
     };
-  }, [host, machineId]);
+  }, [host]);
 
-  // Esc leaves the room first, then focus mode; F toggles focus mode
+  // Esc walks up the ladder, F toggles focus mode. Subscribed once: what the keys do is read
+  // through the same ref the scene's handlers use, so no move re-subscribes this listener.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // a dialog already handled it — don't also kick out of the room
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
-      if (e.key === 'Escape') {
-        if (room) setRoom(null, true);
-        else if (focus) setFocus(false);
-      } else if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        setFocus(!focus);
-      }
+      if (e.key === 'Escape') handlers.current.onGoUp();
+      else if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) handlers.current.toggleFocus();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [room, focus, setFocus, setRoom]);
+  }, []);
 
   if (!can('projects', 'read') || !can('terminals', 'read')) return <Navigate to="/" replace />;
   if (loading) return <Message>Carregando…</Message>;
@@ -181,34 +206,26 @@ export function OfficePage() {
       </Message>
     );
   }
-  if (!machineId || !machines.some((m) => m.id === machineId)) return <Navigate to={`/office/${machines[0].id}`} replace />;
+  if (machineId && !machines.some((m) => m.id === machineId)) return <Navigate to="/office" replace />;
 
-  // an offline machine already explains the silence; this is the machine that answers but whose tmux could not be read
-  const tmuxSilent = !!currentSnapshot && !currentSnapshot.reachable && online;
-  const needsYouByMachine = (id: string) => needsYou.some((i) => i.machine.id === id);
+  // the machine the camera is standing at, as the city drew it: null in the city, and null while a
+  // machine's first snapshot is still on its way (there is nothing true to say about it yet)
+  const here = machineId ? (city.machines.find((m) => m.id === machineId) ?? null) : null;
+  const trail: Array<{ label: string; go?: () => void }> = [];
+  if (machines.length > 1) trail.push({ label: 'Cidade', go: () => go(null, null, true) });
+  const machineName = machines.find((m) => m.id === machineId)?.name;
+  if (machineId && machineName) trail.push({ label: machineName, go: () => go(machineId, null, true) });
+  const roomName = here?.floor.rooms.find((r) => r.id === room)?.name;
+  if (roomName) trail.push({ label: roomName });
 
   return (
     <div className="flex h-full flex-col">
       {!focus && (
         <div className="flex flex-wrap items-center gap-3 border-b border-line bg-bg-2 px-3 py-2 text-xs text-fg-muted">
           <span className="text-sm font-semibold text-fg">Escritório</span>
-          {machines.length > 1 && (
-            <select aria-label="Máquina" className="rounded border border-line bg-bg-3 px-2 py-1 text-fg" value={machineId} onChange={(e) => navigate(`/office/${e.target.value}`)}>
-              {machines.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {needsYouByMachine(m.id) ? '● ' : ''}
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          )}
-          {room && roomExists && (
-            <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setRoom(null, true)}>
-              ← voltar ao andar
-            </button>
-          )}
+          <Trail parts={trail} />
           <span className="ml-auto flex items-center gap-3">
-            <StatusNotices online={online} tmuxSilent={tmuxSilent} connected={connected} />
+            <StatusNotices machine={here} connected={connected} />
             <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
               modo foco
             </button>
@@ -221,31 +238,59 @@ export function OfficePage() {
         <div ref={setHost} className="absolute inset-0 overflow-hidden" />
         {focus && (
           <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
-            <StatusNotices online={online} tmuxSilent={tmuxSilent} connected={connected} />
+            <StatusNotices machine={here} connected={connected} />
             <button className="rounded hover:text-fg" onClick={() => setFocus(false)}>
               sair do foco (Esc)
             </button>
           </div>
         )}
         {failed && <Overlay>Seu navegador não conseguiu desenhar o escritório.</Overlay>}
-        {error && <Overlay>{error}</Overlay>}
-        {!error && !currentSnapshot && <Overlay>Carregando o andar…</Overlay>}
-        {model && model.rooms.length === 0 && <Overlay>Esta máquina ainda não tem projetos.</Overlay>}
+        {city.machines.length === 0 && <Overlay>Carregando a cidade…</Overlay>}
+        {here && here.notice !== 'error' && here.floor.rooms.length === 0 && <Overlay>Esta máquina ainda não tem projetos.</Overlay>}
       </div>
     </div>
   );
 }
 
 /**
+ * Where the camera stands, as the ladder Esc walks: Cidade › máquina › projeto. Every part but the
+ * last one goes to that rest, replacing rather than pushing (going up must not pile history up).
+ * With a single machine there is no city to go back to, so that part is not rendered at all.
+ */
+function Trail({ parts }: { parts: Array<{ label: string; go?: () => void }> }) {
+  return (
+    <nav aria-label="Trilha" className="flex items-center gap-1">
+      {parts.map((part, i) => (
+        <span key={`${i}:${part.label}`} className="flex items-center gap-1">
+          {i > 0 && (
+            <span aria-hidden="true" className="text-fg-muted/60">
+              ›
+            </span>
+          )}
+          {i === parts.length - 1 ? (
+            <span className="text-fg">{part.label}</span>
+          ) : (
+            <button className="rounded px-1 py-0.5 hover:bg-bg-3 hover:text-fg" onClick={part.go}>
+              {part.label}
+            </button>
+          )}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+/**
  * Why the scene may not be telling the truth right now. Rendered in the top bar and, in focus mode
  * (where there is no top bar), in the corner: a second monitor left open all day must never show a
- * frozen picture that looks live.
+ * frozen picture that looks live. One machine's own trouble is only said at its rest — in the city
+ * its block is dark and its sign carries the notice.
  */
-function StatusNotices({ online, tmuxSilent, connected }: { online: boolean; tmuxSilent: boolean; connected: boolean }) {
+function StatusNotices({ machine, connected }: { machine: MachineModel | null; connected: boolean }) {
   return (
     <>
-      {!online && <span className="text-warn">máquina offline</span>}
-      {tmuxSilent && <span className="text-warn">sem resposta do tmux: estado pode estar desatualizado</span>}
+      {machine?.notice === 'offline' && <span className="text-warn">máquina offline</span>}
+      {machine?.notice === 'silent' && <span className="text-warn">sem resposta do tmux: estado pode estar desatualizado</span>}
       {!connected && <span className="text-warn">reconectando…</span>}
     </>
   );
