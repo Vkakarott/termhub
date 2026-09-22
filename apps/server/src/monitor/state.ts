@@ -53,12 +53,20 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
   }
 }
 
+/** How Codex's own naming prompt begins; the person's request is appended after it. */
+const CODEX_TITLE_PROMPT = 'Generate a concise, single-line task title';
+
 /**
  * On a conversation's first turn the Codex TUI runs a second turn on a side thread to name it, and
- * `notify` fires for that one too, in the same second: its answer is `{"title": "…"}` and nothing
- * else. Recording it would alert twice for one turn and replace the real answer with the title.
+ * `notify` fires for that one too, in the same second: its only input is Codex's naming prompt and
+ * its answer is `{"title": "…"}`. Recording it would alert twice for one turn and replace the real
+ * answer with the title. Both signals are required: a person can ask for a title-shaped JSON, and
+ * dropping that answer would hide that Codex finished; if Codex ever rewords the prompt, the title
+ * turn gets through again — a duplicate alert, never a missed one.
  */
 function isTitleTurn(ev: Record<string, unknown>): boolean {
+  const input = ev['input-messages'];
+  if (!Array.isArray(input) || input.length !== 1 || typeof input[0] !== 'string' || !input[0].startsWith(CODEX_TITLE_PROMPT)) return false;
   const answer = str(ev['last-assistant-message']);
   if (!answer?.startsWith('{')) return false;
   try {
