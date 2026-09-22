@@ -62,7 +62,7 @@ So the flag list stops living in `apps/concierge/src/run.ts` and moves to a plac
 
 It stays, unchanged, for one case: a user with no machine of their own — which today is every account that has not enrolled one. The operator's own chat may keep using it or move to a host like anyone else.
 
-Say the consequence plainly, because it is the one thing this design does not fix: **for a user with no machine, the operator still pays and the operator's account still runs their conversation.** That is exactly the situation this document set out to end, so it is not something to leave to chance — either the chat stays granted only to users who have enrolled a machine (the role that gates it today makes that a decision, not an accident), or the container is eventually retired and a user with no machine simply has no chat. This spec does not decide which; it refuses to let the case be invisible.
+Say the consequence plainly, because it is the one thing this design does not fix: **for a user with no machine, the operator still pays and the operator's account still runs their conversation.** That is exactly the situation this document set out to end, so it is not something to leave to chance. The direction is recorded in §11; until it exists, the chat is granted only to users who have enrolled a machine, and the screen says so rather than failing quietly (§7).
 
 The `secondary` config dir is dropped from the server's configuration. It was a workaround for one shared account; with a per-user account the same need is expressed properly — a second `ai_account` on the host, chosen by the user — and that is out of scope here (see §9).
 
@@ -72,6 +72,7 @@ The `secondary` config dir is dropped from the server's configuration. It was a 
 - `chat_conversations.ai_account_id` is added (nullable, `ON DELETE SET NULL`): the account on that host. Null means "the machine's default Claude config dir".
 - Deleting the machine or the account nulls the field; the next message asks the user to choose again rather than guessing.
 - The settings screen shows the pair and lets the user change it, with the fresh-session warning.
+- **A user with no machine sees why, not a broken chat.** The screen states plainly that the chat runs on a machine of their own and needs one set up, and offers the path to enrol it. This is the product's honest limit, not an error: the concierge with no machine has nothing to orchestrate — `list_machines` would answer an empty list and every question would end in "you have no machines".
 
 ## 8. Security and privacy
 
@@ -80,14 +81,27 @@ The `secondary` config dir is dropped from the server's configuration. It was a 
 - **The operator loses access, on purpose.** After this, the operator's account no longer runs other people's conversations, and the operator's Claude history stops accumulating other people's prompts — which is the privacy half of the same fix.
 - **The prompt never touches argv**, and the agent's logs must not carry it: the same rule the container follows (stderr never leaves) applies to the agent's channel.
 
-## 9. Out of scope
+## 9. Direction: what a user with no machine gets
+
+Not built here, and deliberately not designed here either — recorded so the decision in §6 is not reopened from scratch later.
+
+The free shape this spec creates is unusually clean: **bring your own machine and your own account, and the product costs the operator nothing.** The paid shape is therefore the honest sentence on the other side of it — *"you do not want to set up a machine or an account, so we host both"* — as a subscription, payable monthly, quarterly or yearly.
+
+Two things have to be true before any of that is built, and both are cheaper to settle than to discover:
+
+- **The cost must move to per-token API billing.** Running other people's conversations on an individual Claude subscription is the wrong instrument twice over: it is what the provider's terms are least likely to allow, and the rate limit is per account, so paying customers would queue behind each other rather than add capacity.
+- **A subscription against a variable cost needs a ceiling.** One heavy user can consume in a month what ten light ones pay. The allowance has to be measurable per user and visible to them before they hit it — and measuring usage per user is code that does not exist today.
+
+The billing period itself (monthly, quarterly, yearly) is the last decision to make, not the first, and can be settled the week before anything is sold.
+
+## 10. Out of scope
 
 - A second account per user as an automatic fallback when the first runs out of credit. The mechanism (pick an `ai_account`) is here; the policy is a separate decision.
 - A visible terminal tab the user can watch the concierge work in. The headless stream is what every existing parser, card and delta depends on; a visible tab is a second presentation, worth its own design.
 - Queueing a message until an offline host returns.
 - Moving the operator's own chat off the container.
 
-## 10. Risks
+## 11. Risks
 
 - **A protocol change means an agent release**, and a machine that does not auto-update stays on the old one. The "too old" path must read as a plain instruction, not an error.
 - **The user's machine sleeps.** A laptop that closes mid-answer produces a `closed` with no `done` frame; that is the existing `RUNNER_FAILED` path, but it will happen far more often than a container dying, so the message must say what happened in a way that does not read as a bug in the product.
