@@ -3,7 +3,31 @@
  * fields are turned into poses and markers: the scene never reads a `Tab`.
  */
 import { tabNeedsYou } from '../lib/needs-you';
-import type { OfficeSnapshot, OfficeTab, Tab, TabActivity, TabState } from '../lib/types';
+import type { OfficeTab, OfficeTaskCounts, Project, Tab, TabActivity, TabState } from '../lib/types';
+
+/**
+ * What the model actually reads of a snapshot, and nothing more. `OfficeSnapshot` satisfies it, and
+ * so does the public city once src/city/api.ts adapts it — one model, one scene, both the office and
+ * the page a stranger opens, instead of a second city drawn by a second set of rules.
+ */
+export type ModelTab = Pick<OfficeTab, 'id' | 'project_id' | 'name' | 'kind' | 'position' | 'state' | 'state_text' | 'state_tool' | 'state_at' | 'state_seen_at' | 'activity' | 'alive'> & {
+  /** the public payload carries a bar with no title: a task's name is not published */
+  progress: { done: number; total: number; title?: string | null } | null;
+};
+
+export interface ModelRoom {
+  project: Pick<Project, 'id' | 'name' | 'status'>;
+  tabs: ModelTab[];
+  /** null when the board could not be read (no `tasks:read`, or a city with no board at all) */
+  tasks: OfficeTaskCounts | null;
+}
+
+export interface ModelSnapshot {
+  machine: { id: string };
+  /** false when the machine could not be asked which tmux sessions are alive */
+  reachable: boolean;
+  rooms: ModelRoom[];
+}
 
 export type Pose = 'type' | 'raise' | 'sleep' | 'shake' | 'sit' | 'empty';
 export type Marker = 'input' | 'permission' | 'error' | null;
@@ -82,9 +106,9 @@ const time = (iso: string | null): number | null => {
  * coming — so the newer `state_at` wins, and on a tie only a fresher `state_seen_at` (the hand was
  * lowered elsewhere) moves the tab.
  */
-function withLiveState(tab: OfficeTab, live: Tab | undefined): OfficeTab {
+function withLiveState(tab: ModelTab, live: Tab | undefined): ModelTab {
   if (!live) return tab;
-  const fromLive = (): OfficeTab => ({ ...tab, state: live.state, state_text: live.state_text, state_tool: live.state_tool, state_at: live.state_at, state_seen_at: live.state_seen_at, activity: live.activity });
+  const fromLive = (): ModelTab => ({ ...tab, state: live.state, state_text: live.state_text, state_tool: live.state_tool, state_at: live.state_at, state_seen_at: live.state_seen_at, activity: live.activity });
   const liveAt = time(live.state_at);
   const tabAt = time(tab.state_at);
   if (liveAt !== tabAt) return (liveAt ?? -Infinity) > (tabAt ?? -Infinity) ? fromLive() : tab;
@@ -92,9 +116,9 @@ function withLiveState(tab: OfficeTab, live: Tab | undefined): OfficeTab {
 }
 
 /** `reachable`: false = the machine could not be asked which tmux sessions exist (see below). */
-function deskOf(tab: OfficeTab, live: Tab | undefined, reachable: boolean): DeskModel {
+function deskOf(tab: ModelTab, live: Tab | undefined, reachable: boolean): DeskModel {
   const t = withLiveState(tab, live);
-  const base = { id: t.id, projectId: t.project_id, name: t.name, label: truncateLabel(t.name, DESK_LABEL_MAX), look: lookOf(t.id, LOOK_VARIANTS), progress: t.progress ? { done: t.progress.done, total: t.progress.total, title: t.progress.title } : null };
+  const base = { id: t.id, projectId: t.project_id, name: t.name, label: truncateLabel(t.name, DESK_LABEL_MAX), look: lookOf(t.id, LOOK_VARIANTS), progress: t.progress ? { done: t.progress.done, total: t.progress.total, title: t.progress.title ?? '' } : null };
   // a simulator's `alive` comes from the simulator manager, so tmux being unreachable says nothing about it
   if (t.kind === 'simulator') return { ...base, kind: 'phone', pose: 'empty', marker: null, dimmed: false, screenOn: t.alive, state: null, activity: null };
   // an unreachable machine answers `alive: false` for every terminal tab, which is not evidence that
@@ -105,7 +129,7 @@ function deskOf(tab: OfficeTab, live: Tab | undefined, reachable: boolean): Desk
   return { ...base, kind: 'person', pose: t.state ? POSE[t.state] : 'sit', marker, dimmed: !t.state, screenOn: t.state === 'working', state: t.state, activity: t.state === 'working' ? t.activity : null };
 }
 
-export function buildModel(snapshot: OfficeSnapshot, liveTab: (tabId: string) => Tab | undefined): FloorModel {
+export function buildModel(snapshot: ModelSnapshot, liveTab: (tabId: string) => Tab | undefined): FloorModel {
   const rooms = snapshot.rooms.map((r): RoomModel => {
     const desks = [...r.tabs].sort((a, b) => a.position - b.position).map((t) => deskOf(t, liveTab(t.id), snapshot.reachable));
     const total = r.tasks ? r.tasks.todo + r.tasks.doing + r.tasks.done : 0;
@@ -123,7 +147,7 @@ export function buildModel(snapshot: OfficeSnapshot, liveTab: (tabId: string) =>
 }
 
 /** Ids of this machine's tabs that the monitor knows about and the snapshot doesn't yet: time to re-read it. */
-export function missingTabIds(snapshot: OfficeSnapshot | null, monitorTabIds: string[], machineProjectIds: Set<string>, projectOf: (tabId: string) => string | undefined): string[] {
+export function missingTabIds(snapshot: ModelSnapshot | null, monitorTabIds: string[], machineProjectIds: Set<string>, projectOf: (tabId: string) => string | undefined): string[] {
   if (!snapshot) return [];
   const known = new Set(snapshot.rooms.flatMap((r) => r.tabs.map((t) => t.id)));
   return monitorTabIds.filter((id) => !known.has(id) && machineProjectIds.has(projectOf(id) ?? ''));
@@ -135,7 +159,7 @@ export interface MachineEntry {
   name: string;
   /** false only when the status check said so; "still checking" counts as online */
   online: boolean;
-  snapshot: OfficeSnapshot | null;
+  snapshot: ModelSnapshot | null;
   /** the first read of this machine's snapshot failed */
   failed: boolean;
 }

@@ -365,6 +365,42 @@ export interface OfficeSnapshot {
   rooms: OfficeRoom[];
 }
 
+/**
+ * The public city, mirrored field for field from apps/server/src/public/city.ts — the only shape a
+ * visitor with no account ever sees. The names follow the office snapshot's on purpose, so the same
+ * model code draws both (src/city/api.ts adapts one into the other). The ids are derived from the
+ * real ones by the server and are what the public surfaces join on.
+ */
+export interface PublicRobot {
+  id: string;
+  name: string;
+  kind: TabKind;
+  state: TabState | null;
+  state_at: string | null;
+  activity: TabActivity | null;
+  alive: boolean;
+  /** the board task bound to the tab, without its title: a bar, never what it says */
+  progress: { done: number; total: number } | null;
+}
+
+export interface PublicRoom {
+  id: string;
+  name: string;
+  robots: PublicRobot[];
+}
+
+export interface PublicBuilding {
+  id: string;
+  name: string;
+  rooms: PublicRoom[];
+}
+
+export interface PublicCity {
+  nickname: string;
+  owner_name: string;
+  buildings: PublicBuilding[];
+}
+
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
 export interface UploadEntry {
   machine_id: string;
