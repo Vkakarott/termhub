@@ -1,16 +1,16 @@
 /** The city in PixiJS: one block per machine, rooms and desks inside. Knows nothing about tabs, the API or React. */
 import { Application, CanvasSource, Container, Rectangle, Texture, UPDATE_PRIORITY, type Graphics } from 'pixi.js';
-import { blockBounds, cityBounds, layoutCity, placedRoomBounds, roomOnCity, type CityLayout, type PlacedBlock } from '../layout/city';
+import { BLOCK_MARGIN, blockBounds, cityBounds, layoutCity, placedRoomBounds, roomOnCity, type CityLayout, type PlacedBlock } from '../layout/city';
 import type { PlacedRoom } from '../layout/floor';
 import { depthOf, toScreen } from '../layout/iso';
 import { sameFocus, type CityModel, type FocusTarget } from '../model';
 import { generatedPack } from '../pack/generated';
 import type { PackManifest } from '../pack/manifest';
-import { Camera, type Box } from './camera';
+import { Camera, sameBox, type Box } from './camera';
 import { signVisibility } from './detail';
 import { DeskOverlay, MachineSign, RoomSign } from './Overlay';
 import { DeskView, type Textures } from './PersonView';
-import { BLOCK_MARGIN, drawBlock, drawRoom, WALL_H } from './RoomView';
+import { drawBlock, drawRoom, WALL_H } from './RoomView';
 
 /**
  * Zoom from which a free-roaming view is close enough to be read as a room: a label keeps its
@@ -256,12 +256,17 @@ export class OfficeScene {
   }
 
   /**
-   * `first`: the very first city, which is framed and snapped to. Later rebuilds (a tab created, a
-   * machine answering at last) re-frame the block or room the person is in, whose bounds may have
-   * moved; on the city as a whole they only re-centre while nobody has moved the camera by hand.
+   * `first`: the very first city, which is framed and snapped to. A later rebuild (a tab created
+   * anywhere in the account, a machine answering at last) re-frames the block or room the person is
+   * in only when that box actually moved — the shelf packing moves later blocks, but a tab opened on
+   * ANOTHER machine leaves this one exactly where it was, and re-framing there would yank a camera
+   * zoomed onto one desk back to the room. On the city as a whole it only re-centres while nobody
+   * has moved the camera by hand.
    */
   private rebuild(model: CityModel, first: boolean): void {
     if (!this.manifest) return;
+    // read against the layout that is about to be replaced, so the two can be compared below
+    const before = first ? null : this.boxOf(this.target);
     this.shape = shapeOf(model);
     this.city = layoutCity(model.machines.map((m) => ({ id: m.id, rooms: m.floor.rooms.map((r) => ({ id: r.id, desks: r.desks.length })) })));
     for (const layer of [this.floor, this.things, this.overlay]) layer.removeChildren().forEach((c) => c.destroy({ children: true }));
@@ -320,7 +325,11 @@ export class OfficeScene {
       this.target = { kind: 'city' };
       if (!first) return;
     }
-    if (first || this.target.kind !== 'city' || !this.userMoved) this.frameTarget(first);
+    if (first) return this.frameTarget(true);
+    // when the box is unchanged nothing is framed at all, so `userMoved` and `wentUp` keep whatever
+    // the person's own wheel and drag put there
+    const reframe = this.target.kind === 'city' ? !this.userMoved : before !== null && !sameBox(before, this.boxOf(this.target));
+    if (reframe) this.frameTarget(false);
   }
 
   /** A press that dragged the camera is not a click. */

@@ -12,6 +12,11 @@ export interface Box {
   h: number;
 }
 
+/** Whether two framings ask for the same view: a box a rebuild left where it was must not re-frame. */
+export function sameBox(a: Box, b: Box): boolean {
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
 export const MIN_SCALE = 0.15;
 export const MAX_SCALE = 4;
 const clamp = (s: number, max = MAX_SCALE) => Math.min(max, Math.max(MIN_SCALE, Number.isFinite(s) ? s : 1));

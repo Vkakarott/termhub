@@ -87,6 +87,35 @@ if (q.get('machine') || q.get('room')) {
 // `?hover=<deskId>` (e.g. m0-t2-0) pins one desk as hovered: hover text cannot be screenshotted otherwise
 if (q.get('hover')) scene.debugHover(q.get('hover'));
 
+/**
+ * `?churn=tabs`: one desk appears and disappears every second on a machine OTHER than the focused
+ * one — the rebuild a tab opened anywhere in the account causes. The camera framing this machine or
+ * this room must not move because of it, which is what the two screenshots around it show.
+ */
+if (q.get('churn') === 'tabs') {
+  const focused = target.kind === 'city' ? null : target.machineId;
+  const victim = rooms.findIndex((machineRooms, mi) => `m${mi}` !== focused && machineRooms.some((r) => r.tabs.length > 0));
+  const CHURN_ID = 'churn';
+  let extra = false;
+  if (victim >= 0)
+    setInterval(() => {
+      extra = !extra;
+      rooms = rooms.map((machineRooms, mi) => {
+        if (mi !== victim) return machineRooms;
+        let done = false;
+        return machineRooms.map((r) => {
+          if (done || r.tabs.length === 0) return r;
+          done = true;
+          const model = r.tabs[0];
+          return { ...r, tabs: extra ? [...r.tabs, { ...model, id: CHURN_ID, name: 'aba recém-aberta', position: r.tabs.length }] : r.tabs.filter((t) => t.id !== CHURN_ID) };
+        });
+      });
+      scene.setModel(buildCityModel(entriesNow(), () => undefined));
+      // how many rebuilds this run has caused, so a screenshot pair can say it really churned
+      hud.dataset.churn = String(Number(hud.dataset.churn ?? 0) + 1);
+    }, 1000);
+}
+
 if (!q.get('still')) {
   setInterval(() => {
     rooms = rooms.map((machineRooms) => machineRooms.map((r) => ({ ...r, tabs: r.tabs.map((t) => (Math.random() < 0.1 ? { ...t, state: STATES[Math.floor(Math.random() * STATES.length)], state_at: new Date().toISOString() } : t)) })));

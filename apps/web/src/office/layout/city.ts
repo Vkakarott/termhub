@@ -5,6 +5,12 @@ import { packShelves } from './shelves';
 
 /** Tiles between two blocks: wider than a floor's corridor, so where a machine ends reads by itself. */
 export const STREET = 4;
+/**
+ * Tiles of bare ground around a block's rooms: the pavement that says where one machine ends. It is
+ * part of the block — `drawBlock` paints it and `blockBounds` frames it — so it lives here, with the
+ * geometry, rather than with the drawing: framed without it, both side vertices fell off the canvas.
+ */
+export const BLOCK_MARGIN = 1;
 /** A machine with no projects still gets ground for its sign. */
 const MIN_BLOCK = { width: 5, height: 3 };
 
@@ -43,13 +49,16 @@ export function roomOnCity(block: PlacedBlock, room: PlacedRoom): PlacedRoom {
   return { ...room, origin: { gx: block.origin.gx + room.origin.gx, gy: block.origin.gy + room.origin.gy } };
 }
 
-/** Screen-space box of a block's footprint, `wallH` pixels of walls included. */
+/** Screen-space box of a block's ground, pavement and `wallH` pixels of walls included. */
 export function blockBounds(block: PlacedBlock, wallH: number): { x: number; y: number; w: number; h: number } {
-  const { gx, gy } = block.origin;
-  const left = toScreen(gx, gy + block.height).x;
-  const right = toScreen(gx + block.width, gy).x;
+  const gx = block.origin.gx - BLOCK_MARGIN;
+  const gy = block.origin.gy - BLOCK_MARGIN;
+  const width = block.width + BLOCK_MARGIN * 2;
+  const height = block.height + BLOCK_MARGIN * 2;
+  const left = toScreen(gx, gy + height).x;
+  const right = toScreen(gx + width, gy).x;
   const top = toScreen(gx, gy).y - wallH;
-  const bottom = toScreen(gx + block.width, gy + block.height).y;
+  const bottom = toScreen(gx + width, gy + height).y;
   return { x: left, y: top, w: right - left, h: bottom - top };
 }
 

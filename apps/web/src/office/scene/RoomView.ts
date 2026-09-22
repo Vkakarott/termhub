@@ -1,6 +1,6 @@
 /** The ground of one machine's block, and the floor and two back walls of one placed room. Colours only — no art needed. */
 import { Graphics } from 'pixi.js';
-import type { PlacedBlock } from '../layout/city';
+import { BLOCK_MARGIN, type PlacedBlock } from '../layout/city';
 import type { PlacedRoom } from '../layout/floor';
 import { toScreen } from '../layout/iso';
 
@@ -8,8 +8,6 @@ import { toScreen } from '../layout/iso';
 export const WALL_H = 28;
 const LIT = { a: 0x313847, b: 0x2b3140, wallL: 0x1e222b, wallR: 0x262b36 };
 const DARK = { a: 0x1f2430, b: 0x1b202a, wallL: 0x14171f, wallR: 0x191d26 };
-/** Tiles of bare ground around a block's rooms: the pavement that says where one machine ends. */
-export const BLOCK_MARGIN = 1;
 /**
  * A dark block still needs a silhouette. Filled alone, an offline machine's ground was four values
  * per channel away from the page background: its footprint, and the street around it, were simply

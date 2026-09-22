@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockBounds, cityBounds, layoutCity, roomOnCity, STREET } from './city';
+import { BLOCK_MARGIN, blockBounds, cityBounds, layoutCity, roomOnCity, STREET } from './city';
 
 const block = (id: string, desks: number[]) => ({ id, rooms: desks.map((d, i) => ({ id: `${id}-r${i}`, desks: d })) });
 const overlap = (a: { origin: { gx: number; gy: number }; width: number; height: number }, b: typeof a) =>
@@ -46,6 +46,18 @@ describe('roomOnCity / bounds', () => {
     expect(placed.layout).toBe(local.layout);
     expect(local.origin).toEqual(b.floor.rooms[1].origin); // not mutated
   });
+  it('frames the pavement the block is drawn with, not only its rooms', () => {
+    const city = layoutCity([block('a', [2])]);
+    const b = city.blocks[0];
+    expect([b.origin, b.width, b.height]).toEqual([{ gx: 0, gy: 0 }, 5, 3]);
+    // drawBlock paints the footprint grown by BLOCK_MARGIN on every side, so the block's diamond
+    // runs from tile (-1, -1) to (6, 4): 64 px per tile across, 32 down, 28 px of walls on top
+    expect(BLOCK_MARGIN).toBe(1);
+    expect(blockBounds(b, 28)).toEqual({ x: -160, y: -60, w: 384, h: 220 });
+    // the whole city is that same ground when there is one block: nothing of it is left off-canvas
+    expect(cityBounds(city, 28)).toEqual(blockBounds(b, 28));
+  });
+
   it('bounds of a later block sit to the right of an earlier one in the same row, and the city spans both', () => {
     const city = layoutCity([block('a', [2]), block('b', [2])], 60);
     const [a, b] = city.blocks.map((x) => blockBounds(x, 28));
