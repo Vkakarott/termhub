@@ -1,7 +1,9 @@
 # Agent activity: what each agent is doing, under its person — design
 
-Date: 2026-09-22. Status: **design approved section by section in conversation; awaiting review of
-this written spec.** Builds on `2026-09-21-office-world-design.md` (the office city, in production).
+Date: 2026-09-22. Status: **implemented on `feat/agent-activity`, pending review and merge.**
+Builds on `2026-09-21-office-world-design.md` (the office city, in production). Where the
+implementation settled something differently from this document's original text, that is noted
+inline below.
 
 ## 1. Goal
 
@@ -68,10 +70,19 @@ category.
 **The script filters, minimally, without knowing categories.** For a `PreToolUse` event the
 script:
 
-1. Extracts `tool_name` from the JSON with `sed` (POSIX; `jq` cannot be assumed). If it cannot
-   find one, it exits without posting.
-2. Compares it with the last tool name it sent for this tmux session, kept in
-   `${TMPDIR:-/tmp}/termhub-hook-<session>`.
+1. Extracts `tool_name` from the JSON with POSIX parameter expansion, cutting at the first
+   `"tool_name"` in the payload — Claude Code serialises the event's own `tool_name` before
+   `tool_input`, so the first occurrence is always the right one. Not `sed`: a POSIX BRE's
+   leading `.*` is greedy, so a `sed` extraction would take a `"tool_name"` nested inside a
+   tool's input instead of the event's own. Only `[A-Za-z0-9_.-]` is accepted — the characters a
+   bare Claude Code tool name or an MCP tool name can carry, hyphens included
+   (`mcp__claude-in-chrome__click`) — because those are also the only characters the hand-built
+   JSON body below cannot survive as-is; anything else, or no `tool_name` at all, posts nothing.
+2. Compares it with the last tool name it sent for this tmux session, kept in a marker file under
+   `${TMPDIR:-/tmp}`, named from the tmux session with everything but `[A-Za-z0-9_-]` reduced to
+   `_` so the session name is always a safe filename. Writing the marker is best-effort: if it
+   cannot be written (a read-only `TMPDIR`, say), the script stays silent and still posts the
+   event — it does not fail loudly over a file it uses only to save a request.
 3. Posts only when the name changed, and records the new name. Twenty consecutive `Edit` calls
    cost one request; `Edit, Read, Edit, Read` costs four, which is acceptable — each is a few
    hundred bytes, and the alternative is teaching the script the category table.
@@ -94,7 +105,7 @@ five others and removed with them.
 ## 5. On the server
 
 **The category table** lives in `apps/server/src/monitor/activity.ts` as data, with one pure
-function `activityOf(toolName: string | null): TabActivity`:
+function `activityOf(toolName: unknown): TabActivity`:
 
 | `TabActivity` | tools |
 |---|---|
@@ -105,8 +116,10 @@ function `activityOf(toolName: string | null): TabActivity`:
 | `terminal` | `Bash` |
 | `working` | anything else: `mcp__*` tools, `Agent`, `Skill`, unknown names, no name |
 
-Matching is exact; a tool Claude Code adds tomorrow reads `working` until it is classified,
-never something wrong.
+Matching is exact and looked up as the table's own property (`Object.hasOwn`, not a plain index),
+so a tool name that collides with something `Object.prototype` carries — `toString`, say — cannot
+read back as a function; both an unclassified name and a hostile one fall to `working`, never
+something wrong.
 
 **Interpretation.** `interpretClaude`'s `PreToolUse` case returns
 `{ kind: 'working', text: null, activity: activityOf(ev.tool_name), meta: { event, tool: name } }`.
@@ -122,10 +135,21 @@ not record activity: it is present state, not history.
 **Cost.** A tool change must not cost what a state change costs. `recordEvent` is a transaction
 with an insert and a prune; an active agent changes tool several times a minute. So a
 `PreToolUse` that only changes the activity of a tab already `working` takes a lighter path:
-`TabsRepository.setActivity(tabId, activity)` — one `UPDATE` of `activity` and `state_at`, no
-event row — then the same `publishTabChange`. `ingestHookEvent` picks the path: state changed or
-tab not `working` → `recordEvent` (with the activity); otherwise → `setActivity`; same activity
-as already stored → nothing (a defensive no-op, since the script already filters).
+`TabsRepository.setActivity(tabId, activity)` — a conditional `UPDATE` of `activity` and
+`state_at`, with `state = 'working'` in its own `WHERE` (not just in the read that chose this
+path), no event row — then the same `publishTabChange`. `ingestHookEvent` picks the path: state
+changed or tab not `working` → `recordEvent` (with the activity); same activity as already stored
+→ nothing (a defensive no-op, since the script already filters); otherwise → `setActivity`. If a
+tab stops working — or is deleted — between the read that chose the light path and that `UPDATE`,
+the `WHERE` matches nothing; the light path then has nothing to publish, so the request falls
+through to the full `recordEvent` path rather than answering `unknown_session`, since the tab is
+real and was found.
+
+Because `setActivity` bumps `state_at` on every tool change, `state_at` on a `working` tab means
+the tab's last sign of life, not when it started working. The no-op branch above — same activity
+as already stored — writes nothing at all, `state_at` included; nothing reads `state_at` as
+either "last sign of life" or "started working" across that gap, since nothing derives elapsed
+working time from it today.
 
 **Push.** `/ws/monitor` already carries the whole `Tab`; the new field reaches the browser with no
 protocol change. The `Tab` returned by the API, and the web `Tab` type, gain `activity`.
@@ -193,8 +217,8 @@ revisiting this one.
 
 - **The hook fires a process per tool call** on the machine regardless of the filter — the
   filter saves the request, not the process. Claude Code already runs the `Stop`/`Notification`
-  hooks this way; a `sed` and a file compare per call is well below a `curl`.
-- **Marker files under `/tmp`** persist across Claude Code sessions with the same tmux session
-  name; the reset on `SessionStart`/`UserPromptSubmit` covers it, and a stale marker at worst
-  drops one first event, which the next tool change corrects.
+  hooks this way; a parameter expansion and a file compare per call is well below a `curl`.
+- **Marker files under `TMPDIR`** (falling back to `/tmp`) persist across Claude Code sessions
+  with the same tmux session name; the reset on `SessionStart`/`UserPromptSubmit` covers it, and
+  a stale marker at worst drops one first event, which the next tool change corrects.
 - **Rollout lag.** Until an agent updates, its machine shows `trabalhando`; the label never lies.
