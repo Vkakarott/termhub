@@ -158,13 +158,13 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
 
 /**
  * Brings this machine's hooks back up to what this agent carries, reusing the url and token already
- * installed here: the forwarding script when the one on disk differs, and our entries in the config
- * dirs that do not have them yet — the agent calls it on startup and on every reconnect, so a config
- * dir created after the install (a new account, a new alias) starts notifying on its own, and a
- * script from an older agent is replaced. A machine without our hooks is left untouched: installing
- * is the server's call, not ours.
+ * installed here: the forwarding script when the one on disk differs, and our entries wherever they
+ * are missing — each Claude config dir, the Cursor CLI's hooks.json, Codex's notify. The agent calls
+ * it on startup and on every reconnect, so a config dir or a CLI that showed up after the install
+ * starts notifying on its own, and a script from an older agent is replaced. A machine without our
+ * hooks is left untouched: installing is the server's call, not ours.
  *
- * Answers the dirs it repaired.
+ * Answers the dirs it repaired ("~/.claude-x", "~/.cursor", "~/.codex").
  */
 export async function heal(home = os.homedir()): Promise<string[]> {
   const scriptPath = path.join(home, HOOK_SCRIPT_REL);
@@ -178,6 +178,11 @@ export async function heal(home = os.homedir()): Promise<string[]> {
   // a version, is what keeps every later change to the script reaching machines by itself).
   if (script !== HOOK_SCRIPT) await writeAtomic(scriptPath, HOOK_SCRIPT, 0o755);
 
+  return [...(await healClaudeDirs(home, scriptPath)), ...(await healCursor(home, scriptPath)), ...(await healCodex(home, scriptPath))];
+}
+
+/** Our entries in the Claude config dirs that lack them; answers the dirs it wrote. */
+async function healClaudeDirs(home: string, scriptPath: string): Promise<string[]> {
   const healed: string[] = [];
   for (const dir of await discoverClaudeDirs(home)) {
     const file = path.join(expandHome(dir, home), 'settings.json');
@@ -193,6 +198,40 @@ export async function heal(home = os.homedir()): Promise<string[]> {
     healed.push(dir);
   }
   return healed;
+}
+
+/**
+ * Our entries back in ~/.cursor/hooks.json when the Cursor CLI is here and they are missing — it
+ * was installed after the hooks, or Cursor rewrote a file its own UI manages. The merge keeps the
+ * person's own hooks; a file it cannot parse is left alone.
+ */
+async function healCursor(home: string, scriptPath: string): Promise<string[]> {
+  if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return [];
+  const file = path.join(home, CURSOR_HOOKS_REL);
+  const current = await readOrEmpty(file);
+  let body: string;
+  try {
+    body = mergeCursorHooks(current, scriptPath);
+  } catch {
+    return [];
+  }
+  if (body === current) return [];
+  await writeAtomic(file, body, 0o644);
+  return [`~/${CURSOR_DIR_REL}`];
+}
+
+/**
+ * Our notify in ~/.codex/config.toml only when there is no notify at all: Codex takes a single one,
+ * so a notify the person set for something else is theirs to keep — replacing it is the install's
+ * call (the machine form), never a silent repair on every agent start.
+ */
+async function healCodex(home: string, scriptPath: string): Promise<string[]> {
+  if (!(await isDir(path.join(home, CODEX_DIR_REL)))) return [];
+  const file = path.join(home, CODEX_CONFIG_REL);
+  const current = await readOrEmpty(file);
+  if (/^\s*notify\s*=/m.test(current)) return [];
+  await writeAtomic(file, mergeCodexConfig(current, scriptPath), 0o644);
+  return [`~/${CODEX_DIR_REL}`];
 }
 
 export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.homedir()): Promise<RpcResult<'hooks.uninstall'>> {

@@ -192,6 +192,63 @@ describe('heal', () => {
     expect(await read('.claude-broken/settings.json')).toBe('{not json');
   });
 
+  it('does not touch Cursor or Codex on a machine where termhub never installed its hooks', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/config.toml'), 'model = "o3"\n');
+
+    await expect(heal(home)).resolves.toEqual([]);
+
+    await expect(stat(path.join(home, '.cursor/hooks.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await read('.codex/config.toml')).toBe('model = "o3"\n');
+  });
+
+  it('hooks the Cursor CLI installed after the hooks were', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+
+    await expect(heal(home)).resolves.toEqual(['~/.cursor']);
+
+    const file = JSON.parse(await read('.cursor/hooks.json')) as { hooks: Record<string, { command: string }[]> };
+    expect(file.hooks.stop).toEqual([{ command: `${path.join(home, '.termhub/bin/termhub-hook')} cursor` }]);
+  });
+
+  it('puts our Cursor entries back when Cursor rewrote hooks.json without them, keeping its own', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await install(params, home);
+    await writeFile(path.join(home, '.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { stop: [{ command: 'say done' }] } }));
+
+    await expect(heal(home)).resolves.toEqual(['~/.cursor']);
+
+    const file = JSON.parse(await read('.cursor/hooks.json')) as { hooks: Record<string, { command: string }[]> };
+    expect(file.hooks.stop.map((e) => e.command)).toEqual(['say done', `${path.join(home, '.termhub/bin/termhub-hook')} cursor`]);
+  });
+
+  it('leaves a Cursor hooks.json that is settled, or that it cannot parse, where it is', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await install(params, home);
+    const settled = await read('.cursor/hooks.json');
+    await expect(heal(home)).resolves.toEqual([]);
+    expect(await read('.cursor/hooks.json')).toBe(settled);
+
+    await writeFile(path.join(home, '.cursor/hooks.json'), '{not json');
+    await expect(heal(home)).resolves.toEqual([]);
+    expect(await read('.cursor/hooks.json')).toBe('{not json');
+  });
+
+  it('adds our Codex notify when Codex shows up later or lost it, but never replaces a notify the person set', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/config.toml'), 'model = "o3"\n');
+
+    await expect(heal(home)).resolves.toEqual(['~/.codex']);
+    expect(await read('.codex/config.toml')).toBe(`notify = ["${path.join(home, '.termhub/bin/termhub-hook')}", "codex"]\nmodel = "o3"\n`);
+
+    await writeFile(path.join(home, '.codex/config.toml'), 'notify = ["my-notifier"]\nmodel = "o3"\n');
+    await expect(heal(home)).resolves.toEqual([]);
+    expect(await read('.codex/config.toml')).toBe('notify = ["my-notifier"]\nmodel = "o3"\n');
+  });
+
   it('rewrites a script left behind by an older agent, keeping it atomic and executable', async () => {
     await install(params, home);
     await writeFile(path.join(home, '.termhub/bin/termhub-hook'), '#!/bin/sh\n# an older termhub-hook\nexit 0\n', { mode: 0o755 });
