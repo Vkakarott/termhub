@@ -18,7 +18,15 @@ const rpcId = z.string().min(1).max(64);
 // machine), and the chat service retries once on a fresh session. Without it in this set that
 // self-healing is lost on the user-hosted path and every later message in the conversation
 // fails for ever as a generic `run_failed`.
-export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed', 'missing_session']);
+//
+// `cli_rejected` is the whole reason `classifyFailure` tells it apart from `run_failed`: the CLI
+// refused the flags we passed and exited before doing any work. The container pinned
+// `@anthropic-ai/claude-code`, so it was a rare case there; on a user's own machine they run
+// whatever `claude` they installed, so it is now one of the likelier failures — and it is the one
+// with an instruction attached ("update claude on that machine"). Missing from this set, the agent
+// could only report it as `run_failed`, and the sentence that says what to do would sit one layer
+// above, unreachable, while the person retried for ever.
+export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed', 'missing_session', 'cli_rejected']);
 
 /**
  * What an agent advertises in `hello.capabilities` beyond the baseline `pty` channel, written once for

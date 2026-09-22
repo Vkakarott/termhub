@@ -373,6 +373,27 @@ exit 1
     expect(JSON.stringify(log.mock.calls)).not.toContain('No conversation found');
   });
 
+  it('reports a CLI that refused our own flags as cli_rejected, not as a generic failed run', async () => {
+    // The real complaint, on stderr, from a `claude` too old (or too new) for the argv we build. On
+    // the user's own machine that is whatever version they installed, so this is no longer the rare
+    // case it was on the pinned container image — and it is the one failure with an instruction
+    // attached: collapsed into `run_failed` the person reads "the answer failed" and retries for ever.
+    const { bin, runs } = fakeCli(() => `cat > /dev/null
+echo 'Error: --session-id can only be used with --continue or --resume if --fork-session is also specified' >&2
+exit 1
+`);
+    const { socket, sendControl } = makeSocket();
+    const log = vi.fn();
+    const claude = createClaudeManager({ log, env: pathEnv(bin), tmpDir: runs });
+
+    await claude.open(1, { ...baseParams, resume: true }, socket);
+    claude.write(1, Buffer.from(PROMPT));
+
+    expect(await waitForClosed(sendControl)).toEqual({ type: 'closed', ch: 1, code: 1, reason: 'cli_rejected' });
+    // The label travelled; the stderr it was read from stayed on this machine.
+    expect(JSON.stringify(log.mock.calls)).not.toContain('--session-id can only be used');
+  });
+
   it('drops a line too large for a frame instead of closing the machine whole socket', async () => {
     // 1.2 MB on one line: framed as-is it would trip the server's 1 MiB maxPayload and close the
     // socket with 1009, dropping every terminal on this machine along with the chat.

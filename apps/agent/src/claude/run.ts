@@ -29,7 +29,8 @@ const STDERR_TAIL_BYTES = 4_000;
 const CLI = 'claude';
 
 /** The protocol's closed set of end-of-run reasons (task-2 ruling R1), read off the message type so
- *  this file cannot drift from it: `'cli_missing' | 'run_failed' | 'killed'`. */
+ *  this file cannot drift from it. It is a superset of `ClaudeFailureReason`, which is what lets
+ *  `classifyFailure`'s label travel to the server unchanged instead of being narrowed here. */
 type ClosedReason = NonNullable<Extract<AgentMessage, { type: 'closed' }>['reason']>;
 
 export interface ClaudeManagerDeps {
@@ -297,10 +298,13 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
         // A run we killed ourselves has already settled (`killed`, or `cli_missing` on a spawn that
         // never happened); this decides only the outcome of a run that ended on its own terms.
         if (code === 0) settle(0);
-        // The label only: `missing_session` is the one the server can act on (it retries once on a
+        // The label only, and whichever one the classifier reached — never narrowed to two: the
+        // server has a sentence for each, and collapsing `cli_rejected` into `run_failed` here would
+        // leave the person retrying for ever instead of reading "update claude on that machine".
+        // `missing_session` is the one the server acts on rather than renders (it retries once on a
         // fresh session), and it is the difference between a pruned local history costing one
         // message and it ending the conversation for good.
-        else settle(code, classifyFailure(stderr) === 'missing_session' ? 'missing_session' : 'run_failed');
+        else settle(code, classifyFailure(stderr));
       });
     },
 

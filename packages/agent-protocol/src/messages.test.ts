@@ -61,6 +61,10 @@ describe('control messages', () => {
       expect(agentMessage.parse({ type: 'closed', ch: 3, code: 1, reason: 'cli_missing' })).toMatchObject({ reason: 'cli_missing' }));
     it('parses closed with the reason the server self-heals from', () =>
       expect(agentMessage.parse({ type: 'closed', ch: 3, code: 1, reason: 'missing_session' })).toMatchObject({ reason: 'missing_session' }));
+    it('parses closed with the reason that has an instruction attached, so it can reach the screen', () =>
+      // A `claude` on the user's own machine that refuses our flags: the sentence for it ("update
+      // claude on that machine") only ever reaches the person if this label survives the wire.
+      expect(agentMessage.parse({ type: 'closed', ch: 3, code: 1, reason: 'cli_rejected' })).toMatchObject({ reason: 'cli_rejected' }));
     it('rejects closed with an unknown reason', () =>
       expect(agentMessage.safeParse({ type: 'closed', ch: 3, code: 1, reason: 'oops' }).success).toBe(false));
   });
