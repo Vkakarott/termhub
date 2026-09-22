@@ -13,6 +13,7 @@ const BY_TOOL: Record<string, TabActivity> = {
   Bash: 'terminal',
 };
 
+/** `Object.hasOwn`, not a plain lookup: an untrusted `toString` would otherwise read as a function. */
 export function activityOf(toolName: unknown): TabActivity {
-  return typeof toolName === 'string' ? (BY_TOOL[toolName] ?? 'working') : 'working';
+  return typeof toolName === 'string' && Object.hasOwn(BY_TOOL, toolName) ? BY_TOOL[toolName]! : 'working';
 }

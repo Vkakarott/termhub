@@ -24,13 +24,16 @@ export async function ingestHookEvent(
   // change; the equality check here is a defensive no-op for anything else that reaches us.
   if (interpreted.activity !== undefined && tab.state === 'working' && interpreted.kind === 'working') {
     if (tab.activity === interpreted.activity) return { ok: true, tab };
+    // Nothing updated: the tab stopped working (or is gone) between the read above and this write —
+    // the conditional UPDATE is what decides, not the row we read. The full path takes it from here.
     const updated = await repos.tabs.setActivity(tab.id, interpreted.activity);
-    if (!updated) return { ok: false, reason: 'unknown_session' };
-    const project = await repos.projects.findById(tab.project_id);
-    const machine = project ? await repos.machines.findById(project.machine_id) : undefined;
-    log.debug({ tabId: tab.id, machineId: machine?.id, activity: interpreted.activity }, 'monitor: tab activity');
-    publishTabChange(updated, tab.project_id, machine);
-    return { ok: true, tab: updated };
+    if (updated) {
+      const project = await repos.projects.findById(tab.project_id);
+      const machine = project ? await repos.machines.findById(project.machine_id) : undefined;
+      log.debug({ tabId: tab.id, machineId: machine?.id, activity: interpreted.activity }, 'monitor: tab activity');
+      publishTabChange(updated, tab.project_id, machine);
+      return { ok: true, tab: updated };
+    }
   }
   return { ok: true, tab: await applyState(repos, log, tab, input.tool, interpreted) };
 }

@@ -12,7 +12,7 @@ const log = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as never;
 
 function repos(current: Tab) {
   const recordEvent = vi.fn(async (_id: string, ev: { kind: string; activity?: string }) => ({ tab: tab({ ...current, state: ev.kind as Tab['state'], activity: (ev.activity as Tab['activity']) ?? null }), event: {} }));
-  const setActivity = vi.fn(async (_id: string, activity: Tab['activity']) => tab({ ...current, activity }));
+  const setActivity = vi.fn(async (_id: string, activity: Tab['activity']): Promise<Tab | undefined> => tab({ ...current, activity }));
   return {
     r: { tabs: { findByTmuxSession: vi.fn(async () => current), recordEvent, setActivity }, projects: { findById: vi.fn(async () => ({ id: 'p1', machine_id: 'm1' })) }, machines: { findById: vi.fn(async () => ({ id: 'm1', owner_id: 'u1' })) } } as unknown as Repositories,
     recordEvent,
@@ -50,6 +50,17 @@ describe('ingestHookEvent — activity', () => {
     expect(setActivity).not.toHaveBeenCalled();
     expect(recordEvent).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('falls through to the full path when the tab left working between the read and the write', async () => {
+    publish.mockClear();
+    const { r, recordEvent, setActivity } = repos(tab({ state: 'working', activity: 'coding' }));
+    setActivity.mockImplementation(async () => undefined); // the conditional UPDATE matched no row
+    const res = await ingestHookEvent(r, log, pre('Read'));
+    expect(setActivity).toHaveBeenCalledWith('t1', 'reading');
+    expect(recordEvent).toHaveBeenCalledWith('t1', expect.objectContaining({ kind: 'working', activity: 'reading' }));
+    expect(res).toMatchObject({ ok: true, tab: { state: 'working', activity: 'reading' } });
+    expect(publish).toHaveBeenCalledTimes(1);
   });
 
   it('never logs the tool input', async () => {

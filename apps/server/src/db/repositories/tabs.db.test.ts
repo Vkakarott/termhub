@@ -196,6 +196,16 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       expect(new Date(updated!.state_at!).getTime()).toBeGreaterThanOrEqual(new Date(before.state_at!).getTime());
     });
 
+    it('setActivity writes nothing once the tab has left working (a Stop landing between the read and the write)', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
+      const { tab: stopped } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
+      expect(await repo.setActivity(tabId, 'reading')).toBeUndefined();
+      const reloaded = await repo.findById(tabId);
+      expect(reloaded?.activity).toBeNull(); // a waiting tab never reads as coding
+      expect(reloaded?.state).toBe('waiting_input');
+      expect(reloaded?.state_at).toBe(stopped.state_at); // and its wait is not pushed past state_seen_at
+    });
+
     it('setActivity returns undefined for a tab that does not exist', async () => {
       expect(await repo.setActivity(newId(), 'reading')).toBeUndefined();
     });

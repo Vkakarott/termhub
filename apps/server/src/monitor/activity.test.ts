@@ -20,6 +20,10 @@ describe('activityOf', () => {
     expect(activityOf('Skill')).toBe('working');
   });
 
+  it('reads working for a key inherited from Object.prototype (a hand-made request could send one)', () => {
+    for (const key of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) expect(activityOf(key)).toBe('working');
+  });
+
   it('reads working for anything that is not a string', () => {
     for (const v of [null, undefined, 42, {}, [], '']) expect(activityOf(v)).toBe('working');
   });

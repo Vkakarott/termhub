@@ -125,9 +125,14 @@ export class TabsRepository {
    * and no event row is written — an active agent changes tool several times a minute, and the
    * event table is for state changes. `updateMany…AndReturn` so a tab that is gone comes back as
    * `undefined` (like `markSeen`) instead of throwing, still in a single statement.
+   *
+   * `state: 'working'` is part of the `where`, not a check the caller can make first: the hook
+   * script posts in the background, so a `Stop` can commit between the caller's read and this
+   * write — and a waiting tab must never read as coding, nor have its `stateAt` pushed past the
+   * `stateSeenAt` that says the person already saw it. Nothing updated = it is no longer working.
    */
   async setActivity(tabId: string, activity: TabActivity): Promise<Tab | undefined> {
-    const [t] = await this.db.tab.updateManyAndReturn({ where: { id: tabId }, data: { activity, stateAt: new Date() } });
+    const [t] = await this.db.tab.updateManyAndReturn({ where: { id: tabId, state: 'working' }, data: { activity, stateAt: new Date() } });
     return t ? mapTab(t) : undefined;
   }
 
