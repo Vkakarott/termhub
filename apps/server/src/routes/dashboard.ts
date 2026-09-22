@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Repositories } from '../db/repositories/index.js';
 
-/** Visão "o que estou fazendo agora": projetos ativos + máquina + tasks em andamento + último terminal. */
+/** Visão "o que estou fazendo agora": active projects + their machines + tasks in progress + last terminal. */
 export async function dashboardRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/', async (request) => {
     const owner = request.scope.ownerId;
@@ -11,11 +11,15 @@ export async function dashboardRoutes(app: FastifyInstance, repos: Repositories)
       repos.tasks.listDoing(owner),
       repos.tasks.openCountByProject(),
     ]);
+    const links = await repos.projectMachines.listByProjects(projects.map((p) => p.id));
     const machineById = new Map(machines.map((m) => [m.id, m]));
     const items = projects
       .map((p) => ({
         project: p,
-        machine: machineById.get(p.machine_id) ?? null,
+        machines: links
+          .filter((l) => l.project_id === p.id)
+          .map((l) => machineById.get(l.machine_id))
+          .filter((m): m is NonNullable<typeof m> => !!m),
         doing: doing.filter((t) => t.project_id === p.id),
         open_tasks: openCounts[p.id] ?? 0,
       }))

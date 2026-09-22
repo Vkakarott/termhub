@@ -81,9 +81,12 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
       const existing = await repos.tabs.findById(task.tab_id);
       if (existing) return { task, tab: existing, created: false };
     }
+    // No machine given: the task's project must have exactly one linked machine, like a fresh terminal
+    // opened without one (see `projectMachineFor`).
+    const { machine } = await scoped(repos, request).projectMachineFor(task.project_id);
     const ref = task.external_ref as { identifier?: string } | null;
     const name = (ref?.identifier ?? task.title).slice(0, 40);
-    const tab = await repos.tabs.create(task.project_id, name);
+    const tab = await repos.tabs.create(task.project_id, machine.id, name);
     const updated = await repos.tasks.setTab(id, tab.id);
     return { task: updated, tab, created: true };
   });

@@ -80,8 +80,8 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   };
   // What `describeActions` resolves the approved proposal's sentence from, owner-scoped exactly like
   // the real repositories: another user's id is simply absent from the batch.
-  const tab = { id: 't1', project_id: 'p1', name: 'Terminal 1' };
-  const project = { id: 'p1', name: 'app', machine_id: 'm1' };
+  const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 1' };
+  const project = { id: 'p1', name: 'app', owner_id: 'u1' };
   const machine = { id: 'm1', name: 'jarvis' };
   const ownedBy = <T extends { id: string }>(row: T) => vi.fn(async (ids: string[], ownerId: string) => (ownerId === user.id && ids.includes(row.id) ? [row] : []));
   const host = { id: 'm1', name: 'jarvis', type: 'agent', agent_version: '0.5.0' };

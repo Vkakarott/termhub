@@ -11,9 +11,9 @@ const params = z.object({ machineId: z.string().min(1).max(64) });
 const query = z.object({ fresh: z.enum(['0', '1']).optional() });
 
 /**
- * The office view's one read: a machine's floor (projects, tabs, board progress). Registered under
- * the `projects` resource; the board part additionally needs `tasks:read` and is left out — not
- * even queried — without it. The tmux probe is memoised per machine (see `probeTmuxSessionsCached`)
+ * The office view's one read: a machine's floor — the projects linked to it, and their tabs that run
+ * on it. Registered under the `projects` resource; the board part additionally needs `tasks:read`
+ * and is left out — not even queried — without it. The tmux probe is memoised per machine (see `probeTmuxSessionsCached`)
  * so an account's tabs polling every machine once a minute share one round-trip per machine;
  * `?fresh=1` bypasses that memo and refreshes it, for a tab that was just opened — except for an
  * answer read seconds ago, which the browser tabs that all noticed that same new tab share.
@@ -26,7 +26,7 @@ export async function officeRoutes(app: FastifyInstance, repos: Repositories, de
     const projects = await repos.projects.list({ machine_id: machine.id });
     const projectIds = projects.filter((p) => p.status !== 'archived').map((p) => p.id);
     const [tabs, progress] = await Promise.all([
-      repos.tabs.listByProjects(projectIds),
+      repos.tabs.listByProjectsOnMachine(projectIds, machine.id),
       (await canAccess(repos, request.user, 'tasks', 'read')) ? repos.tasks.officeProgress(projectIds) : Promise.resolve(null),
     ]);
     let aliveSessions = new Set<string>();
