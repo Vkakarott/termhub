@@ -163,7 +163,13 @@ export function OfficePage() {
       if (machines.length === 1) go(machines[0].id, room, true);
       return;
     }
-    if (room) return;
+    // standing in a room IS having arrived at its machine: without this, stepping out to the block
+    // through the breadcrumb (from a pasted v1 link, Back, or a room entered straight from the
+    // city) looked like a first arrival and drilled right back into the only room — a dead click
+    if (room) {
+      drilled.current = machineId;
+      return;
+    }
     if (drilled.current === machineId) {
       byHand.current.delete(machineId);
       return;
@@ -262,6 +268,10 @@ export function OfficePage() {
         )}
         {failed && <Overlay>Seu navegador não conseguiu desenhar o escritório.</Overlay>}
         {city.machines.length === 0 && <Overlay>Carregando a cidade…</Overlay>}
+        {/* at its own rest a machine's block carries no words: its sign is the one thing hidden
+            there (scene/detail.ts), so a failed read would otherwise be an empty outlined diamond
+            and, on a single-machine account, the whole page */}
+        {here?.notice === 'error' && <Overlay>Não foi possível carregar o escritório desta máquina.</Overlay>}
         {here && here.notice !== 'error' && here.floor.rooms.length === 0 && <Overlay>Esta máquina ainda não tem projetos.</Overlay>}
       </div>
     </div>

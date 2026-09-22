@@ -371,7 +371,7 @@ describe('OfficePage rests and the URL', () => {
     expect(scene().targets.at(-1)).toEqual({ kind: 'room', machineId: 'm2', roomId: 'p2' });
   });
 
-  it('does not re-drill a machine already left by Esc after a later arrival at its rest', async () => {
+  it('does not re-drill a machine already left, when Back returns to its rest', async () => {
     twoMachines();
     renderPage('/office/m2'); // auto-drills into its only room, p2
     await act(async () => {});
@@ -381,11 +381,17 @@ describe('OfficePage rests and the URL', () => {
     await act(async () => {});
     expect(testSearch).toBe('');
 
-    // a later arrival at the same machine rest (Back/Forward landing here again) must not re-drill
+    // back into the room by hand, this time pushing history — so Back below is a real arrival at
+    // the machine rest, not the no-op navigation to the URL the page already sits at
+    act(() => scene().handlers.onPickRoom('m2', 'p2'));
+    await act(async () => {});
+    expect(testSearch).toBe('?room=p2');
+
     await act(async () => {
-      testNavigate?.('/office/m2');
+      testNavigate?.(-1);
     });
-    expect(testSearch).toBe('');
+    expect(testPath).toBe('/office/m2');
+    expect(testSearch).toBe(''); // Back left the room; the drill must not push us straight back in
   });
 
   it('enters a room straight from the city and keeps ?focus=1 all the way', async () => {
@@ -424,6 +430,21 @@ describe('OfficePage top bar', () => {
     await act(async () => {});
     expect(testPath).toBe('/office');
     expect(scene().targets.at(-1)).toEqual({ kind: 'city' });
+  });
+
+  it('steps out to the block when the machine part is clicked inside its only room', async () => {
+    twoMachines();
+    // arriving straight inside a room (a v1 link, Back, or a room clicked from the city) on a
+    // machine whose single room has desks: the machine part of the trail used to be a dead click,
+    // because the auto-drill had never seen this machine "arrived at" and sent us back in
+    renderPage('/office/m2?room=p2');
+    await act(async () => {});
+    expect(testSearch).toBe('?room=p2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'hal' }));
+    await act(async () => {});
+    expect(testPath).toBe('/office/m2');
+    expect(testSearch).toBe('');
   });
 
   it('leaves the city part out of the breadcrumb with a single machine', async () => {
@@ -473,6 +494,33 @@ describe('OfficePage status notices', () => {
     await act(async () => {});
 
     expect(screen.getByText('sem resposta do tmux: estado pode estar desatualizado')).toBeTruthy();
+  });
+
+  it('says so at the machine rest when that machine\'s snapshot could not be read', async () => {
+    officeMock.mockRejectedValue(new Error('nope'));
+    dataState.current = { ...dataState.current, loading: false };
+    const { unmount } = renderPage('/office/m1');
+    await act(async () => {});
+    // its block is drawn empty and its own sign is hidden at its rest: without this the page is a
+    // blank diamond with no words at all on a single-machine account
+    expect(screen.getByText('Não foi possível carregar o escritório desta máquina.')).toBeTruthy();
+    // and not the "no projects yet" line, which would be a lie about a machine we could not read
+    expect(screen.queryByText('Esta máquina ainda não tem projetos.')).toBeNull();
+    unmount();
+
+    renderPage('/office/m1?focus=1');
+    await act(async () => {});
+    expect(screen.getByText('Não foi possível carregar o escritório desta máquina.')).toBeTruthy();
+  });
+
+  it('keeps the failed read out of the city rest, where the block\'s sign says it', async () => {
+    twoMachines();
+    officeMock.mockImplementation((id: string) => (id === 'm1' ? Promise.reject(new Error('nope')) : Promise.resolve(snap('m2', [room('p2', [tab('t2', 'p2')])]))));
+    renderPage('/office');
+    await act(async () => {});
+
+    expect(testPath).toBe('/office');
+    expect(screen.queryByText('Não foi possível carregar o escritório desta máquina.')).toBeNull();
   });
 
   it('keeps one machine\'s notices out of the city rest, where the block\'s sign says it', async () => {
