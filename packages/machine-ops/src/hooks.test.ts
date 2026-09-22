@@ -106,6 +106,14 @@ describe('cursor hooks.json', () => {
     expect(() => mergeCursorHooks('{nope', script)).toThrow();
   });
 
+  it('refuses a `hooks` that is there but is not an object, rather than replacing what the person wrote', () => {
+    for (const hooks of ['[{"command":"say done"}]', '"x"', '1', 'true']) {
+      expect(() => mergeCursorHooks(`{"version":1,"hooks":${hooks}}`, script)).toThrow('~/.cursor/hooks.json: o campo "hooks" não é um objeto');
+    }
+    // absent or null holds nothing to lose
+    expect(JSON.parse(mergeCursorHooks('{"version":1,"hooks":null}', script)).hooks.stop).toEqual([{ command: `${script} cursor` }]);
+  });
+
   it('strips only our entries, drops events left empty and leaves odd files alone', () => {
     const merged = mergeCursorHooks(JSON.stringify({ version: 1, hooks: { stop: [{ command: 'say done' }] } }), script);
     expect(JSON.parse(stripCursorHooks(merged))).toEqual({ version: 1, hooks: { stop: [{ command: 'say done' }] } });

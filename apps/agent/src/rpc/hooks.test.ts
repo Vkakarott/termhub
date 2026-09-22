@@ -117,6 +117,15 @@ describe('hooks.install — Cursor CLI', () => {
     await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('refuses a hooks.json whose `hooks` is not an object, naming the problem, and writes nothing', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    const theirs = JSON.stringify({ version: 1, hooks: [{ command: 'say done' }] });
+    await writeFile(path.join(home, '.cursor/hooks.json'), theirs);
+    await expect(install(params, home)).rejects.toMatchObject({ code: 'failed', path: '.cursor/hooks.json', message: expect.stringContaining('"hooks" não é um objeto') });
+    expect(await read('.cursor/hooks.json')).toBe(theirs);
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('uninstall removes only our entries from hooks.json', async () => {
     await mkdir(path.join(home, '.cursor'), { recursive: true });
     await writeFile(path.join(home, '.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { stop: [{ command: 'say done' }] } }));

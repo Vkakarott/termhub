@@ -179,6 +179,8 @@ export function mergeCursorHooks(current: string, scriptPath: string): string {
     if (!parsed) throw new Error('~/.cursor/hooks.json não é um objeto JSON');
     file = parsed;
   }
+  // a `hooks` we cannot read would be replaced by ours alone, and uninstall could not give it back
+  if (file.hooks != null && !asObject(file.hooks)) throw new Error('~/.cursor/hooks.json: o campo "hooks" não é um objeto');
   const hooks = asObject(file.hooks) ?? {};
   for (const event of CURSOR_HOOK_EVENTS) {
     const others = ((Array.isArray(hooks[event]) ? hooks[event] : []) as CursorEntry[]).filter((e) => !isOurCursorEntry(e));
