@@ -7,19 +7,13 @@ import { openCookieBanner } from './AnalyticsGate';
 import { useData, type MachineStatus } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
+import { STATUS_DOT, STATUS_LABEL } from '../lib/machine-status';
 import type { Machine, Project } from '../lib/types';
 import { relativeTime } from '../lib/time';
 import { MachineForm } from './MachineForm';
 import { ProjectForm } from './ProjectForm';
 import { ConfirmDialog } from './Modal';
 import { ViewAsSwitch } from './ViewAsSwitch';
-
-const STATUS_DOT: Record<MachineStatus, string> = {
-  checking: 'bg-warn animate-pulse',
-  online: 'bg-ok',
-  offline: 'bg-danger',
-};
-const STATUS_LABEL: Record<MachineStatus, string> = { checking: 'verificando', online: 'online', offline: 'offline' };
 
 /** Tooltip for a machine row: connection info (host, or "agente" with no host) + os/capabilities + last-seen when offline. */
 export function machineTitle(m: Machine, status: MachineStatus): string {
@@ -40,17 +34,17 @@ export function agentVersionBadge(m: Machine): { text: string; title: string; ou
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can, viewAs } = useAuth();
-  const { machines, projects, machinesOf, hiddenLocal, claimLocal, statuses, missingTmux, loading, deleteMachine, deleteProject, checkStatus } = useData();
+  const { projects, machinesOf, hiddenLocal, claimLocal, statuses, missingTmux, loading, deleteProject, checkStatus } = useData();
   const { items: monitorItems, needsYou } = useMonitor();
   const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
   const navigate = useNavigate();
   const location = useLocation();
   const [machineForm, setMachineForm] = useState<{ open: boolean; machine?: Machine | null }>({ open: false });
-  const [projectForm, setProjectForm] = useState<{ open: boolean; machineId?: string }>({ open: false });
-  const [deleting, setDeleting] = useState<Machine | null>(null);
+  const [projectFormOpen, setProjectFormOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
 
   const visibleProjects = projects.filter((p) => showArchived || p.status !== 'archived');
   const hasArchived = projects.some((p) => p.status === 'archived');
@@ -63,13 +57,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         </NavLink>
         <span className="flex items-center gap-0.5">
           {can('projects', 'create') && (
-            <button className="btn-ghost px-2 py-1 text-xs" title="Novo projeto" onClick={() => setProjectForm({ open: true })}>
-              + projeto
-            </button>
-          )}
-          {can('machines', 'create') && (
-            <button className="btn-ghost px-2 py-1 text-xs" title="Nova máquina" onClick={() => setMachineForm({ open: true, machine: null })}>
-              + máquina
+            <button className="btn-ghost px-2 py-1 text-xs" title="Novo projeto" onClick={() => setProjectFormOpen(true)}>
+              + novo
             </button>
           )}
           {onCollapse && (
@@ -85,126 +74,143 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
         <p className="px-3 pb-1 pt-1 text-[10px] uppercase tracking-wide text-fg-dim">Projetos</p>
         {!loading && visibleProjects.length === 0 && (
-          <button className="px-3 py-1 text-xs text-fg-dim hover:text-fg" onClick={() => setProjectForm({ open: true })}>
+          <button className="px-3 py-1 text-xs text-fg-dim hover:text-fg" onClick={() => setProjectFormOpen(true)}>
             + novo projeto
           </button>
         )}
         <ul>
-          {visibleProjects.map((p) => (
-            <li key={p.id} className="group/p flex items-center rounded-r hover:bg-bg-3">
-              <NavLink
-                to={`/projects/${p.id}`}
-                className={({ isActive }) =>
-                  `flex min-w-0 flex-1 items-center gap-2 rounded-r px-3 py-1 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted group-hover/p:text-fg'}`
-                }
-                title={machinesOf(p).map((m) => m.name).join(', ') || 'sem máquina vinculada'}
-              >
-                <span className="shrink-0 font-mono text-[10px] text-fg-dim">{p.key}</span>
-                <span className={`truncate ${p.status !== 'active' ? 'opacity-60' : ''}`}>{p.name}</span>
-                {!!waiting.get(p.id) && (
-                  <span
-                    className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-attention"
-                    title={waiting.get(p.id) === 1 ? '1 tab esperando você' : `${waiting.get(p.id)} tabs esperando você`}
-                    aria-label="esperando você"
-                  />
-                )}
-                {!!p.open_tasks && p.status === 'active' && (
-                  <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums text-fg-muted group-hover/p:hidden`} title={`${p.open_tasks} task(s) aberta(s)`}>
-                    {p.open_tasks}
-                  </span>
-                )}
-                {p.status === 'paused' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-warn group-hover/p:hidden`}>pausado</span>}
-                {p.status === 'archived' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-fg-dim group-hover/p:hidden`}>arquivado</span>}
-              </NavLink>
-              {/* ações: só no hover; ficam fora do link para não navegar ao clicar */}
-              <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-hover/p:flex">
-                <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Editar projeto" onClick={() => navigate(`/projects/${p.id}/settings`)}>
-                  ✎
-                </button>
-                <button
-                  className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-danger"
-                  title="Excluir projeto (as pastas nas máquinas não são apagadas)"
-                  onClick={() => {
-                    setDeleteError(null);
-                    setDeletingProject(p);
-                  }}
-                >
-                  ✕
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-
-        <p className="mt-3 px-3 pb-1 text-[10px] uppercase tracking-wide text-fg-dim">Máquinas</p>
-        {!loading && machines.length === 0 && hiddenLocal.length === 0 && <p className="px-3 py-2 text-xs text-fg-dim">Nenhuma máquina cadastrada.</p>}
-        {machines.map((m) => {
-          const status = statuses[m.id] ?? 'checking';
-          return (
-            <div key={m.id} className="mb-1">
-              <div className="group flex items-center gap-1.5 px-2 py-1 text-sm">
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT[status]}`}
-                  title={`${STATUS_LABEL[status]} — clique para verificar`}
-                  onClick={() => void checkStatus(m.id)}
-                />
-                <span className="truncate font-medium" title={machineTitle(m, status)}>
-                  {m.name}
-                </span>
-                {m.is_local && (
-                  <span className="text-[10px] text-fg-dim" title="O computador que você está usando; aparece só neste navegador">
-                    este pc
-                  </span>
-                )}
-                {m.os && <span className="text-[10px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
-                {(() => {
-                  const badge = agentVersionBadge(m);
-                  if (!badge) return null;
-                  return badge.outdated ? (
-                    <button type="button" className="rounded px-1 text-[10px] text-warn hover:bg-bg-3" title={badge.title} onClick={() => setMachineForm({ open: true, machine: m })}>
-                      {badge.text}
-                    </button>
-                  ) : (
-                    <span className="text-[10px] text-fg-dim" title={badge.title}>
-                      {badge.text}
-                    </span>
-                  );
-                })()}
-                {viewAs === 'all' && (
-                  <span className="truncate text-[10px] text-fg-dim" title={m.owner_name ? `Dono: ${m.owner_name}` : 'Sem dono'}>
-                    {m.owner_name ?? 'sem dono'}
-                  </span>
-                )}
-                {missingTmux[m.id] && (
-                  <span className="text-[10px] text-warn" title="tmux não está instalado nesta máquina">
-                    sem tmux
-                  </span>
-                )}
-                {m.type === 'agent' && m.hooks_installed_at === null && (
+          {visibleProjects.map((p) => {
+            const projectMachines = machinesOf(p);
+            const isExpanded = collapsedProjects[p.id] !== true;
+            return (
+              <li key={p.id} className="mb-0.5">
+                <div className="group/p flex items-center rounded-r hover:bg-bg-3">
                   <button
                     type="button"
-                    className="rounded px-1 text-[10px] text-warn hover:bg-bg-3"
-                    title="Os hooks do monitor não estão instalados: as tabs desta máquina não aparecem em “Precisando de você”. Clique para instalar."
-                    onClick={() => setMachineForm({ open: true, machine: m })}
+                    className="shrink-0 px-1.5 py-1 text-[9px] text-fg-dim hover:text-fg"
+                    title={isExpanded ? 'Recolher' : 'Expandir'}
+                    aria-label={isExpanded ? 'Recolher máquinas do projeto' : 'Expandir máquinas do projeto'}
+                    onClick={() => setCollapsedProjects((c) => ({ ...c, [p.id]: isExpanded }))}
                   >
-                    sem monitor
+                    {isExpanded ? '▼' : '▶'}
                   </button>
+                  <NavLink
+                    to={`/projects/${p.id}`}
+                    className={({ isActive }) =>
+                      `flex min-w-0 flex-1 items-center gap-2 rounded-r py-1 pr-3 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted group-hover/p:text-fg'}`
+                    }
+                    title={projectMachines.map((m) => m.name).join(', ') || 'sem máquina vinculada'}
+                  >
+                    <span className="shrink-0 font-mono text-[10px] text-fg-dim">{p.key}</span>
+                    <span className={`truncate ${p.status !== 'active' ? 'opacity-60' : ''}`}>{p.name}</span>
+                    {!!waiting.get(p.id) && (
+                      <span
+                        className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-attention"
+                        title={waiting.get(p.id) === 1 ? '1 tab esperando você' : `${waiting.get(p.id)} tabs esperando você`}
+                        aria-label="esperando você"
+                      />
+                    )}
+                    {!!p.open_tasks && p.status === 'active' && (
+                      <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums text-fg-muted group-hover/p:hidden`} title={`${p.open_tasks} task(s) aberta(s)`}>
+                        {p.open_tasks}
+                      </span>
+                    )}
+                    {p.status === 'paused' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-warn group-hover/p:hidden`}>pausado</span>}
+                    {p.status === 'archived' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-fg-dim group-hover/p:hidden`}>arquivado</span>}
+                  </NavLink>
+                  {/* ações: só no hover; ficam fora do link para não navegar ao clicar */}
+                  <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-hover/p:flex">
+                    <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Editar projeto" onClick={() => navigate(`/projects/${p.id}/settings`)}>
+                      ✎
+                    </button>
+                    <button
+                      className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-danger"
+                      title="Excluir projeto (as pastas nas máquinas não são apagadas)"
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeletingProject(p);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </div>
+                {isExpanded && (
+                  <ul className="ml-4 border-l border-line pl-2">
+                    {projectMachines.length === 0 ? (
+                      <li>
+                        <NavLink to={`/projects/${p.id}/settings`} className="block px-2 py-1 text-[11px] text-fg-dim hover:text-fg">
+                          sem máquina · vincular
+                        </NavLink>
+                      </li>
+                    ) : (
+                      projectMachines.map((m) => {
+                        const status = statuses[m.id] ?? 'checking';
+                        return (
+                          <li key={m.id} className="group flex items-center gap-1.5 px-1 py-1 text-xs">
+                            <span
+                              className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`}
+                              title={`${STATUS_LABEL[status]} — clique para verificar`}
+                              onClick={() => void checkStatus(m.id)}
+                            />
+                            <span className="truncate" title={machineTitle(m, status)}>
+                              {m.name}
+                            </span>
+                            {m.is_local && (
+                              <span className="text-[10px] text-fg-dim" title="O computador que você está usando; aparece só neste navegador">
+                                este pc
+                              </span>
+                            )}
+                            {m.os && <span className="text-[10px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
+                            {(() => {
+                              const badge = agentVersionBadge(m);
+                              if (!badge) return null;
+                              return badge.outdated ? (
+                                <button type="button" className="rounded px-1 text-[10px] text-warn hover:bg-bg-3" title={badge.title} onClick={() => setMachineForm({ open: true, machine: m })}>
+                                  {badge.text}
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-fg-dim" title={badge.title}>
+                                  {badge.text}
+                                </span>
+                              );
+                            })()}
+                            {viewAs === 'all' && (
+                              <span className="truncate text-[10px] text-fg-dim" title={m.owner_name ? `Dono: ${m.owner_name}` : 'Sem dono'}>
+                                {m.owner_name ?? 'sem dono'}
+                              </span>
+                            )}
+                            {missingTmux[m.id] && (
+                              <span className="text-[10px] text-warn" title="tmux não está instalado nesta máquina">
+                                sem tmux
+                              </span>
+                            )}
+                            {m.type === 'agent' && m.hooks_installed_at === null && (
+                              <button
+                                type="button"
+                                className="rounded px-1 text-[10px] text-warn hover:bg-bg-3"
+                                title="Os hooks do monitor não estão instalados: as tabs desta máquina não aparecem em “Precisando de você”. Clique para instalar."
+                                onClick={() => setMachineForm({ open: true, machine: m })}
+                              >
+                                sem monitor
+                              </button>
+                            )}
+                            <span className="ml-auto hidden items-center gap-0.5 group-hover:flex">
+                              <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" title="Editar" onClick={() => setMachineForm({ open: true, machine: m })}>
+                                ✎
+                              </button>
+                            </span>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
                 )}
-                <span className="ml-auto hidden items-center gap-0.5 group-hover:flex">
-                  <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" title="Novo projeto" onClick={() => setProjectForm({ open: true, machineId: m.id })}>
-                    +
-                  </button>
-                  <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" title="Editar" onClick={() => setMachineForm({ open: true, machine: m })}>
-                    ✎
-                  </button>
-                  <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-danger" title="Excluir" onClick={() => setDeleting(m)}>
-                    ✕
-                  </button>
-                </span>
-              </div>
-            </div>
-          );
-        })}
+              </li>
+            );
+          })}
+        </ul>
+
         {hiddenLocal.length > 0 && (
           <div className="mt-2 px-3 text-xs text-fg-dim">
             <p title="Máquinas marcadas como “o computador que estou usando” em outro navegador. Se esta for a máquina onde você está, clique para vê-la aqui.">
@@ -231,6 +237,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
       <ViewAsSwitch />
       <div className="border-t border-line px-3 py-1.5">
+        {can('machines') && (
+          <NavLink to="/machines" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
+            🖥 Máquinas
+          </NavLink>
+        )}
         {can('projects', 'read') && can('terminals', 'read') && (
           <NavLink to="/office" className={({ isActive }) => `flex items-center justify-between rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
             Escritório
@@ -282,7 +293,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       {machineForm.open && (
         <MachineForm key={machineForm.machine?.id ?? 'new'} open onClose={() => setMachineForm({ open: false })} machine={machineForm.machine} />
       )}
-      {projectForm.open && <ProjectForm open onClose={() => setProjectForm({ open: false })} machineId={projectForm.machineId} />}
+      {projectFormOpen && <ProjectForm open onClose={() => setProjectFormOpen(false)} />}
       <ConfirmDialog
         open={!!deletingProject}
         title="Remover projeto"
@@ -306,27 +317,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
           } catch (e) {
             setDeleteError((e as Error).message || 'Erro ao remover');
           }
-        }}
-      />
-      <ConfirmDialog
-        open={!!deleting}
-        title="Excluir máquina"
-        message={
-          <>
-            Excluir <strong>{deleting?.name}</strong>? Os projetos vinculados continuam existindo; só o vínculo e as tabs abertas nesta máquina são removidos.
-          </>
-        }
-        confirmLabel="Excluir"
-        danger
-        onCancel={() => setDeleting(null)}
-        onConfirm={async () => {
-          if (!deleting) return;
-          try {
-            await deleteMachine(deleting.id);
-          } catch (e) {
-            alert((e as Error).message);
-          }
-          setDeleting(null);
         }}
       />
     </aside>
