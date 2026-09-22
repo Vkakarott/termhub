@@ -1,16 +1,18 @@
 import { useEffect } from 'react';
 import { Link, Outlet } from 'react-router-dom';
+import { trackAppHeight } from '../lib/viewport';
 
 /**
  * The chat's own full-screen shell: no sidebar, no menus — just a thin header with a way back
  * to the app and room for the page's own status text. It sits under `AppShell`, so the auth
  * guard, data/monitor/toast providers and the "precisando de você" toasts still apply here.
  *
- * The height is `100svh`, not `100dvh`: `dvh` grows as Safari's URL bar collapses, while `html`,
- * `body` and `#root` are sized to the layout viewport (`height: 100%`), so the two disagree by the
- * height of that bar and the document itself becomes scrollable — a page sliding under a chat that
- * is already scrolling its own thread. `svh` is the smallest the viewport gets, so this shell never
- * exceeds what the body was sized to.
+ * The height is `--app-height` (the visual viewport, see `lib/viewport`) falling back to `100svh`,
+ * never `100dvh`: `dvh` grows as Safari's URL bar collapses, while `html`, `body` and `#root` are
+ * sized to the layout viewport (`height: 100%`), so the two disagree by the height of that bar and
+ * the document itself becomes scrollable — a page sliding under a chat that is already scrolling
+ * its own thread. `svh` is the smallest the viewport gets *without a keyboard*, which is why the
+ * variable comes first: neither unit shrinks for the on-screen keyboard, and this shell has to.
  */
 export function ChatLayout() {
   // The document itself must not scroll while the chat is open. Sizing the shell to the viewport is
@@ -23,8 +25,13 @@ export function ChatLayout() {
     return () => document.body.classList.remove('chat-locked');
   }, []);
 
+  // While the keyboard is open the visible viewport is roughly half the screen, and neither `svh`
+  // nor `dvh` knows it: this is what keeps the shell — and therefore the message box at its bottom
+  // edge — inside what the person can actually see.
+  useEffect(() => trackAppHeight(), []);
+
   return (
-    <div className="flex h-[100svh] flex-col overflow-hidden">
+    <div className="flex h-[var(--app-height,100svh)] flex-col overflow-hidden">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line px-3">
         <Link to="/" className="text-sm text-fg-dim hover:text-fg" aria-label="Voltar para o início" title="Voltar para o início">
           ← Voltar
