@@ -1,7 +1,12 @@
 /** Everything a runner needs to spawn `claude -p` the one way the permission gate allows: the
  * exact argv and the MCP config it points at. Two runners (the server's container today, the
  * user's own machine tomorrow) build the same command line from here, so neither can drift from
- * the other. No spawning, no file I/O, no process handling — that stays with each runner. */
+ * the other. No spawning, no file I/O, no process handling — that stays with each runner.
+ *
+ * `ClaudeRunSpec` has no prompt field: the prompt never becomes an argument here, so a prompt
+ * beginning with "-" can never be read as a flag. Each runner writes it to the child's stdin
+ * instead, and that guarantee is exercised end to end where the runner exists — the concierge's
+ * fake-CLI test in apps/concierge/src/run.test.ts, and the agent's equivalent once Task 3 adds it. */
 
 export interface ClaudeRunSpec {
   session_id: string;

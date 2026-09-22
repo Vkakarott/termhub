@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildClaudeArgs, DISALLOWED_TOOLS, mcpConfig } from './index.js';
+import { buildClaudeArgs, mcpConfig } from './index.js';
 
 const spec = {
   session_id: '3f1e9b1e-0000-4000-8000-000000000001',
@@ -12,6 +12,10 @@ describe('buildClaudeArgs', () => {
   it('produces the exact argv the spec fixes, flag-value pairs adjacent, in a fixed order', () => {
     // A test that only checks a flag is present would still pass if its value drifted onto another
     // flag's slot; toEqual on the whole array is the strongest form of "adjacent pair" assertion.
+    // The disallowed-tools value is the literal, not the DISALLOWED_TOOLS constant under test: a
+    // test that compared the constant to itself would stay green even if the constant's own value
+    // drifted (a tool dropped, reordered, or wrong), which is exactly the drift this file exists to
+    // catch.
     expect(buildClaudeArgs(spec)).toEqual([
       '-p',
       '--session-id', spec.session_id,
@@ -21,7 +25,7 @@ describe('buildClaudeArgs', () => {
       '--mcp-config', spec.mcp_config_path,
       '--strict-mcp-config',
       '--allowed-tools', 'mcp__termhub__*',
-      '--disallowed-tools', DISALLOWED_TOOLS,
+      '--disallowed-tools', 'Bash,Read,Write,Edit,WebFetch,WebSearch',
     ]);
   });
 
@@ -51,14 +55,6 @@ describe('buildClaudeArgs', () => {
     expect(withoutModel).not.toContain('--model');
     const undefinedModel = buildClaudeArgs({ session_id: spec.session_id, resume: false, mcp_config_path: spec.mcp_config_path });
     expect(undefinedModel).not.toContain('--model');
-  });
-
-  it('never puts the prompt in argv, for any input including one that begins with "-"', () => {
-    // The prompt travels on stdin (the concierge writes it there), never as an argument: a prompt
-    // beginning with "-" must never be readable as a flag.
-    const args = buildClaudeArgs(spec);
-    expect(args).not.toContain('-a-prompt-that-looks-like-a-flag');
-    for (const arg of args) expect(arg.startsWith('--dangerously')).toBe(false);
   });
 });
 
