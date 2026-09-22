@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentPtyChannel, PtyHandlers } from './connection.js';
 import { AgentOfflineError } from './registry.js';
 import type { PtyOpenParams } from '@termhub/agent-protocol';
-import type { Machine, Project, Tab } from '../db/repositories/types.js';
+import type { Machine, Tab } from '../db/repositories/types.js';
 import { AgentPtySession } from './pty.js';
 
 function fakeMachine(): Machine {
@@ -22,19 +22,6 @@ function fakeMachine(): Machine {
     is_local: false,
     owner_id: 'u1',
   } as Machine;
-}
-
-function fakeProject(): Project {
-  return {
-    id: 'p1',
-    machine_id: 'm1',
-    name: 'proj',
-    cwd: '/Users/x/proj',
-    status: 'active',
-    description: null,
-    last_terminal_at: null,
-    created_at: new Date().toISOString(),
-  } as Project;
 }
 
 function fakeTab(overrides: Partial<Tab> = {}): Tab {
@@ -74,7 +61,7 @@ describe('AgentPtySession', () => {
     const onData = vi.fn();
     const onExit = vi.fn();
 
-    const session = await AgentPtySession.open(registry, fakeMachine(), fakeProject(), fakeTab(), { cols: 600, rows: 24 }, { onData, onExit });
+    const session = await AgentPtySession.open(registry, fakeMachine(), '/Users/x/proj', fakeTab(), { cols: 600, rows: 24 }, { onData, onExit });
 
     expect(registry.openPty).toHaveBeenCalledTimes(1);
     const [machineId, params, handlers] = (registry.openPty as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -95,7 +82,7 @@ describe('AgentPtySession', () => {
   it('forwards write to the channel', async () => {
     const channel = fakeChannel();
     const registry = fakeRegistry(channel);
-    const session = await AgentPtySession.open(registry, fakeMachine(), fakeProject(), fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() });
+    const session = await AgentPtySession.open(registry, fakeMachine(), '/Users/x/proj', fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() });
 
     session.write('abc');
     expect(channel.write).toHaveBeenCalledWith('abc');
@@ -108,7 +95,7 @@ describe('AgentPtySession', () => {
   it('forwards resize to the channel with clamped values', async () => {
     const channel = fakeChannel();
     const registry = fakeRegistry(channel);
-    const session = await AgentPtySession.open(registry, fakeMachine(), fakeProject(), fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() });
+    const session = await AgentPtySession.open(registry, fakeMachine(), '/Users/x/proj', fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() });
 
     session.resize({ cols: 1000, rows: 300 });
     expect(channel.resize).toHaveBeenCalledWith(500, 200);
@@ -117,7 +104,7 @@ describe('AgentPtySession', () => {
   it('kill closes the channel once even if called twice', async () => {
     const channel = fakeChannel();
     const registry = fakeRegistry(channel);
-    const session = await AgentPtySession.open(registry, fakeMachine(), fakeProject(), fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() });
+    const session = await AgentPtySession.open(registry, fakeMachine(), '/Users/x/proj', fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() });
 
     session.kill();
     session.kill();
@@ -128,7 +115,7 @@ describe('AgentPtySession', () => {
     const registry = { openPty: vi.fn(() => Promise.reject(new AgentOfflineError('offline'))) } as unknown as import('./registry.js').AgentRegistry;
 
     await expect(
-      AgentPtySession.open(registry, fakeMachine(), fakeProject(), fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() }),
+      AgentPtySession.open(registry, fakeMachine(), '/Users/x/proj', fakeTab(), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() }),
     ).rejects.toBeInstanceOf(AgentOfflineError);
   });
 
@@ -136,7 +123,7 @@ describe('AgentPtySession', () => {
     const channel = fakeChannel();
     const registry = fakeRegistry(channel);
     await expect(
-      AgentPtySession.open(registry, fakeMachine(), fakeProject(), fakeTab({ kind: 'simulator', tmux_session: null }), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() }),
+      AgentPtySession.open(registry, fakeMachine(), '/Users/x/proj', fakeTab({ kind: 'simulator', tmux_session: null }), { cols: 80, rows: 24 }, { onData: vi.fn(), onExit: vi.fn() }),
     ).rejects.toThrow('Tab não é um terminal');
   });
 });

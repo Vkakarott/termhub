@@ -12,6 +12,7 @@ import { tabRoutes } from './tabs.js';
 
 const tab = (over: Partial<Tab> & { id: string; project_id?: string }): Tab => ({
   project_id: 'p1',
+  machine_id: 'm1',
   name: 'claude',
   kind: 'terminal',
   tmux_session: `th-${over.id}`,
@@ -49,7 +50,8 @@ function buildApp(tabs: Record<string, Tab>, ownerId: string | null = null, mach
   };
   const repos = {
     tabs: tabsRepo,
-    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', machine_id: machine.id } : undefined)) },
+    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', owner_id: 'u1' } : undefined)) },
+    projectMachines: { find: vi.fn(async (p: string, m: string) => (p === 'p1' && m === machine.id ? { id: 'l1', project_id: 'p1', machine_id: m, cwd: '/tmp', position: 0, created_at: '' } : undefined)) },
     machines: { findById: vi.fn(async (id: string) => (id === machine.id ? { owner_id: 'u1', ...machine } : undefined)) },
   } as unknown as Repositories;
   const deps = { simulators: {} as never, closeSimulatorTab: vi.fn() };

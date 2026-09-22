@@ -47,18 +47,20 @@ const machine: Machine = {
 
 const project: Project = {
   id: 'p1',
-  machine_id: 'm1',
+  owner_id: 'u1',
+  key: 'PROJ',
+  next_task_number: 1,
   name: 'proj',
-  cwd: '/Users/x/proj',
   status: 'active',
   description: null,
   last_terminal_at: null,
   created_at: new Date().toISOString(),
-} as unknown as Project;
+};
 
 const tab: Tab = {
   id: 't1',
   project_id: 'p1',
+  machine_id: 'm1',
   name: 'main',
   kind: 'terminal',
   tmux_session: 'termhub-t1',
@@ -86,6 +88,7 @@ function fakeRepos(): Repositories {
   return {
     tabs: { findById: vi.fn(async () => tab) },
     projects: { findById: vi.fn(async () => project), touchTerminal: vi.fn(async () => {}) },
+    projectMachines: { find: vi.fn(async () => ({ id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/Users/x/proj', position: 0, created_at: '' })) },
     machines: { findById: vi.fn(async () => machine) },
   } as unknown as Repositories;
 }
