@@ -521,9 +521,11 @@ export type ChatErrorCode =
   /** the host machine went away mid-run — a laptop that closed, most often */
   | 'HOST_GONE'
   /** the host's agent does not know how to run a chat */
-  | 'AGENT_TOO_OLD';
+  | 'AGENT_TOO_OLD'
+  /** the host machine is up and healthy, with every channel taken: the run could not start */
+  | 'HOST_BUSY';
 
-/** `error_code` set means the answer did not finish, and which of the nine ways it did not. */
+/** `error_code` set means the answer did not finish, and which of the ten ways it did not. */
 export interface ChatMessage {
   id: string;
   conversation_id: string;

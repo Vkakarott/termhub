@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ClaudeOpenParams } from '@termhub/agent-protocol';
 import type { AgentChannel, ChannelClosedReason, ChannelHandlers } from '../agent/connection.js';
+import { ChannelLimitError } from '../agent/connection.js';
 import { parseFrame } from './stream.js';
 
 /** The real config reads the process env and exits on a bad one; this suite only needs the public
@@ -25,7 +26,13 @@ function fakeHost(opts: { capabilities?: string[] | null; failOpen?: Error } = {
   const opened = new Promise<void>((resolve) => (announceOpen = resolve));
   const seen = {
     machineIds: [] as string[],
-    params: [] as ClaudeOpenParams[],
+    /**
+     * The open frame as it would go on the wire, and deliberately **not** typed `ClaudeOpenParams`:
+     * that type's own excess-property check is what makes a prompt field impossible in the runner's
+     * source, so a test asserting against it could never fail. Recorded loose, the assertion below is
+     * about what this fake was actually handed — which a cast in the runner would not get past.
+     */
+    params: [] as Record<string, unknown>[],
     writes: [] as Buffer[],
     closes: 0,
     handlers: null as ChannelHandlers | null,
@@ -102,6 +109,8 @@ it('writes the prompt as one frame after the channel is open, and never as an op
   const run = collect(agentRunner('m-1', { host: agent.host }).run({ ...input, text: '-n --help' }));
 
   await agent.opened;
+  // The whole frame, as the agent would receive it: the prompt is nowhere in it, under no key.
+  expect(Object.values(agent.seen.params[0])).not.toContain('-n --help');
   expect(JSON.stringify(agent.seen.params[0])).not.toContain('--help');
   expect(agent.seen.writes).toHaveLength(1);
   expect(agent.seen.writes[0].toString('utf8')).toBe('-n --help');
@@ -233,6 +242,20 @@ it('carries cli_missing, the likeliest first failure, as its own reason', async 
   expect(JSON.parse(run.lines[0])).toMatchObject({ type: 'termhub_error', reason: 'cli_missing' });
 });
 
+it('carries cli_rejected through, so the CLI that refused our flags keeps its own sentence', async () => {
+  const agent = fakeHost();
+  const run = collect(agentRunner('m-1', { host: agent.host }).run(input));
+
+  await agent.opened;
+  // A `claude` on the user's own machine too old (or too new) for the argv we build. Collapsed into
+  // `run_failed` anywhere along this chain, the person reads "the answer failed" and retries for ever,
+  // while the instruction that fixes it ("update claude on that machine") is never shown.
+  agent.exit(1, 'cli_rejected');
+  await run.done;
+
+  expect(lastFrame(run.lines)).toMatchObject({ type: 'error', reason: 'cli_rejected' });
+});
+
 it('reports a machine that is not connected without opening anything', async () => {
   const agent = fakeHost({ capabilities: null });
   const run = collect(agentRunner('m-1', { host: agent.host }).run(input));
@@ -249,6 +272,18 @@ it('reports an open that the agent refused, without leaving the iteration hangin
 
   expect(agent.seen.closes).toBe(0); // there is no channel to close
   expect(lastFrame(run.lines)).toMatchObject({ type: 'error', reason: 'host_gone' });
+});
+
+it('tells a machine with no channel left apart from a machine that went away', async () => {
+  // 64 terminals open on a healthy machine: the connection is fine and nothing about it is wrong, so
+  // this must not say "a sua máquina saiu do ar" — the person would go hunting for a machine that is
+  // right there, and the thing that unblocks the chat is closing a few tabs.
+  const agent = fakeHost({ failOpen: new ChannelLimitError('too many channels') });
+  const run = collect(agentRunner('m-1', { host: agent.host }).run(input));
+  await run.done;
+
+  expect(lastFrame(run.lines)).toMatchObject({ type: 'error', reason: 'host_busy' });
+  expect(agent.seen.closes).toBe(0);
 });
 
 it('refuses with 503 CONCIERGE_DISABLED when the server has no public MCP endpoint', () => {

@@ -1,5 +1,5 @@
 import { CAPABILITY_CLAUDE, type ClaudeOpenParams } from '@termhub/agent-protocol';
-import type { AgentChannel, ChannelClosedReason, ChannelHandlers } from '../agent/connection.js';
+import { ChannelLimitError, type AgentChannel, type ChannelClosedReason, type ChannelHandlers } from '../agent/connection.js';
 import { agents } from '../agent/registry.js';
 import { config } from '../config.js';
 import { HttpError } from '../lib/errors.js';
@@ -26,7 +26,7 @@ export interface ClaudeChannelHost {
  * that self-healing must be one path for both runners, not one each). The two added here are the
  * ones only the server can see: the machine is not there, and its agent is too old to run a chat.
  */
-type RunFailureReason = ChannelClosedReason | 'host_gone' | 'agent_too_old';
+type RunFailureReason = ChannelClosedReason | 'host_gone' | 'agent_too_old' | 'host_busy';
 
 /**
  * The line a failed run ends with, in the exact shape the container's own stream uses
@@ -150,11 +150,16 @@ async function* runOnAgent(
   let channel: AgentChannel;
   try {
     channel = await host.openClaude(machineId, params, handlers);
-  } catch {
+  } catch (err) {
     // The machine went offline between the capability check and the open, the agent refused the
     // channel, or it never answered: either way nothing is running there, so there is nothing to
     // close and the run is over. Never the error's own text — it is the agent's, not the user's.
-    yield failureLine('host_gone', null);
+    //
+    // Except when the machine is perfectly fine and simply has no channel left (64 terminals open):
+    // told apart, because "a sua máquina saiu do ar" about a healthy machine sends the person looking
+    // for a problem that is not there, and the thing to do — close a few tabs — is nothing like
+    // waking a laptop up.
+    yield failureLine(err instanceof ChannelLimitError ? 'host_busy' : 'host_gone', null);
     return;
   }
 

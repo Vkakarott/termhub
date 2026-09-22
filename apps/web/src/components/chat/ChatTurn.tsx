@@ -22,8 +22,16 @@ const FAILURE_LINE: Record<ChatErrorCode, string> = {
   CLI_REJECTED: 'O Claude Code dessa máquina recusou os parâmetros do chat. Atualize o claude nela e tente de novo.',
   MISSING_SESSION: 'A sessão do Claude nessa máquina não existe mais. Mande a mensagem de novo para começar uma nova.',
   RUN_FAILED: 'O Claude parou no meio da resposta. Mande a mensagem de novo.',
+  // Unreachable on a stored row today, and kept anyway: the agent only ever sends `killed` in answer
+  // to the server's own `close`, and the connection layer swallows that ack (a locally closed channel
+  // reports no exit), so nothing writes KILLED. The sentence stays because the label is the protocol's
+  // and a future path may store it — but nobody should write a test that expects this on screen, since
+  // it would be a test for a state the server cannot produce.
   KILLED: 'A resposta foi interrompida antes de terminar. Mande a mensagem de novo.',
   HOST_GONE: 'A máquina do chat saiu do ar no meio da resposta. Ligue-a e mande a mensagem de novo.',
+  // Not a machine that went away: it is up, and this sentence must not send anyone looking for a
+  // problem with it. What unblocks the chat is closing a few terminals, and nothing else.
+  HOST_BUSY: 'A máquina do chat está com terminais demais abertos e não sobrou espaço para a conversa. Feche algumas abas e mande a mensagem de novo.',
   AGENT_TOO_OLD: 'O agente dessa máquina ainda não sabe rodar o chat. Atualize o agente e tente de novo.',
 };
 

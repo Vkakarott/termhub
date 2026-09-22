@@ -875,6 +875,19 @@ it('says the machine has no Claude Code installed, instead of one generic line f
   expect(screen.queryByText(/a resposta não terminou/i)).toBeNull();
 });
 
+it('says a full machine is full, never that it went away', async () => {
+  chatMock.mockResolvedValue(
+    conversationWith({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'default' } }, { messages: [msg({ id: 'm1', role: 'assistant', text: '', error_code: 'HOST_BUSY' })] }),
+  );
+  renderChat();
+
+  // The machine is up: the run simply had no channel to start on (64 terminals open). Telling the
+  // person their healthy machine "saiu do ar" sends them looking for a problem that is not there.
+  expect(await screen.findByText(/terminais demais abertos/i)).toBeTruthy();
+  expect(screen.queryByText(/saiu do ar/i)).toBeNull();
+  expect(screen.queryByText(/a resposta não terminou/i)).toBeNull();
+});
+
 it('keeps the generic line for a failure with nothing said about why', async () => {
   chatMock.mockResolvedValue(
     conversationWith({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'default' } }, { messages: [msg({ id: 'm1', role: 'assistant', text: 'comecei', error_code: 'RUNNER_FAILED' })] }),

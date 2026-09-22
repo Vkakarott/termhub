@@ -13,12 +13,13 @@ export type ChatFrame =
 
 /**
  * Every label a runner may end a failed run with: the container's `FailureReason`, the protocol's
- * `closedReason` (what a run on the user's own machine reports) and the two only the server can see
- * — the machine is not there, and its agent is too old to run a chat. One set, so a label a runner
+ * `closedReason` (what a run on the user's own machine reports) and the three only the server can see
+ * — the machine is not there, its agent is too old to run a chat, and it is there and healthy with
+ * every channel already taken (`host_busy`, which must never read as a machine that went away). One set, so a label a runner
  * takes the trouble to name is never dropped one layer above it; an unknown one still is, rather than
  * being guessed at.
  */
-const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old'] as const;
+const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old', 'host_busy'] as const;
 
 /** Written exactly once: the type and the runtime check below are both derived from `REASONS`, so a
  *  label added to the list cannot be accepted by one and dropped by the other — the silent drift this

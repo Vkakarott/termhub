@@ -160,9 +160,9 @@ export function ChatHost({ host, machines, accounts, accountId, picking, changin
       )}
 
       {host.kind === 'ready' && host.account.kind === 'lost' && (
-        // The silent degradation the payload knows about: the chosen account is not the one running.
-        // …and it points at the picker below, which is the one place that can set this conversation's
-        // account. "Contas de IA" manages a machine's logins and cannot choose the chat's.
+        // The silent degradation the payload knows about: the chosen account is not the one running —
+        // and it sends the person to the picker below, the one place that can set this conversation's
+        // account. "Contas de IA" registers a machine's logins and cannot choose the chat's.
         <p className="mt-1 text-fg-muted">A conta de IA que você escolheu não serve mais para essa máquina. Use “Trocar máquina ou conta” para escolher outra.</p>
       )}
 

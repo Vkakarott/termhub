@@ -71,6 +71,14 @@ export class AgentRpcError extends Error {
 
 export class AgentClosedError extends Error {}
 
+/**
+ * Every channel number this machine has is taken (`MAX_CHANNELS`). Its own class because it is the one
+ * open failure that says nothing about the machine: it is connected, healthy and simply full of
+ * terminals, so a caller must be able to tell it from a machine that went away — the chat does, and
+ * says "the run could not start" instead of "your machine saiu do ar".
+ */
+export class ChannelLimitError extends Error {}
+
 const HELLO_TIMEOUT_MS = 5_000;
 const OPEN_TIMEOUT_MS = 10_000;
 
@@ -194,7 +202,7 @@ export class AgentConnection extends EventEmitter {
       return Promise.reject(new AgentClosedError('agent connection closed'));
     }
     if (this.channels.size >= MAX_CHANNELS) {
-      return Promise.reject(new Error('too many channels'));
+      return Promise.reject(new ChannelLimitError('too many channels'));
     }
     const ch = this.nextChannel();
     return new Promise((resolve, reject) => {
@@ -259,7 +267,7 @@ export class AgentConnection extends EventEmitter {
     for (let ch = 1; ch <= MAX_CHANNELS; ch++) {
       if (!this.channels.has(ch)) return ch;
     }
-    throw new Error('too many channels');
+    throw new ChannelLimitError('too many channels');
   }
 
   private sendControl(msg: ServerMessage): void {
