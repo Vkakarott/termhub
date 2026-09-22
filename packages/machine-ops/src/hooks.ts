@@ -105,6 +105,8 @@ export function hookEnvFile(hooksUrl: string, token: string): string {
 
 type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string }[] };
 
+const asObject = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+
 const isOurs = (e: HookEntry) => !!e && typeof e === 'object' && Array.isArray(e.hooks) && e.hooks.some((h) => typeof h?.command === 'string' && h.command.includes(HOOK_MARK));
 
 /** Merges our entries into Claude Code's settings.json; keeps everything else. Throws on a file that is not a JSON object. */
@@ -115,7 +117,9 @@ export function mergeClaudeSettings(current: string, scriptPath: string): string
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('~/.claude/settings.json não é um objeto JSON');
     settings = parsed as Record<string, unknown>;
   }
-  const hooks = (settings.hooks && typeof settings.hooks === 'object' && !Array.isArray(settings.hooks) ? settings.hooks : {}) as Record<string, unknown>;
+  // a `hooks` we cannot read would be replaced by ours alone, and uninstall could not give it back
+  if (settings.hooks != null && !asObject(settings.hooks)) throw new Error('~/.claude/settings.json: o campo "hooks" não é um objeto');
+  const hooks = (asObject(settings.hooks) ?? {}) as Record<string, unknown>;
   for (const event of CLAUDE_HOOK_EVENTS) {
     const list = (Array.isArray(hooks[event]) ? hooks[event] : []) as HookEntry[];
     const others = list.filter((e) => !isOurs(e));
@@ -169,7 +173,6 @@ type CursorEntry = { command?: unknown };
 
 const isOurCursorEntry = (e: CursorEntry) => !!e && typeof e === 'object' && typeof e.command === 'string' && e.command.includes(HOOK_MARK);
 
-const asObject = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
 /** Merges our entries into Cursor's ~/.cursor/hooks.json (`{ version, hooks: { event: [{ command }] } }`); keeps everything else. Throws on a file that is not a JSON object. */
 export function mergeCursorHooks(current: string, scriptPath: string): string {

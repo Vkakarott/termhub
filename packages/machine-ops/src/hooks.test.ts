@@ -49,6 +49,14 @@ describe('mergeClaudeSettings', () => {
     expect(() => mergeClaudeSettings('[1,2]', script)).toThrow();
     expect(() => mergeClaudeSettings('{not json', script)).toThrow();
   });
+
+  it('refuses a `hooks` that is there but is not an object, rather than replacing what the person wrote', () => {
+    for (const hooks of ['[{"matcher":"*"}]', '"x"', '1', 'true']) {
+      expect(() => mergeClaudeSettings(`{"model":"opus","hooks":${hooks}}`, script)).toThrow('~/.claude/settings.json: o campo "hooks" não é um objeto');
+    }
+    // absent or null holds nothing to lose
+    expect(JSON.parse(mergeClaudeSettings('{"model":"opus","hooks":null}', script)).hooks.Stop).toHaveLength(1);
+  });
 });
 
 describe('stripClaudeSettings', () => {
