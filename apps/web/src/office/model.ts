@@ -120,3 +120,75 @@ export function missingTabIds(snapshot: OfficeSnapshot | null, monitorTabIds: st
   const known = new Set(snapshot.rooms.flatMap((r) => r.tabs.map((t) => t.id)));
   return monitorTabIds.filter((id) => !known.has(id) && machineProjectIds.has(projectOf(id) ?? ''));
 }
+
+/** What the page knows about one machine when it builds the city. */
+export interface MachineEntry {
+  id: string;
+  name: string;
+  /** false only when the status check said so; "still checking" counts as online */
+  online: boolean;
+  snapshot: OfficeSnapshot | null;
+  /** the first read of this machine's snapshot failed */
+  failed: boolean;
+}
+
+export type MachineNotice = 'offline' | 'silent' | 'error' | null;
+
+export interface MachineModel {
+  id: string;
+  name: string;
+  label: string;
+  /** false for an offline machine: its block is drawn dark */
+  lit: boolean;
+  notice: MachineNotice;
+  needsYou: number;
+  floor: FloorModel;
+}
+
+export interface CityModel {
+  machines: MachineModel[];
+  needsYou: number;
+}
+
+const MACHINE_LABEL_MAX = 28;
+const EMPTY_FLOOR: FloorModel = { rooms: [], needsYou: 0 };
+
+/**
+ * Every machine that has something to draw, in name order (the sidebar's): a loaded machine with
+ * its floor, a failed one as an empty block. A machine still loading is left out — it joins when
+ * its snapshot lands — and a snapshot for another machine counts as not loaded.
+ */
+export function buildCityModel(entries: MachineEntry[], liveTab: (tabId: string) => Tab | undefined): CityModel {
+  const machines = entries
+    .map((e): MachineModel | null => {
+      const snapshot = e.snapshot && e.snapshot.machine.id === e.id ? e.snapshot : null;
+      if (!snapshot && !e.failed) return null;
+      const floor = snapshot ? buildModel(snapshot, liveTab) : EMPTY_FLOOR;
+      const notice: MachineNotice = !snapshot ? 'error' : !e.online ? 'offline' : !snapshot.reachable ? 'silent' : null;
+      return { id: e.id, name: e.name, label: truncateLabel(e.name, MACHINE_LABEL_MAX), lit: e.online, notice, needsYou: floor.needsYou, floor };
+    })
+    .filter((m): m is MachineModel => m !== null)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return { machines, needsYou: machines.reduce((n, m) => n + m.needsYou, 0) };
+}
+
+export type FocusTarget = { kind: 'city' } | { kind: 'machine'; machineId: string } | { kind: 'room'; machineId: string; roomId: string };
+
+/** What the URL asks the camera to frame, against what actually exists: never a room of another machine. */
+export function resolveFocus(city: CityModel | null, machineId: string | undefined, roomId: string | null): FocusTarget {
+  const machine = city?.machines.find((m) => m.id === machineId);
+  if (!machine) return { kind: 'city' };
+  if (roomId && machine.floor.rooms.some((r) => r.id === roomId)) return { kind: 'room', machineId: machine.id, roomId };
+  return { kind: 'machine', machineId: machine.id };
+}
+
+export function sameFocus(a: FocusTarget, b: FocusTarget): boolean {
+  switch (a.kind) {
+    case 'city':
+      return b.kind === 'city';
+    case 'machine':
+      return b.kind === 'machine' && a.machineId === b.machineId;
+    case 'room':
+      return b.kind === 'room' && a.machineId === b.machineId && a.roomId === b.roomId;
+  }
+}

@@ -136,7 +136,7 @@ export const api = {
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
-  office: (machineId: string) => request<OfficeSnapshot>('GET', `/office/${encodeURIComponent(machineId)}`),
+  office: (machineId: string, fresh = false) => request<OfficeSnapshot>('GET', `/office/${encodeURIComponent(machineId)}${fresh ? '?fresh=1' : ''}`),
   /** derived from the session — there is no id to pass or guess (v1: one conversation per user).
    * `actions` is the trail as it truly is server-side (survives a reload); live socket events only
    * update it, they are never its source of truth. */

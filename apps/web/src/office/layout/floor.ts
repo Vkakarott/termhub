@@ -1,5 +1,6 @@
 /** Where each room sits on a machine's floor. Pure; the scene only draws the result. */
 import { layoutRoom, roomBounds, toScreen, type Cell, type RoomLayout } from './iso';
+import { packShelves } from './shelves';
 
 export interface RoomInput {
   id: string;
@@ -23,34 +24,14 @@ export interface FloorLayout {
 const GAP_X = 1;
 const CORRIDOR = 2;
 
-/**
- * Shelf packing: rooms go left to right in the order given and wrap to a new row past
- * `targetWidth`. Order is never changed, so a room only moves when one before it changes size.
- * The default target makes the floor roughly square in tiles, which projects to about 2:1 on
- * screen — close to a monitor's shape once the walls are added.
- */
+/** Packs each room's layout with the shared shelf packer; see shelves.ts for how packing works. */
 export function layoutFloor(rooms: RoomInput[], targetWidth?: number): FloorLayout {
-  const layouts = rooms.map((r) => ({ id: r.id, layout: layoutRoom(r.desks) }));
-  const area = layouts.reduce((sum, r) => sum + (r.layout.width + GAP_X) * (r.layout.height + CORRIDOR), 0);
-  const widest = layouts.reduce((w, r) => Math.max(w, r.layout.width), 0);
-  const target = Math.max(widest, targetWidth ?? Math.ceil(Math.sqrt(area) * 1.15));
-  const placed: PlacedRoom[] = [];
-  let x = 0;
-  let y = 0;
-  let rowHeight = 0;
-  let width = 0;
-  for (const r of layouts) {
-    if (x > 0 && x + r.layout.width > target) {
-      x = 0;
-      y += rowHeight + CORRIDOR;
-      rowHeight = 0;
-    }
-    placed.push({ id: r.id, origin: { gx: x, gy: y }, layout: r.layout });
-    width = Math.max(width, x + r.layout.width);
-    x += r.layout.width + GAP_X;
-    rowHeight = Math.max(rowHeight, r.layout.height);
-  }
-  return { rooms: placed, width, height: placed.length ? y + rowHeight : 0 };
+  const items = rooms.map((r) => {
+    const layout = layoutRoom(r.desks);
+    return { id: r.id, layout, width: layout.width, height: layout.height };
+  });
+  const packed = packShelves(items, GAP_X, CORRIDOR, targetWidth);
+  return { rooms: packed.placed.map(({ item, origin }) => ({ id: item.id, origin, layout: item.layout })), width: packed.width, height: packed.height };
 }
 
 /** Screen-space box of one placed room, walls included. */
