@@ -24,12 +24,20 @@ const tab = (over: Partial<Tab> & { id: string; project_id: string; machine_id: 
   state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', ...over,
 });
 
-/** u1 owns m1, m2 and projects p1 (m1 only), p2 (m1 + m2), p3 (no machine); u2 owns mx and px. */
+/**
+ * u1 owns m1, m2 and projects p1 (m1 only), p2 (m1 + m2), p3 (no machine), p4 (m1 + mx, a
+ * cross-owner link — e.g. an admin's "view as" or a machine ownership transfer); u2 owns mx and px.
+ */
 function buildApp() {
   const machines: Record<string, Machine> = { m1: machine({ id: 'm1' }), m2: machine({ id: 'm2', type: 'local' }), mx: machine({ id: 'mx', owner_id: 'u2' }) };
-  const projects: Record<string, Project> = { p1: project({ id: 'p1' }), p2: project({ id: 'p2' }), p3: project({ id: 'p3' }), px: project({ id: 'px', owner_id: 'u2' }) };
-  let links: ProjectMachine[] = [link('p1', 'm1'), link('p2', 'm1'), link('p2', 'm2', '/other'), link('px', 'mx')];
-  let tabs: Tab[] = [tab({ id: 't1', project_id: 'p2', machine_id: 'm1' }), tab({ id: 't2', project_id: 'p2', machine_id: 'm2' })];
+  const projects: Record<string, Project> = { p1: project({ id: 'p1' }), p2: project({ id: 'p2' }), p3: project({ id: 'p3' }), p4: project({ id: 'p4' }), px: project({ id: 'px', owner_id: 'u2' }) };
+  let links: ProjectMachine[] = [link('p1', 'm1'), link('p2', 'm1'), link('p2', 'm2', '/other'), link('p4', 'm1'), link('p4', 'mx'), link('px', 'mx')];
+  let tabs: Tab[] = [
+    tab({ id: 't1', project_id: 'p2', machine_id: 'm1' }),
+    tab({ id: 't2', project_id: 'p2', machine_id: 'm2' }),
+    tab({ id: 't3', project_id: 'p4', machine_id: 'm1' }),
+    tab({ id: 't4', project_id: 'p4', machine_id: 'mx' }),
+  ];
   const app = Fastify();
   applyErrorHandler(app);
   app.addHook('preHandler', async (request) => {
@@ -99,10 +107,13 @@ describe('GET /projects', () => {
   it('lists the owner\'s projects with their machine links and open task counts', async () => {
     const { app } = buildApp();
     const body = (await app.inject({ method: 'GET', url: '/projects' })).json();
-    expect(body.projects.map((p: { id: string }) => p.id)).toEqual(['p1', 'p2', 'p3']);
+    expect(body.projects.map((p: { id: string }) => p.id)).toEqual(['p1', 'p2', 'p3', 'p4']);
     expect(body.projects[0]).toMatchObject({ key: 'P1', open_tasks: 2, machines: [{ machine_id: 'm1', cwd: '/src/p1' }] });
     expect(body.projects[1].machines.map((l: { machine_id: string }) => l.machine_id)).toEqual(['m1', 'm2']);
     expect(body.projects[2]).toMatchObject({ open_tasks: 0, machines: [] });
+    // p4's link to mx (u2's machine, a cross-owner link) is still listed here: the owner filter is on
+    // the project itself, not on each of its links.
+    expect(body.projects[3].machines.map((l: { machine_id: string }) => l.machine_id)).toEqual(['m1', 'mx']);
   });
 });
 
@@ -178,6 +189,15 @@ describe('PATCH / DELETE /projects/:id', () => {
     expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }), 'th-t2');
     expect(repos.projects.delete).toHaveBeenCalledWith('p2');
   });
+
+  it('deleting a project only touches tabs on machines in scope, leaving a cross-owner link\'s tab alone', async () => {
+    const { app } = buildApp();
+    // p4 is linked to m1 (u1's) and mx (u2's): the mx link is out of the caller's scope.
+    const r = await app.inject({ method: 'DELETE', url: '/projects/p4' });
+    expect(r.statusCode).toBe(200);
+    expect(killTmuxSession).toHaveBeenCalledTimes(1);
+    expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'th-t3');
+  });
 });
 
 describe('project machines', () => {
@@ -218,7 +238,7 @@ describe('project machines', () => {
     expect(r.json()).toEqual({ ok: true, closed_tabs: 1 });
     expect(killTmuxSession).toHaveBeenCalledTimes(1);
     expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }), 'th-t2');
-    expect(built.tabs.map((t) => t.id)).toEqual(['t1']);
+    expect(built.tabs.filter((t) => t.project_id === 'p2').map((t) => t.id)).toEqual(['t1']);
     expect(built.links.some((l) => l.project_id === 'p2' && l.machine_id === 'm2')).toBe(false);
   });
 });
@@ -233,6 +253,17 @@ describe('tabs', () => {
     const body = (await app.inject({ method: 'GET', url: '/projects/p2/tabs' })).json();
     expect(body.reachable).toBe(false);
     expect(body.tabs.map((t: Tab & { alive: boolean }) => [t.id, t.machine_id, t.alive])).toEqual([['t1', 'm1', true], ['t2', 'm2', false]]);
+  });
+
+  it('leaves out a tab on a machine outside the scope (a cross-owner link)', async () => {
+    const { app, repos } = buildApp();
+    // p4 is linked to m1 (u1's, in scope) and mx (u2's, out of scope); t4 runs on mx.
+    const body = (await app.inject({ method: 'GET', url: '/projects/p4/tabs' })).json();
+    expect(body.tabs.map((t: Tab) => t.id)).toEqual(['t3']);
+    // only m1 (the scoped machine with a terminal tab) is asked for its tmux sessions
+    expect(repos.tabs.listByProject).toHaveBeenCalledWith('p4');
+    expect(listTmuxSessions).toHaveBeenCalledTimes(1);
+    expect(listTmuxSessions).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }));
   });
 
   it('POST opens on the only linked machine, needs machine_id with several, refuses with none', async () => {

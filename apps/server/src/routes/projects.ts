@@ -126,7 +126,10 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     const { id } = idParam.parse(request.params);
     const { machines } = await scoped(repos, request).projectMachines(id);
     // Best effort: kill the tmux sessions on every linked machine before deleting (a machine may be offline).
-    const tabs = await repos.tabs.listByProject(id);
+    // Only the scope's own machines: a tab on a link outside the scope (cross-owner link) is neither
+    // touched nor asked to close a session it has no business reaching.
+    const machineIds = new Set(machines.map(({ machine }) => machine.id));
+    const tabs = (await repos.tabs.listByProject(id)).filter((t) => machineIds.has(t.machine_id));
     await Promise.allSettled(
       tabs
         .filter((t) => t.tmux_session)
@@ -181,7 +184,10 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
   app.get('/:id/tabs', async (request) => {
     const { id } = idParam.parse(request.params);
     const { machines } = await scoped(repos, request).projectMachines(id);
-    const tabs = await repos.tabs.listByProject(id);
+    // Only the scope's own machines: a tab on a link outside the scope (cross-owner link) is neither
+    // listed nor probed.
+    const machineIds = new Set(machines.map(({ machine }) => machine.id));
+    const tabs = (await repos.tabs.listByProject(id)).filter((t) => machineIds.has(t.machine_id));
     // one probe per machine that has terminal tabs; a silent machine marks only its own tabs dead
     const alive = new Map<string, Set<string>>();
     let reachable = true;
