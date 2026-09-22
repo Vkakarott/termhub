@@ -84,19 +84,30 @@ export function OfficePage() {
     [navigate, params],
   );
 
-  // a rest the person asked for by hand (a click on a block, a step up the ladder): the auto-drill
-  // below must not undo it by opening a room again
-  const byHand = useRef(false);
+  // a rest the person asked for by hand, tracked PER MACHINE id: the auto-drill below must not undo
+  // it by opening a room again. A click on a block, or a step up from a room, marks that machine's
+  // id; a different machine reached later — a direct load, Back/Forward — is never affected by what
+  // happened on another one (a single shared flag used to leak across machines this way).
+  const byHand = useRef(new Set<string>());
   /**
    * The ladder: room -> machine -> city -> out of focus mode. Going up replaces, or Back would walk
    * straight back into the room that was just left. With a single machine the city rung is skipped:
    * /office would auto-drill straight back into that machine.
+   *
+   * `camera` is set only by the scene's own zoom-out gesture (a wheel/pinch on the canvas): it climbs
+   * the same room -> machine -> city rungs, but never takes the last one — leaving focus mode is a
+   * deliberate act (Esc, the "sair do foco" button), not something a zoom gesture should do by
+   * itself. Esc and the breadcrumb call `up()` plain, so they still walk the full ladder.
    */
-  const up = () => {
-    byHand.current = true;
-    if (target.kind === 'room') go(target.machineId, null, true);
-    else if (machineId && machines.length > 1) go(null, null, true);
-    else if (focus) setFocus(false);
+  const up = (opts: { camera?: boolean } = {}) => {
+    if (target.kind === 'room') {
+      byHand.current.add(target.machineId);
+      go(target.machineId, null, true);
+    } else if (machineId && machines.length > 1) {
+      go(null, null, true);
+    } else if (!opts.camera && focus) {
+      setFocus(false);
+    }
   };
 
   // react-router's `navigate` gets a new identity on every pathname change, and `useSearchParams` on
@@ -108,11 +119,12 @@ export function OfficePage() {
     onPickDesk: (tabId: string, projectId: string) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
     onPickRoom: (id: string, roomId: string) => go(id, roomId),
     onPickMachine: (id: string) => {
-      byHand.current = true;
+      byHand.current.add(id);
       go(id, null);
     },
     onPickSign: (roomId: string) => navigate(`/projects/${roomId}`),
-    onGoUp: up,
+    onGoUp: () => up({ camera: true }),
+    onEscape: () => up(),
     toggleFocus: () => setFocus(!focus),
   };
   const handlers = useRef(actions);
@@ -140,7 +152,9 @@ export function OfficePage() {
   // Auto-drill: what is not a choice is not asked. /office with a single machine IS that machine,
   // and a machine with a single room that has desks is that room. At most once per arrival at a
   // rest (`drilled`), and never after a click on a block or a step up the ladder (`byHand`) — those
-  // name the rest the person wants to stand at.
+  // name the rest the person wants to stand at. `byHand` is consumed at EVERY decision point for
+  // THIS machine id, including the short-circuit, so a mark left by an earlier visit to a different
+  // machine can never decide this one's drill, and a stale mark never lingers past its own machine.
   const drilled = useRef<string | null>(null);
   useEffect(() => {
     if (loading) return;
@@ -149,13 +163,15 @@ export function OfficePage() {
       if (machines.length === 1) go(machines[0].id, room, true);
       return;
     }
-    if (room || drilled.current === machineId) return;
+    if (room) return;
+    if (drilled.current === machineId) {
+      byHand.current.delete(machineId);
+      return;
+    }
     const here = city.machines.find((m) => m.id === machineId);
     if (!here) return; // its snapshot has not landed yet: there is nothing to drill into
     drilled.current = machineId;
-    const asked = byHand.current;
-    byHand.current = false;
-    if (asked) return;
+    if (byHand.current.delete(machineId)) return; // arrived by hand: leave the choice alone
     const withDesks = here.floor.rooms.filter((r) => r.desks.length > 0);
     if (withDesks.length === 1) go(machineId, withDesks[0].id, true);
   }, [loading, machineId, room, machines, city, go]);
@@ -190,7 +206,7 @@ export function OfficePage() {
       if (e.defaultPrevented) return; // a dialog already handled it — don't also kick out of the room
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
-      if (e.key === 'Escape') handlers.current.onGoUp();
+      if (e.key === 'Escape') handlers.current.onEscape();
       else if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) handlers.current.toggleFocus();
     };
     window.addEventListener('keydown', onKey);

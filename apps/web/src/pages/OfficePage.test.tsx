@@ -187,6 +187,27 @@ describe('OfficePage scene lifecycle', () => {
     ]);
   });
 
+  it('keeps the same scene when focus mode is toggled by the real button, not just the fake scene', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    renderPage('/office/m1');
+    await act(async () => {});
+    expect(FakeOfficeScene.instances).toHaveLength(1);
+    const only = scene();
+
+    fireEvent.click(screen.getByText('modo foco'));
+    await act(async () => {});
+    expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('sair do foco (Esc)'));
+    await act(async () => {});
+    expect(screen.getByText('modo foco')).toBeTruthy();
+
+    // the real button, not just the fake scene's onGoUp/handlers, must not force a remount
+    expect(FakeOfficeScene.instances).toHaveLength(1);
+    expect(only.destroyed).toBe(false);
+  });
+
   it('leaves a room without pushing history, so Back does not walk straight back in', async () => {
     twoMachines();
     renderPage('/office/m1');
@@ -256,6 +277,27 @@ describe('OfficePage rests and the URL', () => {
     expect(testPath).toBe('/office/m1');
     expect(testSearch).toBe('');
     expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm1' });
+    // the UI itself left focus mode, not just the URL: the top bar is back, the corner button is gone
+    expect(screen.getByText('Escritório')).toBeTruthy();
+    expect(screen.queryByText('sair do foco (Esc)')).toBeNull();
+  });
+
+  it('a zoom-out gesture never leaves focus mode, even at the rest of a single machine', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    renderPage('/office/m1?focus=1'); // two rooms with desks: no auto-drill, rests at the machine
+    await act(async () => {});
+    expect(testPath).toBe('/office/m1');
+    expect(testSearch).toBe('?focus=1');
+
+    // the scene's own zoom-out gesture (a wheel gesture on a wall monitor), not Esc
+    act(() => scene().handlers.onGoUp());
+    await act(async () => {});
+
+    expect(testPath).toBe('/office/m1'); // still at the machine
+    expect(testSearch).toBe('?focus=1'); // still in focus mode
+    expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
+    expect(screen.queryByText('Escritório')).toBeNull(); // top bar still absent
   });
 
   it('with several machines, /office rests on the city', async () => {
@@ -306,6 +348,44 @@ describe('OfficePage rests and the URL', () => {
     expect(testPath).toBe('/office/m2');
     expect(testSearch).toBe('');
     expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm2' });
+  });
+
+  it('auto-drills a machine reached directly after a hand-clicked visit to another machine was left with Esc', async () => {
+    twoMachines(); // m1 has two rooms with desks (no drill of its own); m2 has exactly one
+    renderPage('/office');
+    await act(async () => {});
+
+    act(() => scene().handlers.onPickMachine('m1'));
+    await act(async () => {});
+    expect(testPath).toBe('/office/m1');
+
+    escape(); // machine -> city
+    await act(async () => {});
+    expect(testPath).toBe('/office');
+
+    // arriving directly at m2 (a pasted URL, or Back/Forward) — m2 was never clicked
+    await act(async () => {
+      testNavigate?.('/office/m2');
+    });
+    expect(testSearch).toBe('?room=p2');
+    expect(scene().targets.at(-1)).toEqual({ kind: 'room', machineId: 'm2', roomId: 'p2' });
+  });
+
+  it('does not re-drill a machine already left by Esc after a later arrival at its rest', async () => {
+    twoMachines();
+    renderPage('/office/m2'); // auto-drills into its only room, p2
+    await act(async () => {});
+    expect(testSearch).toBe('?room=p2');
+
+    escape(); // room -> machine
+    await act(async () => {});
+    expect(testSearch).toBe('');
+
+    // a later arrival at the same machine rest (Back/Forward landing here again) must not re-drill
+    await act(async () => {
+      testNavigate?.('/office/m2');
+    });
+    expect(testSearch).toBe('');
   });
 
   it('enters a room straight from the city and keeps ?focus=1 all the way', async () => {
