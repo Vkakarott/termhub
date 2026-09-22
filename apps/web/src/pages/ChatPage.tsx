@@ -149,6 +149,20 @@ export function ChatPage() {
     if (list && stick.current) list.scrollTop = list.scrollHeight;
   }, [timeline, events]);
 
+  // The keyboard opening is a layout change the thread has to follow: the shell gets shorter
+  // (ChatLayout sizes itself to the visual viewport) under the same `scrollTop`, so the newest
+  // message would slide out of sight exactly when the person is about to answer it.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const follow = () => {
+      const list = listRef.current;
+      if (list && stick.current) list.scrollTop = list.scrollHeight;
+    };
+    viewport.addEventListener('resize', follow);
+    return () => viewport.removeEventListener('resize', follow);
+  }, []);
+
   const send = async () => {
     const value = text.trim();
     if (!value || sending) return;
