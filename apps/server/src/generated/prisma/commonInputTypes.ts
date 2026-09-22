@@ -291,6 +291,13 @@ export type EnumTabStateNullableFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumTabStateNullableFilter<$PrismaModel> | $Enums.TabState | null
 }
 
+export type EnumTabActivityNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabActivity | Prisma.EnumTabActivityFieldRefInput<$PrismaModel> | null
+  in?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  notIn?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  not?: Prisma.NestedEnumTabActivityNullableFilter<$PrismaModel> | $Enums.TabActivity | null
+}
+
 export type EnumTabKindWithAggregatesFilter<$PrismaModel = never> = {
   equals?: $Enums.TabKind | Prisma.EnumTabKindFieldRefInput<$PrismaModel>
   in?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
@@ -309,6 +316,16 @@ export type EnumTabStateNullableWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _min?: Prisma.NestedEnumTabStateNullableFilter<$PrismaModel>
   _max?: Prisma.NestedEnumTabStateNullableFilter<$PrismaModel>
+}
+
+export type EnumTabActivityNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabActivity | Prisma.EnumTabActivityFieldRefInput<$PrismaModel> | null
+  in?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  notIn?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  not?: Prisma.NestedEnumTabActivityNullableWithAggregatesFilter<$PrismaModel> | $Enums.TabActivity | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTabActivityNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTabActivityNullableFilter<$PrismaModel>
 }
 
 export type EnumTabStateFilter<$PrismaModel = never> = {
@@ -720,6 +737,13 @@ export type NestedEnumTabStateNullableFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumTabStateNullableFilter<$PrismaModel> | $Enums.TabState | null
 }
 
+export type NestedEnumTabActivityNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabActivity | Prisma.EnumTabActivityFieldRefInput<$PrismaModel> | null
+  in?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  notIn?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  not?: Prisma.NestedEnumTabActivityNullableFilter<$PrismaModel> | $Enums.TabActivity | null
+}
+
 export type NestedEnumTabKindWithAggregatesFilter<$PrismaModel = never> = {
   equals?: $Enums.TabKind | Prisma.EnumTabKindFieldRefInput<$PrismaModel>
   in?: $Enums.TabKind[] | Prisma.ListEnumTabKindFieldRefInput<$PrismaModel>
@@ -738,6 +762,16 @@ export type NestedEnumTabStateNullableWithAggregatesFilter<$PrismaModel = never>
   _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _min?: Prisma.NestedEnumTabStateNullableFilter<$PrismaModel>
   _max?: Prisma.NestedEnumTabStateNullableFilter<$PrismaModel>
+}
+
+export type NestedEnumTabActivityNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TabActivity | Prisma.EnumTabActivityFieldRefInput<$PrismaModel> | null
+  in?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  notIn?: $Enums.TabActivity[] | Prisma.ListEnumTabActivityFieldRefInput<$PrismaModel> | null
+  not?: Prisma.NestedEnumTabActivityNullableWithAggregatesFilter<$PrismaModel> | $Enums.TabActivity | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTabActivityNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTabActivityNullableFilter<$PrismaModel>
 }
 
 export type NestedEnumTabStateFilter<$PrismaModel = never> = {

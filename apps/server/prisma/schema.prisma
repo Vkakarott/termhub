@@ -226,6 +226,8 @@ model Tab {
   stateAt       DateTime? @map("state_at")
   /// When the tab was last looked at while needing you; null or earlier than stateAt = still needs you.
   stateSeenAt   DateTime? @map("state_seen_at")
+  /// Set while `state` is working; cleared when the tab leaves it. null = not working or never reported.
+  activity      TabActivity?
   /// API token that opened this tab through /mcp (null: opened in the browser). Used by close_tab and the per-token open-tab limit.
   createdByTokenId String?  @map("created_by_token_id")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -246,6 +248,16 @@ enum TabState {
   waiting_permission
   idle
   error
+}
+
+/// What a working agent is doing, from the tool it is about to call (monitor/activity.ts).
+enum TabActivity {
+  coding
+  reading
+  researching
+  planning
+  terminal
+  working
 }
 
 /// One monitor event for a tab (hook from Claude Code / Codex, or the tmux fallback).

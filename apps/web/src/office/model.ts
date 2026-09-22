@@ -3,7 +3,7 @@
  * fields are turned into poses and markers: the scene never reads a `Tab`.
  */
 import { tabNeedsYou } from '../lib/needs-you';
-import type { OfficeSnapshot, OfficeTab, Tab, TabState } from '../lib/types';
+import type { OfficeSnapshot, OfficeTab, Tab, TabActivity, TabState } from '../lib/types';
 
 export type Pose = 'type' | 'raise' | 'sleep' | 'shake' | 'sit' | 'empty';
 export type Marker = 'input' | 'permission' | 'error' | null;
@@ -22,6 +22,8 @@ export interface DeskModel {
   dimmed: boolean;
   screenOn: boolean;
   state: TabState | null;
+  /** what the tool is about to do, under the person while typing; null off `working` or an old agent */
+  activity: TabActivity | null;
   /** total = 0: a bound task with no subtasks — a title, no bar */
   progress: { done: number; total: number; title: string } | null;
   /** stable appearance variant, from the tab id */
@@ -50,6 +52,12 @@ const ROOM_LABEL_MAX = 28;
 
 const POSE: Record<TabState, Pose> = { working: 'type', waiting_input: 'raise', waiting_permission: 'raise', idle: 'sleep', error: 'shake' };
 
+const ACTIVITY_LABEL: Record<TabActivity, string> = { coding: 'codando', reading: 'lendo arquivos', researching: 'pesquisando', planning: 'planejando', terminal: 'no terminal', working: 'trabalhando' };
+/** What a working person is doing, under them on the floor — pt-BR, or null when nothing is known. */
+export function activityLabel(activity: TabActivity | null): string | null {
+  return activity ? ACTIVITY_LABEL[activity] : null;
+}
+
 /** Collapses whitespace and cuts by code point (never inside an emoji), ending in an ellipsis. */
 export function truncateLabel(text: string, max: number): string {
   const chars = Array.from(text.trim().replace(/\s+/g, ' '));
@@ -76,7 +84,7 @@ const time = (iso: string | null): number | null => {
  */
 function withLiveState(tab: OfficeTab, live: Tab | undefined): OfficeTab {
   if (!live) return tab;
-  const fromLive = (): OfficeTab => ({ ...tab, state: live.state, state_text: live.state_text, state_tool: live.state_tool, state_at: live.state_at, state_seen_at: live.state_seen_at });
+  const fromLive = (): OfficeTab => ({ ...tab, state: live.state, state_text: live.state_text, state_tool: live.state_tool, state_at: live.state_at, state_seen_at: live.state_seen_at, activity: live.activity });
   const liveAt = time(live.state_at);
   const tabAt = time(tab.state_at);
   if (liveAt !== tabAt) return (liveAt ?? -Infinity) > (tabAt ?? -Infinity) ? fromLive() : tab;
@@ -88,13 +96,13 @@ function deskOf(tab: OfficeTab, live: Tab | undefined, reachable: boolean): Desk
   const t = withLiveState(tab, live);
   const base = { id: t.id, projectId: t.project_id, name: t.name, label: truncateLabel(t.name, DESK_LABEL_MAX), look: lookOf(t.id, LOOK_VARIANTS), progress: t.progress ? { done: t.progress.done, total: t.progress.total, title: t.progress.title } : null };
   // a simulator's `alive` comes from the simulator manager, so tmux being unreachable says nothing about it
-  if (t.kind === 'simulator') return { ...base, kind: 'phone', pose: 'empty', marker: null, dimmed: false, screenOn: t.alive, state: null };
+  if (t.kind === 'simulator') return { ...base, kind: 'phone', pose: 'empty', marker: null, dimmed: false, screenOn: t.alive, state: null, activity: null };
   // an unreachable machine answers `alive: false` for every terminal tab, which is not evidence that
   // anyone left: keep the last known state (and its raised hand); the page's banner says it is stale
-  if (!t.alive && reachable) return { ...base, kind: 'person', pose: 'empty', marker: null, dimmed: false, screenOn: false, state: t.state };
+  if (!t.alive && reachable) return { ...base, kind: 'person', pose: 'empty', marker: null, dimmed: false, screenOn: false, state: t.state, activity: null };
   const needs = tabNeedsYou(t);
   const marker: Marker = t.state === 'error' ? 'error' : !needs ? null : t.state === 'waiting_permission' ? 'permission' : 'input';
-  return { ...base, kind: 'person', pose: t.state ? POSE[t.state] : 'sit', marker, dimmed: !t.state, screenOn: t.state === 'working', state: t.state };
+  return { ...base, kind: 'person', pose: t.state ? POSE[t.state] : 'sit', marker, dimmed: !t.state, screenOn: t.state === 'working', state: t.state, activity: t.state === 'working' ? t.activity : null };
 }
 
 export function buildModel(snapshot: OfficeSnapshot, liveTab: (tabId: string) => Tab | undefined): FloorModel {

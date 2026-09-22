@@ -233,6 +233,7 @@ export const TabScalarFieldEnum = {
   stateTool: 'stateTool',
   stateAt: 'stateAt',
   stateSeenAt: 'stateSeenAt',
+  activity: 'activity',
   createdByTokenId: 'createdByTokenId',
   createdAt: 'createdAt'
 } as const

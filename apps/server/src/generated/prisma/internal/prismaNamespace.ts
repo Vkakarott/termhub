@@ -2469,6 +2469,7 @@ export const TabScalarFieldEnum = {
   stateTool: 'stateTool',
   stateAt: 'stateAt',
   stateSeenAt: 'stateSeenAt',
+  activity: 'activity',
   createdByTokenId: 'createdByTokenId',
   createdAt: 'createdAt'
 } as const
@@ -2888,6 +2889,20 @@ export type EnumTabStateFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaM
  * Reference to a field of type 'TabState[]'
  */
 export type ListEnumTabStateFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TabState[]'>
+    
+
+
+/**
+ * Reference to a field of type 'TabActivity'
+ */
+export type EnumTabActivityFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TabActivity'>
+    
+
+
+/**
+ * Reference to a field of type 'TabActivity[]'
+ */
+export type ListEnumTabActivityFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TabActivity[]'>
     
 
 
