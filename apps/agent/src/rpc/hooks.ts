@@ -13,8 +13,10 @@ import {
   hookEnvFile,
   mergeClaudeSettings,
   mergeCodexConfig,
+  mergeCursorHooks,
   stripClaudeSettings,
   stripCodexConfig,
+  stripCursorHooks,
 } from '@termhub/machine-ops';
 import { discoverClaudeDirs } from '../claude-dirs.js';
 import { RpcFailure } from '../exec.js';
@@ -23,12 +25,14 @@ import { RpcFailure } from '../exec.js';
  * Monitor hooks on this machine, written with node:fs (no shell): the forwarding script under
  * ~/.termhub/bin, its env file (url + token, 0600), our entries in the settings.json of each
  * Claude config dir (~/.claude, plus the accounts' own dirs that exist here) and, when Codex
- * is installed, ~/.codex/config.toml. The merge/strip logic is the same the server uses for
+ * or the Cursor CLI is installed, ~/.codex/config.toml and ~/.cursor/hooks.json. The merge/strip logic is the same the server uses for
  * ssh machines (@termhub/machine-ops), so both paths leave the files identical.
  */
 
 const CODEX_DIR_REL = '.codex';
 const CODEX_CONFIG_REL = '.codex/config.toml';
+const CURSOR_DIR_REL = '.cursor';
+const CURSOR_HOOKS_REL = '.cursor/hooks.json';
 
 const isEnoent = (err: unknown) => (err as NodeJS.ErrnoException)?.code === 'ENOENT';
 
@@ -89,6 +93,17 @@ async function claudeTargets(dirs: string[] | undefined, home: string): Promise<
   return out;
 }
 
+/** Our entries merged into ~/.cursor/hooks.json, or null when the Cursor CLI is not here. Refuses a file it cannot parse, before anything is written. */
+async function mergedCursorHooks(home: string, scriptPath: string): Promise<string | null> {
+  if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return null;
+  try {
+    return mergeCursorHooks(await readOrEmpty(path.join(home, CURSOR_HOOKS_REL)), scriptPath);
+  } catch (err) {
+    const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `~/${CURSOR_HOOKS_REL} não é JSON válido` : err instanceof Error ? err.message : String(err);
+    throw new RpcFailure('failed', message, CURSOR_HOOKS_REL);
+  }
+}
+
 export async function install(params: RpcParams<'hooks.install'>, home = os.homedir()): Promise<RpcResult<'hooks.install'>> {
   const scriptPath = path.join(home, HOOK_SCRIPT_REL);
   const codexFile = path.join(home, CODEX_CONFIG_REL);
@@ -107,6 +122,7 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
   }
   const hasCodex = await isDir(path.join(home, CODEX_DIR_REL));
   const mergedCodex = hasCodex ? mergeCodexConfig(await readOrEmpty(codexFile), scriptPath) : null;
+  const mergedCursor = await mergedCursorHooks(home, scriptPath);
 
   let current = `~/${HOOK_SCRIPT_REL}`;
   try {
@@ -124,6 +140,10 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
       current = `~/${CODEX_CONFIG_REL}`;
       await writeAtomic(codexFile, mergedCodex, 0o644);
     }
+    if (mergedCursor !== null) {
+      current = `~/${CURSOR_HOOKS_REL}`;
+      await writeAtomic(path.join(home, CURSOR_HOOKS_REL), mergedCursor, 0o644);
+    }
   } catch (err) {
     throw fsFailure(err, current);
   }
@@ -131,6 +151,7 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
     home,
     claude: 'installed',
     codex: mergedCodex !== null ? 'installed' : 'skipped',
+    cursor: mergedCursor !== null ? 'installed' : 'skipped',
     claude_dirs: merged.map(({ target }) => target.shown.replace(/\/settings\.json$/, '')),
   };
 }
@@ -179,6 +200,14 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     }
   }
   const codexConfig = (await isDir(path.join(home, CODEX_DIR_REL))) ? await readOrEmpty(codexFile) : '';
+  const cursorFile = path.join(home, CURSOR_HOOKS_REL);
+  const cursorHooks = await readOrEmpty(cursorFile);
+  let strippedCursor: string | null = null;
+  try {
+    strippedCursor = cursorHooks.includes(HOOK_MARK) ? stripCursorHooks(cursorHooks) : null;
+  } catch {
+    // unreadable JSON: leave the file alone
+  }
 
   let current = `~/${HOOK_SCRIPT_REL}`;
   try {
@@ -192,6 +221,10 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     if (codexConfig.includes(HOOK_MARK)) {
       current = `~/${CODEX_CONFIG_REL}`;
       await writeAtomic(codexFile, stripCodexConfig(codexConfig), 0o644);
+    }
+    if (strippedCursor !== null) {
+      current = `~/${CURSOR_HOOKS_REL}`;
+      await writeAtomic(cursorFile, strippedCursor, 0o644);
     }
   } catch (err) {
     throw fsFailure(err, current);

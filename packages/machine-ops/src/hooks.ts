@@ -1,6 +1,6 @@
 /**
- * Monitor hooks: the small POSIX script under ~/.termhub/bin that forwards Claude Code / Codex
- * hook payloads to termhub, and the pure merge/strip of the two config files that make the
+ * Monitor hooks: the small POSIX script under ~/.termhub/bin that forwards Claude Code / Codex /
+ * Cursor CLI hook payloads to termhub, and the pure merge/strip of the config files that make the
  * tools call it. Shared by the server (ssh/local machines, written through `sh -s`) and the
  * agent (`hooks.install` RPC, written with node:fs on the machine itself).
  */
@@ -38,11 +38,19 @@ export function expandHome(dir: string, home: string): string {
 /** Claude Code hook events we subscribe to (see the server's monitor/state.ts for what each one means). */
 export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'SessionEnd'] as const;
 
-/** The script itself. Reads the hook JSON (stdin for Claude, argv for Codex), tags it with the tmux session and posts it in the background. */
+/**
+ * Cursor CLI hook events we subscribe to (~/.cursor/hooks.json; see the server's monitor/state.ts).
+ * Only lifecycle events: a `before*` / `preToolUse` hook can answer a permission check, and ours
+ * must never be in a position to allow or deny anything.
+ */
+export const CURSOR_HOOK_EVENTS = ['sessionStart', 'beforeSubmitPrompt', 'afterAgentResponse', 'stop', 'sessionEnd'] as const;
+
+/** The script itself. Reads the hook JSON (stdin for Claude and Cursor, argv for Codex), tags it with the tmux session and posts it in the background. */
 export const HOOK_SCRIPT = `#!/bin/sh
-# termhub monitor hook — installed by termhub; forwards Claude Code / Codex hook events to
-# termhub tagged with the tmux session, so the app knows which tab is waiting for you.
-# Safe to delete (also remove the entries in ~/.claude/settings.json and ~/.codex/config.toml).
+# termhub monitor hook — installed by termhub; forwards Claude Code / Codex / Cursor CLI hook
+# events to termhub tagged with the tmux session, so the app knows which tab is waiting for you.
+# Safe to delete (also remove the entries in ~/.claude/settings.json, ~/.codex/config.toml and
+# ~/.cursor/hooks.json).
 TOOL="\${1:-claude}"
 [ -f "$HOME/${HOOK_ENV_REL}" ] || exit 0
 . "$HOME/${HOOK_ENV_REL}"
@@ -121,4 +129,45 @@ export function mergeCodexConfig(current: string, scriptPath: string): string {
 export function stripCodexConfig(current: string): string {
   const lines = current.split('\n').filter((l) => !(/^\s*notify\s*=/.test(l) && l.includes(HOOK_MARK)));
   return lines.join('\n');
+}
+
+type CursorEntry = { command?: unknown };
+
+const isOurCursorEntry = (e: CursorEntry) => !!e && typeof e === 'object' && typeof e.command === 'string' && e.command.includes(HOOK_MARK);
+
+const asObject = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+
+/** Merges our entries into Cursor's ~/.cursor/hooks.json (`{ version, hooks: { event: [{ command }] } }`); keeps everything else. Throws on a file that is not a JSON object. */
+export function mergeCursorHooks(current: string, scriptPath: string): string {
+  let file: Record<string, unknown> = {};
+  if (current.trim()) {
+    const parsed = asObject(JSON.parse(current) as unknown);
+    if (!parsed) throw new Error('~/.cursor/hooks.json não é um objeto JSON');
+    file = parsed;
+  }
+  const hooks = asObject(file.hooks) ?? {};
+  for (const event of CURSOR_HOOK_EVENTS) {
+    const others = ((Array.isArray(hooks[event]) ? hooks[event] : []) as CursorEntry[]).filter((e) => !isOurCursorEntry(e));
+    others.push({ command: `${scriptPath} cursor` });
+    hooks[event] = others;
+  }
+  return `${JSON.stringify({ ...file, version: typeof file.version === 'number' ? file.version : 1, hooks }, null, 2)}\n`;
+}
+
+/** Removes our entries; drops events left empty, and `hooks` when nothing is left. Leaves anything that is not a JSON object alone. */
+export function stripCursorHooks(current: string): string {
+  if (!current.trim()) return current;
+  const file = asObject(JSON.parse(current) as unknown);
+  if (!file) return current;
+  const hooks = asObject(file.hooks);
+  if (hooks) {
+    for (const key of Object.keys(hooks)) {
+      if (!Array.isArray(hooks[key])) continue;
+      const kept = (hooks[key] as CursorEntry[]).filter((e) => !isOurCursorEntry(e));
+      if (kept.length) hooks[key] = kept;
+      else delete hooks[key];
+    }
+    if (Object.keys(hooks).length === 0) delete file.hooks;
+  }
+  return `${JSON.stringify(file, null, 2)}\n`;
 }

@@ -12,6 +12,9 @@ describe('detect', () => {
   it('probes the CLIs start_agent can launch', () => {
     expect(DETECT_TOOLS).toEqual(expect.arrayContaining(['claude', 'codex']));
   });
+  it('probes the Cursor CLI, whose hooks the monitor understands', () => {
+    expect(DETECT_TOOLS).toContain('cursor-agent');
+  });
   it('probes every tool of the catalog', () => {
     for (const t of DETECT_TOOLS) expect(DETECT_SCRIPT).toContain(t);
     expect(DETECT_SCRIPT).toContain('CAP:wda');

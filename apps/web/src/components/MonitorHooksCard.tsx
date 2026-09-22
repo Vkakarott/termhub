@@ -22,6 +22,16 @@ export function monitorHealthNote(machine: Pick<Machine, 'tabs' | 'tabs_reportin
   return { text: `${reporting} de ${tabs} tabs reportando estado ao monitor.`, warn: false };
 }
 
+type HookResult = 'installed' | 'skipped';
+
+/** What an install hooked, tool by tool (a Cursor status left out comes from an agent that predates it). */
+export function hooksInstallNote(r: { claude: HookResult; claude_dirs?: string[]; codex: HookResult; cursor?: HookResult | 'agent_outdated' }): string {
+  const found = (s: HookResult | undefined) => (s === 'installed' ? 'ok' : 'não encontrado');
+  const claude = r.claude === 'installed' ? `ok (${(r.claude_dirs ?? ['~/.claude']).join(', ')})` : 'não encontrado';
+  const cursor = r.cursor === 'agent_outdated' ? 'atualize o agente (0.3.1 ou mais novo)' : found(r.cursor);
+  return `Claude Code: ${claude} · Codex: ${found(r.codex)} · Cursor CLI: ${cursor}. Vale para sessões abertas a partir de agora.`;
+}
+
 /** Machine form: install / remove the monitor hooks (what feeds "Precisando de você"). */
 export function MonitorHooksCard({ machine }: { machine: Machine }) {
   const [hooks, setHooks] = useState<MachineHooks | null>(null);
@@ -47,7 +57,7 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
     try {
       const r = await api.machines.installHooks(machine.id);
       setHooks({ installed_at: r.installed_at, hooks_url: r.hooks_url });
-      setNote(`Claude Code: ${r.claude === 'installed' ? `ok (${(r.claude_dirs ?? ['~/.claude']).join(', ')})` : 'não encontrado'} · Codex: ${r.codex === 'installed' ? 'ok' : 'não encontrado'}. Vale para sessões abertas a partir de agora.`);
+      setNote(hooksInstallNote(r));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Erro ao instalar');
     } finally {
@@ -89,8 +99,8 @@ export function MonitorHooksCard({ machine }: { machine: Machine }) {
         </span>
       </div>
       <p className="mt-1 text-fg-dim">
-        Escreve <code className="font-mono">~/.termhub/bin/termhub-hook</code> e registra hooks no Claude Code (<code className="font-mono">~/.claude/settings.json</code> e o diretório de cada conta do Claude desta máquina, em Contas de IA) e no Codex (
-        <code className="font-mono">~/.codex/config.toml</code>) para avisar quando uma tab está esperando você. Só a pergunta da ferramenta é enviada, nunca o conteúdo do terminal.
+        Escreve <code className="font-mono">~/.termhub/bin/termhub-hook</code> e registra hooks no Claude Code (<code className="font-mono">~/.claude/settings.json</code> e o diretório de cada conta do Claude desta máquina, em Contas de IA), no Codex (
+        <code className="font-mono">~/.codex/config.toml</code>) e no Cursor CLI (<code className="font-mono">~/.cursor/hooks.json</code>) para avisar quando uma tab está esperando você. Só a pergunta da ferramenta é enviada, nunca o conteúdo do terminal.
         {machine.type === 'agent' && ' Numa máquina com agente, é o próprio agente que escreve os arquivos (precisa estar conectado).'}
       </p>
       <p className={`mt-1 ${health.warn ? 'text-warn' : 'text-fg-muted'}`}>{health.text}</p>

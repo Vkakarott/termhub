@@ -337,6 +337,23 @@ describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
+  it('POST reports the Cursor CLI as the agent answers it, and as agent_outdated when an older agent leaves it out', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    attachAgent('0.3.0', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'installed' })));
+    let built = buildApp(store);
+    app = built.app;
+    const old = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(old.statusCode).toBe(200);
+    expect(old.json()).toMatchObject({ claude: 'installed', codex: 'installed', cursor: 'agent_outdated' });
+
+    agents.reset();
+    attachAgent('0.3.1', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'skipped', cursor: 'installed' })));
+    built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(res.json()).toMatchObject({ cursor: 'installed' });
+  });
+
   it('POST also hooks the config dirs of this machine\'s Claude accounts, which needs agent 0.1.5', async () => {
     store.m1 = makeMachine({ id: 'm1', type: 'agent' });
     const accounts = [

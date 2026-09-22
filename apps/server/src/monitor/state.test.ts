@@ -76,6 +76,47 @@ describe('interpretHookEvent — codex', () => {
   });
 });
 
+describe('interpretHookEvent — cursor', () => {
+  // shapes captured from cursor-agent 2026.09.18 (ids shortened, personal fields dropped)
+  const base = { conversation_id: 'c1', generation_id: 'g1', cursor_version: '2026.09.18', user_email: 'someone@example.com', workspace_roots: ['/w'] };
+
+  it('marks the tab busy on session start and on each prompt, without keeping the prompt', () => {
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'sessionStart', is_background_agent: false })).toEqual({ kind: 'working', text: null, meta: { event: 'sessionStart' } });
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'beforeSubmitPrompt', prompt: 'secret plans', attachments: [] })).toEqual({
+      kind: 'working',
+      text: null,
+      meta: { event: 'beforeSubmitPrompt' },
+    });
+  });
+
+  it('treats the final answer of a turn as waiting for the person, with the answer as the question', () => {
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: '  Pronto. Posso seguir?  ' })).toEqual({
+      kind: 'waiting_input',
+      text: 'Pronto. Posso seguir?',
+      meta: { event: 'afterAgentResponse' },
+    });
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'x'.repeat(5000) })?.text?.length).toBe(STATE_TEXT_MAX);
+  });
+
+  it('ignores a completed stop: the answer that came right before it already opened the wait', () => {
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'completed', loop_count: 0 })).toBeNull();
+  });
+
+  it('opens a wait on a stop that ended without an answer (aborted with Esc, or an error)', () => {
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'aborted', loop_count: 0 })).toEqual({ kind: 'waiting_input', text: null, meta: { event: 'stop', status: 'aborted' } });
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'error', loop_count: 0 })?.kind).toBe('waiting_input');
+  });
+
+  it('marks the tab idle when the session ends', () => {
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'sessionEnd', reason: 'completed', final_status: 'completed' })).toEqual({ kind: 'idle', text: null, meta: { event: 'sessionEnd', reason: 'completed' } });
+  });
+
+  it('returns null for events it does not subscribe to and for non-objects', () => {
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'beforeShellExecution', command: 'pwd' })).toBeNull();
+    expect(interpretHookEvent('cursor', 'nope')).toBeNull();
+  });
+});
+
 describe('needsYou', () => {
   it('is true while waiting and never seen', () => {
     expect(needsYou({ state: 'waiting_input', state_at: '2026-01-01T00:00:00.000Z', state_seen_at: null })).toBe(true);

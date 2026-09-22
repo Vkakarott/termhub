@@ -18,8 +18,8 @@ afterEach(async () => {
 });
 
 describe('hooks.install', () => {
-  it('writes the script (755), the env (600) and the Claude entries on a bare home; skips Codex when absent', async () => {
-    await expect(install(params, home)).resolves.toEqual({ home, claude: 'installed', codex: 'skipped', claude_dirs: ['~/.claude'] });
+  it('writes the script (755), the env (600) and the Claude entries on a bare home; skips Codex and Cursor when absent', async () => {
+    await expect(install(params, home)).resolves.toEqual({ home, claude: 'installed', codex: 'skipped', cursor: 'skipped', claude_dirs: ['~/.claude'] });
     expect(await read('.termhub/bin/termhub-hook')).toBe(HOOK_SCRIPT);
     expect(await mode('.termhub/bin/termhub-hook')).toBe(0o755);
     expect(await read('.termhub/hook.env')).toBe("TERMHUB_HOOK_URL='https://app.termhub.dev/api/hooks'\nTERMHUB_HOOK_TOKEN='thb_hk_abc-123'\n");
@@ -87,6 +87,42 @@ describe('hooks.install', () => {
     await expect(install(params, home)).rejects.toMatchObject({ code: 'failed', path: '.claude/settings.json' });
     expect(await read('.claude/settings.json')).toBe('{not json');
     await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('hooks.install — Cursor CLI', () => {
+  it('writes ~/.cursor/hooks.json when ~/.cursor exists, keeping the user\'s own hooks, and is idempotent', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await writeFile(path.join(home, '.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { stop: [{ command: 'say done' }] } }));
+    await expect(install(params, home)).resolves.toMatchObject({ cursor: 'installed' });
+    const once = await read('.cursor/hooks.json');
+    await install(params, home);
+    expect(await read('.cursor/hooks.json')).toBe(once);
+    const file = JSON.parse(once) as { hooks: Record<string, { command: string }[]> };
+    expect(file.hooks.stop.map((e) => e.command)).toEqual(['say done', `${path.join(home, '.termhub/bin/termhub-hook')} cursor`]);
+    expect(file.hooks.beforeSubmitPrompt).toEqual([{ command: `${path.join(home, '.termhub/bin/termhub-hook')} cursor` }]);
+  });
+
+  it('creates hooks.json in an existing ~/.cursor that has none', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await expect(install(params, home)).resolves.toMatchObject({ cursor: 'installed' });
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toMatchObject({ version: 1 });
+  });
+
+  it('refuses to clobber a hooks.json that is not a JSON object and writes nothing', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await writeFile(path.join(home, '.cursor/hooks.json'), '{not json');
+    await expect(install(params, home)).rejects.toMatchObject({ code: 'failed', path: '.cursor/hooks.json' });
+    expect(await read('.cursor/hooks.json')).toBe('{not json');
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('uninstall removes only our entries from hooks.json', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await writeFile(path.join(home, '.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { stop: [{ command: 'say done' }] } }));
+    await install(params, home);
+    await uninstall({}, home);
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toEqual({ version: 1, hooks: { stop: [{ command: 'say done' }] } });
   });
 });
 
