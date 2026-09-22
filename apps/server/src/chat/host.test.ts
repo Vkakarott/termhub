@@ -62,8 +62,10 @@ function build(opts: {
   };
   const repos = {
     chat: { getOrCreateForUser: vi.fn(async () => conversation) },
-    // Owner-scoped exactly like the repository: another user's id sees none of these rows.
-    machines: { list: vi.fn(async (owner: string | null) => (owner === user.id ? machines : [])) },
+    // Owner-scoped exactly like the repository: `null` is the unfiltered admin read, and an owner id
+    // sees only their own rows — so a machine of someone else's can be in this fixture and still be
+    // absent from what `resolveHost` is given.
+    machines: { list: vi.fn(async (owner: string | null) => (owner === null ? machines : machines.filter((m) => m.owner_id === owner))) },
     aiAccounts: { findById: vi.fn(async (id: string) => accounts.find((a) => a.id === id)) },
   };
   const agents = {
@@ -136,6 +138,24 @@ it('treats a chosen machine that no longer belongs to the user as never chosen',
   // With a single machine there is nothing to ask: the stale id is simply ignored.
   const single = build({ machines: [one], conversation: { machine_id: 'm-gone' } });
   expect(await resolveHost(single.ctx, user)).toEqual({ kind: 'ready', machine: one, configDir: null });
+});
+
+it('never chooses a machine that belongs to someone else, even when the conversation names it', async () => {
+  const mine = machine('m1', 'macbook');
+  const theirs = machine('m2', 'jarvis', { owner_id: 'u2' });
+  const { ctx, repos } = build({ machines: [mine, theirs], conversation: { machine_id: 'm2' } });
+
+  // The row really exists, and a read that forgot to scope would hand it straight over…
+  expect(await repos.machines.list(null)).toContainEqual(theirs);
+  // …but the candidates are this user's own machines, so their own is what runs — and the machine id
+  // stored on the conversation is never enough on its own to make a host of it.
+  expect(await resolveHost(ctx, user)).toEqual({ kind: 'ready', machine: mine, configDir: null });
+  expect(repos.machines.list).toHaveBeenCalledWith(user.id);
+
+  // With more than one machine of their own the same foreign id asks again, listing only their own.
+  const two = machine('m3', 'servidor');
+  const several = build({ machines: [mine, theirs, two], conversation: { machine_id: 'm2' } });
+  expect(await resolveHost(several.ctx, user)).toEqual({ kind: 'not_chosen', machines: [mine, two] });
 });
 
 it('falls back to the machine default account when the chosen one was deleted', async () => {

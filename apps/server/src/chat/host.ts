@@ -1,11 +1,7 @@
+import { CAPABILITY_CLAUDE } from '@termhub/agent-protocol';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, User } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
-
-/** What an agent must advertise in `hello` for a `claude` channel to be opened on it — the same
- *  capability `agentRunner` checks before it opens one. Named here too because this is where the
- *  person is told about it, one sentence *before* a run is attempted instead of a failed answer. */
-const CLAUDE_CAPABILITY = 'claude';
 
 /**
  * The slice of the agent registry this reads: what the machine's agent said when it connected, or
@@ -67,7 +63,9 @@ export async function resolveHost(ctx: HostContext, user: User): Promise<HostCho
   // now. Never a fallback to the operator's container (spec §3) — that would spend the operator's
   // credit with nobody watching and hide that the user's machine was not involved.
   if (capabilities === null) return { kind: 'offline', machine };
-  if (!capabilities.includes(CLAUDE_CAPABILITY)) {
+  // The same capability `agentRunner` requires before it opens a channel; checked here so the person
+  // reads one sentence *before* a run is attempted, instead of a failed answer afterwards.
+  if (!capabilities.includes(CAPABILITY_CLAUDE)) {
     // The version comes from the live `hello` (an agent that is connected always has one); the stored
     // one is the fallback, and an empty string means the agent never said — the message then drops
     // the version rather than inventing one.

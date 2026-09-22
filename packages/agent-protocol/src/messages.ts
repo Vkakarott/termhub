@@ -20,6 +20,15 @@ const rpcId = z.string().min(1).max(64);
 // fails for ever as a generic `run_failed`.
 export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed', 'missing_session']);
 
+/**
+ * What an agent advertises in `hello.capabilities` beyond the baseline `pty` channel, written once for
+ * both sides of the wire: the agent puts it in its `hello` (`apps/agent/src/run.ts`), the server
+ * requires it before it opens a channel of that kind (`chat/host.ts`, `chat/agent-runner.ts`). Two
+ * spellings of this string would mean a server that silently refuses every agent, or worse an "update
+ * your agent" sentence shown to someone whose agent is perfectly current.
+ */
+export const CAPABILITY_CLAUDE = 'claude';
+
 export const helloMessage = z.object({
   type: z.literal('hello'),
   protocol: z.number().int().min(1),

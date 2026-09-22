@@ -47,8 +47,9 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
    * else's, so a guessed id is a 404 and never a conversation running on a stranger's computer.
    *
    * Answers with the resolved host state, so the screen shows what it now is (including "that machine
-   * is offline") without a second request. The fresh CLI session the change implies is the
-   * repository's doing (`setHost` clears it) — the warning before it is the screen's (spec §3).
+   * is offline") without a second request. Whether the CLI session survives is the repository's call
+   * (`setHost` drops it only when the pair really moved, so re-picking the machine a conversation was
+   * already running on costs nothing) — the warning before a real move is the screen's (spec §3).
    */
   app.post('/host', { config: { action: 'update' } }, async (request) => {
     const body = hostBody.parse(request.body);

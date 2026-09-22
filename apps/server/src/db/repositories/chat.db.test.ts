@@ -91,16 +91,33 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     }
   });
 
-  it('stores the host pair, starts a fresh CLI session, and nulls the pair when the machine or the account goes', async () => {
+  it('stores the host pair, and only starts a fresh CLI session when the pair really moved', async () => {
+    const session = '3f1e9b1e-0000-4000-8000-000000000099';
     const c = await repo.getOrCreateForUser(userId);
-    await repo.setCliSession(c.id, '3f1e9b1e-0000-4000-8000-000000000099');
+    await repo.setCliSession(c.id, session);
     const machine = await db.machine.create({ data: { id: newId(), name: 'jarvis', type: 'agent', ownerId: userId } });
+    const second = await db.machine.create({ data: { id: newId(), name: 'macbook', type: 'agent', ownerId: userId } });
     const account = await db.aiAccount.create({ data: { id: newId(), provider: 'claude', label: 'trabalho', machineId: machine.id, configDir: '/home/u/.claude-work' } });
 
+    // Naming the machine the conversation was already running on (nothing was stored: one machine is
+    // resolved on the fly) moves no host, so the model keeps the memory of the conversation.
+    const first = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: null });
+    expect(first).toMatchObject({ machine_id: machine.id, ai_account_id: null, cli_session_id: session });
+
+    // And picking the very same pair again — the same click twice, or a settings screen that saves
+    // whatever is selected — is not a host change either.
+    expect((await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: null })).cli_session_id).toBe(session);
+
+    // A second login on the same machine *is* another config directory, so the session is not there.
     const hosted = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: account.id });
-    // The session lives in the config dir of the machine that ran it, so it does not exist on the new
-    // host: keeping the uuid would make the next message ask that host to resume a session it never had.
     expect(hosted).toMatchObject({ machine_id: machine.id, ai_account_id: account.id, cli_session_id: null });
+
+    // So is another machine: the session lives in the config dir of the machine that ran it, and
+    // keeping the uuid would ask the new host to resume a session it has never seen.
+    await repo.setCliSession(c.id, session);
+    expect((await repo.setHost(c.id, { machine_id: second.id, ai_account_id: null })).cli_session_id).toBeNull();
+    await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: account.id });
+    await db.machine.delete({ where: { id: second.id } });
 
     // "One conversation per user" must survive a host being chosen: the partial unique index no longer
     // keys on machine_id, so a second concurrent create still loses (this is what getOrCreateForUser's

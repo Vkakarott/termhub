@@ -1,4 +1,4 @@
-import type { ClaudeOpenParams } from '@termhub/agent-protocol';
+import { CAPABILITY_CLAUDE, type ClaudeOpenParams } from '@termhub/agent-protocol';
 import type { AgentChannel, ChannelClosedReason, ChannelHandlers } from '../agent/connection.js';
 import { agents } from '../agent/registry.js';
 import { config } from '../config.js';
@@ -12,9 +12,6 @@ import type { RunnerClient, RunnerInput } from './service.js';
  * per-conversation lock for ever and every later message answers 409 until the server restarts.
  */
 const RUN_DEADLINE_MS = 11 * 60_000;
-
-/** What an agent must advertise in `hello` for a `claude` channel to be opened on it. */
-const CLAUDE_CAPABILITY = 'claude';
 
 /** The slice of the agent registry this runner uses, so a test can drive a channel by hand instead
  *  of standing up a socket, a handshake and an agent. */
@@ -101,7 +98,7 @@ async function* runOnAgent(
     yield failureLine('host_gone', null);
     return;
   }
-  if (!capabilities.includes(CLAUDE_CAPABILITY)) {
+  if (!capabilities.includes(CAPABILITY_CLAUDE)) {
     yield failureLine('agent_too_old', null);
     return;
   }
