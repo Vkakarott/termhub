@@ -96,9 +96,6 @@ function buildApp(
       update,
       delete: del,
     },
-    projects: {
-      list: async () => [],
-    },
     users: {
       findById: async () => undefined,
     },
@@ -265,6 +262,14 @@ describe('DELETE /api/machines/:id', () => {
     const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1' });
     expect(res.statusCode).toBe(200);
     expect(disconnect).toHaveBeenCalledWith('m1', CLOSE.UNAUTHORIZED, 'deleted');
+  });
+
+  it('deletes a machine that still has linked projects (the links go, the projects stay)', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    ({ app } = buildApp(store));
+    const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1' });
+    expect(res.statusCode).toBe(200);
+    expect(store.m1).toBeUndefined();
   });
 });
 

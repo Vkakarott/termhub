@@ -2,7 +2,7 @@ import * as pty from 'node-pty';
 import fs from 'node:fs';
 import { UTF8_LOCALE, clampSize, ptyEnv } from '@termhub/machine-ops';
 import { config } from '../config.js';
-import type { Machine, Project, Tab } from '../db/repositories/types.js';
+import type { Machine, Tab } from '../db/repositories/types.js';
 import { agents } from '../agent/registry.js';
 import { AgentPtySession } from '../agent/pty.js';
 import { REMOTE_PATH_PREFIX, assertSessionName, shellQuote, sshBaseArgs } from './machine-exec.js';
@@ -34,15 +34,15 @@ function localCwd(cwd: string): string {
 }
 
 /** Monta o comando que anexa (ou cria) a sessão tmux da tab na máquina de destino. */
-export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file: string; args: string[]; cwd?: string } {
+export function buildSpawn(machine: Machine, cwd: string, tab: Tab): { file: string; args: string[]; cwd?: string } {
   if (tab.kind !== 'terminal' || !tab.tmux_session) throw new Error('Tab não é um terminal');
   assertSessionName(tab.tmux_session);
   if (machine.type === 'local') {
     return {
       file: config.terminal.tmuxPath,
       // -u: treat the client terminal as UTF-8 regardless of the locale tmux was started with
-      args: ['-u', 'new-session', '-A', '-s', tab.tmux_session, '-c', localCwd(project.cwd)],
-      cwd: localCwd(project.cwd),
+      args: ['-u', 'new-session', '-A', '-s', tab.tmux_session, '-c', localCwd(cwd)],
+      cwd: localCwd(cwd),
     };
   }
   // PATH prefix: Homebrew's tmux is not on the sshd default PATH on macOS.
@@ -53,7 +53,7 @@ export function buildSpawn(machine: Machine, project: Project, tab: Tab): { file
     REMOTE_PATH_PREFIX.trim().replace(/;$/, ''),
     `export LANG="\${LANG:-${UTF8_LOCALE}}"; case "$LANG" in *[Uu][Tt][Ff]*) ;; *) LANG=${UTF8_LOCALE};; esac; export LC_ALL="$LANG" LC_CTYPE="$LANG"`,
     `tmux set-environment -g LANG "$LANG" 2>/dev/null; tmux set-environment -g LC_ALL "$LANG" 2>/dev/null`,
-    `exec tmux -u new-session -A -s ${tab.tmux_session} -c ${shellQuote(project.cwd)}`,
+    `exec tmux -u new-session -A -s ${tab.tmux_session} -c ${shellQuote(cwd)}`,
   ].join('; ');
   return { file: 'ssh', args: ['-tt', ...sshBaseArgs(machine), remote] };
 }
@@ -63,14 +63,14 @@ export class LocalPtySession implements PtySession {
   private proc: pty.IPty;
   private closed = false;
 
-  constructor(machine: Machine, project: Project, tab: Tab, size: Partial<PtySize>, handlers: PtySessionHandlers) {
-    const { file, args, cwd } = buildSpawn(machine, project, tab);
+  constructor(machine: Machine, cwd: string, tab: Tab, size: Partial<PtySize>, handlers: PtySessionHandlers) {
+    const { file, args, cwd: spawnCwd } = buildSpawn(machine, cwd, tab);
     const { cols, rows } = clampSize(size);
     this.proc = pty.spawn(file, args, {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: cwd ?? process.env.HOME ?? '/',
+      cwd: spawnCwd ?? process.env.HOME ?? '/',
       env: ptyEnv(process.env, config.terminal.localShell),
     });
     this.proc.onData(handlers.onData);
@@ -113,13 +113,13 @@ export class LocalPtySession implements PtySession {
 /** Picks the right PtySession implementation for the tab's machine: local/ssh spawn a PTY here, `agent` opens one over the agent connection. */
 export async function createPtySession(
   machine: Machine,
-  project: Project,
+  cwd: string,
   tab: Tab,
   size: Partial<PtySize>,
   handlers: PtySessionHandlers,
 ): Promise<PtySession> {
   if (machine.type === 'agent') {
-    return AgentPtySession.open(agents, machine, project, tab, size, handlers);
+    return AgentPtySession.open(agents, machine, cwd, tab, size, handlers);
   }
-  return new LocalPtySession(machine, project, tab, size, handlers);
+  return new LocalPtySession(machine, cwd, tab, size, handlers);
 }

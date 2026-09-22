@@ -38,14 +38,14 @@ export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter
     // ownership: a tab outside the caller's scope is a 404, like a missing one
     const found = await new Scoped(deps.repos, scope).tab(tabId).catch(() => null);
     if (!found || found.tab.kind !== 'terminal') return rejectUpgrade(socket, 404, 'Not Found');
-    const { tab, project, machine } = found;
+    const { tab, project, machine, cwd } = found;
 
     const cols = Number(url.searchParams.get('cols')) || 80;
     const rows = Number(url.searchParams.get('rows')) || 24;
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
-      void handleConnection(ws, { tab, project, machine, cols, rows }, deps, log);
+      void handleConnection(ws, { tab, project, machine, cwd, cols, rows }, deps, log);
     });
   });
 
@@ -68,7 +68,7 @@ export function registerTerminalWs(router: ReturnType<typeof createUpgradeRouter
 
 async function handleConnection(
   ws: WebSocket,
-  ctx: { tab: Tab; project: Project; machine: Machine; cols: number; rows: number },
+  ctx: { tab: Tab; project: Project; machine: Machine; cwd: string; cols: number; rows: number },
   deps: Deps,
   log: FastifyBaseLogger,
 ) {
@@ -96,7 +96,7 @@ async function handleConnection(
   try {
     session = await createPtySession(
       ctx.machine,
-      ctx.project,
+      ctx.cwd,
       ctx.tab,
       { cols: ctx.cols, rows: ctx.rows },
       {

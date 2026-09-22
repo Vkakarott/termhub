@@ -51,6 +51,7 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   sessions     Session[]
   machines     Machine[]     @relation("MachineOwner")
+  projects     Project[]     @relation("ProjectOwner")
   integrations Integration[] @relation("IntegrationOwner")
   uploads      Upload[]
   apiTokens    ApiToken[]
@@ -150,7 +151,8 @@ model Machine {
   ownerId   String?     @map("owner_id")
   owner     User?       @relation("MachineOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt DateTime    @default(now()) @map("created_at")
-  projects   Project[]
+  projectLinks ProjectMachine[]
+  tabs         Tab[]
   aiAccounts AiAccount[]
   hook       MachineHook?
   uploads    Upload[]
@@ -163,27 +165,54 @@ model Machine {
 
 model Project {
   id             String        @id
-  machineId      String        @map("machine_id")
+  /// Owner: the project and everything under it (tasks, notes, tickets, setup, tabs) is visible
+  /// only to them (and to admins viewing as them or as "all"). Null = orphan (owner deleted).
+  ownerId        String?       @map("owner_id")
+  /// Short key shown in URLs and card numbers (TERMHUB-42): 2–10 chars, ^[A-Z][A-Z0-9]{1,9}$,
+  /// unique across the instance, never changed after creation.
+  key            String        @unique
+  /// Next card number for this project (used by the task-hierarchy spec; untouched here).
+  nextTaskNumber Int           @default(1) @map("next_task_number")
   name           String
-  cwd            String
   status         ProjectStatus @default(active)
   description    String?
   lastTerminalAt DateTime?     @map("last_terminal_at")
   createdAt      DateTime      @default(now()) @map("created_at")
-  machine        Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  owner          User?         @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Machines this project runs on, each with its own working directory.
+  machines       ProjectMachine[]
   tabs           Tab[]
   tasks          Task[]
   note           Note?
   setup          ProjectSetup?
   tickets        Ticket[]
 
-  @@index([machineId])
+  @@index([ownerId])
   @@map("projects")
+}
+
+/// A project linked to a machine: where its terminals run and in which directory.
+model ProjectMachine {
+  id        String   @id
+  projectId String   @map("project_id")
+  machineId String   @map("machine_id")
+  /// absolute path on that machine
+  cwd       String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, machineId])
+  @@index([machineId])
+  @@map("project_machines")
 }
 
 model Tab {
   id            String   @id
   projectId     String   @map("project_id")
+  /// The machine this tab's tmux session runs on (one of the project's linked machines).
+  machineId     String   @map("machine_id")
   name          String
   kind          TabKind  @default(terminal)
   tmuxSession   String?  @unique @map("tmux_session")
@@ -203,10 +232,12 @@ model Tab {
   createdByTokenId String?  @map("created_by_token_id")
   createdAt     DateTime @default(now()) @map("created_at")
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   tasks         Task[]
   events        TabEvent[]
 
   @@index([projectId])
+  @@index([machineId])
   @@index([createdByTokenId])
   @@map("tabs")
 }

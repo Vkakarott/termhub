@@ -28,8 +28,7 @@ export async function ingestHookEvent(
     // the conditional UPDATE is what decides, not the row we read. The full path takes it from here.
     const updated = await repos.tabs.setActivity(tab.id, interpreted.activity);
     if (updated) {
-      const project = await repos.projects.findById(tab.project_id);
-      const machine = project ? await repos.machines.findById(project.machine_id) : undefined;
+      const machine = await repos.machines.findById(tab.machine_id);
       log.debug({ tabId: tab.id, machineId: machine?.id, activity: interpreted.activity }, 'monitor: tab activity');
       publishTabChange(updated, tab.project_id, machine);
       return { ok: true, tab: updated };
@@ -41,8 +40,7 @@ export async function ingestHookEvent(
 /** Records the event for the tab, updates its state and publishes the change. */
 export async function applyState(repos: Repositories, log: FastifyBaseLogger, tab: Tab, tool: string, next: Interpreted): Promise<Tab> {
   const { tab: updated } = await repos.tabs.recordEvent(tab.id, { kind: next.kind, tool, text: next.text, meta: next.meta, activity: next.activity });
-  const project = await repos.projects.findById(tab.project_id);
-  const machine = project ? await repos.machines.findById(project.machine_id) : undefined;
+  const machine = await repos.machines.findById(tab.machine_id);
   log.info({ tabId: tab.id, machineId: machine?.id, tool, kind: next.kind, textLen: next.text?.length ?? 0 }, 'monitor: tab state');
   publishTabChange(updated, tab.project_id, machine);
   return updated;

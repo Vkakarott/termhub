@@ -15,30 +15,31 @@ const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude'], checked_at: null,
   agent_version: '0.2.0', agent_last_seen_at: null, agent_auto_update: false, is_local: false, owner_id: 'u1', owner_name: null, created_at: '', ...over,
 });
-const project = (over: Partial<Project> & { id: string; machine_id: string }): Project => ({
-  name: over.id, cwd: '/src/' + over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
+const project = (over: Partial<Project> & { id: string }): Project => ({
+  owner_id: 'u1', key: over.id.toUpperCase(), next_task_number: 1, name: over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
 });
 const tab = (over: Partial<Tab> & { id: string; project_id: string }): Tab => ({
-  name: over.id, kind: 'terminal', tmux_session: 'th-' + over.id, simulator_udid: null, position: 0,
+  name: over.id, kind: 'terminal', machine_id: 'm1', tmux_session: 'th-' + over.id, simulator_udid: null, position: 0,
   state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', ...over,
 });
 const account = (over: Partial<AiAccount> & { id: string; machine_id: string }): AiAccount => ({
   provider: 'claude', label: over.id, config_dir: '/home/x/.claude-secret', created_at: '', ...over,
 });
+const l = (p: string, m: string) => ({ id: p + m, project_id: p, machine_id: m, cwd: '/src/' + p, position: 0, created_at: '' });
 
 /** Data of two users; u1 is the token's user. */
 const machines = [machine({ id: 'm1', name: 'MacBook Pro M4' }), machine({ id: 'm2', name: 'jarvis', type: 'local' }), machine({ id: 'mx', name: 'MacBook do Outro', owner_id: 'u2' })];
 const projects = [
-  project({ id: 'p1', name: 'Hub Community', machine_id: 'm1' }),
-  project({ id: 'p2', name: 'termhub', machine_id: 'm2' }),
-  project({ id: 'p3', name: 'Velho', machine_id: 'm1', status: 'archived' }),
-  project({ id: 'px', name: 'Hub Community', machine_id: 'mx' }),
+  project({ id: 'p1', name: 'Hub Community' }),
+  project({ id: 'p2', name: 'termhub' }),
+  project({ id: 'p3', name: 'Velho', status: 'archived' }),
+  project({ id: 'px', name: 'Hub Community', owner_id: 'u2' }),
 ];
+const links = [l('p1', 'm1'), l('p2', 'm2'), l('p3', 'm1'), l('px', 'mx')];
 const tabs = [tab({ id: 't1', project_id: 'p1', state: 'waiting_input', state_text: 'Posso seguir?', state_at: '2026-09-19T10:00:00.000Z' }), tab({ id: 't2', project_id: 'p1' }), tab({ id: 'ts', project_id: 'p1', kind: 'simulator', tmux_session: null })];
 const accounts = [account({ id: 'a1', label: 'pedrogoiania', machine_id: 'm1' }), account({ id: 'ax', label: 'pedrogoiania', machine_id: 'mx' })];
 
 function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:read', 'ai_accounts:read']): ControlContext {
-  const owned = (ownerId: string | null) => ownerId === 'u1';
   const repos = {
     machines: {
       list: vi.fn(async (owner: string | null) => machines.filter((m) => owner === null || m.owner_id === owner)),
@@ -46,11 +47,20 @@ function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:re
     },
     projects: {
       list: vi.fn(async (f: { machine_id?: string; owner?: string | null }) =>
-        projects.filter((p) => (!f.machine_id || p.machine_id === f.machine_id) && (f.owner == null || owned(machines.find((m) => m.id === p.machine_id)!.owner_id))),
+        projects.filter((p) => (f.owner == null || p.owner_id === f.owner) && (!f.machine_id || links.some((l) => l.project_id === p.id && l.machine_id === f.machine_id))),
       ),
       findById: vi.fn(async (id: string) => projects.find((p) => p.id === id)),
     },
-    tabs: { listByProject: vi.fn(async (pid: string) => tabs.filter((t) => t.project_id === pid)), findById: vi.fn(async (id: string) => tabs.find((t) => t.id === id)) },
+    projectMachines: {
+      listByProjects: vi.fn(async (ids: string[]) => links.filter((l) => ids.includes(l.project_id))),
+      listByProject: vi.fn(async (p: string) => links.filter((l) => l.project_id === p)),
+      find: vi.fn(async (p: string, m: string) => links.find((l) => l.project_id === p && l.machine_id === m)),
+    },
+    tabs: {
+      listByProject: vi.fn(async (pid: string) => tabs.filter((t) => t.project_id === pid)),
+      listByProjectsOnMachine: vi.fn(async (pids: string[], mid: string) => tabs.filter((t) => pids.includes(t.project_id) && t.machine_id === mid)),
+      findById: vi.fn(async (id: string) => tabs.find((t) => t.id === id)),
+    },
     aiAccounts: { list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)) },
     tasks: { listByProject: vi.fn(async (pid: string) => (pid === 'p1' ? [{ id: 'k1', title: 'XPTO', status: 'doing', tab_id: 't1', subtasks: [] }] : [])) },
   } as unknown as Repositories;
@@ -90,7 +100,7 @@ describe('listProjects', () => {
   it('hides archived projects unless asked, and names the machine', async () => {
     const r = await listProjects(ctx(), {});
     expect(r.projects.map((p) => p.id)).toEqual(['p1', 'p2']);
-    expect(r.projects[0]).toMatchObject({ id: 'p1', name: 'Hub Community', cwd: '/src/p1', machine_id: 'm1', machine_name: 'MacBook Pro M4' });
+    expect(r.projects[0]).toMatchObject({ id: 'p1', key: 'P1', name: 'Hub Community', machines: [{ machine_id: 'm1', machine_name: 'MacBook Pro M4', cwd: '/src/p1' }] });
     expect((await listProjects(ctx(), { include_archived: true })).projects.map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
   });
 
@@ -142,13 +152,15 @@ describe('listAiAccounts', () => {
 describe('find', () => {
   it('resolves names across kinds, ignoring case and accents, only in the owner\'s data', async () => {
     const r = await find(ctx(), { query: 'hub community' });
-    expect(r.matches).toEqual([{ kind: 'project', id: 'p1', name: 'Hub Community', machine_id: 'm1', machine_name: 'MacBook Pro M4', score: 3 }]);
+    expect(r.matches).toEqual([{ kind: 'project', id: 'p1', name: 'Hub Community', machine_id: null, machine_name: null, score: 3 }]);
 
     const mac = await find(ctx(), { query: 'macbook' });
     expect(mac.matches.map((m) => m.id)).toEqual(['m1']);
 
     const acc = await find(ctx(), { query: 'PEDROGOIANIA', kinds: ['ai_account'] });
     expect(acc.matches.map((m) => `${m.kind}:${m.id}`)).toEqual(['ai_account:a1']);
+
+    expect((await find(ctx(), { query: 'p2' })).matches[0]).toMatchObject({ kind: 'project', id: 'p2' });
   });
 
   it('ranks exact > prefix > contains > all words', async () => {

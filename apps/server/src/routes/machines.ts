@@ -141,9 +141,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
     await scoped(repos, request).machine(id);
-    if ((await repos.projects.list({ machine_id: id })).length > 0) {
-      throw badRequest('Remova os projetos desta máquina antes de excluí-la');
-    }
+    // The DB cascade removes this machine's project links and its own tabs; the projects survive.
     await repos.machines.delete(id);
     agents.disconnect(id, CLOSE.UNAUTHORIZED, 'deleted');
     return { ok: true };

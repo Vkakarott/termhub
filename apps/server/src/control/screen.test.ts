@@ -14,14 +14,15 @@ import type { ControlContext } from './context.js';
 import { readScreen, waitForState } from './screen.js';
 
 const m1 = { id: 'm1', owner_id: 'u1', type: 'agent' } as Machine;
-const p1 = { id: 'p1', machine_id: 'm1' } as Project;
+const p1 = { id: 'p1', owner_id: 'u1' } as Project;
 const baseTab = (over: Partial<Tab> = {}): Tab =>
-  ({ id: 't1', project_id: 'p1', name: 't1', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, position: 0, state: 'working', state_text: null, state_tool: 'claude', state_at: '2026-09-19T10:00:00.000Z', state_seen_at: null, created_at: '', ...over }) as Tab;
+  ({ id: 't1', project_id: 'p1', machine_id: 'm1', name: 't1', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, position: 0, state: 'working', state_text: null, state_tool: 'claude', state_at: '2026-09-19T10:00:00.000Z', state_seen_at: null, created_at: '', ...over }) as Tab;
 
 function ctx(tab: Tab | undefined = baseTab()): ControlContext {
   const repos = {
     tabs: { findById: vi.fn(async (id: string) => (tab && id === tab.id ? tab : undefined)) },
     projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? p1 : undefined)) },
+    projectMachines: { find: vi.fn(async () => ({ id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/p1', position: 0, created_at: '' })) },
     machines: { findById: vi.fn(async (id: string) => (id === 'm1' ? m1 : undefined)) },
   } as unknown as Repositories;
   const scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' } as const, ownerId: 'u1', createAs: 'u1' };

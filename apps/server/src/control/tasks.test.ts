@@ -4,18 +4,14 @@ vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
 
 import type { Repositories } from '../db/repositories/index.js';
 import { TaskRuleError } from '../db/repositories/tasks.js';
-import type { Machine, Project, Task, TaskWithSubtasks } from '../db/repositories/types.js';
+import type { Project, Task, TaskWithSubtasks } from '../db/repositories/types.js';
 import { Scoped } from '../auth/scope.js';
 import type { ControlContext } from './context.js';
 import { ControlError } from './context.js';
 import { addSubtasks, boardUrl, createTask, deleteTask, listTasks, moveTask, updateTask } from './tasks.js';
 
-const machine = (over: Partial<Machine> & { id: string }): Machine => ({
-  name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux'], checked_at: null,
-  agent_version: '0.2.2', agent_last_seen_at: null, agent_auto_update: false, is_local: false, owner_id: 'u1', owner_name: null, created_at: '', ...over,
-});
-const project = (over: Partial<Project> & { id: string; machine_id: string }): Project => ({
-  name: over.id, cwd: '/src/' + over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
+const project = (over: Partial<Project> & { id: string; owner_id: string }): Project => ({
+  key: over.id.toUpperCase(), next_task_number: 1, name: over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
 });
 const task = (over: Partial<Task> & { id: string; project_id: string }): Task => ({
   title: over.id, description: null, status: 'todo', position: 0, external_ref: null, external_key: null, tab_id: null, parent_id: null,
@@ -23,9 +19,8 @@ const task = (over: Partial<Task> & { id: string; project_id: string }): Task =>
 });
 const tree = (t: Task, subtasks: Task[] = []): TaskWithSubtasks => ({ ...t, subtasks, subtask_counts: { done: subtasks.filter((s) => s.status === 'done').length, total: subtasks.length } });
 
-/** u1 owns m1 (project p1); u2 owns mx (project px). */
-const machines = [machine({ id: 'm1' }), machine({ id: 'mx', owner_id: 'u2' })];
-const projects = [project({ id: 'p1', machine_id: 'm1' }), project({ id: 'px', machine_id: 'mx' })];
+/** u1 owns p1; u2 owns px. */
+const projects = [project({ id: 'p1', owner_id: 'u1' }), project({ id: 'px', owner_id: 'u2' })];
 const k1 = task({ id: 'k1', project_id: 'p1', title: 'Spec', status: 'doing', external_ref: { provider: 'linear' }, external_key: 'LIN-1' });
 const s1 = task({ id: 's1', project_id: 'p1', title: 'Write it', parent_id: 'k1', status: 'done' });
 const k2 = task({ id: 'k2', project_id: 'p1', title: 'Plan', status: 'todo', position: 1 });
@@ -34,7 +29,6 @@ const tasks = [k1, s1, k2, kx];
 
 function ctx() {
   const repos = {
-    machines: { findById: vi.fn(async (id: string) => machines.find((m) => m.id === id)) },
     projects: { findById: vi.fn(async (id: string) => projects.find((p) => p.id === id)) },
     tasks: {
       findById: vi.fn(async (id: string) => tasks.find((t) => t.id === id)),

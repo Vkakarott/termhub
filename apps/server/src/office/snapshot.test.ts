@@ -3,9 +3,9 @@ import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { buildOfficeSnapshot } from './snapshot.js';
 
 const machine = { id: 'm1', name: 'jarvis' } as Machine;
-const project = (id: string, over: Partial<Project> = {}): Project => ({ id, machine_id: 'm1', name: id, status: 'active', ...over }) as Project;
+const project = (id: string, over: Partial<Project> = {}): Project => ({ id, owner_id: 'u1', key: id.toUpperCase(), name: id, status: 'active', ...over }) as Project;
 const tab = (id: string, projectId: string, over: Partial<Tab> = {}): Tab =>
-  ({ id, project_id: projectId, name: id, kind: 'terminal', tmux_session: `th-${id}`, simulator_udid: null, position: 0, state: null, ...over }) as Tab;
+  ({ id, project_id: projectId, machine_id: 'm1', name: id, kind: 'terminal', tmux_session: `th-${id}`, simulator_udid: null, position: 0, state: null, ...over }) as Tab;
 
 describe('buildOfficeSnapshot', () => {
   it('groups tabs into their project rooms, drops archived projects and keeps empty rooms', () => {

@@ -1,5 +1,5 @@
 import { clampSize } from '@termhub/machine-ops';
-import type { Machine, Project, Tab } from '../db/repositories/types.js';
+import type { Machine, Tab } from '../db/repositories/types.js';
 import { assertSessionName } from '../terminal/machine-exec.js';
 import type { PtySession, PtySessionHandlers, PtySize } from '../terminal/pty-session.js';
 import type { AgentPtyChannel } from './connection.js';
@@ -15,7 +15,7 @@ export class AgentPtySession implements PtySession {
   static async open(
     registry: AgentRegistry,
     machine: Machine,
-    project: Project,
+    cwd: string,
     tab: Tab,
     size: Partial<PtySize>,
     handlers: PtySessionHandlers,
@@ -25,7 +25,7 @@ export class AgentPtySession implements PtySession {
     const { cols, rows } = clampSize(size);
     const channel = await registry.openPty(
       machine.id,
-      { session: tab.tmux_session, cwd: project.cwd, cols, rows },
+      { session: tab.tmux_session, cwd, cols, rows },
       {
         onData: (data) => handlers.onData(data.toString('utf8')),
         onExit: (code) => handlers.onExit(code ?? 1),

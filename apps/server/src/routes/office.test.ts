@@ -28,8 +28,8 @@ function buildApp() {
   const officeProgress = vi.fn(async () => ({ counts: { p1: { todo: 0, doing: 1, done: 0 } }, byTab: {} }));
   const repos = {
     machines: { findById: vi.fn(async (id: string) => (id === 'm1' ? { id: 'm1', name: 'jarvis', owner_id: 'u1' } : id === 'm2' ? { id: 'm2', name: 'other', owner_id: 'someone-else' } : undefined)) },
-    projects: { list: vi.fn(async () => [{ id: 'p1', machine_id: 'm1', name: 'p1', status: 'active' }]) },
-    tabs: { listByProjects: vi.fn(async () => [{ id: 't1', project_id: 'p1', name: 't1', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null }]) },
+    projects: { list: vi.fn(async () => [{ id: 'p1', owner_id: 'u1', name: 'p1', status: 'active' }]) },
+    tabs: { listByProjectsOnMachine: vi.fn(async () => [{ id: 't1', project_id: 'p1', machine_id: 'm1', name: 't1', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null }]) },
     tasks: { officeProgress },
   } as unknown as Repositories;
   app.register((a) => officeRoutes(a, repos, { simulators: { isReady: () => false } as never }), { prefix: '/office' });
@@ -43,13 +43,17 @@ describe('GET /office/:machineId', () => {
   });
 
   it('returns the floor with alive tabs and task counts', async () => {
-    const { app } = buildApp();
+    const { app, repos } = buildApp();
     const res = await app.inject({ method: 'GET', url: '/office/m1' });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.reachable).toBe(true);
     expect(body.rooms[0].tabs[0]).toMatchObject({ id: 't1', alive: true, progress: null });
     expect(body.rooms[0].tasks).toEqual({ todo: 0, doing: 1, done: 0 });
+    expect(repos.tabs.listByProjectsOnMachine).toHaveBeenCalledWith(['p1'], 'm1');
+    // scoped to the caller's own projects: a cross-owner link (admin "view as all", or a machine
+    // transfer) must not leak another owner's project names/tabs/progress onto this floor.
+    expect(repos.projects.list).toHaveBeenCalledWith({ machine_id: 'm1', owner: 'u1' });
   });
 
   // The probe never throws for the ways a machine really goes silent (offline agent, ssh timeout,
@@ -74,7 +78,7 @@ describe('GET /office/:machineId', () => {
 
   it('never asks the machine when the floor has no terminal tab', async () => {
     const { app, repos } = buildApp();
-    vi.mocked(repos.tabs.listByProjects).mockResolvedValue([{ id: 's1', project_id: 'p1', name: 's1', kind: 'simulator', tmux_session: null, simulator_udid: 'u1' }] as never);
+    vi.mocked(repos.tabs.listByProjectsOnMachine).mockResolvedValue([{ id: 's1', project_id: 'p1', machine_id: 'm1', name: 's1', kind: 'simulator', tmux_session: null, simulator_udid: 'u1' }] as never);
     const body = (await app.inject({ method: 'GET', url: '/office/m1' })).json();
     expect(probe).not.toHaveBeenCalled();
     expect(body.reachable).toBe(true);
