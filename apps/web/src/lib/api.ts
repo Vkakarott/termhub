@@ -187,7 +187,8 @@ export const api = {
       request<{ subtasks: Task[] }>('POST', `/tasks/${id}/subtasks`, { items }),
     reorder: (id: string, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/reorder`, { position }),
     pushStatus: (id: string) => request<{ task: Task; state: string }>('POST', `/tasks/${id}/push-status`, {}),
-    openTerminal: (id: string) => request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, {}),
+    openTerminal: (id: string, machineId?: string) =>
+      request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, machineId ? { machine_id: machineId } : {}),
     detachTerminal: (id: string) => request<{ task: Task }>('DELETE', `/tasks/${id}/terminal`),
   },
   tickets: {

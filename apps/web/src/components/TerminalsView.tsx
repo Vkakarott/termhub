@@ -23,26 +23,12 @@ import { TerminalView } from './Terminal';
 import { SimulatorView } from './SimulatorView';
 import { PaneLayer, PANE_HEADER_HEIGHT } from './PaneLayer';
 import { FloatingWindow, FLOATING_TITLE_HEIGHT } from './FloatingWindow';
-import { ConfirmDialog, Modal } from './Modal';
+import { ConfirmDialog } from './Modal';
+import { MachinePicker } from './MachinePicker';
 import { useData } from '../lib/data';
 import { useMarkSeenOnFocus } from '../lib/monitor';
 import { setTabsOnScreen } from '../lib/visible-tabs';
-
-const LAST_MACHINE_KEY = (projectId: string) => `termhub:last-machine:${projectId}`;
-function readLastMachine(projectId: string): string | null {
-  try {
-    return localStorage.getItem(LAST_MACHINE_KEY(projectId));
-  } catch {
-    return null;
-  }
-}
-function writeLastMachine(projectId: string, machineId: string): void {
-  try {
-    localStorage.setItem(LAST_MACHINE_KEY(projectId), machineId);
-  } catch {
-    /* private mode */
-  }
-}
+import { writeLastMachine } from '../lib/last-machine';
 
 interface Props {
   project: Project;
@@ -170,6 +156,31 @@ export function TerminalsView({ project, visible }: Props) {
     void load();
   }, [load]);
 
+  // An unlink (in this tab or another) must not leave that machine's tabs on screen until the next
+  // reload: prune them from state (and the layout, like `onClose` does) right away, then re-fetch to
+  // pick up whatever the server did (e.g. tabs it already closed on unlink).
+  const linkedMachineIds = project.machines.map((l) => l.machine_id).join(',');
+  const linkedMachineIdsMounted = useRef(false);
+  useEffect(() => {
+    if (!linkedMachineIdsMounted.current) {
+      // first run: the mount effect above already loads the tabs for the initial link set.
+      linkedMachineIdsMounted.current = true;
+      return;
+    }
+    const allowed = new Set(linkedMachineIds ? linkedMachineIds.split(',') : []);
+    setTabs((t) => {
+      if (!t) return t;
+      const stale = t.filter((x) => !allowed.has(x.machine_id));
+      if (stale.length === 0) return t;
+      for (const s of stale) dispatch({ type: 'closeTab', tabId: s.id });
+      return t.filter((x) => allowed.has(x.machine_id));
+    });
+    void load();
+    // `dispatch`/`load` are effectively stable for this purpose (see the `machinesOf` note above);
+    // this must only re-run when the set of linked machine ids actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedMachineIds]);
+
   // ?tab=<id> (from a task card) shows the tab in the focused cell and clears the param.
   useEffect(() => {
     const wanted = searchParams.get('tab');
@@ -187,11 +198,17 @@ export function TerminalsView({ project, visible }: Props) {
 
   const newTab = useCallback(
     async (kind: TabKind = 'terminal', cell?: number, machineId?: string) => {
-      if (projectMachines.length === 0) {
-        setError('Vincule uma máquina ao projeto em Setup → Máquinas para abrir terminais.');
+      // A simulator only runs on a machine with its WDA prepared; a plain terminal runs on any linked one.
+      const candidates = kind === 'simulator' ? projectMachines.filter((m) => m.capabilities.includes('wda')) : projectMachines;
+      if (candidates.length === 0) {
+        setError(
+          kind === 'simulator'
+            ? 'Nenhuma máquina vinculada tem o WDA preparado para simuladores.'
+            : 'Vincule uma máquina ao projeto em Setup → Máquinas para abrir terminais.',
+        );
         return;
       }
-      let chosen = machineId ?? (projectMachines.length === 1 ? projectMachines[0].id : undefined);
+      const chosen = machineId ?? (candidates.length === 1 ? candidates[0].id : undefined);
       if (!chosen) {
         setPicking({ kind, cell });
         return;
@@ -448,26 +465,17 @@ export function TerminalsView({ project, visible }: Props) {
           if (closing) void closeTab(closing);
         }}
       />
-      <Modal title="Abrir em qual máquina?" open={!!picking} onClose={() => setPicking(null)}>
-        <ul className="space-y-1">
-          {projectMachines.map((m) => (
-            <li key={m.id}>
-              <button
-                type="button"
-                className={`btn w-full justify-start border ${readLastMachine(project.id) === m.id ? 'border-accent' : 'border-line'} hover:bg-bg-3`}
-                onClick={() => {
-                  const p = picking!;
-                  setPicking(null);
-                  void newTab(p.kind, p.cell, m.id);
-                }}
-              >
-                {m.name}
-                <span className="ml-2 font-mono text-[11px] text-fg-dim">{project.machines.find((l) => l.machine_id === m.id)?.cwd}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </Modal>
+      <MachinePicker
+        open={!!picking}
+        project={project}
+        machines={picking?.kind === 'simulator' ? projectMachines.filter((m) => m.capabilities.includes('wda')) : projectMachines}
+        onPick={(machineId) => {
+          const p = picking!;
+          setPicking(null);
+          void newTab(p.kind, p.cell, machineId);
+        }}
+        onClose={() => setPicking(null)}
+      />
     </div>
   );
 }
