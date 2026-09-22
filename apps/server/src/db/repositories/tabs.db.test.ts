@@ -199,10 +199,17 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       const { tab: stop } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
       expect(needsYou(stop)).toBe(true);
       expect(stop.state_text).toBeNull();
-      // afterAgentResponse is not continuesWait — same wait from the toast's point of view (already
-      // needs-you), and the answer text must replace the empty stop
-      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.' });
+      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.', continuesWait: true });
       expect(needsYou(answer)).toBe(true);
+      expect(answer.state_text).toBe('Pronto.');
+    });
+
+    it('inverted Cursor race: opening the tab between stop and answer keeps one alert', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      await repo.markSeen(tabId);
+      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.', continuesWait: true });
+      expect(needsYou(answer)).toBe(false);
       expect(answer.state_text).toBe('Pronto.');
     });
 

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/p
 import os from 'node:os';
 import path from 'node:path';
 import { HOOK_SCRIPT } from '@termhub/machine-ops';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { heal, install, uninstall } from './hooks.js';
 
 let home: string;
@@ -267,21 +267,39 @@ describe('heal', () => {
     expect(await read('.codex/config.toml')).toBe('notify = ["my-notifier"]\nmodel = "o3"\n');
   });
 
-  it('repairs Cursor and Codex even when a Claude settings.json cannot be written', async () => {
+  it('repairs Cursor, Codex and a later Claude dir when an earlier settings.json cannot be written', async () => {
     await install(params, home);
     await mkdir(path.join(home, '.cursor'), { recursive: true });
     await mkdir(path.join(home, '.codex'), { recursive: true });
     await writeFile(path.join(home, '.codex/config.toml'), 'model = "o3"\n');
     // writeAtomic fails with EISDIR on the temp path (works as root; chmod would not). Merge
-    // succeeds; the write is what the per-dir try must catch without aborting other steps.
+    // succeeds; a second Claude dir after it must still repair — that is what pins writeAtomic
+    // inside the per-dir try (per-step catch alone would still return cursor+codex).
+    await writeFile(path.join(home, '.claude/settings.json'), '{}\n');
+    await mkdir(path.join(home, '.claude/settings.json.termhub-new'), { recursive: true });
+    await mkdir(path.join(home, '.claude-z'), { recursive: true });
+    await writeFile(path.join(home, '.claude-z/settings.json'), '{}\n');
+
+    await expect(heal(home)).resolves.toEqual(['~/.claude-z', '~/.cursor', '~/.codex']);
+
+    expect(await read('.claude/settings.json')).toBe('{}\n');
+    expect(JSON.parse(await read('.claude-z/settings.json')).hooks).toBeTruthy();
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toMatchObject({ version: 1 });
+    expect(await read('.codex/config.toml')).toContain('notify = [');
+  });
+
+  it('logs a Claude write failure once, then stays quiet on the next heal', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await install(params, home);
     await writeFile(path.join(home, '.claude/settings.json'), '{}\n');
     await mkdir(path.join(home, '.claude/settings.json.termhub-new'), { recursive: true });
 
-    await expect(heal(home)).resolves.toEqual(['~/.cursor', '~/.codex']);
-
-    expect(await read('.claude/settings.json')).toBe('{}\n');
-    expect(JSON.parse(await read('.cursor/hooks.json'))).toMatchObject({ version: 1 });
-    expect(await read('.codex/config.toml')).toContain('notify = [');
+    await heal(home);
+    expect(err.mock.calls.some((c) => String(c[0]).includes('monitor hooks heal skipped'))).toBe(true);
+    const n = err.mock.calls.filter((c) => String(c[0]).includes('monitor hooks heal skipped')).length;
+    await heal(home);
+    expect(err.mock.calls.filter((c) => String(c[0]).includes('monitor hooks heal skipped'))).toHaveLength(n);
+    err.mockRestore();
   });
 
   it('repairs sibling Claude dirs when one settings.json cannot be read', async () => {

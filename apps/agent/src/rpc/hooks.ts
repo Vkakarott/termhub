@@ -181,26 +181,29 @@ export async function heal(home = os.homedir()): Promise<string[]> {
   // One failing repair must not take the others down: a settings.json on a read-only mount, or one
   // owned by somebody else, would otherwise reject before Cursor and Codex are even looked at, and
   // the machine would go on missing their hooks at every reconnect - what heal exists to prevent.
-  const steps: [string, (home: string, scriptPath: string) => Promise<string[]>][] = [
-    ['claude', healClaudeDirs],
-    ['cursor', healCursor],
-    ['codex', healCodex],
-  ];
+  // Each step logs its own skips (deduped); the catch here is only a last resort so startup never dies.
+  const steps = [healClaudeDirs, healCursor, healCodex];
   const healed: string[] = [];
-  for (const [name, step] of steps) {
+  for (const step of steps) {
     try {
       healed.push(...(await step(home, scriptPath)));
-    } catch (err) {
-      // the next reconnect tries again; nothing here is worth failing the startup for — but a
-      // machine that can never repair a dir must not look identical to a healthy one in the log
-      const code = (err as NodeJS.ErrnoException)?.code;
-      console.warn(
-        `[termhub-agent] monitor hooks heal ${name} failed`,
-        code ?? (err instanceof Error ? err.message : String(err)),
-      );
+    } catch {
+      /* steps that still throw after their own handling */
     }
   }
   return healed;
+}
+
+/** Paths we already told the log about — heal runs on every reconnect (backoff ≥ 1s). */
+const healSkipLogged = new Set<string>();
+
+function logHealSkip(shown: string, err: unknown, key = shown): void {
+  if (healSkipLogged.has(key)) return;
+  healSkipLogged.add(key);
+  const code = (err as NodeJS.ErrnoException)?.code;
+  console.error(
+    `[termhub-agent] monitor hooks heal skipped ${JSON.stringify({ path: shown, error: code ?? (err instanceof Error ? err.message : String(err)) })}`,
+  );
 }
 
 /** Our entries in the Claude config dirs that lack them; answers the dirs it wrote. */
@@ -214,7 +217,8 @@ async function healClaudeDirs(home: string, scriptPath: string): Promise<string[
       const body = mergeClaudeSettings(current, scriptPath, `${dir}/settings.json`);
       if (body === current) continue;
       await writeAtomic(file, body, 0o644);
-    } catch {
+    } catch (err) {
+      logHealSkip(dir, err, file);
       continue; // not a settings file we understand, or one we cannot write: leave it where it is
     }
     healed.push(dir);
@@ -230,15 +234,17 @@ async function healClaudeDirs(home: string, scriptPath: string): Promise<string[
 async function healCursor(home: string, scriptPath: string): Promise<string[]> {
   if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return [];
   const file = path.join(home, CURSOR_HOOKS_REL);
+  const shown = `~/${CURSOR_DIR_REL}`;
   try {
     const current = await readOrEmpty(file);
     const body = mergeCursorHooks(current, scriptPath);
     if (body === current) return [];
     await writeAtomic(file, body, 0o644);
-  } catch {
+  } catch (err) {
+    logHealSkip(shown, err, file);
     return []; // a file we cannot read or write: leave it where it is
   }
-  return [`~/${CURSOR_DIR_REL}`];
+  return [shown];
 }
 
 /**
@@ -248,11 +254,17 @@ async function healCursor(home: string, scriptPath: string): Promise<string[]> {
  */
 async function healCodex(home: string, scriptPath: string): Promise<string[]> {
   if (!(await isDir(path.join(home, CODEX_DIR_REL)))) return [];
-  const file = path.join(home, CODEX_CONFIG_REL);
-  const current = await readOrEmpty(file);
-  if (/^\s*notify\s*=/m.test(current)) return [];
-  await writeAtomic(file, mergeCodexConfig(current, scriptPath), 0o644);
-  return [`~/${CODEX_DIR_REL}`];
+  const shown = `~/${CODEX_DIR_REL}`;
+  try {
+    const file = path.join(home, CODEX_CONFIG_REL);
+    const current = await readOrEmpty(file);
+    if (/^\s*notify\s*=/m.test(current)) return [];
+    await writeAtomic(file, mergeCodexConfig(current, scriptPath), 0o644);
+    return [shown];
+  } catch (err) {
+    logHealSkip(shown, err, path.join(home, CODEX_CONFIG_REL));
+    return [];
+  }
 }
 
 export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.homedir()): Promise<RpcResult<'hooks.uninstall'>> {

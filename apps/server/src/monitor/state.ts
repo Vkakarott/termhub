@@ -113,7 +113,10 @@ function interpretCursor(ev: Record<string, unknown>): Interpreted | null {
       // the prompt is the user's content: only the fact that it is busy is kept
       return { kind: 'working', text: null, meta: { event: name } };
     case 'afterAgentResponse':
-      return { kind: 'waiting_input', text: cap(str(ev.text)), meta: { event: name } };
+      // Same wait as `stop`: when stop arrived first (inverted race) and the person already saw
+      // the tab, this must carry the seen mark and only fill in the answer — not open a second alert.
+      // From `working` it is still a new wait (`continuesWait` only continues an open waiting_input).
+      return { kind: 'waiting_input', text: cap(str(ev.text)), meta: { event: name }, continuesWait: true };
     case 'stop':
       // Whatever the status (completed, or the error then aborted an Esc sends), the turn ended, so the
       // tab is waiting — always as a continuation: when afterAgentResponse already opened this wait,

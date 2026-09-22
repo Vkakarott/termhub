@@ -130,6 +130,7 @@ describe('interpretHookEvent — cursor', () => {
       kind: 'waiting_input',
       text: 'Pronto. Posso seguir?',
       meta: { event: 'afterAgentResponse' },
+      continuesWait: true,
     });
     expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'x'.repeat(5000) })?.text?.length).toBe(STATE_TEXT_MAX);
   });
@@ -155,12 +156,12 @@ describe('interpretHookEvent — cursor', () => {
     expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'error', loop_count: 0 })?.kind).toBe('waiting_input');
   });
 
-  it('marks every stop that is not completed as continuing a wait already open: never a second alert in one turn', () => {
-    // Esc sends two (error, then aborted); a status this code does not know, or none at all, may follow an answer
+  it('marks answer and stop as continuing a wait already open: never a second alert in one turn', () => {
+    // Esc sends two stops (error, then aborted); afterAgentResponse after an inverted stop must not re-arm
     for (const status of ['completed', 'aborted', 'error', 'renamed-in-a-later-release', undefined]) {
       expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status })?.continuesWait).toBe(true);
     }
-    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'um' })?.continuesWait).toBeUndefined();
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'um' })?.continuesWait).toBe(true);
   });
 
   it('marks the tab idle when the session ends', () => {
