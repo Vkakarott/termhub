@@ -2,7 +2,11 @@
 <html lang="pt-BR" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `interactive-widget=resizes-content`: the on-screen keyboard resizes the layout viewport
+         instead of sliding over it, so a full-screen shell shrinks by itself. Chromium honours it
+         (Android above all); Safari ignores it, which is why the chat also tracks the visual
+         viewport by hand (src/lib/viewport.ts). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="dark" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>termhub</title>

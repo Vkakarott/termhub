@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { CLOSE, type PtyOpenParams, type RpcMethod, type RpcParams, type RpcResult } from '@termhub/agent-protocol';
-import type { AgentConnection, AgentPtyChannel, PtyHandlers } from './connection.js';
+import { CLOSE, type ClaudeOpenParams, type PtyOpenParams, type RpcMethod, type RpcParams, type RpcResult } from '@termhub/agent-protocol';
+import type { AgentChannel, AgentConnection, AgentPtyChannel, ChannelHandlers, PtyHandlers } from './connection.js';
 
 export class AgentOfflineError extends Error {}
 
@@ -67,6 +67,25 @@ export class AgentRegistry extends EventEmitter {
       return Promise.reject(new AgentOfflineError(`agent offline: ${machineId}`));
     }
     return conn.openPty(params, handlers);
+  }
+
+  /** A headless Claude run on that machine (the chat's `agentRunner`). */
+  openClaude(machineId: string, params: ClaudeOpenParams, handlers: ChannelHandlers): Promise<AgentChannel> {
+    const conn = this.conns.get(machineId);
+    if (!conn) {
+      return Promise.reject(new AgentOfflineError(`agent offline: ${machineId}`));
+    }
+    return conn.openClaude(params, handlers);
+  }
+
+  /**
+   * What the machine's agent said it understands beyond a terminal, or `null` when there is nobody to
+   * ask: not connected, or connected but still before `hello` — the same thing to a caller that needs
+   * the answer now. An agent from before the field existed reports `[]`, so "understands nothing
+   * extra" and "too old to know" read alike, which is exactly what they are.
+   */
+  capabilities(machineId: string): string[] | null {
+    return this.conns.get(machineId)?.hello?.capabilities ?? null;
   }
 
   disconnect(machineId: string, code: number, reason?: string): void {

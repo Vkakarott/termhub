@@ -10,6 +10,10 @@ export interface ChatConversation {
   title: string | null;
   cli_session_id: string | null;
   model: string | null;
+  /** The host: the user's own machine this conversation runs on. Null = not chosen yet. */
+  machine_id: string | null;
+  /** The Claude account on that host. Null = the machine's default config dir. */
+  ai_account_id: string | null;
   review_mode: boolean;
   last_message_at: string | null;
   created_at: string;
@@ -31,6 +35,8 @@ const mapConversation = (c: PrismaConversation): ChatConversation => ({
   title: c.title,
   cli_session_id: c.cliSessionId,
   model: c.model,
+  machine_id: c.machineId,
+  ai_account_id: c.aiAccountId,
   review_mode: c.reviewMode,
   last_message_at: c.lastMessageAt?.toISOString() ?? null,
   created_at: c.createdAt.toISOString(),
@@ -71,6 +77,63 @@ export class ChatRepository {
 
   async setCliSession(id: string, sessionId: string | null): Promise<void> {
     await this.db.chatConversation.update({ where: { id }, data: { cliSessionId: sessionId } });
+  }
+
+  /**
+   * Points the conversation at the machine and the account that will run it (spec §3).
+   *
+   * Clears `cli_session_id` only when the pair **provably moved**: a machine that was stored and is now
+   * a different one, or a different account. The CLI's session lives inside the config directory of the
+   * machine that ran it, so it exists neither on another host nor under a second login on the same one,
+   * and keeping the uuid would ask that host to `--resume` a session it has never seen. Our own
+   * transcript is never touched either way.
+   *
+   * A conversation with **no machine stored keeps its session**, and that is the whole point of this
+   * comparison: with a single machine the host is resolved on the fly and nothing is written, so the run
+   * happened on the very machine that was then the only candidate — naming it now (which is what the
+   * user does the moment they enrol a second machine and are asked to choose) moves no host at all, and
+   * wiping the model's memory of the conversation for it would be pure loss. The opposite mistake is
+   * cheap and self-healing: a user who instead names a machine the session was never on gets one
+   * `missing_session` on their next message, which `ChatService` already answers by starting a fresh
+   * session (spec §11's existing path), while a session dropped here is gone for good.
+   *
+   * Read and write in one transaction: two host changes racing must not both read "unchanged" and leave
+   * a session pointing at neither host.
+   *
+   * Ownership is the caller's business: the route resolves both ids through owner-scoped reads before
+   * calling this, exactly like every other write that takes an id from the browser.
+   */
+  /**
+   * Records the machine a run is about to use, but **only when the conversation names none** — never
+   * over a choice the user made, and never a second time.
+   *
+   * Without this, `machine_id === null` means two different things that need different screens: "nothing
+   * was ever chosen" (the single-machine user, where the auto-pick is simply right) and "the host this
+   * conversation ran on was unenrolled and the foreign key nulled it" (where `cli_session_id` still
+   * points at a session in that machine's config dir, and the next run on another machine loses the
+   * model's memory). Pinning the auto-pick the first time it actually runs is what makes the second one
+   * recognisable — and it is what `resolveHost` reads to warn before that loss instead of after it.
+   *
+   * `updateMany` with the null in the filter, so the guard is the database's and not a read-then-write:
+   * a host chosen between the resolve and this call keeps the user's choice.
+   */
+  async pinHostMachine(id: string, machineId: string): Promise<void> {
+    await this.db.chatConversation.updateMany({ where: { id, machineId: null }, data: { machineId } });
+  }
+
+  async setHost(id: string, host: { machine_id: string; ai_account_id: string | null }): Promise<ChatConversation> {
+    return this.db.$transaction(async (tx) => {
+      const current = await tx.chatConversation.findUnique({ where: { id } });
+      // A null stored machine is "not known to have moved", never "moved from nothing".
+      const machineMoved = current !== null && current.machineId !== null && current.machineId !== host.machine_id;
+      const accountMoved = (current?.aiAccountId ?? null) !== host.ai_account_id;
+      const moved = machineMoved || accountMoved;
+      const row = await tx.chatConversation.update({
+        where: { id },
+        data: { machineId: host.machine_id, aiAccountId: host.ai_account_id, ...(moved ? { cliSessionId: null } : {}) },
+      });
+      return mapConversation(row);
+    });
   }
 
   async addMessage(input: { conversation_id: string; role: ChatRole; text: string; usage?: unknown; error_code?: string | null }): Promise<ChatMessage> {

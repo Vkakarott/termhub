@@ -54,6 +54,8 @@ jobs:
         run: npm test -w @termhub/agent-protocol
       - name: Testes machine-ops
         run: npm test -w @termhub/machine-ops
+      - name: Testes claude-cli
+        run: npm test -w @termhub/claude-cli
       - name: Typecheck server
         run: npm run typecheck -w @termhub/server
       - name: Typecheck + build web

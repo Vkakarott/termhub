@@ -53,6 +53,29 @@ describe('ChatComposer', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
+  it('sends on ⌘+Enter, the shortcut people bring from every other message box', () => {
+    const onSend = vi.fn();
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>
+      ({ matches: query.includes('coarse') }) as MediaQueryList;
+    render(<Harness onSend={onSend} />);
+    const box = screen.getByPlaceholderText(/pergunte/i);
+
+    fireEvent.change(box, { target: { value: 'oi' } });
+    // Coarse pointer on purpose: plain Enter is a newline here, and ⌘+Enter still has to send.
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    expect(onSend).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not send on ⌘+Enter with an empty box', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    fireEvent.keyDown(screen.getByPlaceholderText(/pergunte/i), { key: 'Enter', metaKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('does not send on Enter with a coarse pointer, where Enter is how a line gets started', () => {
     const onSend = vi.fn();
     (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>
@@ -63,6 +86,27 @@ describe('ChatComposer', () => {
     fireEvent.change(box, { target: { value: 'oi' } });
     fireEvent.keyDown(box, { key: 'Enter' });
 
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('refuses to send while the host cannot run it, says why, and still lets the message be typed', () => {
+    const onSend = vi.fn();
+    render(<ChatComposer value="o que está rodando?" onChange={() => {}} onSend={onSend} sending={false} blockedReason="a máquina do chat está offline" />);
+    const box = screen.getByPlaceholderText(/pergunte/i) as HTMLTextAreaElement;
+    const button = screen.getByRole('button', { name: /enviar/i }) as HTMLButtonElement;
+
+    // The reason is on screen, next to the button that is refusing — a box that goes grey in silence is
+    // the one thing this screen must never do.
+    expect(screen.getByText('a máquina do chat está offline')).toBeTruthy();
+    expect(button.disabled).toBe(true);
+    // …and the box itself stays usable: a message can be written while the machine is being woken up.
+    expect(box.readOnly).toBe(false);
+    expect(box.disabled).toBe(false);
+
+    // Neither the button nor the keyboard can get past it.
+    fireEvent.click(button);
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = () => ({ matches: false }) as MediaQueryList;
+    fireEvent.keyDown(box, { key: 'Enter' });
     expect(onSend).not.toHaveBeenCalled();
   });
 

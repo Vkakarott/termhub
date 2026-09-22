@@ -12,25 +12,34 @@ const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoi
    * Pins the scene-mount effect's stability: no WebGL in jsdom, so `OfficeScene` itself is replaced
    * with a spy-able stand-in that records what the page does to it, instead of trying to draw anything.
    */
+  type Target = { kind: 'city' } | { kind: 'machine'; machineId: string } | { kind: 'room'; machineId: string; roomId: string };
   class FakeOfficeScene {
     static instances: FakeOfficeScene[] = [];
-    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickRoom: (id: string) => void; onPickSign: (id: string) => void; onLeaveRoom: () => void };
-    models: unknown[] = [];
-    focusCalls: Array<[string | null, boolean | undefined]> = [];
+    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickRoom: (machineId: string, roomId: string) => void; onPickMachine: (machineId: string) => void; onPickSign: (id: string) => void; onGoUp: () => void };
+    models: Array<{ machines: Array<{ id: string; floor: { rooms: Array<{ id: string }> } }> }> = [];
+    focusCalls: Array<[Target, boolean | undefined]> = [];
     destroyed = false;
     constructor(handlers: FakeOfficeScene['handlers']) {
       this.handlers = handlers;
       FakeOfficeScene.instances.push(this);
     }
+    /** every target the page asked for, in order */
+    get targets(): Target[] {
+      return this.focusCalls.map(([t]) => t);
+    }
+    /** which machines the last model the page handed over carries */
+    get machineIds(): string[] {
+      return (this.models.at(-1)?.machines ?? []).map((m) => m.id);
+    }
     async mount(): Promise<void> {}
     destroy(): void {
       this.destroyed = true;
     }
-    setModel(model: unknown): void {
+    setModel(model: FakeOfficeScene['models'][number]): void {
       this.models.push(model);
     }
-    focusRoom(roomId: string | null, snap?: boolean): void {
-      this.focusCalls.push([roomId, snap]);
+    focus(target: Target, snap?: boolean): void {
+      this.focusCalls.push([target, snap]);
     }
   }
   return {
@@ -54,33 +63,62 @@ import { FocusProvider } from '../lib/focus';
 import { OfficePage } from './OfficePage';
 
 const tab = (id: string, projectId: string): OfficeTab =>
-  ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, alive: true, progress: null }) as OfficeTab;
+  ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, alive: true, progress: null }) as OfficeTab;
 const room = (id: string, tabs: OfficeTab[] = []): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null });
 const snap = (machineId: string, rooms: OfficeRoom[]): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms });
 
+/** m1 "jarvis" with two rooms that have desks (no auto-drill), m2 "hal" with one. */
+function twoMachines() {
+  dataState.current = {
+    machines: [
+      { id: 'm1', name: 'jarvis' },
+      { id: 'm2', name: 'hal' },
+    ],
+    projects: [
+      { id: 'p1', machine_id: 'm1', status: 'active' },
+      { id: 'p1b', machine_id: 'm1', status: 'active' },
+      { id: 'p2', machine_id: 'm2', status: 'active' },
+    ],
+    statuses: { m1: 'online', m2: 'online' },
+    loading: false,
+  };
+  officeMock.mockImplementation((id: string) =>
+    Promise.resolve(id === 'm1' ? snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]) : snap('m2', [room('p2', [tab('t2', 'p2')])])),
+  );
+}
+
 // lets a test drive real react-router navigation (path AND query string) the same way a production
-// click or a pasted URL would, instead of only ever changing props — this is what actually exercises
-// the "snapshot/model still belongs to the previous machine for one render" window the bug lived in
+// click or a pasted URL would, instead of only ever changing props — the rests of the office are
+// URLs, so every move the page makes has to be read back from the location
 let testNavigate: NavigateFunction | undefined;
+let testPath = '';
 let testSearch = '';
 function NavCapture() {
   testNavigate = useNavigate();
-  testSearch = useLocation().search;
+  const location = useLocation();
+  testPath = location.pathname;
+  testSearch = location.search;
   return null;
 }
 
-function renderPage(initialEntry = '/office/m1') {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <FocusProvider>
-        <NavCapture />
-        <Routes>
-          <Route path="/office/:machineId" element={<OfficePage />} />
-        </Routes>
-      </FocusProvider>
-    </MemoryRouter>,
-  );
+const tree = (initialEntry: string) => (
+  <MemoryRouter initialEntries={[initialEntry]}>
+    <FocusProvider>
+      <NavCapture />
+      <Routes>
+        <Route path="/office" element={<OfficePage />} />
+        <Route path="/office/:machineId" element={<OfficePage />} />
+      </Routes>
+    </FocusProvider>
+  </MemoryRouter>
+);
+
+function renderPage(initialEntry = '/office') {
+  return render(tree(initialEntry));
 }
+
+const scene = () => FakeOfficeScene.instances[0];
+const escape = () => fireEvent.keyDown(document.body, { key: 'Escape' });
 
 beforeEach(() => {
   FakeOfficeScene.instances = [];
@@ -88,6 +126,7 @@ beforeEach(() => {
   canMock.mockReset();
   canMock.mockReturnValue(true);
   testNavigate = undefined;
+  testPath = '';
   testSearch = '';
   dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' }, loading: true };
   monitorState.current = { items: [], needsYou: [], tabState: () => undefined, connected: true };
@@ -98,81 +137,87 @@ afterEach(() => {
 });
 
 describe('OfficePage scene lifecycle', () => {
-  it('mounts exactly one scene once data has loaded, and hands it a model (pins the round-1 fix)', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [])]));
+  it('builds one scene for the visit and hands it the whole city', async () => {
+    twoMachines();
+    dataState.current = { ...dataState.current, loading: true };
     const { rerender } = renderPage();
     // loading: the host <div> does not exist yet — the mount effect must not have anything to grab
     expect(FakeOfficeScene.instances).toHaveLength(0);
 
     dataState.current = { ...dataState.current, loading: false };
     await act(async () => {
-      rerender(
-        <MemoryRouter initialEntries={['/office/m1']}>
-          <FocusProvider>
-            <NavCapture />
-            <Routes>
-              <Route path="/office/:machineId" element={<OfficePage />} />
-            </Routes>
-          </FocusProvider>
-        </MemoryRouter>,
-      );
+      rerender(tree('/office'));
     });
 
     expect(FakeOfficeScene.instances).toHaveLength(1);
-    expect(FakeOfficeScene.instances[0].models.length).toBeGreaterThan(0);
+    // one scene for the whole account, not one floor at a time
+    expect(scene().machineIds.slice().sort()).toEqual(['m1', 'm2']);
   });
 
-  it('keeps the same scene across a room click and a focus-mode toggle (both only change the query string)', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', []), room('p2', [])]));
-    dataState.current = { ...dataState.current, loading: false };
-    renderPage();
+  it('keeps the same scene from the city into a machine, a room and back up', async () => {
+    twoMachines();
+    renderPage('/office?focus=1');
     await act(async () => {});
-
     expect(FakeOfficeScene.instances).toHaveLength(1);
-    const scene = FakeOfficeScene.instances[0];
+    const only = scene();
 
-    // simulate a click on a room in the (faked) scene, exactly as the real OfficeScene would call back
-    act(() => scene.handlers.onPickRoom('p1'));
-    expect(await screen.findByText('← voltar ao andar')).toBeTruthy();
-    expect(FakeOfficeScene.instances).toHaveLength(1); // no new scene was constructed
-    expect(scene.destroyed).toBe(false);
-    expect(scene.focusCalls.at(-1)?.[0]).toBe('p1');
+    act(() => only.handlers.onPickMachine('m1'));
+    await act(async () => {});
+    expect(testPath).toBe('/office/m1');
 
-    // toggling focus mode changes ?focus=1 the same way a room click changes ?room= — assert the
-    // query string really moved (a real FocusProvider is in the tree, not the no-op default context)
-    // before trusting the "scene didn't move" assertions below
+    act(() => only.handlers.onPickRoom('m1', 'p1'));
+    await act(async () => {});
+    expect(testSearch).toContain('room=p1');
+
+    escape();
+    await act(async () => {});
+    expect(testSearch).not.toContain('room=');
+
+    escape();
+    await act(async () => {});
+    expect(testPath).toBe('/office');
+
+    // every rest of the walk is a camera move on ONE scene: the canvas never blanks
+    expect(FakeOfficeScene.instances).toHaveLength(1);
+    expect(only.destroyed).toBe(false);
+    expect(only.targets.slice(-3)).toEqual([
+      { kind: 'room', machineId: 'm1', roomId: 'p1' },
+      { kind: 'machine', machineId: 'm1' },
+      { kind: 'city' },
+    ]);
+  });
+
+  it('keeps the same scene when focus mode is toggled by the real button, not just the fake scene', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    renderPage('/office/m1');
+    await act(async () => {});
+    expect(FakeOfficeScene.instances).toHaveLength(1);
+    const only = scene();
+
     fireEvent.click(screen.getByText('modo foco'));
     await act(async () => {});
-    expect(screen.getByText('sair do foco (Esc)')).toBeTruthy(); // only rendered while focus === true
-    expect(screen.queryByText('modo foco')).toBeNull(); // the top bar (and its button) is gone in focus mode
-    expect(FakeOfficeScene.instances).toHaveLength(1);
-    expect(scene.destroyed).toBe(false);
-  });
+    expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
 
-  it('auto-drills into the one room with desks without recreating the scene', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')])]));
-    dataState.current = { ...dataState.current, loading: false };
-    renderPage();
+    fireEvent.click(screen.getByText('sair do foco (Esc)'));
     await act(async () => {});
+    expect(screen.getByText('modo foco')).toBeTruthy();
 
-    expect(await screen.findByText('← voltar ao andar')).toBeTruthy();
+    // the real button, not just the fake scene's onGoUp/handlers, must not force a remount
     expect(FakeOfficeScene.instances).toHaveLength(1);
-    expect(FakeOfficeScene.instances[0].destroyed).toBe(false);
-    expect(FakeOfficeScene.instances[0].models.length).toBeGreaterThan(0);
+    expect(only.destroyed).toBe(false);
   });
 
   it('leaves a room without pushing history, so Back does not walk straight back in', async () => {
-    // two rooms with desks: no auto-drill, so the room is entered by a real click (a push)
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p2', [tab('t2', 'p2')])]));
-    dataState.current = { ...dataState.current, loading: false };
-    renderPage();
+    twoMachines();
+    renderPage('/office/m1');
     await act(async () => {});
 
-    act(() => FakeOfficeScene.instances[0].handlers.onPickRoom('p1'));
+    act(() => scene().handlers.onPickRoom('m1', 'p1'));
     await act(async () => {});
     expect(testSearch).toBe('?room=p1');
 
-    fireEvent.click(screen.getByText('← voltar ao andar'));
+    escape();
     await act(async () => {});
     expect(testSearch).toBe('');
 
@@ -181,37 +226,234 @@ describe('OfficePage scene lifecycle', () => {
     expect(testSearch).toBe('');
   });
 
-  it('never seeds a machine-changed scene with the previous machine\'s model or focus target', async () => {
+  it('gives the same scene the block of a slow machine as soon as it answers', async () => {
     let resolveM2: ((s: OfficeSnapshot) => void) | undefined;
     const pendingM2 = new Promise<OfficeSnapshot>((resolve) => {
       resolveM2 = resolve;
     });
-    officeMock.mockImplementation((id: string) => (id === 'm1' ? Promise.resolve(snap('m1', [room('p1', [tab('t1', 'p1')])])) : pendingM2));
-    dataState.current = { ...dataState.current, machines: [{ id: 'm1', name: 'jarvis' }, { id: 'm2', name: 'hal' }], loading: false };
-    renderPage();
+    twoMachines();
+    officeMock.mockImplementation((id: string) => (id === 'm1' ? Promise.resolve(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [])])) : pendingM2));
+    renderPage('/office');
     await act(async () => {});
 
     expect(FakeOfficeScene.instances).toHaveLength(1);
-    const m1Scene = FakeOfficeScene.instances[0];
-    expect(m1Scene.models.length).toBeGreaterThan(0); // m1's floor is on screen
-    expect(m1Scene.focusCalls.some(([roomId]) => roomId === 'p1')).toBe(true); // auto-drilled into p1
-
-    // a direct URL change that keeps the same ?room=p1 — the exact shape of the finding: the new
-    // machine's snapshot is still pending, and the query string coincidentally still says "p1"
-    act(() => testNavigate?.('/office/m2?room=p1'));
-    await act(async () => {});
-
-    expect(FakeOfficeScene.instances).toHaveLength(2); // machineId IS a legitimate reason to recreate
-    expect(m1Scene.destroyed).toBe(true);
-    const m2Scene = FakeOfficeScene.instances[1];
-    expect(m2Scene.models).toHaveLength(0); // never handed m1's model
-    expect(m2Scene.focusCalls.every(([roomId]) => roomId !== 'p1')).toBe(true); // never asked to frame m1's room
+    const only = scene();
+    expect(only.machineIds).toEqual(['m1']); // a machine still loading is not drawn as an empty block
 
     await act(async () => {
       resolveM2?.(snap('m2', [room('p2', [])]));
     });
-    expect(m2Scene.models.length).toBeGreaterThan(0);
-    expect(m2Scene.models.at(-1)).toMatchObject({ rooms: [{ id: 'p2' }] });
+    expect(FakeOfficeScene.instances).toHaveLength(1);
+    expect(only.destroyed).toBe(false);
+    expect(only.machineIds.slice().sort()).toEqual(['m1', 'm2']);
+  });
+});
+
+describe('OfficePage rests and the URL', () => {
+  it('with a single machine, /office lands on that machine and keeps ?focus=1', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    renderPage('/office?focus=1');
+    await act(async () => {});
+
+    expect(testPath).toBe('/office/m1');
+    expect(testSearch).toBe('?focus=1'); // a wall display in focus mode must stay in focus mode
+  });
+
+  it('with a single machine, the ladder skips the city: room, machine, out of focus mode', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')])]));
+    dataState.current = { ...dataState.current, loading: false };
+    renderPage('/office/m1?focus=1');
+    await act(async () => {});
+    expect(new URLSearchParams(testSearch).get('room')).toBe('p1'); // the only room with desks
+
+    escape();
+    await act(async () => {});
+    expect(testSearch).toBe('?focus=1');
+
+    escape();
+    await act(async () => {});
+    // the city rung is skipped: /office with one machine would auto-drill straight back here
+    expect(testPath).toBe('/office/m1');
+    expect(testSearch).toBe('');
+    expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm1' });
+    // the UI itself left focus mode, not just the URL: the top bar is back, the corner button is gone
+    expect(screen.getByText('Escritório')).toBeTruthy();
+    expect(screen.queryByText('sair do foco (Esc)')).toBeNull();
+  });
+
+  it('a zoom-out gesture never leaves focus mode, even at the rest of a single machine', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    renderPage('/office/m1?focus=1'); // two rooms with desks: no auto-drill, rests at the machine
+    await act(async () => {});
+    expect(testPath).toBe('/office/m1');
+    expect(testSearch).toBe('?focus=1');
+
+    // the scene's own zoom-out gesture (a wheel gesture on a wall monitor), not Esc
+    act(() => scene().handlers.onGoUp());
+    await act(async () => {});
+
+    expect(testPath).toBe('/office/m1'); // still at the machine
+    expect(testSearch).toBe('?focus=1'); // still in focus mode
+    expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
+    expect(screen.queryByText('Escritório')).toBeNull(); // top bar still absent
+  });
+
+  it('with several machines, /office rests on the city', async () => {
+    twoMachines();
+    renderPage('/office');
+    await act(async () => {});
+
+    expect(testPath).toBe('/office');
+    expect(scene().targets.at(-1)).toEqual({ kind: 'city' });
+  });
+
+  it('sends an unknown machine back to the city', async () => {
+    twoMachines();
+    renderPage('/office/ghost');
+    await act(async () => {});
+
+    expect(testPath).toBe('/office');
+  });
+
+  it('never frames a room of another machine', async () => {
+    twoMachines();
+    renderPage('/office/m1?room=p2'); // p2 exists in the city, but on m2's block
+    await act(async () => {});
+
+    expect(scene().machineIds.slice().sort()).toEqual(['m1', 'm2']);
+    expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm1' });
+  });
+
+  it('auto-drills into the only room with desks on a direct load', async () => {
+    twoMachines();
+    renderPage('/office/m2'); // hal has exactly one room with desks
+    await act(async () => {});
+
+    expect(testSearch).toBe('?room=p2');
+    expect(FakeOfficeScene.instances).toHaveLength(1);
+    expect(scene().targets.at(-1)).toEqual({ kind: 'room', machineId: 'm2', roomId: 'p2' });
+  });
+
+  it('does not auto-drill after a click on a block', async () => {
+    twoMachines();
+    renderPage('/office');
+    await act(async () => {});
+
+    act(() => scene().handlers.onPickMachine('m2'));
+    await act(async () => {});
+
+    // clicking a block asks for the block: the person is looking at the machine, not at one room
+    expect(testPath).toBe('/office/m2');
+    expect(testSearch).toBe('');
+    expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm2' });
+  });
+
+  it('auto-drills a machine reached directly after a hand-clicked visit to another machine was left with Esc', async () => {
+    twoMachines(); // m1 has two rooms with desks (no drill of its own); m2 has exactly one
+    renderPage('/office');
+    await act(async () => {});
+
+    act(() => scene().handlers.onPickMachine('m1'));
+    await act(async () => {});
+    expect(testPath).toBe('/office/m1');
+
+    escape(); // machine -> city
+    await act(async () => {});
+    expect(testPath).toBe('/office');
+
+    // arriving directly at m2 (a pasted URL, or Back/Forward) — m2 was never clicked
+    await act(async () => {
+      testNavigate?.('/office/m2');
+    });
+    expect(testSearch).toBe('?room=p2');
+    expect(scene().targets.at(-1)).toEqual({ kind: 'room', machineId: 'm2', roomId: 'p2' });
+  });
+
+  it('does not re-drill a machine already left, when Back returns to its rest', async () => {
+    twoMachines();
+    renderPage('/office/m2'); // auto-drills into its only room, p2
+    await act(async () => {});
+    expect(testSearch).toBe('?room=p2');
+
+    escape(); // room -> machine
+    await act(async () => {});
+    expect(testSearch).toBe('');
+
+    // back into the room by hand, this time pushing history — so Back below is a real arrival at
+    // the machine rest, not the no-op navigation to the URL the page already sits at
+    act(() => scene().handlers.onPickRoom('m2', 'p2'));
+    await act(async () => {});
+    expect(testSearch).toBe('?room=p2');
+
+    await act(async () => {
+      testNavigate?.(-1);
+    });
+    expect(testPath).toBe('/office/m2');
+    expect(testSearch).toBe(''); // Back left the room; the drill must not push us straight back in
+  });
+
+  it('enters a room straight from the city and keeps ?focus=1 all the way', async () => {
+    twoMachines();
+    renderPage('/office?focus=1');
+    await act(async () => {});
+
+    act(() => scene().handlers.onPickRoom('m2', 'p2'));
+    await act(async () => {});
+    expect(testPath).toBe('/office/m2');
+    expect(new URLSearchParams(testSearch).get('room')).toBe('p2');
+    expect(new URLSearchParams(testSearch).get('focus')).toBe('1');
+
+    escape();
+    await act(async () => {});
+    expect(new URLSearchParams(testSearch).get('room')).toBeNull();
+    expect(new URLSearchParams(testSearch).get('focus')).toBe('1');
+
+    act(() => scene().handlers.onPickMachine('m1'));
+    await act(async () => {});
+    expect(testPath).toBe('/office/m1');
+    expect(new URLSearchParams(testSearch).get('focus')).toBe('1');
+  });
+});
+
+describe('OfficePage top bar', () => {
+  it('renders the breadcrumb inside a room, and its city part goes back up', async () => {
+    twoMachines();
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    const trail = screen.getByLabelText('Trilha');
+    expect(trail.textContent).toBe('Cidade›jarvis›p1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cidade' }));
+    await act(async () => {});
+    expect(testPath).toBe('/office');
+    expect(scene().targets.at(-1)).toEqual({ kind: 'city' });
+  });
+
+  it('steps out to the block when the machine part is clicked inside its only room', async () => {
+    twoMachines();
+    // arriving straight inside a room (a v1 link, Back, or a room clicked from the city) on a
+    // machine whose single room has desks: the machine part of the trail used to be a dead click,
+    // because the auto-drill had never seen this machine "arrived at" and sent us back in
+    renderPage('/office/m2?room=p2');
+    await act(async () => {});
+    expect(testSearch).toBe('?room=p2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'hal' }));
+    await act(async () => {});
+    expect(testPath).toBe('/office/m2');
+    expect(testSearch).toBe('');
+  });
+
+  it('leaves the city part out of the breadcrumb with a single machine', async () => {
+    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')])]));
+    dataState.current = { ...dataState.current, loading: false };
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    expect(screen.getByLabelText('Trilha').textContent).toBe('jarvis›p1');
   });
 });
 
@@ -230,10 +472,10 @@ describe('OfficePage status notices', () => {
     expect(screen.getByText('reconectando…')).toBeTruthy();
   });
 
-  it('shows "máquina offline" and the tmux notice in both modes', async () => {
+  it('shows "máquina offline" at the machine rest in both modes', async () => {
     officeMock.mockResolvedValue({ ...snap('m1', [room('p1', [])]), reachable: false });
     dataState.current = { ...dataState.current, loading: false, statuses: { m1: 'offline' as const } };
-    const { unmount } = renderPage();
+    const { unmount } = renderPage('/office/m1');
     await act(async () => {});
     expect(screen.getByText('máquina offline')).toBeTruthy();
     unmount();
@@ -243,5 +485,51 @@ describe('OfficePage status notices', () => {
     expect(screen.getByText('máquina offline')).toBeTruthy();
     // an offline machine already explains the silence; the tmux notice is for a machine that answers
     expect(screen.queryByText(/sem resposta do tmux/)).toBeNull();
+  });
+
+  it('says so when a machine that answers cannot read its tmux', async () => {
+    officeMock.mockResolvedValue({ ...snap('m1', [room('p1', [])]), reachable: false });
+    dataState.current = { ...dataState.current, loading: false };
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    expect(screen.getByText('sem resposta do tmux: estado pode estar desatualizado')).toBeTruthy();
+  });
+
+  it('says so at the machine rest when that machine\'s snapshot could not be read', async () => {
+    officeMock.mockRejectedValue(new Error('nope'));
+    dataState.current = { ...dataState.current, loading: false };
+    const { unmount } = renderPage('/office/m1');
+    await act(async () => {});
+    // its block is drawn empty and its own sign is hidden at its rest: without this the page is a
+    // blank diamond with no words at all on a single-machine account
+    expect(screen.getByText('Não foi possível carregar o escritório desta máquina.')).toBeTruthy();
+    // and not the "no projects yet" line, which would be a lie about a machine we could not read
+    expect(screen.queryByText('Esta máquina ainda não tem projetos.')).toBeNull();
+    unmount();
+
+    renderPage('/office/m1?focus=1');
+    await act(async () => {});
+    expect(screen.getByText('Não foi possível carregar o escritório desta máquina.')).toBeTruthy();
+  });
+
+  it('keeps the failed read out of the city rest, where the block\'s sign says it', async () => {
+    twoMachines();
+    officeMock.mockImplementation((id: string) => (id === 'm1' ? Promise.reject(new Error('nope')) : Promise.resolve(snap('m2', [room('p2', [tab('t2', 'p2')])]))));
+    renderPage('/office');
+    await act(async () => {});
+
+    expect(testPath).toBe('/office');
+    expect(screen.queryByText('Não foi possível carregar o escritório desta máquina.')).toBeNull();
+  });
+
+  it('keeps one machine\'s notices out of the city rest, where the block\'s sign says it', async () => {
+    twoMachines();
+    dataState.current = { ...dataState.current, statuses: { m1: 'offline', m2: 'online' } };
+    renderPage('/office');
+    await act(async () => {});
+
+    expect(testPath).toBe('/office');
+    expect(screen.queryByText('máquina offline')).toBeNull();
   });
 });

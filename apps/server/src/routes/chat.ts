@@ -9,6 +9,9 @@ import { conflict, HttpError, notFound } from '../lib/errors.js';
 const messageBody = z.object({ text: z.string().trim().min(1).max(8000) });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
 const decisionBody = z.object({ decision: z.enum(['approve', 'deny']) });
+/** The host pair the user picks: the machine, and optionally which of its Claude accounts. No account
+ *  (absent or null) means the machine's own default config dir. */
+const hostBody = z.object({ machine_id: z.string().min(1).max(64), ai_account_id: z.string().min(1).max(64).nullish() });
 
 /** What a busy-run decision answers with: the decision is already durably recorded (`decide` ran
  * and the bus already published it) before this is ever reached, so a 409 here would tell the
@@ -24,10 +27,49 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // The trail comes from here, not from live events (which only update what is already on
     // screen): a reload must see every pending/decided action exactly as the server has it,
     // including an old denied row sitting beside a newer pending one for the same proposal.
-    const [messages, rows] = await Promise.all([repos.chat.listMessages(conversation.id), repos.chatActions.listByConversation(conversation.id)]);
+    const [messages, rows, host] = await Promise.all([
+      repos.chat.listMessages(conversation.id),
+      repos.chatActions.listByConversation(conversation.id),
+      // The state, not a rendered sentence: which machine will run the next message, or which of the
+      // five reasons none can. The screen (Task 6) turns it into the line the person reads, and it is
+      // here — on the same read as the history — so the chat can say so before anything is typed
+      // instead of only after a message fails.
+      deps.service.hostFor(request.scope.user),
+    ]);
     // Scoped to this request's own user: a card must never resolve a name this user cannot see.
     const actions = await describeActions(repos, rows, request.scope.user.id);
-    return { conversation, messages, actions };
+    return { conversation, messages, actions, host };
+  });
+
+  /**
+   * Chooses the host: the machine, and which of its Claude accounts. Both ids are resolved through
+   * owner-scoped reads first — `findByIdsForOwner` answers nothing at all for a machine of someone
+   * else's, so a guessed id is a 404 and never a conversation running on a stranger's computer.
+   *
+   * Answers with the resolved host state, so the screen shows what it now is (including "that machine
+   * is offline") without a second request. Whether the CLI session survives is the repository's call
+   * (`setHost` drops it only when the pair really moved, so re-picking the machine a conversation was
+   * already running on costs nothing) — the warning before a real move is the screen's (spec §3).
+   */
+  app.post('/host', { config: { action: 'update' } }, async (request) => {
+    const body = hostBody.parse(request.body);
+    const user = request.scope.user;
+    const [machine] = await repos.machines.findByIdsForOwner([body.machine_id], user.id);
+    if (!machine) throw notFound('Máquina não encontrada');
+    if (machine.type !== 'agent') throw new HttpError(400, 'O chat só roda em uma máquina com o agente do termhub instalado', 'CHAT_HOST_NOT_AGENT');
+
+    const accountId = body.ai_account_id ?? null;
+    if (accountId !== null) {
+      const account = await repos.aiAccounts.findById(accountId);
+      // Owned by the same machine, which this user owns: that is the whole ownership check, and it
+      // also rejects an account of another machine of their own, whose config dir does not exist here.
+      if (!account || account.machine_id !== machine.id) throw notFound('Conta de IA não encontrada nessa máquina');
+      if (account.provider !== 'claude') throw new HttpError(400, 'O chat roda no Claude: escolha uma conta do Claude nessa máquina', 'CHAT_ACCOUNT_NOT_CLAUDE');
+    }
+
+    const current = await deps.service.conversationFor(user);
+    const conversation = await repos.chat.setHost(current.id, { machine_id: machine.id, ai_account_id: accountId });
+    return { conversation, host: await deps.service.hostFor(user) };
   });
 
   app.post('/messages', { config: { action: 'create' } }, async (request, reply) => {

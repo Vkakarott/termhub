@@ -7,7 +7,7 @@ import type { AgentConnection } from '../agent/connection.js';
 import { AgentRpcError } from '../agent/connection.js';
 import { agents } from '../agent/registry.js';
 import type { Machine } from '../db/repositories/types.js';
-import { listTmuxSessions, probeTmuxSessions } from './machine-exec.js';
+import { FRESH_GRACE_MS, PROBE_TTL_MS, clearTmuxProbeMemo, listTmuxSessions, probeTmuxSessions, probeTmuxSessionsCached } from './machine-exec.js';
 
 const machine = (type: Machine['type'], id = 'm1'): Machine =>
   ({ id, name: 'box', type, host: type === 'ssh' ? 'box.local' : null, ssh_user: 'u', ssh_port: 22, os: 'linux', capabilities: ['tmux'] }) as Machine;
@@ -98,6 +98,101 @@ describe('probeTmuxSessions', () => {
   it('parses the session names and ignores blank lines', async () => {
     execAnswers({ code: 0, stdout: 'th-a\n\nth-b\n' });
     expect(await probeTmuxSessions(machine('ssh'))).toEqual({ reachable: true, sessions: new Set(['th-a', 'th-b']) });
+  });
+});
+
+describe('probeTmuxSessionsCached', () => {
+  const probeCallCount = () => vi.mocked(execFile).mock.calls.length;
+
+  beforeEach(() => clearTmuxProbeMemo());
+
+  it('serves a reachable answer from memory for 15 s, then probes again', async () => {
+    let t = 1_000;
+    const now = () => t;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    t += PROBE_TTL_MS.reachable - 1;
+    await probeTmuxSessionsCached(m, { now });
+    expect(probeCallCount()).toBe(calls);
+    t += 2;
+    await probeTmuxSessionsCached(m, { now });
+    expect(probeCallCount()).toBe(calls + 1);
+  });
+
+  it('keeps an unreachable answer for 60 s — a machine that is down costs one timeout a minute', async () => {
+    let t = 0;
+    const now = () => t;
+    const m = machine('agent', 'offline-agent');
+    expect((await probeTmuxSessionsCached(m, { now })).reachable).toBe(false);
+    t += PROBE_TTL_MS.unreachable - 1;
+    const again = await probeTmuxSessionsCached(m, { now });
+    expect(again).toEqual({ reachable: false, sessions: new Set(), cause: 'agent offline' });
+  });
+
+  it('keys by machine id', async () => {
+    const now = () => 0;
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    const a = await probeTmuxSessionsCached(machine('agent', 'offline-agent'), { now });
+    const b = await probeTmuxSessionsCached(machine('ssh', 'other'), { now });
+    expect(a.reachable).toBe(false);
+    expect(b.reachable).toBe(true);
+  });
+
+  it('shares one in-flight probe between concurrent callers', async () => {
+    const now = () => 0;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    const before = probeCallCount();
+    const [x, y] = await Promise.all([probeTmuxSessionsCached(m, { now }), probeTmuxSessionsCached(m, { now })]);
+    expect(probeCallCount()).toBe(before + 1);
+    expect(x).toBe(y);
+  });
+
+  it('fresh bypasses the memo and refreshes it', async () => {
+    let t = 0;
+    const now = () => t;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    t += FRESH_GRACE_MS;
+    await probeTmuxSessionsCached(m, { now, fresh: true });
+    expect(probeCallCount()).toBe(calls + 1);
+    await probeTmuxSessionsCached(m, { now });
+    expect(probeCallCount()).toBe(calls + 1); // served by the refreshed entry
+  });
+
+  it('serves a fresh call from an answer only seconds old: one tab opened, many watching tabs', async () => {
+    let t = 1_000;
+    const now = () => t;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    // every browser tab watching this machine asks at once when a tab is opened on it
+    t += FRESH_GRACE_MS - 1;
+    await probeTmuxSessionsCached(m, { now, fresh: true });
+    expect(probeCallCount()).toBe(calls);
+    // past the grace it is a real question again, well before the 15 s the memo would serve
+    t += 2;
+    await probeTmuxSessionsCached(m, { now, fresh: true });
+    expect(probeCallCount()).toBe(calls + 1);
+  });
+
+  it('does not poison the memo when the probe promise rejects', async () => {
+    const now = () => 0;
+    const m = machine('ssh');
+    vi.mocked(execFile).mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    await expect(probeTmuxSessionsCached(m, { now })).rejects.toThrow('boom');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    const calls = probeCallCount();
+    const probe = await probeTmuxSessionsCached(m, { now });
+    expect(probeCallCount()).toBe(calls + 1);
+    expect(probe.reachable).toBe(true);
   });
 });
 

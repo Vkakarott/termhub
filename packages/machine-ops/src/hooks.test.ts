@@ -18,9 +18,13 @@ const script = '/Users/p/.termhub/bin/termhub-hook';
 
 describe('mergeClaudeSettings', () => {
   it('adds one command entry per event to an empty or missing settings file', () => {
-    const out = JSON.parse(mergeClaudeSettings('', script)) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
+    const out = JSON.parse(mergeClaudeSettings('', script)) as { hooks: Record<string, { matcher?: string; hooks: { command: string }[] }[]> };
     expect(Object.keys(out.hooks).sort()).toEqual([...CLAUDE_HOOK_EVENTS].sort());
+    expect(CLAUDE_HOOK_EVENTS).toContain('PreToolUse');
     expect(out.hooks.Notification[0].hooks[0].command).toBe(`${script} claude`);
+    expect(out.hooks.Notification[0].matcher).toBeUndefined();
+    // Claude Code only runs a tool event's entry when it has a matcher; "*" is every tool
+    expect(out.hooks.PreToolUse[0].matcher).toBe('*');
   });
 
   it('keeps the user\'s own settings and hooks, and is idempotent', () => {
@@ -31,9 +35,13 @@ describe('mergeClaudeSettings', () => {
     const once = mergeClaudeSettings(current, script);
     const twice = mergeClaudeSettings(once, script);
     expect(twice).toBe(once);
-    const out = JSON.parse(once) as { model: string; hooks: Record<string, { hooks: { command: string }[] }[]> };
+    const out = JSON.parse(once) as { model: string; hooks: Record<string, { matcher?: string; hooks: { command: string }[] }[]> };
     expect(out.model).toBe('opus');
-    expect(out.hooks.PreToolUse[0].hooks[0].command).toBe('lint');
+    // the user's own PreToolUse entry stays as it is; ours is added beside it
+    expect(out.hooks.PreToolUse.map((e) => [e.matcher, e.hooks[0].command])).toEqual([
+      ['Bash', 'lint'],
+      ['*', `${script} claude`],
+    ]);
     expect(out.hooks.Stop.map((e) => e.hooks[0].command)).toEqual(['say done', `${script} claude`]);
   });
 

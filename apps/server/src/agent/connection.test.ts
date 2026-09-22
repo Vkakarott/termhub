@@ -250,3 +250,49 @@ describe('AgentConnection — channel close handshake', () => {
     expect(onExit).not.toHaveBeenCalled();
   });
 });
+
+describe('AgentConnection — the claude channel', () => {
+  const claudeParams = { session_id: 's-1', resume: false, config_dir: null, mcp_url: 'https://termhub.dev/mcp', token: 'tok', model: null };
+
+  it('opens with kind: claude, relays the prompt and the stream, and forwards the closed reason', async () => {
+    const { s, c } = connected();
+    const onData = vi.fn();
+    const onExit = vi.fn();
+    const opening = c.openClaude(claudeParams, { onData, onExit });
+    expect(s.control().filter((m) => m.type === 'open').at(-1)).toEqual({ type: 'open', ch: 1, kind: 'claude', params: claudeParams });
+    s.recvControl({ type: 'opened', ch: 1 });
+    const ch = await opening;
+
+    ch.write(Buffer.from('o que está rodando?'));
+    expect(s.streams(1)[0]?.toString()).toBe('o que está rodando?');
+    s.recvStream(1, Buffer.from('{"type":"stream_event"}\n'));
+    expect(onData).toHaveBeenCalledWith(Buffer.from('{"type":"stream_event"}\n'));
+
+    // The reason is the whole point: `cli_missing` — a machine with no `claude` — must reach the
+    // runner, and through it a person, instead of dying here as a bare exit code.
+    s.recvControl({ type: 'closed', ch: 1, code: null, reason: 'cli_missing' });
+    expect(onExit).toHaveBeenCalledWith(null, 'cli_missing');
+  });
+
+  it('counts as an open channel, so the auto-update leaves a machine that is answering a chat alone', async () => {
+    const { s, c } = connected();
+    expect(c.openChannels).toBe(0);
+    const opening = c.openClaude(claudeParams, { onData() {}, onExit() {} });
+    s.recvControl({ type: 'opened', ch: 1 });
+    await opening;
+    // What the scheduler reads as "busy": an update restarts the agent and would kill this run.
+    expect(c.openChannels).toBe(1);
+    s.recvControl({ type: 'closed', ch: 1, code: 0 });
+    expect(c.openChannels).toBe(0);
+  });
+
+  it('reports a close with no reason as the code alone, exactly as a pty does', async () => {
+    const { s, c } = connected();
+    const onExit = vi.fn();
+    const opening = c.openClaude(claudeParams, { onData() {}, onExit });
+    s.recvControl({ type: 'opened', ch: 1 });
+    await opening;
+    s.recvControl({ type: 'closed', ch: 1, code: 0 });
+    expect(onExit).toHaveBeenCalledWith(0);
+  });
+});

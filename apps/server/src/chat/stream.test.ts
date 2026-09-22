@@ -85,6 +85,13 @@ it('carries cli_rejected through, so a refused flag is not filed as a generic fa
   expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: 1, reason: 'something_new' }))).toMatchObject({ type: 'error', reason: undefined });
 });
 
+it('carries the reasons only the user-hosted runner can report', () => {
+  // `cli_missing` is this feature's likeliest first failure and the one thing the person can act on;
+  // dropped here, it would reach them as a generic failure with nothing to do about it.
+  for (const reason of ['cli_missing', 'killed', 'host_gone', 'agent_too_old'])
+    expect(parseFrame(JSON.stringify({ type: 'termhub_error', code: null, reason }))).toMatchObject({ type: 'error', reason });
+});
+
 it('ignores a malformed line instead of throwing', () => {
   expect(parseFrame('not json')).toBeNull();
   expect(parseFrame(JSON.stringify({ type: 'something_new' }))).toBeNull();

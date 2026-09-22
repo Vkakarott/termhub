@@ -91,6 +91,87 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     }
   });
 
+  it('stores the host pair, and only starts a fresh CLI session when the pair really moved', async () => {
+    const session = '3f1e9b1e-0000-4000-8000-000000000099';
+    const c = await repo.getOrCreateForUser(userId);
+    await repo.setCliSession(c.id, session);
+    const machine = await db.machine.create({ data: { id: newId(), name: 'jarvis', type: 'agent', ownerId: userId } });
+    const second = await db.machine.create({ data: { id: newId(), name: 'macbook', type: 'agent', ownerId: userId } });
+    const account = await db.aiAccount.create({ data: { id: newId(), provider: 'claude', label: 'trabalho', machineId: machine.id, configDir: '/home/u/.claude-work' } });
+
+    // Naming the machine the conversation was already running on (nothing was stored: one machine is
+    // resolved on the fly) moves no host, so the model keeps the memory of the conversation.
+    const first = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: null });
+    expect(first).toMatchObject({ machine_id: machine.id, ai_account_id: null, cli_session_id: session });
+
+    // And picking the very same pair again — the same click twice, or a settings screen that saves
+    // whatever is selected — is not a host change either.
+    expect((await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: null })).cli_session_id).toBe(session);
+
+    // A second login on the same machine *is* another config directory, so the session is not there.
+    const hosted = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: account.id });
+    expect(hosted).toMatchObject({ machine_id: machine.id, ai_account_id: account.id, cli_session_id: null });
+
+    // So is another machine: the session lives in the config dir of the machine that ran it, and
+    // keeping the uuid would ask the new host to resume a session it has never seen.
+    await repo.setCliSession(c.id, session);
+    expect((await repo.setHost(c.id, { machine_id: second.id, ai_account_id: null })).cli_session_id).toBeNull();
+    await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: account.id });
+    await db.machine.delete({ where: { id: second.id } });
+
+    // "One conversation per user" must survive a host being chosen: the partial unique index no longer
+    // keys on machine_id, so a second concurrent create still loses (this is what getOrCreateForUser's
+    // create-then-re-read fallback relies on).
+    await expect(db.chatConversation.create({ data: { id: newId(), userId } })).rejects.toThrow();
+
+    await db.aiAccount.delete({ where: { id: account.id } });
+    expect((await repo.getOrCreateForUser(userId)).ai_account_id).toBeNull(); // ON DELETE SET NULL
+    await db.machine.delete({ where: { id: machine.id } });
+    const orphaned = await repo.getOrCreateForUser(userId);
+    expect(orphaned.machine_id).toBeNull();
+    expect(orphaned.id).toBe(c.id); // the conversation itself, and its history, survive
+  });
+
+  it('pins a host only while the conversation names none, so a run can never move a chosen one', async () => {
+    const session = '3f1e9b1e-0000-4000-8000-000000000077';
+    const c = await repo.getOrCreateForUser(userId);
+    const ran = await db.machine.create({ data: { id: newId(), name: 'jarvis', type: 'agent', ownerId: userId } });
+    const other = await db.machine.create({ data: { id: newId(), name: 'macbook', type: 'agent', ownerId: userId } });
+    try {
+      // The conversation `resolveHost` auto-picks for: one machine, nothing stored.
+      await db.chatConversation.update({ where: { id: c.id }, data: { machineId: null, aiAccountId: null } });
+      await repo.setCliSession(c.id, session);
+
+      await repo.pinHostMachine(c.id, ran.id);
+      const pinned = await repo.getOrCreateForUser(userId);
+      // Recorded, and the session left exactly where it was: this is a note of where a run happened,
+      // never a host change.
+      expect(pinned.machine_id).toBe(ran.id);
+      expect(pinned.cli_session_id).toBe(session);
+
+      // The guard, and the only reason it lives in the SQL rather than in a caller: this conversation
+      // now names a host, and a run on any *other* machine must not rewrite it. That happens for real —
+      // the named machine stops being a candidate (handed to someone else, or turned into an ssh
+      // machine), `resolveHost` picks the survivor, and a pin without `where machineId: null` would
+      // move a host the person chose, in silence. It would also erase the very difference the pin
+      // exists to create, so the header would stop warning that the session is not on the machine that
+      // is about to answer.
+      await repo.pinHostMachine(c.id, other.id);
+      const unmoved = await repo.getOrCreateForUser(userId);
+      expect(unmoved.machine_id).toBe(ran.id);
+      expect(unmoved.cli_session_id).toBe(session);
+
+      // …and a host the *user* chose is the same row and the same guard: setHost stores it, and no run
+      // can take it from there either.
+      await repo.setHost(c.id, { machine_id: other.id, ai_account_id: null });
+      await repo.pinHostMachine(c.id, ran.id);
+      expect((await repo.getOrCreateForUser(userId)).machine_id).toBe(other.id);
+    } finally {
+      await repo.setCliSession(c.id, null);
+      await db.machine.deleteMany({ where: { id: { in: [ran.id, other.id] } } }); // nulls machine_id again
+    }
+  });
+
   it('never creates two conversations for the same user under a concurrent first load', async () => {
     const raceUserId = newId();
     await db.user.create({ data: { id: raceUserId, email: `${raceUserId}@test.local`, name: 'test' } });

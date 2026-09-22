@@ -19,6 +19,10 @@ function build(opts: {
    * matching every one of the fixtures above by default. Used to prove the route scopes by the
    * signed-in user, not an unfiltered read. */
   fixturesOwner?: string;
+  hostFor?: ReturnType<typeof vi.fn>;
+  /** The machines this user owns, as `findByIdsForOwner` answers them (a host must be an agent one). */
+  hostMachines?: { id: string; name: string; type: string }[];
+  aiAccounts?: { id: string; provider: string; machine_id: string; config_dir: string | null }[];
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
@@ -26,20 +30,34 @@ function build(opts: {
   const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => undefined);
   const listByConversation = opts.listByConversation ?? vi.fn(async () => []);
   const service = {
-    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false })),
+    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null })),
     send,
     resumeAfterDecision,
+    hostFor: opts.hostFor ?? vi.fn(async () => ({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null })),
   };
   const tabs = opts.tabs ?? [];
   const projects = opts.projects ?? [];
   const machines = opts.machines ?? [];
   const fixturesOwner = opts.fixturesOwner ?? 'u1';
+  const hostMachines = opts.hostMachines ?? [{ id: 'm1', name: 'jarvis', type: 'agent' }];
+  const aiAccounts = opts.aiAccounts ?? [];
+  const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ id, user_id: 'u1', cli_session_id: null, ...host }));
   const repos = {
-    chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]) },
+    chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]), setHost },
     chatActions: { decide, findByIdForUser, listByConversation },
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? tabs.filter((t) => ids.includes(t.id)) : [])) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? projects.filter((p) => ids.includes(p.id)) : [])) },
-    machines: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? machines.filter((m) => ids.includes(m.id)) : [])) },
+    // Both the trail's machine names and the host's own machine, owner-scoped exactly like the
+    // repository: an id this user does not own resolves to nothing at all.
+    machines: {
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => {
+        // The trail's own fixtures win when a case defines a machine with the same id, so adding the
+        // default host here cannot change what an existing card says.
+        const rows = [...machines, ...hostMachines.filter((h) => !machines.some((m) => m.id === h.id))];
+        return ownerId === fixturesOwner ? rows.filter((m) => ids.includes(m.id)) : [];
+      }),
+    },
+    aiAccounts: { findById: vi.fn(async (id: string) => aiAccounts.find((a) => a.id === id)) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },
   };
   const app = Fastify();
@@ -49,7 +67,7 @@ function build(opts: {
     (req as unknown as { scope: unknown }).scope = { user: { id: 'u1' }, viewAs: { kind: 'self' }, ownerId: 'u1', createAs: 'u1' };
   });
   app.register((a) => chatRoutes(a, repos as never, { service: service as never }), { prefix: '/chat' });
-  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision };
+  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision, setHost };
 }
 
 it('returns the conversation with its messages', async () => {
@@ -57,6 +75,60 @@ it('returns the conversation with its messages', async () => {
   const res = await app.inject({ method: 'GET', url: '/chat' });
   expect(res.statusCode).toBe(200);
   expect(res.json()).toMatchObject({ conversation: { id: 'c1' }, messages: [{ id: 'm1', text: 'oi' }] });
+});
+
+it('returns the host state on the same read as the history, so the screen can say it before anything is typed', async () => {
+  const { app } = build({ hostFor: vi.fn(async () => ({ kind: 'offline', machine: { id: 'm2', name: 'macbook' } })) });
+  const res = await app.inject({ method: 'GET', url: '/chat' });
+  // The state, not a sentence: Task 6 renders it, and it carries what that rendering needs.
+  expect(res.json().host).toEqual({ kind: 'offline', machine: { id: 'm2', name: 'macbook' } });
+});
+
+it('sets the host and answers with the conversation and the resolved state', async () => {
+  const account = { id: 'acc1', provider: 'claude', machine_id: 'm1', config_dir: '/home/u/.claude-work' };
+  const { app, setHost } = build({ aiAccounts: [account] });
+  const res = await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1', ai_account_id: 'acc1' } });
+
+  expect(res.statusCode).toBe(200);
+  expect(setHost).toHaveBeenCalledWith('c1', { machine_id: 'm1', ai_account_id: 'acc1' });
+  expect(res.json()).toMatchObject({ host: { kind: 'ready' } });
+});
+
+it('accepts a host with no account: the machine default login', async () => {
+  const { app, setHost } = build();
+  const res = await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
+  expect(res.statusCode).toBe(200);
+  expect(setHost).toHaveBeenCalledWith('c1', { machine_id: 'm1', ai_account_id: null });
+});
+
+it('never accepts a machine this user does not own, nor an account that is not on it', async () => {
+  const { app, setHost } = build({ aiAccounts: [{ id: 'acc9', provider: 'claude', machine_id: 'm9', config_dir: null }] });
+
+  const foreign = await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm-someone-else' } });
+  expect(foreign.statusCode).toBe(404);
+
+  const elsewhere = await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1', ai_account_id: 'acc9' } });
+  expect(elsewhere.statusCode).toBe(404);
+  expect(setHost).not.toHaveBeenCalled();
+});
+
+it('refuses a machine with no agent and an account that is not a Claude login', async () => {
+  const ssh = build({ hostMachines: [{ id: 'm1', name: 'vps', type: 'ssh' }] });
+  const noAgent = await ssh.app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
+  expect(noAgent.statusCode).toBe(400);
+  expect(noAgent.json().code).toBe('CHAT_HOST_NOT_AGENT');
+  expect(ssh.setHost).not.toHaveBeenCalled();
+
+  const other = build({ aiAccounts: [{ id: 'acc1', provider: 'chatgpt', machine_id: 'm1', config_dir: null }] });
+  const notClaude = await other.app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1', ai_account_id: 'acc1' } });
+  expect(notClaude.statusCode).toBe(400);
+  expect(other.setHost).not.toHaveBeenCalled();
+});
+
+it('rejects a host payload with no machine', async () => {
+  const { app, setHost } = build();
+  expect((await app.inject({ method: 'POST', url: '/chat/host', payload: {} })).statusCode).toBe(400);
+  expect(setHost).not.toHaveBeenCalled();
 });
 
 it('returns the trail as sentences enriched with real names, keyed by each row\'s own id — not a raw tool name and ids', async () => {

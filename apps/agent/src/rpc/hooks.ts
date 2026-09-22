@@ -157,17 +157,26 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
 }
 
 /**
- * Puts our entries back in the config dirs that do not have them yet, reusing the url and token
- * already installed here — the agent calls it on startup and on every reconnect, so a config dir
- * created after the install (a new account, a new alias) starts notifying on its own. A machine
- * without our hooks is left untouched: installing is the server's call, not ours.
+ * Brings this machine's hooks back up to what this agent carries, reusing the url and token already
+ * installed here: the forwarding script when the one on disk differs, and our entries in the config
+ * dirs that do not have them yet — the agent calls it on startup and on every reconnect, so a config
+ * dir created after the install (a new account, a new alias) starts notifying on its own, and a
+ * script from an older agent is replaced. A machine without our hooks is left untouched: installing
+ * is the server's call, not ours.
  *
  * Answers the dirs it repaired.
  */
 export async function heal(home = os.homedir()): Promise<string[]> {
   const scriptPath = path.join(home, HOOK_SCRIPT_REL);
   const env = await readOrEmpty(path.join(home, HOOK_ENV_REL));
-  if (!env.trim() || !(await readOrEmpty(scriptPath))) return [];
+  const script = await readOrEmpty(scriptPath);
+  if (!env.trim() || !script) return [];
+
+  // The agent bundles the script, so an agent that updated itself can find an older one here while
+  // the entries below already name the events only the new one handles — the script goes first, and
+  // only when it really differs (same atomic 0o755 write `install` uses; comparing the content, not
+  // a version, is what keeps every later change to the script reaching machines by itself).
+  if (script !== HOOK_SCRIPT) await writeAtomic(scriptPath, HOOK_SCRIPT, 0o755);
 
   const healed: string[] = [];
   for (const dir of await discoverClaudeDirs(home)) {

@@ -28,7 +28,7 @@ type HookResult = 'installed' | 'skipped';
 export function hooksInstallNote(r: { claude: HookResult; claude_dirs?: string[]; codex: HookResult; cursor?: HookResult | 'agent_outdated' }): string {
   const found = (s: HookResult | undefined) => (s === 'installed' ? 'ok' : 'não encontrado');
   const claude = r.claude === 'installed' ? `ok (${(r.claude_dirs ?? ['~/.claude']).join(', ')})` : 'não encontrado';
-  const cursor = r.cursor === 'agent_outdated' ? 'atualize o agente (0.3.1 ou mais novo)' : found(r.cursor);
+  const cursor = r.cursor === 'agent_outdated' ? 'atualize o agente (0.4.2 ou mais novo)' : found(r.cursor);
   return `Claude Code: ${claude} · Codex: ${found(r.codex)} · Cursor CLI: ${cursor}. Vale para sessões abertas a partir de agora.`;
 }
 

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { HOOK_SCRIPT } from '@termhub/machine-ops';
@@ -181,5 +181,27 @@ describe('heal', () => {
     await expect(heal(home)).resolves.toEqual([]);
 
     expect(await read('.claude-broken/settings.json')).toBe('{not json');
+  });
+
+  it('rewrites a script left behind by an older agent, keeping it atomic and executable', async () => {
+    await install(params, home);
+    await writeFile(path.join(home, '.termhub/bin/termhub-hook'), '#!/bin/sh\n# an older termhub-hook\nexit 0\n', { mode: 0o755 });
+
+    await expect(heal(home)).resolves.toEqual([]);
+
+    expect(await read('.termhub/bin/termhub-hook')).toBe(HOOK_SCRIPT);
+    expect(await mode('.termhub/bin/termhub-hook')).toBe(0o755);
+  });
+
+  it('leaves a script that already matches where it is', async () => {
+    await install(params, home);
+    const script = path.join(home, '.termhub/bin/termhub-hook');
+    const stamp = new Date('2020-01-01T00:00:00Z');
+    await utimes(script, stamp, stamp);
+
+    await expect(heal(home)).resolves.toEqual([]);
+
+    expect((await stat(script)).mtimeMs).toBe(stamp.getTime());
+    expect(await read('.termhub/bin/termhub-hook')).toBe(HOOK_SCRIPT);
   });
 });

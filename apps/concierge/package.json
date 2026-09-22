@@ -11,6 +11,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@termhub/claude-cli": "*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

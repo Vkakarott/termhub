@@ -38,7 +38,7 @@ export interface HookInstallReport {
   home: string;
   claude: 'installed' | 'skipped';
   codex: 'installed' | 'skipped';
-  /** `agent_outdated`: an agent older than 0.3.1 does not know the Cursor CLI yet */
+  /** `agent_outdated`: an agent older than 0.4.2 does not know the Cursor CLI yet */
   cursor: 'installed' | 'skipped' | 'agent_outdated';
   /** the Claude config dirs that got the entries ("~/.claude", "~/.claude_work", …) */
   claude_dirs: string[];

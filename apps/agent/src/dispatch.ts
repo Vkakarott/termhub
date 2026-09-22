@@ -1,4 +1,4 @@
-import type { PtyOpenParams, RpcMethod, ServerMessage } from '@termhub/agent-protocol';
+import type { ClaudeOpenParams, PtyOpenParams, RpcMethod, ServerMessage } from '@termhub/agent-protocol';
 import { RPC } from '@termhub/agent-protocol';
 import type { AgentSocket } from './client.js';
 import { RpcFailure } from './exec.js';
@@ -17,9 +17,24 @@ export interface PtyManager {
   closeAll(): void;
 }
 
+/**
+ * The other channel kind (`src/claude/run.ts`): a headless Claude run whose stdout streams back on
+ * the channel. Same shape as `PtyManager` so this dispatcher only routes by kind; like the PTY one,
+ * it reports its own failures to the server (`open_error`, or `closed` with a reason).
+ */
+export interface ClaudeManager {
+  open(ch: number, params: ClaudeOpenParams, socket: AgentSocket): Promise<void>;
+  /** The prompt, as channel data. `false` when `ch` is not one of its channels, so the caller can
+   *  route the frame to the PTY manager instead. */
+  write(ch: number, data: Buffer): boolean;
+  close(ch: number): void;
+  closeAll(): void;
+}
+
 export interface DispatcherDeps {
   handlers: Handlers;
   pty: PtyManager;
+  claude: ClaudeManager;
   log: (msg: string, meta?: object) => void;
 }
 
@@ -69,25 +84,33 @@ async function handleRpc(msg: RpcServerMessage, socket: AgentSocket, handlers: H
   socket.sendControl({ type: 'rpc_result', id: msg.id, ok: true, result: parsedResult.data });
 }
 
-/** Routes a validated server control message to its named RPC handler or the PTY manager. */
+/** Routes a validated server control message to its named RPC handler, or to the channel manager
+ *  the message's kind belongs to (a terminal, or a headless Claude run). */
 export function createDispatcher(deps: DispatcherDeps): (msg: ServerMessage, socket: AgentSocket) => void {
   return (msg, socket) => {
     switch (msg.type) {
       case 'rpc':
         void handleRpc(msg, socket, deps.handlers, deps.log);
         break;
-      case 'open':
-        // Errors are reported to the server by the PTY manager itself (open_error); this catch
-        // only guards against an unexpected rejection leaking as an unhandled promise.
-        deps.pty.open(msg.ch, msg.params, socket).catch((err) => {
-          deps.log('pty.open rejected unexpectedly', { ch: msg.ch, error: err instanceof Error ? err.message : String(err) });
+      case 'open': {
+        // The kind is the only thing this dispatcher knows about either channel. Errors are
+        // reported to the server by the manager itself (open_error / closed); this catch only
+        // guards against an unexpected rejection leaking as an unhandled promise.
+        const opened = msg.kind === 'claude' ? deps.claude.open(msg.ch, msg.params, socket) : deps.pty.open(msg.ch, msg.params, socket);
+        opened.catch((err) => {
+          deps.log(`${msg.kind}.open rejected unexpectedly`, { ch: msg.ch, error: err instanceof Error ? err.message : String(err) });
         });
         break;
+      }
       case 'resize':
+        // Only a terminal has a size: a `claude` channel is never resized.
         deps.pty.resize(msg.ch, msg.cols, msg.rows);
         break;
       case 'close':
+        // `close` carries no kind. The server numbers channels globally, so at most one manager owns
+        // this one and the other ignores a channel it never opened.
         deps.pty.close(msg.ch);
+        deps.claude.close(msg.ch);
         break;
     }
   };
