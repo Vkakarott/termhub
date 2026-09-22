@@ -8,6 +8,7 @@ import { externalId, ticketRef } from '../setup/tickets-sync.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const importBody = z.object({ ticket_ids: z.array(z.string().min(1).max(64)).min(1).max(200) });
+const terminalBody = z.object({ machine_id: z.string().min(1).max(64).optional() }).strict();
 
 /** Montado em /projects: lista de tickets sincronizados e importação para o backlog. */
 export async function projectTicketRoutes(app: FastifyInstance, repos: Repositories) {
@@ -81,9 +82,10 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
       const existing = await repos.tabs.findById(task.tab_id);
       if (existing) return { task, tab: existing, created: false };
     }
-    // No machine given: the task's project must have exactly one linked machine, like a fresh terminal
-    // opened without one (see `projectMachineFor`).
-    const { machine } = await scoped(repos, request).projectMachineFor(task.project_id);
+    // Same contract as `POST /projects/:id/tabs`: with one linked machine it is used; with several,
+    // `machine_id` is required (400 MACHINE_REQUIRED); with none, 400 NO_MACHINE (see `projectMachineFor`).
+    const { machine_id } = terminalBody.parse(request.body ?? {});
+    const { machine } = await scoped(repos, request).projectMachineFor(task.project_id, machine_id);
     const ref = task.external_ref as { identifier?: string } | null;
     const name = (ref?.identifier ?? task.title).slice(0, 40);
     const tab = await repos.tabs.create(task.project_id, machine.id, name);
