@@ -4,7 +4,10 @@ import type { Repositories } from '../db/repositories/index.js';
 import { normalizeNickname } from '../public/nickname.js';
 import { readPublicCity } from '../public/read.js';
 
-const params = z.object({ nickname: z.string().min(1).max(64) });
+// No length cap here: `normalizeNickname` is the only judge of shape (it is strictly stricter,
+// 3-30 characters), so a too-long segment lands on the same 404 as any other bad nickname instead
+// of a distinguishable 400.
+const params = z.object({ nickname: z.string().min(1) });
 
 /**
  * The public city, read by anyone with the link. No session, no Access: this lives on the landing
