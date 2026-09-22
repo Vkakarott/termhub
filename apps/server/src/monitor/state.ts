@@ -11,6 +11,12 @@ export interface Interpreted {
   kind: TabState;
   text: string | null;
   meta: Record<string, unknown>;
+  /**
+   * The event is a late echo of the wait already open, not a new one: a person who saw that wait
+   * must not be alerted again. Only the tool's interpreter can tell — Claude's idle_prompt follows
+   * its own Stop, while every Codex turn ends the same way with no working state in between.
+   */
+  continuesWait?: true;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -31,7 +37,9 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
       const type = str(ev.notification_type);
       const message = cap(str(ev.message));
       if (type === 'permission_prompt') return { kind: 'waiting_permission', text: message, meta: { event: name, type } };
-      if (type === 'idle_prompt' || type === 'elicitation_dialog') return { kind: 'waiting_input', text: message, meta: { event: name, type } };
+      // idle_prompt comes ~1 min after the Stop of the same turn: the same wait, still unanswered
+      if (type === 'idle_prompt') return { kind: 'waiting_input', text: message, meta: { event: name, type }, continuesWait: true };
+      if (type === 'elicitation_dialog') return { kind: 'waiting_input', text: message, meta: { event: name, type } };
       return null; // auth_success and friends: nothing the user has to act on
     }
     case 'Stop':
@@ -46,13 +54,29 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
 }
 
 /**
+ * On a conversation's first turn the Codex TUI runs a second turn on a side thread to name it, and
+ * `notify` fires for that one too, in the same second: its answer is `{"title": "…"}` and nothing
+ * else. Recording it would alert twice for one turn and replace the real answer with the title.
+ */
+function isTitleTurn(ev: Record<string, unknown>): boolean {
+  const answer = str(ev['last-assistant-message']);
+  if (!answer?.startsWith('{')) return false;
+  try {
+    const parsed: unknown = JSON.parse(answer);
+    return isObj(parsed) && Object.keys(parsed).length === 1 && typeof parsed.title === 'string';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Codex CLI `notify` payload (argv JSON): `{ type: "agent-turn-complete", "last-assistant-message": ... }`.
  * Codex has no idle/permission notification, so a finished turn is its "needs you" signal:
  * the last assistant message is the question the person has to answer.
  */
 function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
   const type = str(ev.type);
-  if (type === 'agent-turn-complete') {
+  if (type === 'agent-turn-complete' && !isTitleTurn(ev)) {
     return { kind: 'waiting_input', text: cap(str(ev['last-assistant-message'])), meta: { event: type } };
   }
   return null;

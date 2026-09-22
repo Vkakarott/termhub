@@ -37,6 +37,13 @@ describe('interpretHookEvent — claude', () => {
     expect(interpretHookEvent('claude', { hook_event_name: 'SubagentStop' })).toBeNull();
     expect(interpretHookEvent('claude', 'nope')).toBeNull();
   });
+
+  it('marks only idle_prompt as continuing the wait the Stop before it opened', () => {
+    expect(interpretHookEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' })?.continuesWait).toBe(true);
+    expect(interpretHookEvent('claude', { hook_event_name: 'Stop' })?.continuesWait).toBeUndefined();
+    expect(interpretHookEvent('claude', { hook_event_name: 'Notification', notification_type: 'elicitation_dialog', message: 'Pick one' })?.continuesWait).toBeUndefined();
+    expect(interpretHookEvent('claude', { hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Allow?' })?.continuesWait).toBeUndefined();
+  });
 });
 
 describe('interpretHookEvent — codex', () => {
@@ -50,6 +57,22 @@ describe('interpretHookEvent — codex', () => {
 
   it('ignores other notify types', () => {
     expect(interpretHookEvent('codex', { type: 'something-else' })).toBeNull();
+  });
+
+  it('ignores the turn Codex runs on a side thread to title the conversation', () => {
+    const title = { type: 'agent-turn-complete', 'thread-id': 'side', 'input-messages': ['Generate a concise, single-line task title…'], 'last-assistant-message': '{"title":"Responder apenas um"}' };
+    expect(interpretHookEvent('codex', title)).toBeNull();
+    expect(interpretHookEvent('codex', { ...title, 'last-assistant-message': ' { "title" : "x" } ' })).toBeNull();
+  });
+
+  it('keeps an answer that only looks like JSON', () => {
+    for (const answer of ['{"title":"x","body":"y"}', '{"title":1}', '{"title":', '["title"]', '{}']) {
+      expect(interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': answer })?.text).toBe(answer);
+    }
+  });
+
+  it('treats every finished turn as a new wait: Codex has no working signal between turns', () => {
+    expect(interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': 'dois' })?.continuesWait).toBeUndefined();
   });
 });
 
