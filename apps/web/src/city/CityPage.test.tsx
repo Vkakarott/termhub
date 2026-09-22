@@ -19,12 +19,21 @@ const { FakeOfficeScene, socket } = vi.hoisted(() => {
     }
     async mount(): Promise<void> {}
   }
-  /** The fake /ws/public channel: `emit` hands a parsed frame to the callback openCitySocket was given. */
+  /**
+   * The fake /ws/public channel: `emit` hands a parsed frame to the callback openCitySocket was
+   * given, and `hangUp` is the server closing the socket — what it does when the last published
+   * room is taken off the street.
+   */
   const socket = {
     onRobot: null as ((frame: unknown) => void) | null,
+    onClosed: null as (() => void) | null,
+    opened: 0,
     closed: 0,
     emit(frame: unknown) {
       socket.onRobot?.(frame);
+    },
+    hangUp() {
+      socket.onClosed?.();
     },
   };
   return { FakeOfficeScene, socket };
@@ -34,11 +43,14 @@ vi.mock('../office/scene/OfficeScene', () => ({ OfficeScene: FakeOfficeScene }))
 // only the socket is faked: fetchCity and toMachineEntries are the real ones, over a stubbed fetch
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./api')>()),
-  openCitySocket: (_nickname: string, onRobot: (frame: unknown) => void) => {
-    socket.onRobot = onRobot;
+  openCitySocket: (_nickname: string, handlers: { onRobot: (frame: unknown) => void; onClosed: () => void }) => {
+    socket.opened += 1;
+    socket.onRobot = handlers.onRobot;
+    socket.onClosed = handlers.onClosed;
     return () => {
       socket.closed += 1;
       socket.onRobot = null;
+      socket.onClosed = null;
     };
   },
 }));
@@ -59,6 +71,8 @@ beforeEach(() => {
   FakeOfficeScene.instances = [];
   fetchMock.mockReset();
   socket.onRobot = null;
+  socket.onClosed = null;
+  socket.opened = 0;
   socket.closed = 0;
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -74,7 +88,8 @@ describe('CityPage', () => {
     render(<CityPage nickname="pedro" />);
 
     expect(await screen.findByText(/Pedro/)).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledWith('/api/public/city/pedro');
+    // no credentials on a public read, structurally and not by luck of the default
+    expect(fetchMock).toHaveBeenCalledWith('/api/public/city/pedro', { credentials: 'omit' });
     expect(screen.getByRole('link', { name: /criar minha conta/i }).getAttribute('href')).toContain('termhub.dev');
   });
 
@@ -95,5 +110,50 @@ describe('CityPage', () => {
 
     await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'reading' }))));
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes to the not-found state, without a reload, when the city is unpublished under the visitor', async () => {
+    fetchMock.mockResolvedValueOnce(json(CITY)).mockResolvedValueOnce(new Response('', { status: 404 }));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Pedro/);
+
+    // the server hangs the socket up when the last published room comes off the street
+    await act(async () => {
+      socket.hangUp();
+    });
+
+    expect(await screen.findByText(/cidade não encontrada/i)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops knocking once a city is known not to be there', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 404 }));
+    render(<CityPage nickname="ninguem" />);
+    await screen.findByText(/cidade não encontrada/i);
+
+    // opened once on arrival, then closed for good: no channel is kept open for a 404
+    expect(socket.opened).toBe(1);
+    expect(socket.closed).toBe(1);
+    expect(socket.onClosed).toBeNull();
+  });
+
+  it('does not call a city missing when it merely could not be read, and comes back', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockResolvedValueOnce(new Response('', { status: 500 })).mockResolvedValueOnce(json(CITY));
+      render(<CityPage nickname="pedro" />);
+      await act(async () => {});
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // a server that could not answer is not a city that does not exist
+      expect(screen.queryByText(/cidade não encontrada/i)).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(screen.getByText(/Pedro/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -3,21 +3,16 @@ import { buildCityModel, resolveFocus, sameFocus, type CityModel, type FocusTarg
 import { OfficeScene } from '../office/scene/OfficeScene';
 import type { PublicCity } from '../lib/types';
 import { fetchCity, openCitySocket, toMachineEntries, type RobotFrame } from './api';
+import { cityPath, restFromUrl, type Rest } from './url';
 
 /** Where the landing takes someone who wants a city of their own. */
 const WAITLIST_URL = 'https://termhub.dev/#waitlist';
 
-/** Where the visitor stands, read from the URL: /city/@nick, /city/@nick/<building>, ?room=<room>. */
-interface Rest {
-  building: string | null;
-  room: string | null;
-}
+/** A snapshot that could not be read is tried again, backing off the same way the socket does. */
+const RETRY_MIN_MS = 2_000;
+const RETRY_MAX_MS = 30_000;
 
-function readRest(): Rest {
-  // ['city', '@nick', '<building>'] — the nickname is main.tsx's business, not this page's
-  const parts = location.pathname.split('/').filter(Boolean);
-  return { building: parts[2] ?? null, room: new URLSearchParams(location.search).get('room') };
-}
+const readRest = (): Rest => restFromUrl(location.pathname, location.search);
 
 /**
  * One socket frame, applied where it lands. The ids in it are the snapshot's own, so a change never
@@ -47,11 +42,13 @@ function applyRobot(city: PublicCity | null, frame: RobotFrame): PublicCity | nu
 /**
  * The public city: somebody else's account as a city, live, to a visitor with no account at all.
  * Three rests, like the office — the city, one building, one room — and nothing else: no sidebar,
- * no actions, no terminal. The snapshot arrives once and every change after it comes down the
- * socket, so the page reads the server exactly once per visit.
+ * no actions, no terminal. The snapshot is read on arrival and every change after it comes down the
+ * socket, so a visit costs one read while the channel holds; the snapshot is read again only when
+ * that channel is hung up, which is how a city taken off the street disappears without a reload.
  */
 export function CityPage({ nickname }: { nickname: string }) {
   const [city, setCity] = useState<PublicCity | null>(null);
+  /** the server said there is no such city: a 404 is final, and nothing here knocks again after it */
   const [missing, setMissing] = useState(false);
   const [rest, setRest] = useState<Rest>(readRest);
   // a callback ref, not useRef: the host <div> is absent while the snapshot is on its way, and a
@@ -60,22 +57,49 @@ export function CityPage({ nickname }: { nickname: string }) {
   const [failed, setFailed] = useState(false);
   const sceneRef = useRef<OfficeScene | null>(null);
 
-  useEffect(() => {
-    let stopped = false;
-    const land = (answer: PublicCity | null) => {
-      if (stopped) return;
+  const gone = useRef(false);
+  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryIn = useRef(RETRY_MIN_MS);
+
+  /**
+   * One read of the snapshot: on mount, and again every time the socket is hung up — that is the
+   * only way to tell a city taken off the street from a channel that merely dropped. A read that
+   * could not be made at all keeps whatever is drawn and comes back, because "we could not read it"
+   * is not "it is not there".
+   */
+  const load = useCallback(async () => {
+    if (gone.current) return;
+    try {
+      const answer = await fetchCity(nickname);
+      if (gone.current) return;
+      retryIn.current = RETRY_MIN_MS;
       if (answer) setCity(answer);
       else setMissing(true);
-    };
-    void fetchCity(nickname)
-      .then(land)
-      .catch(() => land(null));
-    return () => {
-      stopped = true;
-    };
+    } catch {
+      if (gone.current) return;
+      retry.current = setTimeout(() => void load(), retryIn.current);
+      retryIn.current = Math.min(retryIn.current * 2, RETRY_MAX_MS);
+    }
   }, [nickname]);
 
-  useEffect(() => openCitySocket(nickname, (frame) => setCity((prev) => applyRobot(prev, frame))), [nickname]);
+  useEffect(() => {
+    gone.current = false;
+    void load();
+    return () => {
+      gone.current = true;
+      if (retry.current) clearTimeout(retry.current);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    // a city that is not there has no channel to watch, and the upgrade would be refused the same
+    // 404 over and over: once the snapshot has said so, this page stops knocking for good
+    if (missing) return;
+    return openCitySocket(nickname, {
+      onRobot: (frame) => setCity((prev) => applyRobot(prev, frame)),
+      onClosed: () => void load(),
+    });
+  }, [nickname, missing, load]);
 
   useEffect(() => {
     const onPop = () => setRest(readRest());
@@ -108,9 +132,7 @@ export function CityPage({ nickname }: { nickname: string }) {
 
   const go = useCallback(
     (building: string | null, room: string | null, replace = false) => {
-      const query = room ? `?room=${encodeURIComponent(room)}` : '';
-      const path = `/city/@${encodeURIComponent(nickname)}${building ? `/${encodeURIComponent(building)}` : ''}${query}`;
-      history[replace ? 'replaceState' : 'pushState'](null, '', path);
+      history[replace ? 'replaceState' : 'pushState'](null, '', cityPath(nickname, { building, room }));
       setRest({ building, room });
     },
     [nickname],

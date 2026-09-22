@@ -18,22 +18,27 @@ const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
 /**
- * The snapshot, or null when there is no city to draw. A nickname nobody took and one whose owner
- * published nothing answer the same 404 on purpose, so there is nothing here to tell apart; any
- * other failure lands on the same null, since "not found" is the only thing this page can say.
+ * The snapshot, or null when there is no such city. A nickname nobody took and one whose owner
+ * published nothing answer the same 404 on purpose, so there is nothing here to tell apart — but
+ * "we could not read it right now" is a different answer and throws instead, because drawing it as
+ * "this city does not exist" would be a lie the visitor could not get out of. `credentials: 'omit'`
+ * so that nothing of a visitor who happens to have a session is ever attached to a public read.
  */
 export async function fetchCity(nickname: string): Promise<PublicCity | null> {
-  const r = await fetch(`/api/public/city/${encodeURIComponent(nickname)}`);
-  if (!r.ok) return null;
+  const r = await fetch(`/api/public/city/${encodeURIComponent(nickname)}`, { credentials: 'omit' });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`public city: ${r.status}`);
   return (await r.json()) as PublicCity;
 }
 
 /**
- * The live channel, reconnecting on close with a backoff that doubles up to 30 s: the socket is also
- * how the server hangs up when a room is unpublished, and a page left open on a dead nickname must
- * not knock every second. Returns the close.
+ * The live channel, reconnecting on close with a backoff that doubles up to 30 s. `onClosed` fires
+ * on every close the page did not ask for: the server hangs this socket up when the last published
+ * room is taken off the street, and a reconnect refused at the upgrade looks exactly the same from
+ * here — only a fresh read of the snapshot can tell the two apart, so that is the caller's job.
+ * Returns the close.
  */
-export function openCitySocket(nickname: string, onRobot: (frame: RobotFrame) => void): () => void {
+export function openCitySocket(nickname: string, handlers: { onRobot: (frame: RobotFrame) => void; onClosed: () => void }): () => void {
   let ws: WebSocket | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let wait = RECONNECT_MIN_MS;
@@ -52,13 +57,14 @@ export function openCitySocket(nickname: string, onRobot: (frame: RobotFrame) =>
       } catch {
         return;
       }
-      if (frame?.type === 'robot' && frame.robot) onRobot(frame);
+      if (frame?.type === 'robot' && frame.robot) handlers.onRobot(frame);
     };
     ws.onclose = () => {
       ws = null;
       if (stopped) return;
       timer = setTimeout(open, wait);
       wait = Math.min(wait * 2, RECONNECT_MAX_MS);
+      handlers.onClosed();
     };
     ws.onerror = () => ws?.close();
   };

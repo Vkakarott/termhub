@@ -8,7 +8,9 @@ import type { OfficeTab, OfficeTaskCounts, Project, Tab, TabActivity, TabState }
 /**
  * What the model actually reads of a snapshot, and nothing more. `OfficeSnapshot` satisfies it, and
  * so does the public city once src/city/api.ts adapts it — one model, one scene, both the office and
- * the page a stranger opens, instead of a second city drawn by a second set of rules.
+ * the page a stranger opens, instead of a second city drawn by a second set of rules. What the
+ * narrowing costs: a bound task's title is no longer required of an input, because the public
+ * payload publishes a bar without one, so `deskOf` falls back to '' when it is absent.
  */
 export type ModelTab = Pick<OfficeTab, 'id' | 'project_id' | 'name' | 'kind' | 'position' | 'state' | 'state_text' | 'state_tool' | 'state_at' | 'state_seen_at' | 'activity' | 'alive'> & {
   /** the public payload carries a bar with no title: a task's name is not published */
