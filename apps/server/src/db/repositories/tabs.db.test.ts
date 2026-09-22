@@ -23,10 +23,12 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     projectId = newId();
     tabId = newId();
     await db.machine.create({ data: { id: machineId, name: 'test', type: 'agent' } });
-    await db.project.create({ data: { id: projectId, machineId, name: 'p', cwd: '/tmp' } });
-    await db.tab.create({ data: { id: tabId, projectId, name: 't', tmuxSession: `th-${tabId}` } });
+    await db.project.create({ data: { id: projectId, key: 'K' + projectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p' } });
+    await db.projectMachine.create({ data: { id: newId(), projectId, machineId, cwd: '/tmp' } });
+    await db.tab.create({ data: { id: tabId, projectId, machineId, name: 't', tmuxSession: `th-${tabId}` } });
     return async () => {
-      await db.machine.delete({ where: { id: machineId } }); // cascades project and tab
+      await db.project.delete({ where: { id: projectId } }); // cascades link and tab
+      await db.machine.delete({ where: { id: machineId } });
     };
   });
 
@@ -98,35 +100,40 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
         { id: otherMachineId, name: 'theirs', type: 'agent', ownerId: otherOwnerId },
       ] });
       await db.project.createMany({ data: [
-        { id: ownedProjectId, machineId: ownedMachineId, name: 'p', cwd: '/tmp' },
-        { id: otherProjectId, machineId: otherMachineId, name: 'p2', cwd: '/tmp' },
+        { id: ownedProjectId, ownerId, key: 'K' + ownedProjectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p' },
+        { id: otherProjectId, ownerId: otherOwnerId, key: 'K' + otherProjectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p2' },
+      ] });
+      await db.projectMachine.createMany({ data: [
+        { id: newId(), projectId: ownedProjectId, machineId: ownedMachineId, cwd: '/tmp' },
+        { id: newId(), projectId: otherProjectId, machineId: otherMachineId, cwd: '/tmp' },
       ] });
       await db.tab.createMany({ data: [
-        { id: ownedTabId, projectId: ownedProjectId, name: 'mine', tmuxSession: `th-${ownedTabId}` },
-        { id: otherTabId, projectId: otherProjectId, name: 'theirs', tmuxSession: `th-${otherTabId}` },
+        { id: ownedTabId, projectId: ownedProjectId, machineId: ownedMachineId, name: 'mine', tmuxSession: `th-${ownedTabId}` },
+        { id: otherTabId, projectId: otherProjectId, machineId: otherMachineId, name: 'theirs', tmuxSession: `th-${otherTabId}` },
       ] });
 
       const found = await repo.findByIdsForOwner([ownedTabId, otherTabId, 'nope'], ownerId);
       expect(found.map((t) => t.id)).toEqual([ownedTabId]); // another owner's tab is absent, indistinguishable from "does not exist"
       expect(await repo.findByIdsForOwner([], ownerId)).toEqual([]);
     } finally {
-      await db.machine.deleteMany({ where: { id: { in: [ownedMachineId, otherMachineId] } } }); // cascades projects and tabs
+      await db.project.deleteMany({ where: { id: { in: [ownedProjectId, otherProjectId] } } }); // cascades links and tabs
+      await db.machine.deleteMany({ where: { id: { in: [ownedMachineId, otherMachineId] } } });
       await db.user.deleteMany({ where: { id: { in: [ownerId, otherOwnerId] } } });
     }
   });
 
   it('listByProjects returns the tabs of the given projects in tab-bar order, and nothing for none', async () => {
     const second = newId();
-    await db.tab.create({ data: { id: second, projectId, name: 'second', position: 1, tmuxSession: `th-${second}` } });
+    await db.tab.create({ data: { id: second, projectId, machineId, name: 'second', position: 1, tmuxSession: `th-${second}` } });
     expect((await repo.listByProjects([projectId])).map((t) => t.id)).toEqual([tabId, second]);
     expect(await repo.listByProjects([])).toEqual([]);
   });
 
   describe('created_by_token_id / countOpenByToken', () => {
     it('records which token opened a tab and counts the ones still open', async () => {
-      const a = await repo.create(projectId, 'T1', { created_by_token_id: 'tok1' });
-      await repo.create(projectId, 'T2', { created_by_token_id: 'tok1' });
-      await repo.create(projectId, 'T3');
+      const a = await repo.create(projectId, machineId, 'T1', { created_by_token_id: 'tok1' });
+      await repo.create(projectId, machineId, 'T2', { created_by_token_id: 'tok1' });
+      await repo.create(projectId, machineId, 'T3');
 
       expect(a.created_by_token_id).toBe('tok1');
       expect(await repo.countOpenByToken('tok1')).toBe(2);
