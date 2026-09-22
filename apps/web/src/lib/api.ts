@@ -91,6 +91,9 @@ export const api = {
     sendCode: (email: string) => request<{ ok: true; ttl_minutes: number }>('POST', '/auth/code/send', { email }),
     verifyCode: (email: string, code: string) => request<{ user: User }>('POST', '/auth/code/verify', { email, code }),
     logout: () => request<{ ok: true }>('POST', '/auth/logout'),
+    /** Claims the address of the user's public city. 400 NICKNAME_INVALID for a bad shape or a
+     *  reserved word, 409 NICKNAME_TAKEN when somebody else already holds it. */
+    setNickname: (nickname: string) => request<{ user: User }>('PATCH', '/auth/me/nickname', { nickname }),
   },
   machines: {
     list: () => request<{ machines: Machine[]; latest_agent_version: string | null }>('GET', '/machines'),
@@ -129,6 +132,9 @@ export const api = {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),
     get: (id: string) => request<{ project: Project }>('GET', `/projects/${id}`),
     create: (input: ProjectInput) => request<{ project: Project }>('POST', '/projects', input),
+    /** `input.is_public: true` publishes the project's rooms to the owner's public city; refused with
+     *  403 NOT_OWNER (not the machine's owner), 409 MACHINE_UNOWNED (no owner at all) or 409
+     *  NICKNAME_REQUIRED (the owner has not claimed a nickname yet). */
     update: (id: string, input: ProjectInput) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),

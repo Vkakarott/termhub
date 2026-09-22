@@ -2,12 +2,12 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project } from '../lib/types';
+import type { Machine, OfficeRoom, OfficeSnapshot, OfficeTab, Project, User } from '../lib/types';
 
 // vi.mock factories are hoisted above every other top-level statement in this file, including this
 // file's own `import { OfficePage } from './OfficePage'` below — so everything a factory needs to
 // reference has to be created through vi.hoisted(), not as a plain top-level const/class.
-const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoisted(() => {
+const { officeMock, canMock, dataState, monitorState, authState, FakeOfficeScene } = vi.hoisted(() => {
   /**
    * Pins the scene-mount effect's stability: no WebGL in jsdom, so `OfficeScene` itself is replaced
    * with a spy-able stand-in that records what the page does to it, instead of trying to draw anything.
@@ -49,13 +49,16 @@ const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoi
     // body can reassign it (e.g. flipping `loading`) and a rerender picks up the new value
     dataState: { current: { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' as const }, loading: true } },
     monitorState: { current: { items: [] as unknown[], needsYou: [] as unknown[], tabState: () => undefined, connected: true } },
+    // null by default: every pre-existing test above never claimed a nickname, and the share button
+    // must stay out of their way (it renders as a quiet "nothing published" span, never a link)
+    authState: { current: { user: null as User | null } },
     FakeOfficeScene,
   };
 });
 
 vi.mock('../office/scene/OfficeScene', () => ({ OfficeScene: FakeOfficeScene }));
 vi.mock('../lib/api', () => ({ api: { office: (...a: unknown[]) => officeMock(...a) } }));
-vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock }) }));
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock, user: authState.current.user }) }));
 vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
 vi.mock('../lib/monitor', () => ({ useMonitor: () => monitorState.current }));
 
@@ -130,6 +133,7 @@ beforeEach(() => {
   testSearch = '';
   dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' }, loading: true };
   monitorState.current = { items: [], needsYou: [], tabState: () => undefined, connected: true };
+  authState.current = { user: null };
 });
 
 afterEach(() => {
@@ -531,5 +535,91 @@ describe('OfficePage status notices', () => {
 
     expect(testPath).toBe('/office');
     expect(screen.queryByText('máquina offline')).toBeNull();
+  });
+});
+
+describe('OfficePage share button', () => {
+  const pMachine = (id: string, name: string): Machine => ({ id, name, public_id: `${id}-pub` }) as Machine;
+  const pProject = (id: string, isPublic: boolean): Project => ({ id, name: id, status: 'active', public_id: `${id}-pub`, is_public: isPublic }) as Project;
+  const pRoom = (id: string, isPublic: boolean, tabs: OfficeTab[] = []): OfficeRoom => ({ project: pProject(id, isPublic), tabs, tasks: null });
+
+  /** m1 has two rooms with desks (p1 published, p1b not); m2 has two rooms with desks, neither published. */
+  function twoMachinesOnePublished() {
+    dataState.current = {
+      machines: [pMachine('m1', 'jarvis'), pMachine('m2', 'hal')],
+      projects: [
+        { id: 'p1', machine_id: 'm1', status: 'active' },
+        { id: 'p1b', machine_id: 'm1', status: 'active' },
+        { id: 'p2', machine_id: 'm2', status: 'active' },
+        { id: 'p2b', machine_id: 'm2', status: 'active' },
+      ],
+      statuses: { m1: 'online', m2: 'online' },
+      loading: false,
+    };
+    officeMock.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'm1'
+          ? snap('m1', [pRoom('p1', true, [tab('t1', 'p1')]), pRoom('p1b', false, [tab('t1b', 'p1b')])])
+          : snap('m2', [pRoom('p2', false, [tab('t2', 'p2')]), pRoom('p2b', false, [tab('t2b', 'p2b')])]),
+      ),
+    );
+  }
+
+  function stubClipboard() {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    return writeText;
+  }
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  });
+
+  it("copies the city's own address when something anywhere is published", async () => {
+    const writeText = stubClipboard();
+    authState.current = { user: { nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro');
+  });
+
+  it("copies the building's address inside a machine, using the machine's public id", async () => {
+    const writeText = stubClipboard();
+    authState.current = { user: { nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub');
+  });
+
+  it("copies the room's address inside a room, using the project's public id", async () => {
+    const writeText = stubClipboard();
+    authState.current = { user: { nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub?room=p1-pub');
+  });
+
+  it('explains itself instead of copying when nothing in view is published', async () => {
+    const writeText = stubClipboard();
+    authState.current = { user: { nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office/m2'); // both of hal's rooms are unpublished
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/nada publicado/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
   });
 });

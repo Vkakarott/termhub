@@ -24,6 +24,8 @@ export interface User {
   invited_at: string | null;
   /** last successful sign-in; null = never (invite pending) */
   last_login_at: string | null;
+  /** the address of this user's public city (`/city/@<nickname>`); null until claimed */
+  nickname: string | null;
 }
 
 /** Side effects of an invite (the user row is created regardless). */
@@ -128,6 +130,8 @@ export interface Project {
   created_at: string;
   /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
   public_id: string;
+  /** whether this project's rooms are readable on the owner's public city */
+  is_public: boolean;
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
@@ -400,6 +404,9 @@ export interface PublicCity {
   owner_name: string;
   buildings: PublicBuilding[];
 }
+
+/** Where a nickname's public city lives; the address the app builds share links from. */
+export const PUBLIC_CITY_BASE = 'https://termhub.dev/city';
 
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
 export interface UploadEntry {

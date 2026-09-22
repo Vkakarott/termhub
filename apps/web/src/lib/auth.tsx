@@ -17,6 +17,8 @@ interface AuthState {
   setViewAs: (user_id: string | null) => Promise<void>;
   /** true when the signed-in user's role grants resource:action (admins: always) */
   can: (resource: string, action?: 'create' | 'read' | 'update' | 'delete') => boolean;
+  /** claims the signed-in user's public-city nickname; rejects with ApiError (400/409) on refusal */
+  setNickname: (nickname: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -92,7 +94,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign('/');
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, config, login, sendCode, verifyCode, logout, viewAs, setViewAs, can }}>{children}</AuthContext.Provider>;
+  const setNickname = useCallback(async (nickname: string) => {
+    const { user } = await api.auth.setNickname(nickname);
+    setUser(user);
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, loading, config, login, sendCode, verifyCode, logout, viewAs, setViewAs, can, setNickname }}>{children}</AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthState {

@@ -4,9 +4,10 @@ import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
+import { PUBLIC_CITY_BASE, type Machine } from '../lib/types';
 import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type CityModel, type FocusTarget, type MachineEntry, type MachineModel } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
-import { useOfficeSnapshots } from '../office/useOfficeSnapshots';
+import { useOfficeSnapshots, type MachineSnapshotState } from '../office/useOfficeSnapshots';
 
 /**
  * The office: the whole account as a city, live. The URL is the state, and each of its rests is a
@@ -18,7 +19,7 @@ export function OfficePage() {
   const { machineId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { machines, projects, statuses, loading } = useData();
   const { items, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
@@ -239,6 +240,7 @@ export function OfficePage() {
   if (machineId && machineName) trail.push({ label: machineName, go: () => go(machineId, null, true) });
   const roomName = here?.floor.rooms.find((r) => r.id === room)?.name;
   if (roomName) trail.push({ label: roomName });
+  const shareLink = shareLinkFor(target, user?.nickname ?? null, machines, byMachine);
 
   return (
     <div className="flex h-full flex-col">
@@ -248,6 +250,7 @@ export function OfficePage() {
           <Trail parts={trail} />
           <span className="ml-auto flex items-center gap-3">
             <StatusNotices machine={here} connected={connected} />
+            <ShareButton link={shareLink} />
             <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
               modo foco
             </button>
@@ -261,6 +264,7 @@ export function OfficePage() {
         {focus && (
           <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
             <StatusNotices machine={here} connected={connected} />
+            <ShareButton link={shareLink} />
             <button className="rounded hover:text-fg" onClick={() => setFocus(false)}>
               sair do foco (Esc)
             </button>
@@ -328,4 +332,70 @@ function Message({ children }: { children: React.ReactNode }) {
 
 function Overlay({ children }: { children: React.ReactNode }) {
   return <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-fg-muted">{children}</div>;
+}
+
+/** True once any room on that machine's last snapshot has a published project. */
+function hasPublished(state: MachineSnapshotState | undefined): boolean {
+  return !!state?.snapshot?.rooms.some((r) => r.project.is_public);
+}
+
+/**
+ * The public link the camera's current rest would produce, or null when there is nothing published
+ * to point at (no nickname claimed yet counts as nothing published: there is no address to build).
+ * Built from the public ids the snapshots already carry — there is no endpoint to ask for a link.
+ */
+function shareLinkFor(target: FocusTarget, nickname: string | null, machines: Machine[], byMachine: Record<string, MachineSnapshotState>): string | null {
+  if (!nickname) return null;
+  const base = `${PUBLIC_CITY_BASE}/@${encodeURIComponent(nickname)}`;
+  if (target.kind === 'city') return machines.some((m) => hasPublished(byMachine[m.id])) ? base : null;
+
+  const machine = machines.find((m) => m.id === target.machineId);
+  if (!machine) return null;
+  const state = byMachine[machine.id];
+  if (target.kind === 'machine') return hasPublished(state) ? `${base}/${encodeURIComponent(machine.public_id)}` : null;
+
+  const room = state?.snapshot?.rooms.find((r) => r.project.id === target.roomId);
+  if (!room?.project.is_public) return null;
+  return `${base}/${encodeURIComponent(machine.public_id)}?room=${encodeURIComponent(room.project.public_id)}`;
+}
+
+type ShareStatus = 'idle' | 'copied' | 'failed';
+
+/**
+ * Copies the current rest's public link. When there is nothing published in view, the button
+ * explains that instead of pretending there is something to copy — it never calls the clipboard
+ * with a link that would 404.
+ */
+function ShareButton({ link }: { link: string | null }) {
+  const [status, setStatus] = useState<ShareStatus>('idle');
+
+  useEffect(() => {
+    if (status === 'idle') return;
+    const id = setTimeout(() => setStatus('idle'), 2500);
+    return () => clearTimeout(id);
+  }, [status]);
+
+  if (!link) {
+    return (
+      <span className="rounded px-2 py-1 text-fg-dim" title="Publique um projeto para gerar o link público">
+        nada publicado aqui ainda
+      </span>
+    );
+  }
+
+  const copy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('no clipboard API');
+      await navigator.clipboard.writeText(link);
+      setStatus('copied');
+    } catch {
+      setStatus('failed');
+    }
+  };
+
+  return (
+    <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => void copy()} title={link}>
+      {status === 'copied' ? 'link copiado' : status === 'failed' ? 'selecione e copie' : 'compartilhar'}
+    </button>
+  );
 }
