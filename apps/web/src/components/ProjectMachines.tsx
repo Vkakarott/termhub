@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useData } from '../lib/data';
 import { ApiError } from '../lib/api';
 import type { Project, ProjectMachineLink } from '../lib/types';
@@ -16,6 +16,14 @@ function LinkRow({ project, link, onUnlinked }: { project: Project; link: Projec
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const dirty = cwd !== link.cwd;
+
+  // Resyncs the local draft when the link's cwd changes from outside (e.g. another browser tab): the
+  // row is keyed on machine_id alone (not machine_id+cwd) precisely so a *self*-triggered save does
+  // not remount it and lose the "Salvo." message just set below — this effect is a no-op in that
+  // case, since `cwd` already equals the newly saved `link.cwd`.
+  useEffect(() => {
+    setCwd(link.cwd);
+  }, [link.cwd]);
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -124,10 +132,10 @@ export function ProjectMachines({ project }: { project: Project }) {
       <ul className="space-y-2">
         {project.machines.map((l) => (
           <LinkRow
-            // Keyed on the cwd too: when it changes (e.g. saved from here, or from another browser
-            // tab) the row remounts and its local `cwd` state re-syncs to the new value, instead of
-            // needing the whole settings page above it to remount (see ProjectPage's key).
-            key={l.machine_id + ':' + l.cwd}
+            // Keyed on machine_id alone: keying on cwd too would remount the row on its own
+            // successful save (updateProjectMachine updates the link's cwd right after), losing the
+            // "Salvo." message just set. LinkRow's own effect resyncs `cwd` on an external change.
+            key={l.machine_id}
             project={project}
             link={l}
             onUnlinked={(closed) => setNotice(closed === 1 ? '1 tab fechada.' : `${closed} tabs fechadas.`)}

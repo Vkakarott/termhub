@@ -49,11 +49,15 @@ describe('ProjectMachines', () => {
   });
 
   it('saves an edited directory and unlinks after confirming', async () => {
-    updateProjectMachine.mockResolvedValue(undefined);
-    // Real unlinkMachine removes the link from project.machines before returning, which unmounts the
-    // row in the same render pass as the parent updates. Reproduce that here (instead of just
-    // resolving a value) so the notice's lifetime — outliving the row — is actually exercised.
+    // Real updateProjectMachine/unlinkMachine update project.machines in state before returning,
+    // which (for a save) re-renders LinkRow with the same key — no remount — and (for unlink) drops
+    // the link, unmounting the row in the same render pass as the parent updates. Reproduce both here
+    // (instead of just resolving a value) so the row survives its own save (and the notice outlives
+    // the row on unlink) the way the real flow does.
     const setterRef: { current: ((updater: (p: Project) => Project) => void) | null } = { current: null };
+    updateProjectMachine.mockImplementation(async (_projectId: string, machineId: string, cwd: string) => {
+      setterRef.current?.((p) => ({ ...p, machines: p.machines.map((l) => (l.machine_id === machineId ? { ...l, cwd } : l)) }));
+    });
     unlinkMachine.mockImplementation(async (_projectId: string, machineId: string) => {
       setterRef.current?.((p) => ({ ...p, machines: p.machines.filter((l) => l.machine_id !== machineId) }));
       return 2;
@@ -69,6 +73,11 @@ describe('ProjectMachines', () => {
     fireEvent.change(screen.getByDisplayValue('/src/p1'), { target: { value: '/moved' } });
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     await waitFor(() => expect(updateProjectMachine).toHaveBeenCalledWith('p1', 'm1', '/moved', false));
+    // The row must survive its own successful save: the "Salvo." message set right after must not be
+    // lost to a remount, and the input must still show the (now-saved) value.
+    await screen.findByText('Salvo.');
+    expect(screen.getByDisplayValue('/moved')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Desvincular' })); // the row's link
     fireEvent.click(screen.getAllByRole('button', { name: 'Desvincular' })[1]); // the dialog's confirm
     await waitFor(() => expect(unlinkMachine).toHaveBeenCalledWith('p1', 'm1'));
@@ -76,9 +85,10 @@ describe('ProjectMachines', () => {
     await screen.findByText('2 tabs fechadas.');
   });
 
-  it("resyncs a row's cwd when the link changes from outside (e.g. saved elsewhere) without remounting the whole section", () => {
-    // Without keying LinkRow on the cwd too, its local `useState(link.cwd)` would stay stuck on the
-    // stale value here: React only re-reads a `useState` initializer on remount, not on a prop change.
+  it("resyncs a row's cwd when the link changes from outside (e.g. saved elsewhere)", () => {
+    // LinkRow is keyed on machine_id alone (not cwd, so its own save does not remount it — see the
+    // test above); an external cwd change instead relies on its `useEffect([link.cwd])` to resync the
+    // local draft.
     function Harness({ initial }: { initial: Project }) {
       const [p, setP] = useState(initial);
       return (

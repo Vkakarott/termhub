@@ -168,13 +168,12 @@ export function TerminalsView({ project, visible }: Props) {
       return;
     }
     const allowed = new Set(linkedMachineIds ? linkedMachineIds.split(',') : []);
-    setTabs((t) => {
-      if (!t) return t;
-      const stale = t.filter((x) => !allowed.has(x.machine_id));
-      if (stale.length === 0) return t;
-      for (const s of stale) dispatch({ type: 'closeTab', tabId: s.id });
-      return t.filter((x) => allowed.has(x.machine_id));
-    });
+    // `setTabs`'s updater must stay pure: compute the stale ids from `tabs` (in scope — this effect's
+    // closure holds the value from the render that changed `linkedMachineIds`) and dispatch for each
+    // in a plain loop, outside the updater.
+    const stale = (tabs ?? []).filter((x) => !allowed.has(x.machine_id));
+    for (const s of stale) dispatch({ type: 'closeTab', tabId: s.id });
+    if (stale.length > 0) setTabs((t) => (t ?? []).filter((x) => allowed.has(x.machine_id)));
     void load();
     // `dispatch`/`load` are effectively stable for this purpose (see the `machinesOf` note above);
     // this must only re-run when the set of linked machine ids actually changes.
