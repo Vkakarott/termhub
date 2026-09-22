@@ -5,17 +5,24 @@ export type ChatFrame =
   | { type: 'action'; tool: string; tool_use_id: string; args: unknown }
   | { type: 'action_result'; tool_use_id: string; ok: boolean }
   | { type: 'done'; session_id?: string; usage?: unknown }
-  /** `reason` is the container's machine-readable classification of the failure (never stderr's
+  /** `reason` is the runner's machine-readable classification of the failure (never stderr's
    * text): `missing_session` is the one the service acts on, by retrying on a fresh CLI session.
    * `session_id` is carried for the same reason as on `done`: a run can fail with its session, and
    * its whole transcript, safely on disk. */
   | { type: 'error'; message: string; reason?: ChatFailureReason; session_id?: string };
 
-/** Mirrors the concierge's `FailureReason`; an unknown label is dropped rather than guessed at. */
-export type ChatFailureReason = 'missing_session' | 'cli_rejected' | 'run_failed';
+/**
+ * Every label a runner may end a failed run with: the container's `FailureReason`, the protocol's
+ * `closedReason` (what a run on the user's own machine reports) and the two only the server can see
+ * — the machine is not there, and its agent is too old to run a chat. One set, so a label a runner
+ * takes the trouble to name is never dropped one layer above it; an unknown one still is, rather than
+ * being guessed at.
+ */
+export type ChatFailureReason = 'missing_session' | 'cli_rejected' | 'run_failed' | 'cli_missing' | 'killed' | 'host_gone' | 'agent_too_old';
 
-const toReason = (raw: unknown): ChatFailureReason | undefined =>
-  raw === 'missing_session' || raw === 'cli_rejected' || raw === 'run_failed' ? raw : undefined;
+const REASONS = new Set<string>(['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old']);
+
+const toReason = (raw: unknown): ChatFailureReason | undefined => (typeof raw === 'string' && REASONS.has(raw) ? (raw as ChatFailureReason) : undefined);
 
 /** `mcp__termhub__list_tabs` -> `list_tabs`; anything else is kept as it came. */
 const toolName = (raw: string) => (raw.startsWith('mcp__termhub__') ? raw.slice('mcp__termhub__'.length) : raw);

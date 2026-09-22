@@ -5,12 +5,15 @@ import { AgentOfflineError, AgentRegistry } from './registry.js';
 function fakeConn(machineId: string) {
   const listeners: Record<string, ((...a: unknown[]) => void)[]> = {};
   return {
-    machineId, hello: { agent_version: '0.1.0', os: 'linux', tools: ['tmux'] }, connectedAt: Date.now(),
+    machineId, hello: { agent_version: '0.1.0', os: 'linux', tools: ['tmux'], capabilities: ['claude'] }, connectedAt: Date.now(),
     close: vi.fn(function (this: unknown, code: number, reason?: string) { (listeners.close ?? []).forEach((l) => l(code, reason)); }),
-    rpc: vi.fn(async () => ({ sessions: ['a'] })), openPty: vi.fn(),
+    rpc: vi.fn(async () => ({ sessions: ['a'] })), openPty: vi.fn(), openClaude: vi.fn(async () => ({ ch: 1, write() {}, close() {} })),
     on(ev: string, l: (...a: unknown[]) => void) { (listeners[ev] ??= []).push(l); return this; },
   } as unknown as import('./connection.js').AgentConnection;
 }
+
+const claudeParams = { session_id: 's-1', resume: false, config_dir: null, mcp_url: 'https://termhub.dev/mcp', token: 'tok', model: null };
+const handlers = { onData() {}, onExit() {} };
 
 describe('AgentRegistry', () => {
   it('tracks online state and emits events', () => {
@@ -35,5 +38,20 @@ describe('AgentRegistry', () => {
     const r = new AgentRegistry(); const c = fakeConn('m1'); r.attach('m1', c);
     await expect(r.rpc('m1', 'tmux.list', {})).resolves.toEqual({ sessions: ['a'] });
     expect(c.rpc).toHaveBeenCalledWith('tmux.list', {}, undefined);
+  });
+  it('reports the capabilities an attached agent advertised, and null for a machine nobody is on', () => {
+    const r = new AgentRegistry();
+    expect(r.capabilities('m9')).toBeNull();
+    const c = fakeConn('m1');
+    r.attach('m1', c);
+    expect(r.capabilities('m1')).toEqual(['claude']);
+  });
+  it('rejects a claude channel for an offline machine and forwards it for an online one', async () => {
+    await expect(new AgentRegistry().openClaude('m9', claudeParams, handlers)).rejects.toBeInstanceOf(AgentOfflineError);
+    const r = new AgentRegistry();
+    const c = fakeConn('m1');
+    r.attach('m1', c);
+    await r.openClaude('m1', claudeParams, handlers);
+    expect(c.openClaude).toHaveBeenCalledWith(claudeParams, handlers);
   });
 });

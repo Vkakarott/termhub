@@ -45,3 +45,7 @@ export function httpRunner(opts: { deadlineMs?: number } = {}): RunnerClient {
     },
   };
 }
+
+/** The second runner: the same CLI, on a machine of the user's own, through its agent. Re-exported
+ *  here so the two implementations of one interface are found in one place. */
+export { agentRunner, type ClaudeChannelHost } from './agent-runner.js';
