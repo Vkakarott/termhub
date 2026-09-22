@@ -31,6 +31,7 @@ export type ProjectMinAggregateOutputType = {
   cwd: string | null
   status: $Enums.ProjectStatus | null
   description: string | null
+  isPublic: boolean | null
   lastTerminalAt: Date | null
   createdAt: Date | null
 }
@@ -42,6 +43,7 @@ export type ProjectMaxAggregateOutputType = {
   cwd: string | null
   status: $Enums.ProjectStatus | null
   description: string | null
+  isPublic: boolean | null
   lastTerminalAt: Date | null
   createdAt: Date | null
 }
@@ -53,6 +55,7 @@ export type ProjectCountAggregateOutputType = {
   cwd: number
   status: number
   description: number
+  isPublic: number
   lastTerminalAt: number
   createdAt: number
   _all: number
@@ -66,6 +69,7 @@ export type ProjectMinAggregateInputType = {
   cwd?: true
   status?: true
   description?: true
+  isPublic?: true
   lastTerminalAt?: true
   createdAt?: true
 }
@@ -77,6 +81,7 @@ export type ProjectMaxAggregateInputType = {
   cwd?: true
   status?: true
   description?: true
+  isPublic?: true
   lastTerminalAt?: true
   createdAt?: true
 }
@@ -88,6 +93,7 @@ export type ProjectCountAggregateInputType = {
   cwd?: true
   status?: true
   description?: true
+  isPublic?: true
   lastTerminalAt?: true
   createdAt?: true
   _all?: true
@@ -172,6 +178,7 @@ export type ProjectGroupByOutputType = {
   cwd: string
   status: $Enums.ProjectStatus
   description: string | null
+  isPublic: boolean
   lastTerminalAt: Date | null
   createdAt: Date
   _count: ProjectCountAggregateOutputType | null
@@ -204,6 +211,7 @@ export type ProjectWhereInput = {
   cwd?: Prisma.StringFilter<"Project"> | string
   status?: Prisma.EnumProjectStatusFilter<"Project"> | $Enums.ProjectStatus
   description?: Prisma.StringNullableFilter<"Project"> | string | null
+  isPublic?: Prisma.BoolFilter<"Project"> | boolean
   lastTerminalAt?: Prisma.DateTimeNullableFilter<"Project"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
   machine?: Prisma.XOR<Prisma.MachineScalarRelationFilter, Prisma.MachineWhereInput>
@@ -221,6 +229,7 @@ export type ProjectOrderByWithRelationInput = {
   cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrderInput | Prisma.SortOrder
+  isPublic?: Prisma.SortOrder
   lastTerminalAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   machine?: Prisma.MachineOrderByWithRelationInput
@@ -241,6 +250,7 @@ export type ProjectWhereUniqueInput = Prisma.AtLeast<{
   cwd?: Prisma.StringFilter<"Project"> | string
   status?: Prisma.EnumProjectStatusFilter<"Project"> | $Enums.ProjectStatus
   description?: Prisma.StringNullableFilter<"Project"> | string | null
+  isPublic?: Prisma.BoolFilter<"Project"> | boolean
   lastTerminalAt?: Prisma.DateTimeNullableFilter<"Project"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
   machine?: Prisma.XOR<Prisma.MachineScalarRelationFilter, Prisma.MachineWhereInput>
@@ -258,6 +268,7 @@ export type ProjectOrderByWithAggregationInput = {
   cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrderInput | Prisma.SortOrder
+  isPublic?: Prisma.SortOrder
   lastTerminalAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.ProjectCountOrderByAggregateInput
@@ -275,6 +286,7 @@ export type ProjectScalarWhereWithAggregatesInput = {
   cwd?: Prisma.StringWithAggregatesFilter<"Project"> | string
   status?: Prisma.EnumProjectStatusWithAggregatesFilter<"Project"> | $Enums.ProjectStatus
   description?: Prisma.StringNullableWithAggregatesFilter<"Project"> | string | null
+  isPublic?: Prisma.BoolWithAggregatesFilter<"Project"> | boolean
   lastTerminalAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Project"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Project"> | Date | string
 }
@@ -285,6 +297,7 @@ export type ProjectCreateInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
@@ -302,6 +315,7 @@ export type ProjectUncheckedCreateInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
@@ -317,6 +331,7 @@ export type ProjectUpdateInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
@@ -334,6 +349,7 @@ export type ProjectUncheckedUpdateInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
@@ -350,6 +366,7 @@ export type ProjectCreateManyInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
 }
@@ -360,6 +377,7 @@ export type ProjectUpdateManyMutationInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -371,6 +389,7 @@ export type ProjectUncheckedUpdateManyInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -392,6 +411,7 @@ export type ProjectCountOrderByAggregateInput = {
   cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrder
+  isPublic?: Prisma.SortOrder
   lastTerminalAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -403,6 +423,7 @@ export type ProjectMaxOrderByAggregateInput = {
   cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrder
+  isPublic?: Prisma.SortOrder
   lastTerminalAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -414,6 +435,7 @@ export type ProjectMinOrderByAggregateInput = {
   cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrder
+  isPublic?: Prisma.SortOrder
   lastTerminalAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -545,6 +567,7 @@ export type ProjectCreateWithoutMachineInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
@@ -560,6 +583,7 @@ export type ProjectUncheckedCreateWithoutMachineInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
@@ -605,6 +629,7 @@ export type ProjectScalarWhereInput = {
   cwd?: Prisma.StringFilter<"Project"> | string
   status?: Prisma.EnumProjectStatusFilter<"Project"> | $Enums.ProjectStatus
   description?: Prisma.StringNullableFilter<"Project"> | string | null
+  isPublic?: Prisma.BoolFilter<"Project"> | boolean
   lastTerminalAt?: Prisma.DateTimeNullableFilter<"Project"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
 }
@@ -615,6 +640,7 @@ export type ProjectCreateWithoutTabsInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
@@ -631,6 +657,7 @@ export type ProjectUncheckedCreateWithoutTabsInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
@@ -661,6 +688,7 @@ export type ProjectUpdateWithoutTabsInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
@@ -677,6 +705,7 @@ export type ProjectUncheckedUpdateWithoutTabsInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
@@ -691,6 +720,7 @@ export type ProjectCreateWithoutTicketsInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
@@ -707,6 +737,7 @@ export type ProjectUncheckedCreateWithoutTicketsInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
@@ -737,6 +768,7 @@ export type ProjectUpdateWithoutTicketsInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
@@ -753,6 +785,7 @@ export type ProjectUncheckedUpdateWithoutTicketsInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
@@ -767,6 +800,7 @@ export type ProjectCreateWithoutTasksInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
@@ -783,6 +817,7 @@ export type ProjectUncheckedCreateWithoutTasksInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
@@ -813,6 +848,7 @@ export type ProjectUpdateWithoutTasksInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
@@ -829,6 +865,7 @@ export type ProjectUncheckedUpdateWithoutTasksInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
@@ -843,6 +880,7 @@ export type ProjectCreateWithoutNoteInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
@@ -859,6 +897,7 @@ export type ProjectUncheckedCreateWithoutNoteInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
@@ -889,6 +928,7 @@ export type ProjectUpdateWithoutNoteInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
@@ -905,6 +945,7 @@ export type ProjectUncheckedUpdateWithoutNoteInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
@@ -919,6 +960,7 @@ export type ProjectCreateWithoutSetupInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
@@ -935,6 +977,7 @@ export type ProjectUncheckedCreateWithoutSetupInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
@@ -965,6 +1008,7 @@ export type ProjectUpdateWithoutSetupInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
@@ -981,6 +1025,7 @@ export type ProjectUncheckedUpdateWithoutSetupInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
@@ -995,6 +1040,7 @@ export type ProjectCreateManyMachineInput = {
   cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
+  isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
 }
@@ -1005,6 +1051,7 @@ export type ProjectUpdateWithoutMachineInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
@@ -1020,6 +1067,7 @@ export type ProjectUncheckedUpdateWithoutMachineInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
@@ -1035,6 +1083,7 @@ export type ProjectUncheckedUpdateManyWithoutMachineInput = {
   cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1095,6 +1144,7 @@ export type ProjectSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   cwd?: boolean
   status?: boolean
   description?: boolean
+  isPublic?: boolean
   lastTerminalAt?: boolean
   createdAt?: boolean
   machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
@@ -1113,6 +1163,7 @@ export type ProjectSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exten
   cwd?: boolean
   status?: boolean
   description?: boolean
+  isPublic?: boolean
   lastTerminalAt?: boolean
   createdAt?: boolean
   machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
@@ -1125,6 +1176,7 @@ export type ProjectSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exten
   cwd?: boolean
   status?: boolean
   description?: boolean
+  isPublic?: boolean
   lastTerminalAt?: boolean
   createdAt?: boolean
   machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
@@ -1137,11 +1189,12 @@ export type ProjectSelectScalar = {
   cwd?: boolean
   status?: boolean
   description?: boolean
+  isPublic?: boolean
   lastTerminalAt?: boolean
   createdAt?: boolean
 }
 
-export type ProjectOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "machineId" | "name" | "cwd" | "status" | "description" | "lastTerminalAt" | "createdAt", ExtArgs["result"]["project"]>
+export type ProjectOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "machineId" | "name" | "cwd" | "status" | "description" | "isPublic" | "lastTerminalAt" | "createdAt", ExtArgs["result"]["project"]>
 export type ProjectInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
   tabs?: boolean | Prisma.Project$tabsArgs<ExtArgs>
@@ -1175,6 +1228,10 @@ export type $ProjectPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
     cwd: string
     status: $Enums.ProjectStatus
     description: string | null
+    /**
+     * Published: this project's room, its tabs and its machine's name are readable by anyone with the link.
+     */
+    isPublic: boolean
     lastTerminalAt: Date | null
     createdAt: Date
   }, ExtArgs["result"]["project"]>
@@ -1612,6 +1669,7 @@ export interface ProjectFieldRefs {
   readonly cwd: Prisma.FieldRef<"Project", 'String'>
   readonly status: Prisma.FieldRef<"Project", 'ProjectStatus'>
   readonly description: Prisma.FieldRef<"Project", 'String'>
+  readonly isPublic: Prisma.FieldRef<"Project", 'Boolean'>
   readonly lastTerminalAt: Prisma.FieldRef<"Project", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"Project", 'DateTime'>
 }

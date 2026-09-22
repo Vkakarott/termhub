@@ -93,4 +93,17 @@ export class UsersRepository {
   async setPassword(userId: string, passwordHash: string): Promise<void> {
     await this.db.user.update({ where: { id: userId }, data: { passwordHash } });
   }
+
+  /** Claims a nickname for this user. 'taken' when another account already holds it (unique index). */
+  async setNickname(userId: string, nickname: string): Promise<'ok' | 'taken'> {
+    const holder = await this.db.user.findUnique({ where: { nickname } });
+    if (holder && holder.id !== userId) return 'taken';
+    await this.db.user.update({ where: { id: userId }, data: { nickname } });
+    return 'ok';
+  }
+
+  async findByNickname(nickname: string): Promise<User | undefined> {
+    const u = await this.db.user.findUnique({ where: { nickname } });
+    return u ? mapUser(u) : undefined;
+  }
 }

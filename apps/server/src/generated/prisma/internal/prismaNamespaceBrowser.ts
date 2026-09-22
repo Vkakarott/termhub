@@ -98,6 +98,7 @@ export const UserScalarFieldEnum = {
   email: 'email',
   name: 'name',
   avatarUrl: 'avatarUrl',
+  nickname: 'nickname',
   passwordHash: 'passwordHash',
   googleId: 'googleId',
   role: 'role',
@@ -198,6 +199,7 @@ export const ProjectScalarFieldEnum = {
   cwd: 'cwd',
   status: 'status',
   description: 'description',
+  isPublic: 'isPublic',
   lastTerminalAt: 'lastTerminalAt',
   createdAt: 'createdAt'
 } as const

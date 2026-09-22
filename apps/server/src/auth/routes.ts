@@ -7,6 +7,7 @@ import { VIEW_AS_ALL, VIEW_AS_COOKIE, type Scope } from './scope.js';
 import { HttpError, badRequest, forbidden, unauthorized } from '../lib/errors.js';
 import type { AuthContext } from './middleware.js';
 import { buildAuthorizationUrl, exchangeCode, isGoogleEnabled } from './google.js';
+import { normalizeNickname } from '../public/nickname.js';
 import { CSRF_COOKIE, OAUTH_COOKIE, SESSION_COOKIE } from './tokens.js';
 
 const loginSchema = z.object({
@@ -72,6 +73,16 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
   app.get('/me', { config: { public: true } }, async (request) => {
     if (!request.user) throw unauthorized();
     return { user: await withRole(request.user), view_as: viewAsOf(request.scope) };
+  });
+
+  app.patch('/me/nickname', async (request, reply) => {
+    if (!request.user) throw unauthorized();
+    const parsed = normalizeNickname((request.body as { nickname?: unknown } | null)?.nickname);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.reason === 'reserved' ? 'Esse apelido é reservado' : 'Use de 3 a 30 letras, números ou hífen', code: 'NICKNAME_INVALID' });
+    const out = await ctx.repos.users.setNickname(request.user.id, parsed.value);
+    if (out === 'taken') return reply.code(409).send({ error: 'Esse apelido já é de outra pessoa', code: 'NICKNAME_TAKEN' });
+    request.log.info({ userId: request.user.id }, 'nickname: claimed');
+    return { user: await withRole({ ...request.user, nickname: parsed.value }) };
   });
 
   /**

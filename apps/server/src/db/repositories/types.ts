@@ -30,6 +30,8 @@ export interface User {
   email: string;
   name: string;
   avatar_url: string | null;
+  /** the address of this person's public city (/city/@nickname); null = no city */
+  nickname: string | null;
   password_hash: string | null;
   google_id: string | null;
   /** DEPRECATED legacy flag; use role_id */
@@ -82,6 +84,8 @@ export interface Project {
   cwd: string;
   status: ProjectStatus;
   description: string | null;
+  /** published: readable by anyone with the /city/@nickname link */
+  is_public: boolean;
   last_terminal_at: string | null;
   created_at: string;
 }
@@ -196,6 +200,7 @@ export const mapUser = (u: PrismaUser): User => ({
   email: u.email,
   name: u.name,
   avatar_url: u.avatarUrl,
+  nickname: u.nickname,
   password_hash: u.passwordHash,
   google_id: u.googleId,
   role: u.role,
@@ -239,6 +244,7 @@ export const mapProject = (p: PrismaProject): Project => ({
   cwd: p.cwd,
   status: p.status,
   description: p.description,
+  is_public: p.isPublic,
   last_terminal_at: iso(p.lastTerminalAt),
   created_at: p.createdAt.toISOString(),
 });

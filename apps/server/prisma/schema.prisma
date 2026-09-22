@@ -38,6 +38,8 @@ model User {
   email        String    @unique
   name         String
   avatarUrl    String?   @map("avatar_url")
+  /// The address of this person's public city (/city/@nickname). Null = no city. Unique, lowercase.
+  nickname     String?   @unique
   passwordHash String?   @map("password_hash")
   googleId     String?   @unique @map("google_id")
   /// DEPRECATED: replaced by roleId (kept one release for the blue/green window; drop next)
@@ -168,6 +170,8 @@ model Project {
   cwd            String
   status         ProjectStatus @default(active)
   description    String?
+  /// Published: this project's room, its tabs and its machine's name are readable by anyone with the link.
+  isPublic       Boolean       @default(false) @map("is_public")
   lastTerminalAt DateTime?     @map("last_terminal_at")
   createdAt      DateTime      @default(now()) @map("created_at")
   machine        Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
