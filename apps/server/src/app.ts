@@ -23,6 +23,7 @@ import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
+import { publicCityRoutes } from './routes/public-city.js';
 import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
 import { registerMonitorWs } from './monitor/ws.js';
@@ -164,6 +165,7 @@ export async function buildApp(): Promise<App> {
       // default — and the operator's container is no longer in this path at all.
       const chat = new ChatService({ repos, agents, runnerFor: (machineId) => agentRunner(machineId) });
       await guarded('chat', (a) => chatRoutes(a, repos, { service: chat }), '/chat');
+      await api.register((a) => publicCityRoutes(a, repos), { prefix: '/public' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },
