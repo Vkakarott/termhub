@@ -51,4 +51,59 @@ describe('ChatLayout', () => {
     const back = screen.getByRole('link', { name: /voltar/i });
     expect(back.getAttribute('href')).toBe('/');
   });
+
+it('locks the document while it is mounted, and gives it back on the way out', () => {
+  // On iOS a drag that starts on a child which cannot scroll — the message box — is handed to the
+  // document, which is the "press and drag the box and it scrolls for ever" report. The class is
+  // scoped to the chat so the terminals keep their own scrolling; jsdom applies no CSS, so what is
+  // pinned here is that the class arrives and, just as importantly, leaves.
+  const { unmount } = render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Routes>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<p>conversa</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(document.body.classList.contains('chat-locked')).toBe(true);
+  unmount();
+  expect(document.body.classList.contains('chat-locked')).toBe(false);
+});
+
+it('sizes itself to the visible viewport while it is mounted, and stops when it is not', () => {
+  // The keyboard shrinks the visual viewport and nothing else: without this the shell stays a whole
+  // screen tall behind the keyboard, which is the empty space that could be scrolled on a phone.
+  const { unmount } = render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Routes>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<p>conversa</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  // jsdom has no visualViewport, so the fallback (innerHeight) is what lands here.
+  expect(document.documentElement.style.getPropertyValue('--app-height')).toBe(`${window.innerHeight}px`);
+  unmount();
+  expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('');
+});
+
+it('shows which bundle it is running', () => {
+  // So "it did not change on my phone" is answered by reading the header, not by guessing between a
+  // stale page and a fix that does not work.
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Routes>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<p>conversa</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  // Version first, because that is what was asked for; then whatever identifies the build — the
+  // commit in a deployed image, the build time in a local one, since the version alone has not
+  // moved since 0.1.0 and could never tell two deploys apart.
+  expect(screen.getByTitle('build').textContent).toMatch(/^v\d+\.\d+\.\d+ · .+/);
+});
 });

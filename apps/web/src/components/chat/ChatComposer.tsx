@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { enterSends } from '../../lib/chat-scroll';
+import { sendsMessage } from '../../lib/chat-scroll';
 import { useDictation, type Dictation } from '../../lib/use-dictation';
 
 export interface ChatComposerProps {
@@ -130,20 +130,24 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
           size acts on the main axis, vertical there) and is kept only as the guard for the day this
           box is a row's flex item again — which is also why no test can observe it. */}
       <div className="min-w-0 rounded-2xl border border-line bg-bg-2 px-3 py-2 focus-within:border-accent">
+        {/* 16px, not the 14px the rest of the chat uses: iOS Safari zooms the page into any field
+            whose font is under 16px the moment it takes focus, and a zoomed page is wider than the
+            screen — which is what "the side blows out when I tap the box" was. The zoom is silent,
+            irreversible without a pinch, and it also lets the whole page pan vertically afterwards. */}
         <textarea
           ref={ref}
-          className="block w-full resize-none overflow-y-auto border-0 bg-transparent px-0 py-1 text-sm text-fg placeholder:text-fg-dim focus:outline-none"
+          className="block w-full resize-none overflow-y-auto overscroll-contain border-0 bg-transparent px-0 py-1 text-base text-fg placeholder:text-fg-dim focus:outline-none"
           rows={MIN_ROWS}
           value={value}
           placeholder="Pergunte ou peça algo às suas máquinas"
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
-            // `canSend`, not just `enterSends()`: while the box is recording the button reads "Parar",
+            // `canSend`, not just the key rule: while the box is recording the button reads "Parar",
             // and an Enter that still sent put a half-typed line in front of an agent that acts on the
             // person's real machines — with the transcription then landing in the box that send had
             // just emptied. Nothing is swallowed when it cannot send: the Enter stays the newline the
             // textarea would have written anyway.
-            if (e.key === 'Enter' && !e.shiftKey && enterSends() && canSend) {
+            if (sendsMessage(e) && canSend) {
               e.preventDefault();
               onSend();
             }

@@ -23,6 +23,20 @@ describe('ChatComposer', () => {
     expect(screen.getByPlaceholderText('Pergunte ou peça algo às suas máquinas')).toBeTruthy();
   });
 
+  it('keeps the box at 16px, because a smaller field makes iOS zoom the page on focus', () => {
+    // Safari on iOS zooms into any field whose font is under 16px the moment it takes focus, and a
+    // zoomed page is wider than the screen — which is what "tapping the box blows out the side"
+    // was. jsdom neither zooms nor lays out, so the class is what can be pinned here; the effect
+    // itself only shows on a device.
+    render(<ChatComposer value="" onChange={() => {}} onSend={() => {}} sending={false} />);
+    const box = screen.getByPlaceholderText(/pergunte/i);
+    expect(box.className).toContain('text-base');
+    expect(box.className).not.toContain('text-sm');
+    // And the box keeps its own drag: without this, panning inside it is handed to whatever can
+    // scroll next, which on a phone was the document.
+    expect(box.className).toContain('overscroll-contain');
+  });
+
   it('sends on Enter with a fine pointer, and writes a newline with Shift', () => {
     const onSend = vi.fn();
     // Installed, not assumed: with no `matchMedia` at all `enterSends()` returns true anyway, so this
@@ -37,6 +51,29 @@ describe('ChatComposer', () => {
 
     fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
     expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends on ⌘+Enter, the shortcut people bring from every other message box', () => {
+    const onSend = vi.fn();
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>
+      ({ matches: query.includes('coarse') }) as MediaQueryList;
+    render(<Harness onSend={onSend} />);
+    const box = screen.getByPlaceholderText(/pergunte/i);
+
+    fireEvent.change(box, { target: { value: 'oi' } });
+    // Coarse pointer on purpose: plain Enter is a newline here, and ⌘+Enter still has to send.
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    expect(onSend).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not send on ⌘+Enter with an empty box', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    fireEvent.keyDown(screen.getByPlaceholderText(/pergunte/i), { key: 'Enter', metaKey: true });
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it('does not send on Enter with a coarse pointer, where Enter is how a line gets started', () => {

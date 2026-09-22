@@ -149,6 +149,20 @@ export function ChatPage() {
     if (list && stick.current) list.scrollTop = list.scrollHeight;
   }, [timeline, events]);
 
+  // The keyboard opening is a layout change the thread has to follow: the shell gets shorter
+  // (ChatLayout sizes itself to the visual viewport) under the same `scrollTop`, so the newest
+  // message would slide out of sight exactly when the person is about to answer it.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const follow = () => {
+      const list = listRef.current;
+      if (list && stick.current) list.scrollTop = list.scrollHeight;
+    };
+    viewport.addEventListener('resize', follow);
+    return () => viewport.removeEventListener('resize', follow);
+  }, []);
+
   const send = async () => {
     const value = text.trim();
     if (!value || sending) return;
@@ -182,12 +196,16 @@ export function ChatPage() {
     // Height and overflow belong to ChatLayout; this page owns the reading column: centred, capped
     // at a comfortable measure and padded so a long answer survives a phone. The bottom safe area
     // is the composer's own (`ChatComposer`), since it — not this column — is anchored to the edge.
+    // `flex-1`, never `h-full`: this column is a flex item of `ChatLayout`'s `main`, and a
+    // percentage height against a flex item with no explicit height is exactly what Safari declines
+    // to resolve — the column took its content's height, the thread stopped filling the screen, and
+    // the document scrolled instead of the conversation.
     // `min-w-0` on this column and on the thread below is what keeps a phone honest: a flex item's
     // automatic minimum size is its min-content width, and `break-words` does not reduce that (by
     // spec, `overflow-wrap` never shrinks min-content). So one unbreakable token in an answer — a
     // `waiting_permission` in backticks, a long path — widened this column past the viewport and
     // took the composer's send button off screen with it.
-    <div className="mx-auto flex h-full w-full min-w-0 max-w-3xl flex-col px-4">
+    <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-3xl flex-1 flex-col px-4">
       {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
       {/* A new conversation is otherwise a header, an empty thread and a box: one line saying what
        * this screen is for. Deliberately just the one — no example prompts, no tour. */}
@@ -197,7 +215,7 @@ export function ChatPage() {
       <ol
         ref={listRef}
         aria-label="Conversa"
-        className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto py-4"
+        className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto overscroll-contain py-4"
         onScroll={(e) => {
           stick.current = isNearBottom(e.currentTarget);
         }}
