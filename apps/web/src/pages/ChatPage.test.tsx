@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatPage } from './ChatPage';
 import type { ChatAction, ChatMessage } from '../lib/types';
@@ -8,6 +9,9 @@ const chatMock = vi.fn();
 const sendMock = vi.fn();
 const streamMock = vi.fn();
 const decideMock = vi.fn();
+const setHostMock = vi.fn();
+const machinesMock = vi.fn();
+const accountsMock = vi.fn();
 
 vi.mock('../lib/api', () => {
   // Same signature as the real one: the page shows `message`, so a stand-in that swallows it would
@@ -23,9 +27,21 @@ vi.mock('../lib/api', () => {
   }
   return {
     ApiError,
-    api: { chat: (...a: unknown[]) => chatMock(...a), sendChatMessage: (...a: unknown[]) => sendMock(...a), decideChatAction: (...a: unknown[]) => decideMock(...a) },
+    api: {
+      chat: (...a: unknown[]) => chatMock(...a),
+      sendChatMessage: (...a: unknown[]) => sendMock(...a),
+      decideChatAction: (...a: unknown[]) => decideMock(...a),
+      setChatHost: (...a: unknown[]) => setHostMock(...a),
+      machines: { list: (...a: unknown[]) => machinesMock(...a) },
+      aiAccounts: { list: (...a: unknown[]) => accountsMock(...a) },
+    },
   };
 });
+// The chat is the signed-in user's own, whoever an admin may be "viewing as": the page needs that id to
+// offer only machines `POST /chat/host` will accept, and needs to know when it is looking at someone
+// else's rows. Held in a mutable box so one test can switch the scope without a second mock factory.
+const auth = vi.hoisted(() => ({ state: { user: { id: 'u1' }, viewAs: null } as { user: { id: string } | null; viewAs: unknown } }));
+vi.mock('../lib/auth', () => ({ useAuth: () => auth.state }));
 vi.mock('../lib/chat', () => ({ useChatStream: (...a: unknown[]) => streamMock(...a) }));
 
 const msg = (over: Partial<ChatMessage> & { id: string }): ChatMessage => ({
@@ -55,6 +71,11 @@ beforeEach(() => {
   sendMock.mockReset();
   streamMock.mockReset();
   decideMock.mockReset();
+  setHostMock.mockReset();
+  machinesMock.mockReset();
+  accountsMock.mockReset();
+  accountsMock.mockResolvedValue({ accounts: [] });
+  auth.state = { user: { id: 'u1' }, viewAs: null };
   chatMock.mockResolvedValue({ conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null }, messages: [msg({ id: 'm1', role: 'user', text: 'oi' })], actions: [] });
   sendMock.mockResolvedValue({ message: msg({ id: 'm3', role: 'assistant', text: 'pronto' }) });
   streamMock.mockReturnValue({ events: [], connected: true });
@@ -665,4 +686,257 @@ it('renders a streamed delta as Markdown too, while it is still being written', 
 
   const el = await screen.findByText('parcial');
   expect(el.tagName).toBe('STRONG');
+});
+
+// ─── The host: which machine is thinking, and what to do when none can ───────────────────────────
+
+/** The page renders a `Link` for the enrol path, so the host tests need a router around it. */
+const renderChat = () => render(<ChatPage />, { wrapper: MemoryRouter });
+
+const conversationWith = (host: unknown, over: Record<string, unknown> = {}) => ({
+  conversation: { id: 'c1', title: null, model: null, review_mode: false, last_message_at: null },
+  messages: [],
+  actions: [],
+  host,
+  ...over,
+});
+
+it('with no machine of their own, says so and stops the composer with that as the reason', async () => {
+  chatMock.mockResolvedValue(conversationWith({ kind: 'no_machine' }));
+  renderChat();
+
+  expect(await screen.findByText(/roda em uma máquina sua/i)).toBeTruthy();
+  expect(screen.getByRole('link', { name: /cadastrar máquina/i })).toBeTruthy();
+  // And it stops inviting a message it cannot run: the empty-conversation line would contradict the card.
+  expect(screen.queryByText(/peça algo às suas máquinas/i)).toBeNull();
+  // Nothing pretends to work: the button refuses, and says why instead of going grey in silence.
+  const box = screen.getByPlaceholderText(/pergunte/i);
+  fireEvent.change(box, { target: { value: 'o que está rodando?' } });
+  expect((screen.getByRole('button', { name: /enviar/i }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText(/cadastre uma máquina para conversar/i)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+  expect(sendMock).not.toHaveBeenCalled();
+});
+
+it('picking one of the machines sets the host and re-reads the conversation', async () => {
+  const ready = { kind: 'ready', machine: { id: 'm2', name: 'jarvis' }, configDir: null, account: { kind: 'default' } };
+  // First read: nothing chosen. Every read after the choice sees the host the server now has.
+  chatMock.mockResolvedValueOnce(conversationWith({ kind: 'not_chosen', machines: [{ id: 'm1', name: 'macbook' }, { id: 'm2', name: 'jarvis' }], sessionAtStake: false })).mockResolvedValue(conversationWith(ready));
+  setHostMock.mockResolvedValue({ conversation: { id: 'c1' }, host: ready });
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: 'jarvis' }));
+
+  // The pair travels in one call, and a machine change carries no account: a login belongs to a
+  // machine, so the new host starts on its own default one.
+  await waitFor(() => expect(setHostMock).toHaveBeenCalledWith('m2', null));
+  expect(await screen.findByText(/máquina jarvis/i)).toBeTruthy();
+  // The transcript is ours and survives a fresh CLI session: the conversation is read again.
+  await waitFor(() => expect(chatMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+  expect(screen.queryByText(/escolha em qual/i)).toBeNull();
+});
+
+it('says which machine and which account are running the conversation', async () => {
+  chatMock.mockResolvedValue(conversationWith({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' } }));
+  renderChat();
+
+  expect(await screen.findByText(/máquina jarvis/i)).toBeTruthy();
+  expect(screen.getByText(/conta trabalho/i)).toBeTruthy();
+  expect((screen.getByRole('button', { name: /enviar/i }) as HTMLButtonElement).disabled).toBe(true); // empty box, not a blocked host
+  expect(screen.queryByText(/cadastre uma máquina/i)).toBeNull();
+});
+
+it('an offline host reads as the machine being off, and the composer says that is why', async () => {
+  chatMock.mockResolvedValue(conversationWith({ kind: 'offline', machine: { id: 'm2', name: 'jarvis' } }));
+  renderChat();
+
+  expect(await screen.findByText(/máquina jarvis está offline/i)).toBeTruthy();
+  expect(screen.getByText(/a máquina do chat está offline/i)).toBeTruthy(); // the composer's own reason
+});
+
+it('loads the machines only when the host change is asked for, and offers the agent ones', async () => {
+  chatMock.mockResolvedValue(conversationWith({ kind: 'offline', machine: { id: 'm2', name: 'jarvis' } }));
+  machinesMock.mockResolvedValue({
+    machines: [
+      { id: 'm1', name: 'macbook', type: 'agent', owner_id: 'u1' },
+      { id: 'm2', name: 'jarvis', type: 'agent', owner_id: 'u1' },
+      // The server's own computer cannot host a conversation, so it is never offered.
+      { id: 'm3', name: 'servidor', type: 'local', owner_id: 'u1' },
+      // Someone else's machine, which `GET /machines` returns to an admin viewing "all" and
+      // `POST /chat/host` answers 404 for: offering it would be offering a dead end.
+      { id: 'm9', name: 'da-ana', type: 'agent', owner_id: 'u2' },
+    ],
+    latest_agent_version: null,
+  });
+  renderChat();
+
+  await screen.findByText(/máquina jarvis está offline/i);
+  expect(machinesMock).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: /trocar máquina/i }));
+
+  expect(await screen.findByRole('button', { name: /trocar para macbook/i })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /trocar para servidor/i })).toBeNull();
+  expect(screen.queryByRole('button', { name: /trocar para da-ana/i })).toBeNull();
+  // The warning comes before the change, and nothing was set by opening the picker.
+  expect(screen.getByText(/memória do modelo começa de novo/i)).toBeTruthy();
+  expect(setHostMock).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: /trocar para macbook/i }));
+  await waitFor(() => expect(setHostMock).toHaveBeenCalledWith('m1', null));
+});
+
+it('sends the account with the machine, so the chat can actually run on a chosen login', async () => {
+  const ready = { kind: 'ready', machine: { id: 'm1', name: 'macbook' }, configDir: null, account: { kind: 'default' } };
+  const chosen = { kind: 'ready', machine: { id: 'm1', name: 'macbook' }, configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' } };
+  const conv = (aiAccountId: string | null) => ({ conversation: { id: 'c1', title: null, model: null, review_mode: false, ai_account_id: aiAccountId, last_message_at: null } });
+  // The first read has no account chosen; every read after the pick sees the pair the server now has.
+  chatMock.mockResolvedValueOnce(conversationWith(ready, conv(null))).mockResolvedValue(conversationWith(chosen, conv('acc1')));
+  machinesMock.mockResolvedValue({ machines: [{ id: 'm1', name: 'macbook', type: 'agent', owner_id: 'u1' }], latest_agent_version: null });
+  accountsMock.mockResolvedValue({
+    accounts: [
+      { id: 'acc1', label: 'trabalho', provider: 'claude', machine_id: 'm1', config_dir: '/home/u/.claude-work' },
+      // The chat runs on Claude, and a login of another machine names a config dir that does not
+      // exist on this one — which is the 404 `POST /chat/host` answers for it.
+      { id: 'acc2', label: 'gpt', provider: 'chatgpt', machine_id: 'm1', config_dir: null },
+      { id: 'acc3', label: 'outra máquina', provider: 'claude', machine_id: 'm2', config_dir: null },
+    ],
+  });
+  setHostMock.mockResolvedValue({ conversation: { id: 'c1', ai_account_id: 'acc1' }, host: chosen });
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: /trocar máquina/i }));
+
+  expect(await screen.findByRole('button', { name: /trocar para trabalho/i })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /trocar para gpt/i })).toBeNull();
+  expect(screen.queryByRole('button', { name: /trocar para outra máquina/i })).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: /trocar para trabalho/i }));
+
+  // The pair in one call: the account the person picked, on the machine that already hosts the
+  // conversation. Nothing in the product sent this before, so `chosen` and `lost` were unreachable.
+  await waitFor(() => expect(setHostMock).toHaveBeenCalledWith('m1', 'acc1'));
+  // …and the header now names it: the `chosen` state is reachable through the product, not only in
+  // the server's type.
+  expect(await screen.findByText(/conta trabalho/i)).toBeTruthy();
+});
+
+it('under “ver como” says how to make the host changeable, instead of showing empty lists', async () => {
+  // An admin viewing another user: every list the API answers is that user's, while the conversation is
+  // the admin's own. Reporting an empty pair would be a claim about machines they really do have.
+  auth.state = { user: { id: 'u1' }, viewAs: { id: 'u2', name: 'Ana', email: 'ana@test', avatar_url: null } };
+  chatMock.mockResolvedValue(conversationWith({ kind: 'offline', machine: { id: 'm2', name: 'jarvis' } }));
+  machinesMock.mockResolvedValue({ machines: [{ id: 'm9', name: 'da-ana', type: 'agent', owner_id: 'u2' }], latest_agent_version: null });
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: /trocar máquina/i }));
+
+  expect(await screen.findByText(/saia de “ver como”/i)).toBeTruthy();
+  expect(screen.queryByText(/nenhuma outra máquina/i)).toBeNull();
+  expect(screen.queryByRole('button', { name: /trocar para/i })).toBeNull();
+});
+
+it('keeps the machine picker when the accounts cannot be read at all', async () => {
+  chatMock.mockResolvedValue(conversationWith({ kind: 'offline', machine: { id: 'm2', name: 'jarvis' } }));
+  machinesMock.mockResolvedValue({
+    machines: [
+      { id: 'm1', name: 'macbook', type: 'agent', owner_id: 'u1' },
+      { id: 'm2', name: 'jarvis', type: 'agent', owner_id: 'u1' },
+    ],
+    latest_agent_version: null,
+  });
+  // `ai_accounts` is a resource of its own in the permission matrix: a role that may change the chat's
+  // machine can still be refused this read, and the host is offline — this picker is the only way out.
+  accountsMock.mockRejectedValueOnce(new Error('sem permissão'));
+  setHostMock.mockResolvedValue({ conversation: { id: 'c1', ai_account_id: null }, host: { kind: 'ready', machine: { id: 'm1', name: 'macbook' }, configDir: null, account: { kind: 'default' }, sessionAtStake: false } });
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: /trocar máquina/i }));
+
+  // The picker stays open, the machines are offered, and the half that failed says so.
+  expect(await screen.findByRole('button', { name: /trocar para macbook/i })).toBeTruthy();
+  expect(screen.getByText(/não foi possível ler as contas de IA/i)).toBeTruthy();
+  expect(screen.queryByText(/não foi possível ler as suas máquinas/i)).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: /trocar para macbook/i }));
+  await waitFor(() => expect(setHostMock).toHaveBeenCalledWith('m1', null));
+});
+
+it('closes the picker with the reason when the machines could not be read', async () => {
+  chatMock.mockResolvedValue(conversationWith({ kind: 'offline', machine: { id: 'm2', name: 'jarvis' } }));
+  machinesMock.mockRejectedValueOnce(new Error('rede caiu'));
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: /trocar máquina/i }));
+
+  expect(await screen.findByText(/não foi possível ler as suas máquinas/i)).toBeTruthy();
+  // Never a picker left saying "loading" over a list that will never arrive.
+  expect(screen.queryByText(/carregando suas máquinas/i)).toBeNull();
+});
+
+it('shows the server refusal when the host could not be set', async () => {
+  const { ApiError } = await import('../lib/api');
+  chatMock.mockResolvedValue(conversationWith({ kind: 'not_chosen', machines: [{ id: 'm1', name: 'macbook' }], sessionAtStake: false }));
+  setHostMock.mockRejectedValueOnce(new ApiError(404, 'Máquina não encontrada', 'NOT_FOUND'));
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: 'macbook' }));
+
+  expect(await screen.findByText(/máquina não encontrada/i)).toBeTruthy();
+});
+
+it('a decision answered while the machine is off is kept, not lost', async () => {
+  const { ApiError } = await import('../lib/api');
+  const offline = { kind: 'offline', machine: { id: 'm2', name: 'jarvis' } };
+  // The second read is held open on purpose: what the card shows in between is what this test is about
+  // — the click must already read as answered, before any refetch can confirm it.
+  let confirmRead: (value: unknown) => void = () => {};
+  chatMock.mockResolvedValueOnce(conversationWith(offline, { actions: [action({ id: 'act1' })] })).mockImplementationOnce(() => new Promise((r) => (confirmRead = r)));
+  // The row is already decided server-side before this 409 is thrown: the click was not lost.
+  decideMock.mockRejectedValueOnce(new ApiError(409, 'A máquina jarvis está offline. Ligue-a ou escolha outra máquina para o chat.', 'CHAT_HOST_OFFLINE'));
+  renderChat();
+
+  fireEvent.click(await screen.findByRole('button', { name: /autorizar/i }));
+
+  expect(await screen.findByText(/já está registrada/i)).toBeTruthy();
+  expect(screen.getByText(/máquina jarvis está offline\./i)).toBeTruthy(); // the server's own sentence
+  expect(screen.getByText(/autorizado/i)).toBeTruthy(); // the card shows the answer that was given
+  expect(screen.queryByText(/não foi possível registrar/i)).toBeNull(); // never a failure of the click
+
+  // …and the read that follows keeps it that way, with the decision the server really has.
+  confirmRead(conversationWith(offline, { actions: [action({ id: 'act1', status: 'approved' })] }));
+  await waitFor(() => expect(screen.getByText(/autorizado/i)).toBeTruthy());
+  expect(screen.queryByRole('button', { name: /autorizar/i })).toBeNull();
+});
+
+it('says the machine has no Claude Code installed, instead of one generic line for nine failures', async () => {
+  chatMock.mockResolvedValue(
+    conversationWith({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'default' } }, { messages: [msg({ id: 'm1', role: 'assistant', text: '', error_code: 'CLI_MISSING' })] }),
+  );
+  renderChat();
+
+  expect(await screen.findByText(/não tem o Claude Code instalado/i)).toBeTruthy();
+  expect(screen.queryByText(/a resposta não terminou/i)).toBeNull();
+});
+
+it('says a full machine is full, never that it went away', async () => {
+  chatMock.mockResolvedValue(
+    conversationWith({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'default' } }, { messages: [msg({ id: 'm1', role: 'assistant', text: '', error_code: 'HOST_BUSY' })] }),
+  );
+  renderChat();
+
+  // The machine is up: the run simply had no channel to start on (64 terminals open). Telling the
+  // person their healthy machine "saiu do ar" sends them looking for a problem that is not there.
+  expect(await screen.findByText(/terminais demais abertos/i)).toBeTruthy();
+  expect(screen.queryByText(/saiu do ar/i)).toBeNull();
+  expect(screen.queryByText(/a resposta não terminou/i)).toBeNull();
+});
+
+it('keeps the generic line for a failure with nothing said about why', async () => {
+  chatMock.mockResolvedValue(
+    conversationWith({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'default' } }, { messages: [msg({ id: 'm1', role: 'assistant', text: 'comecei', error_code: 'RUNNER_FAILED' })] }),
+  );
+  renderChat();
+
+  expect(await screen.findByText(/a resposta não terminou/i)).toBeTruthy();
 });

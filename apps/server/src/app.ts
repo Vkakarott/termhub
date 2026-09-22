@@ -28,7 +28,7 @@ import { monitorRoutes } from './routes/monitor.js';
 import { registerMonitorWs } from './monitor/ws.js';
 import { chatRoutes } from './routes/chat.js';
 import { ChatService, purgeExpiredActions } from './chat/service.js';
-import { httpRunner } from './chat/runner.js';
+import { agentRunner } from './chat/runner.js';
 import { registerChatWs } from './chat/ws.js';
 import { roleRoutes } from './routes/roles.js';
 import { userRoutes } from './routes/users.js';
@@ -40,6 +40,7 @@ import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { startAgentUpdateScheduler } from './agent/latest-version.js';
 import { registerTerminalWs } from './terminal/ws.js';
 import { registerAgentWs } from './agent/ws.js';
+import { agents } from './agent/registry.js';
 import { TranscriptionService } from './terminal/transcription.js';
 import { createUpgradeRouter } from './ws/router.js';
 import { registerSimulatorWs } from './simulator/ws.js';
@@ -157,7 +158,11 @@ export async function buildApp(): Promise<App> {
       await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
       await guarded('uploads', (a) => uploadRoutes(a, repos), '/uploads');
       await guarded('api_tokens', (a) => apiTokenRoutes(a, repos, { mcpUrl: config.mcpUrl }), '/api-tokens');
-      const chat = new ChatService({ repos, runner: httpRunner(), configDirs: { primary: '/accounts/primary', secondary: '/accounts/secondary' } });
+      // The conversation runs on a machine of the user's own, on their own Claude account (spec §3):
+      // `resolveHost` picks the pair per send, and `agentRunner` drives that machine's agent. No
+      // config dir is configured here anymore — it is the chosen `ai_account`'s, or the machine's own
+      // default — and the operator's container is no longer in this path at all.
+      const chat = new ChatService({ repos, agents, runnerFor: (machineId) => agentRunner(machineId) });
       await guarded('chat', (a) => chatRoutes(a, repos, { service: chat }), '/chat');
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));

@@ -134,8 +134,9 @@ services:
       CONCIERGE_SECRET: ${CONCIERGE_SECRET:-}
       PORT: 4100
     volumes:
+      # One account only: the second mount was a workaround for a single shared account, and with the
+      # chat running on each user's own machine and account (spec §6) nothing ever read it.
       - ${CONCIERGE_PRIMARY_CONFIG_DIR:-/home/pedrogoiania/.claude_pedrogoiania}:/accounts/primary
-      - ${CONCIERGE_SECONDARY_CONFIG_DIR:-/home/pedrogoiania/.claude}:/accounts/secondary
 
   # ── Dev: hot-reload (tsx watch + vite) ─────────────────────────────
   app-dev:

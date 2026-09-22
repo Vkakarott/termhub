@@ -1,15 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChatActionCard } from '../components/chat/ChatActionCard';
 import { ChatComposer } from '../components/chat/ChatComposer';
+import { ChatHost } from '../components/chat/ChatHost';
 import { ChatTurn } from '../components/chat/ChatTurn';
 import { api, ApiError } from '../lib/api';
 import { useChatStream } from '../lib/chat';
 import { chatTimeline } from '../lib/chat-timeline';
 import { isNearBottom } from '../lib/chat-scroll';
-import type { ChatAction, ChatEvent, ChatMessage } from '../lib/types';
+import { useAuth } from '../lib/auth';
+import type { AiAccount, ChatAction, ChatEvent, ChatHostMachine, ChatHostState, ChatMessage } from '../lib/types';
+
+/**
+ * Why the box refuses, one short line per host state — the long version is the card above the thread
+ * (`ChatHost`). Every state that is not `ready` has one: a disabled composer must always say why.
+ */
+const COMPOSER_REASON: Record<Exclude<ChatHostState['kind'], 'ready'>, string> = {
+  no_machine: 'cadastre uma máquina para conversar',
+  not_chosen: 'escolha a máquina do chat',
+  offline: 'a máquina do chat está offline',
+  agent_too_old: 'atualize o agente da máquina',
+};
+
+/**
+ * The four 409s a send (or a decision) comes back with when the host cannot run it. Each carries its
+ * own pt-BR sentence, so nothing here composes one; what this set decides is that the answer was not a
+ * failure of the click — the decision is already durably recorded server-side.
+ */
+const HOST_CODES = new Set(['CHAT_NO_MACHINE', 'CHAT_HOST_NOT_CHOSEN', 'CHAT_HOST_OFFLINE', 'CHAT_AGENT_TOO_OLD']);
+
+/** A Claude account of one of the user's machines, as the host picker needs it. */
+type HostAccountRow = Pick<AiAccount, 'id' | 'label' | 'machine_id'>;
 
 /** The concierge chat: one conversation per user, streamed live over /ws/chat and persisted over REST. */
 export function ChatPage() {
+  /**
+   * The signed-in user, and never the one an admin is "viewing as": the chat is strictly the signed-in
+   * user's own (`request.scope.user`, not `request.scope.ownerId`), so this is what the machines and
+   * accounts offered here have to belong to.
+   */
+  const { user, viewAs } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   /**
    * The gate's action trail. Always sourced from `GET /api/chat` on load/reconnect — never rebuilt
@@ -30,6 +59,38 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null);
 
   /**
+   * Which machine and which account run this conversation, or why none can — resolved by the server on
+   * every `GET /api/chat` and never re-derived here. `null` only until the first read answers: an older
+   * server that does not send it simply shows no host line rather than an invented one.
+   */
+  const [host, setHost] = useState<ChatHostState | null>(null);
+  /** The change picker is open. Nothing has been changed while it is: the warning is read first. */
+  const [picking, setPicking] = useState(false);
+  /** The machines to change to, read only when the change is asked for (`not_chosen` brings its own). */
+  const [hostMachines, setHostMachines] = useState<ChatHostMachine[] | null>(null);
+  /**
+   * Every Claude account of the user's machines, read beside the machines and filtered per host below.
+   * `'error'` when that read failed on its own — `ai_accounts` is a resource of its own in the
+   * permission matrix, so a role that can change the chat's machine may still not be allowed to read a
+   * machine's logins, and that must cost the account half of the picker and nothing more.
+   */
+  const [hostAccounts, setHostAccounts] = useState<HostAccountRow[] | 'error' | null>(null);
+  /**
+   * The account stored on the conversation — the raw column, not a resolved state: it is what says which
+   * option in the picker is the current one, and an id that no longer names an account of the host
+   * machine (the `lost` state the server resolves) matches none of them, which is the right answer too.
+   */
+  const [hostAccountId, setHostAccountId] = useState<string | null>(null);
+  const [changingHost, setChangingHost] = useState(false);
+  const [hostError, setHostError] = useState<string | null>(null);
+
+  /**
+   * The machine hosting the conversation right now, or `null` when there is none: the account half of
+   * the pair only means anything on a machine, and it is that machine's logins that may be chosen.
+   */
+  const hostMachineId = host && (host.kind === 'ready' || host.kind === 'offline' || host.kind === 'agent_too_old') ? host.machine.id : null;
+
+  /**
    * Whether `GET /api/chat` has ever answered. Only the empty state reads it: without it, opening a
    * long conversation shows "peça algo…" over an empty thread until the fetch resolves, and a fetch
    * that fails leaves that line on screen for ever.
@@ -37,9 +98,11 @@ export function ChatPage() {
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const { messages, actions } = await api.chat();
+    const { conversation, messages, actions, host } = await api.chat();
     setMessages(messages);
     setActions(actions ?? []);
+    setHost(host ?? null);
+    setHostAccountId(conversation.ai_account_id ?? null);
     setLoaded(true);
   }, []);
 
@@ -80,9 +143,87 @@ export function ChatPage() {
       setActions((prev) => prev.map((a) => (a.id === id ? { ...a, status: res.action.status } : a)));
       if (res.queued && res.note) setQueuedNotes((prev) => ({ ...prev, [id]: res.note! }));
     } catch (e) {
-      setActionError(e instanceof ApiError ? e.message : 'Não foi possível registrar a decisão');
+      // A host that cannot run the answer right now (offline, most often) answers this with its own
+      // 409 — but `decide` already recorded the decision before that throw, and the server injects it
+      // the next time the conversation runs. So it reads as what it is: answered, and waiting on the
+      // machine. Anything else really did fail.
+      if (e instanceof ApiError && e.code !== undefined && HOST_CODES.has(e.code)) {
+        const status = decision === 'approve' ? 'approved' : 'denied';
+        setActions((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+        setQueuedNotes((prev) => ({ ...prev, [id]: `${e.message} A decisão já está registrada e será aplicada quando o chat voltar a rodar.` }));
+        // …and the host line above the thread must agree with that sentence.
+        await load();
+      } else setActionError(e instanceof ApiError ? e.message : 'Não foi possível registrar a decisão');
     } finally {
       setDecidingId(null);
+    }
+  };
+
+  /**
+   * Opens the change picker and reads the two halves of the pair, once, on demand: they are only needed
+   * by someone who asked to change the host. Only agent machines can host a conversation (the server
+   * refuses the others), so only those are offered — and only machines of the signed-in user's own:
+   * `GET /machines` follows the admin "view as" scope, while `POST /chat/host` is strictly self-scoped,
+   * so anything else here would be offered and then answered 404.
+   *
+   * The accounts are read whole and filtered per machine below, so changing the machine does not need a
+   * second request; `not_chosen` brings its own machines but no accounts, and has no host to have them on.
+   *
+   * The two reads are sequential and answered separately on purpose. `ai_accounts` is its own resource
+   * in the permission matrix: read together, a role without `ai_accounts:read` could no longer change
+   * the chat's *machine* at all — including when the host is offline and this picker is the only way
+   * out. So the machines decide whether the picker opens, and the accounts only decide whether its
+   * second half has a list.
+   */
+  const openPicker = async () => {
+    setPicking(true);
+    setHostError(null);
+    if (hostMachines !== null) return;
+    let own: Set<string>;
+    try {
+      const { machines } = await api.machines.list();
+      own = new Set(machines.filter((m) => m.owner_id === user?.id).map((m) => m.id));
+      setHostMachines(machines.filter((m) => m.type === 'agent' && own.has(m.id)).map((m) => ({ id: m.id, name: m.name })));
+    } catch (e) {
+      // The picker closes again: left open it would say "carregando…" over a list that is never coming.
+      // The reason stays on screen, and the button that opened it is how it is tried again.
+      setPicking(false);
+      setHostError(e instanceof ApiError ? e.message : 'Não foi possível ler as suas máquinas');
+      return;
+    }
+    try {
+      const { accounts } = await api.aiAccounts.list();
+      // The chat runs on Claude, so a login for another provider is not an option here.
+      setHostAccounts(accounts.filter((a) => a.provider === 'claude' && own.has(a.machine_id)).map((a) => ({ id: a.id, label: a.label, machine_id: a.machine_id })));
+    } catch {
+      // Said as what it is, next to a machine list that still works — never as "this machine has no
+      // other account", which is a claim about the machine and not about a read that was refused.
+      setHostAccounts('error');
+    }
+  };
+
+  /**
+   * Sets the host pair — only ever from a click on the button that named what it changes to, which is
+   * why the warning about the fresh session (spec §3) has already been read by the time this runs.
+   * Machine and account travel in the same call, because they are one pair: choosing a machine sends no
+   * account, since an account belongs to a machine and a new host starts on that machine's own default
+   * Claude login; choosing an account keeps the machine it belongs to.
+   */
+  const chooseHost = async (machineId: string, aiAccountId: string | null = null) => {
+    setChangingHost(true);
+    setHostError(null);
+    try {
+      const { conversation, host: next } = await api.setChatHost(machineId, aiAccountId);
+      setHost(next);
+      setHostAccountId(conversation.ai_account_id ?? null);
+      setPicking(false);
+      // The server may have started a fresh CLI session; the transcript is ours and survives, so this
+      // re-read is what brings the conversation back exactly as it is now stored.
+      await load();
+    } catch (e) {
+      setHostError(e instanceof ApiError ? e.message : 'Não foi possível trocar a máquina ou a conta do chat');
+    } finally {
+      setChangingHost(false);
     }
   };
 
@@ -207,9 +348,38 @@ export function ChatPage() {
     // took the composer's send button off screen with it.
     <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-3xl flex-1 flex-col px-4">
       {!connected && <p className="pt-2 text-xs text-warn">Reconectando…</p>}
+      {/* Where this conversation runs, above the thread, before anything is typed — and, when it cannot
+          run, the one thing to do about it. Presentational: every decision it renders is decided here. */}
+      {host && (
+        <ChatHost
+          host={host}
+          machines={host.kind === 'not_chosen' ? host.machines : hostMachines}
+          // Only the host machine's own logins: an account of another machine names a config dir that
+          // does not exist there, which is exactly what the server refuses (404) and what `lost` means.
+          accounts={hostMachineId === null || hostAccounts === null || hostAccounts === 'error' ? null : hostAccounts.filter((a) => a.machine_id === hostMachineId)}
+          accountsError={hostAccounts === 'error'}
+          accountId={hostAccountId}
+          // An admin reading someone else's data: the lists would be that person's, while the
+          // conversation is this admin's own, so the picker says so instead of offering nothing.
+          viewingAs={viewAs !== null && viewAs !== undefined}
+          picking={picking}
+          changing={changingHost}
+          error={hostError}
+          onPick={() => void openPicker()}
+          onCancelPick={() => setPicking(false)}
+          onChoose={(machineId) => void chooseHost(machineId)}
+          // The machine does not move: the account is set on the one already hosting the conversation.
+          onChooseAccount={(aiAccountId) => hostMachineId !== null && void chooseHost(hostMachineId, aiAccountId)}
+        />
+      )}
       {/* A new conversation is otherwise a header, an empty thread and a box: one line saying what
        * this screen is for. Deliberately just the one — no example prompts, no tour. */}
-      {loaded && messages.length === 0 && <p className="pt-6 text-center text-sm text-fg-dim">Peça algo às suas máquinas: o concierge lê os terminais e pede sua autorização antes de qualquer alteração.</p>}
+      {/* …and only while the conversation can actually run: with no machine (or one that is asleep) the
+       * host card above already says what this screen is and what to do, and inviting a message that
+       * cannot be sent would contradict it. */}
+      {loaded && messages.length === 0 && (host === null || host.kind === 'ready') && (
+        <p className="pt-6 text-center text-sm text-fg-dim">Peça algo às suas máquinas: o concierge lê os terminais e pede sua autorização antes de qualquer alteração.</p>
+      )}
       {/* Named, because a rendered answer can contain Markdown lists of its own: this is how the
        * thread is told apart from them — by screen readers, and by the tests. */}
       <ol
@@ -235,7 +405,8 @@ export function ChatPage() {
       </ol>
       {actionError && <p className="mb-2 text-sm text-danger">{actionError}</p>}
       {error && <p className="mb-2 text-sm text-danger">{error}</p>}
-      <ChatComposer value={text} onChange={setText} onSend={() => void send()} sending={sending} />
+      {/* A host that cannot run the message is why the box refuses, and the box says so. */}
+      <ChatComposer value={text} onChange={setText} onSend={() => void send()} sending={sending} blockedReason={host && host.kind !== 'ready' ? COMPOSER_REASON[host.kind] : null} />
     </div>
   );
 }
