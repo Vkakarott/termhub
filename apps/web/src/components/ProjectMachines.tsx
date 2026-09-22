@@ -124,7 +124,10 @@ export function ProjectMachines({ project }: { project: Project }) {
       <ul className="space-y-2">
         {project.machines.map((l) => (
           <LinkRow
-            key={l.machine_id}
+            // Keyed on the cwd too: when it changes (e.g. saved from here, or from another browser
+            // tab) the row remounts and its local `cwd` state re-syncs to the new value, instead of
+            // needing the whole settings page above it to remount (see ProjectPage's key).
+            key={l.machine_id + ':' + l.cwd}
             project={project}
             link={l}
             onUnlinked={(closed) => setNotice(closed === 1 ? '1 tab fechada.' : `${closed} tabs fechadas.`)}

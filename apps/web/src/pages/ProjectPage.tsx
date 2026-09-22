@@ -79,10 +79,10 @@ export function ProjectPage() {
         {current === 'tickets' && <TicketsView key={`tickets-${project.id}`} project={project} />}
         {current === 'notes' && <NotesEditor key={`notes-${project.id}`} projectId={project.id} />}
         {current === 'settings' && (
-          <ProjectSettings
-            key={`settings-${project.id}-${project.status}-${project.name}-${project.machines.map((l) => l.machine_id + l.cwd).join(',')}`}
-            project={project}
-          />
+          // Keyed without `machines`: a link/unlink/cwd-save must not remount this whole subtree —
+          // it would wipe the "N tabs fechadas" notice, a row's "Salvo." message and unsaved
+          // SetupForm edits. ProjectMachines re-keys its own rows to pick up a saved cwd instead.
+          <ProjectSettings key={`settings-${project.id}-${project.status}-${project.name}`} project={project} />
         )}
       </div>
     </div>

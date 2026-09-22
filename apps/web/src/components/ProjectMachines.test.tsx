@@ -75,4 +75,26 @@ describe('ProjectMachines', () => {
     expect(screen.queryByDisplayValue('/moved')).not.toBeInTheDocument();
     await screen.findByText('2 tabs fechadas.');
   });
+
+  it("resyncs a row's cwd when the link changes from outside (e.g. saved elsewhere) without remounting the whole section", () => {
+    // Without keying LinkRow on the cwd too, its local `useState(link.cwd)` would stay stuck on the
+    // stale value here: React only re-reads a `useState` initializer on remount, not on a prop change.
+    function Harness({ initial }: { initial: Project }) {
+      const [p, setP] = useState(initial);
+      return (
+        <>
+          <ProjectMachines project={p} />
+          <button
+            onClick={() => setP((x) => ({ ...x, machines: x.machines.map((l) => (l.machine_id === 'm1' ? { ...l, cwd: '/moved-elsewhere' } : l)) }))}
+          >
+            simulate external update
+          </button>
+        </>
+      );
+    }
+    render(<Harness initial={project} />);
+    expect(screen.getByDisplayValue('/src/p1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'simulate external update' }));
+    expect(screen.getByDisplayValue('/moved-elsewhere')).toBeInTheDocument();
+  });
 });
