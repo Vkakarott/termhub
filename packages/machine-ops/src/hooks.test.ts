@@ -94,8 +94,11 @@ describe('cursor hooks.json', () => {
     expect(out.hooks.stop.map((e) => e.command)).toEqual(['say done', `${script} cursor`]);
   });
 
-  it('never registers a hook that could answer a permission check', () => {
-    for (const gate of ['beforeShellExecution', 'beforeMCPExecution', 'beforeReadFile', 'preToolUse']) expect(CURSOR_HOOK_EVENTS).not.toContain(gate);
+  it('registers exactly these events: no hook that could answer a permission check', () => {
+    // beforeSubmitPrompt is the one blocking event on purpose: it is the only signal that a new turn
+    // started, and the script prints nothing, which Cursor reads as "go on" (see hook-script.test.ts).
+    // Every other before* / preToolUse hook can allow or deny a command, a file or an MCP call.
+    expect([...CURSOR_HOOK_EVENTS]).toEqual(['sessionStart', 'beforeSubmitPrompt', 'afterAgentResponse', 'stop', 'sessionEnd']);
   });
 
   it('refuses to clobber a file that is not a JSON object', () => {

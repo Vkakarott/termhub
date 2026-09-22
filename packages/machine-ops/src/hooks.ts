@@ -40,8 +40,11 @@ export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolU
 
 /**
  * Cursor CLI hook events we subscribe to (~/.cursor/hooks.json; see the server's monitor/state.ts).
- * Only lifecycle events: a `before*` / `preToolUse` hook can answer a permission check, and ours
- * must never be in a position to allow or deny anything.
+ * No hook that answers a permission check: `beforeShellExecution`, `beforeMCPExecution`,
+ * `beforeReadFile` and `preToolUse` can allow or deny, and ours must never be in that position.
+ * `beforeSubmitPrompt` is blocking too — its stdout can cancel the prompt — and is taken on purpose:
+ * it is the only signal that a new turn started. The script prints nothing, which Cursor reads as
+ * "go on" (checked against cursor-agent 2026.09.18; hook-script.test.ts keeps stdout empty).
  */
 export const CURSOR_HOOK_EVENTS = ['sessionStart', 'beforeSubmitPrompt', 'afterAgentResponse', 'stop', 'sessionEnd'] as const;
 

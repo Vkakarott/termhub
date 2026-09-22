@@ -26,6 +26,15 @@ function run(event: unknown): void {
   });
 }
 
+/** Runs the script as another tool would ($1 = tool) and answers what it wrote on stdout. */
+function runAs(tool: string, event: unknown): string {
+  return execFileSync('sh', [join(bin, 'termhub-hook'), tool], {
+    input: JSON.stringify(event),
+    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp },
+    timeout: 5000,
+  }).toString();
+}
+
 const logged = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
 
 /** The script posts in the background: waits for the fake curl to have logged `n` bodies. */
@@ -133,5 +142,22 @@ describe('termhub-hook script', () => {
     const markers = readdirSync(tmp);
     expect(markers).toHaveLength(1);
     expect(readFileSync(join(tmp, markers[0]), 'utf8')).toBe('Edit');
+  });
+});
+
+describe('hook script — Cursor CLI', () => {
+  // beforeSubmitPrompt is a blocking event in Cursor: whatever the hook prints on stdout is its
+  // answer, and it can cancel the prompt. An empty stdout lets the prompt through (checked against
+  // cursor-agent 2026.09.18), so the script must never print anything, on any path.
+  it('prints nothing on stdout for beforeSubmitPrompt, and forwards the payload as it came', async () => {
+    const event = { hook_event_name: 'beforeSubmitPrompt', conversation_id: 'c1', prompt: 'p', attachments: [] };
+    expect(runAs('cursor', event)).toBe('');
+    const [body] = await bodies(1);
+    expect(JSON.parse(body)).toMatchObject({ tool: 'cursor', session: 'th-abc', event });
+  });
+
+  it('prints nothing on stdout when it has nothing to send either', () => {
+    rmSync(join(home, HOOK_ENV_REL));
+    expect(runAs('cursor', { hook_event_name: 'beforeSubmitPrompt' })).toBe('');
   });
 });
