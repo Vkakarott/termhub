@@ -12,12 +12,15 @@ function show(host: ChatHostState, over: Partial<Parameters<typeof ChatHost>[0]>
   const props = {
     host,
     machines: null,
+    accounts: null,
+    accountId: null,
     picking: false,
     changing: false,
     error: null,
     onPick: vi.fn(),
     onCancelPick: vi.fn(),
     onChoose: vi.fn(),
+    onChooseAccount: vi.fn(),
     ...over,
   };
   render(
@@ -50,6 +53,79 @@ it('says so when the chosen account no longer serves this machine, instead of de
 
   expect(screen.getByText(/conta de IA que você escolheu não serve/i)).toBeTruthy();
   expect(screen.getByText(/conta padrão do Claude/i)).toBeTruthy(); // …and what is running instead
+  // …and it sends the person to the picker below, the only place that can set this conversation's
+  // account — not to "Contas de IA", which manages a machine's logins and cannot choose the chat's.
+  expect(screen.getByText(/use “trocar máquina ou conta”/i)).toBeTruthy();
+  expect(screen.queryByText(/escolha outra em contas de IA/i)).toBeNull();
+});
+
+const READY_M1: ChatHostState = { kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'default' } };
+const BOTH_MACHINES = [machine('m1', 'macbook'), machine('m2', 'jarvis')];
+
+it('offers the host machine accounts beside the machines, with its default login as an option of its own', async () => {
+  const props = show(READY_M1, { picking: true, machines: BOTH_MACHINES, accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: null });
+
+  // Both halves of the pair in one place (spec §3). Without this list `ai_account_id` could only ever
+  // be null, and the `chosen`/`lost` states the header renders were unreachable in the product.
+  expect(screen.getByText(/conta do Claude em macbook/i)).toBeTruthy();
+  // The default login is shown as the current *option*, not as an absence of one.
+  expect(screen.getByText(/conta padrão da máquina \(atual\)/i)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: /trocar para trabalho/i }));
+  expect(props.onChooseAccount).toHaveBeenCalledWith('acc1');
+  // Choosing an account never moves the machine.
+  expect(props.onChoose).not.toHaveBeenCalled();
+});
+
+it('offers the way back to the machine default login, as a choice and not as an absence', async () => {
+  const props = show(
+    { kind: 'ready', machine: machine('m1', 'macbook'), configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' } },
+    { picking: true, machines: BOTH_MACHINES, accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: 'acc1' },
+  );
+
+  expect(screen.getByText(/trabalho \(atual\)/i)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /trocar para conta padrão da máquina/i }));
+  expect(props.onChooseAccount).toHaveBeenCalledWith(null);
+});
+
+it('marks nothing as current when the stored account is the lost one, so every option is a change', async () => {
+  show({ kind: 'ready', machine: machine('m1', 'macbook'), configDir: null, account: { kind: 'lost' } }, { picking: true, machines: BOTH_MACHINES, accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: 'acc9' });
+
+  // The stored id names nothing on this machine: keeping it is not an option, and pretending the
+  // default login was chosen would hide that the pick was lost.
+  expect(screen.queryByText(/conta padrão da máquina \(atual\)/i)).toBeNull();
+  expect(screen.queryByText(/trabalho \(atual\)/i)).toBeNull();
+  expect(screen.getByRole('button', { name: /trocar para conta padrão da máquina/i })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /trocar para trabalho/i })).toBeTruthy();
+});
+
+it('says the accounts are still being read instead of claiming the machine has none', async () => {
+  show(READY_M1, { picking: true, machines: BOTH_MACHINES, accounts: null, accountId: null });
+
+  expect(screen.getByText(/carregando as contas dessa máquina/i)).toBeTruthy();
+  expect(screen.queryByText(/não tem outra conta/i)).toBeNull();
+});
+
+it('with a single machine and nothing else to run on, the picker is not a dead end dressed as a choice', async () => {
+  show(READY_M1, { picking: true, machines: [machine('m1', 'macbook')], accounts: [], accountId: null });
+
+  // No *other* machine is the same nothing as no machine at all, and there is no second account
+  // either: so no list, and no warning about a change that cannot be made here.
+  expect(screen.getByText(/nenhuma outra máquina com o agente do termhub/i)).toBeTruthy();
+  expect(screen.getByText(/não tem outra conta do Claude/i)).toBeTruthy();
+  expect(screen.queryByText(/memória do modelo começa de novo/i)).toBeNull();
+  expect(screen.queryByRole('button', { name: /trocar para/i })).toBeNull();
+  // The way out is still there.
+  expect(screen.getByRole('button', { name: /cancelar/i })).toBeTruthy();
+});
+
+it('still warns with one machine when the account can change, because the session goes either way', async () => {
+  show(READY_M1, { picking: true, machines: [machine('m1', 'macbook')], accounts: [{ id: 'acc1', label: 'trabalho' }], accountId: null });
+
+  // The CLI session lives in one config dir: changing the login starts it over exactly as moving
+  // machine does, so the sentence is owed here too.
+  expect(screen.getByText(/histórico desta conversa fica, mas a memória do modelo começa de novo/i)).toBeTruthy();
+  expect(screen.getByRole('button', { name: /trocar para trabalho/i })).toBeTruthy();
 });
 
 it('with no machine, states the product shape and offers the way to enrol one', async () => {

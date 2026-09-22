@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { ChatHostAccount, ChatHostMachine, ChatHostState } from '../../lib/types';
+import type { ChatHostAccount, ChatHostAiAccount, ChatHostMachine, ChatHostState } from '../../lib/types';
 
 /**
  * The one sentence that says which login is running the conversation. `lost` reads as the machine's
@@ -20,6 +20,10 @@ function accountClause(account: ChatHostAccount): string {
  */
 const versionNote = (version: string): string => (version ? ` (versão ${version})` : '');
 
+/** The option key that stands for "no account": the machine's own default Claude login. Never a real
+ *  account id — the server takes ids of at least one character — so it cannot collide with one. */
+const DEFAULT_ACCOUNT = '';
+
 export interface ChatHostProps {
   host: ChatHostState;
   /**
@@ -27,6 +31,19 @@ export interface ChatHostProps {
    * brings its own list and never needs this). `null` = still being read.
    */
   machines: ChatHostMachine[] | null;
+  /**
+   * The Claude accounts of the machine that hosts the conversation right now, as the page read them;
+   * `null` = still being read. The machine's own default login is not one of these — it is always
+   * offered, as an option of its own, because "no account chosen" is a real answer and not an absence.
+   */
+  accounts: ChatHostAiAccount[] | null;
+  /**
+   * The account id stored on the conversation, so the picker can show which option is the current one.
+   * `null` = the machine's default login. An id that no longer names an account of this machine (the
+   * `lost` state) matches no option, and then nothing is marked current — which is exactly right:
+   * there is nothing to keep, and every option is a change.
+   */
+  accountId: string | null;
   /** The change picker is open: the warning is on screen and nothing has been changed yet. */
   picking: boolean;
   /** A host change is in flight: every choice is refused until it lands. */
@@ -36,6 +53,8 @@ export interface ChatHostProps {
   onPick: () => void;
   onCancelPick: () => void;
   onChoose: (machineId: string) => void;
+  /** Changes only the account, on the machine that already hosts the conversation. `null` = its default login. */
+  onChooseAccount: (aiAccountId: string | null) => void;
 }
 
 /**
@@ -52,9 +71,19 @@ export interface ChatHostProps {
  * that performs the change names the machine it changes to, so the sentence about the model's memory is
  * always read before the change happens, never after.
  */
-export function ChatHost({ host, machines, picking, changing, error, onPick, onCancelPick, onChoose }: ChatHostProps) {
+export function ChatHost({ host, machines, accounts, accountId, picking, changing, error, onPick, onCancelPick, onChoose, onChooseAccount }: ChatHostProps) {
   // Which machine is the host right now, so the picker never offers to change to it.
   const current = host.kind === 'ready' || host.kind === 'offline' || host.kind === 'agent_too_old' ? host.machine : null;
+  // The machine's own default login first, then its registered Claude accounts: the default is an
+  // option and not the absence of one, which is what makes "go back to the default login" something a
+  // person can actually choose instead of a state they can only leave.
+  const accountOptions: Choice[] = [{ key: DEFAULT_ACCOUNT, name: 'conta padrão da máquina' }, ...(accounts ?? []).map((a) => ({ key: a.id, name: a.label }))];
+  const currentAccountKey = accountId ?? DEFAULT_ACCOUNT;
+  // What the picker can actually change to. Counted, because a picker that warns about a change and
+  // then offers nothing but the current pair and Cancelar is a dead end dressed as a choice.
+  const otherMachines = (machines ?? []).filter((m) => m.id !== current?.id);
+  const otherAccounts = accountOptions.filter((o) => o.key !== currentAccountKey);
+  const changeable = otherMachines.length > 0 || (current !== null && otherAccounts.length > 0);
 
   return (
     // `section`, named, so a screen reader can reach "where is this running" without walking the
@@ -91,7 +120,7 @@ export function ChatHost({ host, machines, picking, changing, error, onPick, onC
                   A first pick has nothing to lose and is not warned about — a warning that is usually
                   false is one nobody reads, and then the one that matters is invisible too. */}
               {host.sessionAtStake && <p className="mt-1 text-fg">Esta conversa já tem uma sessão numa máquina que não está mais escolhida. Se você escolher outra, o histórico fica, mas a memória do modelo começa de novo.</p>}
-              <MachineList machines={host.machines} current={null} changing={changing} onChoose={onChoose} />
+              <ChoiceList options={host.machines.map((m) => ({ key: m.id, name: m.name }))} currentKey={null} changing={changing} onChoose={onChoose} />
             </>
           )}
           {host.kind === 'offline' && (
@@ -125,19 +154,47 @@ export function ChatHost({ host, machines, picking, changing, error, onPick, onC
 
       {host.kind === 'ready' && host.account.kind === 'lost' && (
         // The silent degradation the payload knows about: the chosen account is not the one running.
-        <p className="mt-1 text-fg-muted">A conta de IA que você escolheu não serve mais para essa máquina. Escolha outra em Contas de IA.</p>
+        // …and it points at the picker below, which is the one place that can set this conversation's
+        // account. "Contas de IA" manages a machine's logins and cannot choose the chat's.
+        <p className="mt-1 text-fg-muted">A conta de IA que você escolheu não serve mais para essa máquina. Use “Trocar máquina ou conta” para escolher outra.</p>
       )}
 
       {picking && host.kind !== 'not_chosen' && (
         <div className="mt-2 rounded-xl border border-line bg-bg-2 px-4 py-3 text-sm">
-          {/* Read before anything is changed, which is the whole point of the picker being a step. */}
-          <p className="text-fg">Trocar de máquina começa uma sessão nova: o histórico desta conversa fica, mas a memória do modelo começa de novo.</p>
+          {/* Read before anything is changed, which is the whole point of the picker being a step — and
+              only when there is a change to make: the account moves the CLI session just as the machine
+              does (the session lives in one config dir), so this one sentence covers both. A warning
+              over a dead end is the kind nobody reads, and then the one that matters is invisible too. */}
+          {changeable && <p className="text-fg">Trocar de máquina ou de conta começa uma sessão nova: o histórico desta conversa fica, mas a memória do modelo começa de novo.</p>}
           {machines === null ? (
             <p className="mt-2 text-fg-dim">Carregando suas máquinas…</p>
-          ) : machines.length === 0 ? (
+          ) : otherMachines.length === 0 ? (
+            // No *other* machine is the same dead end as no machine at all: there is nothing to switch
+            // to, and saying so beats a list whose only row is the machine already running this.
             <p className="mt-2 text-fg-dim">Nenhuma outra máquina com o agente do termhub.</p>
           ) : (
-            <MachineList machines={machines} current={current} changing={changing} onChoose={onChoose} prefix="Trocar para " />
+            <ChoiceList options={machines.map((m) => ({ key: m.id, name: m.name }))} currentKey={current?.id ?? null} changing={changing} onChoose={onChoose} prefix="Trocar para " />
+          )}
+          {/* The other half of the pair (spec §3), on the machine that is hosting right now: without it
+              `ai_account_id` could only ever be null and the chosen/lost states were unreachable. Only
+              where there is a machine to read them from — `no_machine` has no accounts to speak of. */}
+          {current !== null && (
+            <>
+              <p className="mt-3 text-fg-dim">Conta do Claude em {current.name}</p>
+              {accounts === null ? (
+                <p className="mt-1 text-fg-dim">Carregando as contas dessa máquina…</p>
+              ) : otherAccounts.length === 0 ? (
+                <p className="mt-1 text-fg-dim">Essa máquina não tem outra conta do Claude cadastrada em Contas de IA.</p>
+              ) : (
+                <ChoiceList
+                  options={accountOptions}
+                  currentKey={currentAccountKey}
+                  changing={changing}
+                  onChoose={(key) => onChooseAccount(key === DEFAULT_ACCOUNT ? null : key)}
+                  prefix="Trocar para "
+                />
+              )}
+            </>
           )}
           <button type="button" className="btn-ghost mt-2 px-2 py-1" onClick={onCancelPick}>
             Cancelar
@@ -153,28 +210,37 @@ export function ChatHost({ host, machines, picking, changing, error, onPick, onC
 function ChangeButton({ onPick, picking }: { onPick: () => void; picking: boolean }) {
   return (
     <button type="button" className="btn-ghost px-2 py-1 text-xs" disabled={picking} onClick={onPick}>
-      Trocar máquina
+      Trocar máquina ou conta
     </button>
   );
 }
 
+/** One row of a picker: what it is called, and the key the choice is made with. */
+interface Choice {
+  key: string;
+  name: string;
+}
+
 /**
- * The machines as buttons, one per row so a thumb can hit them. The current host is shown but not
- * offered: re-picking it would set the same pair again and say nothing new. `prefix` is what makes the
- * change button name its own consequence ("Trocar para jarvis") while the first choice is just the
- * machine's name.
+ * The options as buttons, one per row so a thumb can hit them — used for both halves of the pair, the
+ * machines and the host machine's Claude accounts, so neither can end up looking or behaving like a
+ * different kind of choice. The current one is shown but not offered: re-picking it would set the same
+ * pair again and say nothing new. `currentKey` is `null` when none of them is current, which is the
+ * `lost` account — the stored id names nothing here, so every option really is a change. `prefix` is
+ * what makes the change button name its own consequence ("Trocar para jarvis") while a first choice is
+ * just the name.
  */
-function MachineList({ machines, current, changing, onChoose, prefix = '' }: { machines: ChatHostMachine[]; current: ChatHostMachine | null; changing: boolean; onChoose: (machineId: string) => void; prefix?: string }) {
+function ChoiceList({ options, currentKey, changing, onChoose, prefix = '' }: { options: Choice[]; currentKey: string | null; changing: boolean; onChoose: (key: string) => void; prefix?: string }) {
   return (
     <ul className="mt-2 flex flex-col gap-1">
-      {machines.map((m) => (
-        <li key={m.id}>
-          {m.id === current?.id ? (
-            <span className="text-fg-dim">{m.name} (atual)</span>
+      {options.map((o) => (
+        <li key={o.key}>
+          {o.key === currentKey ? (
+            <span className="text-fg-dim">{o.name} (atual)</span>
           ) : (
-            <button type="button" className="btn-ghost px-2 py-1" disabled={changing} onClick={() => onChoose(m.id)}>
+            <button type="button" className="btn-ghost px-2 py-1" disabled={changing} onClick={() => onChoose(o.key)}>
               {prefix}
-              {m.name}
+              {o.name}
             </button>
           )}
         </li>

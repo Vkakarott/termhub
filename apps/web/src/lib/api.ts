@@ -142,11 +142,16 @@ export const api = {
    * update it, they are never its source of truth. */
   chat: () => request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState }>('GET', '/chat'),
   /**
-   * Chooses the machine that runs the conversation, and optionally which of its Claude accounts (no
-   * account = that machine's own default login). Answers with the freshly resolved host, so the screen
-   * needs no second read. 404 for a machine that is not this user's (or an account that is not on it),
-   * 400 for a machine with no termhub agent. The CLI session starts over only when the pair really
-   * moved — the server decides that; the warning before the move is the screen's.
+   * Chooses the machine that runs the conversation, and which of its Claude accounts (no account =
+   * that machine's own default login). Both halves of the pair travel here, in one call: the chat's
+   * host picker (`ChatHost`) is the only place either can be set — "Contas de IA" registers a
+   * machine's logins and cannot choose the chat's.
+   *
+   * Answers with the freshly resolved host, so the screen needs no second read. 404 for a machine that
+   * is not this user's (or an account that is not on it — the chat is always the signed-in user's own,
+   * never the one an admin is "viewing as"), 400 for a machine with no termhub agent, and 400 for an
+   * account of another provider. The CLI session starts over only when the pair really moved — the
+   * server decides that; the warning before the move is the screen's.
    */
   setChatHost: (machineId: string, aiAccountId?: string | null) =>
     request<{ conversation: ChatConversation; host: ChatHostState }>('POST', '/chat/host', { machine_id: machineId, ai_account_id: aiAccountId ?? null }),

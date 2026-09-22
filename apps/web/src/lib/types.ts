@@ -536,6 +536,9 @@ export interface ChatMessage {
 /** All the chat's host line ever needs of a machine; the payload carries whole `Machine` rows. */
 export type ChatHostMachine = Pick<Machine, 'id' | 'name'>;
 
+/** All the host picker needs of a Claude account of the host machine: which one, and what to call it. */
+export type ChatHostAiAccount = Pick<AiAccount, 'id' | 'label'>;
+
 /**
  * Which Claude login on the host runs the conversation. `lost` is an account the user chose that this
  * host cannot use (deleted, left on another machine by a host change, or not a Claude login): the run
