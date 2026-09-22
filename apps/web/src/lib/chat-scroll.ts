@@ -24,3 +24,16 @@ export function enterSends(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
   return !window.matchMedia('(pointer: coarse)').matches;
 }
+
+/**
+ * Whether this keystroke means "send". ⌘/Ctrl+Enter always does, on every device and whatever
+ * `enterSends()` says: it is the shortcut people bring from every other message box, it is
+ * unambiguous next to a newline, and it is the only way to send from a hardware keyboard on a
+ * tablet, where plain Enter has to stay a line break. Plain Enter keeps its own rule — send on a
+ * fine pointer, newline on a touch keyboard — and Shift+Enter is always a newline.
+ */
+export function sendsMessage(event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey'>): boolean {
+  if (event.key !== 'Enter') return false;
+  if (event.metaKey || event.ctrlKey) return true;
+  return !event.shiftKey && enterSends();
+}

@@ -71,6 +71,24 @@ it('locks the document while it is mounted, and gives it back on the way out', (
   expect(document.body.classList.contains('chat-locked')).toBe(false);
 });
 
+it('sizes itself to the visible viewport while it is mounted, and stops when it is not', () => {
+  // The keyboard shrinks the visual viewport and nothing else: without this the shell stays a whole
+  // screen tall behind the keyboard, which is the empty space that could be scrolled on a phone.
+  const { unmount } = render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Routes>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<p>conversa</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  // jsdom has no visualViewport, so the fallback (innerHeight) is what lands here.
+  expect(document.documentElement.style.getPropertyValue('--app-height')).toBe(`${window.innerHeight}px`);
+  unmount();
+  expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('');
+});
+
 it('shows which bundle it is running', () => {
   // So "it did not change on my phone" is answered by reading the header, not by guessing between a
   // stale page and a fix that does not work.

@@ -53,6 +53,29 @@ describe('ChatComposer', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
+  it('sends on ⌘+Enter, the shortcut people bring from every other message box', () => {
+    const onSend = vi.fn();
+    (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>
+      ({ matches: query.includes('coarse') }) as MediaQueryList;
+    render(<Harness onSend={onSend} />);
+    const box = screen.getByPlaceholderText(/pergunte/i);
+
+    fireEvent.change(box, { target: { value: 'oi' } });
+    // Coarse pointer on purpose: plain Enter is a newline here, and ⌘+Enter still has to send.
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    expect(onSend).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not send on ⌘+Enter with an empty box', () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} />);
+    fireEvent.keyDown(screen.getByPlaceholderText(/pergunte/i), { key: 'Enter', metaKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('does not send on Enter with a coarse pointer, where Enter is how a line gets started', () => {
     const onSend = vi.fn();
     (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>

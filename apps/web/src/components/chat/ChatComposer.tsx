@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { enterSends } from '../../lib/chat-scroll';
+import { sendsMessage } from '../../lib/chat-scroll';
 import { useDictation, type Dictation } from '../../lib/use-dictation';
 
 export interface ChatComposerProps {
@@ -154,12 +154,12 @@ export function ChatComposer({ value, onChange, onSend, sending, blockedReason }
           placeholder="Pergunte ou peça algo às suas máquinas"
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
-            // `canSend`, not just `enterSends()`: while the box is recording the button reads "Parar",
+            // `canSend`, not just the key rule: while the box is recording the button reads "Parar",
             // and an Enter that still sent put a half-typed line in front of an agent that acts on the
             // person's real machines — with the transcription then landing in the box that send had
             // just emptied. Nothing is swallowed when it cannot send: the Enter stays the newline the
             // textarea would have written anyway.
-            if (e.key === 'Enter' && !e.shiftKey && enterSends() && canSend) {
+            if (sendsMessage(e) && canSend) {
               e.preventDefault();
               onSend();
             }
