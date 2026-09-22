@@ -57,7 +57,6 @@ describe('roomOnCity / bounds', () => {
     // the whole city is that same ground when there is one block: nothing of it is left off-canvas
     expect(cityBounds(city, 28)).toEqual(blockBounds(b, 28));
   });
-
   it('bounds of a later block sit to the right of an earlier one in the same row, and the city spans both', () => {
     const city = layoutCity([block('a', [2]), block('b', [2])], 60);
     const [a, b] = city.blocks.map((x) => blockBounds(x, 28));
