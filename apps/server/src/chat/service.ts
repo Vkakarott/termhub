@@ -6,22 +6,30 @@ import { describeActions } from '../db/repositories/chat-actions-view.js';
 import type { User } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
+import { hostFailure, resolveHost, type HostAgents, type HostChoice } from './host.js';
 import { parseFrame, type ChatFailureReason } from './stream.js';
 import { mintConciergeToken } from './token.js';
 
-/** What a stored failure says. The reason codes come from the container's closed set, so a failed
- * row explains itself: CLI_REJECTED is our own flags being refused, MISSING_SESSION is a session the
- * account no longer has, RUN_FAILED is the CLI failing on its own terms. */
-export type ChatErrorCode = 'TOKEN_FAILED' | 'RUNNER_FAILED' | 'MISSING_SESSION' | 'CLI_REJECTED' | 'RUN_FAILED' | null;
+/**
+ * What a stored failure says. Every label a runner can end a run with becomes a code of its own —
+ * `Uppercase<ChatFailureReason>`, derived from the one list in `stream.ts`, so a new reason reaches
+ * the row (and the screen) without anyone remembering to extend a mapping here. CLI_REJECTED is our
+ * own flags being refused, MISSING_SESSION a session the account no longer has, CLI_MISSING a machine
+ * with no `claude` installed, HOST_GONE the machine going away mid-run. The two that are not a
+ * runner's label: TOKEN_FAILED (the server could not even mint a credential) and RUNNER_FAILED (the
+ * stream ended with nothing said about why).
+ */
+export type ChatErrorCode = 'TOKEN_FAILED' | 'RUNNER_FAILED' | Uppercase<ChatFailureReason> | null;
 
-const codeForReason = (reason?: ChatFailureReason): ChatErrorCode =>
-  reason === 'missing_session' ? 'MISSING_SESSION' : reason === 'cli_rejected' ? 'CLI_REJECTED' : reason === 'run_failed' ? 'RUN_FAILED' : 'RUNNER_FAILED';
+const codeForReason = (reason?: ChatFailureReason): ChatErrorCode => (reason ? (reason.toUpperCase() as Uppercase<ChatFailureReason>) : 'RUNNER_FAILED');
 
 export interface RunnerInput {
   session_id: string;
   resume: boolean;
   text: string;
-  config_dir: string;
+  /** The account the run uses: a `CLAUDE_CONFIG_DIR` on the host machine, or `null` for that
+   *  machine's own default login (an `ai_account` row with no `config_dir`). */
+  config_dir: string | null;
   model?: string | null;
   token: string;
 }
@@ -129,10 +137,26 @@ export class ChatService {
    * purpose: the row itself is untouched, so a restart tries it again with a healthy database. */
   private unmarkable = new Set<string>();
 
-  constructor(private deps: { repos: Repositories; runner: RunnerClient; configDirs: { primary: string; secondary?: string } }) {}
+  constructor(
+    private deps: {
+      repos: Repositories;
+      /** The registry `resolveHost` reads: which of the user's machines is connected, and what its
+       *  agent understands. */
+      agents: HostAgents;
+      /** The runner for one host machine — `agentRunner` in production. A function, not a client:
+       *  which machine runs a conversation is decided per send, by `resolveHost`. */
+      runnerFor: (machineId: string) => RunnerClient;
+    },
+  ) {}
 
   conversationFor(user: User): Promise<ChatConversation> {
     return this.deps.repos.chat.getOrCreateForUser(user.id);
+  }
+
+  /** The host pair for this user, as the screen shows it (`GET /api/chat`) and as `send` requires it.
+   *  One place decides it; nothing here re-derives any part of it. */
+  hostFor(user: User): Promise<HostChoice> {
+    return resolveHost({ repos: this.deps.repos, agents: this.deps.agents }, user);
   }
 
   /**
@@ -226,7 +250,18 @@ export class ChatService {
 
   async send(user: User, text: string, opts?: { beforeRun?: () => Promise<void> }): Promise<ChatMessage> {
     const conversation = await this.conversationFor(user);
+    // Which machine and which account, before the lock is taken and before a single row is written: a
+    // host that cannot run is not a failed answer, it is a message that was never sent. Storing the
+    // question and an empty assistant bubble for it would leave the screen waiting on an answer nobody
+    // is producing, and the person would have to guess why — so this throws, carrying the reason as
+    // its code (see `hostFailure`). Deliberately not a fallback to the operator's container (spec §3).
+    //
+    // Resolved *before* the busy check, not between it and `running.add`: every await in between is a
+    // window in which a second message passes the check and starts a second run on the same session.
+    const host = await this.hostFor(user);
+    if (host.kind !== 'ready') throw hostFailure(host);
     if (this.running.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    const runner = this.deps.runnerFor(host.machine.id);
     this.running.add(conversation.id);
     try {
       // Only ever set by a decision's re-injection, and only reached once the lock above is actually
@@ -258,7 +293,7 @@ export class ChatService {
       let errorCode: ChatErrorCode = null;
 
       const consume = async (run: RunnerInput) => {
-        for await (const line of this.deps.runner.run(run)) {
+        for await (const line of runner.run(run)) {
           const frame = parseFrame(line);
           if (!frame) continue;
           if (frame.type === 'text') {
@@ -307,14 +342,18 @@ export class ChatService {
           session_id: sessionId,
           resume: conversation.cli_session_id !== null,
           text,
-          config_dir: this.deps.configDirs.primary,
+          config_dir: host.configDir,
           model: conversation.model,
           token,
         };
 
         try {
           await consume(input);
-          if (!sawDone) errorCode = 'RUNNER_FAILED';
+          // Only when nothing has already said why: an error frame's own reason (cli_missing above
+          // all, the likeliest first failure of a chat on someone's own machine) is the whole point of
+          // carrying a label from the machine to the screen, and overwriting it here with the generic
+          // "a resposta não terminou" threw it away one step before it was read.
+          if (!sawDone && errorCode === null) errorCode = 'RUNNER_FAILED';
         } catch (e) {
           if (isSetupFailure(e)) {
             // Nothing ran and nothing will: drop the empty assistant row instead of leaving a
@@ -346,7 +385,7 @@ export class ChatService {
           await this.deps.repos.chat.setCliSession(conversation.id, null);
           try {
             await consume(fresh);
-            if (!sawDone) errorCode = 'RUNNER_FAILED';
+            if (!sawDone && errorCode === null) errorCode = 'RUNNER_FAILED';
           } catch (e) {
             if (isSetupFailure(e)) {
               await this.deps.repos.chat.deleteMessage(answer.id);

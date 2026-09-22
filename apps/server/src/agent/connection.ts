@@ -233,7 +233,13 @@ export class AgentConnection extends EventEmitter {
     this.socket.close(code, reason);
   }
 
-  /** Open PTY channels — 0 means no terminal is attached (the auto-update "idle" test). */
+  /**
+   * Open channels of every kind — a terminal, and since the user-hosted concierge a headless Claude
+   * run as well. 0 is what the auto-update scheduler reads as "idle" (`agent/latest-version.ts`), and
+   * a chat counts as busy on purpose: installing a new agent restarts it, which kills a run in
+   * progress just as surely as it kills a terminal — the user would watch their answer stop
+   * mid-sentence for a reason nothing on the screen could explain.
+   */
   get openChannels(): number {
     return this.channels.size;
   }

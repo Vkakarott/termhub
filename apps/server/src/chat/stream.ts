@@ -18,11 +18,16 @@ export type ChatFrame =
  * takes the trouble to name is never dropped one layer above it; an unknown one still is, rather than
  * being guessed at.
  */
-export type ChatFailureReason = 'missing_session' | 'cli_rejected' | 'run_failed' | 'cli_missing' | 'killed' | 'host_gone' | 'agent_too_old';
+const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old'] as const;
 
-const REASONS = new Set<string>(['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old']);
+/** Written exactly once: the type and the runtime check below are both derived from `REASONS`, so a
+ *  label added to the list cannot be accepted by one and dropped by the other — the silent drift this
+ *  whole chain of tasks keeps closing. */
+export type ChatFailureReason = (typeof REASONS)[number];
 
-const toReason = (raw: unknown): ChatFailureReason | undefined => (typeof raw === 'string' && REASONS.has(raw) ? (raw as ChatFailureReason) : undefined);
+const KNOWN = new Set<string>(REASONS);
+
+const toReason = (raw: unknown): ChatFailureReason | undefined => (typeof raw === 'string' && KNOWN.has(raw) ? (raw as ChatFailureReason) : undefined);
 
 /** `mcp__termhub__list_tabs` -> `list_tabs`; anything else is kept as it came. */
 const toolName = (raw: string) => (raw.startsWith('mcp__termhub__') ? raw.slice('mcp__termhub__'.length) : raw);

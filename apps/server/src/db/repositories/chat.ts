@@ -10,6 +10,10 @@ export interface ChatConversation {
   title: string | null;
   cli_session_id: string | null;
   model: string | null;
+  /** The host: the user's own machine this conversation runs on. Null = not chosen yet. */
+  machine_id: string | null;
+  /** The Claude account on that host. Null = the machine's default config dir. */
+  ai_account_id: string | null;
   review_mode: boolean;
   last_message_at: string | null;
   created_at: string;
@@ -31,6 +35,8 @@ const mapConversation = (c: PrismaConversation): ChatConversation => ({
   title: c.title,
   cli_session_id: c.cliSessionId,
   model: c.model,
+  machine_id: c.machineId,
+  ai_account_id: c.aiAccountId,
   review_mode: c.reviewMode,
   last_message_at: c.lastMessageAt?.toISOString() ?? null,
   created_at: c.createdAt.toISOString(),
@@ -71,6 +77,25 @@ export class ChatRepository {
 
   async setCliSession(id: string, sessionId: string | null): Promise<void> {
     await this.db.chatConversation.update({ where: { id }, data: { cliSessionId: sessionId } });
+  }
+
+  /**
+   * Points the conversation at the machine and the account that will run it (spec §3). Always clears
+   * `cli_session_id` in the same write: the CLI's session lives inside the config directory of the
+   * machine that ran it, so it does not exist on the new host — and does not exist under a second
+   * login on the same host either, which is why a change of account clears it too. Keeping the old
+   * uuid would make the next message ask the new host to `--resume` a session it has never seen; our
+   * own transcript is untouched and survives (the screen warns before the change is made).
+   *
+   * Ownership is the caller's business: the route resolves both ids through owner-scoped reads before
+   * calling this, exactly like every other write that takes an id from the browser.
+   */
+  async setHost(id: string, host: { machine_id: string; ai_account_id: string | null }): Promise<ChatConversation> {
+    const row = await this.db.chatConversation.update({
+      where: { id },
+      data: { machineId: host.machine_id, aiAccountId: host.ai_account_id, cliSessionId: null },
+    });
+    return mapConversation(row);
   }
 
   async addMessage(input: { conversation_id: string; role: ChatRole; text: string; usage?: unknown; error_code?: string | null }): Promise<ChatMessage> {

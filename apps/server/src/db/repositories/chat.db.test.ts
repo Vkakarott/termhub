@@ -91,6 +91,30 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     }
   });
 
+  it('stores the host pair, starts a fresh CLI session, and nulls the pair when the machine or the account goes', async () => {
+    const c = await repo.getOrCreateForUser(userId);
+    await repo.setCliSession(c.id, '3f1e9b1e-0000-4000-8000-000000000099');
+    const machine = await db.machine.create({ data: { id: newId(), name: 'jarvis', type: 'agent', ownerId: userId } });
+    const account = await db.aiAccount.create({ data: { id: newId(), provider: 'claude', label: 'trabalho', machineId: machine.id, configDir: '/home/u/.claude-work' } });
+
+    const hosted = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: account.id });
+    // The session lives in the config dir of the machine that ran it, so it does not exist on the new
+    // host: keeping the uuid would make the next message ask that host to resume a session it never had.
+    expect(hosted).toMatchObject({ machine_id: machine.id, ai_account_id: account.id, cli_session_id: null });
+
+    // "One conversation per user" must survive a host being chosen: the partial unique index no longer
+    // keys on machine_id, so a second concurrent create still loses (this is what getOrCreateForUser's
+    // create-then-re-read fallback relies on).
+    await expect(db.chatConversation.create({ data: { id: newId(), userId } })).rejects.toThrow();
+
+    await db.aiAccount.delete({ where: { id: account.id } });
+    expect((await repo.getOrCreateForUser(userId)).ai_account_id).toBeNull(); // ON DELETE SET NULL
+    await db.machine.delete({ where: { id: machine.id } });
+    const orphaned = await repo.getOrCreateForUser(userId);
+    expect(orphaned.machine_id).toBeNull();
+    expect(orphaned.id).toBe(c.id); // the conversation itself, and its history, survive
+  });
+
   it('never creates two conversations for the same user under a concurrent first load', async () => {
     const raceUserId = newId();
     await db.user.create({ data: { id: raceUserId, email: `${raceUserId}@test.local`, name: 'test' } });

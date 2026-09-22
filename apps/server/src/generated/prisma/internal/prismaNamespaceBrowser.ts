@@ -407,6 +407,7 @@ export const ChatConversationScalarFieldEnum = {
   cliSessionId: 'cliSessionId',
   model: 'model',
   machineId: 'machineId',
+  aiAccountId: 'aiAccountId',
   tabId: 'tabId',
   reviewMode: 'reviewMode',
   lastMessageAt: 'lastMessageAt',

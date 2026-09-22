@@ -134,6 +134,7 @@ export async function autoUpdateTick(repos: Pick<Repositories, 'machines' | 'tab
     const info = agents.info(m.id);
     if (!info || !isOutdated(info.agent_version, latest)) continue;
     if (!versionAtLeast(info.agent_version, MIN_SELF_UPDATE_VERSION)) continue;
+    // Any open channel: a terminal, or a chat answering on this machine (see `openChannels`).
     if (agents.openChannels(m.id) > 0) continue;
     if ((await repos.tabs.countBusyByMachine(m.id)) > 0) continue;
     if (attempted.get(m.id) === latest) continue;

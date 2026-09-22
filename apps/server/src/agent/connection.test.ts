@@ -274,6 +274,18 @@ describe('AgentConnection — the claude channel', () => {
     expect(onExit).toHaveBeenCalledWith(null, 'cli_missing');
   });
 
+  it('counts as an open channel, so the auto-update leaves a machine that is answering a chat alone', async () => {
+    const { s, c } = connected();
+    expect(c.openChannels).toBe(0);
+    const opening = c.openClaude(claudeParams, { onData() {}, onExit() {} });
+    s.recvControl({ type: 'opened', ch: 1 });
+    await opening;
+    // What the scheduler reads as "busy": an update restarts the agent and would kill this run.
+    expect(c.openChannels).toBe(1);
+    s.recvControl({ type: 'closed', ch: 1, code: 0 });
+    expect(c.openChannels).toBe(0);
+  });
+
   it('reports a close with no reason as the code alone, exactly as a pty does', async () => {
     const { s, c } = connected();
     const onExit = vi.fn();
