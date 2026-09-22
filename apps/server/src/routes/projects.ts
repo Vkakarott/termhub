@@ -8,6 +8,7 @@ import { scoped } from '../auth/scope.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { ensureDirectory } from '../terminal/machine-fs.js';
+import { publicBus } from '../public/bus.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
@@ -79,7 +80,13 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
       if (machine.owner_id !== request.user!.id) return reply.code(403).send({ error: 'Só quem é dono da máquina pode publicar', code: 'NOT_OWNER' });
       if (!request.user!.nickname) return reply.code(409).send({ error: 'Escolha seu apelido antes de publicar', code: 'NICKNAME_REQUIRED' });
     }
-    return { project: await repos.projects.update(id, patch) };
+    const project = await repos.projects.update(id, patch);
+    // The public bus fans this out to any `/ws/public/:nickname` socket watching this room: a
+    // publish opens it up, an unpublish drops the connection at once (see public/ws.ts).
+    if (patch.is_public !== undefined && patch.is_public !== current.is_public) {
+      publicBus.publish({ project_id: id, is_public: patch.is_public });
+    }
+    return { project };
   });
 
   app.delete('/:id', async (request) => {

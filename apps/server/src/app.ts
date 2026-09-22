@@ -24,6 +24,7 @@ import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { publicCityRoutes } from './routes/public-city.js';
+import { registerPublicWs } from './public/ws.js';
 import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
 import { registerMonitorWs } from './monitor/ws.js';
@@ -115,6 +116,7 @@ export async function buildApp(): Promise<App> {
   const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
   registerMonitorWs(upgrades, { log: fastify.log });
   registerChatWs(upgrades, { log: fastify.log });
+  registerPublicWs(upgrades, { repos, log: fastify.log });
 
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
