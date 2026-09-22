@@ -83,7 +83,7 @@ it('runs on the only machine the user has, without asking anything', async () =>
 
   const choice = await resolveHost(ctx, user);
 
-  expect(choice).toEqual({ kind: 'ready', machine: only, configDir: null });
+  expect(choice).toEqual({ kind: 'ready', machine: only, configDir: null, account: { kind: 'default' } });
 });
 
 it('asks which machine when there is more than one and none was chosen', async () => {
@@ -137,7 +137,7 @@ it('treats a chosen machine that no longer belongs to the user as never chosen',
 
   // With a single machine there is nothing to ask: the stale id is simply ignored.
   const single = build({ machines: [one], conversation: { machine_id: 'm-gone' } });
-  expect(await resolveHost(single.ctx, user)).toEqual({ kind: 'ready', machine: one, configDir: null });
+  expect(await resolveHost(single.ctx, user)).toEqual({ kind: 'ready', machine: one, configDir: null, account: { kind: 'default' } });
 });
 
 it('never chooses a machine that belongs to someone else, even when the conversation names it', async () => {
@@ -149,7 +149,7 @@ it('never chooses a machine that belongs to someone else, even when the conversa
   expect(await repos.machines.list(null)).toContainEqual(theirs);
   // …but the candidates are this user's own machines, so their own is what runs — and the machine id
   // stored on the conversation is never enough on its own to make a host of it.
-  expect(await resolveHost(ctx, user)).toEqual({ kind: 'ready', machine: mine, configDir: null });
+  expect(await resolveHost(ctx, user)).toEqual({ kind: 'ready', machine: mine, configDir: null, account: { kind: 'default' } });
   expect(repos.machines.list).toHaveBeenCalledWith(user.id);
 
   // With more than one machine of their own the same foreign id asks again, listing only their own.
@@ -158,37 +158,43 @@ it('never chooses a machine that belongs to someone else, even when the conversa
   expect(await resolveHost(several.ctx, user)).toEqual({ kind: 'not_chosen', machines: [mine, two] });
 });
 
-it('falls back to the machine default account when the chosen one was deleted', async () => {
+it('falls back to the machine default account when the chosen one was deleted, and says the choice was lost', async () => {
   const only = machine('m1', 'macbook');
   const { ctx } = build({ machines: [only], accounts: [], conversation: { machine_id: 'm1', ai_account_id: 'acc-gone' } });
 
   // ON DELETE SET NULL is the database's half of this; a row still pointing at a deleted account
-  // (or a read that raced the delete) must not fail the chat either.
-  expect(await resolveHost(ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null });
+  // (or a read that raced the delete) must not fail the chat either. It must not pass for "nothing was
+  // chosen" either: the run degraded to another login than the one the user picked, and the screen
+  // says so (Task 6).
+  expect(await resolveHost(ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null, account: { kind: 'lost' } });
 });
 
-it('honours the chosen account config dir, and null means the machine default', async () => {
+it('honours the chosen account config dir, names it, and null means the machine default', async () => {
   const only = machine('m1', 'macbook');
-  const work = account('acc1', 'm1', '/home/u/.claude-work');
+  const work = account('acc1', 'm1', '/home/u/.claude-work', { label: 'trabalho' });
   const withDir = build({ machines: [only], accounts: [work], conversation: { machine_id: 'm1', ai_account_id: 'acc1' } });
-  expect(await resolveHost(withDir.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: '/home/u/.claude-work' });
+  // The label travels with the choice: the header has to name the account that is running the
+  // conversation, and a config dir path is not a name anyone recognises.
+  expect(await resolveHost(withDir.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: '/home/u/.claude-work', account: { kind: 'chosen', id: 'acc1', label: 'trabalho' } });
 
-  const primary = account('acc2', 'm1', null);
+  const primary = account('acc2', 'm1', null, { label: 'principal' });
   const noDir = build({ machines: [only], accounts: [primary], conversation: { machine_id: 'm1', ai_account_id: 'acc2' } });
-  expect(await resolveHost(noDir.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null });
+  // An account row with no config dir *is* the machine's default login — still the account the user
+  // chose, so it is `chosen`, never `lost`.
+  expect(await resolveHost(noDir.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null, account: { kind: 'chosen', id: 'acc2', label: 'principal' } });
 });
 
-it('ignores an account that lives on another machine or is not a Claude login', async () => {
+it('ignores an account that lives on another machine or is not a Claude login, and reports it as lost', async () => {
   const only = machine('m1', 'macbook');
   // Left behind by a host change: the account is a real row of this user's, but its config dir names
   // a directory on a different computer, which on this one is either absent or someone else's login.
   const elsewhere = account('acc1', 'm9', '/home/u/.claude-work');
   const moved = build({ machines: [only], accounts: [elsewhere], conversation: { machine_id: 'm1', ai_account_id: 'acc1' } });
-  expect(await resolveHost(moved.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null });
+  expect(await resolveHost(moved.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null, account: { kind: 'lost' } });
 
   const chatgpt = account('acc2', 'm1', '/home/u/.codex', { provider: 'chatgpt' });
   const other = build({ machines: [only], accounts: [chatgpt], conversation: { machine_id: 'm1', ai_account_id: 'acc2' } });
-  expect(await resolveHost(other.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null });
+  expect(await resolveHost(other.ctx, user)).toEqual({ kind: 'ready', machine: only, configDir: null, account: { kind: 'lost' } });
 });
 
 it('only ever hosts on an agent machine: a local or ssh machine is not one of the user own hosts', async () => {

@@ -7,6 +7,13 @@ export interface ChatComposerProps {
   onChange: (value: string) => void;
   onSend: () => void;
   sending: boolean;
+  /**
+   * Why nothing can be sent right now — the chat's host cannot run it (no machine, none chosen, one
+   * that is asleep, an agent too old). The button refuses and this is the reason it shows: a box that
+   * goes grey with no explanation is the one thing this screen must never do. The text itself stays
+   * editable, so a message can be typed while the machine is being woken up.
+   */
+  blockedReason?: string | null;
 }
 
 const MIN_ROWS = 1;
@@ -62,7 +69,7 @@ const PRIMARY_LABEL: Record<PrimaryRole, string> = {
  * where Enter is how every other line got started); Shift+Enter is always a newline, on either. Either
  * way it can only send what the button itself would send.
  */
-export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerProps) {
+export function ChatComposer({ value, onChange, onSend, sending, blockedReason }: ChatComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   // The hook keeps the latest callback, so this closure always sees the current `value`. A clip that
   // adds nothing (silence, a stray tap) is not reported upwards at all: `ChatPage` has no business
@@ -107,15 +114,20 @@ export function ChatComposer({ value, onChange, onSend, sending }: ChatComposerP
   // about to offer, and showing a send arrow for that instant only to swap it is a flicker. `starting`
   // is the same microphone, also disabled: the browser's permission sheet is up, nothing is listening
   // yet, and a button that looks pressable there does nothing when it is pressed.
-  const role: PrimaryRole = dictation.state === 'recording' ? 'stop' : hasText || dictation.state === 'off' ? 'send' : 'dictate';
+  // A blocked host makes the button the (disabled) send arrow: dictating more text into a box that
+  // cannot send it is an invitation to lose it. A recording already under way still stops, so nothing
+  // is left listening.
+  const blocked = Boolean(blockedReason);
+  const role: PrimaryRole = dictation.state === 'recording' ? 'stop' : hasText || blocked || dictation.state === 'off' ? 'send' : 'dictate';
   const notReadyToDictate = busy || dictation.state === 'checking' || dictation.state === 'starting';
-  const disabled = role === 'stop' ? false : role === 'send' ? !hasText || sending || busy : notReadyToDictate;
+  const disabled = role === 'stop' ? false : role === 'send' ? blocked || !hasText || sending || busy : blocked || notReadyToDictate;
   /** The one condition sending obeys, so the keyboard can never send what the button would refuse. */
   const canSend = role === 'send' && !disabled;
   // While the answer streams, the send button is disabled with nothing saying why — and dictation still
   // invites more text into that box and puts the cursor back in it. One short line closes that loop,
   // and only for the button that is actually refusing: an empty box is still a microphone.
-  const statusText = busy ? 'transcrevendo…' : sending && role === 'send' ? 'aguarde a resposta terminar' : '';
+  // The host's own reason outranks both: it is the one that is not going to resolve on its own.
+  const statusText = blockedReason ? blockedReason : busy ? 'transcrevendo…' : sending && role === 'send' ? 'aguarde a resposta terminar' : '';
 
   return (
     // `env(safe-area-inset-bottom)` resolves to 0px in every browser today, because the app-wide

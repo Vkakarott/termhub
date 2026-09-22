@@ -2,9 +2,30 @@ import { memo, useMemo } from 'react';
 import type { MouseEvent } from 'react';
 import { decorateCodeBlocks } from '../../lib/code-blocks';
 import { renderMarkdown } from '../../lib/markdown';
-import type { ChatMessage } from '../../lib/types';
+import type { ChatErrorCode, ChatMessage } from '../../lib/types';
 
 const COPY_FEEDBACK_MS = 1500;
+
+/** What an answer that stopped says when nothing was said about why. */
+const GENERIC_FAILURE = 'A resposta não terminou — tente de novo.';
+
+/**
+ * One sentence per stored failure: what happened, and what to do about it. Short, because this is read
+ * on a phone under an answer that stopped — and specific, because "a resposta não terminou" told a
+ * person whose machine has no `claude` installed exactly nothing. An unknown code (a server newer than
+ * this bundle) falls back to the generic line rather than showing a label.
+ */
+const FAILURE_LINE: Record<ChatErrorCode, string> = {
+  RUNNER_FAILED: GENERIC_FAILURE,
+  TOKEN_FAILED: 'O servidor não conseguiu criar a credencial do concierge. Tente de novo.',
+  CLI_MISSING: 'Essa máquina não tem o Claude Code instalado. Instale o claude nela e mande a mensagem de novo.',
+  CLI_REJECTED: 'O Claude Code dessa máquina recusou os parâmetros do chat. Atualize o claude nela e tente de novo.',
+  MISSING_SESSION: 'A sessão do Claude nessa máquina não existe mais. Mande a mensagem de novo para começar uma nova.',
+  RUN_FAILED: 'O Claude parou no meio da resposta. Mande a mensagem de novo.',
+  KILLED: 'A resposta foi interrompida antes de terminar. Mande a mensagem de novo.',
+  HOST_GONE: 'A máquina do chat saiu do ar no meio da resposta. Ligue-a e mande a mensagem de novo.',
+  AGENT_TOO_OLD: 'O agente dessa máquina ainda não sabe rodar o chat. Atualize o agente e tente de novo.',
+};
 
 /** The two things a copy attempt can end as, in the words the block shows and the ones it announces. */
 const COPY_OUTCOME = {
@@ -150,7 +171,7 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
           ))}
         </div>
       )}
-      {failed && <p className="mt-1 text-xs text-danger">A resposta não terminou — tente de novo.</p>}
+      {failed && <p className="mt-1 text-xs text-danger">{(message.error_code && FAILURE_LINE[message.error_code]) || GENERIC_FAILURE}</p>}
     </li>
   );
 });

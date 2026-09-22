@@ -22,13 +22,25 @@ export interface HostContext {
 }
 
 /**
+ * Which Claude login on the host the conversation runs on, in the words the screen needs — the second
+ * half of the pair, next to `configDir`, which is the same answer in the words the runner needs.
+ *
+ * `lost` is the one that had to be a state instead of a null: an account the user chose that cannot be
+ * used here (deleted, left behind on another machine by a host change, or not a Claude login) silently
+ * degrades the run to the machine's own default login. That is the right thing to run, and the wrong
+ * thing to do quietly — so it is told apart from `default`, where nothing was ever chosen and there is
+ * nothing to say.
+ */
+export type HostAccount = { kind: 'chosen'; id: string; label: string } | { kind: 'default' } | { kind: 'lost' };
+
+/**
  * Which machine and which account run this user's conversation — the "terminal geral" of spec §3 —
  * or why none can. Every variant carries what its message needs (the machine's name, the machines to
  * choose between, the agent's version), because the person must read what actually happened and not a
  * generic failure; Task 6 renders them.
  */
 export type HostChoice =
-  | { kind: 'ready'; machine: Machine; configDir: string | null }
+  | { kind: 'ready'; machine: Machine; configDir: string | null; account: HostAccount }
   | { kind: 'no_machine' }
   | { kind: 'not_chosen'; machines: Machine[] }
   | { kind: 'offline'; machine: Machine }
@@ -72,23 +84,28 @@ export async function resolveHost(ctx: HostContext, user: User): Promise<HostCho
     return { kind: 'agent_too_old', machine, version: ctx.agents.info(machine.id)?.agent_version ?? machine.agent_version ?? '' };
   }
 
-  return { kind: 'ready', machine, configDir: await configDirFor(ctx, conversation.ai_account_id, machine) };
+  return { kind: 'ready', machine, ...(await accountFor(ctx, conversation.ai_account_id, machine)) };
 }
 
 /**
- * The `CLAUDE_CONFIG_DIR` the run uses, or `null` for the machine's own default login.
+ * The login the run uses: the `CLAUDE_CONFIG_DIR` it gets (`null` = the machine's own default login),
+ * and which account that is.
  *
- * Null is the answer to every doubt, never a failure: the account row was deleted (the column is
- * `ON DELETE SET NULL`, but a read can also race the delete), it belongs to another machine (left
- * behind by a host change, so its path names a directory that on this host is absent or someone
- * else's login), or it is not a Claude account at all. Guessing another of the machine's accounts
- * would run the conversation on a login the user did not pick.
+ * The machine's default login is the answer to every doubt, never a failure: the account row was
+ * deleted (the column is `ON DELETE SET NULL`, but a read can also race the delete), it belongs to
+ * another machine (left behind by a host change, so its path names a directory that on this host is
+ * absent or someone else's login), or it is not a Claude account at all. Guessing another of the
+ * machine's accounts would run the conversation on a login the user did not pick. Every one of those
+ * comes back as `lost`, so the screen can say the chosen account is not the one running — the silent
+ * half of this fallback was the whole complaint.
  */
-async function configDirFor(ctx: HostContext, accountId: string | null, machine: Machine): Promise<string | null> {
-  if (accountId === null) return null;
+async function accountFor(ctx: HostContext, accountId: string | null, machine: Machine): Promise<{ configDir: string | null; account: HostAccount }> {
+  if (accountId === null) return { configDir: null, account: { kind: 'default' } };
   const account = await ctx.repos.aiAccounts.findById(accountId);
-  if (!account || account.machine_id !== machine.id || account.provider !== 'claude') return null;
-  return account.config_dir;
+  if (!account || account.machine_id !== machine.id || account.provider !== 'claude') return { configDir: null, account: { kind: 'lost' } };
+  // A Claude account of this machine with no config dir is the machine's default login, chosen on
+  // purpose: still the account the user picked, so never `lost`.
+  return { configDir: account.config_dir, account: { kind: 'chosen', id: account.id, label: account.label } };
 }
 
 /** `(versão 0.4.9)`, or nothing at all when the agent never said which one it is. */

@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatMessage, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -140,8 +140,19 @@ export const api = {
   /** derived from the session — there is no id to pass or guess (v1: one conversation per user).
    * `actions` is the trail as it truly is server-side (survives a reload); live socket events only
    * update it, they are never its source of truth. */
-  chat: () => request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[] }>('GET', '/chat'),
-  /** 400 for empty/over-8000-char text; 409 CHAT_BUSY (its pt-BR message shown as-is) while a previous answer is still running */
+  chat: () => request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState }>('GET', '/chat'),
+  /**
+   * Chooses the machine that runs the conversation, and optionally which of its Claude accounts (no
+   * account = that machine's own default login). Answers with the freshly resolved host, so the screen
+   * needs no second read. 404 for a machine that is not this user's (or an account that is not on it),
+   * 400 for a machine with no termhub agent. The CLI session starts over only when the pair really
+   * moved — the server decides that; the warning before the move is the screen's.
+   */
+  setChatHost: (machineId: string, aiAccountId?: string | null) =>
+    request<{ conversation: ChatConversation; host: ChatHostState }>('POST', '/chat/host', { machine_id: machineId, ai_account_id: aiAccountId ?? null }),
+  /** 400 for empty/over-8000-char text; 409 CHAT_BUSY (its pt-BR message shown as-is) while a previous
+   *  answer is still running; 409 CHAT_NO_MACHINE / CHAT_HOST_NOT_CHOSEN / CHAT_HOST_OFFLINE /
+   *  CHAT_AGENT_TOO_OLD when the host cannot run it (each with its own pt-BR sentence) */
   sendChatMessage: (text: string) => request<{ message: ChatMessage }>('POST', '/chat/messages', { text }),
   /**
    * 200 normally; 200 with `queued: true` and a pt-BR `note` when a run is in flight (the decision is

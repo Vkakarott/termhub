@@ -490,18 +490,72 @@ export interface ChatConversation {
   title: string | null;
   model: string | null;
   review_mode: boolean;
+  /** The host machine this conversation runs on; null = not chosen yet (see `ChatHostState`). */
+  machine_id?: string | null;
+  /** The Claude account on that host; null = the machine's own default login. */
+  ai_account_id?: string | null;
   last_message_at: string | null;
 }
 
-/** `error_code` set (either value) means the answer did not finish; the UI never distinguishes them. */
+/**
+ * Why an answer stopped. Every label a runner can end a run with becomes one of these server-side
+ * (`ChatErrorCode` in `apps/server/src/chat/service.ts`), and each one means something different to
+ * the person reading it: a machine with no `claude` installed is not "the answer did not finish", it
+ * is one install away from working. `ChatTurn` has the sentence for each.
+ */
+export type ChatErrorCode =
+  /** the stream ended with nothing said about why */
+  | 'RUNNER_FAILED'
+  /** the server could not even mint the concierge's credential */
+  | 'TOKEN_FAILED'
+  /** no `claude` on the host machine */
+  | 'CLI_MISSING'
+  /** the CLI refused our own flags */
+  | 'CLI_REJECTED'
+  /** the CLI session this conversation was resuming is gone from that machine */
+  | 'MISSING_SESSION'
+  /** the run started and died */
+  | 'RUN_FAILED'
+  /** the process was killed (a deadline, an abandoned request, an agent shutting down) */
+  | 'KILLED'
+  /** the host machine went away mid-run — a laptop that closed, most often */
+  | 'HOST_GONE'
+  /** the host's agent does not know how to run a chat */
+  | 'AGENT_TOO_OLD';
+
+/** `error_code` set means the answer did not finish, and which of the nine ways it did not. */
 export interface ChatMessage {
   id: string;
   conversation_id: string;
   role: 'user' | 'assistant';
   text: string;
-  error_code: 'RUNNER_FAILED' | 'TOKEN_FAILED' | null;
+  error_code: ChatErrorCode | null;
   created_at: string;
 }
+
+/** All the chat's host line ever needs of a machine; the payload carries whole `Machine` rows. */
+export type ChatHostMachine = Pick<Machine, 'id' | 'name'>;
+
+/**
+ * Which Claude login on the host runs the conversation. `lost` is an account the user chose that this
+ * host cannot use (deleted, left on another machine by a host change, or not a Claude login): the run
+ * degrades to the machine's default login, which is the right thing to run and the wrong thing to do
+ * without saying so.
+ */
+export type ChatHostAccount = { kind: 'chosen'; id: string; label: string } | { kind: 'default' } | { kind: 'lost' };
+
+/**
+ * `GET /api/chat`'s `host`: which machine and account run this conversation — the "terminal geral" of
+ * the spec — or why none can. The server resolves it (`resolveHost`); `ChatHost` renders it and
+ * nothing re-derives any part of it in the browser.
+ */
+export type ChatHostState =
+  | { kind: 'ready'; machine: ChatHostMachine; configDir: string | null; account: ChatHostAccount }
+  | { kind: 'no_machine' }
+  | { kind: 'not_chosen'; machines: ChatHostMachine[] }
+  | { kind: 'offline'; machine: ChatHostMachine }
+  /** `version` is empty when the agent never said which one it is: the sentence then drops it. */
+  | { kind: 'agent_too_old'; machine: ChatHostMachine; version: string };
 
 export type ChatActionClass = 'read' | 'write' | 'irreversible';
 export type ChatActionStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'executed' | 'failed';
