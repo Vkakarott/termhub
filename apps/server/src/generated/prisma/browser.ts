@@ -58,6 +58,11 @@ export type Machine = Prisma.MachineModel
  */
 export type Project = Prisma.ProjectModel
 /**
+ * Model ProjectMachine
+ * A project linked to a machine: where its terminals run and in which directory.
+ */
+export type ProjectMachine = Prisma.ProjectMachineModel
+/**
  * Model Tab
  * 
  */
