@@ -59,15 +59,33 @@ describe('interpretHookEvent — codex', () => {
     expect(interpretHookEvent('codex', { type: 'something-else' })).toBeNull();
   });
 
+  // captured from codex-cli 0.155.1: the side turn that names a new conversation
+  const TITLE_PROMPT =
+    "Generate a concise, single-line task title of at most 36 characters and under five words where possible. Start with an imperative verb. Capitalize only the first word unless the user's language, proper nouns, acronyms, or code terms require otherwise. Preserve ticket references exactly. Write in the user's language. Do not use quotes, markdown, or trailing punctuation. Do not answer the request.\n\nresponda apenas: um";
+  const titleTurn = { type: 'agent-turn-complete', 'thread-id': 'side', client: 'codex-tui', 'input-messages': [TITLE_PROMPT], 'last-assistant-message': '{"title":"Responder apenas um"}' };
+
   it('ignores the turn Codex runs on a side thread to title the conversation', () => {
-    const title = { type: 'agent-turn-complete', 'thread-id': 'side', 'input-messages': ['Generate a concise, single-line task title…'], 'last-assistant-message': '{"title":"Responder apenas um"}' };
-    expect(interpretHookEvent('codex', title)).toBeNull();
-    expect(interpretHookEvent('codex', { ...title, 'last-assistant-message': ' { "title" : "x" } ' })).toBeNull();
+    expect(interpretHookEvent('codex', titleTurn)).toBeNull();
+    expect(interpretHookEvent('codex', { ...titleTurn, 'last-assistant-message': ' { "title" : "x" } ' })).toBeNull();
+  });
+
+  it('keeps a real answer shaped like a title: the person asked for it, and the tab must say Codex finished', () => {
+    const asked = { type: 'agent-turn-complete', 'thread-id': 'main', 'input-messages': ['me devolva um JSON com o título do PR'], 'last-assistant-message': '{"title":"Fix login"}' };
+    expect(interpretHookEvent('codex', asked)?.text).toBe('{"title":"Fix login"}');
+    expect(interpretHookEvent('codex', { ...asked, 'input-messages': undefined })?.kind).toBe('waiting_input');
+  });
+
+  it('needs both signals: the title prompt as the only input, and the title-shaped answer', () => {
+    // the title prompt with an ordinary answer, or among the person's own messages
+    expect(interpretHookEvent('codex', { ...titleTurn, 'last-assistant-message': 'Pronto.' })?.text).toBe('Pronto.');
+    expect(interpretHookEvent('codex', { ...titleTurn, 'input-messages': ['um', TITLE_PROMPT] })?.kind).toBe('waiting_input');
+    expect(interpretHookEvent('codex', { ...titleTurn, 'input-messages': [TITLE_PROMPT, 'dois'] })?.kind).toBe('waiting_input');
+    expect(interpretHookEvent('codex', { ...titleTurn, 'input-messages': 'not a list' })?.kind).toBe('waiting_input');
   });
 
   it('keeps an answer that only looks like JSON', () => {
     for (const answer of ['{"title":"x","body":"y"}', '{"title":1}', '{"title":', '["title"]', '{}']) {
-      expect(interpretHookEvent('codex', { type: 'agent-turn-complete', 'last-assistant-message': answer })?.text).toBe(answer);
+      expect(interpretHookEvent('codex', { ...titleTurn, 'last-assistant-message': answer })?.text).toBe(answer);
     }
   });
 

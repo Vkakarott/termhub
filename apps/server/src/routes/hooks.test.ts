@@ -60,7 +60,7 @@ describe('POST /api/hooks/events', () => {
 
   it('ignores the turn Codex runs to title the conversation: the tab keeps its answer', async () => {
     const { app, recordEvent } = buildApp();
-    const r = await post(app, { tool: 'codex', session: tab.tmux_session, event: { type: 'agent-turn-complete', 'thread-id': 'side', 'last-assistant-message': '{"title":"Responder apenas um"}' } });
+    const r = await post(app, { tool: 'codex', session: tab.tmux_session, event: { type: 'agent-turn-complete', 'thread-id': 'side', 'input-messages': ['Generate a concise, single-line task title of at most 36 characters…\n\nresponda apenas: um'], 'last-assistant-message': '{"title":"Responder apenas um"}' } });
     expect(r.statusCode).toBe(202);
     expect(r.json()).toEqual({ ok: false, reason: 'ignored' });
     expect(recordEvent).not.toHaveBeenCalled();
