@@ -174,4 +174,36 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       expect(needsYou(updated)).toBe(true);
     });
   });
+
+  describe('activity', () => {
+    it('recordEvent stores the activity of a working event and clears it when the tab leaves working', async () => {
+      const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
+      expect(tab.activity).toBe('coding');
+      const waiting = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
+      expect(waiting.tab.activity).toBeNull();
+      const again = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null });
+      expect(again.tab.activity).toBeNull(); // working with no activity known
+    });
+
+    it('setActivity changes only the activity and the time, with no event row', async () => {
+      const { tab: before } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
+      const events = await db.tabEvent.count({ where: { tabId } });
+      const updated = await repo.setActivity(tabId, 'reading');
+      expect(updated?.activity).toBe('reading');
+      expect(updated?.state).toBe('working');
+      expect(updated?.state_text).toBe(before.state_text);
+      expect(await db.tabEvent.count({ where: { tabId } })).toBe(events);
+      expect(new Date(updated!.state_at!).getTime()).toBeGreaterThanOrEqual(new Date(before.state_at!).getTime());
+    });
+
+    it('setActivity returns undefined for a tab that does not exist', async () => {
+      expect(await repo.setActivity(newId(), 'reading')).toBeUndefined();
+    });
+
+    it('clearState clears the activity too', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'terminal' });
+      await repo.clearState(tabId);
+      expect((await repo.findById(tabId))?.activity).toBeNull();
+    });
+  });
 });

@@ -104,6 +104,8 @@ export interface Tab {
   state_at: string | null;
   /** when the tab was last looked at while needing you; null or before state_at = still needs you */
   state_seen_at: string | null;
+  /** monitor: what a working agent is doing; null = not working or never reported */
+  activity: TabActivity | null;
   created_at: string;
 }
 
@@ -255,6 +257,7 @@ export const mapTab = (t: PrismaTab): Tab => ({
   state_tool: t.stateTool,
   state_at: iso(t.stateAt),
   state_seen_at: iso(t.stateSeenAt),
+  activity: t.activity,
   created_at: t.createdAt.toISOString(),
 });
 
