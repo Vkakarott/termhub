@@ -23,7 +23,7 @@ export async function officeRoutes(app: FastifyInstance, repos: Repositories, de
     const { machineId } = params.parse(request.params);
     const { fresh } = query.parse(request.query);
     const machine = await scoped(repos, request).machine(machineId);
-    const projects = await repos.projects.list({ machine_id: machine.id });
+    const projects = await repos.projects.list({ machine_id: machine.id, owner: request.scope.ownerId });
     const projectIds = projects.filter((p) => p.status !== 'archived').map((p) => p.id);
     const [tabs, progress] = await Promise.all([
       repos.tabs.listByProjectsOnMachine(projectIds, machine.id),

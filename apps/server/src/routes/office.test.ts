@@ -51,6 +51,9 @@ describe('GET /office/:machineId', () => {
     expect(body.rooms[0].tabs[0]).toMatchObject({ id: 't1', alive: true, progress: null });
     expect(body.rooms[0].tasks).toEqual({ todo: 0, doing: 1, done: 0 });
     expect(repos.tabs.listByProjectsOnMachine).toHaveBeenCalledWith(['p1'], 'm1');
+    // scoped to the caller's own projects: a cross-owner link (admin "view as all", or a machine
+    // transfer) must not leak another owner's project names/tabs/progress onto this floor.
+    expect(repos.projects.list).toHaveBeenCalledWith({ machine_id: 'm1', owner: 'u1' });
   });
 
   // The probe never throws for the ways a machine really goes silent (offline agent, ssh timeout,
