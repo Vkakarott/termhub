@@ -62,6 +62,8 @@ So the flag list stops living in `apps/concierge/src/run.ts` and moves to a plac
 
 It stays, unchanged, for one case: a user with no machine of their own — which today is every account that has not enrolled one. The operator's own chat may keep using it or move to a host like anyone else.
 
+Say the consequence plainly, because it is the one thing this design does not fix: **for a user with no machine, the operator still pays and the operator's account still runs their conversation.** That is exactly the situation this document set out to end, so it is not something to leave to chance — either the chat stays granted only to users who have enrolled a machine (the role that gates it today makes that a decision, not an accident), or the container is eventually retired and a user with no machine simply has no chat. This spec does not decide which; it refuses to let the case be invisible.
+
 The `secondary` config dir is dropped from the server's configuration. It was a workaround for one shared account; with a per-user account the same need is expressed properly — a second `ai_account` on the host, chosen by the user — and that is out of scope here (see §9).
 
 ## 7. Data model
