@@ -53,7 +53,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'list_projects',
-    description: 'List projects (a working directory on a machine). Archived ones are hidden unless include_archived.',
+    description: 'List projects: id, key (used in card numbers and URLs), name, status and the machines each one is linked to with the working directory on each. Archived ones are hidden unless include_archived; machine_id keeps only projects linked to that machine.',
     scope: 'read', resource: 'projects', action: 'read',
     input: { machine_id: id.optional(), include_archived: z.boolean().optional() },
     run: (ctx, a) => listProjects(ctx, a as { machine_id?: string; include_archived?: boolean }),
@@ -98,10 +98,10 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'open_tab',
-    description: 'Open a terminal tab in a project and start its tmux session detached, so it keeps running with no browser attached.',
+    description: 'Open a terminal tab in a project and start its tmux session detached, so it keeps running with no browser attached. machine_id picks which linked machine; it is required when the project is linked to more than one (list_projects shows them).',
     scope: 'terminals', resource: 'terminals', action: 'write',
-    input: { project_id: id, name: z.string().trim().min(1).max(60).optional() },
-    run: (ctx, a) => openTab(ctx, a as { project_id: string; name?: string }),
+    input: { project_id: id, machine_id: id.optional(), name: z.string().trim().min(1).max(60).optional() },
+    run: (ctx, a) => openTab(ctx, a as { project_id: string; machine_id?: string; name?: string }),
   },
   {
     name: 'send_input',
@@ -133,10 +133,10 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'start_agent',
-    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to doing. The prompt cannot start with "-" or contain control characters other than newlines. Then use wait_for_state / read_screen / send_input to follow and answer it. Gemini and Antigravity accounts are not supported yet.`,
+    description: `Open a tab in a project and start Claude Code (account provider claude) or Codex (chatgpt) there under the chosen account, with prompt (max ${PROMPT_MAX_CHARS} chars) as its first message; the session stays interactive and visible in the app. With task_id (needs the tasks:update permission) the task is linked to the tab and moved to doing. The prompt cannot start with "-" or contain control characters other than newlines. Then use wait_for_state / read_screen / send_input to follow and answer it. Gemini and Antigravity accounts are not supported yet. machine_id picks the linked machine (required when the project has several).`,
     scope: 'terminals', resource: 'terminals', action: 'write',
-    input: { project_id: id, account_id: id, prompt: z.string().min(1).max(PROMPT_MAX_CHARS), task_id: id.optional(), tab_name: z.string().trim().min(1).max(60).optional() },
-    run: (ctx, a) => startAgent(ctx, a as { project_id: string; account_id: string; prompt: string; task_id?: string; tab_name?: string }),
+    input: { project_id: id, machine_id: id.optional(), account_id: id, prompt: z.string().min(1).max(PROMPT_MAX_CHARS), task_id: id.optional(), tab_name: z.string().trim().min(1).max(60).optional() },
+    run: (ctx, a) => startAgent(ctx, a as { project_id: string; machine_id?: string; account_id: string; prompt: string; task_id?: string; tab_name?: string }),
   },
   {
     name: 'list_tasks',

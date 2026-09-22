@@ -15,8 +15,8 @@ const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude', 'codex'], checked_at: null,
   agent_version: '0.2.3', agent_last_seen_at: null, agent_auto_update: false, is_local: false, owner_id: 'u1', owner_name: null, created_at: '', ...over,
 });
-const project = (over: Partial<Project> & { id: string; machine_id: string }): Project => ({
-  name: over.id, cwd: '/src/' + over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
+const project = (over: Partial<Project> & { id: string }): Project => ({
+  owner_id: 'u1', key: over.id.toUpperCase(), next_task_number: 1, name: over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
 });
 const account = (over: Partial<AiAccount> & { id: string; machine_id: string }): AiAccount => ({ provider: 'claude', label: over.id, config_dir: null, created_at: '', ...over });
 const task = (over: Partial<Task> & { id: string; project_id: string }): Task => ({
@@ -25,7 +25,12 @@ const task = (over: Partial<Task> & { id: string; project_id: string }): Task =>
 
 /** u1 owns m1 (project p1, accounts a1/a2) and m2 (project p2, account a3); u2 owns mx. */
 const machines = [machine({ id: 'm1', name: 'MacBook Pro M4' }), machine({ id: 'm2', name: 'mac mini', capabilities: ['tmux', 'claude'] }), machine({ id: 'mx', owner_id: 'u2' })];
-const projects = [project({ id: 'p1', machine_id: 'm1' }), project({ id: 'p2', machine_id: 'm2' }), project({ id: 'px', machine_id: 'mx' })];
+const projects = [project({ id: 'p1' }), project({ id: 'p2' }), project({ id: 'px', owner_id: 'u2' })];
+const links = [
+  { project_id: 'p1', machine_id: 'm1', cwd: '/src/p1' },
+  { project_id: 'p2', machine_id: 'm2', cwd: '/src/p2' },
+  { project_id: 'px', machine_id: 'mx', cwd: '/x' },
+].map((l, i) => ({ id: `l${i}`, position: 0, created_at: '', ...l }));
 const accounts = [
   account({ id: 'a1', label: 'pedrogoiania', machine_id: 'm1', config_dir: '/Users/p/.claude-work' }),
   account({ id: 'a2', label: 'ChatGPT', provider: 'chatgpt', machine_id: 'm1' }),
@@ -44,6 +49,10 @@ function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
   const repos = {
     machines: { findById: vi.fn(async (id: string) => machines.find((m) => m.id === id)) },
     projects: { findById: vi.fn(async (id: string) => projects.find((p) => p.id === id)) },
+    projectMachines: {
+      find: vi.fn(async (p: string, m: string) => links.find((l) => l.project_id === p && l.machine_id === m)),
+      listByProject: vi.fn(async (p: string) => links.filter((l) => l.project_id === p)),
+    },
     aiAccounts: {
       findById: vi.fn(async (id: string) => accounts.find((a) => a.id === id)),
       list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)),
@@ -118,7 +127,7 @@ describe('startAgent', () => {
   it('opens a tab named after the account, types the launch line and returns where to watch it', async () => {
     const { c } = ctx();
     const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'write a spec' });
-    expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', name: 'claude · pedrogoiania' });
+    expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', machine_id: 'm1', name: 'claude · pedrogoiania' });
     expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'write a spec'", true);
     expect(r).toEqual({
       tab_id: 't9', tab_name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-t9', tab_url: 'https://app.test/projects/p1', command: 'claude', task_id: null, previous_tab_id: null,
@@ -129,16 +138,16 @@ describe('startAgent', () => {
   it('uses tab_name when given, else the task title', async () => {
     const { c } = ctx();
     await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'p', tab_name: 'codex run' });
-    expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', name: 'codex run' });
+    expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', machine_id: 'm1', name: 'codex run' });
     await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'p', task_id: 'k1' });
-    expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', name: 'Write the spec for XPTO' });
+    expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', machine_id: 'm1', name: 'Write the spec for XPTO' });
   });
 
   it('types the codex line for a ChatGPT account without a config dir', async () => {
     const { c } = ctx();
     await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
     expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', "codex 'fix it'", true);
-    expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', name: 'codex · ChatGPT' });
+    expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', machine_id: 'm1', name: 'codex · ChatGPT' });
   });
 
   it('types the prompt as checked (CRLF folded)', async () => {
@@ -150,7 +159,7 @@ describe('startAgent', () => {
   it('cuts a long task title to the tab-name limit', async () => {
     const { c } = ctx();
     await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', task_id: 'k3' });
-    expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', name: 'T'.repeat(60) });
+    expect(openTab).toHaveBeenLastCalledWith(c, { project_id: 'p1', machine_id: 'm1', name: 'T'.repeat(60) });
   });
 
   it('links a subtask too, reporting the tab it was linked to before', async () => {

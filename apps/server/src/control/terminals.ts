@@ -2,7 +2,7 @@ import type { TmuxKey } from '@termhub/agent-protocol';
 import { requireAgentVersion } from '../agent/errors.js';
 import { agents } from '../agent/registry.js';
 import { captureScreen } from '../agent/screen.js';
-import type { Machine, Project, Tab, TabState } from '../db/repositories/types.js';
+import type { Machine, Tab, TabState } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { nextTerminalName } from '../lib/tab-names.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
@@ -29,11 +29,11 @@ function assertReady(machine: Machine): void {
 }
 
 /** A terminal tab with a session name, on a machine that can answer right now. */
-async function terminal(ctx: ControlContext, tabId: string): Promise<{ tab: Tab; project: Project; machine: Machine; session: string }> {
-  const { tab, project, machine } = await ctx.scoped.tab(tabId);
+async function terminal(ctx: ControlContext, tabId: string): Promise<{ tab: Tab; machine: Machine; cwd: string; session: string }> {
+  const { tab, machine, cwd } = await ctx.scoped.tab(tabId);
   assertTerminal(tab);
   assertReady(machine);
-  return { tab, project, machine, session: tab.tmux_session };
+  return { tab, machine, cwd, session: tab.tmux_session };
 }
 
 /** No hooks report state (or they never marked the tab "working" for this command): settle by
@@ -53,8 +53,11 @@ async function settleByScreen(machine: Machine, session: string, lines: number, 
 }
 
 /** Opens a tab and starts its tmux session detached, so it is alive without a browser attached. */
-export async function openTab(ctx: ControlContext, input: { project_id: string; name?: string }): Promise<{ tab_id: string; name: string; project_id: string; tmux_session: string | null; created: boolean }> {
-  const { project, machine } = await ctx.scoped.project(input.project_id);
+export async function openTab(
+  ctx: ControlContext,
+  input: { project_id: string; machine_id?: string; name?: string },
+): Promise<{ tab_id: string; name: string; project_id: string; machine_id: string; tmux_session: string | null; created: boolean }> {
+  const { project, machine, link } = await ctx.scoped.projectMachineFor(input.project_id, input.machine_id);
   assertReady(machine);
 
   if (ctx.token) {
@@ -66,11 +69,11 @@ export async function openTab(ctx: ControlContext, input: { project_id: string; 
 
   const existing = await ctx.repos.tabs.listByProject(project.id);
   const name = input.name?.trim() || nextTerminalName(existing.map((t) => t.name));
-  const tab = await ctx.repos.tabs.create(project.id, name, { created_by_token_id: ctx.token?.id ?? null });
+  const tab = await ctx.repos.tabs.create(project.id, machine.id, name, { created_by_token_id: ctx.token?.id ?? null });
 
   try {
-    const { created } = await ensureSession(machine, tab.tmux_session as string, project.cwd);
-    return { tab_id: tab.id, name: tab.name, project_id: project.id, tmux_session: tab.tmux_session, created };
+    const { created } = await ensureSession(machine, tab.tmux_session as string, link.cwd);
+    return { tab_id: tab.id, name: tab.name, project_id: project.id, machine_id: machine.id, tmux_session: tab.tmux_session, created };
   } catch (e) {
     // The tab is kept on purpose (spec §4.4): the error carries its id so the screen can be inspected.
     // The original code travels with it, so the audit row says what actually failed.
@@ -85,11 +88,11 @@ export async function openTab(ctx: ControlContext, input: { project_id: string; 
 /** Types text into the tab. `enter` defaults to true: the point is almost always to submit it. */
 export async function sendInput(ctx: ControlContext, input: { tab_id: string; text: string; enter?: boolean; answering_permission?: boolean }): Promise<{ tab_id: string; sent: true }> {
   if (input.text.length > INPUT_MAX_CHARS) throw new ControlError('TEXT_TOO_LONG', `Texto longo demais: ${input.text.length} caracteres, máximo ${INPUT_MAX_CHARS}`);
-  const { tab, project, machine, session } = await terminal(ctx, input.tab_id);
+  const { tab, machine, cwd, session } = await terminal(ctx, input.tab_id);
   if (tab.state === 'waiting_permission' && !input.answering_permission) {
     throw new ControlError('WAITING_PERMISSION', `Esta aba está esperando uma permissão: "${tab.state_text ?? 'pergunta não registrada'}". Se a sua resposta é para essa pergunta, repita com answering_permission: true.`);
   }
-  await ensureSession(machine, session, project.cwd);
+  await ensureSession(machine, session, cwd);
   const enter = input.enter ?? true;
   // An embedded newline means a multi-line prompt: paste it so the TUI reads the newline as part
   // of the text, not as Enter submitting a half-typed line (spec: bracketed paste).
@@ -103,8 +106,8 @@ export async function sendInput(ctx: ControlContext, input: { tab_id: string; te
 
 /** Presses one key from the closed list in the tab. */
 export async function sendKey(ctx: ControlContext, input: { tab_id: string; key: TmuxKey }): Promise<{ tab_id: string; key: TmuxKey; sent: true }> {
-  const { tab, project, machine, session } = await terminal(ctx, input.tab_id);
-  await ensureSession(machine, session, project.cwd);
+  const { tab, machine, cwd, session } = await terminal(ctx, input.tab_id);
+  await ensureSession(machine, session, cwd);
   await sendKeyToSession(machine, session, input.key);
   return { tab_id: tab.id, key: input.key, sent: true };
 }
@@ -119,7 +122,7 @@ export async function runCommand(
   input: { tab_id: string; command: string; timeout_seconds?: number; lines?: number },
   signal?: AbortSignal,
 ): Promise<{ tab_id: string; state: TabState | null; timed_out: boolean; lines: number; text: string }> {
-  const { tab, project, machine, session } = await terminal(ctx, input.tab_id);
+  const { tab, machine, cwd, session } = await terminal(ctx, input.tab_id);
   // run_command is send_input + Enter (spec §4.2 line 118); the permission guard on send_input
   // (line 116) applies here too, but there is no answering_permission for run_command — the pending
   // question must be settled with send_input or send_key first.
@@ -133,7 +136,7 @@ export async function runCommand(
   const timeoutMs = clamp(input.timeout_seconds, RUN_DEFAULT_SECONDS, RUN_MAX_SECONDS) * 1000;
   const lines = clamp(input.lines, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES);
 
-  await ensureSession(machine, session, project.cwd);
+  await ensureSession(machine, session, cwd);
   await sendTextToSession(machine, session, input.command, true);
 
   const deadline = Date.now() + timeoutMs;
