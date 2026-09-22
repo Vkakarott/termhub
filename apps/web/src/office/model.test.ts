@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project, Tab } from '../lib/types';
-import { buildCityModel, buildModel, lookOf, missingTabIds, resolveFocus, sameFocus, truncateLabel, type MachineEntry } from './model';
+import { activityLabel, buildCityModel, buildModel, lookOf, missingTabIds, resolveFocus, sameFocus, truncateLabel, type MachineEntry } from './model';
 
 const tab = (id: string, over: Partial<OfficeTab> = {}): OfficeTab =>
-  ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, alive: true, progress: null, ...over }) as OfficeTab;
+  ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, alive: true, progress: null, ...over }) as OfficeTab;
 const room = (id: string, tabs: OfficeTab[], over: Partial<OfficeRoom> = {}): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null, ...over });
 const snap = (rooms: OfficeRoom[], machineId = 'm1', over: Partial<OfficeSnapshot> = {}): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms, ...over });
 const none = () => undefined;
@@ -128,6 +128,30 @@ describe('buildModel', () => {
     expect(m.rooms[0].desks[0].name).toBe(long);
     expect(m.rooms[0].desks[0].label.length).toBeLessThanOrEqual(18);
     expect(m.rooms[0].label.length).toBeLessThanOrEqual(28);
+  });
+});
+
+describe('activity', () => {
+  const at = '2026-09-22T10:00:00.000Z';
+  it('reaches the desk from the snapshot and from a newer monitor push', () => {
+    const snapOnly = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding' })])]), none).rooms[0].desks[0];
+    expect(snapOnly.activity).toBe('coding');
+    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), state: 'working', state_at: '2026-09-22T10:01:00.000Z', activity: 'reading' } as Tab) : undefined);
+    const merged = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding' })])]), live).rooms[0].desks[0];
+    expect(merged.activity).toBe('reading');
+  });
+  it('is null when the tab is not working, whatever the snapshot says', () => {
+    const d = buildModel(snap([room('p1', [tab('a', { state: 'waiting_input', state_at: at, activity: 'coding' })])]), none).rooms[0].desks[0];
+    expect(d.activity).toBeNull();
+  });
+  it('labels every category in pt-BR and nothing for null', () => {
+    expect(activityLabel('coding')).toBe('codando');
+    expect(activityLabel('reading')).toBe('lendo arquivos');
+    expect(activityLabel('researching')).toBe('pesquisando');
+    expect(activityLabel('planning')).toBe('planejando');
+    expect(activityLabel('terminal')).toBe('no terminal');
+    expect(activityLabel('working')).toBe('trabalhando');
+    expect(activityLabel(null)).toBeNull();
   });
 });
 

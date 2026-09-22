@@ -285,11 +285,15 @@ export interface Tab {
   state_at: string | null;
   /** when the tab was last looked at while needing you; null or before state_at = still needs you */
   state_seen_at: string | null;
+  /** which tool the working tab is about to call, mapped to a category; null off `working`, or an agent too old to report it */
+  activity: TabActivity | null;
   created_at: string;
   alive: boolean;
 }
 
 export type TabState = 'working' | 'waiting_input' | 'waiting_permission' | 'idle' | 'error';
+
+export type TabActivity = 'coding' | 'reading' | 'researching' | 'planning' | 'terminal' | 'working';
 
 export const TAB_STATE_LABEL: Record<TabState, string> = {
   working: 'trabalhando',
