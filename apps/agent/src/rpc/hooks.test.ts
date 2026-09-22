@@ -272,14 +272,27 @@ describe('heal', () => {
     await mkdir(path.join(home, '.cursor'), { recursive: true });
     await mkdir(path.join(home, '.codex'), { recursive: true });
     await writeFile(path.join(home, '.codex/config.toml'), 'model = "o3"\n');
-    // a dir discovered later whose settings.json cannot even be read (here a directory in its place;
-    // on a real machine a read-only mount or another owner) — the error escapes the per-dir handling
-    await mkdir(path.join(home, '.claude-locked/settings.json'), { recursive: true });
+    // writeAtomic fails with EISDIR on the temp path (works as root; chmod would not). Merge
+    // succeeds; the write is what the per-dir try must catch without aborting other steps.
+    await writeFile(path.join(home, '.claude/settings.json'), '{}\n');
+    await mkdir(path.join(home, '.claude/settings.json.termhub-new'), { recursive: true });
 
     await expect(heal(home)).resolves.toEqual(['~/.cursor', '~/.codex']);
 
+    expect(await read('.claude/settings.json')).toBe('{}\n');
     expect(JSON.parse(await read('.cursor/hooks.json'))).toMatchObject({ version: 1 });
     expect(await read('.codex/config.toml')).toContain('notify = [');
+  });
+
+  it('repairs sibling Claude dirs when one settings.json cannot be read', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.claude-a'), { recursive: true });
+    await writeFile(path.join(home, '.claude-a/settings.json'), '{}\n');
+    // EISDIR on read: sorts first, so it used to abort the whole Claude step before siblings ran
+    await mkdir(path.join(home, '.claude-000/settings.json'), { recursive: true });
+
+    await expect(heal(home)).resolves.toEqual(['~/.claude-a']);
+    expect(JSON.parse(await read('.claude-a/settings.json')).hooks).toBeTruthy();
   });
 
   it('rewrites a script left behind by an older agent, keeping it atomic and executable', async () => {

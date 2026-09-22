@@ -97,7 +97,7 @@ async function claudeTargets(dirs: string[] | undefined, home: string): Promise<
 async function mergedCursorHooks(home: string, scriptPath: string): Promise<string | null> {
   if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return null;
   try {
-    return mergeCursorHooks(await readOrEmpty(path.join(home, CURSOR_HOOKS_REL)), scriptPath);
+    return mergeCursorHooks(await readOrEmpty(path.join(home, CURSOR_HOOKS_REL)), scriptPath, `~/${CURSOR_HOOKS_REL}`);
   } catch (err) {
     const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `~/${CURSOR_HOOKS_REL} não é JSON válido` : err instanceof Error ? err.message : String(err);
     throw new RpcFailure('failed', message, CURSOR_HOOKS_REL);
@@ -113,7 +113,7 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
   const merged: { target: ClaudeTarget; body: string }[] = [];
   for (const target of targets) {
     try {
-      merged.push({ target, body: mergeClaudeSettings(await readOrEmpty(target.file), scriptPath) });
+      merged.push({ target, body: mergeClaudeSettings(await readOrEmpty(target.file), scriptPath, target.shown) });
     } catch (err) {
       // Not a JSON object (or not JSON at all): refuse rather than clobber what the user has there.
       const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `${target.shown} não é JSON válido` : err instanceof Error ? err.message : String(err);
@@ -181,13 +181,23 @@ export async function heal(home = os.homedir()): Promise<string[]> {
   // One failing repair must not take the others down: a settings.json on a read-only mount, or one
   // owned by somebody else, would otherwise reject before Cursor and Codex are even looked at, and
   // the machine would go on missing their hooks at every reconnect - what heal exists to prevent.
-  const steps = [healClaudeDirs, healCursor, healCodex];
+  const steps: [string, (home: string, scriptPath: string) => Promise<string[]>][] = [
+    ['claude', healClaudeDirs],
+    ['cursor', healCursor],
+    ['codex', healCodex],
+  ];
   const healed: string[] = [];
-  for (const step of steps) {
+  for (const [name, step] of steps) {
     try {
       healed.push(...(await step(home, scriptPath)));
-    } catch {
-      // the next reconnect tries again; nothing here is worth failing the startup for
+    } catch (err) {
+      // the next reconnect tries again; nothing here is worth failing the startup for — but a
+      // machine that can never repair a dir must not look identical to a healthy one in the log
+      const code = (err as NodeJS.ErrnoException)?.code;
+      console.warn(
+        `[termhub-agent] monitor hooks heal ${name} failed`,
+        code ?? (err instanceof Error ? err.message : String(err)),
+      );
     }
   }
   return healed;
@@ -198,9 +208,10 @@ async function healClaudeDirs(home: string, scriptPath: string): Promise<string[
   const healed: string[] = [];
   for (const dir of await discoverClaudeDirs(home)) {
     const file = path.join(expandHome(dir, home), 'settings.json');
-    const current = await readOrEmpty(file);
     try {
-      const body = mergeClaudeSettings(current, scriptPath);
+      // read stays inside the try: EACCES / EISDIR on one dir must not abort the siblings
+      const current = await readOrEmpty(file);
+      const body = mergeClaudeSettings(current, scriptPath, `${dir}/settings.json`);
       if (body === current) continue;
       await writeAtomic(file, body, 0o644);
     } catch {
@@ -219,8 +230,8 @@ async function healClaudeDirs(home: string, scriptPath: string): Promise<string[
 async function healCursor(home: string, scriptPath: string): Promise<string[]> {
   if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return [];
   const file = path.join(home, CURSOR_HOOKS_REL);
-  const current = await readOrEmpty(file);
   try {
+    const current = await readOrEmpty(file);
     const body = mergeCursorHooks(current, scriptPath);
     if (body === current) return [];
     await writeAtomic(file, body, 0o644);

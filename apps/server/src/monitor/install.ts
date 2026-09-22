@@ -144,7 +144,7 @@ async function discoverOnMachine(machine: Machine): Promise<string[]> {
 function mergedCursorHooks(configs: MachineConfigs, scriptPath: string): string | null {
   if (!configs.hasCursor) return null;
   try {
-    return mergeCursorHooks(configs.cursorHooks, scriptPath);
+    return mergeCursorHooks(configs.cursorHooks, scriptPath, '~/.cursor/hooks.json');
   } catch (err) {
     throw new Error(err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? '~/.cursor/hooks.json não é JSON válido' : err instanceof Error ? err.message : String(err));
   }
@@ -179,7 +179,7 @@ export async function installHooks(machine: Machine, token: string, hooksUrl: st
   const targets = claude.filter((c) => c.dir === CLAUDE_DEFAULT_DIR || c.exists);
   const merged = targets.map((c) => {
     try {
-      return { dir: c.dir, file: `${expandHome(c.dir, home)}/settings.json`, body: mergeClaudeSettings(c.settings, scriptPath) };
+      return { dir: c.dir, file: `${expandHome(c.dir, home)}/settings.json`, body: mergeClaudeSettings(c.settings, scriptPath, `${c.dir}/settings.json`) };
     } catch (err) {
       throw new Error(err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `${c.dir}/settings.json não é JSON válido` : err instanceof Error ? err.message : String(err));
     }

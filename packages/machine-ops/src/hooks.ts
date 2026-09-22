@@ -107,29 +107,39 @@ type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string }
 
 const asObject = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
+/**
+ * `hooks` we can merge into: a real object, or nothing to lose (absent, null, or `[]`).
+ * A non-empty array / string / number would be replaced by ours alone — refuse those.
+ */
+const asHooksRecord = (v: unknown): Record<string, unknown> | null => {
+  if (v == null || (Array.isArray(v) && v.length === 0)) return {};
+  return asObject(v);
+};
+
 const isOurs = (e: HookEntry) => !!e && typeof e === 'object' && Array.isArray(e.hooks) && e.hooks.some((h) => typeof h?.command === 'string' && h.command.includes(HOOK_MARK));
 
 /** Merges our entries into Claude Code's settings.json; keeps everything else. Throws on a file that is not a JSON object. */
-export function mergeClaudeSettings(current: string, scriptPath: string): string {
+export function mergeClaudeSettings(current: string, scriptPath: string, shown = '~/.claude/settings.json'): string {
   let settings: Record<string, unknown> = {};
   if (current.trim()) {
     const parsed = JSON.parse(current) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('~/.claude/settings.json não é um objeto JSON');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${shown} não é um objeto JSON`);
     settings = parsed as Record<string, unknown>;
   }
   // a `hooks` we cannot read would be replaced by ours alone, and uninstall could not give it back
-  if (settings.hooks != null && !asObject(settings.hooks)) throw new Error('~/.claude/settings.json: o campo "hooks" não é um objeto');
-  const hooks = (asObject(settings.hooks) ?? {}) as Record<string, unknown>;
+  const hooks = asHooksRecord(settings.hooks);
+  if (settings.hooks != null && hooks === null) throw new Error(`${shown}: o campo "hooks" não é um objeto`);
+  const next = hooks ?? {};
   for (const event of CLAUDE_HOOK_EVENTS) {
-    const list = (Array.isArray(hooks[event]) ? hooks[event] : []) as HookEntry[];
+    const list = (Array.isArray(next[event]) ? next[event] : []) as HookEntry[];
     const others = list.filter((e) => !isOurs(e));
     const entry: HookEntry = { hooks: [{ type: 'command', command: `${scriptPath} claude`, timeout: 10 } as { type: string; command: string }] };
     // A tool event's entry is filtered by tool name; '*' says every tool explicitly (so would no matcher).
     if (event === 'PreToolUse') entry.matcher = '*';
     others.push(entry);
-    hooks[event] = others;
+    next[event] = others;
   }
-  settings.hooks = hooks;
+  settings.hooks = next;
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
@@ -175,22 +185,23 @@ const isOurCursorEntry = (e: CursorEntry) => !!e && typeof e === 'object' && typ
 
 
 /** Merges our entries into Cursor's ~/.cursor/hooks.json (`{ version, hooks: { event: [{ command }] } }`); keeps everything else. Throws on a file that is not a JSON object. */
-export function mergeCursorHooks(current: string, scriptPath: string): string {
+export function mergeCursorHooks(current: string, scriptPath: string, shown = '~/.cursor/hooks.json'): string {
   let file: Record<string, unknown> = {};
   if (current.trim()) {
     const parsed = asObject(JSON.parse(current) as unknown);
-    if (!parsed) throw new Error('~/.cursor/hooks.json não é um objeto JSON');
+    if (!parsed) throw new Error(`${shown} não é um objeto JSON`);
     file = parsed;
   }
   // a `hooks` we cannot read would be replaced by ours alone, and uninstall could not give it back
-  if (file.hooks != null && !asObject(file.hooks)) throw new Error('~/.cursor/hooks.json: o campo "hooks" não é um objeto');
-  const hooks = asObject(file.hooks) ?? {};
+  const hooks = asHooksRecord(file.hooks);
+  if (file.hooks != null && hooks === null) throw new Error(`${shown}: o campo "hooks" não é um objeto`);
+  const next = hooks ?? {};
   for (const event of CURSOR_HOOK_EVENTS) {
-    const others = ((Array.isArray(hooks[event]) ? hooks[event] : []) as CursorEntry[]).filter((e) => !isOurCursorEntry(e));
+    const others = ((Array.isArray(next[event]) ? next[event] : []) as CursorEntry[]).filter((e) => !isOurCursorEntry(e));
     others.push({ command: `${scriptPath} cursor` });
-    hooks[event] = others;
+    next[event] = others;
   }
-  return `${JSON.stringify({ ...file, version: typeof file.version === 'number' ? file.version : 1, hooks }, null, 2)}\n`;
+  return `${JSON.stringify({ ...file, version: typeof file.version === 'number' ? file.version : 1, hooks: next }, null, 2)}\n`;
 }
 
 /** Removes our entries; drops events left empty, and `hooks` when nothing is left. Leaves anything that is not a JSON object alone. */

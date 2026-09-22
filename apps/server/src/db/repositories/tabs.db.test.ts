@@ -194,6 +194,18 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       expect(tab.state_text).toBeNull();
     });
 
+    it('inverted Cursor race: stop before afterAgentResponse ends with the answer text and still needs you', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab: stop } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(stop)).toBe(true);
+      expect(stop.state_text).toBeNull();
+      // afterAgentResponse is not continuesWait — same wait from the toast's point of view (already
+      // needs-you), and the answer text must replace the empty stop
+      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.' });
+      expect(needsYou(answer)).toBe(true);
+      expect(answer.state_text).toBe('Pronto.');
+    });
+
     it('never carries a seen mark the tab does not have, even for a continuation', async () => {
       await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null });
       await repo.markSeen(tabId);

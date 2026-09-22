@@ -54,8 +54,15 @@ describe('mergeClaudeSettings', () => {
     for (const hooks of ['[{"matcher":"*"}]', '"x"', '1', 'true']) {
       expect(() => mergeClaudeSettings(`{"model":"opus","hooks":${hooks}}`, script)).toThrow('~/.claude/settings.json: o campo "hooks" não é um objeto');
     }
-    // absent or null holds nothing to lose
+    // absent, null, or [] holds nothing to lose — install must still work
     expect(JSON.parse(mergeClaudeSettings('{"model":"opus","hooks":null}', script)).hooks.Stop).toHaveLength(1);
+    expect(JSON.parse(mergeClaudeSettings('{"model":"opus","hooks":[]}', script)).hooks.Stop).toHaveLength(1);
+  });
+
+  it('names the settings file the caller passed, not a hardcoded ~/.claude', () => {
+    expect(() => mergeClaudeSettings('{"hooks":[1]}', script, '~/.claude-work/settings.json')).toThrow(
+      '~/.claude-work/settings.json: o campo "hooks" não é um objeto',
+    );
   });
 });
 
@@ -118,8 +125,9 @@ describe('cursor hooks.json', () => {
     for (const hooks of ['[{"command":"say done"}]', '"x"', '1', 'true']) {
       expect(() => mergeCursorHooks(`{"version":1,"hooks":${hooks}}`, script)).toThrow('~/.cursor/hooks.json: o campo "hooks" não é um objeto');
     }
-    // absent or null holds nothing to lose
+    // absent, null, or [] holds nothing to lose
     expect(JSON.parse(mergeCursorHooks('{"version":1,"hooks":null}', script)).hooks.stop).toEqual([{ command: `${script} cursor` }]);
+    expect(JSON.parse(mergeCursorHooks('{"version":1,"hooks":[]}', script)).hooks.stop).toEqual([{ command: `${script} cursor` }]);
   });
 
   it('strips only our entries, drops events left empty and leaves odd files alone', () => {
