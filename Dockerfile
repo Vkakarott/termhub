@@ -49,7 +49,10 @@ RUN npm prune --omit=dev
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
-RUN apk add --no-cache tmux openssh-client bash tini \
+# rsvg-convert + font-inter: the public city's link preview card (apps/server/src/public/card.ts)
+# rasterises with the same librsvg tool apps/landing/og/build.sh uses, as a runtime subprocess.
+# Package names are Alpine's (apk), not Debian's librsvg2-bin — this image is node:22-alpine.
+RUN apk add --no-cache tmux openssh-client bash tini rsvg-convert font-inter \
  && addgroup -S app && adduser -S app -G app -h /home/app -s /bin/bash \
  && mkdir -p /home/app/.ssh && chown app:app /home/app/.ssh && chmod 700 /home/app/.ssh
 COPY --from=build --chown=app:app /app/node_modules ./node_modules

@@ -1,7 +1,20 @@
+import { execFileSync } from 'node:child_process';
 import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import { applyErrorHandler } from '../lib/errors.js';
+
+// Same gating style as agent/e2e.test.ts and start-agent.e2e.test.ts: a Docker runner without
+// librsvg installed still passes green, proving the fallback itself works rather than failing on a
+// missing binary.
+const hasRsvg = (() => {
+  try {
+    execFileSync('sh', ['-c', 'command -v rsvg-convert'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 // The public read must never trigger an ssh round-trip: it only ever consults the memo
 // (`cachedTmuxProbe`, synchronous) and must never call the probing function that would refresh it.
@@ -146,5 +159,58 @@ describe('GET /public/city/:nickname', () => {
     expect(robots).toHaveLength(1);
     // cold memo: alive falls back to the tool's own reported state, not an empty-office read
     expect(robots[0].alive).toBe(true);
+  });
+});
+
+describe('GET /public/city/:nickname/card.png', () => {
+  beforeEach(() => {
+    cached = { reachable: true, sessions: new Set(['th-t1']) };
+  });
+
+  it('falls back to the landing card for a nickname that does not exist', async () => {
+    const { app } = buildApp();
+    const res = await app.inject({ method: 'GET', url: '/public/city/ninguem/card.png' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/og-image.png');
+  });
+
+  it('falls back to the landing card for a nickname that published nothing', async () => {
+    const { app } = buildApp();
+    const res = await app.inject({ method: 'GET', url: '/public/city/semnada/card.png' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/og-image.png');
+  });
+
+  it('falls back to the landing card when the rasteriser is unavailable', async () => {
+    vi.stubEnv('TERMHUB_RSVG_BIN', '/nonexistent/rsvg-convert');
+    const { app } = buildApp();
+    const res = await app.inject({ method: 'GET', url: '/public/city/pedro/card.png' });
+    vi.unstubAllEnvs();
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/og-image.png');
+  });
+
+  describe.skipIf(!hasRsvg)('with a real rsvg-convert on PATH', () => {
+    it('renders a PNG for a published city', async () => {
+      const { app } = buildApp();
+      const res = await app.inject({ method: 'GET', url: '/public/city/pedro/card.png' });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe('image/png');
+      expect(res.rawPayload.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    });
+
+    it('serves the second request for the same card from cache, without asking the repository again', async () => {
+      // A cache key of its own (an unused ?building=), so this test's first request is a genuine
+      // miss regardless of what the previous test already rendered and cached for the bare URL.
+      const url = '/public/city/pedro/card.png?building=cache-test-only';
+      const { app, repos } = buildApp();
+      const first = await app.inject({ method: 'GET', url });
+      expect(first.statusCode).toBe(200);
+      const callsAfterFirst = vi.mocked(repos.users.findByNickname).mock.calls.length;
+      const second = await app.inject({ method: 'GET', url });
+      expect(second.statusCode).toBe(200);
+      expect(second.rawPayload).toEqual(first.rawPayload);
+      expect(vi.mocked(repos.users.findByNickname).mock.calls.length).toBe(callsAfterFirst);
+    });
   });
 });

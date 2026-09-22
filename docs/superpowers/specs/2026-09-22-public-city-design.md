@@ -1,6 +1,12 @@
 # The public city: showing what your robots are doing — design
 
-Date: 2026-09-22. Status: **design approved, not implemented.**
+Date: 2026-09-22. Status: **implemented on `feat/public-city`, pending review and merge.**
+The link preview card (`GET /api/public/city/:nickname/card.png`) rasterises with Alpine's
+`rsvg-convert` and `font-inter` `apk` packages — the same ones `apps/landing/og/build.sh` already
+uses on `alpine:3.20` — since the server's runtime image is `node:22-alpine`, not the Debian package
+names (`librsvg2-bin`) a rasteriser is more commonly reached for. The card's mark is a small,
+self-contained redraw of `public/logo.svg`'s terminal-window icon (no `<image href>`, so rasterising
+the card needs no second file on disk); it does not reproduce that logo's full outlined wordmark path.
 Builds on `2026-09-21-office-world-design.md` (the office city, in production) and
 `2026-09-22-agent-activity-design.md` (the activity under each person, in production).
 
