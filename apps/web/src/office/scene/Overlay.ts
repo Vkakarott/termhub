@@ -6,6 +6,7 @@
 import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
 import { truncateLabel, type DeskModel, type MachineModel, type MachineNotice, type Marker, type RoomModel } from '../model';
 import type { View } from './camera';
+import { ROOM_SIGN_SCALE } from './detail';
 
 /** Hover is where a name cut to 18 characters and a task title become readable: room for both. */
 const HOVER_MAX = 48;
@@ -118,6 +119,14 @@ export class DeskOverlay {
 }
 
 const needsYouText = (n: number) => (n === 1 ? '1 precisa de você' : `${n} precisam de você`);
+const MUTED = 0x9aa1b1;
+const ATTENTION = 0xf0883e;
+
+/**
+ * Overlay stacking. Desk overlays take 1 (2 hovered), so a marker always wins; between the two
+ * signs the machine's name wins, since it is what the city view is read by.
+ */
+const SIGN_Z = { room: 0, machine: 0.5 };
 
 /**
  * A sign hanging over a world point: a bold name, a muted detail line under it, no plate.
@@ -136,7 +145,7 @@ class Sign {
     private readonly lift = 0,
   ) {
     this.name = new Text({ text: '', style: text(size, 0xe6e8ee, '700') });
-    this.detail = new Text({ text: '', style: text(11, 0x9aa1b1) });
+    this.detail = new Text({ text: '', style: text(11, MUTED) });
     this.name.anchor.set(0.5, 1);
     this.detail.anchor.set(0.5, 0);
     this.root.addChild(this.name, this.detail);
@@ -144,16 +153,33 @@ class Sign {
     this.root.cursor = 'pointer';
   }
 
-  /** `attention`: something in there is waiting for the person, so the detail line is orange. */
+  /**
+   * `attention`: something in there is waiting for the person, so the detail line is orange.
+   * `lit` dims the sign's OWN words and nothing a subclass added beside them — an offline machine
+   * must still be able to shout how many people are waiting on it.
+   */
   protected write(label: string, parts: string[], attention: boolean, lit: boolean): void {
     this.name.text = label;
     this.detail.text = parts.join(' · ');
-    this.detail.style.fill = attention ? 0xf0883e : 0x9aa1b1;
-    this.root.alpha = lit ? 1 : 0.6;
+    this.detail.style.fill = attention ? ATTENTION : MUTED;
+    this.name.alpha = this.detail.alpha = lit ? 1 : 0.6;
   }
 
-  place(view: View): void {
-    this.root.position.set(Math.round(view.x + this.world.x * view.scale), Math.round(view.y + this.world.y * view.scale - this.lift));
+  /** Width of the detail line, 0 when empty, so a subclass can lay its own piece out beside it. */
+  protected get detailWidth(): number {
+    return this.detail.text ? this.detail.width : 0;
+  }
+
+  protected set detailX(x: number) {
+    this.detail.x = x;
+  }
+
+  /** Hidden once its anchor leaves the viewport, or half a sign stays glued to the screen edge. */
+  place(view: View, screen: { width: number; height: number }): void {
+    const x = view.x + this.world.x * view.scale;
+    const y = view.y + this.world.y * view.scale - this.lift;
+    this.root.visible = x >= 0 && x <= screen.width && y >= 0 && y <= screen.height;
+    this.root.position.set(Math.round(x), Math.round(y));
   }
 }
 
@@ -161,6 +187,7 @@ class Sign {
 export class RoomSign extends Sign {
   constructor(world: { x: number; y: number }, model: RoomModel) {
     super(world, 13);
+    this.root.zIndex = SIGN_Z.room;
     this.apply(model);
   }
 
@@ -180,22 +207,50 @@ const NOTICE: Record<Exclude<MachineNotice, null>, string> = {
 };
 
 /**
- * The block's first room starts at the block's own back corner, so at city zoom this sign would sit
- * on that room's sign and on the raised hands of its first row of desks. This clears both.
+ * The sign hangs over the block's FRONT corner, the one piece of a block that is reliably clear:
+ * every marker points upwards out of a desk, so nothing of the machine's own reaches down there,
+ * and the text stays over the machine's own ground instead of drifting across the street onto the
+ * block behind it. The lift takes it far enough up that the diamond — which widens two pixels
+ * across for every pixel up — is wide enough to hold the text.
  */
-const MACHINE_LIFT = 36;
+const MACHINE_LIFT = 32;
+/**
+ * Zoomed out, the block shrinks around a sign that does not, so past a point a long machine name
+ * no longer fits over its own ground. It gives way a little, never past legibility.
+ */
+const MIN_SIGN_SCALE = 0.72;
+/** Room between the notice and the counter when the sign carries both. */
+const DETAIL_GAP = 4;
 
-/** The sign over a block's back corner: the machine's name, its notice and how many need you. */
+/** The sign over a block's front corner: the machine's name, its notice and how many need you. */
 export class MachineSign extends Sign {
+  /** its own text: the counter is the one thing an offline machine must NOT say quietly */
+  private readonly count = new Text({ text: '', style: text(11, ATTENTION) });
+
   constructor(world: { x: number; y: number }, model: MachineModel) {
     super(world, 16, MACHINE_LIFT);
+    this.count.anchor.set(0.5, 0);
+    this.root.addChild(this.count);
+    this.root.zIndex = SIGN_Z.machine;
     this.apply(model);
   }
 
   apply(model: MachineModel): void {
-    const parts: string[] = [];
-    if (model.notice) parts.push(NOTICE[model.notice]);
-    if (model.needsYou > 0) parts.push(needsYouText(model.needsYou));
-    this.write(model.label, parts, model.needsYou > 0, model.lit);
+    const counter = model.needsYou > 0 ? needsYouText(model.needsYou) : '';
+    const notice = model.notice ? NOTICE[model.notice] : '';
+    this.count.text = counter;
+    // the separator belongs to the notice, so it dims with it
+    this.write(model.label, notice ? [counter ? `${notice} ·` : notice] : [], false, model.lit);
+    // notice and counter are two texts on one line: centre the pair, not each half
+    const noticeW = this.detailWidth;
+    const countW = counter ? this.count.width : 0;
+    const total = noticeW + (noticeW && countW ? DETAIL_GAP : 0) + countW;
+    this.detailX = noticeW / 2 - total / 2;
+    this.count.x = total / 2 - countW / 2;
+  }
+
+  place(view: View, screen: { width: number; height: number }): void {
+    this.root.scale.set(Math.min(1, Math.max(MIN_SIGN_SCALE, view.scale / ROOM_SIGN_SCALE)));
+    super.place(view, screen);
   }
 }

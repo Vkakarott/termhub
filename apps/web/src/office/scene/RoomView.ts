@@ -7,10 +7,18 @@ import { toScreen } from '../layout/iso';
 /** Office partitions, not full walls: high enough to read as a room, low enough not to hide the one behind. */
 export const WALL_H = 28;
 const LIT = { a: 0x313847, b: 0x2b3140, wallL: 0x1e222b, wallR: 0x262b36 };
-const DARK = { a: 0x1a1d25, b: 0x171a21, wallL: 0x13151b, wallR: 0x171a20 };
+const DARK = { a: 0x1f2430, b: 0x1b202a, wallL: 0x14171f, wallR: 0x191d26 };
 /** Tiles of bare ground around a block's rooms: the pavement that says where one machine ends. */
-const BLOCK_MARGIN = 1;
-const BLOCK = { lit: 0x1b1f28, dark: 0x13151b };
+export const BLOCK_MARGIN = 1;
+/**
+ * A dark block still needs a silhouette. Filled alone, an offline machine's ground was four values
+ * per channel away from the page background: its footprint, and the street around it, were simply
+ * not there — the machine people are waiting on became the least visible thing in the city. So
+ * every block is outlined, which also tells two neighbouring blocks apart.
+ */
+const BLOCK = { lit: { fill: 0x242a36, line: 0x3f485c }, dark: { fill: 0x171b24, line: 0x2c3342 } };
+/** In world units, so that at city zoom the outline lands on about one pixel. */
+const BLOCK_LINE = 3;
 
 /**
  * One machine's ground: a flat diamond under everything that machine owns, a shade darker than a
@@ -18,6 +26,7 @@ const BLOCK = { lit: 0x1b1f28, dark: 0x13151b };
  * Pass `into` to repaint it in place, like `drawRoom`.
  */
 export function drawBlock(block: PlacedBlock, lit: boolean, into?: Graphics): Graphics {
+  const c = lit ? BLOCK.lit : BLOCK.dark;
   const g = into ?? new Graphics();
   g.clear();
   const x0 = block.origin.gx - BLOCK_MARGIN;
@@ -28,7 +37,9 @@ export function drawBlock(block: PlacedBlock, lit: boolean, into?: Graphics): Gr
   const e = toScreen(x1, y0);
   const s = toScreen(x1, y1);
   const w = toScreen(x0, y1);
-  g.poly([n.x, n.y, e.x, e.y, s.x, s.y, w.x, w.y]).fill(lit ? BLOCK.lit : BLOCK.dark);
+  g.poly([n.x, n.y, e.x, e.y, s.x, s.y, w.x, w.y])
+    .fill(c.fill)
+    .stroke({ color: c.line, width: BLOCK_LINE });
   g.eventMode = 'static';
   g.cursor = 'pointer';
   return g;

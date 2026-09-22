@@ -10,7 +10,7 @@ import { Camera, type Box } from './camera';
 import { signVisibility } from './detail';
 import { DeskOverlay, MachineSign, RoomSign } from './Overlay';
 import { DeskView, type Textures } from './PersonView';
-import { drawBlock, drawRoom, WALL_H } from './RoomView';
+import { BLOCK_MARGIN, drawBlock, drawRoom, WALL_H } from './RoomView';
 
 /**
  * Zoom from which a free-roaming view is close enough to be read as a room: a label keeps its
@@ -22,11 +22,14 @@ const LABEL_SCALE = 1.8;
 /** Room for the sign hanging over a room's back corner, so framing a room does not cut it off. */
 const SIGN_H = 24;
 
-/** How high above a block's back corner its machine sign hangs, clear of the rooms' walls. */
-const MACHINE_SIGN_UP = 30;
+/** Headroom a block (or the whole city) needs above its ground, for walls and room signs. */
+const BLOCK_TOP = WALL_H + SIGN_H;
 
-/** Headroom a block (or the whole city) needs above its ground for walls and a machine sign. */
-const BLOCK_TOP = WALL_H + SIGN_H + MACHINE_SIGN_UP;
+/** And under it, for the machine sign that hangs over the block's front corner. */
+const BLOCK_BOTTOM = SIGN_H + 32;
+
+/** What is left of an unlit machine's furniture and people. Its markers keep their full strength. */
+const UNLIT_ALPHA = 0.45;
 
 /** One room as drawn, so a light going out can repaint it where it stands. */
 interface DrawnRoom {
@@ -43,6 +46,8 @@ interface DrawnMachine {
   sign: MachineSign;
   rooms: DrawnRoom[];
   signs: RoomSign[];
+  /** every desk of this machine, so its light going out dims them all without a rebuild */
+  views: DeskView[];
 }
 
 export interface SceneHandlers {
@@ -69,7 +74,8 @@ export class OfficeScene {
   private city: CityLayout = layoutCity([]);
   private shape = '';
   private model: CityModel | null = null;
-  private desks = new Map<string, { view: DeskView; overlay: DeskOverlay; machineId: string; roomId: string }>();
+  /** keyed `machineId:deskId`: two machines can carry tabs with the same id without colliding */
+  private desks = new Map<string, { id: string; view: DeskView; overlay: DeskOverlay; machineId: string; roomId: string }>();
   private machines = new Map<string, DrawnMachine>();
   private target: FocusTarget = { kind: 'city' };
   /** the scale the camera framed the current target at: zooming well below it means "go up" */
@@ -180,10 +186,11 @@ export class OfficeScene {
     for (const machine of model.machines) {
       const drawn = this.machines.get(machine.id);
       if (!drawn) continue;
-      // a machine going offline is not a new city: repaint its ground where it stands
+      // a machine going offline is not a new city: repaint its ground and dim its desks where they stand
       if (drawn.lit !== machine.lit) {
         drawn.lit = machine.lit;
         drawBlock(drawn.block, machine.lit, drawn.ground);
+        for (const view of drawn.views) view.root.alpha = machine.lit ? 1 : UNLIT_ALPHA;
       }
       drawn.sign.apply(machine);
       machine.floor.rooms.forEach((room, i) => {
@@ -196,7 +203,7 @@ export class OfficeScene {
         }
         drawn.signs[i]?.apply(room);
         for (const d of room.desks) {
-          const desk = this.desks.get(d.id);
+          const desk = this.desks.get(deskKey(machine.id, d.id));
           desk?.view.apply(d);
           desk?.overlay.apply(d);
         }
@@ -206,7 +213,7 @@ export class OfficeScene {
 
   /** Dev/test aid: forces one desk's hovered state (`null` clears it), so a screenshot can show it. */
   debugHover(deskId: string | null): void {
-    for (const [id, desk] of this.desks) desk.overlay.hovered = id === deskId;
+    for (const desk of this.desks.values()) desk.overlay.hovered = desk.id === deskId;
   }
 
   /**
@@ -229,13 +236,15 @@ export class OfficeScene {
   }
 
   private boxOf(target: FocusTarget): Box {
+    // the machine signs hang under their blocks, so a framed box reaches past the last block's ground
+    const withSign = (b: Box): Box => ({ ...b, h: b.h + BLOCK_BOTTOM });
     const block = target.kind === 'city' ? undefined : this.city.blocks.find((b) => b.id === target.machineId);
-    if (!block) return cityBounds(this.city, BLOCK_TOP);
+    if (!block) return withSign(cityBounds(this.city, BLOCK_TOP));
     if (target.kind === 'room') {
       const room = block.floor.rooms.find((r) => r.id === target.roomId);
       if (room) return placedRoomBounds(roomOnCity(block, room), WALL_H + SIGN_H);
     }
-    return blockBounds(block, BLOCK_TOP);
+    return withSign(blockBounds(block, BLOCK_TOP));
   }
 
   /** Whether the current model still has what the target names. */
@@ -265,11 +274,14 @@ export class OfficeScene {
       const ground = drawBlock(block, machine.lit);
       ground.on('pointertap', () => this.clicked(() => this.handlers.onPickMachine(machine.id)));
       this.floor.addChild(ground);
-      const back = toScreen(block.origin.gx, block.origin.gy);
-      const sign = new MachineSign({ x: back.x, y: back.y - WALL_H - MACHINE_SIGN_UP }, machine);
+      // over the block's FRONT corner, not its back one: markers all point up out of their desks,
+      // so the ground down there is the one part of a block nothing of its own reaches into, and
+      // the sign stays on its own machine instead of drifting over the street onto the next block
+      const front = toScreen(block.origin.gx + block.width + BLOCK_MARGIN, block.origin.gy + block.height + BLOCK_MARGIN);
+      const sign = new MachineSign(front, machine);
       sign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickMachine(machine.id)));
       this.overlay.addChild(sign.root);
-      const drawn: DrawnMachine = { block, ground, lit: machine.lit, sign, rooms: [], signs: [] };
+      const drawn: DrawnMachine = { block, ground, lit: machine.lit, sign, rooms: [], signs: [], views: [] };
       this.machines.set(machine.id, drawn);
       machine.floor.rooms.forEach((room, i) => {
         const placed = roomOnCity(block, block.floor.rooms[i]);
@@ -289,6 +301,9 @@ export class OfficeScene {
           const view = new DeskView(d, this.textures, this.manifest!, this.reducedMotion);
           view.root.position.set(at.x, at.y);
           view.root.zIndex = depthOf(cell);
+          // an unlit machine's furniture and people fade; their markers, in the overlay, do not
+          view.root.alpha = machine.lit ? 1 : UNLIT_ALPHA;
+          drawn.views.push(view);
           const overlay = new DeskOverlay({ x: at.x + view.head.x, y: at.y + view.head.y }, d);
           overlay.root.zIndex = 1;
           view.root.on('pointertap', () => this.clicked(() => this.handlers.onPickDesk(view.model.id, view.model.projectId)));
@@ -296,7 +311,7 @@ export class OfficeScene {
           view.root.on('pointerout', () => (overlay.hovered = false));
           this.things.addChild(view.root);
           this.overlay.addChild(overlay.root);
-          this.desks.set(d.id, { view, overlay, machineId: machine.id, roomId: room.id });
+          this.desks.set(deskKey(machine.id, d.id), { id: d.id, view, overlay, machineId: machine.id, roomId: room.id });
         });
       });
     });
@@ -314,7 +329,8 @@ export class OfficeScene {
   }
 
   private tick(): void {
-    if (!this.camera) return;
+    if (!this.camera || !this.app) return;
+    const screen = this.app.screen;
     const view = this.camera.tick();
     this.world.scale.set(view.scale);
     this.world.position.set(view.x, view.y);
@@ -326,17 +342,20 @@ export class OfficeScene {
       desk.update();
       overlay.place(view, wide || (target.kind === 'room' && target.machineId === machineId && target.roomId === roomId), t, this.reducedMotion);
     }
+    // `place` turns a sign off again when its anchor has left the viewport
     for (const [machineId, drawn] of this.machines) {
       const show = signVisibility(target, view.scale, machineId);
       drawn.sign.root.visible = show.machineSign;
-      if (show.machineSign) drawn.sign.place(view);
+      if (show.machineSign) drawn.sign.place(view, screen);
       for (const sign of drawn.signs) {
         sign.root.visible = show.roomSigns;
-        if (show.roomSigns) sign.place(view);
+        if (show.roomSigns) sign.place(view, screen);
       }
     }
   }
 }
+
+const deskKey = (machineId: string, deskId: string) => `${machineId}:${deskId}`;
 
 /** What a rebuild depends on: which machines, rooms and desks exist, not anything about their state. */
 function shapeOf(city: CityModel): string {
