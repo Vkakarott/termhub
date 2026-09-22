@@ -36,7 +36,7 @@ export function expandHome(dir: string, home: string): string {
 }
 
 /** Claude Code hook events we subscribe to (see the server's monitor/state.ts for what each one means). */
-export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'SessionEnd'] as const;
+export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Notification', 'Stop', 'SessionEnd'] as const;
 
 /** The script itself. Reads the hook JSON (stdin for Claude, argv for Codex), tags it with the tmux session and posts it in the background. */
 export const HOOK_SCRIPT = `#!/bin/sh
@@ -53,6 +53,29 @@ SESSION=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
 [ -n "$SESSION" ] || exit 0
 if [ "$TOOL" = codex ]; then EVENT="$2"; else EVENT=$(cat 2>/dev/null); fi
 [ -n "$EVENT" ] || EVENT='{}'
+# Tool calls: only the tool's name travels (never its input), and only when it changed since the
+# last one for this session — twenty edits in a row are one request. The marker is per tmux
+# session, under TMPDIR, with the session name reduced to filename-safe characters.
+MARK="\${TMPDIR:-/tmp}/termhub-hook-$(printf '%s' "$SESSION" | tr -c 'A-Za-z0-9_-' '_')"
+case "$EVENT" in
+  *'"hook_event_name":"PreToolUse"'*|*'"hook_event_name": "PreToolUse"'*)
+    # The event's own tool name is the FIRST "tool_name" of the payload (Claude Code serialises it
+    # before tool_input), so the shortest prefix is cut — a "tool_name" nested in a tool's input
+    # must not win. Only a bare identifier, the shape of every Claude Code tool name, is posted:
+    # anything else (a number, a name with a quote or a backslash) is dropped rather than sent.
+    REST=\${EVENT#*'"tool_name"'}
+    [ "$REST" != "$EVENT" ] || exit 0
+    REST=\${REST#*'"'}
+    NAME=\${REST%%'"'*}
+    case "$NAME" in '' | *[!A-Za-z0-9_]*) exit 0 ;; esac
+    [ "$(cat "$MARK" 2>/dev/null)" = "$NAME" ] && exit 0
+    printf '%s' "$NAME" > "$MARK" 2>/dev/null
+    EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"}' "$NAME")
+    ;;
+  *'"hook_event_name":"SessionStart"'*|*'"hook_event_name": "SessionStart"'*|*'"hook_event_name":"UserPromptSubmit"'*|*'"hook_event_name": "UserPromptSubmit"'*)
+    rm -f "$MARK"
+    ;;
+esac
 { printf '{"tool":"%s","session":"%s","event":' "$TOOL" "$SESSION"; printf '%s' "$EVENT"; printf '}'; } |
   curl -s -m 5 -o /dev/null -X POST "$TERMHUB_HOOK_URL" \\
     -H "authorization: Bearer $TERMHUB_HOOK_TOKEN" -H 'content-type: application/json' --data-binary @- >/dev/null 2>&1 &
@@ -80,7 +103,10 @@ export function mergeClaudeSettings(current: string, scriptPath: string): string
   for (const event of CLAUDE_HOOK_EVENTS) {
     const list = (Array.isArray(hooks[event]) ? hooks[event] : []) as HookEntry[];
     const others = list.filter((e) => !isOurs(e));
-    others.push({ hooks: [{ type: 'command', command: `${scriptPath} claude`, timeout: 10 } as { type: string; command: string }] });
+    const entry: HookEntry = { hooks: [{ type: 'command', command: `${scriptPath} claude`, timeout: 10 } as { type: string; command: string }] };
+    // Claude Code only runs a tool event's entry when it has a matcher; the other events take none.
+    if (event === 'PreToolUse') entry.matcher = '*';
+    others.push(entry);
     hooks[event] = others;
   }
   settings.hooks = hooks;
