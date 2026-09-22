@@ -31,4 +31,17 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('UsersRepository (Postgres
       await db.user.deleteMany({ where: { id: { in: [a.id, b.id] } } });
     }
   });
+
+  // The write itself decides (setNickname attempts the update and catches the unique-index violation)
+  // rather than checking first, so re-claiming your own nickname must not collide with yourself.
+  it('lets the current holder reclaim their own nickname', async () => {
+    const a = await repo.create({ email: `${newId()}@x.dev`, name: 'A', role_id: SYSTEM_ROLE_IDS.authenticated });
+    try {
+      expect(await repo.setNickname(a.id, 'pedro')).toBe('ok');
+      expect(await repo.setNickname(a.id, 'pedro')).toBe('ok');
+      expect((await repo.findByNickname('pedro'))?.id).toBe(a.id);
+    } finally {
+      await db.user.deleteMany({ where: { id: a.id } });
+    }
+  });
 });

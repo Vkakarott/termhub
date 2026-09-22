@@ -49,6 +49,7 @@ function viewAsOf(scope: Scope | undefined) {
 }
 
 const viewAsSchema = z.object({ user_id: z.string().min(1).max(64).nullable() });
+const nicknameBodySchema = z.object({ nickname: z.string() });
 
 export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
   /** Public user + role summary + flat permission list: what the client needs to gate its UI. */
@@ -77,7 +78,8 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
 
   app.patch('/me/nickname', async (request, reply) => {
     if (!request.user) throw unauthorized();
-    const parsed = normalizeNickname((request.body as { nickname?: unknown } | null)?.nickname);
+    const body = nicknameBodySchema.parse(request.body);
+    const parsed = normalizeNickname(body.nickname);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.reason === 'reserved' ? 'Esse apelido é reservado' : 'Use de 3 a 30 letras, números ou hífen', code: 'NICKNAME_INVALID' });
     const out = await ctx.repos.users.setNickname(request.user.id, parsed.value);
     if (out === 'taken') return reply.code(409).send({ error: 'Esse apelido já é de outra pessoa', code: 'NICKNAME_TAKEN' });

@@ -1,4 +1,5 @@
 import type { PrismaClient } from '../prisma.js';
+import { Prisma } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { mapUser, type User, type UserRole } from './types.js';
 
@@ -94,12 +95,21 @@ export class UsersRepository {
     await this.db.user.update({ where: { id: userId }, data: { passwordHash } });
   }
 
-  /** Claims a nickname for this user. 'taken' when another account already holds it (unique index). */
+  /**
+   * Claims a nickname for this user. The write itself decides: two requests racing for the same
+   * nickname can both pass a check-then-act read, so this attempts the update directly and lets the
+   * unique index reject the loser as 'taken' (P2002), instead of asking first (see ChatRepository.getOrCreateForUser
+   * for the same idiom against the same shape of race). Re-claiming the nickname you already hold is
+   * still 'ok': the update is a no-op write on your own row, not a conflict with anyone else's.
+   */
   async setNickname(userId: string, nickname: string): Promise<'ok' | 'taken'> {
-    const holder = await this.db.user.findUnique({ where: { nickname } });
-    if (holder && holder.id !== userId) return 'taken';
-    await this.db.user.update({ where: { id: userId }, data: { nickname } });
-    return 'ok';
+    try {
+      await this.db.user.update({ where: { id: userId }, data: { nickname } });
+      return 'ok';
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return 'taken';
+      throw err;
+    }
   }
 
   async findByNickname(nickname: string): Promise<User | undefined> {

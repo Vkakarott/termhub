@@ -43,4 +43,11 @@ describe('PATCH /auth/me/nickname', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('NICKNAME_TAKEN');
   });
+
+  it('refuses a body that is not an object at all, without touching the database', async () => {
+    const app = buildApp({ id: 'u1', nickname: null });
+    const res = await app.inject({ method: 'PATCH', url: '/auth/me/nickname', payload: '"not-an-object"', headers: { 'content-type': 'application/json' } });
+    expect(res.statusCode).toBe(400);
+    expect(setNickname).not.toHaveBeenCalled();
+  });
 });
