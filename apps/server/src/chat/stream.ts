@@ -1,3 +1,5 @@
+import type { ChannelClosedReason } from '../agent/connection.js';
+
 /** What the chat cares about in one `stream-json` line. Everything else is ignored on purpose:
  * the CLI's frame set grows, and an unknown frame must never break a conversation. */
 export type ChatFrame =
@@ -25,6 +27,18 @@ const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing',
  *  label added to the list cannot be accepted by one and dropped by the other — the silent drift this
  *  whole chain of tasks keeps closing. */
 export type ChatFailureReason = (typeof REASONS)[number];
+
+/**
+ * …and the other half of that drift, which cost this branch its first review finding: a label added to
+ * the protocol's `closedReason` and forgotten here parses fine, reaches `toReason`, and is dropped in
+ * silence — `cli_rejected` lived one layer below a sentence nobody could ever read. The compiler checks
+ * it now: when `ChannelClosedReason` gains a member `REASONS` does not have, the conditional resolves to
+ * `never`, `true` no longer satisfies it, and this file stops compiling. The value is never read; the
+ * type is the whole point. (The classifier's `ClaudeFailureReason` is a subset of the protocol's set,
+ * so covering that set covers both runners.)
+ */
+const PROTOCOL_REASONS_COVERED = true satisfies (ChannelClosedReason extends ChatFailureReason ? true : never);
+void PROTOCOL_REASONS_COVERED;
 
 const KNOWN = new Set<string>(REASONS);
 
