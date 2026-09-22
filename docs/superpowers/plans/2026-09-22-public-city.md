@@ -6,7 +6,7 @@
 
 **Architecture:** A nullable nickname on `User` addresses a city; a boolean on `Project` publishes a room. A mapper of its own (`toPublicCity`) builds the public payload field by field from the same data the office reads, replacing every real id with a one-way derived id. Two public surfaces serve it — a REST snapshot and a websocket fed by the existing `monitorBus` — and a second Vite bundle, built from the app's own source with base `/city/`, renders it with the same PixiJS scene and none of the private app.
 
-**Tech Stack:** Fastify + Prisma + zod (server), `ws` (websocket), React 18 + PixiJS 8 + Vite (web), Vitest, nginx (vhost template rendered by `deploy/blue-green.sh`).
+**Tech Stack:** Fastify + Prisma + zod (server), `ws` (websocket), React 18 + PixiJS 8 + Vite (web), Vitest, librsvg (`rsvg-convert`, the preview card), nginx (vhost template rendered by `deploy/blue-green.sh`).
 
 **Spec:** `docs/superpowers/specs/2026-09-22-public-city-design.md`
 
@@ -32,6 +32,7 @@
 3. **A tab of a private project on the same machine reaching the public channel.** The filter is by project, not by machine or owner. Pinned in Task 5.
 4. **Unpublishing while a visitor is connected** — the socket closes and the deep link 404s, rather than the visitor keeping a live view of a room that is no longer public. Pinned in Tasks 4 and 5.
 5. **A nickname that exists but has published nothing** — 404, exactly like an unknown nickname. An empty city would confirm which nicknames are taken. Pinned in Task 4.
+6. **A project or machine named with `<`, `&` or a quote** reaching the preview card, which is built as SVG text, and the page's meta tags, which are HTML. Unescaped, the card stops rendering and the meta tag breaks out of its attribute. Pinned in Tasks 8 and 9.
 
 ---
 
@@ -58,6 +59,8 @@ apps/server/src/routes/public-city.test.ts NEW
 apps/server/src/public/bus.ts             NEW  in-process "a project's public flag changed"
 apps/server/src/public/ws.ts              NEW  /ws/public/:nickname
 apps/server/src/public/ws.test.ts         NEW
+apps/server/src/public/card.ts            NEW  the link preview card, drawn per city and rasterised
+apps/server/src/public/card.test.ts       NEW
 apps/server/src/app.ts                    registration of the public route, the public ws and /city/*
 
 apps/web/index-city.html                  NEW  the public entry's document
@@ -980,7 +983,7 @@ git commit -m "App: publish a room, claim a nickname, share the link"
 
 - [ ] **Step 1: Serve the bundle.** In `apps/server/src/app.ts`, beside the existing `fastifyStatic` registration for `apps/web/dist`, register `apps/web/dist-city` with `prefix: '/city/'` when it exists, and extend the SPA fallback so a URL starting with `/city/` returns `dist-city`'s `index.html` instead of the app's. Keep the existing behaviour for every other path.
 
-- [ ] **Step 2: The link preview.** The same handler, before sending `index-city.html`, replaces its `<title>` and its `og:title` / `og:description` / `og:image` meta tags with values for the depth being served: the city (*A cidade de \<nome\> no termhub*), a building (*\<máquina\> — a cidade de \<nome\>*) or a room (*\<projeto\> — a cidade de \<nome\>*). The image is the landing's existing card at `https://termhub.dev/og-image.png`; a card drawn per city needs a rasteriser this repo does not have, and is out of scope here. Pin it with a server test: a request for `/city/@pedro` returns HTML whose `og:title` contains the owner's name, and a request for an unknown nickname returns the page with the neutral title and no name.
+- [ ] **Step 2: The link preview's text.** The same handler, before sending `index-city.html`, replaces its `<title>` and its `og:title` / `og:description` / `og:image` meta tags with values for the depth being served: the city (*A cidade de \<nome\> no termhub*), a building (*\<máquina\> — a cidade de \<nome\>*) or a room (*\<projeto\> — a cidade de \<nome\>*). `og:image` points at that city's card, `https://termhub.dev/api/public/city/<nickname>/card.png` with the same `?building=`/`?room=` the page carries (Task 9). Escape every value into the attribute — a project named `A "melhor" ideia & cia` must not break out of it. Pin it with server tests: a request for `/city/@pedro` returns HTML whose `og:title` contains the owner's name and whose `og:image` names that nickname; a name carrying `"` and `&` comes back escaped; an unknown nickname returns the page with the neutral title, no name, and the landing's static card.
 
 - [ ] **Step 3: Build the bundle in the image.** Wherever the production image runs `npm run build -w @termhub/web`, add `npm run build:city -w @termhub/web`, and make sure `apps/web/dist-city` is copied into the runtime image beside `apps/web/dist`.
 
@@ -1038,10 +1041,119 @@ Read the template before editing: it uses `__APP_HOST__` where the rendered file
 
 Nothing about Cloudflare Access changes: Access is bound to `app.termhub.dev`, and these paths are on `termhub.dev`.
 
-- [ ] **Step 5: Full verification** with a throwaway Postgres, the v1 recipe: `npm ci`, `prisma:generate`, `build:packages`, server typecheck + tests (with the DB tests on), web typecheck + tests, `build`, `build:city`, landing build. Capture the output under `/tmp/city-verify/` and report exit codes and counts. `nginx -t` the rendered template with `DRY_RUN` if `deploy/blue-green.sh` supports it.
+- [ ] **Step 5: Commit.**
 
-- [ ] **Step 6: The spec's Status line** becomes *implemented on `feat/public-city`, pending review and merge*, plus a line for anything the implementation settled differently — the link preview's image in particular.
+```bash
+git add deploy/nginx/termhub.dev.conf.tmpl apps/server/src/app.ts Dockerfile
+git commit -m "Serve the public city from the host that has no Access"
+```
 
-- [ ] **Step 7 (controller, after the whole-branch review):** merge `origin/main` if it moved, re-verify, push, open the PR. The PR description must say that the public surfaces live on the `termhub.dev` vhost, that Access is untouched, and that the first city only exists once someone claims a nickname and flips a switch.
+---
 
-- [ ] **Step 8 (after merge and deploy):** claim a nickname, publish one project, open `termhub.dev/city/@<nickname>` in a browser with no session — the city draws, the labels follow the tools, and unpublishing the project makes the page go to *Cidade não encontrada* without a reload.
+### Task 9: The card each city carries into a link
+
+**Files:**
+- Create: `apps/server/src/public/card.ts`, `apps/server/src/public/card.test.ts`
+- Modify: `apps/server/src/routes/public-city.ts` (the card route), `Dockerfile` (the rasteriser), `docs/superpowers/specs/2026-09-22-public-city-design.md` (the Status line)
+
+**Interfaces:**
+- Consumes: `readPublicCity` (Task 4), `PublicCity` (Task 3).
+- Produces: `buildCardSvg(city: PublicCity, focus: { building?: string; room?: string }): string`; `renderCard(svg: string): Promise<Buffer | null>` (null when the rasteriser is unavailable); `GET /api/public/city/:nickname/card.png?building=&room=`.
+
+When a link is pasted into WhatsApp, Slack or X, the card is what people see before they decide to click. It is drawn for the city it belongs to: whose city, how many machines and rooms are published, and how many robots are working right now, in the product's own colours.
+
+The repo already rasterises SVG the same way: `apps/landing/og/build.sh` runs `rsvg-convert` (librsvg) inside Docker to turn `og/og-image.svg` into the landing's card. Use that same tool at runtime — a subprocess in the server image — rather than adding a Node rasteriser: same renderer, same output, no native module tied to the Node ABI. Read `apps/landing/og/og-image.svg` first and build the city card in its visual language.
+
+- [ ] **Step 1: Write the failing tests.** Create `apps/server/src/public/card.test.ts`:
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { buildCardSvg, renderCard } from './card.js';
+import type { PublicCity } from './city.js';
+
+const city: PublicCity = {
+  nickname: 'pedro',
+  owner_name: 'Pedro',
+  buildings: [
+    { id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [
+      { id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: null, activity: 'coding', alive: true, progress: null },
+      { id: 'x2', name: 'aba 2', kind: 'terminal', state: 'waiting_input', state_at: null, activity: null, alive: true, progress: null },
+    ] }] },
+  ],
+};
+
+describe('the link preview card', () => {
+  it('says whose city it is and what is happening in it', () => {
+    const svg = buildCardSvg(city, {});
+    expect(svg).toContain('Pedro');
+    expect(svg).toContain('1 robô trabalhando');
+    expect(svg.startsWith('<svg')).toBe(true);
+    expect(svg).toContain('width="1200"');
+    expect(svg).toContain('height="630"');
+  });
+
+  it('names the building or the room when the link points at one', () => {
+    expect(buildCardSvg(city, { building: 'b1' })).toContain('Jarvis');
+    expect(buildCardSvg(city, { building: 'b1', room: 'r1' })).toContain('Engage Easy');
+  });
+
+  it('escapes a name that would otherwise break the drawing', () => {
+    const hostile = { ...city, owner_name: 'Pedro & "cia" <b>', buildings: [{ ...city.buildings[0], name: 'a < b' }] };
+    const svg = buildCardSvg(hostile, { building: 'b1' });
+    expect(svg).not.toContain('<b>');
+    expect(svg).toContain('&amp;');
+    expect(svg).toContain('&lt;');
+    expect(svg).toContain('&quot;');
+  });
+
+  it('falls back to null instead of throwing when the rasteriser is missing', async () => {
+    vi.stubEnv('TERMHUB_RSVG_BIN', '/nonexistent/rsvg-convert');
+    await expect(renderCard('<svg xmlns="http://www.w3.org/2000/svg"/>')).resolves.toBeNull();
+    vi.unstubAllEnvs();
+  });
+});
+```
+
+- [ ] **Step 2: Run them.** `DOCKER 'npx -w @termhub/server vitest run src/public/card.test.ts'` — Expected: FAIL, the module does not exist.
+
+- [ ] **Step 3: Implement.** Create `apps/server/src/public/card.ts` with three pieces: an `xml(s: string)` escaper covering `&<>"'`; `buildCardSvg`, a template string in the landing card's visual language (1200×630, the same gradients and the product mark) that prints the city's name, the depth's name when there is one, and the counts (`N robôs trabalhando`, singular when one, and a line for machines and rooms); and `renderCard`, which spawns `process.env.TERMHUB_RSVG_BIN ?? 'rsvg-convert'` with `-w 1200 -h 630`, feeds it the SVG on stdin, collects the PNG, and resolves `null` on any spawn or exit failure — a missing binary on a developer's machine must never turn into a 500.
+
+Cache the rendered PNG in-process, keyed by nickname plus depth, for five minutes: a crawler may fetch the same card several times in a row, and this is the one anonymous path that costs real work.
+
+- [ ] **Step 4: The route.** In `apps/server/src/routes/public-city.ts`:
+
+```ts
+  app.get('/city/:nickname/card.png', { config: { public: true } }, async (request, reply) => {
+    const parsed = normalizeNickname(params.parse(request.params).nickname);
+    if (!parsed.ok) return reply.redirect(302, '/og-image.png');
+    const city = await readPublicCity(repos, parsed.value);
+    if (!city) return reply.redirect(302, '/og-image.png');
+    const { building, room } = cardQuery.parse(request.query);
+    const png = await renderCard(buildCardSvg(city, { building, room }));
+    if (!png) return reply.redirect(302, '/og-image.png');
+    reply.header('content-type', 'image/png');
+    reply.header('cache-control', 'public, max-age=300');
+    return png;
+  });
+```
+
+A city that does not exist, and a server that cannot rasterise, both fall back to the landing's own card: a link that shows the product's image is better than a link that shows a broken one. Add a route test for each of the three fallbacks and one for the happy path, skipped when `rsvg-convert` is absent (`describe.skipIf`), following how the repo's other environment-dependent tests are gated.
+
+- [ ] **Step 5: The image.** Add `librsvg2-bin` (and the Inter font package the landing uses, if the card names that family) to the server's runtime image in `Dockerfile`, with a comment saying the public city's card needs it. Verify inside the built image, not only on the host.
+
+- [ ] **Step 6: Run everything this touched.** `DOCKER 'npx -w @termhub/server vitest run src/public src/routes/public-city.test.ts'` — Expected: PASS. Then `DOCKER 'npm run typecheck -w @termhub/server'`.
+
+- [ ] **Step 7: Commit.**
+
+```bash
+git add apps/server/src/public/card.ts apps/server/src/public/card.test.ts apps/server/src/routes/public-city.ts Dockerfile
+git commit -m "Public: a preview card drawn for each city"
+```
+
+- [ ] **Step 8: Full verification** with a throwaway Postgres, the v1 recipe: `npm ci`, `prisma:generate`, `build:packages`, server typecheck + tests (with the DB tests on), web typecheck + tests, `build`, `build:city`, landing build. Capture the output under `/tmp/city-verify/` and report exit codes and counts. `nginx -t` the rendered template through `deploy/blue-green.sh`'s dry run.
+
+- [ ] **Step 9: The spec's Status line** becomes *implemented on `feat/public-city`, pending review and merge*, plus a line for anything the implementation settled differently.
+
+- [ ] **Step 10 (controller, after the whole-branch review):** merge `origin/main` if it moved, re-verify, push, open the PR. The PR description must say that the public surfaces live on the `termhub.dev` vhost, that Access is untouched, and that the first city only exists once someone claims a nickname and flips a switch.
+
+- [ ] **Step 11 (after merge and deploy):** claim a nickname, publish one project, open `termhub.dev/city/@<nickname>` in a browser with no session — the city draws, the labels follow the tools, the pasted link shows that city's own card, and unpublishing the project makes the page go to *Cidade não encontrada* without a reload.
