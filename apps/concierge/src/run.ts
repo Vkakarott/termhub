@@ -1,3 +1,4 @@
+import { buildClaudeArgs, classifyFailure, mcpConfig, type ClaudeFailureReason } from '@termhub/claude-cli';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,60 +15,21 @@ export interface RunRequest {
   mcp_url: string;
 }
 
-/** Tools the concierge must never have: with any of them it could reach a machine outside the MCP,
- * where the permission gate lives (spec §4.1). */
-const DISALLOWED = 'Bash,Read,Write,Edit,WebFetch,WebSearch';
-
-export function buildArgs(req: RunRequest & { mcp_config_path: string }): string[] {
-  return [
-    '-p',
-    // Exactly one of the two, never both: the CLI answers "--session-id can only be used with
-    // --continue or --resume if --fork-session is also specified" and exits 1 before doing any
-    // work, which broke every message after the first. --session-id is how the server names a new
-    // session; --resume is how it continues one it already named.
-    ...(req.resume ? ['--resume', req.session_id] : ['--session-id', req.session_id]),
-    '--output-format', 'stream-json',
-    // required by the CLI: with --print, --output-format=stream-json refuses to run without it
-    // ("Error: When using --print, --output-format=stream-json requires --verbose"). It only
-    // changes what the CLI writes to stdout, never logging the prompt.
-    '--verbose',
-    '--include-partial-messages',
-    '--mcp-config', req.mcp_config_path,
-    '--strict-mcp-config',
-    '--allowed-tools', 'mcp__termhub__*',
-    '--disallowed-tools', DISALLOWED,
-    ...(req.model ? ['--model', req.model] : []),
-  ];
-}
-
-/** The MCP config the CLI loads: one HTTP server, the token in the header. Written per run into a
- * private temp dir, never logged. */
+/** Writes the MCP config the CLI loads into a private temp dir, never logged. */
 function writeMcpConfig(dir: string, req: RunRequest): string {
   const path = join(dir, 'termhub-mcp.json');
-  writeFileSync(path, JSON.stringify({ mcpServers: { termhub: { type: 'http', url: req.mcp_url, headers: { Authorization: `Bearer ${req.token}` } } } }), { mode: 0o600 });
+  writeFileSync(path, mcpConfig(req.mcp_url, req.token), { mode: 0o600 });
   return path;
 }
 
 /**
- * Why a run failed, in a form the app is allowed to act on. The stderr that this is derived from
- * never leaves the container: it can carry terminal content and the prompt (spec §7.1), so only
- * this label travels.
+ * Why a run failed, in a form the app is allowed to act on. Both the classification and its labels
+ * now live in `@termhub/claude-cli`, beside the argv: the agent reads the same CLI's stderr on the
+ * user's own machine and the two must never drift. Re-exported under the names this module has
+ * always offered, so nothing downstream has to care where they moved.
  */
-export type FailureReason = 'missing_session' | 'cli_rejected' | 'run_failed';
-
-/**
- * The CLI prints "No conversation found with session ID <uuid>" when `--resume` names a session the
- * mounted config dir does not have (a rotated account, a pruned history). Anchored on that exact
- * phrase only: a broader match (anything mentioning "session ID") would also catch unrelated
- * failures and make the app throw away a perfectly good session.
- */
-export function classifyFailure(stderr: string): FailureReason {
-  if (/No conversation found/i.test(stderr)) return 'missing_session';
-  // The CLI rejecting our own flags is our bug, not the user's, and it exits before doing any work.
-  // Classifying it apart is what makes it findable in one query instead of a container probe.
-  if (/^Error: --/m.test(stderr)) return 'cli_rejected';
-  return 'run_failed';
-}
+export type FailureReason = ClaudeFailureReason;
+export { classifyFailure };
 
 export class RunFailed extends Error {
   readonly reason: FailureReason;
@@ -81,7 +43,7 @@ export class RunFailed extends Error {
  * argv and a prompt starting with "-" cannot be read as a flag. */
 export async function* runClaude(req: RunRequest, opts: { cliPath?: string; tmpDir?: string; timeoutMs?: number } = {}): AsyncIterable<string> {
   const dir = mkdtempSync(join(opts.tmpDir ?? tmpdir(), 'run-'));
-  const args = buildArgs({ ...req, mcp_config_path: writeMcpConfig(dir, req) });
+  const args = buildClaudeArgs({ ...req, mcp_config_path: writeMcpConfig(dir, req) });
   const child = spawn(opts.cliPath ?? 'claude', args, {
     env: { ...process.env, CLAUDE_CONFIG_DIR: req.config_dir },
     stdio: ['pipe', 'pipe', 'pipe'],

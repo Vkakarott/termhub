@@ -1,8 +1,9 @@
+import { buildClaudeArgs } from '@termhub/claude-cli';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildArgs, classifyFailure, RunFailed, runClaude } from './run.js';
+import { classifyFailure, RunFailed, runClaude } from './run.js';
 
 const req = {
   session_id: '3f1e9b1e-0000-4000-8000-000000000001',
@@ -15,7 +16,7 @@ const req = {
 };
 
 it('builds the exact argv the spec fixes, with no permission bypass', () => {
-  expect(buildArgs({ ...req, mcp_config_path: '/tmp/mcp.json' })).toEqual([
+  expect(buildClaudeArgs({ ...req, mcp_config_path: '/tmp/mcp.json' })).toEqual([
     '-p',
     '--session-id', req.session_id,
     '--output-format', 'stream-json',
@@ -29,7 +30,7 @@ it('builds the exact argv the spec fixes, with no permission bypass', () => {
 });
 
 it('resumes the session and passes the model when asked', () => {
-  const args = buildArgs({ ...req, resume: true, model: 'sonnet', mcp_config_path: '/tmp/mcp.json' });
+  const args = buildClaudeArgs({ ...req, resume: true, model: 'sonnet', mcp_config_path: '/tmp/mcp.json' });
   expect(args.slice(0, 4)).toEqual(['-p', '--resume', req.session_id, '--output-format']);
   expect(args.slice(-2)).toEqual(['--model', 'sonnet']);
 });
@@ -37,28 +38,28 @@ it('resumes the session and passes the model when asked', () => {
 it('resumes with --resume alone: the CLI refuses it next to --session-id', () => {
   // Error: --session-id can only be used with --continue or --resume if --fork-session is also
   // specified. Passing both broke every message after the first, and a fake CLI cannot catch it.
-  const args = buildArgs({ ...req, resume: true, mcp_config_path: '/tmp/mcp.json' });
+  const args = buildClaudeArgs({ ...req, resume: true, mcp_config_path: '/tmp/mcp.json' });
   expect(args).toContain('--resume');
   expect(args).not.toContain('--session-id');
   expect(args.slice(0, 3)).toEqual(['-p', '--resume', req.session_id]);
 });
 
 it('names the session on a first run, where --session-id is the only way to choose the id', () => {
-  const args = buildArgs({ ...req, resume: false, mcp_config_path: '/tmp/mcp.json' });
+  const args = buildClaudeArgs({ ...req, resume: false, mcp_config_path: '/tmp/mcp.json' });
   expect(args.slice(0, 3)).toEqual(['-p', '--session-id', req.session_id]);
   expect(args).not.toContain('--resume');
 });
 
 it('never passes a permission bypass, whatever the input', () => {
-  expect(buildArgs({ ...req, mcp_config_path: '/tmp/mcp.json' }).join(' ')).not.toContain('dangerously');
+  expect(buildClaudeArgs({ ...req, mcp_config_path: '/tmp/mcp.json' }).join(' ')).not.toContain('dangerously');
 });
 
 // The installed CLI refuses to run otherwise: "Error: When using --print,
 // --output-format=stream-json requires --verbose" — this pins the flag so nobody drops it as noise.
 it('passes --verbose whenever it passes --output-format stream-json', () => {
   const variants = [
-    buildArgs({ ...req, mcp_config_path: '/tmp/mcp.json' }),
-    buildArgs({ ...req, resume: true, model: 'sonnet', mcp_config_path: '/tmp/mcp.json' }),
+    buildClaudeArgs({ ...req, mcp_config_path: '/tmp/mcp.json' }),
+    buildClaudeArgs({ ...req, resume: true, model: 'sonnet', mcp_config_path: '/tmp/mcp.json' }),
   ];
   for (const args of variants) {
     if (args.includes('--output-format') && args[args.indexOf('--output-format') + 1] === 'stream-json') {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ease, frame, MAX_SCALE, MIN_SCALE, settled, zoomAt } from './camera';
+import { ease, frame, MAX_SCALE, MIN_SCALE, sameBox, settled, zoomAt } from './camera';
 
 const screen = { width: 1000, height: 600 };
 
@@ -16,6 +16,14 @@ describe('frame', () => {
       expect(Object.values(v).every(Number.isFinite)).toBe(true);
       expect(v.scale).toBeGreaterThanOrEqual(MIN_SCALE);
     }
+  });
+});
+
+describe('sameBox', () => {
+  it('is true only when all four numbers match, so a rebuild can tell a box that moved', () => {
+    const box = { x: -12.5, y: 3, w: 400, h: 220 };
+    expect(sameBox(box, { ...box })).toBe(true);
+    for (const key of ['x', 'y', 'w', 'h'] as const) expect(sameBox(box, { ...box, [key]: box[key] + 0.5 })).toBe(false);
   });
 });
 

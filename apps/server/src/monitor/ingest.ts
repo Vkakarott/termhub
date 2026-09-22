@@ -19,6 +19,22 @@ export async function ingestHookEvent(
   if (!tab) return { ok: false, reason: 'unknown_session' };
   const interpreted = interpretHookEvent(input.tool, input.event);
   if (!interpreted) return { ok: false, reason: 'ignored' };
+  // A tool change on a tab already working is not a state change: the light path moves only the
+  // activity (no event row) and still tells the subscribers. The script already posts only on a
+  // change; the equality check here is a defensive no-op for anything else that reaches us.
+  if (interpreted.activity !== undefined && tab.state === 'working' && interpreted.kind === 'working') {
+    if (tab.activity === interpreted.activity) return { ok: true, tab };
+    // Nothing updated: the tab stopped working (or is gone) between the read above and this write —
+    // the conditional UPDATE is what decides, not the row we read. The full path takes it from here.
+    const updated = await repos.tabs.setActivity(tab.id, interpreted.activity);
+    if (updated) {
+      const project = await repos.projects.findById(tab.project_id);
+      const machine = project ? await repos.machines.findById(project.machine_id) : undefined;
+      log.debug({ tabId: tab.id, machineId: machine?.id, activity: interpreted.activity }, 'monitor: tab activity');
+      publishTabChange(updated, tab.project_id, machine);
+      return { ok: true, tab: updated };
+    }
+  }
   return { ok: true, tab: await applyState(repos, log, tab, input.tool, interpreted) };
 }
 
@@ -29,6 +45,7 @@ export async function applyState(repos: Repositories, log: FastifyBaseLogger, ta
     tool,
     text: next.text,
     meta: next.meta,
+    activity: next.activity,
     ...(next.continuesWait ? { continuesWait: true } : {}),
   });
   const project = await repos.projects.findById(tab.project_id);

@@ -156,17 +156,19 @@ export type ApiToken = Prisma.ApiTokenModel
 export type ApiTokenEvent = Prisma.ApiTokenEventModel
 /**
  * Model ChatConversation
- * One chat with the concierge. v1 keeps a single conversation per user; machineId/tabId stay
- * nullable so per-machine and per-tab chats can arrive without a migration (spec §7).
+ * One chat with the concierge. v1 keeps a single conversation per user; tabId stays nullable so a
+ * per-tab chat can arrive without a migration (spec §7).
  * A partial unique index enforces "one account-wide conversation per user" at the database level:
  * `CREATE UNIQUE INDEX chat_conversations_one_per_user ON chat_conversations(user_id)
- * WHERE machine_id IS NULL AND tab_id IS NULL` (see the migration). Prisma's schema language has
- * no partial-index syntax, so it is not declared with `@@unique`/`@@index` here — doing so would
- * require a plain (non-partial) index and wrongly forbid future per-machine/per-tab rows for the
- * same user. Confirmed by hand that this omission does not show up as drift: introspection-based
- * `prisma migrate diff` silently excludes partial indexes from its comparison (verified against a
- * scratch database with the index applied — no difference reported — while a control plain unique
- * index on the same table was correctly flagged).
+ * WHERE tab_id IS NULL` (see the migrations). Prisma's schema language has no partial-index syntax,
+ * so it is not declared with `@@unique`/`@@index` here — doing so would require a plain
+ * (non-partial) index and wrongly forbid a future per-tab row for the same user. Confirmed by hand
+ * that this omission does not show up as drift: introspection-based `prisma migrate diff` silently
+ * excludes partial indexes from its comparison (verified against a scratch database with the index
+ * applied — no difference reported — while a control plain unique index on the same table was
+ * correctly flagged).
+ * machineId is *not* part of that index anymore: since the user-hosted concierge it is the host the
+ * conversation runs on (one per user, spec §3), not a second conversation scope.
  */
 export type ChatConversation = Prisma.ChatConversationModel
 /**

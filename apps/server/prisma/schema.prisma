@@ -154,6 +154,8 @@ model Machine {
   aiAccounts AiAccount[]
   hook       MachineHook?
   uploads    Upload[]
+  /// Conversations hosted here (the chat's "terminal geral"); deleting the machine nulls the column.
+  chatConversations ChatConversation[]
 
   @@index([ownerId])
   @@map("machines")
@@ -195,6 +197,8 @@ model Tab {
   stateAt       DateTime? @map("state_at")
   /// When the tab was last looked at while needing you; null or earlier than stateAt = still needs you.
   stateSeenAt   DateTime? @map("state_seen_at")
+  /// Set while `state` is working; cleared when the tab leaves it. null = not working or never reported.
+  activity      TabActivity?
   /// API token that opened this tab through /mcp (null: opened in the browser). Used by close_tab and the per-token open-tab limit.
   createdByTokenId String?  @map("created_by_token_id")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -213,6 +217,16 @@ enum TabState {
   waiting_permission
   idle
   error
+}
+
+/// What a working agent is doing, from the tool it is about to call (monitor/activity.ts).
+enum TabActivity {
+  coding
+  reading
+  researching
+  planning
+  terminal
+  working
 }
 
 /// One monitor event for a tab (hook from Claude Code / Codex, or the tmux fallback).
@@ -371,6 +385,8 @@ model AiAccount {
   configDir String?    @map("config_dir")
   createdAt DateTime   @default(now()) @map("created_at")
   machine   Machine    @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  /// Conversations running on this account; deleting the account nulls the column.
+  chatConversations ChatConversation[]
 
   @@index([machineId])
   @@map("ai_accounts")
@@ -468,17 +484,19 @@ model ApiTokenEvent {
   @@map("api_token_events")
 }
 
-/// One chat with the concierge. v1 keeps a single conversation per user; machineId/tabId stay
-/// nullable so per-machine and per-tab chats can arrive without a migration (spec §7).
+/// One chat with the concierge. v1 keeps a single conversation per user; tabId stays nullable so a
+/// per-tab chat can arrive without a migration (spec §7).
 /// A partial unique index enforces "one account-wide conversation per user" at the database level:
 /// `CREATE UNIQUE INDEX chat_conversations_one_per_user ON chat_conversations(user_id)
-///  WHERE machine_id IS NULL AND tab_id IS NULL` (see the migration). Prisma's schema language has
-/// no partial-index syntax, so it is not declared with `@@unique`/`@@index` here — doing so would
-/// require a plain (non-partial) index and wrongly forbid future per-machine/per-tab rows for the
-/// same user. Confirmed by hand that this omission does not show up as drift: introspection-based
-/// `prisma migrate diff` silently excludes partial indexes from its comparison (verified against a
-/// scratch database with the index applied — no difference reported — while a control plain unique
-/// index on the same table was correctly flagged).
+///  WHERE tab_id IS NULL` (see the migrations). Prisma's schema language has no partial-index syntax,
+/// so it is not declared with `@@unique`/`@@index` here — doing so would require a plain
+/// (non-partial) index and wrongly forbid a future per-tab row for the same user. Confirmed by hand
+/// that this omission does not show up as drift: introspection-based `prisma migrate diff` silently
+/// excludes partial indexes from its comparison (verified against a scratch database with the index
+/// applied — no difference reported — while a control plain unique index on the same table was
+/// correctly flagged).
+/// machineId is *not* part of that index anymore: since the user-hosted concierge it is the host the
+/// conversation runs on (one per user, spec §3), not a second conversation scope.
 model ChatConversation {
   id            String        @id
   userId        String        @map("user_id")
@@ -487,7 +505,12 @@ model ChatConversation {
   /// uuid passed to claude -p as --session-id / --resume
   cliSessionId  String?       @map("cli_session_id")
   model         String?
+  /// The host: the user's own machine this conversation runs on. Null = not chosen yet.
   machineId     String?       @map("machine_id")
+  machine       Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  /// The Claude account on that host. Null = the machine's default config dir.
+  aiAccountId   String?       @map("ai_account_id")
+  aiAccount     AiAccount?    @relation(fields: [aiAccountId], references: [id], onDelete: SetNull)
   tabId         String?       @map("tab_id")
   reviewMode    Boolean       @default(false) @map("review_mode")
   lastMessageAt DateTime?     @map("last_message_at")
@@ -496,6 +519,8 @@ model ChatConversation {
   actions       ChatAction[]
 
   @@index([userId, createdAt])
+  @@index([machineId])
+  @@index([aiAccountId])
   @@map("chat_conversations")
 }
 

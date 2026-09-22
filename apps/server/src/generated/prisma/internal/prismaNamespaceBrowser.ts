@@ -218,6 +218,7 @@ export const TabScalarFieldEnum = {
   stateTool: 'stateTool',
   stateAt: 'stateAt',
   stateSeenAt: 'stateSeenAt',
+  activity: 'activity',
   createdByTokenId: 'createdByTokenId',
   createdAt: 'createdAt'
 } as const
@@ -407,6 +408,7 @@ export const ChatConversationScalarFieldEnum = {
   cliSessionId: 'cliSessionId',
   model: 'model',
   machineId: 'machineId',
+  aiAccountId: 'aiAccountId',
   tabId: 'tabId',
   reviewMode: 'reviewMode',
   lastMessageAt: 'lastMessageAt',

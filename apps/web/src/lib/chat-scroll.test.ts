@@ -2,7 +2,7 @@
 // Whole file runs under jsdom: isNearBottom never touches the DOM (it takes a plain object), but
 // enterSends needs `window`, and one file with one honest environment beats two.
 import { afterEach, describe, expect, it } from 'vitest';
-import { enterSends, isNearBottom } from './chat-scroll';
+import { enterSends, isNearBottom, sendsMessage } from './chat-scroll';
 
 describe('isNearBottom', () => {
   it('is true within the slack of the bottom, false far above it', () => {
@@ -47,5 +47,54 @@ describe('enterSends', () => {
     // @ts-expect-error deleting a DOM API the real browser always has, to exercise the fallback
     delete window.matchMedia;
     expect(enterSends()).toBe(true);
+  });
+});
+
+describe('sendsMessage', () => {
+  const key = (over: Partial<KeyboardEvent> = {}) =>
+    ({ key: 'Enter', shiftKey: false, metaKey: false, ctrlKey: false, ...over }) as KeyboardEvent;
+
+  afterEach(() => {
+    // @ts-expect-error each test installs the pointer it needs; none may leak into the next file
+    delete window.matchMedia;
+  });
+
+  const coarse = () => {
+    window.matchMedia = ((query: string) => ({ matches: query.includes('coarse') })) as typeof window.matchMedia;
+  };
+  const fine = () => {
+    window.matchMedia = (() => ({ matches: false })) as typeof window.matchMedia;
+  };
+
+  it('sends on ⌘+Enter and on Ctrl+Enter', () => {
+    fine();
+    expect(sendsMessage(key({ metaKey: true }))).toBe(true);
+    expect(sendsMessage(key({ ctrlKey: true }))).toBe(true);
+  });
+
+  it('sends on ⌘+Enter even from a touch keyboard, where plain Enter writes a newline', () => {
+    // A tablet with a hardware keyboard: Enter still has to start a line, so this is the only way to send.
+    coarse();
+    expect(sendsMessage(key())).toBe(false);
+    expect(sendsMessage(key({ metaKey: true }))).toBe(true);
+  });
+
+  it('sends on ⌘+Enter even with Shift held, which is a newline on its own', () => {
+    fine();
+    expect(sendsMessage(key({ shiftKey: true }))).toBe(false);
+    expect(sendsMessage(key({ metaKey: true, shiftKey: true }))).toBe(true);
+  });
+
+  it('keeps plain Enter on the pointer rule', () => {
+    fine();
+    expect(sendsMessage(key())).toBe(true);
+    coarse();
+    expect(sendsMessage(key())).toBe(false);
+  });
+
+  it('ignores every other key, modifier or not', () => {
+    fine();
+    expect(sendsMessage(key({ key: 'a' }))).toBe(false);
+    expect(sendsMessage(key({ key: 'a', metaKey: true }))).toBe(false);
   });
 });

@@ -14,6 +14,8 @@ vi.mock('../lib/api', () => {
     api: { chat: (...a: unknown[]) => chatMock(...a), sendChatMessage: (...a: unknown[]) => sendMock(...a) },
   };
 });
+// The chat is the signed-in user's own, never the user an admin is "viewing as" (see ChatPage).
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
 // '../lib/chat' is deliberately NOT mocked here: this file pins the real useChatStream's
 // event-delivery contract against ChatPage. The bug lived exactly at that seam — the hook caps
 // its buffer, and the page must not derive "have I handled this event" from that capped array.

@@ -7,6 +7,8 @@ import {
   agentMessage,
   decodeFrame,
   encodeFrame,
+  type AgentMessage,
+  type ClaudeOpenParams,
   type HelloMessage,
   type RpcError,
   type RpcMethod,
@@ -24,16 +26,32 @@ export interface SocketLike extends EventEmitter {
   readyState: number;
 }
 
-export interface PtyHandlers {
+/** The protocol's closed set of end-of-run reasons, read off the message type so this file cannot
+ *  drift from it. A terminal never carries one; a headless Claude run does. */
+export type ChannelClosedReason = NonNullable<Extract<AgentMessage, { type: 'closed' }>['reason']>;
+
+export interface ChannelHandlers {
   onData(data: Buffer): void;
-  onExit(code: number | null): void;
+  /**
+   * The channel ended. `code` is the process's exit code, `null` when there was none (a signal, or
+   * the connection itself going away). `reason` is present only when the agent named one: it is the
+   * difference between "the run failed" and "this machine has no `claude` installed", and dropping
+   * it here would make that distinction unreachable for everyone above.
+   */
+  onExit(code: number | null, reason?: ChannelClosedReason): void;
 }
 
-export interface AgentPtyChannel {
+/** The terminal side's name for the same pair of callbacks; a pty close never names a reason. */
+export type PtyHandlers = ChannelHandlers;
+
+export interface AgentChannel {
   readonly ch: number;
   write(data: Buffer | string): void;
-  resize(cols: number, rows: number): void;
   close(): void;
+}
+
+export interface AgentPtyChannel extends AgentChannel {
+  resize(cols: number, rows: number): void;
 }
 
 export type LoggerLike = {
@@ -53,6 +71,14 @@ export class AgentRpcError extends Error {
 
 export class AgentClosedError extends Error {}
 
+/**
+ * Every channel number this machine has is taken (`MAX_CHANNELS`). Its own class because it is the one
+ * open failure that says nothing about the machine: it is connected, healthy and simply full of
+ * terminals, so a caller must be able to tell it from a machine that went away — the chat does, and
+ * says "the run could not start" instead of "your machine saiu do ar".
+ */
+export class ChannelLimitError extends Error {}
+
 const HELLO_TIMEOUT_MS = 5_000;
 const OPEN_TIMEOUT_MS = 10_000;
 
@@ -65,7 +91,7 @@ interface PendingRpc {
 }
 
 interface ChannelEntry {
-  handlers: PtyHandlers;
+  handlers: ChannelHandlers;
   open: { resolve(ch: AgentPtyChannel): void; reject(err: Error): void } | null;
   openTimer: ReturnType<typeof setTimeout> | null;
   /** Set when our local open timeout fired first: the number stays reserved (tombstoned)
@@ -160,11 +186,23 @@ export class AgentConnection extends EventEmitter {
   }
 
   openPty(params: PtyOpenParams, handlers: PtyHandlers): Promise<AgentPtyChannel> {
+    return this.openChannel(handlers, (ch) => ({ type: 'open', ch, kind: 'pty', params }));
+  }
+
+  /** A headless Claude run on this machine (`apps/agent/src/claude/run.ts`): same open/close
+   *  handshake as a terminal, and the prompt goes in as channel data once it is open. */
+  openClaude(params: ClaudeOpenParams, handlers: ChannelHandlers): Promise<AgentChannel> {
+    return this.openChannel(handlers, (ch) => ({ type: 'open', ch, kind: 'claude', params }));
+  }
+
+  /** The open handshake every channel kind shares — the reserved number, the local timeout and its
+   *  tombstone — with only the `open` message itself left to the kind. */
+  private openChannel(handlers: ChannelHandlers, openMessage: (ch: number) => ServerMessage): Promise<AgentPtyChannel> {
     if (this.closing) {
       return Promise.reject(new AgentClosedError('agent connection closed'));
     }
     if (this.channels.size >= MAX_CHANNELS) {
-      return Promise.reject(new Error('too many channels'));
+      return Promise.reject(new ChannelLimitError('too many channels'));
     }
     const ch = this.nextChannel();
     return new Promise((resolve, reject) => {
@@ -194,7 +232,7 @@ export class AgentConnection extends EventEmitter {
         },
       };
       this.channels.set(ch, entry);
-      this.sendControl({ type: 'open', ch, kind: 'pty', params });
+      this.sendControl(openMessage(ch));
     });
   }
 
@@ -203,7 +241,13 @@ export class AgentConnection extends EventEmitter {
     this.socket.close(code, reason);
   }
 
-  /** Open PTY channels — 0 means no terminal is attached (the auto-update "idle" test). */
+  /**
+   * Open channels of every kind — a terminal, and since the user-hosted concierge a headless Claude
+   * run as well. 0 is what the auto-update scheduler reads as "idle" (`agent/latest-version.ts`), and
+   * a chat counts as busy on purpose: installing a new agent restarts it, which kills a run in
+   * progress just as surely as it kills a terminal — the user would watch their answer stop
+   * mid-sentence for a reason nothing on the screen could explain.
+   */
   get openChannels(): number {
     return this.channels.size;
   }
@@ -223,7 +267,7 @@ export class AgentConnection extends EventEmitter {
     for (let ch = 1; ch <= MAX_CHANNELS; ch++) {
       if (!this.channels.has(ch)) return ch;
     }
-    throw new Error('too many channels');
+    throw new ChannelLimitError('too many channels');
   }
 
   private sendControl(msg: ServerMessage): void {
@@ -321,7 +365,7 @@ export class AgentConnection extends EventEmitter {
         this.onOpenError(msg.ch, msg.error);
         return;
       case 'closed':
-        this.onChannelClosed(msg.ch, msg.code);
+        this.onChannelClosed(msg.ch, msg.code, msg.reason);
         return;
     }
   }
@@ -405,7 +449,7 @@ export class AgentConnection extends EventEmitter {
     entry.open.reject(new AgentRpcError(error));
   }
 
-  private onChannelClosed(ch: number, code: number | null): void {
+  private onChannelClosed(ch: number, code: number | null, reason?: ChannelClosedReason): void {
     const entry = this.channels.get(ch);
     if (!entry) {
       this.violation(`closed for unknown channel ${ch}`);
@@ -427,7 +471,10 @@ export class AgentConnection extends EventEmitter {
       return;
     }
     this.channels.delete(ch);
-    entry.handlers.onExit(code);
+    // Called with one argument when the agent named no reason, not with an explicit `undefined`:
+    // every pty close arrives that way, and its owners read the exit as "the code, and nothing else".
+    if (reason === undefined) entry.handlers.onExit(code);
+    else entry.handlers.onExit(code, reason);
   }
 
   private buildChannel(ch: number): AgentPtyChannel {

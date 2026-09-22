@@ -29,12 +29,20 @@ const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
   ...overrides,
 });
 
-function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[] } = {}) {
-  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null, model: null, review_mode: false, last_message_at: null, created_at: '' };
+function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null } } } = {}) {
+  // The host pair every case but the host-specific ones takes for granted: one agent machine of this
+  // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
+  // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
+  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null as string | null, model: null, machine_id: 'm1' as string | null, ai_account_id: opts.host?.account?.id ?? null, review_mode: false, last_message_at: null, created_at: '' };
   const messages: { id: string; role: string; text: string; error_code: string | null }[] = [];
   const chat = {
     getOrCreateForUser: vi.fn(async () => conversation),
     setCliSession: vi.fn(async (_id: string, s: string | null) => void (conversation.cli_session_id = s)),
+    // Same guard as the repository's `updateMany ... where machineId: null`: it fills a host that was
+    // never chosen and never touches one that was.
+    pinHostMachine: vi.fn(async (_id: string, machineId: string) => {
+      if (conversation.machine_id === null) conversation.machine_id = machineId;
+    }),
     addMessage: vi.fn(async (m: { role: string; text: string }) => {
       const row = { id: `m${messages.length + 1}`, role: m.role, text: m.text, error_code: null };
       messages.push(row);
@@ -76,6 +84,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   const project = { id: 'p1', name: 'app', machine_id: 'm1' };
   const machine = { id: 'm1', name: 'jarvis' };
   const ownedBy = <T extends { id: string }>(row: T) => vi.fn(async (ids: string[], ownerId: string) => (ownerId === user.id && ids.includes(row.id) ? [row] : []));
+  const host = { id: 'm1', name: 'jarvis', type: 'agent', agent_version: '0.5.0' };
   const repos = {
     chat,
     apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) },
@@ -83,12 +92,20 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     tabs: { findByIdsForOwner: ownedBy(tab) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },
     projects: { findByIdsForOwner: ownedBy(project) },
-    machines: { findByIdsForOwner: ownedBy(machine) },
+    machines: { findByIdsForOwner: ownedBy(machine), list: vi.fn(async (owner: string | null) => (owner === user.id ? (opts.host?.machines ?? [host]) : [])) },
+    aiAccounts: { findById: vi.fn(async () => opts.host?.account) },
   } as unknown as Repositories;
+  const agents = {
+    capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude'])),
+    info: vi.fn(() => ({ agent_version: '0.5.0' })),
+  };
   const runner: RunnerClient = {
     run: vi.fn(() => (typeof lines === 'function' ? lines() : (async function* () { for (const l of lines) yield l; })())),
   };
-  return { service: new ChatService({ repos, runner, configDirs: { primary: '/accounts/primary' } }), chat, chatActions, actionsStore, runner, messages, conversation, repos };
+  /** Which machine each run was asked for: the service must drive the host, never a machine of its own choosing. */
+  const hosted: string[] = [];
+  const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner) });
+  return { service, chat, chatActions, actionsStore, runner, hosted, messages, conversation, repos, host };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -114,6 +131,33 @@ it('stores the question, the answer, and the session id the CLI reports', async 
   expect(answer.text).toBe('Nada rodando.');
   expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000001');
   expect(chat.setCliSession).toHaveBeenCalled();
+});
+
+it('pins the host it ran on when nothing was chosen, so a nulled host stops looking like a free choice', async () => {
+  const { service, chat, conversation } = build([delta('ok'), done()]);
+  // The single-machine conversation: nothing was ever chosen, `resolveHost` picked the only candidate.
+  conversation.machine_id = null;
+
+  await service.send(user, 'o que está rodando?');
+
+  expect(chat.pinHostMachine).toHaveBeenCalledWith('c1', 'm1');
+  expect(conversation.machine_id).toBe('m1');
+  // Why it matters: with this pin, a `machine_id` that is null *and* a session that exists can only
+  // mean the stored host was unenrolled under that session, which is what `resolveHost` warns about
+  // (`sessionAtStake` on `ready`). Without it every healthy single-machine conversation looks the same
+  // as that loss, and the warning would be permanently on screen and permanently false.
+  expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000001');
+});
+
+it('never moves a host the user chose, whatever it runs on', async () => {
+  const { service, chat, conversation } = build([delta('ok'), done()]);
+
+  await service.send(user, 'e agora?');
+
+  // Called unconditionally — the guard is the repository's `where machineId: null`, so this call can
+  // only ever fill an empty host, never overwrite a choice.
+  expect(chat.pinHostMachine).toHaveBeenCalledWith('c1', 'm1');
+  expect(conversation.machine_id).toBe('m1');
 });
 
 it('resumes the session on the next message', async () => {
@@ -185,7 +229,9 @@ it('does not retry on an error frame that is not a missing session', async () =>
   conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
   const answer = await service.send(user, 'e agora?');
   expect(vi.mocked(runner.run)).toHaveBeenCalledTimes(1);
-  expect(answer.error_code).toBe('RUNNER_FAILED');
+  // The reason the runner took the trouble to classify, stored as itself: not the generic
+  // RUNNER_FAILED that used to overwrite it one line later.
+  expect(answer.error_code).toBe('RUN_FAILED');
   expect(answer.text).toBe('comecei'); // whatever streamed before the failure is kept
 });
 
@@ -193,7 +239,7 @@ it('does not retry a first (non-resumed) run even when the session is reported m
   const { service, runner } = build([errorFrame('missing_session')]);
   const answer = await service.send(user, 'oi');
   expect(vi.mocked(runner.run)).toHaveBeenCalledTimes(1);
-  expect(answer.error_code).toBe('RUNNER_FAILED');
+  expect(answer.error_code).toBe('MISSING_SESSION');
 });
 
 it('lets a concierge that is not configured escape as 503 and leaves no empty bubble behind', async () => {
@@ -218,6 +264,56 @@ it('lets a concierge that did not answer escape as 502', async () => {
   expect(messages.map((m) => m.role)).toEqual(['user']);
 });
 
+it('runs on the conversation host, with the account that host resolved', async () => {
+  const account = { id: 'acc1', provider: 'claude', machine_id: 'm1', config_dir: '/home/u/.claude-work' };
+  const { service, runner, hosted } = build([delta('ok'), done()], { host: { account } });
+  await service.send(user, 'o que está rodando?');
+
+  // The machine the conversation names, never one this service picked, and the account's own config
+  // dir — the run has no configured directory of its own anymore.
+  expect(hosted).toEqual(['m1']);
+  expect(vi.mocked(runner.run).mock.calls[0][0]).toMatchObject({ config_dir: '/home/u/.claude-work' });
+});
+
+it('uses the machine default account when the conversation names none', async () => {
+  const { service, runner } = build([delta('ok'), done()]);
+  await service.send(user, 'e agora?');
+  expect(vi.mocked(runner.run).mock.calls[0][0]).toMatchObject({ config_dir: null });
+});
+
+it('refuses to send at all when the host is offline, leaving no rows and no run behind', async () => {
+  const { service, runner, messages } = build([delta('ok'), done()], { host: { capabilities: null } });
+
+  // The machine is named in the sentence and the code says which of the five states this is, so the
+  // screen can say what happened instead of showing a bubble that never fills.
+  await expect(service.send(user, 'oi')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_HOST_OFFLINE', message: /jarvis/ });
+  expect(messages).toEqual([]);
+  expect(vi.mocked(runner.run)).not.toHaveBeenCalled();
+});
+
+it('refuses to send when the user has no machine to run on', async () => {
+  const { service, messages } = build([delta('ok'), done()], { host: { machines: [] } });
+  await expect(service.send(user, 'oi')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_NO_MACHINE' });
+  expect(messages).toEqual([]);
+});
+
+it('stores a machine with no claude installed as exactly that, not as an answer that did not finish', async () => {
+  // The spec calls this the most likely first failure of the whole feature: the agent is current, the
+  // channel opens, and there is no `claude` on the machine. It reached this service as a reason and was
+  // then stored as a generic failure — the one thing that made the sentence unreadable end to end.
+  const { service, messages } = build([JSON.stringify({ type: 'termhub_error', code: null, reason: 'cli_missing' })]);
+  const answer = await service.send(user, 'oi');
+  expect(answer.error_code).toBe('CLI_MISSING');
+  expect(messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+});
+
+it('stores a host that went away mid-run as the host having gone, not as the answer failing', async () => {
+  const { service } = build([delta('comecei a olhar'), JSON.stringify({ type: 'termhub_error', code: null, reason: 'host_gone' })]);
+  const answer = await service.send(user, 'olha lá');
+  expect(answer.error_code).toBe('HOST_GONE');
+  expect(answer.text).toBe('comecei a olhar');
+});
+
 it('fails the run when the stream ends without a done frame', async () => {
   const { service, messages, conversation } = build(() => (async function* () { yield delta('parcial'); })());
   const answer = await service.send(user, 'e agora?');
@@ -234,7 +330,7 @@ it('marks the run as failed when the result frame reports is_error', async () =>
   const failedResult = JSON.stringify({ type: 'result', is_error: true, session_id: '3f1e9b1e-0000-4000-8000-000000000009', usage: { input_tokens: 5 } });
   const { service, conversation } = build([delta('comecei'), failedResult]);
   const answer = await service.send(user, 'faz tudo');
-  expect(answer.error_code).toBe('RUNNER_FAILED');
+  expect(answer.error_code).toBe('RUN_FAILED');
   expect(answer.text).toBe('comecei');
   // The thread survives the failure: this server generated that uuid and the session is on disk with
   // the whole conversation, so the next message resumes it instead of starting over blind.

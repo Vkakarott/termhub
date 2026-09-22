@@ -81,8 +81,11 @@ const envSchema = z.object({
   /** language hint passed to whisper ("auto" = detect) */
   WHISPER_LANGUAGE: z.string().default('pt'),
 
-  // Chat concierge (docker/concierge): headless Claude Code runner. With either of these (or
-  // MCP_URL) unset the chat is off and every message answers 503 CONCIERGE_DISABLED.
+  // Chat concierge (docker/concierge): the container runner. Since the chat moved onto the user's own
+  // machine (spec §6, `chat/agent-runner.ts`) these two reach that container alone, and nothing calls
+  // it — `httpRunner` has had no caller since `app.ts` switched to `agentRunner`. The chat's only
+  // requirement now is MCP_URL: with that unset every message answers 503 CONCIERGE_DISABLED, and
+  // setting these two enables nothing.
   CONCIERGE_URL: z.string().url().optional(),
   CONCIERGE_SECRET: z.string().optional(),
 });
@@ -173,12 +176,15 @@ export const config = {
   encryptionKey: env.ENCRYPTION_KEY ?? null,
   transcription: env.WHISPER_URL ? { url: env.WHISPER_URL.replace(/\/$/, ''), language: env.WHISPER_LANGUAGE } : null,
   /**
-   * The chat counts as configured only with all three: the runner's address, the shared secret and
-   * the public MCP endpoint it must be given. MCP_URL has no fallback on purpose — PUBLIC_URL is
-   * the app host (app.termhub.dev), which sits behind Cloudflare Access, so `${PUBLIC_URL}/mcp`
-   * answers an Access redirect instead of MCP and the concierge would talk about the user's
-   * machines with no data at all. `/mcp` is exposed outside Access only on the landing host
-   * (deploy/nginx/termhub.dev.conf.tmpl).
+   * Settings for the container runner (`httpRunner`) and nothing else: the chat itself no longer reads
+   * this, and no code path builds that runner any more (spec §6). What the chat needs is `mcpUrl`
+   * above — `agentRunner` throws 503 CONCIERGE_DISABLED without it — so all three being set does not
+   * make a chat work, and these two being empty does not stop one.
+   *
+   * MCP_URL has no fallback on purpose — PUBLIC_URL is the app host (app.termhub.dev), which sits
+   * behind Cloudflare Access, so `${PUBLIC_URL}/mcp` answers an Access redirect instead of MCP and the
+   * concierge would talk about the user's machines with no data at all. `/mcp` is exposed outside
+   * Access only on the landing host (deploy/nginx/termhub.dev.conf.tmpl).
    */
   concierge:
     env.CONCIERGE_URL && env.CONCIERGE_SECRET && env.MCP_URL
