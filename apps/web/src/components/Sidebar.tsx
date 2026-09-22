@@ -123,7 +123,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                 </button>
                 <button
                   className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-danger"
-                  title="Remover da lista (a pasta na máquina não é apagada)"
+                  title="Excluir projeto (as pastas nas máquinas não são apagadas)"
                   onClick={() => {
                     setDeleteError(null);
                     setDeletingProject(p);

@@ -147,6 +147,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         await api.machines.remove(id);
         forgetLocalMachine(id);
         setMachines((m) => m.filter((x) => x.id !== id));
+        setProjects((p) => p.map((x) => ({ ...x, machines: x.machines.filter((l) => l.machine_id !== id) })));
       },
       async createProject(input) {
         const { project } = await api.projects.create(input);
