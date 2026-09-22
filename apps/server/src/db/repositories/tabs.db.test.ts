@@ -187,6 +187,13 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       expect(needsYou(second)).toBe(false);
     });
 
+    it('a lost answer leaves the tab working, and the stop that follows opens the wait (Cursor)', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(tab)).toBe(true);
+      expect(tab.state_text).toBeNull();
+    });
+
     it('never carries a seen mark the tab does not have, even for a continuation', async () => {
       await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null });
       await repo.markSeen(tabId);

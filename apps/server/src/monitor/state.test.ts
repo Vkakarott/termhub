@@ -134,8 +134,15 @@ describe('interpretHookEvent — cursor', () => {
     expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'x'.repeat(5000) })?.text?.length).toBe(STATE_TEXT_MAX);
   });
 
-  it('ignores a completed stop: the answer that came right before it already opened the wait', () => {
-    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'completed', loop_count: 0 })).toBeNull();
+  it('treats a completed stop as a continuation too, so a lost answer still unsticks the tab', () => {
+    // the answer usually opened the wait already (recordEvent then keeps its text and its seen mark);
+    // when its POST never arrived, this is the only event left to say the turn ended
+    expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status: 'completed', loop_count: 0 })).toEqual({
+      kind: 'waiting_input',
+      text: null,
+      meta: { event: 'stop', status: 'completed' },
+      continuesWait: true,
+    });
   });
 
   it('opens a wait on a stop that ended without an answer (aborted with Esc, or an error)', () => {
@@ -150,7 +157,7 @@ describe('interpretHookEvent — cursor', () => {
 
   it('marks every stop that is not completed as continuing a wait already open: never a second alert in one turn', () => {
     // Esc sends two (error, then aborted); a status this code does not know, or none at all, may follow an answer
-    for (const status of ['aborted', 'error', 'renamed-in-a-later-release', undefined]) {
+    for (const status of ['completed', 'aborted', 'error', 'renamed-in-a-later-release', undefined]) {
       expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'stop', status })?.continuesWait).toBe(true);
     }
     expect(interpretHookEvent('cursor', { ...base, hook_event_name: 'afterAgentResponse', text: 'um' })?.continuesWait).toBeUndefined();

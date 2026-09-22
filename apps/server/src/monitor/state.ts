@@ -114,15 +114,13 @@ function interpretCursor(ev: Record<string, unknown>): Interpreted | null {
       return { kind: 'working', text: null, meta: { event: name } };
     case 'afterAgentResponse':
       return { kind: 'waiting_input', text: cap(str(ev.text)), meta: { event: name } };
-    case 'stop': {
-      const status = str(ev.status);
-      // completed: the answer right before it already opened the wait, and a second one would wipe its text
-      if (status === 'completed') return null;
-      // Any other status, known or not (Esc sends error then aborted, with no answer): it ends the turn,
-      // so the tab is waiting — but as a continuation, so a stop arriving after an answer the person
-      // already saw never alerts twice in one turn, nor wipes that answer (recordEvent keeps the text).
-      return { kind: 'waiting_input', text: null, meta: { event: name, status }, continuesWait: true };
-    }
+    case 'stop':
+      // Whatever the status (completed, or the error then aborted an Esc sends), the turn ended, so the
+      // tab is waiting — always as a continuation: when afterAgentResponse already opened this wait,
+      // recordEvent keeps its answer as the text and the seen mark, so nothing alerts twice in one
+      // turn; when that POST never arrived (a timed-out curl, a body over the route's limit), this is
+      // what takes the tab out of working and tells the person the turn is over.
+      return { kind: 'waiting_input', text: null, meta: { event: name, status: str(ev.status) }, continuesWait: true };
     case 'sessionEnd':
       return { kind: 'idle', text: null, meta: { event: name, reason: str(ev.reason) } };
     default:
