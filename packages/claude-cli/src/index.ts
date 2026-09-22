@@ -47,3 +47,26 @@ export function buildClaudeArgs(spec: ClaudeRunSpec): string[] {
 export function mcpConfig(url: string, token: string): string {
   return JSON.stringify({ mcpServers: { termhub: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } });
 }
+
+/**
+ * Why a run failed, in a form the callers are allowed to act on. Derived from the CLI's stderr,
+ * which never leaves the machine it ran on: it can carry the prompt and terminal content (spec
+ * §7.1), so only this label travels. A label is not text — it names an outcome, and both runners
+ * need the same names for the same stderr, which is why the classification lives here beside the
+ * argv rather than once in the container and again in the agent.
+ */
+export type ClaudeFailureReason = 'missing_session' | 'cli_rejected' | 'run_failed';
+
+/**
+ * The CLI prints "No conversation found with session ID <uuid>" when `--resume` names a session the
+ * config dir does not have (a rotated account, a pruned history). Anchored on that exact phrase
+ * only: a broader match (anything mentioning "session ID") would also catch unrelated failures and
+ * make the caller throw away a perfectly good session.
+ */
+export function classifyFailure(stderr: string): ClaudeFailureReason {
+  if (/No conversation found/i.test(stderr)) return 'missing_session';
+  // The CLI rejecting our own flags is our bug, not the user's, and it exits before doing any work.
+  // Classifying it apart is what makes it findable in one query instead of a container probe.
+  if (/^Error: --/m.test(stderr)) return 'cli_rejected';
+  return 'run_failed';
+}

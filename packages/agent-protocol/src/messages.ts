@@ -12,7 +12,13 @@ const rpcId = z.string().min(1).max(64);
 // under the same name: "claude is not installed on the host" — this feature's most likely
 // first failure per the spec — must read as one helpful sentence everywhere, not a specific
 // message on one side and a generic one on the other because each side spelled it differently.
-export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed']);
+//
+// `missing_session` is the one the server acts on rather than renders: the CLI cannot find the
+// conversation it was asked to resume (a local history pruned or rotated on the user's own
+// machine), and the chat service retries once on a fresh session. Without it in this set that
+// self-healing is lost on the user-hosted path and every later message in the conversation
+// fails for ever as a generic `run_failed`.
+export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed', 'missing_session']);
 
 export const helloMessage = z.object({
   type: z.literal('hello'),

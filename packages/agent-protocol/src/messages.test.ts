@@ -59,6 +59,8 @@ describe('control messages', () => {
       expect(agentMessage.parse({ type: 'closed', ch: 3, code: 0 }).type).toBe('closed'));
     it('parses closed with a known reason', () =>
       expect(agentMessage.parse({ type: 'closed', ch: 3, code: 1, reason: 'cli_missing' })).toMatchObject({ reason: 'cli_missing' }));
+    it('parses closed with the reason the server self-heals from', () =>
+      expect(agentMessage.parse({ type: 'closed', ch: 3, code: 1, reason: 'missing_session' })).toMatchObject({ reason: 'missing_session' }));
     it('rejects closed with an unknown reason', () =>
       expect(agentMessage.safeParse({ type: 'closed', ch: 3, code: 1, reason: 'oops' }).success).toBe(false));
   });

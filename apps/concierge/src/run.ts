@@ -1,4 +1,4 @@
-import { buildClaudeArgs, mcpConfig } from '@termhub/claude-cli';
+import { buildClaudeArgs, classifyFailure, mcpConfig, type ClaudeFailureReason } from '@termhub/claude-cli';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,25 +23,13 @@ function writeMcpConfig(dir: string, req: RunRequest): string {
 }
 
 /**
- * Why a run failed, in a form the app is allowed to act on. The stderr that this is derived from
- * never leaves the container: it can carry terminal content and the prompt (spec §7.1), so only
- * this label travels.
+ * Why a run failed, in a form the app is allowed to act on. Both the classification and its labels
+ * now live in `@termhub/claude-cli`, beside the argv: the agent reads the same CLI's stderr on the
+ * user's own machine and the two must never drift. Re-exported under the names this module has
+ * always offered, so nothing downstream has to care where they moved.
  */
-export type FailureReason = 'missing_session' | 'cli_rejected' | 'run_failed';
-
-/**
- * The CLI prints "No conversation found with session ID <uuid>" when `--resume` names a session the
- * mounted config dir does not have (a rotated account, a pruned history). Anchored on that exact
- * phrase only: a broader match (anything mentioning "session ID") would also catch unrelated
- * failures and make the app throw away a perfectly good session.
- */
-export function classifyFailure(stderr: string): FailureReason {
-  if (/No conversation found/i.test(stderr)) return 'missing_session';
-  // The CLI rejecting our own flags is our bug, not the user's, and it exits before doing any work.
-  // Classifying it apart is what makes it findable in one query instead of a container probe.
-  if (/^Error: --/m.test(stderr)) return 'cli_rejected';
-  return 'run_failed';
-}
+export type FailureReason = ClaudeFailureReason;
+export { classifyFailure };
 
 export class RunFailed extends Error {
   readonly reason: FailureReason;
