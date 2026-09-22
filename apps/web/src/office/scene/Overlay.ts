@@ -4,12 +4,14 @@
  * `place()` puts each one back over its world point every frame.
  */
 import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
-import { truncateLabel, type DeskModel, type MachineModel, type MachineNotice, type Marker, type RoomModel } from '../model';
+import { activityLabel, truncateLabel, type DeskModel, type MachineModel, type MachineNotice, type Marker, type RoomModel } from '../model';
 import type { View } from './camera';
 import { ROOM_SIGN_SCALE } from './detail';
 
 /** Hover is where a name cut to 18 characters and a task title become readable: room for both. */
 const HOVER_MAX = 48;
+/** A shade dimmer than the name colour, for the activity label sitting in the same spot. */
+const ACTIVITY_FILL = 0x9aa1b1;
 
 const MARKER: Record<Exclude<Marker, null>, { color: number; glyph: string }> = {
   input: { color: 0xd29922, glyph: '!' },
@@ -42,6 +44,8 @@ export class DeskOverlay {
   private markerKind: Marker = null;
   private short = '';
   private full = '';
+  /** the desk shows an activity label instead of its name right now: dims it, unless hovered */
+  private showingActivity = false;
   private pulse = 0;
   hovered = false;
 
@@ -60,7 +64,9 @@ export class DeskOverlay {
   }
 
   apply(model: DeskModel): void {
-    this.short = model.label;
+    const activity = model.pose === 'type' && activityLabel(model.activity);
+    this.short = activity || model.label;
+    this.showingActivity = !!activity;
     this.full = truncateLabel(model.name, HOVER_MAX);
     this.title.text = model.progress ? truncateLabel(model.progress.title, HOVER_MAX) : '';
     this.label.text = this.hovered ? this.full : this.short;
@@ -103,6 +109,7 @@ export class DeskOverlay {
     // full name over the cut label, adds the title on a second line and pushes the bar down under it
     this.label.visible = roomLevel || this.hovered;
     this.label.text = this.hovered ? this.full : this.short;
+    this.label.style.fill = !this.hovered && this.showingActivity ? ACTIVITY_FILL : 0xe6e8ee;
     this.label.position.set(0, below);
     this.label.alpha = this.hovered ? 1 : 0.75;
     const titled = this.hovered && this.title.text !== '';

@@ -1,6 +1,6 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
-import { mapTab, mapTabEvent, type Tab, type TabEvent, type TabKind, type TabState } from './types.js';
+import { mapTab, mapTabEvent, type Tab, type TabActivity, type TabEvent, type TabKind, type TabState } from './types.js';
 
 /** A flood of hook events cannot grow the log without bound: only this many are kept per tab. */
 const EVENTS_KEPT_PER_TAB = 200;
@@ -93,7 +93,7 @@ export class TabsRepository {
    * re-open it, so the seen mark is carried forward to the new `stateAt` instead. Any transition
    * through another state, or a `waiting_permission` (always a fresh ask), still re-arms as before.
    */
-  async recordEvent(tabId: string, event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown> }): Promise<{ tab: Tab; event: TabEvent }> {
+  async recordEvent(tabId: string, event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown>; activity?: TabActivity }): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
     const [e, t] = await this.db.$transaction(async (tx) => {
       const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true } });
@@ -102,7 +102,7 @@ export class TabsRepository {
       const ev = await tx.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } });
       const updated = await tx.tab.update({
         where: { id: tabId },
-        data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at, ...(carrySeen ? { stateSeenAt: at } : {}) },
+        data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
       });
       await tx.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`;
       return [ev, updated] as const;
@@ -117,7 +117,23 @@ export class TabsRepository {
 
   /** Clears the monitor state (e.g. the tmux session is gone). */
   async clearState(tabId: string): Promise<void> {
-    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null } });
+    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null, activity: null } });
+  }
+
+  /**
+   * A tool change on a tab that is already working: the activity and the time move, nothing else,
+   * and no event row is written — an active agent changes tool several times a minute, and the
+   * event table is for state changes. `updateMany…AndReturn` so a tab that is gone comes back as
+   * `undefined` (like `markSeen`) instead of throwing, still in a single statement.
+   *
+   * `state: 'working'` is part of the `where`, not a check the caller can make first: the hook
+   * script posts in the background, so a `Stop` can commit between the caller's read and this
+   * write — and a waiting tab must never read as coding, nor have its `stateAt` pushed past the
+   * `stateSeenAt` that says the person already saw it. Nothing updated = it is no longer working.
+   */
+  async setActivity(tabId: string, activity: TabActivity): Promise<Tab | undefined> {
+    const [t] = await this.db.tab.updateManyAndReturn({ where: { id: tabId, state: 'working' }, data: { activity, stateAt: new Date() } });
+    return t ? mapTab(t) : undefined;
   }
 
   /**

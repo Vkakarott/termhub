@@ -1,5 +1,5 @@
 /** Dev tool: the office city with synthetic data, no login and no server — for screenshots and frame timing. */
-import type { OfficeRoom, OfficeSnapshot, OfficeTab, TabState } from '../lib/types';
+import type { OfficeRoom, OfficeSnapshot, OfficeTab, TabActivity, TabState } from '../lib/types';
 import { buildCityModel, type FocusTarget, type MachineEntry } from './model';
 import { OfficeScene } from './scene/OfficeScene';
 
@@ -11,6 +11,14 @@ const machineCount = Number(q.get('machines')) || 3;
 const roomCount = Number(q.get('rooms')) || 6;
 const deskMax = Number(q.get('desks')) || 8;
 const at = new Date().toISOString();
+
+const ACTIVITIES: TabActivity[] = ['coding', 'reading', 'researching', 'planning', 'terminal', 'working'];
+const activityParam = q.get('activity');
+/** `?activity=<category>` puts that activity on every working desk; `?activity=mix` cycles through the six. */
+function activityFor(i: number, state: TabState | null): TabActivity | null {
+  if (state !== 'working' || !activityParam) return null;
+  return activityParam === 'mix' ? ACTIVITIES[i % ACTIVITIES.length] : (activityParam as TabActivity);
+}
 
 /**
  * Machine 0 keeps v1's showcase floor: room 1 empty, room 2 with one desk per STATES entry — with
@@ -26,7 +34,7 @@ function roomsOf(mi: number): OfficeRoom[] {
       const state = STATES[(r + i + mi) % STATES.length];
       // i = 1 carries a task with no subtasks: no bar anywhere, its title only on hover
       const progress = i % 3 === 0 ? { task_id: 'k', title: 'Tarefa com subtarefas', done: i % 4, total: 4 } : i === 1 ? { task_id: 'k0', title: 'Tarefa sem subtarefas', done: 0, total: 0 } : null;
-      return { id: `m${mi}-t${r}-${i}`, project_id: projectId, name: i === 0 ? 'um nome de aba bem comprido mesmo 🚀' : `aba ${i + 1}`, kind: i % 8 === 7 ? 'simulator' : 'terminal', tmux_session: null, simulator_udid: null, position: i, state, state_text: null, state_tool: null, state_at: state ? at : null, state_seen_at: null, created_at: at, alive: i % 9 !== 4, progress };
+      return { id: `m${mi}-t${r}-${i}`, project_id: projectId, name: i === 0 ? 'um nome de aba bem comprido mesmo 🚀' : `aba ${i + 1}`, kind: i % 8 === 7 ? 'simulator' : 'terminal', tmux_session: null, simulator_udid: null, position: i, state, state_text: null, state_tool: null, state_at: state ? at : null, state_seen_at: null, activity: activityFor(i, state), created_at: at, alive: i % 9 !== 4, progress };
     });
     return { project: { id: projectId, machine_id: `m${mi}`, name: r === 0 ? 'projeto com um nome enorme para testar o corte' : `projeto-${r}`, cwd: '/', status: r === 3 ? 'paused' : 'active', description: null, last_terminal_at: null, created_at: at }, tabs, tasks: r % 2 ? { todo: 2, doing: 1, done: r } : null };
   });

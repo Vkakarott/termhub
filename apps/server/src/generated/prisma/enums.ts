@@ -54,6 +54,18 @@ export const TabState = {
 export type TabState = (typeof TabState)[keyof typeof TabState]
 
 
+export const TabActivity = {
+  coding: 'coding',
+  reading: 'reading',
+  researching: 'researching',
+  planning: 'planning',
+  terminal: 'terminal',
+  working: 'working'
+} as const
+
+export type TabActivity = (typeof TabActivity)[keyof typeof TabActivity]
+
+
 export const TaskStatus = {
   backlog: 'backlog',
   todo: 'todo',
