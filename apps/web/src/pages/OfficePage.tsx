@@ -240,7 +240,7 @@ export function OfficePage() {
   if (machineId && machineName) trail.push({ label: machineName, go: () => go(machineId, null, true) });
   const roomName = here?.floor.rooms.find((r) => r.id === room)?.name;
   if (roomName) trail.push({ label: roomName });
-  const shareLink = shareLinkFor(target, user?.nickname ?? null, machines, byMachine);
+  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, machines, byMachine);
 
   return (
     <div className="flex h-full flex-col">
@@ -250,7 +250,7 @@ export function OfficePage() {
           <Trail parts={trail} />
           <span className="ml-auto flex items-center gap-3">
             <StatusNotices machine={here} connected={connected} />
-            <ShareButton link={shareLink} />
+            <ShareButton result={shareResult} />
             <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
               modo foco
             </button>
@@ -264,7 +264,7 @@ export function OfficePage() {
         {focus && (
           <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
             <StatusNotices machine={here} connected={connected} />
-            <ShareButton link={shareLink} />
+            <ShareButton result={shareResult} />
             <button className="rounded hover:text-fg" onClick={() => setFocus(false)}>
               sair do foco (Esc)
             </button>
@@ -340,33 +340,60 @@ function hasPublished(state: MachineSnapshotState | undefined): boolean {
 }
 
 /**
- * The public link the camera's current rest would produce, or null when there is nothing published
- * to point at (no nickname claimed yet counts as nothing published: there is no address to build).
- * Built from the public ids the snapshots already carry — there is no endpoint to ask for a link.
+ * `unpublished`: nothing in view has been made public (or the viewer has no nickname yet, which can
+ * only be true before anything of theirs was ever published). `foreign`: something IS published
+ * here, but on a machine this viewer does not own (view-as/view-all only) — there is no link this
+ * viewer's own nickname could build for it.
  */
-function shareLinkFor(target: FocusTarget, nickname: string | null, machines: Machine[], byMachine: Record<string, MachineSnapshotState>): string | null {
-  if (!nickname) return null;
-  const base = `${PUBLIC_CITY_BASE}/@${encodeURIComponent(nickname)}`;
-  if (target.kind === 'city') return machines.some((m) => hasPublished(byMachine[m.id])) ? base : null;
+type ShareResult = { kind: 'link'; url: string } | { kind: 'unpublished' } | { kind: 'foreign' };
+
+/**
+ * The public city a nickname points to is that nickname's OWNER's city, filtered to their own
+ * machines — never the signed-in viewer's. The two only agree while someone looks at their own
+ * machines; under the existing view-as/view-all admin scope `machines` can carry other people's rows
+ * (or an orphan's, `owner_id: null`), and building the link from the viewer's own nickname would then
+ * point at a city that does not contain that machine, or at nothing at all. `Machine.owner_id` is
+ * already on the payload — no new field carried for this — so a machine the signed-in user does not
+ * own is caught here rather than trusted with a link that cannot work.
+ */
+function shareResultFor(
+  target: FocusTarget,
+  userId: string | undefined,
+  nickname: string | null,
+  machines: Machine[],
+  byMachine: Record<string, MachineSnapshotState>,
+): ShareResult {
+  const owned = (m: Machine) => !!userId && m.owner_id === userId;
+  const base = nickname ? `${PUBLIC_CITY_BASE}/@${encodeURIComponent(nickname)}` : null;
+
+  if (target.kind === 'city') {
+    const ownMachines = machines.filter(owned);
+    if (base && ownMachines.some((m) => hasPublished(byMachine[m.id]))) return { kind: 'link', url: base };
+    if (machines.some((m) => !owned(m) && hasPublished(byMachine[m.id]))) return { kind: 'foreign' };
+    return { kind: 'unpublished' };
+  }
 
   const machine = machines.find((m) => m.id === target.machineId);
-  if (!machine) return null;
+  if (!machine) return { kind: 'unpublished' };
+  if (!owned(machine)) return hasPublished(byMachine[machine.id]) ? { kind: 'foreign' } : { kind: 'unpublished' };
+  if (!base) return { kind: 'unpublished' };
+
   const state = byMachine[machine.id];
-  if (target.kind === 'machine') return hasPublished(state) ? `${base}/${encodeURIComponent(machine.public_id)}` : null;
+  if (target.kind === 'machine') return hasPublished(state) ? { kind: 'link', url: `${base}/${encodeURIComponent(machine.public_id)}` } : { kind: 'unpublished' };
 
   const room = state?.snapshot?.rooms.find((r) => r.project.id === target.roomId);
-  if (!room?.project.is_public) return null;
-  return `${base}/${encodeURIComponent(machine.public_id)}?room=${encodeURIComponent(room.project.public_id)}`;
+  if (!room?.project.is_public) return { kind: 'unpublished' };
+  return { kind: 'link', url: `${base}/${encodeURIComponent(machine.public_id)}?room=${encodeURIComponent(room.project.public_id)}` };
 }
 
 type ShareStatus = 'idle' | 'copied' | 'failed';
 
 /**
- * Copies the current rest's public link. When there is nothing published in view, the button
- * explains that instead of pretending there is something to copy — it never calls the clipboard
- * with a link that would 404.
+ * Copies the current rest's public link. When there is nothing to copy, the button explains why
+ * instead of pretending there is something to copy — either nothing published yet, or (view-as/
+ * view-all) something published that belongs to a city this viewer's own nickname cannot address.
  */
-function ShareButton({ link }: { link: string | null }) {
+function ShareButton({ result }: { result: ShareResult }) {
   const [status, setStatus] = useState<ShareStatus>('idle');
 
   useEffect(() => {
@@ -375,14 +402,22 @@ function ShareButton({ link }: { link: string | null }) {
     return () => clearTimeout(id);
   }, [status]);
 
-  if (!link) {
+  if (result.kind === 'unpublished') {
     return (
       <span className="rounded px-2 py-1 text-fg-dim" title="Publique um projeto para gerar o link público">
         nada publicado aqui ainda
       </span>
     );
   }
+  if (result.kind === 'foreign') {
+    return (
+      <span className="rounded px-2 py-1 text-fg-dim" title="Só o dono de uma máquina pode compartilhar o link da cidade dela">
+        pertence a outra pessoa
+      </span>
+    );
+  }
 
+  const link = result.url;
   const copy = async () => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('no clipboard API');

@@ -151,4 +151,28 @@ describe('ProjectPage publish switch', () => {
     expect(patchMock).toHaveBeenCalledWith(proj.id, expect.objectContaining({ is_public: false }));
     expect(screen.queryByText(/o nome do projeto, o nome da máquina e todas as abas/i)).toBeNull();
   });
+
+  it('says so when unpublishing fails, on the same path that bypasses the confirmation panel', async () => {
+    const proj = project({ is_public: true });
+    dataState.current = { ...dataState.current, projects: [proj] };
+    patchMock.mockRejectedValueOnce(new Error('network down'));
+    renderPage(proj);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+    });
+
+    expect(screen.getByText('Erro ao despublicar')).toBeTruthy();
+  });
+
+  it('keeps the switch reading "off" to a screen reader while the confirmation is still pending', async () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    renderPage(proj);
+
+    fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+
+    // the warning is up, but nothing has actually published yet — aria-checked must say so too
+    expect(screen.getByRole('switch', { name: /publicar/i }).getAttribute('aria-checked')).toBe('false');
+  });
 });

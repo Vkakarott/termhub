@@ -102,7 +102,7 @@ function PublishControl({ project }: { project: Project }) {
     } catch (err) {
       const code = (err as { code?: string } | null | undefined)?.code;
       if (code === 'NICKNAME_REQUIRED') setNeedsNickname(true);
-      else setError(err instanceof ApiError ? err.message : 'Erro ao publicar');
+      else setError(err instanceof ApiError ? err.message : next ? 'Erro ao publicar' : 'Erro ao despublicar');
     } finally {
       setBusy(false);
     }
@@ -131,7 +131,10 @@ function PublishControl({ project }: { project: Project }) {
       <button
         type="button"
         role="switch"
-        aria-checked={project.is_public || confirming}
+        // Reflects only the persisted value, never the confirm panel being open: a screen reader must
+        // hear "off" for exactly as long as the switch has not actually flipped, same as the visible
+        // knob below (which was already gated on `project.is_public` alone).
+        aria-checked={project.is_public}
         aria-label="Publicar"
         title={project.is_public ? 'Deixar de publicar' : 'Publicar na cidade pública'}
         disabled={busy}
@@ -154,6 +157,14 @@ function PublishControl({ project }: { project: Project }) {
               Publicar
             </button>
           </div>
+        </div>
+      )}
+      {/* The unpublish path bypasses the panel above entirely, so its failure (an expired session, a
+          500, a dropped connection — the server does not guard off→on) needs somewhere to be seen too;
+          without this the switch just did not move and said nothing. */}
+      {!confirming && error && (
+        <div className="absolute right-0 top-full z-10 mt-2 w-56 rounded-lg border border-danger/40 bg-bg-2 p-2 text-xs text-danger shadow-lg">
+          {error}
         </div>
       )}
       <NicknameDialog
