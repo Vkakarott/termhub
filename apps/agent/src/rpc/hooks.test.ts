@@ -90,6 +90,24 @@ describe('hooks.install', () => {
   });
 });
 
+describe('hooks.install — a settings.json we must not clobber', () => {
+  it('refuses a `hooks` that is not an object, and heal leaves that dir alone instead of rewriting it', async () => {
+    await mkdir(path.join(home, '.claude'), { recursive: true });
+    const theirs = JSON.stringify({ model: 'opus', hooks: [{ matcher: '*' }] });
+    await writeFile(path.join(home, '.claude/settings.json'), theirs);
+
+    await expect(install(params, home)).rejects.toMatchObject({ code: 'failed', path: '.claude/settings.json' });
+    expect(await read('.claude/settings.json')).toBe(theirs);
+
+    // installed from another dir, heal must not "repair" the odd file either
+    await mkdir(path.join(home, '.claude-ok'), { recursive: true });
+    await writeFile(path.join(home, '.claude-ok/settings.json'), '{}');
+    await install({ ...params, claude_dirs: ['~/.claude-ok'] }, home).catch(() => undefined);
+    await heal(home);
+    expect(await read('.claude/settings.json')).toBe(theirs);
+  });
+});
+
 describe('hooks.install — Cursor CLI', () => {
   it('writes ~/.cursor/hooks.json when ~/.cursor exists, keeping the user\'s own hooks, and is idempotent', async () => {
     await mkdir(path.join(home, '.cursor'), { recursive: true });
@@ -247,6 +265,21 @@ describe('heal', () => {
     await writeFile(path.join(home, '.codex/config.toml'), 'notify = ["my-notifier"]\nmodel = "o3"\n');
     await expect(heal(home)).resolves.toEqual([]);
     expect(await read('.codex/config.toml')).toBe('notify = ["my-notifier"]\nmodel = "o3"\n');
+  });
+
+  it('repairs Cursor and Codex even when a Claude settings.json cannot be written', async () => {
+    await install(params, home);
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await mkdir(path.join(home, '.codex'), { recursive: true });
+    await writeFile(path.join(home, '.codex/config.toml'), 'model = "o3"\n');
+    // a dir discovered later whose settings.json cannot even be read (here a directory in its place;
+    // on a real machine a read-only mount or another owner) — the error escapes the per-dir handling
+    await mkdir(path.join(home, '.claude-locked/settings.json'), { recursive: true });
+
+    await expect(heal(home)).resolves.toEqual(['~/.cursor', '~/.codex']);
+
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toMatchObject({ version: 1 });
+    expect(await read('.codex/config.toml')).toContain('notify = [');
   });
 
   it('rewrites a script left behind by an older agent, keeping it atomic and executable', async () => {

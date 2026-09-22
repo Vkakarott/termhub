@@ -178,7 +178,19 @@ export async function heal(home = os.homedir()): Promise<string[]> {
   // a version, is what keeps every later change to the script reaching machines by itself).
   if (script !== HOOK_SCRIPT) await writeAtomic(scriptPath, HOOK_SCRIPT, 0o755);
 
-  return [...(await healClaudeDirs(home, scriptPath)), ...(await healCursor(home, scriptPath)), ...(await healCodex(home, scriptPath))];
+  // One failing repair must not take the others down: a settings.json on a read-only mount, or one
+  // owned by somebody else, would otherwise reject before Cursor and Codex are even looked at, and
+  // the machine would go on missing their hooks at every reconnect - what heal exists to prevent.
+  const steps = [healClaudeDirs, healCursor, healCodex];
+  const healed: string[] = [];
+  for (const step of steps) {
+    try {
+      healed.push(...(await step(home, scriptPath)));
+    } catch {
+      // the next reconnect tries again; nothing here is worth failing the startup for
+    }
+  }
+  return healed;
 }
 
 /** Our entries in the Claude config dirs that lack them; answers the dirs it wrote. */
@@ -187,14 +199,13 @@ async function healClaudeDirs(home: string, scriptPath: string): Promise<string[
   for (const dir of await discoverClaudeDirs(home)) {
     const file = path.join(expandHome(dir, home), 'settings.json');
     const current = await readOrEmpty(file);
-    let body: string;
     try {
-      body = mergeClaudeSettings(current, scriptPath);
+      const body = mergeClaudeSettings(current, scriptPath);
+      if (body === current) continue;
+      await writeAtomic(file, body, 0o644);
     } catch {
-      continue; // not a settings file we understand: leave it as the person wrote it
+      continue; // not a settings file we understand, or one we cannot write: leave it where it is
     }
-    if (body === current) continue;
-    await writeAtomic(file, body, 0o644);
     healed.push(dir);
   }
   return healed;
@@ -209,14 +220,13 @@ async function healCursor(home: string, scriptPath: string): Promise<string[]> {
   if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return [];
   const file = path.join(home, CURSOR_HOOKS_REL);
   const current = await readOrEmpty(file);
-  let body: string;
   try {
-    body = mergeCursorHooks(current, scriptPath);
+    const body = mergeCursorHooks(current, scriptPath);
+    if (body === current) return [];
+    await writeAtomic(file, body, 0o644);
   } catch {
-    return [];
+    return []; // a file we cannot read or write: leave it where it is
   }
-  if (body === current) return [];
-  await writeAtomic(file, body, 0o644);
   return [`~/${CURSOR_DIR_REL}`];
 }
 
