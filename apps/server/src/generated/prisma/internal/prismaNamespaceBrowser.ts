@@ -74,7 +74,8 @@ export const ModelName = {
   ApiTokenEvent: 'ApiTokenEvent',
   ChatConversation: 'ChatConversation',
   ChatMessage: 'ChatMessage',
-  ChatAction: 'ChatAction'
+  ChatAction: 'ChatAction',
+  InstanceSecret: 'InstanceSecret'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -454,6 +455,15 @@ export const ChatActionScalarFieldEnum = {
 } as const
 
 export type ChatActionScalarFieldEnum = (typeof ChatActionScalarFieldEnum)[keyof typeof ChatActionScalarFieldEnum]
+
+
+export const InstanceSecretScalarFieldEnum = {
+  name: 'name',
+  value: 'value',
+  createdAt: 'createdAt'
+} as const
+
+export type InstanceSecretScalarFieldEnum = (typeof InstanceSecretScalarFieldEnum)[keyof typeof InstanceSecretScalarFieldEnum]
 
 
 export const SortOrder = {

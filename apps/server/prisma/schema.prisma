@@ -577,3 +577,13 @@ model ChatAction {
   @@index([conversationId, createdAt])
   @@map("chat_actions")
 }
+
+/// A secret this instance generates for itself, once, and keeps: no env var to configure, and blue
+/// and green read the same row. `public_id` keys the HMAC behind every id on the public city.
+model InstanceSecret {
+  name      String   @id
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("instance_secrets")
+}

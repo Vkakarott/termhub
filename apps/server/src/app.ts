@@ -26,6 +26,7 @@ import { waitlistRoutes } from './routes/waitlist.js';
 import { publicCityRoutes } from './routes/public-city.js';
 import { registerPublicWs } from './public/ws.js';
 import { renderCityPage } from './public/city-page.js';
+import { loadPublicIdKey, setPublicIdKey } from './public/public-id.js';
 import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
 import { registerMonitorWs } from './monitor/ws.js';
@@ -74,6 +75,9 @@ export async function buildApp(): Promise<App> {
   const prisma = getPrisma();
   await prisma.$connect();
   const repos = createRepositories(prisma);
+  // Before anything maps a machine or a project (the seed does): every public id is an HMAC with
+  // this key, and publicId() refuses to answer without it.
+  setPublicIdKey(await loadPublicIdKey(repos));
   await seed(repos, (m) => fastify.log.info(m));
 
   const mailer = createMailer((m) => fastify.log.info(m));

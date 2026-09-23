@@ -160,3 +160,9 @@ export type ChatMessage = Prisma.ChatMessageModel
  * action trail: step 1 rendered the trail from live events only, so it vanished on reload.
  */
 export type ChatAction = Prisma.ChatActionModel
+/**
+ * Model InstanceSecret
+ * A secret this instance generates for itself, once, and keeps: no env var to configure, and blue
+ * and green read the same row. `public_id` keys the HMAC behind every id on the public city.
+ */
+export type InstanceSecret = Prisma.InstanceSecretModel

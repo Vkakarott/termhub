@@ -5,7 +5,8 @@ import type { Repositories } from '../db/repositories/index.js';
 import { rejectUpgrade } from '../ws/router.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
-import { publicId, toPublicRobot } from './city.js';
+import { toPublicRobot } from './city.js';
+import { publicId } from './public-id.js';
 import { normalizeNickname } from './nickname.js';
 
 /**

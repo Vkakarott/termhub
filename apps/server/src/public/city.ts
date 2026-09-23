@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { publicId } from './public-id.js';
 import type { Machine, OfficeTabProgress, Project, Tab, TabActivity, TabState } from '../db/repositories/types.js';
 
 /**
@@ -20,16 +20,6 @@ export interface PublicRobot {
 export interface PublicRoom { id: string; name: string; robots: PublicRobot[] }
 export interface PublicBuilding { id: string; name: string; rooms: PublicRoom[] }
 export interface PublicCity { nickname: string; owner_name: string; buildings: PublicBuilding[] }
-
-/**
- * A one-way id for the street. Real ids are random, so a hash of one cannot be walked back into it;
- * confirming a match needs the real id, which only someone who already has access holds. Same input,
- * same output on every container, so a snapshot from one and a socket frame from another agree
- * during a blue/green switch.
- */
-export function publicId(kind: 'machine' | 'project' | 'tab', realId: string): string {
-  return createHash('sha256').update(`${kind}:${realId}`).digest('base64url').slice(0, 22);
-}
 
 export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: OfficeTabProgress | null }): PublicRobot {
   return {

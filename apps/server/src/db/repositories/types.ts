@@ -9,7 +9,7 @@ import type {
   Note as PrismaNote,
   Ticket as PrismaTicket,
 } from '../../generated/prisma/client.js';
-import { publicId } from '../../public/city.js';
+import { publicId } from '../../public/public-id.js';
 
 export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh' | 'agent';

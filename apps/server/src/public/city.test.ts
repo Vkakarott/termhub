@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { publicId, toPublicCity, toPublicRobot } from './city.js';
+import { toPublicCity, toPublicRobot } from './city.js';
+import { publicId } from './public-id.js';
 import { mapProject } from '../db/repositories/types.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 

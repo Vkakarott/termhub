@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
-import { publicId } from './city.js';
+import { publicId } from './public-id.js';
 import type { PublicCity } from './city.js';
 
 // readPublicCity only ever reads the tmux memo (see public/read.ts); stub it the same way

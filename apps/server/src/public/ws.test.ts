@@ -9,7 +9,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Project, Tab, User } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
-import { publicId } from './city.js';
+import { publicId } from './public-id.js';
 import { registerPublicWs } from './ws.js';
 
 const pedro = { id: 'u1', nickname: 'pedro' } as User;
