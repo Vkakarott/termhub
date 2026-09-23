@@ -246,9 +246,10 @@ export function probeTmuxSessionsCached(machine: Machine, opts: { fresh?: boolea
  * connection on someone else's behalf (the public city, read by anyone with the link), this is the
  * only safe way to consult the memo: `probeTmuxSessionsCached` always probes on a miss.
  */
-export function cachedTmuxProbe(machine: Machine, opts: { now?: () => number } = {}): TmuxProbe | undefined {
+export function cachedTmuxProbe(machine: Pick<Machine, 'id'> | string, opts: { now?: () => number } = {}): TmuxProbe | undefined {
   const now = opts.now ?? Date.now;
-  const hit = probeMemo.get(machine.id);
+  // By id as well as by row: the public channel only has the machine id a monitor change carries.
+  const hit = probeMemo.get(typeof machine === 'string' ? machine : machine.id);
   if (!hit) return undefined;
   const ttl = hit.probe.reachable ? PROBE_TTL_MS.reachable : PROBE_TTL_MS.unreachable;
   return now() - hit.at < ttl ? hit.probe : undefined;

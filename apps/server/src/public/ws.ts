@@ -8,6 +8,8 @@ import { publicBus } from './bus.js';
 import { toPublicRobot } from './city.js';
 import { publicId } from './public-id.js';
 import { normalizeNickname } from './nickname.js';
+import { publicAlive } from './read.js';
+import { cachedTmuxProbe } from '../terminal/machine-exec.js';
 
 /**
  * `/ws/public/<nickname>`: the live city for a visitor with no account. It is not `/ws/monitor` with
@@ -41,9 +43,10 @@ export function registerPublicWs(router: ReturnType<typeof createUpgradeRouter>,
         if (change.owner_id !== owner.id || !published.has(change.project_id)) return;
         if (ws.readyState !== WebSocket.OPEN) return;
         // A change proves the tab's tmux session existed once, not that it still does (a plain
-        // "seen" click on the tab publishes here too) — matches readPublicCity's cold-memo rule
-        // (public/read.ts) so a visitor never sees the two public surfaces disagree.
-        const alive = change.tab.kind === 'terminal' && change.tab.state !== null;
+        // "seen" click on the tab publishes here too): the same rule as the snapshot, reading the
+        // same memo (never probing), so a visitor never sees the two public surfaces disagree.
+        const probe = change.tab.kind === 'terminal' ? cachedTmuxProbe(change.machine_id) : undefined;
+        const alive = publicAlive(change.tab, probe);
         ws.send(JSON.stringify({ type: 'robot', building: publicId('machine', change.machine_id), room: publicId('project', change.project_id), robot: toPublicRobot(change.tab, { alive, progress: null }) }));
       });
       const offPublic = publicBus.subscribe((change) => {

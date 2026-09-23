@@ -10,7 +10,13 @@ import type { Project, Tab, User } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
 import { publicId } from './public-id.js';
-import { registerPublicWs } from './ws.js';
+
+// The tmux memo both public surfaces read (never probe). Cold by default, like a fresh process.
+const { memo } = vi.hoisted(() => ({ memo: { current: undefined as { reachable: boolean; sessions: Set<string> } | undefined } }));
+vi.mock('../terminal/machine-exec.js', () => ({ cachedTmuxProbe: () => memo.current }));
+
+const { registerPublicWs } = await import('./ws.js');
+const { readPublicCity } = await import('./read.js');
 
 const pedro = { id: 'u1', nickname: 'pedro' } as User;
 const p1 = { id: 'p1', is_public: true, status: 'active' } as Project;
@@ -124,6 +130,7 @@ describe('registerPublicWs', () => {
   });
 
   afterEach(async () => {
+    memo.current = undefined;
     if (server) await shutdown(server);
   });
 
@@ -181,6 +188,39 @@ describe('registerPublicWs', () => {
     monitorBus.publish({ tab: tab({ id: 't5', state: 'working' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const awake = await nextMessage(client);
     expect(awake.robot.alive).toBe(true);
+    client.terminate();
+  });
+
+  // The snapshot and the channel must never disagree about who is at a desk: with a warm memo both
+  // read real tmux membership, with a cold one both fall back to the tab's own state.
+  it('reports the same alive as the snapshot, warm memo or cold', async () => {
+    const snapshotAlive = async (t: Tab) => {
+      const snapRepos = {
+        users: { findByNickname: async () => pedro },
+        machines: { list: async () => [{ id: 'm1', name: 'M' }] },
+        projects: { list: async () => [p1] },
+        tabs: { listByProjects: async () => [t] },
+      } as unknown as Repositories;
+      return (await readPublicCity(snapRepos, 'pedro'))!.buildings[0]!.rooms[0]!.robots[0]!.alive;
+    };
+    const client = await connect('/ws/public/pedro');
+    const cases: [typeof memo.current, Tab][] = [
+      [{ reachable: true, sessions: new Set(['th-other']) }, tab({ state: 'working' })],
+      [{ reachable: true, sessions: new Set(['th-t1']) }, tab({ state: null })],
+      [{ reachable: false, sessions: new Set() }, tab({ state: 'working' })],
+      [undefined, tab({ state: 'working' })],
+      [undefined, tab({ state: null })],
+    ];
+    for (const [warm, t] of cases) {
+      memo.current = warm;
+      monitorBus.publish({ tab: t, project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+      const frame = await nextMessage(client);
+      expect(frame.robot.alive).toBe(await snapshotAlive(t));
+    }
+    // and the warm cases really are read from the memo, not from the tab's state
+    memo.current = { reachable: true, sessions: new Set(['th-other']) };
+    monitorBus.publish({ tab: tab({ state: 'working' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    expect((await nextMessage(client)).robot.alive).toBe(false);
     client.terminate();
   });
 

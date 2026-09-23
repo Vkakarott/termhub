@@ -216,6 +216,18 @@ describe('cachedTmuxProbe', () => {
     expect(probeCallCount()).toBe(calls);
   });
 
+  // The public channel only has the machine id a monitor change carries, not the row.
+  it('answers the same memo by machine id', async () => {
+    const now = () => 1_000;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    expect(cachedTmuxProbe(m.id, { now })).toEqual(cachedTmuxProbe(m, { now }));
+    expect(cachedTmuxProbe('m-unknown', { now })).toBeUndefined();
+    expect(probeCallCount()).toBe(calls);
+  });
+
   it('answers undefined once the memo has expired, and does not refresh it', async () => {
     let t = 0;
     const now = () => t;

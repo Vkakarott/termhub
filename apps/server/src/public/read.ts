@@ -1,5 +1,6 @@
 import type { Repositories } from '../db/repositories/index.js';
-import { cachedTmuxProbe } from '../terminal/machine-exec.js';
+import type { Tab } from '../db/repositories/types.js';
+import { cachedTmuxProbe, type TmuxProbe } from '../terminal/machine-exec.js';
 import { toPublicCity, type PublicCity } from './city.js';
 
 /**
@@ -12,6 +13,15 @@ import { toPublicCity, type PublicCity } from './city.js';
  * an anonymous visitor must not be able to make this server dial an unreachable machine and wait out
  * its timeout, and a cold city showing every desk empty would be a worse answer than a stale one.
  */
+/**
+ * Whether a robot sits at its desk, by the one rule both public surfaces use — the snapshot here and
+ * every frame on `/ws/public` (public/ws.ts) — so a visitor never sees them disagree: with a warm
+ * memo, real tmux session membership; with a cold one, the tab's own last reported state.
+ */
+export function publicAlive(tab: Pick<Tab, 'kind' | 'state' | 'tmux_session'>, probe: TmuxProbe | undefined): boolean {
+  return probe ? probe.reachable && !!tab.tmux_session && probe.sessions.has(tab.tmux_session) : tab.kind === 'terminal' && tab.state !== null;
+}
+
 export async function readPublicCity(repos: Repositories, nickname: string): Promise<PublicCity | undefined> {
   const owner = await repos.users.findByNickname(nickname);
   if (!owner) return undefined;
@@ -28,9 +38,7 @@ export async function readPublicCity(repos: Repositories, nickname: string): Pro
         project,
         tabs: tabs.filter((t) => t.project_id === project.id).map((tab) => ({
           tab,
-          alive: probe
-            ? probe.reachable && !!tab.tmux_session && probe.sessions.has(tab.tmux_session)
-            : tab.kind === 'terminal' && tab.state !== null,
+          alive: publicAlive(tab, probe),
           progress: null,
         })),
       })),
