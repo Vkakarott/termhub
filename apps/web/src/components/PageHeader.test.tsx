@@ -96,9 +96,20 @@ describe('PageHeader on a narrow window', () => {
     expect(middle).not.toHaveClass('min-w-0');
     // the subtitle shrinks much faster, and hides on narrow windows
     expect(subtitle).toHaveClass('min-w-0', 'truncate', 'shrink-[10]', 'hidden', 'lg:inline');
-    // the title truncates within a cap, shrinking after the subtitle
-    expect(title).toHaveClass('min-w-0', 'truncate', 'shrink-[2]');
-    expect(title.className).toMatch(/max-w-\[\d+rem\]/);
+    // a long title truncates after the subtitle, never below a floor, with no fixed cap
+    expect(title).toHaveClass('min-w-[6rem]', 'truncate', 'shrink-[2]');
+    expect(title.className).not.toMatch(/max-w-/);
+  });
+
+  it('never cuts a short title: it does not shrink at all', () => {
+    render(
+      <MemoryRouter>
+        <PageHeader title="Escritório" tabs={[{ to: '/a', label: 'Terminais' }]} extra={<nav aria-label="Trilha">Cidade</nav>} />
+      </MemoryRouter>,
+    );
+    const title = screen.getByRole('heading', { level: 1 });
+    expect(title).toHaveClass('shrink-0');
+    expect(title.className).not.toMatch(/max-w-|min-w-0/);
   });
 
   it('fades the scrolling edge so there is visibly more', () => {

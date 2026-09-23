@@ -23,18 +23,23 @@ export interface PageHeaderProps {
   actions?: ReactNode;
 }
 
+/** titles up to this many characters fit the 6rem floor at text-sm, so they never shrink */
+const SHORT_TITLE = 12;
+
 /**
  * The one header every page inside the sidebar layout uses (spec 2026-09-23 app chrome §6). The bar
  * itself never clips its overflow: popovers anchored in the actions (PublishControl) hang below it.
- * On a narrow window things give way in order: the subtitle first (hidden below `lg`), then the title
- * (truncated within a cap), and the middle — tabs and extra — last, never below a usable width,
- * scrolling sideways with a faded edge. The actions never shrink.
+ * On a narrow window things give way in order: the subtitle first (hidden below `lg`), then a long
+ * title (truncated, never below 6rem, no fixed cap), and the middle — tabs and extra — last, never
+ * below a usable width, scrolling sideways with both edges faded. A short title never shrinks (CSS
+ * cannot say "min-width: min(6rem, max-content)", so a title short enough to fit 6rem is simply
+ * `shrink-0`). The actions never shrink.
  */
 export function PageHeader({ title, subtitle, subtitleTitle, tabs, extra, actions }: PageHeaderProps) {
   const hasTabs = !!tabs && tabs.length > 0;
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line bg-bg-2 px-4">
-      <h1 className="min-w-0 max-w-[16rem] shrink-[2] truncate text-sm font-semibold" title={title}>
+      <h1 className={`${Array.from(title).length <= SHORT_TITLE ? 'shrink-0' : 'min-w-[6rem] shrink-[2]'} truncate text-sm font-semibold`} title={title}>
         {title}
       </h1>
       {subtitle && (
