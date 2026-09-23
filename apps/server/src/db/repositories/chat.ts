@@ -157,7 +157,13 @@ export class ChatRepository {
     await this.db.chatConversation.updateMany({ where: { id, machineId: null }, data: { machineId } });
   }
 
-  async setHost(id: string, host: { machine_id: string; ai_account_id: string | null }): Promise<ChatConversation> {
+  /**
+   * `moved` is the one true signal that the pair changed (see the doc comment above): callers that
+   * need to strand *other* rows tied to this host (the project conversations, spec §3) must branch on
+   * it and not re-derive it from the returned conversation, whose own `cli_session_id` can be null for
+   * reasons that have nothing to do with a move (a fresh "Nova conversa" row, for one).
+   */
+  async setHost(id: string, host: { machine_id: string; ai_account_id: string | null }): Promise<{ conversation: ChatConversation; moved: boolean }> {
     return this.db.$transaction(async (tx) => {
       const current = await tx.chatConversation.findUnique({ where: { id } });
       // A null stored machine is "not known to have moved", never "moved from nothing".
@@ -168,7 +174,7 @@ export class ChatRepository {
         where: { id },
         data: { machineId: host.machine_id, aiAccountId: host.ai_account_id, ...(moved ? { cliSessionId: null } : {}) },
       });
-      return mapConversation(row);
+      return { conversation: mapConversation(row), moved };
     });
   }
 

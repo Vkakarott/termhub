@@ -52,9 +52,10 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     getOrCreateForProject: vi.fn(async (_userId: string, projectId: string) => activeFor(projectId)),
     setHost: vi.fn(async (id: string, h: { machine_id: string; ai_account_id: string | null }) => {
       const row = conversations.find((c) => c.id === id)!;
+      const moved = (row.machine_id !== null && row.machine_id !== h.machine_id) || row.ai_account_id !== h.ai_account_id;
       row.machine_id = h.machine_id;
       row.ai_account_id = h.ai_account_id;
-      return row;
+      return { conversation: row, moved };
     }),
     findByIdForUser: vi.fn(async (id: string, userId: string) => (userId === user.id ? conversations.find((c) => c.id === id) : undefined)),
     archive: vi.fn(async (id: string) => {

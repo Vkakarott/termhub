@@ -72,10 +72,12 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     }
 
     const current = await deps.service.conversationFor(user);
-    const conversation = await repos.chat.setHost(current.id, { machine_id: machine.id, ai_account_id: accountId });
+    const { conversation, moved } = await repos.chat.setHost(current.id, { machine_id: machine.id, ai_account_id: accountId });
     // The project chats run on this same host (spec §3): a move strands their sessions exactly as it
-    // strands this one's, and `setHost` is the one that knows whether it really moved.
-    if (current.cli_session_id !== null && conversation.cli_session_id === null) await repos.chat.clearProjectSessions(user.id);
+    // strands this one's. `moved` is `setHost`'s own verdict — inferring it from `cli_session_id`
+    // instead misses a real move whenever the account-wide row had no session to begin with (a user
+    // who only uses project chats, or right after "Nova conversa").
+    if (moved) await repos.chat.clearProjectSessions(user.id);
     return { conversation, host: await deps.service.hostFor(user) };
   });
 

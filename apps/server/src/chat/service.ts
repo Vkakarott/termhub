@@ -204,7 +204,7 @@ export class ChatService {
     // every project chat resolves its host from this row, so theirs must not move either. The pair is
     // copied as it was, so nothing moved and no project session is cleared.
     if (projectId === null && current.machine_id !== null) {
-      return this.deps.repos.chat.setHost(fresh.id, { machine_id: current.machine_id, ai_account_id: current.ai_account_id });
+      return (await this.deps.repos.chat.setHost(fresh.id, { machine_id: current.machine_id, ai_account_id: current.ai_account_id })).conversation;
     }
     return fresh;
   }

@@ -106,20 +106,26 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     // Naming the machine the conversation was already running on (nothing was stored: one machine is
     // resolved on the fly) moves no host, so the model keeps the memory of the conversation.
     const first = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: null });
-    expect(first).toMatchObject({ machine_id: machine.id, ai_account_id: null, cli_session_id: session });
+    expect(first.moved).toBe(false);
+    expect(first.conversation).toMatchObject({ machine_id: machine.id, ai_account_id: null, cli_session_id: session });
 
     // And picking the very same pair again — the same click twice, or a settings screen that saves
     // whatever is selected — is not a host change either.
-    expect((await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: null })).cli_session_id).toBe(session);
+    const same = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: null });
+    expect(same.moved).toBe(false);
+    expect(same.conversation.cli_session_id).toBe(session);
 
     // A second login on the same machine *is* another config directory, so the session is not there.
     const hosted = await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: account.id });
-    expect(hosted).toMatchObject({ machine_id: machine.id, ai_account_id: account.id, cli_session_id: null });
+    expect(hosted.moved).toBe(true);
+    expect(hosted.conversation).toMatchObject({ machine_id: machine.id, ai_account_id: account.id, cli_session_id: null });
 
     // So is another machine: the session lives in the config dir of the machine that ran it, and
     // keeping the uuid would ask the new host to resume a session it has never seen.
     await repo.setCliSession(c.id, session);
-    expect((await repo.setHost(c.id, { machine_id: second.id, ai_account_id: null })).cli_session_id).toBeNull();
+    const movedAgain = await repo.setHost(c.id, { machine_id: second.id, ai_account_id: null });
+    expect(movedAgain.moved).toBe(true);
+    expect(movedAgain.conversation.cli_session_id).toBeNull();
     await repo.setHost(c.id, { machine_id: machine.id, ai_account_id: account.id });
     await db.machine.delete({ where: { id: second.id } });
 

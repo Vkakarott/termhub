@@ -52,7 +52,9 @@ function build(opts: {
   const fixturesOwner = opts.fixturesOwner ?? 'u1';
   const hostMachines = opts.hostMachines ?? [{ id: 'm1', name: 'jarvis', type: 'agent' }];
   const aiAccounts = opts.aiAccounts ?? [];
-  const setHost = opts.setHost ?? vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ id, user_id: 'u1', cli_session_id: null, ...host }));
+  const setHost =
+    opts.setHost ??
+    vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ conversation: { id, user_id: 'u1', cli_session_id: null, ...host }, moved: false }));
   const clearProjectSessions = opts.clearProjectSessions ?? vi.fn(async () => undefined);
   const repos = {
     chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]), setHost, clearProjectSessions },
@@ -348,28 +350,31 @@ it('GET /projects lists per-project status', async () => {
   expect(res.json()).toEqual({ projects: [{ project_id: 'p1', busy: true, pending_confirmations: 1 }] });
 });
 
-it('POST /host also drops the sessions of the project chats', async () => {
+it('clears when moved: true, even with no prior session', async () => {
+  // The account-wide row had no CLI session to begin with — a user who only uses project chats, or
+  // right after "Nova conversa" — so a guard that infers a move from a cli_session_id transition
+  // (non-null -> null) would miss this. `moved` is `setHost`'s own verdict and the route must trust
+  // it, not re-derive it from the conversation it returns.
+  const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({
+    conversation: { id, user_id: 'u1', cli_session_id: null, ...host },
+    moved: true,
+  }));
   const { app, repos } = build({
-    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: 's-old' })),
+    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: null })),
+    setHost,
   });
   await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
   expect(repos.chat.clearProjectSessions).toHaveBeenCalledWith('u1');
 });
 
-it('POST /host does not drop project sessions when there was no session to strand', async () => {
-  // The account-wide conversation had no CLI session at all — `cli_session_id: null` before, same
-  // after `setHost`'s default fake. Nothing moved off a session, so nothing downstream should be
-  // told a session was stranded.
-  const { app, repos } = build();
-  await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
-  expect(repos.chat.clearProjectSessions).not.toHaveBeenCalled();
-});
-
-it('POST /host does not drop project sessions when the pair did not really move', async () => {
-  // A session existed ('s-old') and `setHost` says it survived — re-picking the same host the
-  // conversation was already running on. Only `setHost` knows this; the route must trust its answer,
-  // not assume any host write strands a session.
-  const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ id, user_id: 'u1', cli_session_id: 's-old', ...host }));
+it('does not clear when moved: false, even if a session existed', async () => {
+  // A session existed ('s-old') and `setHost` says the pair did not really move — re-picking the
+  // same host the conversation was already running on. Only `setHost` knows this; the route must
+  // trust its answer, not assume any host write strands a session.
+  const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({
+    conversation: { id, user_id: 'u1', cli_session_id: 's-old', ...host },
+    moved: false,
+  }));
   const { app, repos } = build({
     conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: 's-old' })),
     setHost,
