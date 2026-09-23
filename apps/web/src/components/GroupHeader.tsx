@@ -47,7 +47,12 @@ export function GroupHeader({ section, collapsed, onToggle, editable, onRename, 
 
   const label = `${collapsed ? 'Expandir' : 'Recolher'} ${section.label}`;
   return (
-    <div className="group/g flex items-center pr-2" {...headerDragProps}>
+    <div
+      {...headerDragProps}
+      className={`group/g flex items-center pr-2 ${headerDragProps?.className ?? ''}`}
+      // a drag would steal the rename input's text selection
+      draggable={headerDragProps?.draggable ? !editing : undefined}
+    >
       <button
         type="button"
         className="w-5 shrink-0 py-1 text-center text-[9px] text-fg-dim hover:text-fg"
@@ -86,7 +91,7 @@ export function GroupHeader({ section, collapsed, onToggle, editable, onRename, 
         </p>
       )}
       {editable && !editing && (
-        <span className="hidden shrink-0 items-center gap-0.5 group-hover/g:flex">
+        <span className="hidden shrink-0 items-center gap-0.5 group-focus-within/g:flex group-hover/g:flex">
           <button type="button" className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Renomear grupo" onClick={begin}>
             ✎
           </button>

@@ -45,7 +45,7 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
     </button>
   );
   return (
-    <li className="mb-0.5" {...dragProps}>
+    <li {...dragProps} className={`mb-0.5 ${dragProps?.className ?? ''}`}>
       <div className="group/p flex items-center rounded-r hover:bg-bg-3">
         {hasAgents ? (
           <button

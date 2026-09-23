@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type DragEvent, type HTMLAttributes } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { canSeeSettings } from '../lib/settings-sections';
@@ -7,8 +7,9 @@ import { openCookieBanner } from './AnalyticsGate';
 import { useData } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
-import { buildSections, type Section } from '../lib/project-groups-model';
+import { applyDrop, buildSections, type DragSource, type Section, type SectionId } from '../lib/project-groups-model';
 import { useProjectGroups } from '../lib/project-groups';
+import { decodeGroupDrag, decodeProjectDrag, encodeProjectDrag, GROUP_MIME, PROJECT_MIME, slotFor } from '../lib/sidebar-dnd';
 import { loadCollapsedGroups, loadCollapsedProjects, saveCollapsedGroups, saveCollapsedProjects } from '../lib/sidebar-prefs';
 import type { Project, ProjectGroup, Tab } from '../lib/types';
 import { GroupHeader } from './GroupHeader';
@@ -32,6 +33,15 @@ function agentsByProject(tabs: Tab[]): Map<string, Tab[]> {
   return byProject;
 }
 
+/** what is being dragged in the sidebar: a project row, or a group header */
+type Drag = { kind: 'project'; source: DragSource } | { kind: 'group'; groupId: string };
+/** where a dragged project would land: `slot` counts the section's visible rows */
+type DropAt = { to: SectionId; slot: number };
+/** a section that is a group, as opposed to Em execução and Outros: Alt copies out of it, Outros takes projects out of it */
+const isGroupSection = (id: SectionId) => id !== 'running' && id !== 'others';
+const LINE_ABOVE = 'border-t-2 border-accent';
+const LINE_BELOW = 'border-b-2 border-accent';
+
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can } = useAuth();
   const { projects, machinesOf, loading, deleteProject } = useData();
@@ -46,13 +56,18 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [collapsed, setCollapsedState] = useState<Set<string>>(loadCollapsedProjects);
-  const { groups, error: groupsError, createGroup, renameGroup, deleteGroup, isFavorite, toggleFavorite } = useProjectGroups();
+  const { groups, error: groupsError, createGroup, renameGroup, deleteGroup, reorderGroups, setMemberships, isFavorite, toggleFavorite } = useProjectGroups();
   const [collapsedGroups, setCollapsedGroupsState] = useState<Set<string>>(loadCollapsedGroups);
   /** the group "+ grupo" just created: its header opens in rename mode */
   const [newGroupId, setNewGroupId] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<ProjectGroup | null>(null);
   /** the open Grupos… menu; `key` changes per opening so a menu never inherits another row's state */
   const [menuFor, setMenuFor] = useState<{ projectId: string; anchor: HTMLElement; key: number } | null>(null);
+  // the drag in progress: browsers hide dataTransfer's data during dragover (and jsdom barely has it), so it is kept here too
+  const dragRef = useRef<Drag | null>(null);
+  const [dropAt, setDropAt] = useState<DropAt | null>(null);
+  /** the group header a dragged group would land on, and on which side of it */
+  const [groupDropAt, setGroupDropAt] = useState<{ id: string; below: boolean } | null>(null);
 
   const setCollapsed = (next: Set<string>) => {
     setCollapsedState(next);
@@ -92,32 +107,136 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     setCollapsed(next);
   };
 
+  const endDrag = () => {
+    dragRef.current = null;
+    setDropAt(null);
+    setGroupDropAt(null);
+  };
+  const draggedProject = (e: DragEvent): DragSource | null =>
+    decodeProjectDrag(e.dataTransfer?.getData(PROJECT_MIME) ?? '') ?? (dragRef.current?.kind === 'project' ? dragRef.current.source : null);
+  const draggedGroup = (e: DragEvent): string | null =>
+    decodeGroupDrag(e.dataTransfer?.getData(GROUP_MIME) ?? '') ?? (dragRef.current?.kind === 'group' ? dragRef.current.groupId : null);
+  const sortedGroups = [...groups].sort((a, b) => a.position - b.position);
+
+  /** A visible slot → the index in the group's project_ids, which may also hold projects this list hides (archived ones). */
+  const groupIndex = (section: Section, slot: number) => {
+    const ids = groups.find((g) => g.id === section.id)?.project_ids ?? [];
+    const at = slot < section.projects.length ? ids.indexOf(section.projects[slot].id) : -1;
+    return at === -1 ? ids.length : at;
+  };
+
+  /** Handlers that take a dragged project into `section` at `slot(e)`. Em execução never gets them: it is not a drop target. */
+  const projectDropTarget = (section: Section, slot: (e: DragEvent<HTMLElement>) => number): HTMLAttributes<HTMLElement> => {
+    // Outros only takes a project out of a group: from Em execução or Outros itself nothing would change
+    const accepts = (src: DragSource | null): src is DragSource => !!src && (section.kind !== 'others' || isGroupSection(src.from));
+    return {
+      onDragOver: (e) => {
+        const src = draggedProject(e);
+        if (!accepts(src)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = e.altKey && isGroupSection(src.from) ? 'copy' : 'move';
+        const at = slot(e);
+        setDropAt((cur) => (cur?.to === section.id && cur.slot === at ? cur : { to: section.id, slot: at }));
+      },
+      onDrop: (e) => {
+        const src = draggedProject(e);
+        if (!accepts(src)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const index = section.kind === 'others' ? 0 : groupIndex(section, slot(e));
+        endDrag();
+        const result = applyDrop(groups, src, { to: section.id, index }, { copy: e.altKey });
+        if (result) void setMemberships(result.next, result.changes);
+      },
+    };
+  };
+  const leaveSection = (e: DragEvent<HTMLElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
+  };
+
+  /** Favoritos and custom group headers: dragged to reorder the groups, and where a dragged group lands. */
+  const headerDragProps = (section: Section): HTMLAttributes<HTMLDivElement> => {
+    const index = sortedGroups.findIndex((g) => g.id === section.id);
+    return {
+      draggable: true,
+      className: groupDropAt?.id === section.id ? (groupDropAt.below ? LINE_BELOW : LINE_ABOVE) : '',
+      onDragStart: (e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData(GROUP_MIME, section.id);
+        dragRef.current = { kind: 'group', groupId: section.id };
+      },
+      onDragEnd: endDrag,
+      onDragOver: (e) => {
+        const id = draggedGroup(e);
+        // a project bubbles on to the section: dropped on a header, it goes to the end of that group
+        if (!id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        // moving down, the group lands after this header; moving up, before it
+        const below = sortedGroups.findIndex((g) => g.id === id) < index;
+        setGroupDropAt((cur) => (cur?.id === section.id && cur.below === below ? cur : { id: section.id, below }));
+      },
+      onDragLeave: (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setGroupDropAt(null);
+      },
+      onDrop: (e) => {
+        const id = draggedGroup(e);
+        if (!id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        endDrag();
+        if (id !== section.id && index !== -1) void reorderGroups(id, index);
+      },
+    };
+  };
+
   const addGroup = async () => {
     const group = await createGroup('Novo grupo');
     if (group) setNewGroupId(group.id);
   };
 
-  const row = (section: Section) => (p: Project) => (
-    <ProjectRow
-      // a project can show in several sections
-      key={`${section.id}:${p.id}`}
-      project={p}
-      section={section.label}
-      agents={agents.get(p.id) ?? []}
-      machines={machinesOf(p)}
-      waiting={waiting.get(p.id) ?? 0}
-      expanded={!collapsed.has(p.id)}
-      onToggle={() => toggleProject(p.id)}
-      onDelete={() => {
-        setDeleteError(null);
-        setDeletingProject(p);
-      }}
-      favorite={isFavorite(p.id)}
-      onToggleFavorite={() => void toggleFavorite(p.id)}
-      // the same button closes it; any other ⋯ (even the same project in another section) moves it there
-      onOpenGroups={(anchor) => setMenuFor((cur) => (cur?.anchor === anchor ? null : { projectId: p.id, anchor, key: (cur?.key ?? 0) + 1 }))}
-    />
-  );
+  const row = (section: Section) => (p: Project, i: number) => {
+    const inGroup = isGroupSection(section.id);
+    const here = inGroup && dropAt?.to === section.id;
+    const last = i === section.projects.length - 1;
+    const dragProps: HTMLAttributes<HTMLLIElement> = {
+      draggable: true,
+      className: here && dropAt?.slot === i ? LINE_ABOVE : here && last && dropAt?.slot === section.projects.length ? LINE_BELOW : '',
+      onDragStart: (e) => {
+        e.dataTransfer.effectAllowed = 'copyMove';
+        const source = { projectId: p.id, from: section.id };
+        e.dataTransfer.setData(PROJECT_MIME, encodeProjectDrag(source));
+        dragRef.current = { kind: 'project', source };
+      },
+      onDragEnd: endDrag,
+      // a group's row places the project before or after itself; in Outros the section takes it, in Em execução nothing does
+      ...(inGroup ? projectDropTarget(section, (e) => slotFor(i, e.clientY, e.currentTarget.getBoundingClientRect())) : {}),
+    };
+    return (
+      <ProjectRow
+        // a project can show in several sections
+        key={`${section.id}:${p.id}`}
+        project={p}
+        section={section.label}
+        agents={agents.get(p.id) ?? []}
+        machines={machinesOf(p)}
+        waiting={waiting.get(p.id) ?? 0}
+        expanded={!collapsed.has(p.id)}
+        onToggle={() => toggleProject(p.id)}
+        onDelete={() => {
+          setDeleteError(null);
+          setDeletingProject(p);
+        }}
+        favorite={isFavorite(p.id)}
+        onToggleFavorite={() => void toggleFavorite(p.id)}
+        // the same button closes it; any other ⋯ (even the same project in another section) moves it there
+        onOpenGroups={(anchor) => setMenuFor((cur) => (cur?.anchor === anchor ? null : { projectId: p.id, anchor, key: (cur?.key ?? 0) + 1 }))}
+        dragProps={dragProps}
+      />
+    );
+  };
 
   const renderSection = (section: Section) => {
     if (section.kind === 'running') {
@@ -132,8 +251,17 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     const isOthers = section.kind === 'others';
     const group = groups.find((g) => g.id === section.id);
     const open = !collapsedGroups.has(section.id);
+    const over = dropAt?.to === section.id;
     return (
-      <section key={section.id} aria-label={section.label} className="mb-2">
+      <section
+        key={section.id}
+        aria-label={section.label}
+        // Outros has no order and a collapsed group shows no rows: the whole section lights up instead of a line
+        className={`mb-2 ${over && (isOthers || !open) ? 'rounded ring-1 ring-accent' : ''}`}
+        // dropped on the header, the list's padding or the empty hint, a project goes to the end
+        {...projectDropTarget(section, () => section.projects.length)}
+        onDragLeave={leaveSection}
+      >
         <GroupHeader
           section={section}
           collapsed={!open}
@@ -143,10 +271,13 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
           onRename={(name) => void renameGroup(section.id, name)}
           onEditEnd={() => setNewGroupId((cur) => (cur === section.id ? null : cur))}
           onDelete={() => group && setDeletingGroup(group)}
+          headerDragProps={isOthers ? undefined : headerDragProps(section)}
         />
         {open && section.projects.length > 0 && <ul>{section.projects.map(row(section))}</ul>}
         {open && !isOthers && section.projects.length === 0 && (
-          <p className="mx-3 my-1 rounded border border-dashed border-line px-2 py-1.5 text-center text-[11px] text-fg-dim">arraste projetos para cá</p>
+          <p className={`mx-3 my-1 rounded border border-dashed px-2 py-1.5 text-center text-[11px] ${over ? 'border-accent text-fg' : 'border-line text-fg-dim'}`}>
+            arraste projetos para cá
+          </p>
         )}
         {open && isOthers && hasArchived && (
           <button className="mt-1 px-3 text-xs text-fg-dim hover:text-fg" onClick={() => setShowArchived((v) => !v)}>
