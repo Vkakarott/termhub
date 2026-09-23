@@ -10,7 +10,7 @@ import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
 import { ChatPage } from './pages/ChatPage';
-import { IntegrationsPage } from './pages/IntegrationsPage';
+import { IntegrationsView } from './components/IntegrationsView';
 import { MachinesPage } from './pages/MachinesPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -52,7 +52,7 @@ export function App() {
                 <Route path="/ai" element={<HomePage />} />
                 <Route path="/hardware" element={<HomePage />} />
                 <Route path="/waitlist" element={<HomePage />} />
-                <Route path="/integrations" element={<IntegrationsPage />} />
+                <Route path="/integrations" element={<IntegrationsView />} />
                 <Route path="/machines" element={<MachinesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/:section" element={<SettingsPage />} />

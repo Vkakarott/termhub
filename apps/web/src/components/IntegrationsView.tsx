@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 import { PROVIDER_LABEL, type ConnectionInfo, type Integration, type IntegrationProvider } from '../lib/types';
-import { ConfirmDialog, Modal } from '../components/Modal';
+import { ConfirmDialog, Modal } from './Modal';
 
 const PROVIDERS: { id: IntegrationProvider; secretLabel: string; help: string; fields: { key: string; label: string; placeholder: string }[] }[] = [
   {
@@ -27,7 +27,8 @@ const PROVIDERS: { id: IntegrationProvider; secretLabel: string; help: string; f
   },
 ];
 
-export function IntegrationsPage() {
+/** Configurações → Integrações: GitHub, Linear and Jira credentials (was the `/integrations` page). */
+export function IntegrationsView() {
   const [items, setItems] = useState<Integration[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Integration | 'new' | null>(null);

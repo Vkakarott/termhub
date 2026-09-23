@@ -8,6 +8,8 @@ const { authState } = vi.hoisted(() => ({ authState: { current: { can: (() => tr
 vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
 // Each section loads its own data; only the tab strip and which section is picked matter here.
 vi.mock('../components/MyCityView', () => ({ MyCityView: () => <p>minha-cidade-view</p> }));
+vi.mock('../components/ProfileView', () => ({ ProfileView: () => <p>profile-view</p> }));
+vi.mock('../components/IntegrationsView', () => ({ IntegrationsView: () => <p>integrations-view</p> }));
 vi.mock('../components/UploadsView', () => ({ UploadsView: () => null }));
 vi.mock('../components/ApiTokensView', () => ({ ApiTokensView: () => null }));
 vi.mock('../lib/api', () => ({
@@ -36,25 +38,30 @@ afterEach(() => {
 });
 
 describe('SettingsPage', () => {
-  it('shows Minha cidade to a user without any settings permission, and opens it', () => {
+  it('lands a user without any settings permission on Perfil, with Minha cidade among the tabs', () => {
     authState.current = { can: () => false };
     renderAt('/settings');
+    expect(screen.getByText('profile-view')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Minha cidade' }).getAttribute('href')).toBe('/settings/city');
     expect(screen.queryByRole('link', { name: 'Usuários' })).toBeNull();
-    expect(screen.getByText('minha-cidade-view')).toBeTruthy();
   });
 
-  it('still lands an admin on Usuários, with Minha cidade among the tabs', () => {
+  it('lands an admin on Perfil too', () => {
     authState.current = { can: () => true };
     renderAt('/settings');
-    expect(screen.getByRole('link', { name: 'Minha cidade' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Usuários' })).toBeTruthy();
-    expect(screen.queryByText('minha-cidade-view')).toBeNull();
+    expect(screen.getByText('profile-view')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Usuários' })).toBeTruthy();
   });
 
   it('opens Minha cidade from its own address', () => {
     authState.current = { can: () => true };
     renderAt('/settings/city');
     expect(screen.getByText('minha-cidade-view')).toBeTruthy();
+  });
+
+  it('opens Integrações as a section', () => {
+    authState.current = { can: (r) => r === 'integrations' };
+    renderAt('/settings/integrations');
+    expect(screen.getByText('integrations-view')).toBeTruthy();
   });
 });

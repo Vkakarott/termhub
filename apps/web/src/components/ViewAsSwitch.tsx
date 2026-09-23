@@ -37,13 +37,13 @@ export function ViewAsSwitch() {
   };
 
   return (
-    <div className={`border-t border-line px-3 py-1.5 ${viewAs ? 'bg-warn/10' : ''}`}>
+    <div className={`rounded-lg border px-3 py-2 ${viewAs ? 'border-warn/40 bg-warn/10' : 'border-line bg-bg-2'}`}>
       <button
         className={`flex w-full items-center gap-1 rounded px-2 py-1 text-left text-xs ${viewAs ? 'text-warn' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}
         onClick={() => setOpen((v) => !v)}
         title="Administrador: ver o app como outro usuário"
       >
-        <span className="flex-1 truncate">{label ?? '👁 Ver como…'}</span>
+        <span className="flex-1 truncate">{label ?? 'Ver como…'}</span>
         <span className="text-[10px] text-fg-dim">{open ? '▲' : '▼'}</span>
       </button>
       {open && (

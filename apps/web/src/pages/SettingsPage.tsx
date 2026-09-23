@@ -8,6 +8,8 @@ import { ConfirmDialog, Modal } from '../components/Modal';
 import { UploadsView } from '../components/UploadsView';
 import { ApiTokensView } from '../components/ApiTokensView';
 import { MyCityView } from '../components/MyCityView';
+import { ProfileView } from '../components/ProfileView';
+import { IntegrationsView } from '../components/IntegrationsView';
 
 /**
  * Settings: users, roles, the permission matrix (resource × create/read/update/delete), uploads
@@ -41,6 +43,8 @@ export function SettingsPage() {
         {current === 'uploads' && <UploadsView />}
         {current === 'api-tokens' && <ApiTokensView />}
         {current === 'city' && <MyCityView />}
+        {current === 'profile' && <ProfileView />}
+        {current === 'integrations' && <IntegrationsView />}
         {!current && <p className="text-sm text-fg-dim">Sem permissão para ver as configurações.</p>}
       </div>
     </div>
