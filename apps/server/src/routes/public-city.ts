@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { buildCardSvg, renderCard, resolveFocus } from '../public/card.js';
 import { normalizeNickname } from '../public/nickname.js';
-import { readPublicCity } from '../public/read.js';
+import { readPublicCityCached } from '../public/read.js';
 
 // No length cap here: `normalizeNickname` is the only judge of shape (it is strictly stricter,
 // 3-30 characters), so a too-long segment lands on the same 404 as any other bad nickname instead
@@ -12,7 +12,9 @@ const params = z.object({ nickname: z.string().min(1) });
 
 // building/room are the public (obfuscated) ids from PublicCity, 22 base64url characters; the cap
 // is a generous safety limit, not a shape check — an id that matches nothing just renders the
-// city-level card (see buildCardSvg's own resolution), the same as an id that was never real.
+// city-level card (see buildCardSvg's own resolution), the same as an id that was never real. A
+// query that does not fit (an oversized id, a repeated parameter) falls back to the landing card
+// like every other malformed input on this route, never a 400 with validation details.
 const cardQuery = z.object({ building: z.string().max(64).optional(), room: z.string().max(64).optional() });
 
 /** Falls back to the landing's own card: a link that shows the product's image beats one that shows a broken one. */
@@ -81,7 +83,7 @@ export async function publicCityRoutes(app: FastifyInstance, repos: Repositories
   app.get('/city/:nickname', { config: { public: true } }, async (request, reply) => {
     const parsed = normalizeNickname(params.parse(request.params).nickname);
     if (!parsed.ok) return reply.code(404).send({ error: 'Cidade não encontrada', code: 'NOT_FOUND' });
-    const city = await readPublicCity(repos, parsed.value);
+    const city = await readPublicCityCached(repos, parsed.value);
     if (!city) return reply.code(404).send({ error: 'Cidade não encontrada', code: 'NOT_FOUND' });
     request.log.debug({ nickname: parsed.value, buildings: city.buildings.length }, 'public city: snapshot');
     reply.header('cache-control', 'public, max-age=5');
@@ -96,8 +98,10 @@ export async function publicCityRoutes(app: FastifyInstance, repos: Repositories
   app.get('/city/:nickname/card.png', { config: { public: true } }, async (request, reply) => {
     const parsed = normalizeNickname(params.parse(request.params).nickname);
     if (!parsed.ok) return reply.redirect(FALLBACK_CARD, 302);
-    const { building, room } = cardQuery.parse(request.query);
-    const city = await readPublicCity(repos, parsed.value);
+    const query = cardQuery.safeParse(request.query);
+    if (!query.success) return reply.redirect(FALLBACK_CARD, 302);
+    const { building, room } = query.data;
+    const city = await readPublicCityCached(repos, parsed.value);
     if (!city) return reply.redirect(FALLBACK_CARD, 302);
     // Resolved before the cache is ever consulted: an id that matches nothing in this city (or one
     // from a different city, or a stale id after unpublishing) must key exactly like no id at all.

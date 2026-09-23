@@ -1,6 +1,6 @@
 import type { Repositories } from '../db/repositories/index.js';
 import { normalizeNickname } from './nickname.js';
-import { readPublicCity } from './read.js';
+import { readPublicCityCached } from './read.js';
 import type { PublicCity } from './city.js';
 
 /** Where along `/city/@nick[/building][?room=]` a link points. */
@@ -110,6 +110,6 @@ export function depthFromCityUrl(url: string): { nickname: string; depth: CityDe
 export async function renderCityPage(repos: Repositories, template: string, url: string): Promise<string> {
   const { nickname, depth } = depthFromCityUrl(url);
   const parsed = normalizeNickname(nickname);
-  const city = parsed.ok ? await readPublicCity(repos, parsed.value) : undefined;
+  const city = parsed.ok ? await readPublicCityCached(repos, parsed.value) : undefined;
   return renderCityDocument(template, cityMetaFor(city, depth));
 }

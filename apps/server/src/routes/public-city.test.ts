@@ -44,6 +44,7 @@ vi.mock('../public/card.js', async (importOriginal) => {
 });
 
 const { publicCityRoutes } = await import('./public-city.js');
+const { clearPublicCityMemo } = await import('../public/read.js');
 
 const MACHINES = [
   { id: 'm1', name: 'Jarvis Office', owner_id: 'u1' },
@@ -112,6 +113,7 @@ function buildApp() {
 describe('GET /public/city/:nickname', () => {
   beforeEach(() => {
     cached = { reachable: true, sessions: new Set(['th-t1']) };
+    clearPublicCityMemo();
     probingFn.mockClear();
     cachedFn.mockClear();
   });
@@ -185,11 +187,18 @@ describe('GET /public/city/:nickname', () => {
     // cold memo: alive falls back to the tool's own reported state, not an empty-office read
     expect(robots[0].alive).toBe(true);
   });
+
+  it('answers a burst of reads for the same city from one database read', async () => {
+    const { app, repos } = buildApp();
+    for (let i = 0; i < 3; i++) expect((await app.inject({ method: 'GET', url: '/public/city/pedro' })).statusCode).toBe(200);
+    expect(repos.users.findByNickname).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('GET /public/city/:nickname/card.png', () => {
   beforeEach(() => {
     cached = { reachable: true, sessions: new Set(['th-t1']) };
+    clearPublicCityMemo();
     renderCardSpy.mockClear();
   });
 
@@ -205,6 +214,15 @@ describe('GET /public/city/:nickname/card.png', () => {
     const res = await app.inject({ method: 'GET', url: '/public/city/semnada/card.png' });
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe('/og-image.png');
+  });
+
+  it('falls back to the landing card, not a 400, for an oversized or repeated ?building=', async () => {
+    const { app } = buildApp();
+    for (const url of [`/public/city/pedro/card.png?building=${'x'.repeat(65)}`, '/public/city/pedro/card.png?building=a&building=b']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('/og-image.png');
+    }
   });
 
   it('falls back to the landing card when the rasteriser is unavailable', async () => {
