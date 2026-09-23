@@ -40,3 +40,12 @@ it('renders nothing when closed', () => {
   expect(container.innerHTML).toBe('');
   state.openProjectId = 'p1';
 });
+
+it('locks the body while open, and unlocks it once closed', () => {
+  const { rerender } = render(<MemoryRouter><ChatDrawer /></MemoryRouter>);
+  expect(document.body.classList.contains('chat-locked')).toBe(true);
+  state.openProjectId = null;
+  rerender(<MemoryRouter><ChatDrawer /></MemoryRouter>);
+  expect(document.body.classList.contains('chat-locked')).toBe(false);
+  state.openProjectId = 'p1';
+});

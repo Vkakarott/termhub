@@ -19,6 +19,17 @@ export function ChatDrawer() {
   // Full screen on a phone: the same viewport handling as `/chat`, so the composer stays above the
   // keyboard (see ChatLayout).
   useEffect(() => (open ? trackAppHeight() : undefined), [open]);
+  // The other half of ChatLayout's mobile handling (ChatLayout.tsx:23-26): without `chat-locked` a
+  // drag starting on the composer pans the document under the full-screen drawer on iOS. Applied
+  // unconditionally, not just below the `md` breakpoint — the rule is inert on desktop, since
+  // `Layout` never lets the body itself scroll there. `/chat` (ChatLayout) and this drawer are never
+  // mounted at the same time — one lives in `ChatLayout`, the other in `Layout` — so there is no
+  // double add/remove race between the two effects that touch this class.
+  useEffect(() => {
+    if (!open) return;
+    document.body.classList.add('chat-locked');
+    return () => document.body.classList.remove('chat-locked');
+  }, [open]);
 
   if (!openProjectId) return null;
   const project = projects.find((p) => p.id === openProjectId);
@@ -26,6 +37,8 @@ export function ChatDrawer() {
   return (
     <aside
       role="dialog"
+      // No `aria-modal`: the drawer is deliberately non-modal — the page behind it (terminals,
+      // tabs) stays usable while it is open.
       aria-label={title}
       className="fixed inset-x-0 top-0 z-40 flex h-[var(--app-height,100svh)] flex-col border-l border-line bg-bg shadow-2xl md:left-auto md:w-[420px]"
     >
