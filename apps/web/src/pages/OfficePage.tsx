@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { useCityLink } from '../lib/city-link';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
@@ -21,6 +22,8 @@ export function OfficePage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { can, user, publicCityUrl } = useAuth();
+  // the city's short link, when the instance makes one: only the city depth uses it (a building or a room has none)
+  const cityLink = useCityLink(!!user?.nickname);
   const { machines, projects, statuses, loading } = useData();
   const { items, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
@@ -241,7 +244,7 @@ export function OfficePage() {
   if (machineId && machineName) trail.push({ label: machineName, go: () => go(machineId, null, true) });
   const roomName = here?.floor.rooms.find((r) => r.id === room)?.name;
   if (roomName) trail.push({ label: roomName });
-  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, publicCityUrl, machines, byMachine);
+  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, publicCityUrl, cityLink.link?.short_url ?? null, machines, byMachine);
 
   return (
     <div className="flex h-full flex-col">
@@ -358,6 +361,8 @@ function shareResultFor(
   userId: string | undefined,
   nickname: string | null,
   publicCityUrl: string | null,
+  /** the owner's short link (77a.it/…), used at the city depth only */
+  shortUrl: string | null,
   machines: Machine[],
   byMachine: Record<string, MachineSnapshotState>,
 ): ShareResult {
@@ -370,7 +375,7 @@ function shareResultFor(
   const base = cityLinkFor(publicCityUrl, nickname);
 
   if (target.kind === 'city') {
-    if (base && machines.some((m) => roomsOf(m).some((r) => onStreet(m, r)))) return { kind: 'link', url: base };
+    if (base && machines.some((m) => roomsOf(m).some((r) => onStreet(m, r)))) return { kind: 'link', url: shortUrl ?? base };
     if (machines.some((m) => roomsOf(m).some(foreign))) return { kind: 'foreign' };
     if (machines.some((m) => roomsOf(m).some((r) => r.project.is_public))) return { kind: 'offstreet' };
     return { kind: 'unpublished' };
