@@ -67,7 +67,7 @@ import { OfficePage } from './OfficePage';
 
 const tab = (id: string, projectId: string): OfficeTab =>
   ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, alive: true, progress: null }) as OfficeTab;
-const room = (id: string, tabs: OfficeTab[] = []): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null });
+const room = (id: string, tabs: OfficeTab[] = []): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, public_id: `${id}-room`, tabs, tasks: null });
 const snap = (machineId: string, rooms: OfficeRoom[]): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms });
 
 /** m1 "jarvis" with two rooms that have desks (no auto-drill), m2 "hal" with one. */
@@ -542,18 +542,24 @@ describe('OfficePage share button', () => {
   // owned by 'u1' unless told otherwise — the signed-in viewer in every test below, except the one
   // that deliberately looks at a machine owned by someone else (view-as/view-all)
   const pMachine = (id: string, name: string, ownerId: string | null = 'u1'): Machine => ({ id, name, public_id: `${id}-pub`, owner_id: ownerId }) as Machine;
-  const pProject = (id: string, isPublic: boolean): Project => ({ id, name: id, status: 'active', public_id: `${id}-pub`, is_public: isPublic }) as Project;
-  const pRoom = (id: string, isPublic: boolean, tabs: OfficeTab[] = []): OfficeRoom => ({ project: pProject(id, isPublic), tabs, tasks: null });
+  // a project is owned by 'u1' (the viewer) unless told otherwise: merge ruling 5 — who may share a
+  // published room is decided by the PROJECT's owner; the machine's owner decides whether that room
+  // is on the street at all. The room's public id is per (project, machine), like the server's.
+  const pProject = (id: string, isPublic: boolean, ownerId: string | null = 'u1'): Project => ({ id, name: id, status: 'active', owner_id: ownerId, is_public: isPublic }) as Project;
+  const pRoom = (id: string, machineId: string, isPublic: boolean, tabs: OfficeTab[] = [], ownerId: string | null = 'u1'): OfficeRoom => ({ project: pProject(id, isPublic, ownerId), public_id: `${id}-${machineId}-room`, tabs, tasks: null });
 
-  /** m1 has two rooms with desks (p1 published, p1b not); m2 has two rooms with desks, neither published. Both owned by `owners.m1`/`owners.m2` (default 'u1', the viewer). */
-  function twoMachinesOnePublished(owners: { m1?: string | null; m2?: string | null } = {}) {
+  /**
+   * m1 has two rooms with desks (p1 published, p1b not); m2 has two rooms with desks, neither
+   * published. Machines owned by `owners.m1`/`owners.m2`, p1 by `owners.p1` (default 'u1', the viewer).
+   */
+  function twoMachinesOnePublished(owners: { m1?: string | null; m2?: string | null; p1?: string | null } = {}) {
     dataState.current = {
       machines: [pMachine('m1', 'jarvis', owners.m1 ?? 'u1'), pMachine('m2', 'hal', owners.m2 ?? 'u1')],
       projects: [
-        { id: 'p1', machine_id: 'm1', status: 'active' },
-        { id: 'p1b', machine_id: 'm1', status: 'active' },
-        { id: 'p2', machine_id: 'm2', status: 'active' },
-        { id: 'p2b', machine_id: 'm2', status: 'active' },
+        { id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+        { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+        { id: 'p2', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
+        { id: 'p2b', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
       ],
       statuses: { m1: 'online', m2: 'online' },
       loading: false,
@@ -561,8 +567,8 @@ describe('OfficePage share button', () => {
     officeMock.mockImplementation((id: string) =>
       Promise.resolve(
         id === 'm1'
-          ? snap('m1', [pRoom('p1', true, [tab('t1', 'p1')]), pRoom('p1b', false, [tab('t1b', 'p1b')])])
-          : snap('m2', [pRoom('p2', false, [tab('t2', 'p2')]), pRoom('p2b', false, [tab('t2b', 'p2b')])]),
+          ? snap('m1', [pRoom('p1', 'm1', true, [tab('t1', 'p1')], owners.p1 === undefined ? 'u1' : owners.p1), pRoom('p1b', 'm1', false, [tab('t1b', 'p1b')])])
+          : snap('m2', [pRoom('p2', 'm2', false, [tab('t2', 'p2')]), pRoom('p2b', 'm2', false, [tab('t2b', 'p2b')])]),
       ),
     );
   }
@@ -614,7 +620,7 @@ describe('OfficePage share button', () => {
     expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub');
   });
 
-  it("copies the room's address inside a room, using the project's public id", async () => {
+  it("copies the room's address inside a room, using the room's own public id", async () => {
     const writeText = stubClipboard();
     authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
     twoMachinesOnePublished();
@@ -623,7 +629,7 @@ describe('OfficePage share button', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
     await act(async () => {});
-    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub?room=p1-pub');
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub?room=p1-m1-room');
   });
 
   it('explains itself instead of copying when nothing in view is published', async () => {
@@ -638,12 +644,12 @@ describe('OfficePage share button', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
-  it('produces no link for a machine whose owner is not the viewer (view-as/view-all)', async () => {
+  it('produces no link for a published project whose owner is not the viewer (view-as/view-all)', async () => {
     const writeText = stubClipboard();
-    // the signed-in person is 'u1' (an admin, say), but m1 here belongs to someone else ('u2') and
-    // has a published room — a nickname of 'u1' would either be missing or point at the wrong city
+    // the signed-in person is 'u1' (an admin, say), but p1 and the machines here belong to someone
+    // else ('u2') — a nickname of 'u1' would either be missing or point at the wrong city
     authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished({ m1: 'u2', m2: 'u2' });
+    twoMachinesOnePublished({ m1: 'u2', m2: 'u2', p1: 'u2' });
     renderPage('/office/m1');
     await act(async () => {});
 
@@ -655,12 +661,40 @@ describe('OfficePage share button', () => {
   it("does not build the city link from an admin's own nickname when only someone else's machine is published", async () => {
     const writeText = stubClipboard();
     authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished({ m1: 'u2', m2: 'u2' }); // nothing here is 'u1's own
+    twoMachinesOnePublished({ m1: 'u2', m2: 'u2', p1: 'u2' }); // nothing here is 'u1's own
     renderPage('/office');
     await act(async () => {});
 
     expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
     expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  // Merge ruling 5: the check is on the PROJECT's owner. Somebody else's published project in a room
+  // on the viewer's own machine is still not the viewer's to share.
+  it("says a published room belongs to somebody else when the project is theirs, even on the viewer's machine", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished({ p1: 'u2' });
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  // Merge ruling 2: the viewer's own published project, in a room on somebody else's machine, is not
+  // on any street — the public city never shows another person's machine — so there is no link.
+  it("gives no link for the viewer's own published project in a room on somebody else's machine", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished({ m1: 'u2' });
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/máquina de outra pessoa/i)).toBeTruthy();
     expect(writeText).not.toHaveBeenCalled();
   });
 });

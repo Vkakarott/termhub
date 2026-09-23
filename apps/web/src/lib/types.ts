@@ -140,9 +140,7 @@ export interface Project {
   created_at: string;
   /** machines the project runs on; empty = board and notes only */
   machines: ProjectMachineLink[];
-  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
-  public_id: string;
-  /** whether this project's rooms are readable on the owner's public city */
+  /** whether this project's rooms (one per machine its owner owns) are readable on the owner's public city */
   is_public: boolean;
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
@@ -157,6 +155,8 @@ export interface ProjectInput {
   machine_id?: string;
   cwd?: string;
   create_dir?: boolean;
+  /** edit only (a project is born private): publishes its rooms on the owner's public city */
+  is_public?: boolean;
 }
 
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
@@ -378,6 +378,8 @@ export interface OfficeTab extends Tab {
 
 export interface OfficeRoom {
   project: Project;
+  /** this room's id on the owner's public city: one per (project, machine), used by the share link */
+  public_id: string;
   tabs: OfficeTab[];
   /** null when the board could not be read (no `tasks:read`); a project with no tasks sends zeros */
   tasks: OfficeTaskCounts | null;

@@ -135,7 +135,7 @@ export const api = {
     keyAvailable: (key: string) => request<{ available: boolean; reason?: 'invalid' | 'taken' }>('GET', `/projects/key-available?key=${encodeURIComponent(key)}`),
     create: (input: ProjectInput) => request<{ project: Project }>('POST', '/projects', input),
     /** `input.is_public: true` publishes the project's rooms to the owner's public city; refused with
-     *  403 NOT_OWNER (not the machine's owner), 409 MACHINE_UNOWNED (no owner at all) or 409
+     *  403 NOT_OWNER (not the project's owner), 409 PROJECT_UNOWNED (no owner at all) or 409
      *  NICKNAME_REQUIRED (the owner has not claimed a nickname yet). */
     update: (id: string, input: ProjectInput) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),

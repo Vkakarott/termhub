@@ -16,6 +16,7 @@ const { patchMock, dataState, authState } = vi.hoisted(() => {
       statuses: {} as Record<string, 'checking' | 'online' | 'offline'>,
       loading: false,
       updateProject: (id: string, input: Record<string, unknown>) => patchMock(id, input),
+      machinesOf: (p: Project): Machine[] => p.machines.flatMap((l) => dataState.current.machines.filter((m) => m.id === l.machine_id)),
     },
   };
   const authState = { current: { user: null as User | null } };
@@ -60,14 +61,15 @@ function machine(id: string, name: string): Machine {
 function project(over: Partial<Project> = {}): Project {
   return {
     id: 'p1',
-    machine_id: 'm1',
+    owner_id: 'u1',
+    key: 'MEU',
+    next_task_number: 1,
     name: 'meu-projeto',
-    cwd: '/home/pedro/meu-projeto',
     status: 'active',
     description: null,
     last_terminal_at: null,
     created_at: '2026-01-01T00:00:00Z',
-    public_id: 'ppub1',
+    machines: [{ machine_id: 'm1', cwd: '/home/pedro/meu-projeto', position: 0 }],
     is_public: false,
     ...over,
   };
@@ -102,7 +104,9 @@ describe('ProjectPage publish switch', () => {
     renderPage(proj);
 
     fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
-    expect(screen.getByText(/o nome do projeto, o nome da máquina e todas as abas/i)).toBeTruthy();
+    expect(screen.getByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeTruthy();
+    // merge ruling 2: somebody else's machine linked to the project never shows, and the panel says so
+    expect(screen.getByText(/máquinas de outras pessoas vinculadas ao projeto não aparecem/i)).toBeTruthy();
     // spec §4: the owner's display name and nickname become public too
     expect(screen.getByText(/seu nome e seu apelido/i)).toBeTruthy();
 
@@ -153,7 +157,7 @@ describe('ProjectPage publish switch', () => {
     });
 
     expect(patchMock).toHaveBeenCalledWith(proj.id, expect.objectContaining({ is_public: false }));
-    expect(screen.queryByText(/o nome do projeto, o nome da máquina e todas as abas/i)).toBeNull();
+    expect(screen.queryByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeNull();
   });
 
   it('says so when unpublishing fails, on the same path that bypasses the confirmation panel', async () => {

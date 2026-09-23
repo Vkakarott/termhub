@@ -48,9 +48,9 @@ function roomsOf(mi: number): OfficeRoom[] {
         last_terminal_at: null,
         created_at: at,
         machines: [{ machine_id: `m${mi}`, cwd: '/', position: 0 }],
-        public_id: projectId,
         is_public: false,
       },
+      public_id: `${projectId}-m${mi}`,
       tabs,
       tasks: r % 2 ? { todo: 2, doing: 1, done: r } : null,
     };
