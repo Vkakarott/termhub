@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
@@ -11,6 +11,7 @@ import { ToastProvider, Toaster } from '../lib/toast';
 import { ChatDrawer } from './chat/ChatDrawer';
 import { NeedsYouToasts } from './NeedsYouToasts';
 import { SettingsSidebar } from './SettingsSidebar';
+import { SidebarRail } from './SidebarRail';
 import { Sidebar } from './Sidebar';
 import { NicknamePrompt } from './NicknamePrompt';
 
@@ -74,23 +75,10 @@ export function Chrome({ collapsed, setCollapsed, onLeaveSettings }: { collapsed
   const { focus } = useFocusMode();
   const { pathname } = useLocation();
   if (focus) return null;
-  if (collapsed) return <SidebarRail onExpand={() => setCollapsed(false)} />;
-  if (isSettingsPath(pathname)) return <SettingsSidebar onBack={onLeaveSettings} onCollapse={() => setCollapsed(true)} />;
+  const settings = isSettingsPath(pathname);
+  if (collapsed) return <SidebarRail mode={settings ? 'settings' : 'main'} onExpand={() => setCollapsed(false)} onBack={onLeaveSettings} />;
+  if (settings) return <SettingsSidebar onBack={onLeaveSettings} onCollapse={() => setCollapsed(true)} />;
   return <Sidebar onCollapse={() => setCollapsed(true)} />;
-}
-
-/** Sidebar recolhida: uma faixa estreita com o logo e o botão de expandir (o terminal ganha o espaço). */
-function SidebarRail({ onExpand }: { onExpand: () => void }) {
-  return (
-    <aside className="flex h-full w-9 shrink-0 flex-col items-center border-r border-line bg-bg-2">
-      <NavLink to="/" className="flex h-11 w-full items-center justify-center border-b border-line text-sm font-semibold text-accent" title="termhub — início">
-        ▮
-      </NavLink>
-      <button className="mt-1 rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onExpand} title="Mostrar sidebar" aria-label="Mostrar sidebar">
-        »
-      </button>
-    </aside>
-  );
 }
 
 export function FullScreenMessage({ children }: { children: React.ReactNode }) {

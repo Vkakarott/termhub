@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./Sidebar', () => ({ Sidebar: () => <p>projects-sidebar</p> }));
 vi.mock('./SettingsSidebar', () => ({ SettingsSidebar: ({ onBack }: { onBack: () => void }) => <button onClick={onBack}>settings-sidebar</button> }));
+vi.mock('./SidebarRail', () => ({
+  SidebarRail: ({ mode, onBack }: { mode: string; onBack: () => void }) => <button onClick={onBack}>{`rail-${mode}`}</button>,
+}));
 vi.mock('./chat/ChatDrawer', () => ({ ChatDrawer: () => null }));
 
 import { FocusProvider } from '../lib/focus';
@@ -42,5 +45,17 @@ describe('Chrome', () => {
     mount('/office?focus=1');
     expect(screen.queryByText('projects-sidebar')).toBeNull();
     expect(screen.queryByText('settings-sidebar')).toBeNull();
+  });
+
+  it('collapsed, shows the rail with the projects outside settings', () => {
+    mount('/machines', true);
+    expect(screen.getByText('rail-main')).toBeTruthy();
+    expect(screen.queryByText('projects-sidebar')).toBeNull();
+  });
+
+  it('collapsed under /settings, shows the settings rail wired to the way back', () => {
+    const leave = mount('/settings/users', true);
+    fireEvent.click(screen.getByText('rail-settings'));
+    expect(leave).toHaveBeenCalledTimes(1);
   });
 });
