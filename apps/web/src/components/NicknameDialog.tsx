@@ -34,7 +34,7 @@ interface Props {
  * `NICKNAME_REQUIRED`.
  */
 export function NicknameDialog({ open, onClose, onSaved }: Props) {
-  const { setNickname } = useAuth();
+  const { user, setNickname } = useAuth();
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,6 +60,26 @@ export function NicknameDialog({ open, onClose, onSaved }: Props) {
       setBusy(false);
     }
   };
+
+  // The server never changes a nickname once set (409 NICKNAME_LOCKED): an address already shared
+  // must keep pointing at the same person. So an account that has one only gets to see it.
+  if (user?.nickname) {
+    return (
+      <Modal title="Seu apelido" open={open} onClose={onClose} width="max-w-sm">
+        <div className="space-y-3">
+          <p className="text-sm text-fg-muted">É o endereço da sua cidade pública e não pode ser trocado.</p>
+          <p className="text-sm font-medium">
+            {PUBLIC_CITY_BASE.replace(/^https?:\/\//, '')}/@{user.nickname}
+          </p>
+          <div className="flex justify-end pt-2">
+            <button type="button" className="btn-ghost" onClick={onClose}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal title="Escolha seu apelido" open={open} onClose={onClose} width="max-w-sm">

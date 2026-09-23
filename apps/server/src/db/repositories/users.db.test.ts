@@ -44,4 +44,18 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('UsersRepository (Postgres
       await db.user.deleteMany({ where: { id: a.id } });
     }
   });
+
+  // The lock lives in the write itself (a conditional update), not only in the route's check of the
+  // session's user: two concurrent claims from the same account cannot both land.
+  it('never changes a nickname once set', async () => {
+    const a = await repo.create({ email: `${newId()}@x.dev`, name: 'A', role_id: SYSTEM_ROLE_IDS.authenticated });
+    try {
+      expect(await repo.setNickname(a.id, 'alice')).toBe('ok');
+      expect(await repo.setNickname(a.id, 'alice2')).toBe('locked');
+      expect((await repo.findByNickname('alice'))?.id).toBe(a.id);
+      expect(await repo.findByNickname('alice2')).toBeUndefined();
+    } finally {
+      await db.user.deleteMany({ where: { id: a.id } });
+    }
+  });
 });

@@ -81,8 +81,14 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
     const body = nicknameBodySchema.parse(request.body);
     const parsed = normalizeNickname(body.nickname);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.reason === 'reserved' ? 'Esse apelido é reservado' : 'Use de 3 a 30 letras, números ou hífen', code: 'NICKNAME_INVALID' });
+    // Once claimed, the address is this person's for good (spec §8): releasing it would let anyone
+    // claim it next and inherit every /city/@nick link already shared. Re-sending the same one is a no-op.
+    if (request.user.nickname && request.user.nickname !== parsed.value) {
+      return reply.code(409).send({ error: 'Seu apelido já foi escolhido e não pode ser trocado', code: 'NICKNAME_LOCKED' });
+    }
     const out = await ctx.repos.users.setNickname(request.user.id, parsed.value);
     if (out === 'taken') return reply.code(409).send({ error: 'Esse apelido já é de outra pessoa', code: 'NICKNAME_TAKEN' });
+    if (out === 'locked') return reply.code(409).send({ error: 'Seu apelido já foi escolhido e não pode ser trocado', code: 'NICKNAME_LOCKED' });
     request.log.info({ userId: request.user.id }, 'nickname: claimed');
     return { user: await withRole({ ...request.user, nickname: parsed.value }) };
   });

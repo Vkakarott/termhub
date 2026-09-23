@@ -92,7 +92,8 @@ export const api = {
     verifyCode: (email: string, code: string) => request<{ user: User }>('POST', '/auth/code/verify', { email, code }),
     logout: () => request<{ ok: true }>('POST', '/auth/logout'),
     /** Claims the address of the user's public city. 400 NICKNAME_INVALID for a bad shape or a
-     *  reserved word, 409 NICKNAME_TAKEN when somebody else already holds it. */
+     *  reserved word, 409 NICKNAME_TAKEN when somebody else already holds it, 409 NICKNAME_LOCKED
+     *  when the account already has one (a claimed address is never changed). */
     setNickname: (nickname: string) => request<{ user: User }>('PATCH', '/auth/me/nickname', { nickname }),
   },
   machines: {

@@ -101,11 +101,15 @@ export class UsersRepository {
    * unique index reject the loser as 'taken' (P2002), instead of asking first (see ChatRepository.getOrCreateForUser
    * for the same idiom against the same shape of race). Re-claiming the nickname you already hold is
    * still 'ok': the update is a no-op write on your own row, not a conflict with anyone else's.
+   * Changing a nickname that is already set is 'locked': an address, once claimed, is never released.
    */
-  async setNickname(userId: string, nickname: string): Promise<'ok' | 'taken'> {
+  async setNickname(userId: string, nickname: string): Promise<'ok' | 'taken' | 'locked'> {
     try {
-      await this.db.user.update({ where: { id: userId }, data: { nickname } });
-      return 'ok';
+      // Conditional on the row having no nickname yet (or already this one): a claimed address is
+      // never released, so a shared /city/@nick link cannot be inherited by whoever claims it next.
+      // The condition is part of the write, so two concurrent claims cannot both land.
+      const { count } = await this.db.user.updateMany({ where: { id: userId, OR: [{ nickname: null }, { nickname }] }, data: { nickname } });
+      return count === 1 ? 'ok' : 'locked';
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return 'taken';
       throw err;

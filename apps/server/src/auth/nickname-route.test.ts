@@ -44,6 +44,22 @@ describe('PATCH /auth/me/nickname', () => {
     expect(res.json().code).toBe('NICKNAME_TAKEN');
   });
 
+  // A shared /city/@nick link must keep pointing at the same person: once claimed, the address is
+  // never released, so nobody else can pick it up and inherit every link already out there.
+  it('refuses to change a nickname that is already set, without touching the database', async () => {
+    const res = await patch(buildApp({ id: 'u1', nickname: 'alice' }), 'alice2');
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('NICKNAME_LOCKED');
+    expect(setNickname).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 NICKNAME_LOCKED when the write finds the nickname already set (a concurrent claim)', async () => {
+    setNickname.mockResolvedValue('locked');
+    const res = await patch(buildApp({ id: 'u1', nickname: null }), 'pedro');
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('NICKNAME_LOCKED');
+  });
+
   it('refuses a body that is not an object at all, without touching the database', async () => {
     const app = buildApp({ id: 'u1', nickname: null });
     const res = await app.inject({ method: 'PATCH', url: '/auth/me/nickname', payload: '"not-an-object"', headers: { 'content-type': 'application/json' } });
