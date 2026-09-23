@@ -118,18 +118,21 @@ export class TabsRepository {
   /**
    * Monitor: records the event and makes it the tab's current state; keeps only the newest events
    * per tab. Leaving `stateSeenAt` untouched re-arms a seen tab by itself (the bumped `stateAt` is
-   * now newer than it) — except for the *same* `waiting_input` wait continuing: Claude's hooks send
-   * `Stop` and, ~1 min later, `Notification idle_prompt` for one turn, both mapped to `waiting_input`;
-   * if the person already saw the tab for that wait, a second `waiting_input` in a row must not
-   * re-open it, so the seen mark is carried forward to the new `stateAt` instead. Any transition
-   * through another state, or a `waiting_permission` (always a fresh ask), still re-arms as before.
+   * now newer than it) — except for an event that `continuesWait`: Claude's hooks send `Stop` and,
+   * ~1 min later, `Notification idle_prompt` for one turn, both mapped to `waiting_input`; if the
+   * person already saw the tab for that wait, the idle_prompt must not re-open it, so the seen mark
+   * is carried forward to the new `stateAt` instead. Two `waiting_input` in a row are not enough to
+   * tell: Codex sends only that, once per turn, so its next turn is a new wait that must re-arm.
    */
-  async recordEvent(tabId: string, event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown>; activity?: TabActivity; activityVerb?: string | null }): Promise<{ tab: Tab; event: TabEvent }> {
+  async recordEvent(
+    tabId: string,
+    event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown>; activity?: TabActivity; activityVerb?: string | null; continuesWait?: boolean },
+  ): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
     const [e, t] = await this.db.$transaction(async (tx) => {
       const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true } });
       const currentlySeen = !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt;
-      const carrySeen = current?.state === 'waiting_input' && event.kind === 'waiting_input' && currentlySeen;
+      const carrySeen = !!event.continuesWait && current?.state === 'waiting_input' && event.kind === 'waiting_input' && currentlySeen;
       const ev = await tx.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } });
       const updated = await tx.tab.update({
         where: { id: tabId },

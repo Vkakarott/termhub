@@ -17,6 +17,12 @@ export interface Interpreted {
   activity?: TabActivity;
   /** Claude Code's spinner verb ("Moonwalking"), with `activity`; null when none was sent or it was not a plain word */
   verb?: string | null;
+  /**
+   * The event is a late echo of the wait already open, not a new one: a person who saw that wait
+   * must not be alerted again. Only the tool's interpreter can tell — Claude's idle_prompt follows
+   * its own Stop, while every Codex turn ends the same way with no working state in between.
+   */
+  continuesWait?: true;
 }
 
 /**
@@ -53,7 +59,9 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
       const type = str(ev.notification_type);
       const message = cap(str(ev.message));
       if (type === 'permission_prompt') return { kind: 'waiting_permission', text: message, meta: { event: name, type } };
-      if (type === 'idle_prompt' || type === 'elicitation_dialog') return { kind: 'waiting_input', text: message, meta: { event: name, type } };
+      // idle_prompt comes ~1 min after the Stop of the same turn: the same wait, still unanswered
+      if (type === 'idle_prompt') return { kind: 'waiting_input', text: message, meta: { event: name, type }, continuesWait: true };
+      if (type === 'elicitation_dialog') return { kind: 'waiting_input', text: message, meta: { event: name, type } };
       return null; // auth_success and friends: nothing the user has to act on
     }
     case 'Stop':
@@ -67,6 +75,30 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
   }
 }
 
+/** How Codex's own naming prompt begins; the person's request is appended after it. */
+const CODEX_TITLE_PROMPT = 'Generate a concise, single-line task title';
+
+/**
+ * On a conversation's first turn the Codex TUI runs a second turn on a side thread to name it, and
+ * `notify` fires for that one too, in the same second: its only input is Codex's naming prompt and
+ * its answer is `{"title": "…"}`. Recording it would alert twice for one turn and replace the real
+ * answer with the title. Both signals are required: a person can ask for a title-shaped JSON, and
+ * dropping that answer would hide that Codex finished; if Codex ever rewords the prompt, the title
+ * turn gets through again — a duplicate alert, never a missed one.
+ */
+function isTitleTurn(ev: Record<string, unknown>): boolean {
+  const input = ev['input-messages'];
+  if (!Array.isArray(input) || input.length !== 1 || typeof input[0] !== 'string' || !input[0].startsWith(CODEX_TITLE_PROMPT)) return false;
+  const answer = str(ev['last-assistant-message']);
+  if (!answer?.startsWith('{')) return false;
+  try {
+    const parsed: unknown = JSON.parse(answer);
+    return isObj(parsed) && Object.keys(parsed).length === 1 && typeof parsed.title === 'string';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Codex CLI `notify` payload (argv JSON): `{ type: "agent-turn-complete", "last-assistant-message": ... }`.
  * Codex has no idle/permission notification, so a finished turn is its "needs you" signal:
@@ -74,7 +106,7 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
  */
 function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
   const type = str(ev.type);
-  if (type === 'agent-turn-complete') {
+  if (type === 'agent-turn-complete' && !isTitleTurn(ev)) {
     return { kind: 'waiting_input', text: cap(str(ev['last-assistant-message'])), meta: { event: type } };
   }
   return null;

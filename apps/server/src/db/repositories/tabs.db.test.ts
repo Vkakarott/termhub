@@ -144,13 +144,31 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
   });
 
-  describe('recordEvent — the same Claude wait (Stop, then idle_prompt ~1min later) stays seen', () => {
-    it('carries the seen mark forward: seen waiting_input + a new waiting_input stays seen', async () => {
+  describe('recordEvent — the same wait (Claude: Stop, then idle_prompt ~1min later) stays seen, a new one re-arms', () => {
+    it('carries the seen mark forward: seen waiting_input + a waiting_input that continues it stays seen', async () => {
       await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'first?' });
       await repo.markSeen(tabId);
-      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null });
+      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, continuesWait: true });
       expect(needsYou(updated)).toBe(false);
       expect(updated.state_seen_at).toBe(updated.state_at);
+    });
+
+    it('re-arms on a seen waiting_input followed by a new wait (the next Codex turn, which sends no working in between)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'um' });
+      await repo.markSeen(tabId);
+      const { tab: second } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'dois' });
+      expect(needsYou(second)).toBe(true);
+      expect(second.state_text).toBe('dois');
+      await repo.markSeen(tabId);
+      const { tab: third } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'tres' });
+      expect(needsYou(third)).toBe(true);
+    });
+
+    it('never carries a seen mark the tab does not have, even for a continuation', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null });
+      await repo.markSeen(tabId);
+      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, continuesWait: true });
+      expect(needsYou(updated)).toBe(true);
     });
 
     it('re-arms once the wait passes through another state (working) before returning to waiting_input', async () => {
