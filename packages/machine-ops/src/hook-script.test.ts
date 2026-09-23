@@ -3,7 +3,7 @@
  * name as $1, a fake `tmux` and a fake `curl` first on PATH. The fake curl appends each request
  * body to a log, so the assertions are about what would have reached the server.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +25,17 @@ function run(event: unknown): void {
     env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp },
     timeout: 5000,
   });
+}
+
+/** `run`, with extra environment, answering what the script wrote to stderr. */
+function runWithStderr(event: unknown, env: Record<string, string>): string {
+  const r = spawnSync('sh', [join(bin, 'termhub-hook'), 'claude'], {
+    input: JSON.stringify(event),
+    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp, ...env },
+    timeout: 5000,
+  });
+  expect(r.status).toBe(0);
+  return r.stderr.toString();
 }
 
 const logged = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
@@ -231,6 +242,38 @@ describe('termhub-hook script', () => {
       run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
       const sent = await bodies(1);
       expect(eventOf(sent[0]).verb).toBe('Moseying');
+    });
+
+    it('only takes a spinner at column 0: indented look-alikes below it (a draft, tool output) never win', async () => {
+      screen(
+        '✽ Mulling… (11s · ↓ 498 tokens)',
+        '  ⎿  ☐ Write the failing test',
+        '╭──────────────────────────────────────────╮',
+        '│ > first line of a draft                  │',
+        '  * Fixing... the secret bug',
+        '    · Password…',
+        '   ✻ Secret… (1s)',
+        '╰──────────────────────────────────────────╯',
+      );
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      const sent = await bodies(1);
+      expect(eventOf(sent[0]).verb).toBe('Mulling');
+    });
+
+    it('posts no verb when the only spinner-looking line is indented', async () => {
+      screen('$ cat notes.md', '  * Fixing... the bug', '    · Password…');
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      const sent = await bodies(1);
+      expect(eventOf(sent[0])).toEqual({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+    });
+
+    it('still finds the verb, silently, with invalid UTF-8 on screen under a UTF-8 locale', async () => {
+      const lines = claudeScreen('✻ Brewing… (3s · esc to interrupt)');
+      writeFileSync(pane, Buffer.concat([Buffer.from('garbage \xff\xfe\xc3( bytes\n', 'latin1'), Buffer.from(`${lines.join('\n')}\n`), Buffer.from('tail \xff\n', 'latin1')]));
+      const stderr = runWithStderr({ hook_event_name: 'PreToolUse', tool_name: 'Edit' }, { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' });
+      const sent = await bodies(1);
+      expect(eventOf(sent[0]).verb).toBe('Brewing');
+      expect(stderr).toBe('');
     });
 
     it('de-duplicates on tool and verb together', async () => {

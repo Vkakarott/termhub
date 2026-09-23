@@ -55,7 +55,7 @@ if [ "$TOOL" = codex ]; then EVENT="$2"; else EVENT=$(cat 2>/dev/null); fi
 [ -n "$EVENT" ] || EVENT='{}'
 # Tool calls: only the tool's name travels (never its input), with the spinner's verb when one is on
 # screen, and only when the pair changed since the last one for this session — twenty edits in a row
-# are one request. The marker is per tmux
+# are one request as long as the verb stays the same (a new verb mid-run is a new request). The marker is per tmux
 # session, under TMPDIR, with the session name reduced to filename-safe characters.
 MARK="\${TMPDIR:-/tmp}/termhub-hook-$(printf '%s' "$SESSION" | tr -c 'A-Za-z0-9_-' '_')"
 case "$EVENT" in
@@ -73,14 +73,18 @@ case "$EVENT" in
     case "$NAME" in '' | *[!A-Za-z0-9_.-]*) exit 0 ;; esac
     # Claude Code's spinner verb ("✻ Moonwalking… (12s · esc to interrupt)"): the visible pane is
     # read here, on the machine, and only the verb may leave it — one word of 2 to 24 ASCII letters
-    # right after a spinner glyph and a single space, immediately followed by "…" or "...", then the
-    # end of the line or a space. The lowest such line of the last 24 non-blank rows wins (the live
-    # spinner sits above the todo list and the input box; blank rows under a short session are
-    # skipped). ASCII only on purpose: under LC_ALL=C, sed matches bytes the same way on GNU, BSD
-    # (macOS) and busybox, and a customised verb with accents is dropped rather than half-matched.
-    # The case below checks the result again, so the hand-built JSON only ever gets letters.
-    VERB=$(tmux capture-pane -p -t "$TMUX_PANE" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 24 |
-      LC_ALL=C sed -n -E 's/^ *(·|✢|✳|✶|✻|✽|\\*) ([A-Za-z]{2,24})(…|\\.\\.\\.)( .*)?$/\\2/p' | tail -n 1)
+    # right after a spinner glyph at column 0 and a single space, immediately followed by "…" or
+    # "...", then the end of the line or a space. Column 0 because Claude Code draws its spinner
+    # there, while a draft in the input box or indented tool output can look just like one. The
+    # lowest such line of the last 24 non-blank rows wins (the live spinner sits above the todo list
+    # and the input box; blank rows under a short session are skipped). Both grep and sed run under
+    # LC_ALL=C: bytes the locale calls invalid then neither trip grep's "binary file matches" (which
+    # would also swallow the rest of the screen) nor sed's "illegal byte sequence" on macOS, and
+    # the match works the same on GNU, BSD and busybox. ASCII only on purpose: a customised verb
+    # with accents is dropped rather than half-matched. The case below checks the result again, so
+    # the hand-built JSON only ever gets letters.
+    VERB=$(tmux capture-pane -p -t "$TMUX_PANE" 2>/dev/null | LC_ALL=C grep -v '^[[:space:]]*$' 2>/dev/null | tail -n 24 |
+      LC_ALL=C sed -n -E 's/^(·|✢|✳|✶|✻|✽|\\*) ([A-Za-z]{2,24})(…|\\.\\.\\.)( .*)?$/\\2/p' | tail -n 1)
     case "$VERB" in *[!A-Za-z]*) VERB= ;; esac
     [ "\${#VERB}" -le 24 ] || VERB=
     KEY="$NAME\${VERB:+ $VERB}"
