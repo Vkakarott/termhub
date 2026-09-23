@@ -58,6 +58,12 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
   const routes: { pattern: RegExp; handler: UpgradeHandler }[] = [];
   const publicRoutes: { pattern: RegExp; handler: PublicUpgradeHandler }[] = [];
   server.on('upgrade', async (req, socket, head) => {
+    // Node's http server removes its own socket `error` handler once it emits `upgrade`, and `ws`
+    // only adds one inside handleUpgrade. Every route below awaits (auth, DB lookups) before that,
+    // so a client resetting the connection in the meantime would raise an unhandled ECONNRESET and
+    // take the whole process down. The error itself needs no handling here: the socket is destroyed
+    // and emits `close`, which is what routes release their resources on.
+    socket.on('error', () => {});
     const url = new URL(req.url ?? '/', 'http://localhost');
 
     // Public routes match first and authenticate themselves (bearer token, not cookie):

@@ -62,6 +62,12 @@ export function registerPublicWs(
       held = false;
       slots--;
     };
+    // The slot goes back with the socket, however it ends: a visitor who resets the connection
+    // while the nickname lookups below are still pending, or a handshake `ws` aborts without ever
+    // calling back. Attached here, where the slot is taken, not after the awaits — by then the
+    // socket may already have closed and the listener would never fire. (The router gives every
+    // upgrade socket an `error` listener, so a reset surfaces here as `close`.)
+    ctx.socket.once('close', release);
     try {
       await admit(ctx, release);
     } catch (err) {
@@ -89,10 +95,9 @@ export function registerPublicWs(
     if (!owner) return reject(404, 'Not Found');
     const published = new Set((await deps.repos.projects.list({ owner: owner.id })).filter((p) => p.is_public && p.status !== 'archived').map((p) => p.id));
     if (published.size === 0) return reject(404, 'Not Found');
+    // The visitor left while the lookups ran: nothing to upgrade (its `close` already released the slot).
+    if (socket.destroyed) return release();
 
-    // The slot goes back with the socket, however it ends — including a handshake `ws` aborts
-    // without ever calling back (the visitor left mid-upgrade).
-    socket.once('close', release);
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
       answered.set(ws, true);

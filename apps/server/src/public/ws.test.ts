@@ -1,5 +1,5 @@
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
@@ -298,4 +298,47 @@ describe('registerPublicWs', () => {
     await expect(nextMessage(client, { timeoutMs: 200 })).rejects.toThrow(/timeout/);
     client.terminate();
   });
+
+  // The slot is taken before the nickname lookups: a visitor who resets the connection while they
+  // are pending must give it back, or enough of them leave every later visitor with a 503.
+  for (const stage of ['findByNickname', 'projects.list'] as const) {
+    it(`releases the slot of a visitor who resets the connection during ${stage}, and the process survives`, async () => {
+      let entered!: () => void;
+      const enteredP = new Promise<void>((r) => (entered = r));
+      let proceed!: () => void;
+      const go = new Promise<void>((r) => (proceed = r));
+      const slow = <T>(value: T) => async () => {
+        entered();
+        await go;
+        return value;
+      };
+      if (stage === 'findByNickname') repos.users.findByNickname.mockImplementationOnce(slow(pedro));
+      else repos.projects.list.mockImplementationOnce(slow([p1, p2, p3]));
+      await start({ maxSockets: 1 });
+      const onUncaught = vi.fn();
+      process.on('uncaughtException', onUncaught);
+      try {
+        const client = net.connect(port, '127.0.0.1', () => {
+          client.write(
+            `GET /ws/public/pedro HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+              'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n',
+          );
+        });
+        client.on('error', () => {});
+        await enteredP;
+        const gone = new Promise((r) => client.on('close', r));
+        client.resetAndDestroy();
+        await gone;
+        await new Promise((r) => setTimeout(r, 50)); // the server sees the RST while the lookup is pending
+        proceed();
+        await new Promise((r) => setTimeout(r, 50));
+        expect(onUncaught).not.toHaveBeenCalled();
+      } finally {
+        process.off('uncaughtException', onUncaught);
+      }
+      // the only slot is free again: a real visitor gets in, not a 503
+      const a = await connect('/ws/public/pedro');
+      a.terminate();
+    });
+  }
 });
