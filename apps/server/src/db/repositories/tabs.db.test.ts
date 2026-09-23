@@ -195,7 +195,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     it('setActivity changes only the activity and the time, with no event row', async () => {
       const { tab: before } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
       const events = await db.tabEvent.count({ where: { tabId } });
-      const updated = await repo.setActivity(tabId, 'reading');
+      const updated = await repo.setActivity(tabId, 'reading', null);
       expect(updated?.activity).toBe('reading');
       expect(updated?.state).toBe('working');
       expect(updated?.state_text).toBe(before.state_text);
@@ -206,7 +206,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     it('setActivity writes nothing once the tab has left working (a Stop landing between the read and the write)', async () => {
       await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
       const { tab: stopped } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
-      expect(await repo.setActivity(tabId, 'reading')).toBeUndefined();
+      expect(await repo.setActivity(tabId, 'reading', null)).toBeUndefined();
       const reloaded = await repo.findById(tabId);
       expect(reloaded?.activity).toBeNull(); // a waiting tab never reads as coding
       expect(reloaded?.state).toBe('waiting_input');
@@ -214,7 +214,33 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
 
     it('setActivity returns undefined for a tab that does not exist', async () => {
-      expect(await repo.setActivity(newId(), 'reading')).toBeUndefined();
+      expect(await repo.setActivity(newId(), 'reading', null)).toBeUndefined();
+    });
+
+    it('recordEvent stores the spinner verb of a working event and clears it with the activity', async () => {
+      const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Moonwalking' });
+      expect(tab.activity_verb).toBe('Moonwalking');
+      const again = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
+      expect(again.tab.activity_verb).toBeNull();
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Brewing' });
+      // a verb sent along with a non-working state is never kept
+      const waiting = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?', activityVerb: 'Brewing' });
+      expect(waiting.tab.activity_verb).toBeNull();
+    });
+
+    it('setActivity moves the verb with the activity, and only on a working tab', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Brewing' });
+      expect((await repo.setActivity(tabId, 'coding', 'Musing'))?.activity_verb).toBe('Musing');
+      expect((await repo.setActivity(tabId, 'reading', null))?.activity_verb).toBeNull();
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
+      expect(await repo.setActivity(tabId, 'reading', 'Pondering')).toBeUndefined();
+      expect((await repo.findById(tabId))?.activity_verb).toBeNull();
+    });
+
+    it('clearState clears the verb too', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'terminal', activityVerb: 'Brewing' });
+      await repo.clearState(tabId);
+      expect((await repo.findById(tabId))?.activity_verb).toBeNull();
     });
 
     it('clearState clears the activity too', async () => {
