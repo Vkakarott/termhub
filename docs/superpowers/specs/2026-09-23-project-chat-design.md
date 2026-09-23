@@ -41,7 +41,9 @@ This allows one active conversation per user per scope, where the account-wide c
 
 **Repository changes** (`db/repositories/chat.ts`):
 
-- `getOrCreateActive(userId, projectId | null)` replaces the per-user lookup. It keeps the existing create-then-reread-on-conflict race handling.
+- `getOrCreateForUser(userId)` keeps its name and callers (`resolveHost`, the account-wide chat) and is narrowed to the active account-wide row (`project_id IS NULL AND archived_at IS NULL`).
+- `getOrCreateForProject(userId, projectId)` is the same create-then-reread-on-conflict lookup for a project's active row.
+- `findByIdForUser(id, userId)` reads a conversation by id, owner-scoped: how a decision finds the conversation its action belongs to.
 - `archive(conversationId)` sets `archived_at = now()`.
 - `listActiveProjectConversations(userId)` returns, per project, whether its active conversation has a run in progress or a pending confirmation — what the sidebar indicator needs (§5.3).
 
@@ -61,7 +63,9 @@ This allows one active conversation per user per scope, where the account-wide c
 ### 4.2 `ChatService`
 
 - `send`, `resumeAfterDecision` and `drainNextDecision` take a conversation, not a user. The busy lock is already keyed by conversation id, so a project chat and the account-wide chat, or two project chats, can run at the same time.
-- **Token rotation becomes per conversation.** `mintConciergeToken` currently revokes *every* active concierge token of the user (`chat/token.ts`). With two conversations running at once, one run would revoke the other's token mid-answer. The token name gains the conversation id (`concierge (automático) · <conversation id>`), and a run revokes only the previous token of its own conversation. `archive` also revokes the archived conversation's token.
+- **The token carries its conversation.** The gate (`chat/gate-runtime.ts`) finds the chat to ask in from the token alone, and today does it with "the user's one conversation" (its own comment: "per-machine conversations will have to carry the id on the token"). `api_tokens` gains a nullable `chat_conversation_id` (FK, `ON DELETE CASCADE`), set only on concierge tokens. The gate reads the conversation from the token. A gated token with no conversation (one minted before this change, alive for at most 24 h) falls back to the account-wide conversation, as today.
+- **Token rotation becomes per conversation.** `mintConciergeToken` currently revokes *every* active concierge token of the user (`chat/token.ts`). With two conversations running at once, one run would revoke the other's token mid-answer. It now takes the conversation id, stores it on the token, and revokes only the previous tokens of that same conversation. Reset also revokes the archived conversation's tokens.
+- **Concierge tokens stop counting against the personal-token cap.** `countActive` (checked against `MAX_ACTIVE_TOKENS_PER_USER = 20` when a person creates a token) excludes gated tokens. Otherwise a user with many project chats would be unable to create a token of their own.
 - Host resolution (`chat/host.ts`) takes the conversation that owns the host (always the account-wide one) separately from the conversation being run.
 
 ### 4.3 The project system prompt
@@ -126,11 +130,12 @@ In the project row of `components/Sidebar.tsx`:
 
 **Server**
 - Repository:
-  - one active conversation per scope under concurrent `getOrCreateActive`
+  - one active conversation per scope under concurrent `getOrCreateForProject`
   - `archive` frees the scope
   - deleting a project cascades to its conversations
 - Service:
   - two conversations of the same user run concurrently and neither run's MCP token is revoked by the other
+  - the gate asks in the conversation named by the token
   - a host change clears `cli_session_id` on the project conversations
 - Route `reset`:
   - 409 while busy
