@@ -372,7 +372,7 @@ describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
     expect(old.json()).toMatchObject({ claude: 'installed', codex: 'installed', cursor: 'agent_outdated' });
 
     agents.reset();
-    attachAgent('0.4.2', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'skipped', cursor: 'installed' })));
+    attachAgent('0.4.3', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'skipped', cursor: 'installed' })));
     built = buildApp(store);
     app = built.app;
     const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });

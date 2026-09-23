@@ -31,6 +31,6 @@ describe('hooksInstallNote', () => {
 
   it('says a tool was not found, and asks for an agent update when the agent does not know Cursor yet', () => {
     expect(hooksInstallNote({ claude: 'installed', codex: 'skipped', cursor: 'skipped' })).toContain('Codex: não encontrado · Cursor CLI: não encontrado');
-    expect(hooksInstallNote({ claude: 'installed', codex: 'skipped', cursor: 'agent_outdated' })).toContain('Cursor CLI: atualize o agente (0.4.2 ou mais novo)');
+    expect(hooksInstallNote({ claude: 'installed', codex: 'skipped', cursor: 'agent_outdated' })).toContain('Cursor CLI: atualize o agente (0.4.3 ou mais novo)');
   });
 });
