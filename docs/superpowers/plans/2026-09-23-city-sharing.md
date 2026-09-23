@@ -35,7 +35,7 @@
 - **The privacy rule:** every public byte is produced by `toPublicCity` / `toPublicRobot` / `toPublicRobotFrame` / `toPublicRobotGone` in `apps/server/src/public/city.ts`, which **name every field they emit**. `short_url` is added there by name. Never spread a `User`, `Tab`, `Project` or `Machine` into a public payload.
 - **The public bundle rule:** `apps/web/src/city/**` (including the new `apps/web/src/city/share/**`) imports only from `apps/web/src/office/**`, `apps/web/src/lib/types.ts`, its own `city/` files and npm packages — never `lib/api.ts`, `lib/auth.tsx`, `lib/public-city.ts`, `lib/city-link.ts`, `lib/monitor.tsx` or `App.tsx`. `apps/web/src/city/bundle.test.ts` guards the built output; Task B7 adds a source-level guard.
 - **PixiJS is imported only under `apps/web/src/office/scene/` and `apps/web/src/office/pack/`.** The share code reaches the canvas only through `OfficeScene.onFrame`.
-- **Migrations are additive** and backward compatible with the previous release (the old container keeps serving during the blue/green switch). Name a new migration after the latest existing one: the latest is `20260923110000_instance_secrets`, so this plan's is `20260923120000_city_short_link`.
+- **Migrations are additive** and backward compatible with the previous release (the old container keeps serving during the blue/green switch). Name a new migration after the latest existing one: the latest is `20260923110000_instance_secrets`, so this plan's is `20260923130000_city_short_link`.
 - **TypeToAccess is never called in tests.** Every test injects a fake `ShortLinkHttp` (or a fake `fetch` into the client). The real API key lives only in the server environment (`TYPETOACCESS_API_KEY`); the browser never talks to TypeToAccess.
 - Every commit ends with the trailer line `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` (after a blank line). Commit messages follow the repo style: `Area: imperative subject` (≤ 72 chars).
 - Branches: **Part A** on `feat/city-short-link`, cut from `docs/city-sharing` (which carries the spec and this plan). **Part B** on `feat/city-share-media`, cut from `main` after Part A is merged (or from `feat/city-short-link` if it is not merged yet — Part B reads `PublicCity.short_url`, which Part A adds). Do not push to `main`.
@@ -56,7 +56,7 @@
 ```
 Part A — short link
 apps/server/prisma/schema.prisma                                  User.cityShortUrlPartner / cityShortUrlCustom
-apps/server/prisma/migrations/20260923120000_city_short_link/migration.sql   NEW
+apps/server/prisma/migrations/20260923130000_city_short_link/migration.sql   NEW
 apps/server/src/generated/prisma/**                               regenerated (committed)
 apps/server/src/db/repositories/types.ts                          User.city_short_url_partner / _custom, mapUser
 apps/server/src/db/repositories/users.ts                          setCityShortUrlPartner, setCityShortUrlCustom
@@ -113,7 +113,7 @@ apps/web/src/components/MyCityView.tsx / .test.tsx                "Abrir minha c
 
 **Files:**
 - Modify: `apps/server/prisma/schema.prisma` (`model User`, after `nickname`)
-- Create: `apps/server/prisma/migrations/20260923120000_city_short_link/migration.sql`
+- Create: `apps/server/prisma/migrations/20260923130000_city_short_link/migration.sql`
 - Modify: `apps/server/src/generated/prisma/**` (regenerated, committed)
 - Modify: `apps/server/src/db/repositories/types.ts` (`interface User`, `mapUser`)
 - Modify: `apps/server/src/db/repositories/users.ts`
@@ -161,7 +161,7 @@ apps/web/src/components/MyCityView.tsx / .test.tsx                "Abrir minha c
   cityShortUrlCustom  String? @map("city_short_url_custom")
 ```
 
-Create `apps/server/prisma/migrations/20260923120000_city_short_link/migration.sql`:
+Create `apps/server/prisma/migrations/20260923130000_city_short_link/migration.sql`:
 
 ```sql
 -- The public city's short link: the one termhub created through TypeToAccess, and one the person
