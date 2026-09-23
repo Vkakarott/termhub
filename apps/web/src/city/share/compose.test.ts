@@ -103,20 +103,36 @@ describe('drawFrame', () => {
     };
   }
 
-  it('paints the scene pixel-sharp, covering its box, and every line of text', () => {
+  it('paints the whole scene pixel-sharp, fitted inside its box, and every line of text', () => {
     const ctx = fakeCtx();
     const l = layoutFor('story', info());
-    // a wide scene canvas: covering a tall box crops its sides, centred
+    // a wide scene canvas in a tall box: never cropped (a cut would drop whole buildings), letterboxed and centred
     drawFrame(ctx as unknown as CanvasRenderingContext2D, l, { width: 2000, height: 1000 } as HTMLCanvasElement);
     expect(ctx.imageSmoothingEnabled).toBe(false);
     const [, sx, sy, sw, sh, dx, dy, dw, dh] = ctx.drawImage.mock.calls[0] as number[];
-    expect([dx, dy, dw, dh]).toEqual([l.scene.x, l.scene.y, l.scene.w, l.scene.h]);
-    expect(sh).toBeCloseTo(1000);
-    expect(sw / sh).toBeCloseTo(l.scene.w / l.scene.h);
-    expect(sx).toBeCloseTo((2000 - sw) / 2);
-    expect(sy).toBeCloseTo(0);
+    expect([sx, sy, sw, sh]).toEqual([0, 0, 2000, 1000]);
+    expect(dw).toBeCloseTo(l.scene.w, 0);
+    expect(dh).toBeCloseTo(l.scene.w / 2, 0);
+    expect(dx).toBeCloseTo(l.scene.x, 0);
+    expect(dy).toBeCloseTo(l.scene.y + (l.scene.h - dh) / 2, 0);
+    // the bars are the frame's background, painted before the scene
+    expect(ctx.fillRect.mock.calls[0]).toEqual([0, 0, l.width, l.height]);
     const texts = ctx.fillText.mock.calls.map((c) => c[0]);
     expect(texts).toEqual(expect.arrayContaining(['termhub', 'Cidade de Pedro', '77a.it/pedro', 'Participe do beta grátis']));
+  });
+
+  it('pillarboxes a tall scene in the post’s wide box, inside the box', () => {
+    const ctx = fakeCtx();
+    const l = layoutFor('post', info());
+    drawFrame(ctx as unknown as CanvasRenderingContext2D, l, { width: 500, height: 1000 } as HTMLCanvasElement);
+    const [, sx, sy, sw, sh, dx, dy, dw, dh] = ctx.drawImage.mock.calls[0] as number[];
+    expect([sx, sy, sw, sh]).toEqual([0, 0, 500, 1000]);
+    expect(dh).toBeCloseTo(l.scene.h, 0);
+    expect(dw).toBeCloseTo(l.scene.h / 2, 0);
+    expect(dx).toBeGreaterThanOrEqual(l.scene.x);
+    expect(dx + dw).toBeLessThanOrEqual(l.scene.x + l.scene.w);
+    expect(dx).toBeCloseTo(l.scene.x + (l.scene.w - dw) / 2, 0);
+    expect(dy).toBe(l.scene.y);
   });
 
   it('draws no scene from an empty canvas instead of dividing by zero', () => {

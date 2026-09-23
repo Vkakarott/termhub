@@ -146,13 +146,16 @@ export function drawFrame(ctx: CanvasRenderingContext2D, layout: ShareLayout, sc
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, layout.width, layout.height);
 
-  // the scene, scaled to cover its box and centred on what the camera shows
+  // the scene, whole: scaled to fit inside its box and centred, never cropped — a cover-crop cut whole
+  // buildings off a wide view. The bars around it are the frame's background, painted above.
   const r = layout.scene;
   if (scene.width > 0 && scene.height > 0) {
-    const k = Math.max(r.w / scene.width, r.h / scene.height);
-    const sw = r.w / k;
-    const sh = r.h / k;
-    ctx.drawImage(scene, (scene.width - sw) / 2, (scene.height - sh) / 2, sw, sh, r.x, r.y, r.w, r.h);
+    const k = Math.min(r.w / scene.width, r.h / scene.height);
+    const dw = Math.round(scene.width * k);
+    const dh = Math.round(scene.height * k);
+    const dx = Math.round(r.x + (r.w - dw) / 2);
+    const dy = Math.round(r.y + (r.h - dh) / 2);
+    ctx.drawImage(scene, 0, 0, scene.width, scene.height, dx, dy, dw, dh);
   }
 
   // hairlines between the bands, in the page's `line` colour
