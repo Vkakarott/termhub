@@ -78,9 +78,9 @@ describe('registerPublicWs', () => {
   let repos: { users: { findByNickname: ReturnType<typeof vi.fn> }; projects: { list: ReturnType<typeof vi.fn> } };
   let port: number;
 
-  function connect(path: string): Promise<WebSocket> {
+  function connect(path: string, opts: { autoPong?: boolean } = {}): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`);
+      const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, { autoPong: opts.autoPong ?? true });
       const timer = setTimeout(() => {
         ws.terminate();
         reject(new Error('timeout waiting for upgrade response'));
@@ -123,11 +123,17 @@ describe('registerPublicWs', () => {
       users: { findByNickname: vi.fn(async (nickname: string) => (nickname === 'pedro' ? pedro : undefined)) },
       projects: { list: vi.fn(async () => [p1, p2, p3]) },
     };
+    await start();
+  });
+
+  async function start(limits?: { maxSockets?: number; heartbeatMs?: number }) {
+    if (server?.listening) await shutdown(server);
     server = http.createServer();
     const router = createUpgradeRouter(server, { auth: {} as AuthContext });
-    registerPublicWs(router, { repos: repos as unknown as Repositories, log: fakeLog() });
+    const wss = registerPublicWs(router, { repos: repos as unknown as Repositories, log: fakeLog(), limits });
+    server.on('close', () => wss.close());
     port = await listen(server);
-  });
+  }
 
   afterEach(async () => {
     memo.current = undefined;
@@ -238,5 +244,48 @@ describe('registerPublicWs', () => {
     const frame = await nextMessage(client2);
     expect(frame.type).toBe('robot');
     client2.terminate();
+  });
+
+  // A half-open socket (a phone that lost signal) never says goodbye: without a heartbeat it would
+  // hold its bus listeners until nginx's hour-long read timeout.
+  it('drops a socket that stops answering pings, and releases its listeners', async () => {
+    await start({ heartbeatMs: 50 });
+    // earlier tests' sockets are torn down on the server's side a tick after their clients go
+    await vi.waitFor(() => expect(monitorBus.listenerCount()).toBe(0));
+    const listenersBefore = monitorBus.listenerCount();
+    const client = await connect('/ws/public/pedro', { autoPong: false });
+    expect(monitorBus.listenerCount()).toBe(listenersBefore + 1);
+    await expect(closed(client)).resolves.toBe(true);
+    // the server's own close handler runs on its side of the socket, a tick after the client's
+    await vi.waitFor(() => expect(monitorBus.listenerCount()).toBe(listenersBefore));
+  });
+
+  it('keeps a socket that answers its pings', async () => {
+    await start({ heartbeatMs: 50 });
+    const client = await connect('/ws/public/pedro');
+    await new Promise((r) => setTimeout(r, 250));
+    expect(client.readyState).toBe(WebSocket.OPEN);
+    client.terminate();
+  });
+
+  it('refuses a public socket beyond the process-wide ceiling, and admits one again once a slot frees', async () => {
+    await start({ maxSockets: 2 });
+    const a = await connect('/ws/public/pedro');
+    const b = await connect('/ws/public/pedro');
+    await expect(connect('/ws/public/pedro')).rejects.toThrow(/503/);
+    const gone = closed(a);
+    a.close();
+    await gone;
+    await new Promise((r) => setTimeout(r, 20));
+    const c = await connect('/ws/public/pedro');
+    b.terminate();
+    c.terminate();
+  });
+
+  it('does not count a refused upgrade against the ceiling', async () => {
+    await start({ maxSockets: 1 });
+    for (let i = 0; i < 3; i++) await expect(connect('/ws/public/ninguem')).rejects.toThrow(/404/);
+    const a = await connect('/ws/public/pedro');
+    a.terminate();
   });
 });

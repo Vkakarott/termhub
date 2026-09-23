@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
 import type { createUpgradeRouter } from '../ws/router.js';
 import type { Repositories } from '../db/repositories/index.js';
-import { rejectUpgrade } from '../ws/router.js';
+import { rejectUpgrade, type PublicUpgradeContext } from '../ws/router.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
 import { toPublicRobot } from './city.js';
@@ -17,28 +17,86 @@ import { cachedTmuxProbe } from '../terminal/machine-exec.js';
  * at connect and kept current by `publicBus`, so unpublishing drops the socket instead of leaving
  * somebody watching a room that is no longer public.
  */
-export function registerPublicWs(router: ReturnType<typeof createUpgradeRouter>, deps: { repos: Repositories; log: FastifyBaseLogger }): WebSocketServer {
+/** Every public socket this process holds at once, across all cities: past it, new visitors get a 503. */
+export const PUBLIC_WS_MAX_SOCKETS = 1_000;
+/** How often each public socket is pinged; one that has not answered the previous ping is dropped. */
+export const PUBLIC_WS_HEARTBEAT_MS = 30_000;
+
+export function registerPublicWs(
+  router: ReturnType<typeof createUpgradeRouter>,
+  deps: { repos: Repositories; log: FastifyBaseLogger; limits?: { maxSockets?: number; heartbeatMs?: number } },
+): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 });
   const log = deps.log.child({ mod: 'public-ws' });
+  const maxSockets = deps.limits?.maxSockets ?? PUBLIC_WS_MAX_SOCKETS;
 
-  router.addPublic(/^\/ws\/public\/([^/]+)\/?$/, async ({ req, socket, head, params }) => {
+  // These sockets are anonymous, skip the Origin check (any page can open them from its visitors'
+  // browsers) and sit behind a one-hour proxy read timeout: nginx's per-IP cap is the only other
+  // bound. So the process keeps its own: a ceiling on how many it holds (counting upgrades still
+  // resolving their nickname), and a ping per interval that drops a half-open socket which never
+  // answered the last one, instead of letting it hold its bus listeners until the proxy gives up.
+  let slots = 0;
+  const answered = new WeakMap<WebSocket, boolean>();
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (answered.get(ws) === false) {
+        ws.terminate();
+        continue;
+      }
+      answered.set(ws, false);
+      ws.ping();
+    }
+  }, deps.limits?.heartbeatMs ?? PUBLIC_WS_HEARTBEAT_MS);
+  heartbeat.unref();
+  wss.on('close', () => clearInterval(heartbeat));
+
+  router.addPublic(/^\/ws\/public\/([^/]+)\/?$/, async (ctx) => {
+    if (slots >= maxSockets) {
+      log.warn({ slots }, 'public visitor refused: socket ceiling reached');
+      return rejectUpgrade(ctx.socket, 503, 'Service Unavailable');
+    }
+    slots++;
+    let held = true;
+    const release = () => {
+      if (!held) return;
+      held = false;
+      slots--;
+    };
+    try {
+      await admit(ctx, release);
+    } catch (err) {
+      release();
+      throw err;
+    }
+  });
+
+  async function admit({ req, socket, head, params }: PublicUpgradeContext, release: () => void): Promise<void> {
+    const reject = (status: number, text: string) => {
+      release();
+      rejectUpgrade(socket, status, text);
+    };
     // A malformed escape (`%`) makes decodeURIComponent throw; every rejected nickname answers
     // the same 404, not a 500 that would tell a stranger their input broke something.
     let raw: string;
     try {
       raw = decodeURIComponent(params[0] ?? '');
     } catch {
-      return rejectUpgrade(socket, 404, 'Not Found');
+      return reject(404, 'Not Found');
     }
     const parsed = normalizeNickname(raw);
-    if (!parsed.ok) return rejectUpgrade(socket, 404, 'Not Found');
+    if (!parsed.ok) return reject(404, 'Not Found');
     const owner = await deps.repos.users.findByNickname(parsed.value);
-    if (!owner) return rejectUpgrade(socket, 404, 'Not Found');
+    if (!owner) return reject(404, 'Not Found');
     const published = new Set((await deps.repos.projects.list({ owner: owner.id })).filter((p) => p.is_public && p.status !== 'archived').map((p) => p.id));
-    if (published.size === 0) return rejectUpgrade(socket, 404, 'Not Found');
+    if (published.size === 0) return reject(404, 'Not Found');
 
+    // The slot goes back with the socket, however it ends — including a handshake `ws` aborts
+    // without ever calling back (the visitor left mid-upgrade).
+    socket.once('close', release);
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
+      answered.set(ws, true);
+      ws.on('pong', () => answered.set(ws, true));
       const offTab = monitorBus.subscribe((change) => {
         if (change.owner_id !== owner.id || !published.has(change.project_id)) return;
         if (ws.readyState !== WebSocket.OPEN) return;
@@ -54,7 +112,11 @@ export function registerPublicWs(router: ReturnType<typeof createUpgradeRouter>,
         published.delete(change.project_id);
         ws.close(1000, 'unpublished');
       });
-      const teardown = () => { offTab(); offPublic(); };
+      const teardown = () => {
+        offTab();
+        offPublic();
+        release();
+      };
       log.info({ nickname: parsed.value, rooms: published.size }, 'public visitor connected');
       ws.on('close', () => {
         teardown();
@@ -68,7 +130,7 @@ export function registerPublicWs(router: ReturnType<typeof createUpgradeRouter>,
         log.warn({ nickname: parsed.value, err: err.message }, 'public visitor socket error');
       });
     });
-  });
+  }
 
   return wss;
 }
