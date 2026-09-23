@@ -197,6 +197,17 @@ it('Nova conversa asks first, resets, and swaps in the empty conversation', asyn
   await waitFor(() => expect(screen.queryByText('antigo')).toBeNull());
 });
 
+it('shows the server error when the initial load fails, instead of an unhandled rejection', async () => {
+  const { ApiError } = await import('../../lib/api');
+  chatMock.mockRejectedValue(new ApiError(404, 'Projeto não encontrado'));
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText('Projeto não encontrado')).toBeTruthy();
+});
+
 it('in a project, a host that is not chosen points to /chat instead of offering a picker', async () => {
   chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: { kind: 'not_chosen', machines: [{ id: 'm1', name: 'a' }, { id: 'm2', name: 'b' }], sessionAtStake: false } });
   render(

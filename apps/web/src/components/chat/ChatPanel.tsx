@@ -131,7 +131,10 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   }, [projectId]);
 
   useEffect(() => {
-    void load();
+    // A project deleted in another tab, or any other read failure, must not leave an unhandled
+    // rejection and a silently empty panel: `loaded` stays false (no "peça algo…" over a conversation
+    // that never opened) and the error line the panel already has for sends says why.
+    load().catch((e) => setError(e instanceof ApiError ? e.message : 'Não foi possível abrir a conversa'));
   }, [load]);
 
   // A `message` event means the answer was persisted: re-read it over REST to get the final
