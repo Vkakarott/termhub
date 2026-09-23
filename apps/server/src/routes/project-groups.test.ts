@@ -69,6 +69,14 @@ describe('project group routes', () => {
     expect(projectGroups.setMemberships).not.toHaveBeenCalled();
   });
 
+  it('PUT memberships maps a group listed twice (DUPLICATE) to 400', async () => {
+    const { app, projectGroups } = build();
+    projectGroups.setMemberships.mockRejectedValueOnce(new ProjectGroupRuleError('DUPLICATE', 'Grupo repetido'));
+    const r = await app.inject({ method: 'PUT', url: '/project-groups/memberships', payload: { groups: [{ id: 'g0', project_ids: ['p1'] }, { id: 'g0', project_ids: ['p2'] }] } });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().code).toBe('DUPLICATE');
+  });
+
   it('PUT memberships passes the scope visibility to the repository', async () => {
     const { app, projectGroups } = build();
     const r = await app.inject({ method: 'PUT', url: '/project-groups/memberships', payload: { groups: [{ id: 'g0', project_ids: ['p2'] }] } });

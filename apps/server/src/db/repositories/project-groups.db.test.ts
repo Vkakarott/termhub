@@ -108,6 +108,23 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ProjectGroupsRepository (
     expect(await db.projectGroup.count({ where: { userId: otherId } })).toBe(0);
   });
 
+  it('refuses a payload that lists the same group twice, and nothing is written', async () => {
+    const a = await repo.create(userId, 'A');
+    await expect(repo.setMemberships(userId, [{ id: a.id, project_ids: [p[0]] }, { id: a.id, project_ids: [p[1]] }], all)).rejects.toMatchObject({ code: 'DUPLICATE' });
+    expect((await repo.list(userId)).find((g) => g.id === a.id)!.project_ids).toEqual([]);
+  });
+
+  it('deleting a group renumbers the remaining ones densely', async () => {
+    const a = await repo.create(userId, 'A');
+    const b = await repo.create(userId, 'B');
+    const c = await repo.create(userId, 'C');
+    await repo.delete(userId, b.id);
+    const rest = await repo.list(userId);
+    expect(rest.map((g) => g.name)).toEqual(['Favoritos', 'A', 'C']);
+    expect(rest.map((g) => g.position)).toEqual([0, 1, 2]);
+    expect([a.id, c.id].every((id) => rest.some((g) => g.id === id))).toBe(true);
+  });
+
   it('enforces the group limit', async () => {
     await db.projectGroup.createMany({ data: Array.from({ length: 50 }, (_, i) => ({ id: newId(), userId, name: `g${i}`, position: i + 1 })) });
     await expect(repo.create(userId, 'one more')).rejects.toBeInstanceOf(ProjectGroupRuleError);

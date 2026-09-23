@@ -51,8 +51,8 @@ export class ProjectGroupsRepository {
     return rows.map(view);
   }
 
-  private async own(userId: string, groupId: string): Promise<Row> {
-    const g = await this.db.projectGroup.findFirst({ where: { id: groupId, userId }, include: INCLUDE });
+  private async own(userId: string, groupId: string, db: Pick<PrismaClient, 'projectGroup'> = this.db): Promise<Row> {
+    const g = await db.projectGroup.findFirst({ where: { id: groupId, userId }, include: INCLUDE });
     if (!g) throw new ProjectGroupRuleError('NOT_FOUND', 'Grupo não encontrado');
     return g;
   }
@@ -75,7 +75,14 @@ export class ProjectGroupsRepository {
   async delete(userId: string, groupId: string): Promise<void> {
     const g = await this.own(userId, groupId);
     if (g.systemKey) throw new ProjectGroupRuleError('SYSTEM_GROUP', 'Favoritos não pode ser excluído');
-    await this.db.projectGroup.delete({ where: { id: groupId } });
+    // the remaining groups are renumbered 0..n-1 so positions stay dense
+    await this.db.$transaction(async (tx) => {
+      await tx.projectGroup.delete({ where: { id: groupId } });
+      const rest = await tx.projectGroup.findMany({ where: { userId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true, position: true } });
+      for (const [position, r] of rest.entries()) {
+        if (r.position !== position) await tx.projectGroup.update({ where: { id: r.id }, data: { position } });
+      }
+    });
   }
 
   async reorder(userId: string, ids: string[]): Promise<ProjectGroup[]> {
@@ -95,11 +102,14 @@ export class ProjectGroupsRepository {
    * so they are kept, after the visible ones, in their previous order.
    */
   async setMemberships(userId: string, changes: { id: string; project_ids: string[] }[], visible: (projectId: string) => boolean): Promise<ProjectGroup[]> {
+    if (new Set(changes.map((c) => c.id)).size !== changes.length) throw new ProjectGroupRuleError('DUPLICATE', 'Grupo repetido na mesma alteração');
     for (const c of changes) {
       if (new Set(c.project_ids).size !== c.project_ids.length) throw new ProjectGroupRuleError('DUPLICATE', 'Projeto repetido no mesmo grupo');
     }
-    const groups = await Promise.all(changes.map((c) => this.own(userId, c.id)));
     await this.db.$transaction(async (tx) => {
+      // read inside the transaction: the hidden members kept below must be the ones being replaced
+      const groups = [];
+      for (const c of changes) groups.push(await this.own(userId, c.id, tx));
       for (const [i, c] of changes.entries()) {
         const hidden = groups[i].items.map((it) => it.projectId).filter((id) => !visible(id) && !c.project_ids.includes(id));
         const next = [...c.project_ids, ...hidden];
