@@ -8,7 +8,7 @@ import { useData } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
 import { loadCollapsedProjects, saveCollapsedProjects } from '../lib/sidebar-prefs';
-import type { MonitorItem, Project } from '../lib/types';
+import type { Project, Tab } from '../lib/types';
 import { ProjectForm } from './ProjectForm';
 import { ProjectRow } from './ProjectRow';
 import { ConfirmDialog } from './Modal';
@@ -16,15 +16,15 @@ import { ViewAsSwitch } from './ViewAsSwitch';
 
 const SECTION_LABEL = 'px-3 pb-1 pt-1 text-[10px] uppercase tracking-wide text-fg-dim';
 
-/** Open tabs ("agents") per project, in tab-bar order: position, then name. */
-function agentsByProject(items: MonitorItem[]): Map<string, MonitorItem[]> {
-  const byProject = new Map<string, MonitorItem[]>();
-  for (const item of items) {
-    const list = byProject.get(item.tab.project_id);
-    if (list) list.push(item);
-    else byProject.set(item.tab.project_id, [item]);
+/** Open terminal tabs ("agents") per project, in tab-bar order: position, then name. */
+function agentsByProject(tabs: Tab[]): Map<string, Tab[]> {
+  const byProject = new Map<string, Tab[]>();
+  for (const tab of tabs) {
+    const list = byProject.get(tab.project_id);
+    if (list) list.push(tab);
+    else byProject.set(tab.project_id, [tab]);
   }
-  for (const list of byProject.values()) list.sort((a, b) => a.tab.position - b.tab.position || a.tab.name.localeCompare(b.tab.name));
+  for (const list of byProject.values()) list.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
   return byProject;
 }
 
@@ -41,9 +41,10 @@ function Section({ label, showLabel = true, children }: { label: string; showLab
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can } = useAuth();
   const { projects, machinesOf, loading, deleteProject } = useData();
-  const { items: monitorItems, needsYou } = useMonitor();
+  const { items: monitorItems, openTabs, needsYou } = useMonitor();
   const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
-  const agents = useMemo(() => agentsByProject(monitorItems), [monitorItems]);
+  // every open terminal tab, reported a state or not: "Em execução" means a tab is open
+  const agents = useMemo(() => agentsByProject(openTabs), [openTabs]);
   const navigate = useNavigate();
   const location = useLocation();
   const [projectFormOpen, setProjectFormOpen] = useState(false);

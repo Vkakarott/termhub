@@ -1,11 +1,11 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { tabDotClass } from '../lib/needs-you';
-import { TAB_STATE_LABEL, type Machine, type MonitorItem, type Project } from '../lib/types';
+import { TAB_STATE_LABEL, type Machine, type Project, type Tab } from '../lib/types';
 
 interface Props {
   project: Project;
-  /** the project's open tabs ("agents"), already ordered */
-  agents: MonitorItem[];
+  /** the project's open terminal tabs ("agents"), already ordered */
+  agents: Tab[];
   /** the project's linked machines: the agent rows name their machine only when there are several */
   machines: Machine[];
   /** how many of its tabs are waiting for you */
@@ -73,14 +73,15 @@ export function ProjectRow({ project: p, agents, machines, waiting, expanded, on
       </div>
       {hasAgents && expanded && (
         <ul className="ml-4 border-l border-line pl-2" aria-label={`Agentes de ${p.name}`}>
-          {agents.map(({ tab, machine }) => {
-            const machineName = showMachine ? (machines.find((m) => m.id === tab.machine_id)?.name ?? machine?.name) : null;
+          {agents.map((tab) => {
+            const machineName = showMachine ? machines.find((m) => m.id === tab.machine_id)?.name : null;
             return (
               <li key={tab.id}>
                 <Link
                   to={`/projects/${p.id}?tab=${tab.id}`}
                   className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-xs text-fg-muted hover:bg-bg-3 hover:text-fg"
                 >
+                  {/* an open tab is a live one here: no state = the neutral dot the tab bar shows */}
                   <span data-dot className={`h-1.5 w-1.5 shrink-0 rounded-full ${tabDotClass(true, tab)}`} title={tab.state ? TAB_STATE_LABEL[tab.state] : undefined} />
                   <span className="truncate">{tab.name}</span>
                   {machineName && <span className="shrink-0 truncate text-fg-dim"> · {machineName}</span>}

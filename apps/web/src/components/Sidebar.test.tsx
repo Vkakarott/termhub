@@ -8,6 +8,9 @@ import type { Machine, MonitorItem, Project, Tab } from '../lib/types';
 const state = vi.hoisted(() => ({
   projects: [] as Project[],
   machines: [] as Machine[],
+  /** every open terminal tab (the sidebar's source) */
+  openTabs: [] as Tab[],
+  /** tabs that reported a state (what the sidebar used to read): must not drive it */
   items: [] as MonitorItem[],
 }));
 
@@ -19,7 +22,7 @@ vi.mock('../lib/auth', () => ({
     viewAs: 'self',
   }),
 }));
-vi.mock('../lib/monitor', () => ({ useMonitor: () => ({ items: state.items, needsYou: [] }) }));
+vi.mock('../lib/monitor', () => ({ useMonitor: () => ({ items: state.items, openTabs: state.openTabs, needsYou: [] }) }));
 vi.mock('../lib/data', () => ({
   useData: () => ({
     machines: state.machines,
@@ -40,12 +43,8 @@ import { Sidebar } from './Sidebar';
 const machine = (id: string, name: string) => ({ id, name, type: 'agent', capabilities: [], is_local: false, os: null, owner_name: null }) as unknown as Machine;
 const project = (id: string, name: string, over: Partial<Project> = {}): Project =>
   ({ id, key: name.toUpperCase(), name, status: 'active', machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }], ...over }) as Project;
-const item = (id: string, name: string, p: Project, machineId: string, over: Partial<Tab> = {}): MonitorItem =>
-  ({
-    tab: { id, name, project_id: p.id, machine_id: machineId, position: 0, state: 'working', state_at: '2026-09-23T10:00:00.000Z', state_seen_at: null, ...over },
-    project: p,
-    machine: state.machines.find((m) => m.id === machineId)!,
-  }) as MonitorItem;
+const openTab = (id: string, name: string, p: Project, machineId: string, over: Partial<Tab> = {}): Tab =>
+  ({ id, name, project_id: p.id, machine_id: machineId, kind: 'terminal', position: 0, state: 'working', state_at: '2026-09-23T10:00:00.000Z', state_seen_at: null, ...over }) as Tab;
 
 const TWO_MACHINES = [
   { machine_id: 'm1', cwd: '/a', position: 0 },
@@ -60,12 +59,14 @@ function seed() {
   const gamma = project('p3', 'gamma');
   const omega = project('p5', 'omega', { status: 'archived' });
   state.projects = [alpha, beta, gamma, omega];
-  state.items = [
+  state.openTabs = [
     // out of position order on purpose: rows follow tab.position
-    item('t2', 'Bia', alpha, 'm1', { position: 1 }),
-    item('t1', 'Ana', alpha, 'm2', { position: 0, state: 'waiting_input' }),
-    item('t3', 'Caio', beta, 'm1'),
+    openTab('t2', 'Bia', alpha, 'm1', { position: 1 }),
+    openTab('t1', 'Ana', alpha, 'm2', { position: 0, state: 'waiting_input' }),
+    // never reported a state (no monitor hooks, or nothing ran yet): still an open agent
+    openTab('t3', 'Caio', beta, 'm1', { state: null, state_at: null }),
   ];
+  state.items = [];
 }
 
 function renderSidebar() {
@@ -99,7 +100,7 @@ describe('Sidebar sections', () => {
   });
 
   it('hides "Em execução" (and the list\'s own label) when nothing is running', () => {
-    state.items = [];
+    state.openTabs = [];
     renderSidebar();
     expect(screen.queryByRole('region', { name: 'Em execução' })).not.toBeInTheDocument();
     expect(within(section('Todos os projetos')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
@@ -109,14 +110,14 @@ describe('Sidebar sections', () => {
 
   it('shows the empty state when there are no projects', () => {
     state.projects = [];
-    state.items = [];
+    state.openTabs = [];
     renderSidebar();
     expect(screen.getByRole('button', { name: '+ novo projeto' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Todos os projetos' })).not.toBeInTheDocument();
   });
 
   it('"Mostrar arquivados" applies to every section', () => {
-    state.items = [...state.items, item('t9', 'Duda', state.projects[3], 'm1')]; // an archived project with a running tab
+    state.openTabs = [...state.openTabs, openTab('t9', 'Duda', state.projects[3], 'm1')]; // an archived project with a running tab
     renderSidebar();
     expect(screen.queryByRole('link', { name: /omega/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Mostrar arquivados' }));
@@ -160,6 +161,16 @@ describe('Sidebar agent rows', () => {
     expect(dot(/Ana/)).toHaveClass('bg-attention', 'animate-pulse');
     expect(dot(/Bia/)).toHaveClass('bg-ok');
     expect(dot(/Bia/)).not.toHaveClass('bg-attention');
+    const caio = within(agentsOf(section('Em execução'), 'beta')!).getByRole('link', { name: /Caio/ }).querySelector('[data-dot]')!;
+    expect(caio).toHaveClass('bg-ok'); // no state reported: the neutral dot the tab bar shows for a live tab
+  });
+
+  it('reads the open tabs, not the tabs that reported a state', () => {
+    state.openTabs = [];
+    state.items = [{ tab: openTab('t1', 'Ana', state.projects[0], 'm1'), project: state.projects[0], machine: state.machines[0] }];
+    renderSidebar();
+    expect(screen.queryByRole('region', { name: 'Em execução' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Ana/ })).not.toBeInTheDocument();
   });
 
   it('a project without open tabs has no agent list and no chevron', () => {
@@ -226,7 +237,7 @@ describe('Sidebar collapse/expand all', () => {
   });
 
   it('is hidden when no project has agents', () => {
-    state.items = [];
+    state.openTabs = [];
     renderSidebar();
     expect(screen.queryByRole('button', { name: /(Recolher|Expandir) todos/ })).not.toBeInTheDocument();
   });

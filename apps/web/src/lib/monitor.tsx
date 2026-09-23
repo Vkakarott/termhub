@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from './api';
 import { useAuth } from './auth';
 import { entersNeedsYou, optimisticSeenAt, shouldMarkSeen, tabNeedsYou } from './needs-you';
+import { applyOpenTabFrame, type OpenTabFrame } from './open-tabs';
 import type { MonitorItem, Tab } from './types';
 
 /** Called when a push moves a tab into a waiting state (never for the snapshot on load). */
@@ -12,6 +13,8 @@ interface MonitorState {
   items: MonitorItem[];
   /** tabs that need you: waiting and not seen since */
   needsYou: MonitorItem[];
+  /** every open terminal tab in the scope, reported a state or not (the sidebar's agents); live */
+  openTabs: Tab[];
   /** monitor state of one tab (live), or undefined when it never reported */
   tabState: (tabId: string) => Tab | undefined;
   /** types the text into the tab (Enter included) and marks it working */
@@ -36,6 +39,7 @@ const RESYNC_MS = 3 * 60_000;
  */
 export function MonitorProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<MonitorItem[]>([]);
+  const [openTabs, setOpenTabs] = useState<Tab[]>([]);
   const [connected, setConnected] = useState(false);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -46,12 +50,10 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reload = useCallback(async () => {
-    try {
-      const r = await api.monitor.tabs();
-      setItems(r.items);
-    } catch {
-      /* keeps the last snapshot; the next resync retries */
-    }
+    // each snapshot on its own: a failure keeps that one's last copy; the next resync retries
+    const [state, open] = await Promise.allSettled([api.monitor.tabs(), api.monitor.openTabs()]);
+    if (state.status === 'fulfilled') setItems(state.value.items);
+    if (open.status === 'fulfilled') setOpenTabs(open.value.items.map((i) => i.tab));
   }, []);
 
   useEffect(() => {
@@ -67,13 +69,24 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
         void reload();
       };
       ws.onmessage = (ev) => {
-        let msg: { type?: string; tab?: Tab; project_id?: string; machine_id?: string };
+        let msg: { type?: string; tab?: Tab; tab_id?: string; project_id?: string; machine_id?: string };
         try {
           msg = JSON.parse(String(ev.data));
         } catch {
           return;
         }
+        // tabs opened, renamed and closed only move the open-tab list (the sidebar's agents)
+        if (msg.type === 'tab_upsert' && msg.tab) {
+          setOpenTabs((list) => applyOpenTabFrame(list, { type: 'tab_upsert', tab: msg.tab! }));
+          return;
+        }
+        if (msg.type === 'tab_removed' && msg.tab_id) {
+          setOpenTabs((list) => applyOpenTabFrame(list, { type: 'tab_removed', tab_id: msg.tab_id! }));
+          return;
+        }
         if (msg.type !== 'tab' || !msg.tab) return;
+        const frame: OpenTabFrame = { type: 'tab', tab: msg.tab };
+        setOpenTabs((list) => applyOpenTabFrame(list, frame));
         const tab = msg.tab;
         // compared with what was on screen before this push (a tab never seen counts as not needing you)
         const prev = itemsRef.current.find((i) => i.tab.id === tab.id)?.tab;
@@ -116,6 +129,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
     () => ({
       items,
       needsYou: items.filter((i) => tabNeedsYou(i.tab)),
+      openTabs,
       tabState: (tabId) => itemsRef.current.find((i) => i.tab.id === tabId)?.tab,
       async reply(tabId, text) {
         const r = await api.tabs.input(tabId, text, true);
@@ -138,7 +152,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       connected,
       onNeedsYou,
     }),
-    [items, reload, connected, onNeedsYou],
+    [items, openTabs, reload, connected, onNeedsYou],
   );
 
   return <MonitorContext.Provider value={value}>{children}</MonitorContext.Provider>;

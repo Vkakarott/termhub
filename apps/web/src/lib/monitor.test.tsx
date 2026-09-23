@@ -1,0 +1,82 @@
+// @vitest-environment jsdom
+import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MonitorItem, Tab } from './types';
+
+const tab = (id: string, over: Partial<Tab> = {}) => ({ id, project_id: 'p1', machine_id: 'm1', name: id, kind: 'terminal', position: 0, state: null, state_at: null, state_seen_at: null, ...over }) as Tab;
+const item = (t: Tab) => ({ tab: t, project: { id: t.project_id }, machine: { id: t.machine_id } }) as MonitorItem;
+
+const api = vi.hoisted(() => ({ tabs: vi.fn(), openTabs: vi.fn() }));
+vi.mock('./api', () => ({ api: { monitor: api, tabs: {} } }));
+vi.mock('./auth', () => ({ useAuth: () => ({ can: () => true }) }));
+
+import { MonitorProvider, useMonitor } from './monitor';
+
+class FakeSocket {
+  static last: FakeSocket | null = null;
+  onopen: (() => void) | null = null;
+  onmessage: ((ev: { data: string }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor() {
+    FakeSocket.last = this;
+  }
+  close() {}
+  push(frame: object) {
+    this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+}
+
+type Monitor = ReturnType<typeof useMonitor>;
+function mount() {
+  let m!: Monitor;
+  function Probe() {
+    m = useMonitor();
+    return null;
+  }
+  render(
+    <MonitorProvider>
+      <Probe />
+    </MonitorProvider>,
+  );
+  return () => m;
+}
+
+beforeEach(() => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  api.tabs.mockResolvedValue({ items: [item(tab('t1', { state: 'working', state_at: '2026-09-23T10:00:00.000Z' }))] });
+  api.openTabs.mockResolvedValue({ items: [item(tab('t1', { state: 'working', state_at: '2026-09-23T10:00:00.000Z' })), item(tab('t2'))] });
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe('MonitorProvider open tabs', () => {
+  it('loads every open terminal tab, not only those that reported a state', async () => {
+    const m = mount();
+    await waitFor(() => expect(m().openTabs.map((t) => t.id)).toEqual(['t1', 't2']));
+    expect(m().items.map((i) => i.tab.id)).toEqual(['t1']);
+  });
+
+  it('adds, renames and drops tabs from the monitor pushes, leaving the state items alone', async () => {
+    const m = mount();
+    await waitFor(() => expect(m().openTabs).toHaveLength(2));
+    const ws = FakeSocket.last!;
+    act(() => ws.push({ type: 'tab_upsert', tab: tab('t3', { name: 'Caio' }), project_id: 'p1', machine_id: 'm1' }));
+    act(() => ws.push({ type: 'tab_upsert', tab: tab('t2', { name: 'Bia' }), project_id: 'p1', machine_id: 'm1' }));
+    act(() => ws.push({ type: 'tab_removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1' }));
+    expect(m().openTabs.map((t) => [t.id, t.name])).toEqual([
+      ['t2', 'Bia'],
+      ['t3', 'Caio'],
+    ]);
+    expect(m().items.map((i) => i.tab.id)).toEqual(['t1']); // the state list keeps its own rules
+  });
+
+  it('follows state pushes on an open tab, so its dot changes live', async () => {
+    const m = mount();
+    await waitFor(() => expect(m().openTabs).toHaveLength(2));
+    act(() => FakeSocket.last!.push({ type: 'tab', tab: { ...tab('t2'), state: 'waiting_input', state_at: '2026-09-23T11:00:00.000Z' }, project_id: 'p1', machine_id: 'm1' }));
+    expect(m().openTabs.find((t) => t.id === 't2')?.state).toBe('waiting_input');
+  });
+});
