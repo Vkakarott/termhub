@@ -125,6 +125,7 @@ export function toMachineEntries(city: PublicCity): MachineEntry[] {
           // whether the owner has looked is the owner's business: on the street a raised hand stays raised
           state_seen_at: null,
           activity: robot.activity,
+          activity_verb: robot.activity_verb,
           alive: robot.alive,
           progress: robot.progress,
         })),

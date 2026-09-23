@@ -21,6 +21,7 @@ function tab(overrides: Partial<Tab> = {}): Tab {
     state_at: null,
     state_seen_at: null,
     activity: null,
+    activity_verb: null,
     created_at: '2026-01-01T00:00:00Z',
     alive: true,
     ...overrides,

@@ -66,7 +66,7 @@ import { FocusProvider } from '../lib/focus';
 import { OfficePage } from './OfficePage';
 
 const tab = (id: string, projectId: string): OfficeTab =>
-  ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, alive: true, progress: null }) as OfficeTab;
+  ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, activity_verb: null, alive: true, progress: null }) as OfficeTab;
 const room = (id: string, tabs: OfficeTab[] = []): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, public_id: `${id}-room`, tabs, tasks: null });
 const snap = (machineId: string, rooms: OfficeRoom[]): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms });
 
