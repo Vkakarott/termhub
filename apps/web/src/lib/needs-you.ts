@@ -73,5 +73,5 @@ export function emptyMonitorHint(machines: Machine[]): string | null {
   if (agents.length === 0) return null;
   const withoutHooks = agents.filter((m) => m.hooks_installed_at === null);
   if (withoutHooks.length === 0) return null;
-  return `Nenhuma tab reportou estado ainda. Instale os hooks do monitor em ${withoutHooks.map((m) => m.name).join(', ')} (✎ na máquina, na barra lateral) para que as tabs apareçam aqui.`;
+  return `Nenhuma tab reportou estado ainda. Instale os hooks do monitor em ${withoutHooks.map((m) => m.name).join(', ')} (✎ na máquina, na página Máquinas) para que as tabs apareçam aqui.`;
 }

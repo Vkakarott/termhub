@@ -210,6 +210,7 @@ describe('emptyMonitorHint', () => {
     const hint = emptyMonitorHint([machine({ id: 'm1', name: 'jarvis', hooks_installed_at: null }), machine({ id: 'm2', name: 'mac mini' })]);
     expect(hint).toContain('jarvis');
     expect(hint).not.toContain('mac mini');
+    expect(hint).toContain('página Máquinas'); // machines are edited there, not in the sidebar
   });
 
   it('stays quiet when every machine already has the hooks (nothing is simply happening)', () => {
