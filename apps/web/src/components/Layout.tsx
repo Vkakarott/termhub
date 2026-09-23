@@ -7,6 +7,7 @@ import { MonitorProvider } from '../lib/monitor';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { NeedsYouToasts } from './NeedsYouToasts';
 import { Sidebar } from './Sidebar';
+import { NicknamePrompt } from './NicknamePrompt';
 
 const SIDEBAR_KEY = 'termhub:sidebar-collapsed';
 
@@ -27,6 +28,7 @@ export function AppShell() {
         <ToastProvider>
           <Outlet />
           <NeedsYouToasts />
+          <NicknamePrompt />
           <Toaster />
         </ToastProvider>
       </MonitorProvider>

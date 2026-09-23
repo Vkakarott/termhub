@@ -103,6 +103,8 @@ describe('ProjectPage publish switch', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
     expect(screen.getByText(/o nome do projeto, o nome da máquina e todas as abas/i)).toBeTruthy();
+    // spec §4: the owner's display name and nickname become public too
+    expect(screen.getByText(/seu nome e seu apelido/i)).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /publicar/i }));
