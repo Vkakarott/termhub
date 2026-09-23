@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PublicCity } from '../lib/types';
 
@@ -75,22 +75,86 @@ beforeEach(() => {
   socket.opened = 0;
   socket.closed = 0;
   vi.stubGlobal('fetch', fetchMock);
+  localStorage.clear();
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
+
+const card = () => screen.queryByRole('region', { name: /beta gratuito/i });
 
 describe('CityPage', () => {
   it('draws the city of the nickname in the URL and says whose it is', async () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
 
-    expect(await screen.findByText(/Pedro/)).toBeTruthy();
+    expect(await screen.findByText(/Cidade de Pedro/)).toBeTruthy();
     // no credentials on a public read, structurally and not by luck of the default
     expect(fetchMock).toHaveBeenCalledWith('/api/public/city/pedro', { credentials: 'omit' });
-    expect(screen.getByRole('link', { name: /criar minha conta/i }).getAttribute('href')).toContain('termhub.dev');
+    expect(screen.getByRole('button', { name: /participar do beta grátis/i })).toBeTruthy();
+  });
+
+  it('opens the beta card on a first visit, naming whose agents these are', async () => {
+    fetchMock.mockResolvedValueOnce(json(CITY));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+
+    expect(card()).toBeTruthy();
+    expect(screen.getByText(/agentes de IA de Pedro trabalhando ao vivo/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /entrar no beta gratuito/i })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /conheça o termhub/i }).getAttribute('href')).toBe('https://termhub.dev/');
+  });
+
+  it('remembers a collapsed card on the next visit, and the top-bar button opens it again', async () => {
+    fetchMock.mockImplementation(async () => json(CITY));
+    const first = render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    fireEvent.click(screen.getByRole('button', { name: /recolher/i }));
+    expect(card()).toBeNull();
+    first.unmount();
+
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    expect(card()).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /participar do beta grátis/i }));
+    expect(card()).toBeTruthy();
+  });
+
+  it('works without storage: open on arrival, still collapses and reopens', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    fetchMock.mockResolvedValueOnce(json(CITY));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+
+    expect(card()).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /recolher/i }));
+    expect(card()).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /participar do beta grátis/i }));
+    expect(card()).toBeTruthy();
+  });
+
+  it('shows the beta card, open and without a name, on the not-found page', async () => {
+    // a visitor who collapsed it on another city still gets it here: this page has nothing else to show
+    localStorage.setItem('termhub:city-beta-collapsed', '1');
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 404 }));
+    render(<CityPage nickname="ninguem" />);
+    await screen.findByText(/cidade não encontrada/i);
+
+    expect(card()).toBeTruthy();
+    expect(screen.getByText(/cada robô é um terminal de verdade/)).toBeTruthy();
+    expect(screen.queryByText(/agentes de IA de/)).toBeNull();
   });
 
   it('shows the not-found state for a city that does not answer', async () => {
@@ -103,7 +167,7 @@ describe('CityPage', () => {
   it('applies a live robot frame without refetching the snapshot', async () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
-    await screen.findByText(/Pedro/);
+    await screen.findByText(/Cidade de Pedro/);
     expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' })));
 
     act(() => socket.emit({ type: 'robot', building: 'b1', room: 'r1', robot: { ...CITY.buildings[0].rooms[0].robots[0], activity: 'reading', state_at: LATER } }));
@@ -116,7 +180,7 @@ describe('CityPage', () => {
   it('removes a robot when the channel says its tab is gone', async () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
-    await screen.findByText(/Pedro/);
+    await screen.findByText(/Cidade de Pedro/);
     expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' })));
 
     act(() => socket.emit({ type: 'robot_gone', building: 'b1', room: 'r1', robot: 'x1' }));
@@ -132,7 +196,7 @@ describe('CityPage', () => {
   it('goes to the not-found state, without a reload, when the city is unpublished under the visitor', async () => {
     fetchMock.mockResolvedValueOnce(json(CITY)).mockResolvedValueOnce(new Response('', { status: 404 }));
     render(<CityPage nickname="pedro" />);
-    await screen.findByText(/Pedro/);
+    await screen.findByText(/Cidade de Pedro/);
 
     // the server hangs the socket up when the last published room comes off the street
     await act(async () => {
@@ -168,7 +232,7 @@ describe('CityPage', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_000);
       });
-      expect(screen.getByText(/Pedro/)).toBeTruthy();
+      expect(screen.getByText(/Cidade de Pedro/)).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
