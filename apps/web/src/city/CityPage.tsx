@@ -3,10 +3,8 @@ import { buildCityModel, resolveFocus, sameFocus, type CityModel, type FocusTarg
 import { OfficeScene } from '../office/scene/OfficeScene';
 import type { PublicCity } from '../lib/types';
 import { fetchCity, openCitySocket, toMachineEntries, type CityFrame } from './api';
+import { BetaCard, LANDING_URL, useBetaCard } from './BetaCard';
 import { cityPath, restFromUrl, type Rest } from './url';
-
-/** Where the landing takes someone who wants a city of their own. */
-const WAITLIST_URL = 'https://termhub.dev/#waitlist';
 
 /** A snapshot that could not be read is tried again, backing off the same way the socket does. */
 const RETRY_MIN_MS = 2_000;
@@ -57,6 +55,7 @@ export function CityPage({ nickname }: { nickname: string }) {
   // ref alone would never re-trigger the mount effect once it finally renders
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [failed, setFailed] = useState(false);
+  const [betaOpen, setBetaOpen] = useBetaCard();
   const sceneRef = useRef<OfficeScene | null>(null);
 
   const gone = useRef(false);
@@ -184,6 +183,9 @@ export function CityPage({ nickname }: { nickname: string }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Esc in the beta form is the person editing a field, not asking the camera to step back
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.key === 'Escape') handlers.current.onGoUp();
     };
     window.addEventListener('keydown', onKey);
@@ -192,9 +194,12 @@ export function CityPage({ nickname }: { nickname: string }) {
 
   if (missing) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+      // nothing else to show here, so the card is the page: open, and not something to put away
+      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-8 text-center">
         <p className="text-sm text-fg-muted">Cidade não encontrada.</p>
-        <CreateAccount />
+        <div className="w-full max-w-sm">
+          <BetaCard ownerName={null} />
+        </div>
       </div>
     );
   }
@@ -211,24 +216,34 @@ export function CityPage({ nickname }: { nickname: string }) {
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-bg-2 px-3 py-2 text-xs text-fg-muted">
         <span className="text-sm font-semibold text-fg">Cidade de {city?.owner_name ?? '…'}</span>
         <Trail parts={trail} />
-        <span className="ml-auto">
-          <CreateAccount />
+        <span className="ml-auto flex items-center gap-3">
+          <a className="hidden hover:text-fg sm:inline" href={LANDING_URL}>
+            O que é o termhub?
+          </a>
+          <button
+            type="button"
+            onClick={() => setBetaOpen(true)}
+            aria-expanded={betaOpen}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white shadow-md shadow-accent/30 ring-1 ring-accent/60 transition-colors hover:bg-accent-hover"
+          >
+            <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+            Participar do beta grátis
+          </button>
         </span>
       </div>
       <div className="relative min-h-0 flex-1">
         <div ref={setHost} className="absolute inset-0 overflow-hidden" />
         {failed && <Overlay>Seu navegador não conseguiu desenhar a cidade.</Overlay>}
         {!failed && model.machines.length === 0 && <Overlay>Carregando a cidade…</Overlay>}
+        {betaOpen && (
+          // a bottom sheet on a phone, a card in the corner from `sm` up; only its own box takes the
+          // pointer, so the rest of the scene stays as draggable and clickable as without it
+          <div className="absolute inset-x-0 bottom-0 z-10 max-h-[75%] overflow-y-auto sm:bottom-4 sm:left-4 sm:right-auto sm:w-[22rem] sm:max-h-[calc(100%-2rem)]">
+            <BetaCard ownerName={city?.owner_name ?? null} onCollapse={() => setBetaOpen(false)} className="rounded-t-xl border-t sm:rounded-lg sm:border" />
+          </div>
+        )}
       </div>
     </div>
-  );
-}
-
-function CreateAccount() {
-  return (
-    <a className="inline-flex items-center rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover" href={WAITLIST_URL}>
-      Criar minha conta
-    </a>
   );
 }
 
