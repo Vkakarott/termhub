@@ -10,6 +10,28 @@ the card needs no second file on disk); it does not reproduce that logo's full o
 Builds on `2026-09-21-office-world-design.md` (the office city, in production) and
 `2026-09-22-agent-activity-design.md` (the activity under each person, in production).
 
+**Amended after merge with projects-decoupled** (`2026-09-22-projects-decoupled-from-machines-design.md`,
+where a project belongs to a user and links to 0..N machines, and a tab carries its machine). Where
+this spec says "the machine that hosts the project", read:
+
+- **Who publishes.** The switch stays on the project (`projects.is_public`); only the project's owner
+  (`projects.owner_id`) may flip it (`403 NOT_OWNER`, `409 PROJECT_UNOWNED` for an orphan).
+- **What a city is.** User U's city is U's published, non-archived projects. Its buildings are the
+  machines U owns (`machines.owner_id = U`) that are linked (`project_machines`) to at least one of
+  those projects. A room is one (published project, building machine) pair, and its robots are that
+  project's tabs whose `tabs.machine_id` is that machine. A published project linked to a machine U
+  does not own never shows that machine, nor the tabs on it.
+- **Ids.** Building and robot ids are unchanged; a room's public id is derived from both the project
+  and the machine (`publicRoomId`), the same 22-character shape, so one project on two machines has
+  two rooms. The private office snapshot carries each room's `public_id` for the share link.
+- **Machine owner reassignment** no longer unpublishes anything: the machine leaves the old owner's
+  city by the rule above, and the public bus tells open pages to drop the building
+  (`publicBus.publishRoomsGone`). Deleting a machine, or unlinking a published project from one, does
+  the same for its rooms.
+- **Sharing.** The office share button checks the project's owner against the signed-in user ("pertence
+  a outra pessoa" otherwise); the viewer's own published project in a room on somebody else's machine
+  has no public address ("máquina de outra pessoa").
+
 ## 1. Goal
 
 A person marks one of their projects as public. That publishes the city: the machine that hosts
