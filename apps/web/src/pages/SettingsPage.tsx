@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { NavLink, useParams } from 'react-router-dom';
+import { Navigate, NavLink, useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, User } from '../lib/types';
-import { visibleSettingsSections, type SettingsSection } from '../lib/settings-sections';
+import { DEFAULT_SETTINGS_SECTION, visibleSettingsSections } from '../lib/settings-sections';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { UploadsView } from '../components/UploadsView';
 import { ApiTokensView } from '../components/ApiTokensView';
 import { MyCityView } from '../components/MyCityView';
 import { ProfileView } from '../components/ProfileView';
 import { IntegrationsView } from '../components/IntegrationsView';
+import { PageFrame } from '../components/PageHeader';
 
 /**
- * Settings: users, roles, the permission matrix (resource × create/read/update/delete), uploads
- * the signed-in user's own personal API tokens and their public city (Minha cidade, open to everyone).
- * Same model as the engenhariainversa CMS: admin roles bypass everything, system roles cannot be deleted.
+ * Configurações' content: one section per address, each under the shared page header. The section
+ * list itself is the settings sidebar (components/SettingsSidebar). Perfil, Minha cidade and
+ * Integrações are the account's own; users, roles, the permission matrix (resource ×
+ * create/read/update/delete) and uploads are administration. Same model as the engenhariainversa
+ * CMS: admin roles bypass everything, system roles cannot be deleted.
  */
 
 const ACTION_LABELS: Record<PermissionAction, string> = { create: 'Criar', read: 'Ver', update: 'Editar', delete: 'Excluir' };
@@ -23,32 +26,48 @@ const ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete'];
 export function SettingsPage() {
   const { section } = useParams<{ section?: string }>();
   const { can } = useAuth();
-  const visible = visibleSettingsSections(can);
-  const current: SettingsSection | undefined = (visible.find((s) => s.key === section) ?? visible[0])?.key;
+  const current = visibleSettingsSections(can).find((s) => s.key === section);
+  // `/settings`, an unknown address or a section this role cannot see: Perfil, which everyone sees
+  if (!current) return <Navigate to={`/settings/${DEFAULT_SETTINGS_SECTION}`} replace />;
 
-  return (
-    <div className="flex h-full flex-col">
-      <nav className="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-bg-2 px-4">
-        <span className="mr-3 text-sm font-semibold">Configurações</span>
-        {visible.map((s) => (
-          <NavLink key={s.key} to={`/settings/${s.key}`} className={({ isActive }) => `rounded px-3 py-1 text-sm ${isActive || (current === s.key && !section) ? 'bg-accent/15 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            {s.label}
-          </NavLink>
-        ))}
-      </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        {current === 'users' && <UsersSection />}
-        {current === 'roles' && <RolesSection />}
-        {current === 'permissions' && <PermissionsSection />}
-        {current === 'uploads' && <UploadsView />}
-        {current === 'api-tokens' && <ApiTokensView />}
-        {current === 'city' && <MyCityView />}
-        {current === 'profile' && <ProfileView />}
-        {current === 'integrations' && <IntegrationsView />}
-        {!current && <p className="text-sm text-fg-dim">Sem permissão para ver as configurações.</p>}
-      </div>
-    </div>
-  );
+  switch (current.key) {
+    case 'users':
+      return <UsersSection />;
+    case 'roles':
+      return <RolesSection />;
+    case 'integrations':
+      return <IntegrationsView />;
+    case 'permissions':
+      return (
+        <PageFrame title={current.label}>
+          <PermissionsSection />
+        </PageFrame>
+      );
+    case 'uploads':
+      return (
+        <PageFrame title={current.label}>
+          <UploadsView />
+        </PageFrame>
+      );
+    case 'api-tokens':
+      return (
+        <PageFrame title={current.label}>
+          <ApiTokensView />
+        </PageFrame>
+      );
+    case 'city':
+      return (
+        <PageFrame title={current.label}>
+          <MyCityView />
+        </PageFrame>
+      );
+    case 'profile':
+      return (
+        <PageFrame title={current.label}>
+          <ProfileView />
+        </PageFrame>
+      );
+  }
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────
@@ -204,26 +223,26 @@ function UsersSection() {
   };
 
   return (
-    <div className="max-w-5xl">
-      <div className="mb-4 flex items-start gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Usuários</h1>
-          <p className="text-sm text-fg-muted">
-            {users ? `${users.length} usuário(s).` : 'Carregando…'} Convide pelo e-mail: o usuário entra com Google ou com o código enviado por e-mail.
-            {access?.configured && (
-              <>
-                {' '}
-                Convites também liberam o e-mail no Cloudflare Access de <code className="font-mono text-xs">{access.domain}</code>.
-              </>
-            )}
-          </p>
-        </div>
-        {can('users', 'create') && (
-          <button className="btn-primary ml-auto text-xs" onClick={() => setInviting(true)}>
+    <PageFrame
+      title="Usuários"
+      actions={
+        can('users', 'create') && (
+          <button className="btn-primary text-xs" onClick={() => setInviting(true)}>
             Convidar
           </button>
+        )
+      }
+    >
+    <div className="max-w-5xl">
+      <p className="mb-4 text-sm text-fg-muted">
+        {users ? `${users.length} usuário(s).` : 'Carregando…'} Convide pelo e-mail: o usuário entra com Google ou com o código enviado por e-mail.
+        {access?.configured && (
+          <>
+            {' '}
+            Convites também liberam o e-mail no Cloudflare Access de <code className="font-mono text-xs">{access.domain}</code>.
+          </>
         )}
-      </div>
+      </p>
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       {notice && (
         <p className={`mb-3 flex items-start gap-2 rounded border px-3 py-2 text-sm ${notice.warn ? 'border-warn/40 bg-warn/10 text-warn' : 'border-ok/40 bg-ok/10 text-ok'}`}>
@@ -328,6 +347,7 @@ function UsersSection() {
         }}
       />
     </div>
+    </PageFrame>
   );
 }
 
@@ -404,18 +424,18 @@ function RolesSection() {
   }, [load]);
 
   return (
-    <div className="max-w-4xl">
-      <div className="mb-4 flex items-end gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Roles</h1>
-          <p className="text-sm text-fg-muted">Uma role é um conjunto de permissões. Roles de administrador têm acesso total; roles do sistema não podem ser excluídas.</p>
-        </div>
-        {can('roles', 'create') && (
-          <button className="btn-primary ml-auto text-xs" onClick={() => setForm({ open: true, role: null })}>
+    <PageFrame
+      title="Roles"
+      actions={
+        can('roles', 'create') && (
+          <button className="btn-primary text-xs" onClick={() => setForm({ open: true, role: null })}>
             + role
           </button>
-        )}
-      </div>
+        )
+      }
+    >
+    <div className="max-w-4xl">
+      <p className="mb-4 text-sm text-fg-muted">Uma role é um conjunto de permissões. Roles de administrador têm acesso total; roles do sistema não podem ser excluídas.</p>
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       <ul className="grid gap-3 md:grid-cols-2">
         {roles?.map((r) => (
@@ -487,6 +507,7 @@ function RolesSection() {
         }}
       />
     </div>
+    </PageFrame>
   );
 }
 
@@ -540,10 +561,7 @@ function PermissionsSection() {
   return (
     <div className="max-w-4xl">
       <div className="mb-4 flex items-end gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Permissões</h1>
-          <p className="text-sm text-fg-muted">O que cada role pode fazer em cada recurso. Roles de administrador não aparecem aqui: têm acesso total.</p>
-        </div>
+        <p className="text-sm text-fg-muted">O que cada role pode fazer em cada recurso. Roles de administrador não aparecem aqui: têm acesso total.</p>
         <select className="input ml-auto w-auto py-1 text-sm" value={roleId} onChange={(e) => setRoleId(e.target.value)}>
           {roles.map((r) => (
             <option key={r.id} value={r.id}>

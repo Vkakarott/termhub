@@ -10,7 +10,6 @@ import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
 import { ChatPage } from './pages/ChatPage';
-import { IntegrationsView } from './components/IntegrationsView';
 import { MachinesPage } from './pages/MachinesPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -39,34 +38,43 @@ function RouteFailed() {
   );
 }
 
+/** The route table, apart from the router and providers so a test can mount it in a MemoryRouter. */
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<AppShell />}>
+        <Route element={<Layout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/ai" element={<HomePage />} />
+          <Route path="/hardware" element={<HomePage />} />
+          <Route path="/waitlist" element={<HomePage />} />
+          {/* the old Integrações page is a settings section now; inside Layout so the layout (and
+              what it remembers about the page before settings) survives the redirect */}
+          <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
+          <Route path="/machines" element={<MachinesPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/:section" element={<SettingsPage />} />
+          <Route path="/projects/:id" element={<ProjectPage />} />
+          <Route path="/projects/:id/:section" element={<ProjectPage />} />
+          <Route path="/office" element={<OfficeRoute />} />
+          <Route path="/office/:machineId" element={<OfficeRoute />} />
+        </Route>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<ChatPage />} />
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
 export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <AnalyticsGate>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route element={<AppShell />}>
-              <Route element={<Layout />}>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/ai" element={<HomePage />} />
-                <Route path="/hardware" element={<HomePage />} />
-                <Route path="/waitlist" element={<HomePage />} />
-                <Route path="/integrations" element={<IntegrationsView />} />
-                <Route path="/machines" element={<MachinesPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/settings/:section" element={<SettingsPage />} />
-                <Route path="/projects/:id" element={<ProjectPage />} />
-                <Route path="/projects/:id/:section" element={<ProjectPage />} />
-                <Route path="/office" element={<OfficeRoute />} />
-                <Route path="/office/:machineId" element={<OfficeRoute />} />
-              </Route>
-              <Route element={<ChatLayout />}>
-                <Route path="/chat" element={<ChatPage />} />
-              </Route>
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <AppRoutes />
         </AnalyticsGate>
       </AuthProvider>
     </BrowserRouter>

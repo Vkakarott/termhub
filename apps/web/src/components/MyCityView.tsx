@@ -42,10 +42,7 @@ export function MyCityView() {
 
   return (
     <div className="max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold">Minha cidade</h1>
-        <p className="text-sm text-fg-muted">Sua cidade pública mostra, para quem tiver o link, os projetos que você publicar, nas máquinas que são suas.</p>
-      </div>
+      <p className="text-sm text-fg-muted">Sua cidade pública mostra, para quem tiver o link, os projetos que você publicar, nas máquinas que são suas.</p>
 
       <section className="rounded-lg border border-line bg-bg-2 p-4">
         <h2 className="text-sm font-semibold">Apelido</h2>

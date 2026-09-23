@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 import { PROVIDER_LABEL, type ConnectionInfo, type Integration, type IntegrationProvider } from '../lib/types';
 import { ConfirmDialog, Modal } from './Modal';
+import { PageFrame } from './PageHeader';
 
 const PROVIDERS: { id: IntegrationProvider; secretLabel: string; help: string; fields: { key: string; label: string; placeholder: string }[] }[] = [
   {
@@ -56,16 +57,15 @@ export function IntegrationsView() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="mb-5 flex items-center gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Integrações</h1>
-          <p className="text-sm text-fg-muted">Credenciais de GitHub, Linear e Jira. Os segredos ficam criptografados no banco; cada projeto escolhe qual usar no Setup.</p>
-        </div>
-        <button className="btn-primary ml-auto" onClick={() => setEditing('new')}>
+    <PageFrame
+      title="Integrações"
+      actions={
+        <button className="btn-primary text-xs" onClick={() => setEditing('new')}>
           + integração
         </button>
-      </div>
+      }
+    >
+      <p className="mb-5 max-w-2xl text-sm text-fg-muted">Credenciais de GitHub, Linear e Jira. Os segredos ficam criptografados no banco; cada projeto escolhe qual usar no Setup.</p>
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       {items && items.length === 0 && <p className="text-sm text-fg-dim">Nenhuma integração ainda.</p>}
       <ul className="max-w-2xl space-y-2">
@@ -125,7 +125,7 @@ export function IntegrationsView() {
           void load();
         }}
       />
-    </div>
+    </PageFrame>
   );
 }
 
