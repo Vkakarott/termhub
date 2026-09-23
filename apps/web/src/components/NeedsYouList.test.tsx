@@ -44,6 +44,7 @@ function tab(overrides: Partial<Tab> & { id: string }): Tab {
     state_at: null,
     state_seen_at: null,
     activity: null,
+    activity_verb: null,
     created_at: T1,
     alive: true,
     ...overrides,

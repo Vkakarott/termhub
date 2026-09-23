@@ -10,8 +10,8 @@ const city: PublicCity = {
   owner_name: 'Pedro',
   buildings: [
     { id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [
-      { id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: null, activity: 'coding', alive: true, progress: null },
-      { id: 'x2', name: 'aba 2', kind: 'terminal', state: 'waiting_input', state_at: null, activity: null, alive: true, progress: null },
+      { id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: null, activity: 'coding', activity_verb: null, alive: true, progress: null },
+      { id: 'x2', name: 'aba 2', kind: 'terminal', state: 'waiting_input', state_at: null, activity: null, activity_verb: null, alive: true, progress: null },
     ] }] },
   ],
 };

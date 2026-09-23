@@ -407,6 +407,8 @@ export interface PublicRobot {
   state: TabState | null;
   state_at: string | null;
   activity: TabActivity | null;
+  /** Claude Code's spinner verb, only when it is one of its defaults (the server drops custom verbs) */
+  activity_verb: string | null;
   alive: boolean;
   /** the board task bound to the tab, without its title: a bar, never what it says */
   progress: { done: number; total: number } | null;

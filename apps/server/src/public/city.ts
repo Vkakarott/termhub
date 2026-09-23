@@ -1,4 +1,5 @@
 import { publicId, publicRoomId } from './public-id.js';
+import { publicSpinnerVerb } from './spinner-verbs.js';
 import type { Machine, OfficeTabProgress, Project, Tab, TabActivity, TabState } from '../db/repositories/types.js';
 
 /**
@@ -13,6 +14,8 @@ export interface PublicRobot {
   state: TabState | null;
   state_at: string | null;
   activity: TabActivity | null;
+  /** Claude Code's spinner verb, only when it is one of its defaults (spinner-verbs.ts): a custom verb is the person's own words */
+  activity_verb: string | null;
   alive: boolean;
   progress: { done: number; total: number } | null;
 }
@@ -32,6 +35,7 @@ export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: Office
     state: tab.state,
     state_at: tab.state_at,
     activity: tab.activity,
+    activity_verb: publicSpinnerVerb(tab.activity_verb),
     alive: opts.alive,
     progress: opts.progress ? { done: opts.progress.done, total: opts.progress.total } : null,
   };
