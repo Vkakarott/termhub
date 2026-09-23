@@ -10,9 +10,10 @@ function stubRepos() {
   const findByNickname = vi.fn(async (nickname: string) => ({ id: `u-${nickname}`, name: nickname }));
   const repos = {
     users: { findByNickname },
-    machines: { list: vi.fn(async () => [{ id: 'm1', name: 'M' }]) },
+    machines: { list: vi.fn(async (owner: string) => [{ id: 'm1', name: 'M', owner_id: owner }]) },
     projects: { list: vi.fn(async () => [{ id: 'p1', name: 'P', is_public: true, status: 'active' }]) },
-    tabs: { listByProjects: vi.fn(async () => []) },
+    projectMachines: { listByProjects: vi.fn(async () => [{ project_id: 'p1', machine_id: 'm1' }]) },
+    tabs: { listByProjectsOnMachine: vi.fn(async () => []) },
   } as unknown as Repositories;
   return { repos, findByNickname };
 }
@@ -47,6 +48,16 @@ describe('readPublicCityCached', () => {
     const { repos, findByNickname } = stubRepos();
     await readPublicCityCached(repos, 'pedro');
     publicBus.publish({ project_id: 'p1', is_public: false });
+    await readPublicCityCached(repos, 'pedro');
+    expect(findByNickname).toHaveBeenCalledTimes(2);
+  });
+
+  // A building leaving the street (owner reassigned, machine deleted, project unlinked) is as
+  // immediate as an unpublish.
+  it('forgets everything the moment rooms leave the street', async () => {
+    const { repos, findByNickname } = stubRepos();
+    await readPublicCityCached(repos, 'pedro');
+    publicBus.publishRoomsGone({ machine_id: 'm1' });
     await readPublicCityCached(repos, 'pedro');
     expect(findByNickname).toHaveBeenCalledTimes(2);
   });

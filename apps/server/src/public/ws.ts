@@ -5,16 +5,16 @@ import type { Repositories } from '../db/repositories/index.js';
 import { rejectUpgrade, type PublicUpgradeContext } from '../ws/router.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
-import { toPublicRobot, toPublicRobotGone } from './city.js';
-import { publicId } from './public-id.js';
+import { toPublicRobotFrame, toPublicRobotGone } from './city.js';
 import { normalizeNickname } from './nickname.js';
-import { publicAlive } from './read.js';
+import { publicAlive, resolvePublicRooms, roomKey } from './read.js';
 import { cachedTmuxProbe } from '../terminal/machine-exec.js';
 
 /**
  * `/ws/public/<nickname>`: the live city for a visitor with no account. It is not `/ws/monitor` with
- * a filter — a different channel, a different payload, and a set of published project ids resolved
- * at connect and kept current by `publicBus`, so unpublishing drops the socket instead of leaving
+ * a filter — a different channel, a different payload, and a set of public rooms (published project
+ * × owned machine, see `resolvePublicRooms`) resolved at connect and kept current by `publicBus`, so
+ * unpublishing, a machine changing owner or a project unlinked drops the socket instead of leaving
  * somebody watching a room that is no longer public.
  */
 /** Every public socket this process holds at once, across all cities: past it, new visitors get a 503. */
@@ -93,8 +93,11 @@ export function registerPublicWs(
     if (!parsed.ok) return reject(404, 'Not Found');
     const owner = await deps.repos.users.findByNickname(parsed.value);
     if (!owner) return reject(404, 'Not Found');
-    const published = new Set((await deps.repos.projects.list({ owner: owner.id })).filter((p) => p.is_public && p.status !== 'archived').map((p) => p.id));
-    if (published.size === 0) return reject(404, 'Not Found');
+    const rooms = new Map<string, { projectId: string; machineId: string }>();
+    for (const { machine, projects } of await resolvePublicRooms(deps.repos, owner.id)) {
+      for (const project of projects) rooms.set(roomKey(project.id, machine.id), { projectId: project.id, machineId: machine.id });
+    }
+    if (rooms.size === 0) return reject(404, 'Not Found');
     // The visitor left while the lookups ran: nothing to upgrade (its `close` already released the slot).
     if (socket.destroyed) return release();
 
@@ -103,34 +106,49 @@ export function registerPublicWs(
       answered.set(ws, true);
       ws.on('pong', () => answered.set(ws, true));
       const offTab = monitorBus.subscribe((change) => {
-        if (change.owner_id !== owner.id || !published.has(change.project_id)) return;
+        // both halves: the machine is this person's (a tab of their project on somebody else's
+        // machine is never published) and the pair is one of the rooms this page was given
+        if (change.owner_id !== owner.id || !rooms.has(roomKey(change.project_id, change.machine_id))) return;
         if (ws.readyState !== WebSocket.OPEN) return;
         // A change proves the tab's tmux session existed once, not that it still does (a plain
         // "seen" click on the tab publishes here too): the same rule as the snapshot, reading the
         // same memo (never probing), so a visitor never sees the two public surfaces disagree.
         const probe = change.tab.kind === 'terminal' ? cachedTmuxProbe(change.machine_id) : undefined;
         const alive = publicAlive(change.tab, probe);
-        ws.send(JSON.stringify({ type: 'robot', building: publicId('machine', change.machine_id), room: publicId('project', change.project_id), robot: toPublicRobot(change.tab, { alive, progress: null }) }));
+        ws.send(JSON.stringify(toPublicRobotFrame({ machineId: change.machine_id, projectId: change.project_id, tab: change.tab, alive, progress: null })));
       });
+      /** Drops the rooms that match and hangs up if there were any: the page re-reads the snapshot. */
+      const dropRooms = (match: (room: { projectId: string; machineId: string }) => boolean) => {
+        let dropped = 0;
+        for (const [key, room] of rooms) {
+          if (!match(room)) continue;
+          rooms.delete(key);
+          dropped++;
+        }
+        if (dropped > 0) ws.close(1000, 'unpublished');
+      };
       const offPublic = publicBus.subscribe((change) => {
-        if (!published.has(change.project_id) || change.is_public) return;
-        published.delete(change.project_id);
-        ws.close(1000, 'unpublished');
+        if (change.is_public) return;
+        dropRooms((room) => room.projectId === change.project_id);
+      });
+      const offRooms = publicBus.subscribeRoomsGone((gone) => {
+        dropRooms((room) => room.machineId === gone.machine_id && (gone.project_id === undefined || room.projectId === gone.project_id));
       });
       const offGone = publicBus.subscribeTabRemoved((removed) => {
-        if (!published.has(removed.project_id) || ws.readyState !== WebSocket.OPEN) return;
+        if (!rooms.has(roomKey(removed.project_id, removed.machine_id)) || ws.readyState !== WebSocket.OPEN) return;
         ws.send(JSON.stringify(toPublicRobotGone({ machineId: removed.machine_id, projectId: removed.project_id, tabId: removed.tab_id })));
       });
       const teardown = () => {
         offTab();
         offPublic();
+        offRooms();
         offGone();
         release();
       };
-      log.info({ nickname: parsed.value, rooms: published.size }, 'public visitor connected');
+      log.info({ nickname: parsed.value, rooms: rooms.size }, 'public visitor connected');
       ws.on('close', () => {
         teardown();
-        log.info({ nickname: parsed.value, rooms: published.size }, 'public visitor disconnected');
+        log.info({ nickname: parsed.value, rooms: rooms.size }, 'public visitor disconnected');
       });
       // A server-side ws socket with no error listener throws on a protocol violation (e.g. a
       // frame over maxPayload) — uncaught, that takes the whole process down. This route is

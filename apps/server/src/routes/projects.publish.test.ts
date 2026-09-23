@@ -8,18 +8,32 @@ import { projectRoutes } from './projects.js';
 const update = vi.fn();
 const publish = vi.spyOn(publicBus, 'publish');
 
+// Merge ruling 1: publishing belongs to the PROJECT's owner (projects.owner_id). p4 is u1's project
+// linked to a machine somebody else owns: that does not stop u1 from publishing it (the city simply
+// never shows that machine, see public/read.ts); p5 is somebody else's project.
 const PROJECTS: Record<string, unknown> = {
-  p1: { id: 'p1', machine_id: 'm1', name: 'Engage Easy', cwd: '/w', status: 'active', description: null, is_public: false },
-  p2: { id: 'p2', machine_id: 'm2', name: 'Órfão', cwd: '/w', status: 'active', description: null, is_public: false },
-  p3: { id: 'p3', machine_id: 'm1', name: 'Já público', cwd: '/w', status: 'active', description: null, is_public: true },
+  p1: { id: 'p1', owner_id: 'u1', key: 'ENG', name: 'Engage Easy', status: 'active', description: null, is_public: false },
+  p2: { id: 'p2', owner_id: null, key: 'ORF', name: 'Órfão', status: 'active', description: null, is_public: false },
+  p3: { id: 'p3', owner_id: 'u1', key: 'JAP', name: 'Já público', status: 'active', description: null, is_public: true },
+  p4: { id: 'p4', owner_id: 'u1', key: 'ALH', name: 'Na máquina alheia', status: 'active', description: null, is_public: false },
+  p5: { id: 'p5', owner_id: 'u9', key: 'OUT', name: 'De outra pessoa', status: 'active', description: null, is_public: false },
 };
 const MACHINES: Record<string, unknown> = {
   m1: { id: 'm1', name: 'Jarvis', owner_id: 'u1' },
-  m2: { id: 'm2', name: 'Sem dono', owner_id: null },
+  m9: { id: 'm9', name: 'Alheia', owner_id: 'u9' },
+};
+const LINKS = [
+  { project_id: 'p1', machine_id: 'm1', cwd: '/w', position: 0 },
+  { project_id: 'p3', machine_id: 'm1', cwd: '/w', position: 0 },
+  { project_id: 'p4', machine_id: 'm9', cwd: '/w', position: 0 },
+];
+const projectMachines = {
+  listByProjects: vi.fn(async (ids: string[]) => LINKS.filter((l) => ids.includes(l.project_id))),
+  listByProject: vi.fn(async (id: string) => LINKS.filter((l) => l.project_id === id)),
 };
 
 /** `ownerId: null` mirrors an admin "view as all" scope: the only scope under which `scoped(...)`
- *  lets a project on an orphan (unowned) machine through at all — see Scoped.owns in auth/scope.ts. */
+ *  lets an orphan project, or somebody else's, through at all — see Scoped.owns in auth/scope.ts. */
 function buildApp(user: { id: string; nickname: string | null }, ownerId: string | null = user.id) {
   const app = Fastify();
   applyErrorHandler(app);
@@ -30,6 +44,7 @@ function buildApp(user: { id: string; nickname: string | null }, ownerId: string
   const repos = {
     projects: { findById: vi.fn(async (id: string) => PROJECTS[id]), update },
     machines: { findById: vi.fn(async (id: string) => MACHINES[id]) },
+    projectMachines,
   } as unknown as Repositories;
   app.register((a) => projectRoutes(a, repos, { simulators: { isReady: () => false } as never }), { prefix: '/projects' });
   return app;
@@ -47,7 +62,7 @@ describe('PATCH /projects/:id is_public', () => {
     publish.mockClear();
   });
 
-  it('publishes when the caller owns the machine and has a nickname', async () => {
+  it('publishes when the caller owns the project and has a nickname', async () => {
     const res = await patch(owner, 'p1', { is_public: true });
     expect(res.statusCode).toBe(200);
     expect(res.json().project.is_public).toBe(true);
@@ -55,9 +70,15 @@ describe('PATCH /projects/:id is_public', () => {
     expect(publish).toHaveBeenCalledWith({ project_id: 'p1', is_public: true });
   });
 
-  // scoped(...).project(id) hides a project on a machine the caller cannot see behind a 404
-  // before the publish guard is ever reached, so the stranger sees "not found", not "forbidden".
-  it('refuses a caller who does not own the machine', async () => {
+  it('publishes a project the caller owns even when its machine belongs to somebody else', async () => {
+    const res = await patch(owner, 'p4', { is_public: true });
+    expect(res.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith('p4', expect.objectContaining({ is_public: true }));
+  });
+
+  // scoped(...).project(id) hides a project the caller does not own behind a 404 before the
+  // publish guard is ever reached, so the stranger sees "not found", not "forbidden".
+  it('refuses a caller who does not own the project', async () => {
     const res = await patch(stranger, 'p1', { is_public: true });
     expect(res.statusCode).toBe(404);
     expect(update).not.toHaveBeenCalled();
@@ -70,13 +91,21 @@ describe('PATCH /projects/:id is_public', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  // A self-scoped caller can never reach this branch: an orphan machine's project answers 404
-  // before the guard runs (scoped() hides orphans from non-admins), same as the stranger case.
-  // Only "view as all" lets scoped() through to the project, so that is the scope this exercises.
-  it('refuses on a machine with no owner', async () => {
+  // A self-scoped caller can never reach these branches: an orphan project, or somebody else's,
+  // answers 404 before the guard runs (scoped() hides them from non-admins), same as the stranger
+  // case. Only "view as all" lets scoped() through to the project, so that is the scope exercised.
+  it('refuses on a project with no owner', async () => {
     const res = await buildApp(owner, null).inject({ method: 'PATCH', url: '/projects/p2', payload: { is_public: true } });
     expect(res.statusCode).toBe(409);
-    expect(res.json().code).toBe('MACHINE_UNOWNED');
+    expect(res.json().code).toBe('PROJECT_UNOWNED');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('refuses an admin publishing somebody else\'s project', async () => {
+    const res = await buildApp(owner, null).inject({ method: 'PATCH', url: '/projects/p5', payload: { is_public: true } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('NOT_OWNER');
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('unpublishing needs none of that', async () => {
@@ -116,6 +145,7 @@ describe('DELETE /projects/:id', () => {
       projects: { findById: vi.fn(async (id: string) => PROJECTS[id]), delete: del },
       machines: { findById: vi.fn(async (id: string) => MACHINES[id]) },
       tabs: { listByProject: vi.fn(async () => []) },
+      projectMachines,
     } as unknown as Repositories;
     app.register((a) => projectRoutes(a, repos, { simulators: { isReady: () => false } as never }), { prefix: '/projects' });
     return app;
@@ -139,5 +169,57 @@ describe('DELETE /projects/:id', () => {
     const res = await buildDeleteApp(owner).inject({ method: 'DELETE', url: '/projects/p1' });
     expect(res.statusCode).toBe(200);
     expect(publish).toHaveBeenCalledWith({ project_id: 'p1', is_public: false });
+  });
+});
+
+describe('machine links of a published project', () => {
+  const gone = vi.spyOn(publicBus, 'publishRoomsGone');
+
+  function buildLinkApp() {
+    const app = Fastify();
+    applyErrorHandler(app);
+    app.addHook('preHandler', async (request) => {
+      request.user = owner as never;
+      request.scope = { user: owner, viewAs: { kind: 'self' }, ownerId: owner.id, createAs: owner.id } as never;
+    });
+    const repos = {
+      projects: { findById: vi.fn(async (id: string) => PROJECTS[id]) },
+      machines: { findById: vi.fn(async (id: string) => MACHINES[id] ?? { id, name: id, owner_id: 'u1' }) },
+      projectMachines: {
+        ...projectMachines,
+        find: vi.fn(async (projectId: string, machineId: string) => LINKS.find((l) => l.project_id === projectId && l.machine_id === machineId)),
+        link: vi.fn(async (l: { project_id: string; machine_id: string; cwd: string }) => ({ ...l, id: 'l', position: 1, created_at: '' })),
+        unlink: vi.fn(async () => true),
+      },
+      tabs: { listByProjectMachine: vi.fn(async () => []), delete: vi.fn() },
+    } as unknown as Repositories;
+    app.register((a) => projectRoutes(a, repos, { simulators: { isReady: () => false } as never }), { prefix: '/projects' });
+    return app;
+  }
+
+  beforeEach(() => {
+    publish.mockClear();
+    gone.mockClear();
+  });
+
+  // Merge ruling 2: a room is (published project, machine); unlinking takes that one room off the
+  // street at once, without unpublishing the project (it keeps its rooms on its other machines).
+  it('unlinking a machine drops that one room from open public pages, and unpublishes nothing', async () => {
+    const res = await buildLinkApp().inject({ method: 'DELETE', url: '/projects/p3/machines/m1' });
+    expect(res.statusCode).toBe(200);
+    expect(gone).toHaveBeenCalledWith({ machine_id: 'm1', project_id: 'p3' });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('linking a machine to a published project refreshes the public read', async () => {
+    const res = await buildLinkApp().inject({ method: 'POST', url: '/projects/p3/machines', payload: { machine_id: 'm2', cwd: 'C:\\w' } });
+    expect(res.statusCode).toBe(201);
+    expect(publish).toHaveBeenCalledWith({ project_id: 'p3', is_public: true });
+  });
+
+  it('linking a machine to a private project tells the public bus nothing', async () => {
+    const res = await buildLinkApp().inject({ method: 'POST', url: '/projects/p1/machines', payload: { machine_id: 'm2', cwd: 'C:\\w' } });
+    expect(res.statusCode).toBe(201);
+    expect(publish).not.toHaveBeenCalled();
   });
 });

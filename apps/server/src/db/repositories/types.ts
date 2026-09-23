@@ -95,8 +95,6 @@ export interface Project {
   is_public: boolean;
   last_terminal_at: string | null;
   created_at: string;
-  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
-  public_id: string;
 }
 
 /** A project's link to one machine: where its terminals run there. */
@@ -270,7 +268,6 @@ export const mapProject = (p: PrismaProject): Project => ({
   is_public: p.isPublic,
   last_terminal_at: iso(p.lastTerminalAt),
   created_at: p.createdAt.toISOString(),
-  public_id: publicId('project', p.id),
 });
 
 export const mapProjectMachine = (l: PrismaProjectMachine): ProjectMachine => ({

@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
-import { publicId } from './public-id.js';
+import { publicId, publicRoomId } from './public-id.js';
 import type { PublicCity } from './city.js';
 
 // readPublicCity only ever reads the tmux memo (see public/read.ts); stub it the same way
@@ -37,12 +37,12 @@ const CITY: PublicCity = {
       name: 'Jarvis Office',
       rooms: [
         {
-          id: publicId('project', 'p1'),
+          id: publicRoomId('p1', 'm1'),
           name: 'Engage Easy',
           robots: [],
         },
         {
-          id: publicId('project', 'p2'),
+          id: publicRoomId('p2', 'm1'),
           name: 'A "melhor" ideia & cia',
           robots: [],
         },
@@ -120,23 +120,26 @@ describe('depthFromCityUrl', () => {
 
 function stubRepos(): Repositories {
   const machines = [{ id: 'm1', name: 'Jarvis Office', owner_id: 'u1' }];
-  const projects: Record<string, { id: string; machine_id: string; name: string; status: string; is_public: boolean }[]> = {
-    m1: [
-      { id: 'p1', machine_id: 'm1', name: 'Engage Easy', status: 'active', is_public: true },
-      { id: 'p2', machine_id: 'm1', name: 'A "melhor" ideia & cia', status: 'active', is_public: true },
-    ],
-  };
-  const tabs: Record<string, { id: string; project_id: string; name: string; kind: string; tmux_session: string | null; simulator_udid: string | null; state: string | null }[]> = {
-    p1: [{ id: 't1', project_id: 'p1', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' }],
-    p2: [{ id: 't2', project_id: 'p2', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' }],
-  };
+  const projects = [
+    { id: 'p1', owner_id: 'u1', name: 'Engage Easy', status: 'active', is_public: true },
+    { id: 'p2', owner_id: 'u1', name: 'A "melhor" ideia & cia', status: 'active', is_public: true },
+  ];
+  const links = [
+    { project_id: 'p1', machine_id: 'm1' },
+    { project_id: 'p2', machine_id: 'm1' },
+  ];
+  const tabs = [
+    { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' },
+    { id: 't2', project_id: 'p2', machine_id: 'm1', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' },
+  ];
   return {
     users: {
       findByNickname: vi.fn(async (nickname: string) => (nickname === 'pedro' ? { id: 'u1', name: 'Pedro' } : undefined)),
     },
     machines: { list: vi.fn(async (ownerId?: string | null) => machines.filter((m) => m.owner_id === ownerId)) },
-    projects: { list: vi.fn(async ({ machine_id }: { machine_id: string }) => projects[machine_id] ?? []) },
-    tabs: { listByProjects: vi.fn(async (ids: string[]) => ids.flatMap((id) => tabs[id] ?? [])) },
+    projects: { list: vi.fn(async ({ owner }: { owner: string }) => projects.filter((p) => p.owner_id === owner)) },
+    projectMachines: { listByProjects: vi.fn(async (ids: string[]) => links.filter((l) => ids.includes(l.project_id))) },
+    tabs: { listByProjectsOnMachine: vi.fn(async (ids: string[], machineId: string) => tabs.filter((t) => ids.includes(t.project_id) && t.machine_id === machineId)) },
   } as unknown as Repositories;
 }
 
@@ -162,7 +165,7 @@ describe('GET /city/:nickname — the document', () => {
   it('escapes a room name carrying " and & at the room depth', async () => {
     const app = buildDocumentApp(stubRepos());
     const building = publicId('machine', 'm1');
-    const room = publicId('project', 'p2');
+    const room = publicRoomId('p2', 'm1');
     const res = await app.inject({ method: 'GET', url: `/city/@pedro/${building}?room=${room}` });
     expect(res.body).toContain('content="A &quot;melhor&quot; ideia &amp; cia — a cidade de Pedro"');
     expect(res.body).not.toContain('content="A "melhor" ideia & cia — a cidade de Pedro"');
@@ -179,7 +182,7 @@ describe('GET /city/:nickname — the document', () => {
   it('sets og:url to the canonical address of the depth the link points at', async () => {
     const app = buildDocumentApp(stubRepos());
     const building = publicId('machine', 'm1');
-    const room = publicId('project', 'p1');
+    const room = publicRoomId('p1', 'm1');
     const res = await app.inject({ method: 'GET', url: `/city/@pedro/${building}?room=${room}` });
     expect(res.body).toContain(`<meta property="og:url" content="https://termhub.dev/city/@pedro/${building}?room=${room}" />`);
   });

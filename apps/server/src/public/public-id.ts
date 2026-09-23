@@ -34,7 +34,15 @@ export async function loadPublicIdKey(repos: Pick<Repositories, 'instanceSecrets
  * from one and a socket frame from the other agree during a blue/green switch. Synchronous: the key
  * is loaded before the server listens, and asking for an id before that is a bug, not a fallback.
  */
-export function publicId(kind: 'machine' | 'project' | 'tab', realId: string): string {
+export function publicId(kind: 'machine' | 'project' | 'room' | 'tab', realId: string): string {
   if (!key) throw new Error('public id key not loaded');
   return createHmac('sha256', key).update(`${kind}:${realId}`).digest('base64url').slice(0, 22);
+}
+
+/**
+ * A room is one published project on one building (machine): a project linked to two machines has
+ * a room in each, so the room's public id is derived from both — the same shape as every other id.
+ */
+export function publicRoomId(projectId: string, machineId: string): string {
+  return publicId('room', `${projectId}:${machineId}`);
 }

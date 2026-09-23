@@ -76,29 +76,12 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ProjectsRepository (Postg
     expect(u).toMatchObject({ key: p.key, name: 'b', status: 'paused', description: 'd' });
   });
 
-  it('unpublishByMachine takes every published project of one machine off the street, and names them', async () => {
-    const ownerId = newId();
-    const machineId = newId();
-    const otherMachineId = newId();
-    const [pub, priv, otherPub] = [newId(), newId(), newId()];
-    await db.user.create({ data: { id: ownerId, email: `${ownerId}@test.local`, name: 'owner' } });
-    try {
-      await db.machine.createMany({ data: [
-        { id: machineId, name: 'm', type: 'agent', ownerId },
-        { id: otherMachineId, name: 'o', type: 'agent', ownerId },
-      ] });
-      await db.project.createMany({ data: [
-        { id: pub, machineId, name: 'pub', cwd: '/tmp', isPublic: true },
-        { id: priv, machineId, name: 'priv', cwd: '/tmp' },
-        { id: otherPub, machineId: otherMachineId, name: 'other', cwd: '/tmp', isPublic: true },
-      ] });
-      expect(await repo.unpublishByMachine(machineId)).toEqual([pub]);
-      expect((await repo.findById(pub))?.is_public).toBe(false);
-      expect((await repo.findById(otherPub))?.is_public).toBe(true);
-      expect(await repo.unpublishByMachine(machineId)).toEqual([]);
-    } finally {
-      await db.machine.deleteMany({ where: { id: { in: [machineId, otherMachineId] } } });
-      await db.user.deleteMany({ where: { id: ownerId } });
-    }
+  it('a project is born private; update publishes and unpublishes it', async () => {
+    const p = await repo.create({ owner_id: ownerId, key: key(), name: 'pub' });
+    expect(p.is_public).toBe(false);
+    expect((await repo.update(p.id, { is_public: true }))?.is_public).toBe(true);
+    // a later patch that does not mention is_public keeps it
+    expect((await repo.update(p.id, { name: 'renamed' }))?.is_public).toBe(true);
+    expect((await repo.update(p.id, { is_public: false }))?.is_public).toBe(false);
   });
 });

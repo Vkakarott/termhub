@@ -54,25 +54,36 @@ const MACHINES = [
   { id: 'm5', name: 'Quarto HQ', owner_id: 'u5' },
 ];
 
-const PROJECTS: Record<string, { id: string; machine_id: string; name: string; status: string; is_public: boolean }[]> = {
-  m1: [
-    { id: 'p1', machine_id: 'm1', name: 'Engage Easy', status: 'active', is_public: true },
-    { id: 'p2', machine_id: 'm1', name: 'Projeto Secreto', status: 'active', is_public: false },
-    { id: 'p3', machine_id: 'm1', name: 'Projeto Arquivado', status: 'archived', is_public: true },
-  ],
-  m2: [],
-  m3: [{ id: 'p4', machine_id: 'm3', name: 'Rival Room', status: 'active', is_public: true }],
-  m4: [{ id: 'p5', machine_id: 'm4', name: 'Sala do Terceiro', status: 'active', is_public: true }],
-  m5: [{ id: 'p6', machine_id: 'm5', name: 'Sala do Quarto', status: 'active', is_public: true }],
-};
+const PROJECTS: { id: string; owner_id: string; name: string; status: string; is_public: boolean }[] = [
+  { id: 'p1', owner_id: 'u1', name: 'Engage Easy', status: 'active', is_public: true },
+  { id: 'p2', owner_id: 'u1', name: 'Projeto Secreto', status: 'active', is_public: false },
+  { id: 'p3', owner_id: 'u1', name: 'Projeto Arquivado', status: 'archived', is_public: true },
+  { id: 'p4', owner_id: 'u3', name: 'Rival Room', status: 'active', is_public: true },
+  { id: 'p5', owner_id: 'u4', name: 'Sala do Terceiro', status: 'active', is_public: true },
+  { id: 'p6', owner_id: 'u5', name: 'Sala do Quarto', status: 'active', is_public: true },
+];
 
-const TABS: Record<string, { id: string; project_id: string; name: string; kind: string; tmux_session: string | null; simulator_udid: string | null; state: string | null }[]> = {
-  p1: [{ id: 't1', project_id: 'p1', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' }],
-  p2: [{ id: 't2', project_id: 'p2', name: 'segredo', kind: 'terminal', tmux_session: 'th-t2', simulator_udid: null, state: 'working' }],
-  p4: [{ id: 't4', project_id: 'p4', name: 'rival shell', kind: 'terminal', tmux_session: 'th-t4', simulator_udid: null, state: 'working' }],
-  p5: [{ id: 't5', project_id: 'p5', name: 'terceira shell', kind: 'terminal', tmux_session: 'th-t5', simulator_udid: null, state: 'working' }],
-  p6: [{ id: 't6', project_id: 'p6', name: 'quarta shell', kind: 'terminal', tmux_session: 'th-t6', simulator_udid: null, state: 'working' }],
-};
+// p1 (pedro's, published) also runs on m3, a machine u3 owns: merge ruling 2 — that link never
+// brings u3's machine into pedro's city.
+const LINKS = [
+  { project_id: 'p1', machine_id: 'm1' },
+  { project_id: 'p1', machine_id: 'm3' },
+  { project_id: 'p2', machine_id: 'm1' },
+  { project_id: 'p3', machine_id: 'm1' },
+  { project_id: 'p4', machine_id: 'm3' },
+  { project_id: 'p5', machine_id: 'm4' },
+  { project_id: 'p6', machine_id: 'm5' },
+];
+
+type TabRow = { id: string; project_id: string; machine_id: string; name: string; kind: string; tmux_session: string | null; simulator_udid: string | null; state: string | null };
+const TABS: TabRow[] = [
+  { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' },
+  { id: 't9', project_id: 'p1', machine_id: 'm3', name: 'shell na maquina alheia', kind: 'terminal', tmux_session: 'th-t9', simulator_udid: null, state: 'working' },
+  { id: 't2', project_id: 'p2', machine_id: 'm1', name: 'segredo', kind: 'terminal', tmux_session: 'th-t2', simulator_udid: null, state: 'working' },
+  { id: 't4', project_id: 'p4', machine_id: 'm3', name: 'rival shell', kind: 'terminal', tmux_session: 'th-t4', simulator_udid: null, state: 'working' },
+  { id: 't5', project_id: 'p5', machine_id: 'm4', name: 'terceira shell', kind: 'terminal', tmux_session: 'th-t5', simulator_udid: null, state: 'working' },
+  { id: 't6', project_id: 'p6', machine_id: 'm5', name: 'quarta shell', kind: 'terminal', tmux_session: 'th-t6', simulator_udid: null, state: 'working' },
+];
 
 /** The public route with stubbed repositories, built the way office.test.ts builds its app. */
 function buildApp() {
@@ -100,10 +111,13 @@ function buildApp() {
       list: vi.fn(async (ownerId?: string | null) => MACHINES.filter((m) => m.owner_id === ownerId)),
     },
     projects: {
-      list: vi.fn(async ({ machine_id }: { machine_id: string }) => PROJECTS[machine_id] ?? []),
+      list: vi.fn(async ({ owner }: { owner: string }) => PROJECTS.filter((p) => p.owner_id === owner)),
+    },
+    projectMachines: {
+      listByProjects: vi.fn(async (projectIds: string[]) => LINKS.filter((l) => projectIds.includes(l.project_id))),
     },
     tabs: {
-      listByProjects: vi.fn(async (projectIds: string[]) => projectIds.flatMap((id) => TABS[id] ?? [])),
+      listByProjectsOnMachine: vi.fn(async (projectIds: string[], machineId: string) => TABS.filter((t) => projectIds.includes(t.project_id) && t.machine_id === machineId)),
     },
   } as unknown as Repositories;
   app.register((instance) => publicCityRoutes(instance, repos), { prefix: '/public' });
@@ -144,7 +158,9 @@ describe('GET /public/city/:nickname', () => {
     // p2 (private) and p3 (archived) must never appear in the argument, not just in the response.
     // A regression that passed every project id through would still pass the body-only assertions
     // above, since PROJECTS.p2's tab carries no string that collides with 'Projeto Secreto'.
-    expect(repos.tabs.listByProjects).toHaveBeenCalledWith(['p1']);
+    expect(repos.tabs.listByProjectsOnMachine).toHaveBeenCalledWith(['p1'], 'm1');
+    // and never on a machine pedro does not own, even though p1 is linked to it
+    expect(repos.tabs.listByProjectsOnMachine).not.toHaveBeenCalledWith(expect.anything(), 'm3');
   });
 
   it('leaves out a machine that belongs to somebody else, even with a public project on it', async () => {
@@ -152,6 +168,31 @@ describe('GET /public/city/:nickname', () => {
     const body = JSON.stringify((await app.inject({ method: 'GET', url: '/public/city/pedro' })).json());
     expect(body).not.toContain('Rival Room');
     expect(body).not.toContain('Rival HQ');
+  });
+
+  // Merge ruling 2: p1 is published and linked to m3, which u3 owns. Pedro's city shows p1's room
+  // on his own machine only: neither m3, nor its name, nor p1's tab that runs there.
+  it('never exposes a machine the owner does not own, even one their published project is linked to', async () => {
+    const { app } = buildApp();
+    const city = (await app.inject({ method: 'GET', url: '/public/city/pedro' })).json();
+    expect(city.buildings).toHaveLength(1);
+    expect(city.buildings[0].name).toBe('Jarvis Office');
+    const body = JSON.stringify(city);
+    expect(body).not.toContain('Rival HQ');
+    expect(body).not.toContain('shell na maquina alheia');
+  });
+
+  it('404s a nickname whose only published project runs on no machine they own', async () => {
+    const { app } = buildApp();
+    // semnada (u2) owns m2 but no project; give them a published one linked only to m3 (u3's)
+    PROJECTS.push({ id: 'p7', owner_id: 'u2', name: 'Sem Predio', status: 'active', is_public: true });
+    LINKS.push({ project_id: 'p7', machine_id: 'm3' });
+    try {
+      expect((await app.inject({ method: 'GET', url: '/public/city/semnada' })).statusCode).toBe(404);
+    } finally {
+      PROJECTS.pop();
+      LINKS.pop();
+    }
   });
 
   it('404s an unknown nickname', async () => {

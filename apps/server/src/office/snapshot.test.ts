@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { buildOfficeSnapshot } from './snapshot.js';
+import { publicRoomId } from '../public/public-id.js';
 
 const machine = { id: 'm1', name: 'jarvis' } as Machine;
 const project = (id: string, over: Partial<Project> = {}): Project => ({ id, owner_id: 'u1', key: id.toUpperCase(), name: id, status: 'active', ...over }) as Project;
@@ -21,6 +22,13 @@ describe('buildOfficeSnapshot', () => {
     expect(snap.rooms.map((r) => r.project.id)).toEqual(['b', 'a']);
     expect(snap.rooms[1].tabs.map((t) => [t.id, t.alive])).toEqual([['t1', true], ['t2', false]]);
     expect(snap.rooms[0].tabs).toEqual([]);
+  });
+
+  // The share button builds a room's public link from this: the id the owner's public city gives
+  // the (project, this machine) room, never the project alone.
+  it('carries each room\'s public city id, derived from the project and this machine', () => {
+    const snap = buildOfficeSnapshot({ machine, projects: [project('a')], tabs: [], aliveSessions: new Set(), reachable: true, simulatorReady: () => false, progress: null });
+    expect(snap.rooms[0].public_id).toBe(publicRoomId('a', 'm1'));
   });
 
   it('marks every terminal tab dead when the machine was unreachable', () => {

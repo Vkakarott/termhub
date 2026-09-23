@@ -137,13 +137,12 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
       if (owner_id && !(await repos.users.findById(owner_id))) throw badRequest('Usuário inexistente');
     }
     const machine = await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) });
-    // Publishing is the machine owner's own decision: a transfer must not move published rooms into
-    // someone else's city (or leave them on an orphan's street). Every room goes back to private,
-    // and any public page watching one drops it at once.
+    // A city only ever shows machines its person owns (public/read.ts), so a transferred machine
+    // leaves the old owner's city by that rule alone — its projects stay published (they belong to
+    // their own owners now, not to the machine). Any public page showing the building drops it at once.
     if (owner_id !== undefined && owner_id !== current.owner_id) {
-      const unpublished = await repos.projects.unpublishByMachine(id);
-      for (const project_id of unpublished) publicBus.publish({ project_id, is_public: false });
-      if (unpublished.length > 0) request.log.info({ machineId: id, projects: unpublished.length }, 'machine transferred: projects unpublished');
+      publicBus.publishRoomsGone({ machine_id: id });
+      request.log.info({ machineId: id }, 'machine transferred: left its old owner\'s public city');
     }
     return { machine };
   });
@@ -153,6 +152,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     await scoped(repos, request).machine(id);
     // The DB cascade removes this machine's project links and its own tabs; the projects survive.
     await repos.machines.delete(id);
+    // its buildings leave every public city at once (the projects, and their publish switch, stay)
+    publicBus.publishRoomsGone({ machine_id: id });
     agents.disconnect(id, CLOSE.UNAUTHORIZED, 'deleted');
     return { ok: true };
   });

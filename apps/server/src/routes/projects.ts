@@ -180,13 +180,15 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
 
   app.post('/:id/machines', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    await scoped(repos, request).project(id);
+    const { project } = await scoped(repos, request).project(id);
     const { machine_id, cwd, create_dir } = linkBody.parse(request.body);
     const machine = await scoped(repos, request).machine(machine_id).catch(() => {
       throw badRequest('Máquina inexistente');
     });
     const resolved = await resolveCwd(machine, cwd, create_dir);
     const link = await rule(() => repos.projectMachines.link({ project_id: id, machine_id: machine.id, cwd: resolved }));
+    // a published project on a new machine may be a new public room: the next public read must see it
+    if (project.is_public) publicBus.publish({ project_id: id, is_public: true });
     return reply.code(201).send({ link: linkView(link) });
   });
 
@@ -206,6 +208,8 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     await Promise.allSettled(tabs.filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)));
     for (const t of tabs) await repos.tabs.delete(t.id);
     await repos.projectMachines.unlink(id, machineId);
+    // that room leaves the street at once (the project stays published on its other machines)
+    publicBus.publishRoomsGone({ machine_id: machineId, project_id: id });
     return { ok: true, closed_tabs: tabs.length };
   });
 

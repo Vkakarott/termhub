@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { toPublicCity, toPublicRobot } from './city.js';
-import { publicId } from './public-id.js';
-import { mapProject } from '../db/repositories/types.js';
+import { toPublicCity, toPublicRobot, toPublicRobotFrame, toPublicRobotGone } from './city.js';
+import { publicId, publicRoomId } from './public-id.js';
 import type { Machine, Project, Tab } from '../db/repositories/types.js';
 
 const tab = (over: Partial<Tab> = {}): Tab => ({
-  id: 't1', project_id: 'p1', name: 'corrigir o cliente ACME', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null,
+  id: 't1', project_id: 'p1', machine_id: 'm1', name: 'corrigir o cliente ACME', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null,
   position: 0, state: 'working', state_text: 'rodando os testes', state_tool: 'claude', state_at: '2026-09-22T10:00:00.000Z',
   state_seen_at: null, activity: 'coding', created_at: '2026-09-22T09:00:00.000Z', ...over,
 });
-const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', machine_id: 'm1', name: 'Engage Easy', cwd: '/home/p/engageasy', status: 'active', description: 'o que eu não quero na rua', is_public: true, last_terminal_at: null, created_at: '2026-09-01T00:00:00.000Z', ...over });
+const project = (over: Partial<Project> = {}): Project => ({ id: 'p1', owner_id: 'u1', key: 'ENG', next_task_number: 1, name: 'Engage Easy', status: 'active', description: 'o que eu não quero na rua', is_public: true, last_terminal_at: null, created_at: '2026-09-01T00:00:00.000Z', ...over });
 const machine = (over: Partial<Machine> = {}): Machine => ({ id: 'm1', name: 'Jarvis', host: '10.0.0.9', ssh_user: 'pedro', ssh_port: 22, type: 'agent', os: 'linux', capabilities: ['claude'], checked_at: null, agent_version: '0.4.1', agent_last_seen_at: null, agent_auto_update: true, is_local: false, owner_id: 'u1', created_at: '2026-09-01T00:00:00.000Z', ...over } as Machine);
 
 describe('the public payload', () => {
@@ -45,7 +44,26 @@ describe('the public payload', () => {
     expect(r.activity).toBeNull();
   });
 
-  it('the id a project carries for the app is the id the city shows', () => {
-    expect(mapProject({ id: 'p1', machineId: 'm1', name: 'x', cwd: '/w', status: 'active', description: null, isPublic: true, lastTerminalAt: null, createdAt: new Date() } as never).public_id).toBe(publicId('project', 'p1'));
+  // Merge ruling 3: a project linked to two machines has a room on each, and the two must not share
+  // an id — the snapshot, the socket frames and the share link all join on it.
+  it('gives the same project a different room id on each building, and the frames agree with the snapshot', () => {
+    const city = toPublicCity({
+      nickname: 'pedro',
+      ownerName: 'Pedro',
+      buildings: [
+        { machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] },
+        { machine: machine({ id: 'm2', name: 'Friday' }), rooms: [{ project: project(), tabs: [{ tab: tab({ id: 't2', machine_id: 'm2' }), alive: true, progress: null }] }] },
+      ],
+    });
+    const [a, b] = city.buildings;
+    expect(a.rooms[0].id).not.toBe(b.rooms[0].id);
+    expect(a.rooms[0].id).toBe(publicRoomId('p1', 'm1'));
+    expect(b.rooms[0].id).toBe(publicRoomId('p1', 'm2'));
+    const frame = toPublicRobotFrame({ machineId: 'm2', projectId: 'p1', tab: tab({ id: 't2', machine_id: 'm2' }), alive: true, progress: null });
+    expect(Object.keys(frame).sort()).toEqual(['building', 'robot', 'room', 'type']);
+    expect(frame.building).toBe(b.id);
+    expect(frame.room).toBe(b.rooms[0].id);
+    expect(frame.robot).toEqual(b.rooms[0].robots[0]);
+    expect(toPublicRobotGone({ machineId: 'm2', projectId: 'p1', tabId: 't2' })).toEqual({ type: 'robot_gone', building: b.id, room: b.rooms[0].id, robot: b.rooms[0].robots[0].id });
   });
 });

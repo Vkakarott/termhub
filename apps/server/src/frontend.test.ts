@@ -41,8 +41,9 @@ function stubRepos(opts: { fail?: boolean } = {}): Repositories {
       }),
     },
     machines: { list: vi.fn(async () => [{ id: 'm1', name: 'Jarvis', owner_id: 'u1' }]) },
-    projects: { list: vi.fn(async () => [{ id: 'p1', machine_id: 'm1', name: 'Sala', status: 'active', is_public: true }]) },
-    tabs: { listByProjects: vi.fn(async () => []) },
+    projects: { list: vi.fn(async () => [{ id: 'p1', owner_id: 'u1', name: 'Sala', status: 'active', is_public: true }]) },
+    projectMachines: { listByProjects: vi.fn(async () => [{ project_id: 'p1', machine_id: 'm1' }]) },
+    tabs: { listByProjectsOnMachine: vi.fn(async () => []) },
   } as unknown as Repositories;
 }
 
@@ -144,8 +145,9 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('buildApp serving the fron
     expect(await repos.users.setNickname(user.id, nick)).toBe('ok');
     const machine = await repos.machines.create({ name: 'Fixture HQ', type: 'agent', owner_id: user.id });
     cleanup.push(() => repos.machines.delete(machine.id));
-    const project = await repos.projects.create({ machine_id: machine.id, name: 'Fixture Room', cwd: '/tmp' });
+    const project = await repos.projects.create({ owner_id: user.id, key: `FX${newId().slice(0, 6).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'Fixture Room' });
     cleanup.push(() => repos.projects.delete(project.id));
+    await repos.projectMachines.link({ project_id: project.id, machine_id: machine.id, cwd: '/tmp' });
     await repos.projects.update(project.id, { is_public: true });
 
     const city = await app.fastify.inject({ method: 'GET', url: `/city/@${nick}` });
@@ -158,6 +160,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('buildApp serving the fron
     const spa = await app.fastify.inject({ method: 'GET', url: '/office' });
     expect(spa.body).toContain(APP_MARKER);
     const snapshot = await app.fastify.inject({ method: 'GET', url: `/api/public/city/${nick}` });
-    expect(snapshot.json().buildings[0].rooms[0].id).toBe(project.public_id);
+    const { publicRoomId } = await import('./public/public-id.js');
+    expect(snapshot.json().buildings[0].rooms[0].id).toBe(publicRoomId(project.id, machine.id));
   });
 });

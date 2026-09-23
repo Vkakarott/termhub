@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TEST_PUBLIC_ID_KEY } from '../../test/setup.js';
-import { PUBLIC_ID_KEY_NAME, generatePublicIdKey, loadPublicIdKey, publicId, setPublicIdKey } from './public-id.js';
+import { PUBLIC_ID_KEY_NAME, generatePublicIdKey, loadPublicIdKey, publicId, publicRoomId, setPublicIdKey } from './public-id.js';
 
 afterEach(() => setPublicIdKey(TEST_PUBLIC_ID_KEY));
 
@@ -27,6 +27,17 @@ describe('publicId', () => {
     const a = publicId('project', 'p1');
     setPublicIdKey(Buffer.alloc(32, 1));
     expect(publicId('project', 'p1')).not.toBe(a);
+  });
+
+  // Ruling 3 of the merge with projects-decoupled: a project linked to two machines has two rooms,
+  // and each needs an id of its own — the project alone no longer names one.
+  it('gives a room an id per (project, machine) pair, in the same shape', () => {
+    const a = publicRoomId('p1', 'm1');
+    expect(a).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(a).toBe(publicRoomId('p1', 'm1'));
+    expect(publicRoomId('p1', 'm2')).not.toBe(a);
+    expect(publicRoomId('p2', 'm1')).not.toBe(a);
+    expect(a).not.toBe(publicId('project', 'p1'));
   });
 
   it('refuses to answer before a key was loaded, instead of minting ids nobody else agrees on', () => {

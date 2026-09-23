@@ -1,12 +1,12 @@
 import type { Repositories } from '../db/repositories/index.js';
-import type { Tab } from '../db/repositories/types.js';
+import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { cachedTmuxProbe, type TmuxProbe } from '../terminal/machine-exec.js';
 import { toPublicCity, type PublicCity } from './city.js';
 import { publicBus } from './bus.js';
 
 /**
  * The one read behind both public surfaces: a nickname, the machines its owner has, and only the
- * projects that are published. This never initiates an ssh round-trip: it only ever *reads* the
+ * projects that are published (see `resolvePublicRooms`). This never initiates an ssh round-trip: it only ever *reads* the
  * tmux memo the office already warms (`cachedTmuxProbe`), and never calls the probing function that
  * would refresh it. When the memo is warm, a terminal tab's `alive` is real tmux session membership.
  * When it is cold — nobody with the office open recently, or the memo expired — the tab's own last
@@ -23,15 +23,45 @@ export function publicAlive(tab: Pick<Tab, 'kind' | 'state' | 'tmux_session'>, p
   return probe ? probe.reachable && !!tab.tmux_session && probe.sessions.has(tab.tmux_session) : tab.kind === 'terminal' && tab.state !== null;
 }
 
+/**
+ * What a person's city is made of (merge ruling 2): their published, non-archived projects, and the
+ * machines THEY own that at least one of those projects is linked to. A room is one (published
+ * project, owned machine) pair. A project linked to a machine somebody else owns never brings that
+ * machine along — publishing one's project must not expose another person's machine — so such a
+ * link simply has no room. Buildings keep the machines' own order; rooms keep the projects' (by name).
+ */
+export async function resolvePublicRooms(
+  repos: Pick<Repositories, 'machines' | 'projects' | 'projectMachines'>,
+  ownerId: string,
+): Promise<Array<{ machine: Machine; projects: Project[] }>> {
+  const projects = (await repos.projects.list({ owner: ownerId })).filter((p) => p.is_public && p.status !== 'archived');
+  if (projects.length === 0) return [];
+  const [machines, links] = await Promise.all([repos.machines.list(ownerId), repos.projectMachines.listByProjects(projects.map((p) => p.id))]);
+  const buildings = [];
+  for (const machine of machines) {
+    // machines.list(ownerId) already filters by owner; checked again here because this is the one
+    // line standing between a published project and somebody else's machine
+    if (machine.owner_id !== ownerId) continue;
+    const linked = new Set(links.filter((l) => l.machine_id === machine.id).map((l) => l.project_id));
+    const rooms = projects.filter((p) => linked.has(p.id));
+    if (rooms.length > 0) buildings.push({ machine, projects: rooms });
+  }
+  return buildings;
+}
+
+/** The key of one public room, as the live channel tracks it. */
+export const roomKey = (projectId: string, machineId: string): string => `${projectId}:${machineId}`;
+
 export async function readPublicCity(repos: Repositories, nickname: string): Promise<PublicCity | undefined> {
   const owner = await repos.users.findByNickname(nickname);
   if (!owner) return undefined;
-  const machines = await repos.machines.list(owner.id);
+  const resolved = await resolvePublicRooms(repos, owner.id);
+  if (resolved.length === 0) return undefined;
   const buildings = [];
-  for (const machine of machines) {
-    const projects = (await repos.projects.list({ machine_id: machine.id })).filter((p) => p.is_public && p.status !== 'archived');
-    if (projects.length === 0) continue;
-    const tabs = await repos.tabs.listByProjects(projects.map((p) => p.id));
+  for (const { machine, projects } of resolved) {
+    // only the tabs that run on this machine: the same project's tabs on another machine are
+    // another room (or, on a machine this person does not own, no room at all)
+    const tabs = await repos.tabs.listByProjectsOnMachine(projects.map((p) => p.id), machine.id);
     const probe = tabs.some((t) => t.kind === 'terminal') ? cachedTmuxProbe(machine) : undefined;
     buildings.push({
       machine,
@@ -45,7 +75,6 @@ export async function readPublicCity(repos: Repositories, nickname: string): Pro
       })),
     });
   }
-  if (buildings.length === 0) return undefined;
   return toPublicCity({ nickname, ownerName: owner.name, buildings });
 }
 
@@ -59,6 +88,8 @@ const cityMemo = new Map<string, { at: number; city: Promise<PublicCity | undefi
 // A publish, an unpublish, an archive or a deletion drops every memoised city at once: those are
 // rare, and an unpublished room must be gone for the very next read, not a few seconds later.
 publicBus.subscribe(() => cityMemo.clear());
+// A building or a room leaving the street (owner reassigned, machine deleted, project unlinked), likewise.
+publicBus.subscribeRoomsGone(() => cityMemo.clear());
 // A closed tab, likewise: a reload right after must not bring its robot back for a few seconds.
 publicBus.subscribeTabRemoved(() => cityMemo.clear());
 

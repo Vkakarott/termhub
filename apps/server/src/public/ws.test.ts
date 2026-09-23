@@ -9,7 +9,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Project, Tab, User } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
-import { publicId } from './public-id.js';
+import { publicId, publicRoomId } from './public-id.js';
 
 // The tmux memo both public surfaces read (never probe). Cold by default, like a fresh process.
 const { memo } = vi.hoisted(() => ({ memo: { current: undefined as { reachable: boolean; sessions: Set<string> } | undefined } }));
@@ -26,10 +26,25 @@ const p1 = { id: 'p1', is_public: true, status: 'active' } as Project;
 const p2 = { id: 'p2', is_public: false, status: 'active' } as Project;
 const p3 = { id: 'p3', is_public: true, status: 'archived' } as Project;
 
+// Pedro owns m1 and m3; mB is somebody else's machine that p1 happens to be linked to (merge
+// ruling 2: it must never show). p1 runs on all three, so it has a room on m1 and one on m3.
+const machinesOfPedro = [
+  { id: 'm1', name: 'M1', owner_id: 'u1' },
+  { id: 'm3', name: 'M3', owner_id: 'u1' },
+];
+const links = [
+  { project_id: 'p1', machine_id: 'm1' },
+  { project_id: 'p1', machine_id: 'm3' },
+  { project_id: 'p1', machine_id: 'mB' },
+  { project_id: 'p2', machine_id: 'm1' },
+  { project_id: 'p3', machine_id: 'm1' },
+];
+
 const tab = (over: Partial<Tab> = {}): Tab =>
   ({
     id: 't1',
     project_id: 'p1',
+    machine_id: 'm1',
     name: 't1',
     kind: 'terminal',
     tmux_session: 'th-t1',
@@ -75,7 +90,12 @@ function shutdown(server: http.Server): Promise<void> {
 
 describe('registerPublicWs', () => {
   let server: http.Server;
-  let repos: { users: { findByNickname: ReturnType<typeof vi.fn> }; projects: { list: ReturnType<typeof vi.fn> } };
+  let repos: {
+    users: { findByNickname: ReturnType<typeof vi.fn> };
+    projects: { list: ReturnType<typeof vi.fn> };
+    machines: { list: ReturnType<typeof vi.fn> };
+    projectMachines: { listByProjects: ReturnType<typeof vi.fn> };
+  };
   let port: number;
 
   function connect(path: string, opts: { autoPong?: boolean } = {}): Promise<WebSocket> {
@@ -122,6 +142,8 @@ describe('registerPublicWs', () => {
     repos = {
       users: { findByNickname: vi.fn(async (nickname: string) => (nickname === 'pedro' ? pedro : undefined)) },
       projects: { list: vi.fn(async () => [p1, p2, p3]) },
+      machines: { list: vi.fn(async () => machinesOfPedro) },
+      projectMachines: { listByProjects: vi.fn(async (ids: string[]) => links.filter((l) => ids.includes(l.project_id))) },
     };
     await start();
   });
@@ -164,6 +186,56 @@ describe('registerPublicWs', () => {
     await expect(closed(client)).resolves.toBe(true);
   });
 
+  // Merge ruling 2: a room is (published project, machine the owner owns); the robots of one
+  // project on two machines are two rooms, each frame naming its own.
+  it('splits one project\'s robots per (project, machine) room', async () => {
+    const client = await connect('/ws/public/pedro');
+    monitorBus.publish({ tab: tab({ id: 't1', machine_id: 'm1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    const onM1 = await nextMessage(client);
+    monitorBus.publish({ tab: tab({ id: 't7', machine_id: 'm3' }), project_id: 'p1', machine_id: 'm3', owner_id: 'u1' });
+    const onM3 = await nextMessage(client);
+    expect(onM1).toMatchObject({ building: publicId('machine', 'm1'), room: publicRoomId('p1', 'm1') });
+    expect(onM3).toMatchObject({ building: publicId('machine', 'm3'), room: publicRoomId('p1', 'm3') });
+    expect(onM1.room).not.toBe(onM3.room);
+    client.terminate();
+  });
+
+  it('never sends a published project\'s robot that runs on a machine its owner does not own', async () => {
+    const client = await connect('/ws/public/pedro');
+    // as the monitor would publish it (the machine's owner), and even as if it claimed pedro's:
+    // the pair (p1, mB) is not a room of this city
+    monitorBus.publish({ tab: tab({ id: 't8', machine_id: 'mB' }), project_id: 'p1', machine_id: 'mB', owner_id: 'u2' });
+    monitorBus.publish({ tab: tab({ id: 't8', machine_id: 'mB' }), project_id: 'p1', machine_id: 'mB', owner_id: 'u1' });
+    await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
+    client.terminate();
+  });
+
+  // Merge ruling 4: a machine that changes owner (or is deleted) leaves the city without anything
+  // being unpublished; the page watching it is hung up so it re-reads a snapshot without it.
+  it('closes the socket when a building of this city leaves the street, not when another does', async () => {
+    const client = await connect('/ws/public/pedro');
+    let isClosed = false;
+    client.on('close', () => (isClosed = true));
+    publicBus.publishRoomsGone({ machine_id: 'mB' }); // never a building of this city
+    publicBus.publishRoomsGone({ machine_id: 'm1', project_id: 'p2' }); // a private project unlinked
+    await new Promise((r) => setTimeout(r, 100));
+    expect(isClosed).toBe(false);
+    publicBus.publishRoomsGone({ machine_id: 'm3' });
+    await vi.waitFor(() => expect(isClosed).toBe(true));
+  });
+
+  it('closes the socket when a published project is unlinked from one of its buildings', async () => {
+    const client = await connect('/ws/public/pedro');
+    const wentClosed = closed(client);
+    publicBus.publishRoomsGone({ machine_id: 'm3', project_id: 'p1' });
+    await expect(wentClosed).resolves.toBe(true);
+  });
+
+  it('refuses a nickname whose published projects sit only on other people\'s machines', async () => {
+    repos.projectMachines.listByProjects.mockImplementation(async () => [{ project_id: 'p1', machine_id: 'mB' }]);
+    await expect(connect('/ws/public/pedro')).rejects.toThrow(/404/);
+  });
+
   it('refuses an unknown nickname', async () => {
     await expect(connect('/ws/public/ninguem')).rejects.toThrow(/404/);
   });
@@ -180,7 +252,7 @@ describe('registerPublicWs', () => {
     monitorBus.publish({ tab: tab({ id: 't3', project_id: 'p3' }), project_id: 'p3', machine_id: 'm1', owner_id: 'u1' });
     monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const frame = await nextMessage(client);
-    expect(frame.room).toBe(publicId('project', 'p1'));
+    expect(frame.room).toBe(publicRoomId('p1', 'm1'));
     expect(frame.robot.id).toBe(publicId('tab', 't1'));
     await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
     client.terminate();
@@ -203,9 +275,10 @@ describe('registerPublicWs', () => {
     const snapshotAlive = async (t: Tab) => {
       const snapRepos = {
         users: { findByNickname: async () => pedro },
-        machines: { list: async () => [{ id: 'm1', name: 'M' }] },
+        machines: { list: async () => [{ id: 'm1', name: 'M', owner_id: 'u1' }] },
         projects: { list: async () => [p1] },
-        tabs: { listByProjects: async () => [t] },
+        projectMachines: { listByProjects: async () => [{ project_id: 'p1', machine_id: 'm1' }] },
+        tabs: { listByProjectsOnMachine: async () => [t] },
       } as unknown as Repositories;
       return (await readPublicCity(snapRepos, 'pedro'))!.buildings[0]!.rooms[0]!.robots[0]!.alive;
     };
@@ -294,7 +367,7 @@ describe('registerPublicWs', () => {
     publicBus.publishTabRemoved({ tab_id: 't9', project_id: 'p2', machine_id: 'm1' }); // a private room: nothing
     publicBus.publishTabRemoved({ tab_id: 't1', project_id: 'p1', machine_id: 'm1' });
     const frame = await nextMessage(client);
-    expect(frame).toEqual({ type: 'robot_gone', building: publicId('machine', 'm1'), room: publicId('project', 'p1'), robot: publicId('tab', 't1') });
+    expect(frame).toEqual({ type: 'robot_gone', building: publicId('machine', 'm1'), room: publicRoomId('p1', 'm1'), robot: publicId('tab', 't1') });
     await expect(nextMessage(client, { timeoutMs: 200 })).rejects.toThrow(/timeout/);
     client.terminate();
   });

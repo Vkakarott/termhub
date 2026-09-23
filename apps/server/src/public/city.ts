@@ -1,4 +1,4 @@
-import { publicId } from './public-id.js';
+import { publicId, publicRoomId } from './public-id.js';
 import type { Machine, OfficeTabProgress, Project, Tab, TabActivity, TabState } from '../db/repositories/types.js';
 
 /**
@@ -17,6 +17,9 @@ export interface PublicRobot {
   progress: { done: number; total: number } | null;
 }
 
+/** A live change of one robot: `building`/`room` are the snapshot's own ids, so the page joins them. */
+export interface PublicRobotFrame { type: 'robot'; building: string; room: string; robot: PublicRobot }
+
 export interface PublicRoom { id: string; name: string; robots: PublicRobot[] }
 export interface PublicBuilding { id: string; name: string; rooms: PublicRoom[] }
 export interface PublicCity { nickname: string; owner_name: string; buildings: PublicBuilding[] }
@@ -34,11 +37,20 @@ export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: Office
   };
 }
 
+export function toPublicRobotFrame(input: { machineId: string; projectId: string; tab: Tab; alive: boolean; progress: OfficeTabProgress | null }): PublicRobotFrame {
+  return {
+    type: 'robot',
+    building: publicId('machine', input.machineId),
+    room: publicRoomId(input.projectId, input.machineId),
+    robot: toPublicRobot(input.tab, { alive: input.alive, progress: input.progress }),
+  };
+}
+
 /** A robot leaving its room (its tab was closed or deleted): public ids and nothing else. */
 export interface PublicRobotGone { type: 'robot_gone'; building: string; room: string; robot: string }
 
 export function toPublicRobotGone(input: { machineId: string; projectId: string; tabId: string }): PublicRobotGone {
-  return { type: 'robot_gone', building: publicId('machine', input.machineId), room: publicId('project', input.projectId), robot: publicId('tab', input.tabId) };
+  return { type: 'robot_gone', building: publicId('machine', input.machineId), room: publicRoomId(input.projectId, input.machineId), robot: publicId('tab', input.tabId) };
 }
 
 export function toPublicCity(input: {
@@ -53,7 +65,8 @@ export function toPublicCity(input: {
       id: publicId('machine', b.machine.id),
       name: b.machine.name,
       rooms: b.rooms.map((r) => ({
-        id: publicId('project', r.project.id),
+        // one room per (project, building): a project linked to two machines has a room on each
+        id: publicRoomId(r.project.id, b.machine.id),
         name: r.project.name,
         robots: r.tabs.map((t) => toPublicRobot(t.tab, { alive: t.alive, progress: t.progress })),
       })),
