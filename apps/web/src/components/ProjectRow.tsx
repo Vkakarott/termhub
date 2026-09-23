@@ -86,9 +86,10 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
           {p.status === 'paused' && <span className={`${waiting ? '' : 'ml-auto '}text-[10px] text-warn group-hover/p:hidden`}>pausado</span>}
           {p.status === 'archived' && <span className={`${waiting ? '' : 'ml-auto '}text-[10px] text-fg-dim group-hover/p:hidden`}>arquivado</span>}
         </NavLink>
-        {/* a favourite's pin stays visible; the other actions show on hover. All outside the link so clicking them does not navigate */}
-        {favorite && <span className="flex shrink-0 items-center pr-1 group-hover/p:pr-0">{pin}</span>}
-        <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-hover/p:flex">
+        {/* a favourite's pin stays visible; the other actions show on hover or while the row has keyboard focus
+            (the Grupos… menu is the keyboard path). All outside the link so clicking them does not navigate */}
+        {favorite && <span className="flex shrink-0 items-center pr-1 group-focus-within/p:pr-0 group-hover/p:pr-0">{pin}</span>}
+        <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-focus-within/p:flex group-hover/p:flex">
           {!favorite && pin}
           <button
             type="button"

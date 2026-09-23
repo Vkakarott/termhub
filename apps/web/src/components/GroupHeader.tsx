@@ -11,6 +11,8 @@ interface Props {
   editable: boolean;
   onRename(name: string): void;
   onDelete(): void;
+  /** the rename input closed, saved or not */
+  onEditEnd?(): void;
   /** opens the rename input when it turns true (a group just created by "+ grupo") */
   startEditing?: boolean;
   /** drag-and-drop handlers for reordering groups; filled by the sidebar's drag layer */
@@ -18,7 +20,7 @@ interface Props {
 }
 
 /** A collapsible sidebar section header: chevron, name, count and, for custom groups, rename/delete. */
-export function GroupHeader({ section, collapsed, onToggle, editable, onRename, onDelete, startEditing, headerDragProps }: Props) {
+export function GroupHeader({ section, collapsed, onToggle, editable, onRename, onDelete, onEditEnd, startEditing, headerDragProps }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(section.label);
   // Enter and blur both save: whichever comes first ends the edit, the other is ignored
@@ -40,6 +42,7 @@ export function GroupHeader({ section, collapsed, onToggle, editable, onRename, 
     setEditing(false);
     const name = draft.trim();
     if (save && name && name.length <= GROUP_NAME_MAX && name !== section.label) onRename(name);
+    onEditEnd?.();
   };
 
   const label = `${collapsed ? 'Expandir' : 'Recolher'} ${section.label}`;

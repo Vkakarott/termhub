@@ -26,9 +26,16 @@ export function ProjectGroupsMenu({ projectId, anchor, onClose }: Props) {
   const latestClose = useRef(onClose);
   latestClose.current = onClose;
 
+  // keyboard path: start on the first group, and hand focus back to the ⋯ button on Esc
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>('[role="menuitemcheckbox"], [role="menuitem"]')?.focus();
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') latestClose.current();
+      if (e.key !== 'Escape') return;
+      latestClose.current();
+      if (anchor.isConnected) anchor.focus();
     };
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;

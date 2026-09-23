@@ -51,7 +51,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   /** the group "+ grupo" just created: its header opens in rename mode */
   const [newGroupId, setNewGroupId] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<ProjectGroup | null>(null);
-  const [menuFor, setMenuFor] = useState<{ projectId: string; anchor: HTMLElement } | null>(null);
+  /** the open Grupos… menu; `key` changes per opening so a menu never inherits another row's state */
+  const [menuFor, setMenuFor] = useState<{ projectId: string; anchor: HTMLElement; key: number } | null>(null);
 
   const setCollapsed = (next: Set<string>) => {
     setCollapsedState(next);
@@ -113,7 +114,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       }}
       favorite={isFavorite(p.id)}
       onToggleFavorite={() => void toggleFavorite(p.id)}
-      onOpenGroups={(anchor) => setMenuFor((cur) => (cur?.projectId === p.id ? null : { projectId: p.id, anchor }))}
+      // the same button closes it; any other ⋯ (even the same project in another section) moves it there
+      onOpenGroups={(anchor) => setMenuFor((cur) => (cur?.anchor === anchor ? null : { projectId: p.id, anchor, key: (cur?.key ?? 0) + 1 }))}
     />
   );
 
@@ -126,9 +128,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         </section>
       );
     }
+    // Outros renders even when empty: dropping a project there takes it out of its groups
     const isOthers = section.kind === 'others';
-    // Outros is automatic: hidden when empty, unless it holds the archived toggle
-    if (isOthers && section.projects.length === 0 && !hasArchived) return null;
     const group = groups.find((g) => g.id === section.id);
     const open = !collapsedGroups.has(section.id);
     return (
@@ -139,10 +140,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
           onToggle={() => toggleGroup(section.id)}
           editable={section.kind === 'custom'}
           startEditing={section.id === newGroupId}
-          onRename={(name) => {
-            setNewGroupId(null);
-            void renameGroup(section.id, name);
-          }}
+          onRename={(name) => void renameGroup(section.id, name)}
+          onEditEnd={() => setNewGroupId((cur) => (cur === section.id ? null : cur))}
           onDelete={() => group && setDeletingGroup(group)}
         />
         {open && section.projects.length > 0 && <ul>{section.projects.map(row(section))}</ul>}
@@ -269,7 +268,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       </div>
 
       {projectFormOpen && <ProjectForm open onClose={() => setProjectFormOpen(false)} />}
-      {menuFor && <ProjectGroupsMenu projectId={menuFor.projectId} anchor={menuFor.anchor} onClose={() => setMenuFor(null)} />}
+      {menuFor && <ProjectGroupsMenu key={menuFor.key} projectId={menuFor.projectId} anchor={menuFor.anchor} onClose={() => setMenuFor(null)} />}
       <ConfirmDialog
         open={!!deletingGroup}
         title="Excluir grupo"

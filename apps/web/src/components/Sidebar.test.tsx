@@ -132,7 +132,18 @@ describe('Sidebar sections', () => {
     state.openTabs = [];
     renderSidebar();
     expect(screen.getByRole('button', { name: '+ novo projeto' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Outros' })).not.toBeInTheDocument();
+    // Outros always renders: it is where a project is dropped to leave its groups
+    const others = section('Outros');
+    expect(within(others).getByText('· 0')).toBeInTheDocument();
+    expect(within(others).queryByText('arraste projetos para cá')).toBeNull();
+  });
+
+  it('keeps an empty Outros when every project is in a group', () => {
+    state.projects = state.projects.filter((p) => p.status !== 'archived');
+    groupsState.groups = [custom('g1', 'Tudo', 0, ['p1', 'p2', 'p3'])];
+    renderSidebar();
+    expect(within(section('Outros')).getByText('· 0')).toBeInTheDocument();
+    expect(within(section('Outros')).getByRole('button', { name: 'Recolher Outros' })).toBeInTheDocument();
   });
 
   it('"Mostrar arquivados" applies to every section', () => {
@@ -403,6 +414,50 @@ describe('Sidebar groups', () => {
     fireEvent.click(within(section('Clientes')).getByTitle('Grupos…'));
     const menu = screen.getByRole('menu');
     expect(within(menu).getByRole('menuitemcheckbox', { name: /Clientes/ })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('the row actions show while the row has keyboard focus', () => {
+    renderSidebar();
+    const others = section('Outros');
+    const link = within(others).getByRole('link', { name: /gamma/ });
+    link.focus();
+    const dots = within(link.closest('li')!).getByTitle('Grupos…');
+    // the hover-only span also shows on focus-within, so Tab reaches the pin and ⋯
+    expect(dots.parentElement).toHaveClass('group-focus-within/p:flex');
+    dots.focus();
+    expect(dots).toHaveFocus();
+  });
+
+  it('the menu focuses its first item, and Esc returns focus to the ⋯ button', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p3'])];
+    renderSidebar();
+    const dots = within(section('Clientes')).getByTitle('Grupos…');
+    dots.focus();
+    fireEvent.click(dots);
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitemcheckbox')[0]).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(dots).toHaveFocus();
+  });
+
+  it('⋯ of the same project in another section moves the menu instead of closing it; ⋯ on the same button closes it', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p1'])];
+    renderSidebar();
+    fireEvent.click(within(section('Clientes')).getByTitle('Grupos…'));
+    fireEvent.click(within(section('Em execução')).getAllByTitle('Grupos…')[0]); // alpha again, other row
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.click(within(section('Em execução')).getAllByTitle('Grupos…')[0]);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('switching the menu to another project starts it fresh', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p1'])];
+    renderSidebar();
+    fireEvent.click(within(section('Clientes')).getByTitle('Grupos…'));
+    fireEvent.click(screen.getByText('Novo grupo…'));
+    expect(within(screen.getByRole('menu')).getByRole('textbox')).toBeInTheDocument();
+    fireEvent.click(within(section('Outros')).getAllByTitle('Grupos…')[0]); // beta
+    expect(within(screen.getByRole('menu')).queryByRole('textbox')).toBeNull();
   });
 
   it('shows the groups error', () => {
