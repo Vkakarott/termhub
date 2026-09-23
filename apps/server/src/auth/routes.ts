@@ -51,7 +51,7 @@ function viewAsOf(scope: Scope | undefined) {
 const viewAsSchema = z.object({ user_id: z.string().min(1).max(64).nullable() });
 const nicknameBodySchema = z.object({ nickname: z.string() });
 
-export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
+export async function authRoutes(app: FastifyInstance, ctx: AuthContext, opts: { onNicknameClaimed?: (user: User) => void } = {}) {
   /** Public user + role summary + flat permission list: what the client needs to gate its UI. */
   const withRole = async (u: User) => {
     const role = u.role_id ? await ctx.repos.roles.findById(u.role_id) : undefined;
@@ -94,7 +94,11 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
     if (out === 'taken') return reply.code(409).send({ error: 'Esse apelido já é de outra pessoa', code: 'NICKNAME_TAKEN' });
     if (out === 'locked') return reply.code(409).send({ error: 'Seu apelido já foi escolhido e não pode ser trocado', code: 'NICKNAME_LOCKED' });
     request.log.info({ userId: request.user.id }, 'nickname: claimed');
-    return { user: await withRole({ ...request.user, nickname: parsed.value }) };
+    const claimed = { ...request.user, nickname: parsed.value };
+    // A first claim only (re-sending the nickname you hold is a no-op): the city's short link is
+    // started here, after the write, and nothing waits for it — the partner can be slow or down.
+    if (!request.user.nickname) opts.onNicknameClaimed?.(claimed);
+    return { user: await withRole(claimed) };
   });
 
   /**

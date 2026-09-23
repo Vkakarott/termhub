@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { useCityLink, type CityLinkState } from '../lib/city-link';
 import { useData } from '../lib/data';
-import { cityLinkFor } from '../lib/public-city';
+import { cityLinkFor, displayLink } from '../lib/public-city';
 import type { Machine, Project } from '../lib/types';
 import { NicknameDialog } from './NicknameDialog';
 import { PublishControl } from './PublishControl';
@@ -22,6 +23,7 @@ export function MyCityView() {
 
   const nickname = user?.nickname ?? null;
   const link = cityLinkFor(publicCityUrl, nickname);
+  const short = useCityLink(!!nickname);
   // An account that cannot list projects cannot own any either; its project list never loads, so
   // there is nothing to wait for.
   const canListProjects = can('projects', 'read');
@@ -76,6 +78,8 @@ export function MyCityView() {
         )}
       </section>
 
+      <ShortLinkSection state={short} />
+
       <section>
         <h2 className="mb-2 text-sm font-semibold">Seus projetos</h2>
         {canListProjects && loading ? (
@@ -113,33 +117,133 @@ export function MyCityView() {
   );
 }
 
-function CityLink({ url }: { url: string }) {
+/** Copy-to-clipboard with the button's own feedback, shared by the city link and the short link. */
+function useCopy(): [CopyStatus, (text: string) => Promise<void>] {
   const [status, setStatus] = useState<CopyStatus>('idle');
-
   useEffect(() => {
     if (status === 'idle') return;
     const id = setTimeout(() => setStatus('idle'), 2500);
     return () => clearTimeout(id);
   }, [status]);
-
-  const copy = async () => {
+  const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(text);
       setStatus('copied');
     } catch {
       setStatus('failed');
     }
   };
+  return [status, copy];
+}
 
+const copyLabel = (status: CopyStatus) => (status === 'copied' ? 'Copiado' : status === 'failed' ? 'Não foi possível copiar' : 'Copiar');
+
+function CityLink({ url }: { url: string }) {
+  const [status, copy] = useCopy();
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <code className="min-w-0 flex-1 truncate rounded bg-bg-3 px-2 py-1 font-mono text-xs">{url}</code>
-      <button type="button" className="btn-ghost text-xs" onClick={() => void copy()}>
-        {status === 'copied' ? 'Copiado' : status === 'failed' ? 'Não foi possível copiar' : 'Copiar'}
+      <button type="button" className="btn-ghost text-xs" onClick={() => void copy(url)}>
+        {copyLabel(status)}
       </button>
       <a href={url} target="_blank" rel="noopener noreferrer" className="btn-ghost text-xs">
         Abrir
       </a>
     </div>
+  );
+}
+
+/**
+ * The city's short link (spec 2026-09-23 §3.5): the partner one TypeToAccess created, or one the
+ * person pasted. Hidden when the instance has no short links and none is stored, and before the
+ * person has a nickname (no city to link to).
+ */
+function ShortLinkSection({ state }: { state: CityLinkState }) {
+  const { link, saving, error, setCustom, restorePartner, clearError } = state;
+  const [status, copy] = useCopy();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  if (!link?.city_url || (!link.enabled && !link.short_url)) return null;
+
+  const openForm = () => {
+    clearError();
+    setDraft('');
+    setEditing(true);
+  };
+  const cancel = () => {
+    clearError();
+    setDraft('');
+    setEditing(false);
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (await setCustom(draft.trim())) {
+      setEditing(false);
+      setDraft('');
+    }
+  };
+
+  return (
+    <section aria-label="Link curto" className="rounded-lg border border-line bg-bg-2 p-4">
+      <h2 className="text-sm font-semibold">Link curto</h2>
+      {link.short_url ? (
+        <>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{`Link curto: ${displayLink(link.short_url)}`}</span>
+            <button type="button" className="btn-ghost text-xs" onClick={() => void copy(link.short_url!)}>
+              {copyLabel(status)}
+            </button>
+          </div>
+          {link.source === 'partner' && <p className="mt-1 text-xs text-fg-dim">Criado pelo TypeToAccess, parceiro do termhub</p>}
+          {/* only when there is a partner link to go back to (the server refuses safely otherwise) */}
+          {link.source === 'custom' && link.enabled && link.partner_url && (
+            <button type="button" className="btn-ghost mt-2 text-xs" disabled={saving} onClick={() => void restorePartner()}>
+              Voltar ao link da parceria
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="mt-2 text-sm text-fg-muted">O link curto ainda não foi criado. Enquanto isso, use o link da cidade acima.</p>
+      )}
+      {link.enabled &&
+        (editing ? (
+          <form className="mt-3 space-y-2" onSubmit={(e) => void save(e)}>
+            <p className="text-xs text-fg-muted">
+              Crie um link em{' '}
+              <a href="https://typetoaccess.it" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                typetoaccess.it
+              </a>{' '}
+              que leve para {link.city_url} e cole aqui.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                aria-label="Seu link curto"
+                className="input min-w-0 flex-1 text-sm"
+                placeholder="https://77a.it/…"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <button type="submit" className="btn-primary text-xs" disabled={saving || !draft.trim()}>
+                Salvar
+              </button>
+              <button type="button" className="btn-ghost text-xs" onClick={cancel}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        ) : (
+          <button type="button" className="btn-ghost mt-2 text-xs" onClick={openForm}>
+            Usar meu próprio link curto
+          </button>
+        ))}
+      {/* outside the form: a failed restore ("Voltar ao link da parceria") is reported here too */}
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }

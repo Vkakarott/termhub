@@ -13,23 +13,23 @@ const machine = (over: Partial<Machine> = {}): Machine => ({ id: 'm1', name: 'Ja
 
 describe('the public payload', () => {
   it('emits exactly the fields the public city is allowed to carry', () => {
-    const city = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: { done: 2, total: 5 } }] }] }] });
-    expect(Object.keys(city).sort()).toEqual(['buildings', 'nickname', 'owner_name']);
+    const city = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: null, buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: { done: 2, total: 5 } }] }] }] });
+    expect(Object.keys(city).sort()).toEqual(['buildings', 'nickname', 'owner_name', 'short_url']);
     expect(Object.keys(city.buildings[0]).sort()).toEqual(['id', 'name', 'rooms']);
     expect(Object.keys(city.buildings[0].rooms[0]).sort()).toEqual(['id', 'name', 'robots']);
     expect(Object.keys(city.buildings[0].rooms[0].robots[0]).sort()).toEqual(['activity', 'activity_verb', 'alive', 'id', 'kind', 'name', 'progress', 'state', 'state_at', 'state_seen_at'].filter((k) => k !== 'state_seen_at').sort());
   });
 
   it('carries nothing that describes the machine or the person beyond a name', () => {
-    const body = JSON.stringify(toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] }] }));
+    const body = JSON.stringify(toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: null, buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] }] }));
     for (const secret of ['10.0.0.9', '/home/p/engageasy', 'o que eu não quero na rua', 'th-t1', 'u1', 'rodando os testes', 'claude']) {
       expect(body).not.toContain(secret);
     }
   });
 
   it('replaces every real id with one that is not the real id, and does it the same way twice', () => {
-    const once = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] }] });
-    const twice = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] }] });
+    const once = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: null, buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] }] });
+    const twice = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: null, buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] }] });
     const b = once.buildings[0];
     expect(b.id).not.toBe('m1');
     expect(b.rooms[0].id).not.toBe('p1');
@@ -73,6 +73,7 @@ describe('the public payload', () => {
     const city = toPublicCity({
       nickname: 'pedro',
       ownerName: 'Pedro',
+      shortUrl: null,
       buildings: [
         { machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] },
         { machine: machine({ id: 'm2', name: 'Friday' }), rooms: [{ project: project(), tabs: [{ tab: tab({ id: 't2', machine_id: 'm2' }), alive: true, progress: null }] }] },
@@ -88,5 +89,13 @@ describe('the public payload', () => {
     expect(frame.room).toBe(b.rooms[0].id);
     expect(frame.robot).toEqual(b.rooms[0].robots[0]);
     expect(toPublicRobotGone({ machineId: 'm2', projectId: 'p1', tabId: 't2' })).toEqual({ type: 'robot_gone', building: b.id, room: b.rooms[0].id, robot: b.rooms[0].robots[0].id });
+  });
+
+  // The short link is public by nature — it is printed on images meant for strangers — and it is
+  // the one field of the owner's account that travels, named here and nowhere else.
+  it('carries the owner’s short link, or null', () => {
+    const withLink = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: 'https://77a.it/pedro', buildings: [] });
+    expect(withLink.short_url).toBe('https://77a.it/pedro');
+    expect(toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: null, buildings: [] }).short_url).toBeNull();
   });
 });

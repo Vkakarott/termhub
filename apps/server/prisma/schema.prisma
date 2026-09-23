@@ -40,6 +40,10 @@ model User {
   avatarUrl    String?   @map("avatar_url")
   /// The address of this person's public city (/city/@nickname). Null = no city. Unique, lowercase.
   nickname     String?   @unique
+  /// The short link termhub created for this person's city through TypeToAccess (partner). Written once.
+  cityShortUrlPartner String? @map("city_short_url_partner")
+  /// A short link the person pasted to replace the partner one; the effective link is custom ?? partner.
+  cityShortUrlCustom  String? @map("city_short_url_custom")
   passwordHash String?   @map("password_hash")
   googleId     String?   @unique @map("google_id")
   /// DEPRECATED: replaced by roleId (kept one release for the blue/green window; drop next)

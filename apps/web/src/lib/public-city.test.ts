@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cityLinkFor } from './public-city';
+import { cityLinkFor, displayLink } from './public-city';
 
 describe('cityLinkFor', () => {
   it('builds the city address from the instance base and the nickname', () => {
@@ -13,5 +13,12 @@ describe('cityLinkFor', () => {
   it('has no link without a nickname or without the base', () => {
     expect(cityLinkFor('https://x.dev/city', null)).toBeNull();
     expect(cityLinkFor(null, 'pedro')).toBeNull();
+  });
+});
+
+describe('displayLink', () => {
+  it('shows a link the way people type it', () => {
+    expect(displayLink('https://77a.it/pedro')).toBe('77a.it/pedro');
+    expect(displayLink('http://th.example.org/city/@pedro/')).toBe('th.example.org/city/@pedro');
   });
 });

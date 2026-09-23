@@ -429,7 +429,21 @@ export interface PublicBuilding {
 export interface PublicCity {
   nickname: string;
   owner_name: string;
+  /** the owner's short link (77a.it/…), or null: use the long /city/@nickname address */
+  short_url: string | null;
   buildings: PublicBuilding[];
+}
+
+/** GET/PUT /api/auth/me/city-link: the signed-in person's city address and its short link. */
+export interface CityLink {
+  /** the instance has a TypeToAccess key: partner links are created and a custom one can be set */
+  enabled: boolean;
+  /** the long address, null until the person has a nickname */
+  city_url: string | null;
+  /** the link to hand out: the custom one, else the partner one; null = use city_url */
+  short_url: string | null;
+  source: 'custom' | 'partner' | null;
+  partner_url: string | null;
 }
 
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */

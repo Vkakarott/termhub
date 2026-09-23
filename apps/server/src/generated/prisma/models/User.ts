@@ -30,6 +30,8 @@ export type UserMinAggregateOutputType = {
   name: string | null
   avatarUrl: string | null
   nickname: string | null
+  cityShortUrlPartner: string | null
+  cityShortUrlCustom: string | null
   passwordHash: string | null
   googleId: string | null
   role: $Enums.UserRole | null
@@ -45,6 +47,8 @@ export type UserMaxAggregateOutputType = {
   name: string | null
   avatarUrl: string | null
   nickname: string | null
+  cityShortUrlPartner: string | null
+  cityShortUrlCustom: string | null
   passwordHash: string | null
   googleId: string | null
   role: $Enums.UserRole | null
@@ -60,6 +64,8 @@ export type UserCountAggregateOutputType = {
   name: number
   avatarUrl: number
   nickname: number
+  cityShortUrlPartner: number
+  cityShortUrlCustom: number
   passwordHash: number
   googleId: number
   role: number
@@ -77,6 +83,8 @@ export type UserMinAggregateInputType = {
   name?: true
   avatarUrl?: true
   nickname?: true
+  cityShortUrlPartner?: true
+  cityShortUrlCustom?: true
   passwordHash?: true
   googleId?: true
   role?: true
@@ -92,6 +100,8 @@ export type UserMaxAggregateInputType = {
   name?: true
   avatarUrl?: true
   nickname?: true
+  cityShortUrlPartner?: true
+  cityShortUrlCustom?: true
   passwordHash?: true
   googleId?: true
   role?: true
@@ -107,6 +117,8 @@ export type UserCountAggregateInputType = {
   name?: true
   avatarUrl?: true
   nickname?: true
+  cityShortUrlPartner?: true
+  cityShortUrlCustom?: true
   passwordHash?: true
   googleId?: true
   role?: true
@@ -195,6 +207,8 @@ export type UserGroupByOutputType = {
   name: string
   avatarUrl: string | null
   nickname: string | null
+  cityShortUrlPartner: string | null
+  cityShortUrlCustom: string | null
   passwordHash: string | null
   googleId: string | null
   role: $Enums.UserRole
@@ -231,6 +245,8 @@ export type UserWhereInput = {
   name?: Prisma.StringFilter<"User"> | string
   avatarUrl?: Prisma.StringNullableFilter<"User"> | string | null
   nickname?: Prisma.StringNullableFilter<"User"> | string | null
+  cityShortUrlPartner?: Prisma.StringNullableFilter<"User"> | string | null
+  cityShortUrlCustom?: Prisma.StringNullableFilter<"User"> | string | null
   passwordHash?: Prisma.StringNullableFilter<"User"> | string | null
   googleId?: Prisma.StringNullableFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleFilter<"User"> | $Enums.UserRole
@@ -254,6 +270,8 @@ export type UserOrderByWithRelationInput = {
   name?: Prisma.SortOrder
   avatarUrl?: Prisma.SortOrderInput | Prisma.SortOrder
   nickname?: Prisma.SortOrderInput | Prisma.SortOrder
+  cityShortUrlPartner?: Prisma.SortOrderInput | Prisma.SortOrder
+  cityShortUrlCustom?: Prisma.SortOrderInput | Prisma.SortOrder
   passwordHash?: Prisma.SortOrderInput | Prisma.SortOrder
   googleId?: Prisma.SortOrderInput | Prisma.SortOrder
   role?: Prisma.SortOrder
@@ -281,6 +299,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.UserWhereInput | Prisma.UserWhereInput[]
   name?: Prisma.StringFilter<"User"> | string
   avatarUrl?: Prisma.StringNullableFilter<"User"> | string | null
+  cityShortUrlPartner?: Prisma.StringNullableFilter<"User"> | string | null
+  cityShortUrlCustom?: Prisma.StringNullableFilter<"User"> | string | null
   passwordHash?: Prisma.StringNullableFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleFilter<"User"> | $Enums.UserRole
   roleId?: Prisma.StringNullableFilter<"User"> | string | null
@@ -303,6 +323,8 @@ export type UserOrderByWithAggregationInput = {
   name?: Prisma.SortOrder
   avatarUrl?: Prisma.SortOrderInput | Prisma.SortOrder
   nickname?: Prisma.SortOrderInput | Prisma.SortOrder
+  cityShortUrlPartner?: Prisma.SortOrderInput | Prisma.SortOrder
+  cityShortUrlCustom?: Prisma.SortOrderInput | Prisma.SortOrder
   passwordHash?: Prisma.SortOrderInput | Prisma.SortOrder
   googleId?: Prisma.SortOrderInput | Prisma.SortOrder
   role?: Prisma.SortOrder
@@ -324,6 +346,8 @@ export type UserScalarWhereWithAggregatesInput = {
   name?: Prisma.StringWithAggregatesFilter<"User"> | string
   avatarUrl?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   nickname?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  cityShortUrlPartner?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  cityShortUrlCustom?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   passwordHash?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   googleId?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleWithAggregatesFilter<"User"> | $Enums.UserRole
@@ -339,6 +363,8 @@ export type UserCreateInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -361,6 +387,8 @@ export type UserUncheckedCreateInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -383,6 +411,8 @@ export type UserUpdateInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -405,6 +435,8 @@ export type UserUncheckedUpdateInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -427,6 +459,8 @@ export type UserCreateManyInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -442,6 +476,8 @@ export type UserUpdateManyMutationInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -456,6 +492,8 @@ export type UserUncheckedUpdateManyInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -471,6 +509,8 @@ export type UserCountOrderByAggregateInput = {
   name?: Prisma.SortOrder
   avatarUrl?: Prisma.SortOrder
   nickname?: Prisma.SortOrder
+  cityShortUrlPartner?: Prisma.SortOrder
+  cityShortUrlCustom?: Prisma.SortOrder
   passwordHash?: Prisma.SortOrder
   googleId?: Prisma.SortOrder
   role?: Prisma.SortOrder
@@ -486,6 +526,8 @@ export type UserMaxOrderByAggregateInput = {
   name?: Prisma.SortOrder
   avatarUrl?: Prisma.SortOrder
   nickname?: Prisma.SortOrder
+  cityShortUrlPartner?: Prisma.SortOrder
+  cityShortUrlCustom?: Prisma.SortOrder
   passwordHash?: Prisma.SortOrder
   googleId?: Prisma.SortOrder
   role?: Prisma.SortOrder
@@ -501,6 +543,8 @@ export type UserMinOrderByAggregateInput = {
   name?: Prisma.SortOrder
   avatarUrl?: Prisma.SortOrder
   nickname?: Prisma.SortOrder
+  cityShortUrlPartner?: Prisma.SortOrder
+  cityShortUrlCustom?: Prisma.SortOrder
   passwordHash?: Prisma.SortOrder
   googleId?: Prisma.SortOrder
   role?: Prisma.SortOrder
@@ -704,6 +748,8 @@ export type UserCreateWithoutRoleRefInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -725,6 +771,8 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -775,6 +823,8 @@ export type UserScalarWhereInput = {
   name?: Prisma.StringFilter<"User"> | string
   avatarUrl?: Prisma.StringNullableFilter<"User"> | string | null
   nickname?: Prisma.StringNullableFilter<"User"> | string | null
+  cityShortUrlPartner?: Prisma.StringNullableFilter<"User"> | string | null
+  cityShortUrlCustom?: Prisma.StringNullableFilter<"User"> | string | null
   passwordHash?: Prisma.StringNullableFilter<"User"> | string | null
   googleId?: Prisma.StringNullableFilter<"User"> | string | null
   role?: Prisma.EnumUserRoleFilter<"User"> | $Enums.UserRole
@@ -790,6 +840,8 @@ export type UserCreateWithoutSessionsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -811,6 +863,8 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -848,6 +902,8 @@ export type UserUpdateWithoutSessionsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -869,6 +925,8 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -890,6 +948,8 @@ export type UserCreateWithoutMachinesInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -911,6 +971,8 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -948,6 +1010,8 @@ export type UserUpdateWithoutMachinesInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -969,6 +1033,8 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -990,6 +1056,8 @@ export type UserCreateWithoutProjectsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1011,6 +1079,8 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1048,6 +1118,8 @@ export type UserUpdateWithoutProjectsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1069,6 +1141,8 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1090,6 +1164,8 @@ export type UserCreateWithoutIntegrationsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1111,6 +1187,8 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1148,6 +1226,8 @@ export type UserUpdateWithoutIntegrationsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1169,6 +1249,8 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1190,6 +1272,8 @@ export type UserCreateWithoutUploadsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1211,6 +1295,8 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1248,6 +1334,8 @@ export type UserUpdateWithoutUploadsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1269,6 +1357,8 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1290,6 +1380,8 @@ export type UserCreateWithoutApiTokensInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1311,6 +1403,8 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1348,6 +1442,8 @@ export type UserUpdateWithoutApiTokensInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1369,6 +1465,8 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1390,6 +1488,8 @@ export type UserCreateWithoutChatConversationsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1411,6 +1511,8 @@ export type UserUncheckedCreateWithoutChatConversationsInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1448,6 +1550,8 @@ export type UserUpdateWithoutChatConversationsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1469,6 +1573,8 @@ export type UserUncheckedUpdateWithoutChatConversationsInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1490,6 +1596,8 @@ export type UserCreateManyRoleRefInput = {
   name: string
   avatarUrl?: string | null
   nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
   passwordHash?: string | null
   googleId?: string | null
   role?: $Enums.UserRole
@@ -1504,6 +1612,8 @@ export type UserUpdateWithoutRoleRefInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1525,6 +1635,8 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1546,6 +1658,8 @@ export type UserUncheckedUpdateManyWithoutRoleRefInput = {
   name?: Prisma.StringFieldUpdateOperationsInput | string
   avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
@@ -1645,6 +1759,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   name?: boolean
   avatarUrl?: boolean
   nickname?: boolean
+  cityShortUrlPartner?: boolean
+  cityShortUrlCustom?: boolean
   passwordHash?: boolean
   googleId?: boolean
   role?: boolean
@@ -1669,6 +1785,8 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   name?: boolean
   avatarUrl?: boolean
   nickname?: boolean
+  cityShortUrlPartner?: boolean
+  cityShortUrlCustom?: boolean
   passwordHash?: boolean
   googleId?: boolean
   role?: boolean
@@ -1685,6 +1803,8 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   name?: boolean
   avatarUrl?: boolean
   nickname?: boolean
+  cityShortUrlPartner?: boolean
+  cityShortUrlCustom?: boolean
   passwordHash?: boolean
   googleId?: boolean
   role?: boolean
@@ -1701,6 +1821,8 @@ export type UserSelectScalar = {
   name?: boolean
   avatarUrl?: boolean
   nickname?: boolean
+  cityShortUrlPartner?: boolean
+  cityShortUrlCustom?: boolean
   passwordHash?: boolean
   googleId?: boolean
   role?: boolean
@@ -1710,7 +1832,7 @@ export type UserSelectScalar = {
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "cityShortUrlPartner" | "cityShortUrlCustom" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -1750,6 +1872,14 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
      * The address of this person's public city (/city/@nickname). Null = no city. Unique, lowercase.
      */
     nickname: string | null
+    /**
+     * The short link termhub created for this person's city through TypeToAccess (partner). Written once.
+     */
+    cityShortUrlPartner: string | null
+    /**
+     * A short link the person pasted to replace the partner one; the effective link is custom ?? partner.
+     */
+    cityShortUrlCustom: string | null
     passwordHash: string | null
     googleId: string | null
     /**
@@ -2202,6 +2332,8 @@ export interface UserFieldRefs {
   readonly name: Prisma.FieldRef<"User", 'String'>
   readonly avatarUrl: Prisma.FieldRef<"User", 'String'>
   readonly nickname: Prisma.FieldRef<"User", 'String'>
+  readonly cityShortUrlPartner: Prisma.FieldRef<"User", 'String'>
+  readonly cityShortUrlCustom: Prisma.FieldRef<"User", 'String'>
   readonly passwordHash: Prisma.FieldRef<"User", 'String'>
   readonly googleId: Prisma.FieldRef<"User", 'String'>
   readonly role: Prisma.FieldRef<"User", 'UserRole'>

@@ -30,6 +30,26 @@ const { patchMock, dataState, authState } = vi.hoisted(() => {
 vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
 vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
 
+const { cityLinkState } = vi.hoisted(() => ({
+  cityLinkState: {
+    active: null as boolean | null,
+    current: {
+      link: null as import('../lib/types').CityLink | null,
+      saving: false,
+      error: null as string | null,
+      setCustom: vi.fn(async (_url: string) => true),
+      restorePartner: vi.fn(async () => {}),
+      clearError: vi.fn(),
+    },
+  },
+}));
+vi.mock('../lib/city-link', () => ({
+  useCityLink: (active: boolean) => {
+    cityLinkState.active = active;
+    return cityLinkState.current;
+  },
+}));
+
 import { MyCityView } from './MyCityView';
 
 function machine(id: string, name: string, owner_id: string | null = 'u1'): Machine {
@@ -99,6 +119,11 @@ beforeEach(() => {
   patchMock.mockImplementation(async (_id, input) => ({ ...input }));
   dataState.current = { ...dataState.current, projects: [], machines: [machine('m1', 'jarvis')], hiddenLocal: [], loading: false };
   authState.current = { ...authState.current, user: { ...baseUser }, publicCityUrl: 'https://termhub.dev/city', can: () => true };
+  cityLinkState.active = null;
+  cityLinkState.current = { ...cityLinkState.current, link: null, saving: false, error: null };
+  cityLinkState.current.setCustom.mockReset().mockResolvedValue(true);
+  cityLinkState.current.restorePartner.mockReset().mockResolvedValue(undefined);
+  cityLinkState.current.clearError.mockReset();
 });
 
 afterEach(() => {
@@ -198,5 +223,98 @@ describe('MyCityView projects', () => {
     authState.current = { ...authState.current, can: () => false };
     renderView();
     expect(screen.getByText(/você ainda não tem projetos/i)).toBeTruthy();
+  });
+});
+
+describe('MyCityView short link', () => {
+  const PARTNER = { enabled: true, city_url: 'https://termhub.dev/city/@pedro', short_url: 'https://77a.it/pedro', source: 'partner' as const, partner_url: 'https://77a.it/pedro' };
+  const section = () => screen.getByRole('region', { name: 'Link curto' });
+
+  it('asks for the link only once there is a nickname', () => {
+    renderView();
+    expect(cityLinkState.active).toBe(true);
+    cleanup();
+    authState.current = { ...authState.current, user: { ...baseUser, nickname: null } };
+    renderView();
+    expect(cityLinkState.active).toBe(false);
+  });
+
+  it('shows nothing while the instance has no short links', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: { enabled: false, city_url: 'https://termhub.dev/city/@pedro', short_url: null, source: null, partner_url: null } };
+    renderView();
+    expect(screen.queryByRole('region', { name: 'Link curto' })).toBeNull();
+  });
+
+  it('shows the partner link with its note, and copies it whole', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    cityLinkState.current = { ...cityLinkState.current, link: PARTNER };
+    renderView();
+    expect(within(section()).getByText('Link curto: 77a.it/pedro')).toBeTruthy();
+    expect(within(section()).getByText('Criado pelo TypeToAccess, parceiro do termhub')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(section()).getByRole('button', { name: /^copiar$/i }));
+    });
+    expect(writeText).toHaveBeenCalledWith('https://77a.it/pedro');
+  });
+
+  it('pastes a link of one’s own, and shows the server’s refusal', async () => {
+    cityLinkState.current = { ...cityLinkState.current, link: PARTNER, error: 'Esse link leva para https://termhub.dev/city/@ana, não para a sua cidade (https://termhub.dev/city/@pedro).' };
+    cityLinkState.current.setCustom.mockResolvedValue(false);
+    renderView();
+    fireEvent.click(within(section()).getByRole('button', { name: 'Usar meu próprio link curto' }));
+    expect(within(section()).getByRole('link', { name: 'typetoaccess.it' }).getAttribute('href')).toBe('https://typetoaccess.it');
+    fireEvent.change(within(section()).getByLabelText('Seu link curto'), { target: { value: 'https://77a.it/meu' } });
+    await act(async () => {
+      fireEvent.click(within(section()).getByRole('button', { name: 'Salvar' }));
+    });
+    expect(cityLinkState.current.setCustom).toHaveBeenCalledWith('https://77a.it/meu');
+    expect(within(section()).getByRole('alert').textContent).toMatch(/leva para https:\/\/termhub\.dev\/city\/@ana/);
+    // a refused link keeps the form open with what was typed
+    expect((within(section()).getByLabelText('Seu link curto') as HTMLInputElement).value).toBe('https://77a.it/meu');
+  });
+
+  it('goes back to the partner link from a custom one', async () => {
+    cityLinkState.current = { ...cityLinkState.current, link: { ...PARTNER, short_url: 'https://77a.it/meu', source: 'custom' } };
+    renderView();
+    expect(within(section()).getByText('Link curto: 77a.it/meu')).toBeTruthy();
+    expect(within(section()).queryByText('Criado pelo TypeToAccess, parceiro do termhub')).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(section()).getByRole('button', { name: 'Voltar ao link da parceria' }));
+    });
+    expect(cityLinkState.current.restorePartner).toHaveBeenCalled();
+  });
+
+  it('says when the short link is not there yet', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: { ...PARTNER, short_url: null, source: null, partner_url: null } };
+    renderView();
+    expect(within(section()).getByText(/o link curto ainda não foi criado/i)).toBeTruthy();
+  });
+
+  // Review fix 1: without a partner link, "back to the partnership" has nothing to go back to
+  it('offers no way back to the partner link when there is none', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: { ...PARTNER, short_url: 'https://77a.it/meu', source: 'custom', partner_url: null } };
+    renderView();
+    expect(within(section()).queryByRole('button', { name: 'Voltar ao link da parceria' })).toBeNull();
+  });
+
+  // Review fix 2: a failed restore happens outside the form, and must still be seen
+  it('shows a refusal outside the form too', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: { ...PARTNER, short_url: 'https://77a.it/meu', source: 'custom' }, error: 'Não foi possível criar o link da parceria agora.' };
+    renderView();
+    expect(within(section()).queryByLabelText('Seu link curto')).toBeNull();
+    expect(within(section()).getByRole('alert').textContent).toMatch(/link da parceria/);
+  });
+
+  it('starts the form clean, and cancelling drops what was typed and the error', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: PARTNER };
+    renderView();
+    fireEvent.click(within(section()).getByRole('button', { name: 'Usar meu próprio link curto' }));
+    expect(cityLinkState.current.clearError).toHaveBeenCalledTimes(1);
+    fireEvent.change(within(section()).getByLabelText('Seu link curto'), { target: { value: 'https://77a.it/meu' } });
+    fireEvent.click(within(section()).getByRole('button', { name: 'Cancelar' }));
+    expect(cityLinkState.current.clearError).toHaveBeenCalledTimes(2);
+    fireEvent.click(within(section()).getByRole('button', { name: 'Usar meu próprio link curto' }));
+    expect((within(section()).getByLabelText('Seu link curto') as HTMLInputElement).value).toBe('');
   });
 });

@@ -120,4 +120,19 @@ export class UsersRepository {
     const u = await this.db.user.findUnique({ where: { nickname } });
     return u ? mapUser(u) : undefined;
   }
+
+  /**
+   * Stores the partner short link, only when the row has none yet: the condition is part of the
+   * write, so two attempts racing (two app colors, say) cannot overwrite each other. False = one
+   * was already there, and it stays.
+   */
+  async setCityShortUrlPartner(userId: string, url: string): Promise<boolean> {
+    const { count } = await this.db.user.updateMany({ where: { id: userId, cityShortUrlPartner: null }, data: { cityShortUrlPartner: url } });
+    return count === 1;
+  }
+
+  /** Sets (a pasted short link) or clears (null: back to the partner one) the custom short link. */
+  async setCityShortUrlCustom(userId: string, url: string | null): Promise<User> {
+    return mapUser(await this.db.user.update({ where: { id: userId }, data: { cityShortUrlCustom: url } }));
+  }
 }

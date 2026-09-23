@@ -3,6 +3,7 @@ import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { cachedTmuxProbe, type TmuxProbe } from '../terminal/machine-exec.js';
 import { toPublicCity, type PublicCity } from './city.js';
 import { publicBus } from './bus.js';
+import { effectiveShortUrl } from './short-link.js';
 
 /**
  * The one read behind both public surfaces: a nickname, the machines its owner has, and only the
@@ -79,7 +80,8 @@ export async function readPublicCity(repos: Repositories, nickname: string): Pro
       })),
     });
   }
-  return toPublicCity({ nickname, ownerName: owner.name, buildings });
+  // A saved link keeps showing even if the key is removed later: it still works; the key gates creation and editing only.
+  return toPublicCity({ nickname, ownerName: owner.name, shortUrl: effectiveShortUrl(owner), buildings });
 }
 
 /** How long one read of a city answers every anonymous surface that asks for it again. */

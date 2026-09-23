@@ -282,6 +282,7 @@ See [.env.example](.env.example). Main ones:
 | `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` | login code and invite delivery |
 | `CF_ACCOUNT_ID`/`CF_API_TOKEN`/`CF_ACCESS_APP_DOMAIN`/`CF_ACCESS_POLICY_NAME` | Cloudflare Access allowlist sync on invite/delete (optional) |
 | `ALPHA_COMMUNITY_URL` | WhatsApp group linked from the alpha-tester e-mail (Waitlist tab → Convidar); default `https://77a.it/comunidadetermhub` |
+| `TYPETOACCESS_API_KEY` | TypeToAccess key: creates each public city's short link (`77a.it/<nickname>`) and lets owners paste their own in Minha cidade; unset = long city links only |
 | `BIND_ADDR` | (compose) host IP that publishes Mailpit's UI port; the prod app has no host port of its own (proxy nginx only) |
 | `ENCRYPTION_KEY` | base64 of 32 bytes (`openssl rand -base64 32`) for integration secrets |
 | `VITE_FIREBASE_*` | Firebase Analytics for the landing page and the app (same Firebase web app); build args of both images, empty = no analytics |

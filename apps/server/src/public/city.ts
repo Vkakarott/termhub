@@ -25,7 +25,7 @@ export interface PublicRobotFrame { type: 'robot'; building: string; room: strin
 
 export interface PublicRoom { id: string; name: string; robots: PublicRobot[] }
 export interface PublicBuilding { id: string; name: string; rooms: PublicRoom[] }
-export interface PublicCity { nickname: string; owner_name: string; buildings: PublicBuilding[] }
+export interface PublicCity { nickname: string; owner_name: string; short_url: string | null; buildings: PublicBuilding[] }
 
 export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: OfficeTabProgress | null }): PublicRobot {
   // what the robot is doing only means something while it works: never publish a leftover
@@ -62,11 +62,14 @@ export function toPublicRobotGone(input: { machineId: string; projectId: string;
 export function toPublicCity(input: {
   nickname: string;
   ownerName: string;
+  shortUrl: string | null;
   buildings: { machine: Machine; rooms: { project: Project; tabs: { tab: Tab; alive: boolean; progress: OfficeTabProgress | null }[] }[] }[];
 }): PublicCity {
   return {
     nickname: input.nickname,
     owner_name: input.ownerName,
+    // the owner's effective short link (custom ?? partner): printed on share images, public by nature
+    short_url: input.shortUrl,
     buildings: input.buildings.map((b) => ({
       id: publicId('machine', b.machine.id),
       name: b.machine.name,

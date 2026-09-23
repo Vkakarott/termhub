@@ -68,6 +68,13 @@ const envSchema = z.object({
   /** WhatsApp group the alpha-tester invite (Waitlist tab → Convidar) links to */
   ALPHA_COMMUNITY_URL: z.string().url().default('https://77a.it/comunidadetermhub'),
 
+  /**
+   * TypeToAccess API key (a partner of termhub): creates each public city's short link
+   * (77a.it/<nickname>). Unset = the short-link feature is off — no calls, no UI — and the long city
+   * link is used everywhere, as on a self-hosted instance.
+   */
+  TYPETOACCESS_API_KEY: z.string().min(1).optional(),
+
   LOCAL_SHELL: z.string().optional(),
   TMUX_PATH: z.string().default('tmux'),
   SEED_LOCAL_MACHINE: z.enum(['true', 'false']).default('true'),
@@ -144,6 +151,7 @@ export const config = {
   mcpUrl: env.MCP_URL ?? null,
   publicCityUrl: resolvePublicCityUrl(env),
   alphaCommunityUrl: env.ALPHA_COMMUNITY_URL,
+  typeToAccess: env.TYPETOACCESS_API_KEY ? { apiKey: env.TYPETOACCESS_API_KEY } : null,
   auth: {
     modes: authModes,
     sessionTtlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,

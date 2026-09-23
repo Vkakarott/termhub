@@ -59,7 +59,7 @@ import { CityPage } from './CityPage';
 
 const AT = '2026-09-22T10:00:00.000Z';
 const LATER = '2026-09-22T10:05:00.000Z';
-const CITY: PublicCity = { nickname: 'pedro', owner_name: 'Pedro', buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: AT, activity: 'coding', activity_verb: 'Moonwalking', alive: true, progress: null }] }] }] };
+const CITY: PublicCity = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: AT, activity: 'coding', activity_verb: 'Moonwalking', alive: true, progress: null }] }] }] };
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 const fetchMock = vi.fn();

@@ -56,6 +56,8 @@ const { officeMock, canMock, dataState, monitorState, authState, FakeOfficeScene
   };
 });
 
+const { cityLinkState } = vi.hoisted(() => ({ cityLinkState: { current: { link: null as { short_url: string | null } | null } } }));
+vi.mock('../lib/city-link', () => ({ useCityLink: () => cityLinkState.current }));
 vi.mock('../office/scene/OfficeScene', () => ({ OfficeScene: FakeOfficeScene }));
 vi.mock('../lib/api', () => ({ api: { office: (...a: unknown[]) => officeMock(...a) } }));
 vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock, user: authState.current.user, publicCityUrl: authState.current.publicCityUrl }) }));
@@ -125,6 +127,7 @@ const escape = () => fireEvent.keyDown(document.body, { key: 'Escape' });
 
 beforeEach(() => {
   FakeOfficeScene.instances = [];
+  cityLinkState.current = { link: null };
   officeMock.mockReset();
   canMock.mockReset();
   canMock.mockReturnValue(true);
@@ -593,6 +596,32 @@ describe('OfficePage share button', () => {
     fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
     await act(async () => {});
     expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro');
+  });
+
+  it('copies the short link at the city, when there is one', async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    cityLinkState.current = { link: { short_url: 'https://77a.it/pedro' } };
+    twoMachinesOnePublished();
+    renderPage('/office');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://77a.it/pedro');
+  });
+
+  it('keeps the long link inside a building even with a short link (only the city has one)', async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    cityLinkState.current = { link: { short_url: 'https://77a.it/pedro' } };
+    twoMachinesOnePublished();
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub');
   });
 
   // A self-hosted instance: the link is its own public-city address, as the server reports it.
