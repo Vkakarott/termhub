@@ -146,6 +146,14 @@ export interface Project {
   open_tasks?: number;
 }
 
+export interface ProjectGroup {
+  id: string;
+  name: string;
+  kind: 'favorites' | 'custom';
+  position: number;
+  project_ids: string[];
+}
+
 /** Corpo de criação/edição. `machine_id` + `cwd` juntos criam o primeiro vínculo; `create_dir` cria a pasta na máquina. */
 export interface ProjectInput {
   name?: string;
