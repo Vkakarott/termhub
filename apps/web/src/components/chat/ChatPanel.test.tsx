@@ -129,6 +129,51 @@ it('ignores live events of another conversation', async () => {
   expect(screen.queryByText('NÃO É DAQUI')).toBeNull();
 });
 
+it('drops another conversation\'s events while it does not yet know its own id, then re-admits its own once load resolves', async () => {
+  // The load is held open on purpose: `conversationId` stays null for as long as this promise does,
+  // which is exactly the window the fix closes — a tagged event must not be admitted on that
+  // uncertainty, only an untagged (pre-project-chat server) one may be.
+  let resolveLoad!: (value: unknown) => void;
+  chatMock.mockImplementationOnce(() => new Promise((resolve) => (resolveLoad = resolve)));
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    // Both deltas sit in the buffer before the load ever resolves — this is what proves the buffered
+    // `events` filter (not just the live `onEvent` gate) re-admits the panel's own conversation once
+    // its id becomes known, instead of having dropped it for good.
+    return {
+      events: [
+        { type: 'delta', conversation_id: 'c_other', message_id: 'm9', delta: 'VAZOU' },
+        { type: 'delta', conversation_id: 'c_p1', message_id: 'm1', delta: 'chegou' },
+      ],
+      connected: true,
+    };
+  });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+
+  // A live push of another conversation's confirmation, delivered while conversationId is still null.
+  onEvent({ type: 'confirmation', conversation_id: 'c_other', action_id: 'a9', tool: 'send_input', args: {}, class: 'write', machine_id: null, project_id: null, tab_id: null, summary: 'NÃO É DAQUI', created_at: '' });
+  expect(screen.queryByText('NÃO É DAQUI')).toBeNull();
+  expect(screen.queryByText('VAZOU')).toBeNull();
+
+  resolveLoad({
+    conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null },
+    messages: [{ id: 'm1', conversation_id: 'c_p1', role: 'assistant', text: '', error_code: null, created_at: '' }],
+    actions: [],
+    host: READY,
+  });
+
+  // Now that the panel knows its own id, the buffered delta of its own conversation reappears...
+  expect(await screen.findByText('chegou')).toBeTruthy();
+  // ...but the foreign one, tagged for c_other, never does — neither live nor from the buffer.
+  expect(screen.queryByText('VAZOU')).toBeNull();
+  expect(screen.queryByText('NÃO É DAQUI')).toBeNull();
+});
+
 it('Nova conversa asks first, resets, and swaps in the empty conversation', async () => {
   chatMock
     .mockResolvedValueOnce({

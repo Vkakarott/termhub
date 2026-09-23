@@ -108,9 +108,15 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   /**
    * The conversation this panel shows. Live events of any other one — the account-wide chat and every
    * project chat share one socket per user — are dropped, so two open chats never mix their answers.
+   * Before the first `GET /chat` resolves, `conversationId` is still null and this panel does not yet
+   * know which conversation is its own: a tagged event is dropped rather than admitted on that
+   * uncertainty (a drawer opened while another chat is mid-answer must never flash that chat's deltas
+   * or cards). `load()` re-reads the trail over REST regardless, so nothing tagged is lost for good —
+   * only an untagged event (`conversation_id === undefined`, an older server) is let through unknown,
+   * because there is no id it could ever be checked against.
    */
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const mine = useCallback((e: ChatEvent) => e.conversation_id === undefined || conversationId === null || e.conversation_id === conversationId, [conversationId]);
+  const mine = useCallback((e: ChatEvent) => e.conversation_id === undefined || e.conversation_id === conversationId, [conversationId]);
 
   const load = useCallback(async () => {
     // No project = the account-wide chat: called with no argument, because the response must be
