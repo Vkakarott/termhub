@@ -53,8 +53,9 @@ SESSION=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
 [ -n "$SESSION" ] || exit 0
 if [ "$TOOL" = codex ]; then EVENT="$2"; else EVENT=$(cat 2>/dev/null); fi
 [ -n "$EVENT" ] || EVENT='{}'
-# Tool calls: only the tool's name travels (never its input), and only when it changed since the
-# last one for this session — twenty edits in a row are one request. The marker is per tmux
+# Tool calls: only the tool's name travels (never its input), with the spinner's verb when one is on
+# screen, and only when the pair changed since the last one for this session — twenty edits in a row
+# are one request. The marker is per tmux
 # session, under TMPDIR, with the session name reduced to filename-safe characters.
 MARK="\${TMPDIR:-/tmp}/termhub-hook-$(printf '%s' "$SESSION" | tr -c 'A-Za-z0-9_-' '_')"
 case "$EVENT" in
@@ -70,9 +71,26 @@ case "$EVENT" in
     REST=\${REST#*'"'}
     NAME=\${REST%%'"'*}
     case "$NAME" in '' | *[!A-Za-z0-9_.-]*) exit 0 ;; esac
-    [ "$(cat "$MARK" 2>/dev/null)" = "$NAME" ] && exit 0
-    printf '%s' "$NAME" 2>/dev/null > "$MARK"
-    EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"}' "$NAME")
+    # Claude Code's spinner verb ("✻ Moonwalking… (12s · esc to interrupt)"): the visible pane is
+    # read here, on the machine, and only the verb may leave it — one word of 2 to 24 ASCII letters
+    # right after a spinner glyph and a single space, immediately followed by "…" or "...", then the
+    # end of the line or a space. The lowest such line of the last 24 non-blank rows wins (the live
+    # spinner sits above the todo list and the input box; blank rows under a short session are
+    # skipped). ASCII only on purpose: under LC_ALL=C, sed matches bytes the same way on GNU, BSD
+    # (macOS) and busybox, and a customised verb with accents is dropped rather than half-matched.
+    # The case below checks the result again, so the hand-built JSON only ever gets letters.
+    VERB=$(tmux capture-pane -p -t "$TMUX_PANE" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 24 |
+      LC_ALL=C sed -n -E 's/^ *(·|✢|✳|✶|✻|✽|\\*) ([A-Za-z]{2,24})(…|\\.\\.\\.)( .*)?$/\\2/p' | tail -n 1)
+    case "$VERB" in *[!A-Za-z]*) VERB= ;; esac
+    [ "\${#VERB}" -le 24 ] || VERB=
+    KEY="$NAME\${VERB:+ $VERB}"
+    [ "$(cat "$MARK" 2>/dev/null)" = "$KEY" ] && exit 0
+    printf '%s' "$KEY" 2>/dev/null > "$MARK"
+    if [ -n "$VERB" ]; then
+      EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s","verb":"%s"}' "$NAME" "$VERB")
+    else
+      EVENT=$(printf '{"hook_event_name":"PreToolUse","tool_name":"%s"}' "$NAME")
+    fi
     ;;
   # A new turn starts fresh, and so does an answered notification: a permission prompt takes the tab
   # out of working, and the tool the person approves is the same one that set the marker, so without

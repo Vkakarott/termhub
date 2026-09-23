@@ -14,6 +14,7 @@ let home: string;
 let bin: string;
 let log: string;
 let tmp: string;
+let pane: string;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -45,11 +46,13 @@ beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'hook-tmp-'));
   bin = join(home, 'bin');
   log = join(home, 'curl.log');
+  pane = join(home, 'pane.txt');
   mkdirSync(join(home, '.termhub'), { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(home, HOOK_ENV_REL), `TERMHUB_HOOK_URL='http://x/api/hooks/events'\nTERMHUB_HOOK_TOKEN='thk_test'\n`);
   writeFileSync(join(bin, 'termhub-hook'), HOOK_SCRIPT);
-  writeFileSync(join(bin, 'tmux'), '#!/bin/sh\necho th-abc\n');
+  // capture-pane prints the fake screen (nothing, and a failure, when there is none); anything else is display-message
+  writeFileSync(join(bin, 'tmux'), `#!/bin/sh\ncase "$1" in capture-pane) cat "${pane}" 2>/dev/null ;; *) echo th-abc ;; esac\n`);
   // a synchronous fake: reads the body from stdin (--data-binary @-) and appends it as one line
   writeFileSync(join(bin, 'curl'), `#!/bin/sh\ncat >> "${log}"; printf '\\n' >> "${log}"\n`);
   for (const f of ['termhub-hook', 'tmux', 'curl']) chmodSync(join(bin, f), 0o755);
@@ -133,5 +136,114 @@ describe('termhub-hook script', () => {
     const markers = readdirSync(tmp);
     expect(markers).toHaveLength(1);
     expect(readFileSync(join(tmp, markers[0]), 'utf8')).toBe('Edit');
+  });
+
+  describe('spinner verb', () => {
+    /** What the fake tmux answers to capture-pane: the visible pane, top to bottom. */
+    const screen = (...lines: string[]) => writeFileSync(pane, `${lines.join('\n')}\n`);
+    /** Claude Code's bottom area as it looks mid-turn: transcript, spinner, todo list, input box, hints, blank rows. */
+    const claudeScreen = (spinner: string) => [
+      '● Update(src/app.ts)',
+      '  ⎿  Updated src/app.ts with 2 additions',
+      '',
+      spinner,
+      '  ⎿  ☐ Write the failing test',
+      '     ☐ Make it pass',
+      '',
+      '╭──────────────────────────────────────────╮',
+      '│ >                                        │',
+      '╰──────────────────────────────────────────╯',
+      '  ⏵⏵ accept edits on (shift+tab to cycle)',
+      '',
+      '',
+    ];
+
+    it('posts the verb of the spinner line with the tool name, and no other screen text', async () => {
+      screen(...claudeScreen('✻ Moonwalking… (12s · esc to interrupt)'), 'API_KEY=sk-secret');
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      const sent = await bodies(1);
+      expect(JSON.parse(sent[0])).toEqual({ tool: 'claude', session: 'th-abc', event: { hook_event_name: 'PreToolUse', tool_name: 'Edit', verb: 'Moonwalking' } });
+      for (const leak of ['secret', 'Update', 'failing', 'accept', '12s']) expect(sent[0]).not.toContain(leak);
+    });
+
+    it('reads the verb whatever the spinner glyph, with "…" or "..."', async () => {
+      const cases: [string, string][] = [
+        ['✻ Brewing… (3s · esc to interrupt)', 'Brewing'],
+        ['✽ Clauding… (esc to interrupt · 40s · ↓ 1.2k tokens)', 'Clauding'],
+        ['✶ Pondering…', 'Pondering'],
+        ['✳ Noodling… (1m 2s)', 'Noodling'],
+        ['· Vibing…', 'Vibing'],
+        ['✢ Honking… (esc to interrupt)', 'Honking'],
+        ['* Schlepping... (esc to interrupt)', 'Schlepping'],
+      ];
+      // one tool per case: the verb changes each time, so every one is posted
+      for (const [line] of cases) {
+        screen(...claudeScreen(line));
+        run({ hook_event_name: 'PreToolUse', tool_name: 'Read' });
+      }
+      const sent = await bodies(cases.length);
+      expect(sent.map((b) => eventOf(b).verb)).toEqual(cases.map(([, verb]) => verb));
+    });
+
+    it('posts the tool without a verb when no spinner is on screen, or tmux cannot capture', async () => {
+      screen('$ ls', 'README.md  src', 'Loading… done', '- Thinking about it...', '✻ Brewed for 2m 3s');
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      rmSync(pane);
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Read' });
+      const sent = await bodies(2);
+      expect(sent.map(eventOf)).toEqual([
+        { hook_event_name: 'PreToolUse', tool_name: 'Edit' },
+        { hook_event_name: 'PreToolUse', tool_name: 'Read' },
+      ]);
+    });
+
+    it('drops a spinner word that is not plain ASCII letters, 2 to 24 of them', async () => {
+      const hostile = [
+        '✻ Ev"il… (1s)',
+        '✻ Back\\slash… (1s)',
+        '✻ Moonwalking…"},"x":"y',
+        '✻ Two words… (1s)',
+        '✻ Construção… (1s)',
+        '✻ X… (1s)',
+        `✻ ${'A'.repeat(25)}… (1s)`,
+        '✻ Brewing(1s)…',
+        '✻  Brewing… (1s)',
+      ];
+      hostile.forEach((line, i) => {
+        screen(...claudeScreen(line));
+        // a different tool each time, so the de-dup never hides a post
+        run({ hook_event_name: 'PreToolUse', tool_name: `Tool${i}` });
+      });
+      const sent = await bodies(hostile.length);
+      expect(sent).toHaveLength(hostile.length);
+      for (const body of sent) expect(Object.keys(eventOf(body)).sort()).toEqual(['hook_event_name', 'tool_name']);
+    });
+
+    it('accepts a 24-letter verb', async () => {
+      screen(...claudeScreen(`✻ ${'A'.repeat(24)}… (1s)`));
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      const sent = await bodies(1);
+      expect(eventOf(sent[0]).verb).toBe('A'.repeat(24));
+    });
+
+    it('takes the lowest spinner-looking line, the live one', async () => {
+      screen('✻ Pondering… (old line in the transcript)', ...claudeScreen('✻ Moseying… (2s)'));
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      const sent = await bodies(1);
+      expect(eventOf(sent[0]).verb).toBe('Moseying');
+    });
+
+    it('de-duplicates on tool and verb together', async () => {
+      screen(...claudeScreen('✻ Brewing… (1s)'));
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      screen(...claudeScreen('✻ Musing… (9s)'));
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      rmSync(pane);
+      run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
+      const sent = await bodies(3);
+      await sleep(200);
+      expect(logged().map((b) => eventOf(b).verb ?? null)).toEqual(['Brewing', 'Musing', null]);
+    });
   });
 });
