@@ -78,7 +78,9 @@ function renderSidebar() {
 }
 
 const section = (name: string) => screen.getByRole('region', { name });
-const agentsOf = (container: HTMLElement, projectName: string) => within(container).queryByRole('list', { name: `Agentes de ${projectName}` });
+/** A project's agent list inside a section; the list is named after both, since a running project shows in two. */
+const agentsOf = (container: HTMLElement, projectName: string) =>
+  within(container).queryByRole('list', { name: `Agentes de ${projectName} · ${container.getAttribute('aria-label')}` });
 
 beforeEach(() => {
   seed();
@@ -145,6 +147,14 @@ describe('Sidebar agent rows', () => {
     const beta = agentsOf(running, 'beta')!;
     expect(within(beta).getByRole('link').textContent).toBe('Caio'); // one machine: no suffix
     expect(within(beta).queryByText(/mac/)).not.toBeInTheDocument();
+  });
+
+  it('names each agent list after its section too, so a running project\'s two lists are told apart', () => {
+    renderSidebar();
+    const names = screen.getAllByRole('list', { name: /^Agentes de alpha/ }).map((l) => l.getAttribute('aria-label'));
+    expect(names).toEqual(['Agentes de alpha · Em execução', 'Agentes de alpha · Todos os projetos']);
+    const toggles = screen.getAllByRole('button', { name: 'Recolher agentes de alpha' });
+    expect(toggles.map((b) => document.getElementById(b.getAttribute('aria-controls')!)?.getAttribute('aria-label'))).toEqual(names);
   });
 
   it('links each agent to its tab in the project view', () => {
@@ -225,7 +235,10 @@ describe('Sidebar collapse/expand all', () => {
     const running = () => section('Em execução');
     // one already collapsed, the other expanded: "any expanded" still means collapse all
     fireEvent.click(within(running()).getByRole('button', { name: 'Recolher agentes de beta' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Recolher todos' }));
+    const all = screen.getByRole('button', { name: 'Recolher todos' });
+    expect(all).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(all);
+    expect(screen.getByRole('button', { name: 'Expandir todos' })).toHaveAttribute('aria-expanded', 'false');
     expect(agentsOf(running(), 'alpha')).toBeNull();
     expect(agentsOf(running(), 'beta')).toBeNull();
     expect(agentsOf(section('Todos os projetos'), 'alpha')).toBeNull(); // the same project, collapsed everywhere

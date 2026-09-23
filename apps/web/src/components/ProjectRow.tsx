@@ -1,9 +1,12 @@
+import { useId } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { tabDotClass } from '../lib/needs-you';
 import { TAB_STATE_LABEL, type Machine, type Project, type Tab } from '../lib/types';
 
 interface Props {
   project: Project;
+  /** the section showing this row: a running project shows in two, and its lists must be told apart */
+  section: string;
   /** the project's open terminal tabs ("agents"), already ordered */
   agents: Tab[];
   /** the project's linked machines: the agent rows name their machine only when there are several */
@@ -16,10 +19,11 @@ interface Props {
 }
 
 /** One project in the sidebar: its link and actions, and its running agents underneath. */
-export function ProjectRow({ project: p, agents, machines, waiting, expanded, onToggle, onDelete }: Props) {
+export function ProjectRow({ project: p, section, agents, machines, waiting, expanded, onToggle, onDelete }: Props) {
   const navigate = useNavigate();
   const hasAgents = agents.length > 0;
   const showMachine = machines.length > 1;
+  const listId = useId();
   return (
     <li className="mb-0.5">
       <div className="group/p flex items-center rounded-r hover:bg-bg-3">
@@ -30,6 +34,7 @@ export function ProjectRow({ project: p, agents, machines, waiting, expanded, on
             title={expanded ? 'Recolher' : 'Expandir'}
             aria-label={`${expanded ? 'Recolher' : 'Expandir'} agentes de ${p.name}`}
             aria-expanded={expanded}
+            aria-controls={listId}
             onClick={onToggle}
           >
             {expanded ? '▼' : '▶'}
@@ -72,7 +77,7 @@ export function ProjectRow({ project: p, agents, machines, waiting, expanded, on
         </span>
       </div>
       {hasAgents && expanded && (
-        <ul className="ml-4 border-l border-line pl-2" aria-label={`Agentes de ${p.name}`}>
+        <ul id={listId} className="ml-4 border-l border-line pl-2" aria-label={`Agentes de ${p.name} · ${section}`}>
           {agents.map((tab) => {
             const machineName = showMachine ? machines.find((m) => m.id === tab.machine_id)?.name : null;
             return (

@@ -79,10 +79,11 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     setCollapsed(next);
   };
 
-  const row = (p: Project) => (
+  const row = (section: string) => (p: Project) => (
     <ProjectRow
       key={p.id}
       project={p}
+      section={section}
       agents={agents.get(p.id) ?? []}
       machines={machinesOf(p)}
       waiting={waiting.get(p.id) ?? 0}
@@ -126,6 +127,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
               className="rounded px-1 text-[10px] text-fg-dim hover:bg-bg-3 hover:text-fg"
               title={anyExpanded ? 'Recolher todos' : 'Expandir todos'}
               aria-label={anyExpanded ? 'Recolher todos' : 'Expandir todos'}
+              aria-expanded={anyExpanded}
               onClick={toggleAll}
             >
               {anyExpanded ? '⊟' : '⊞'}
@@ -140,13 +142,13 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
         {running.length > 0 && (
           <Section label="Em execução">
-            <ul>{running.map(row)}</ul>
+            <ul>{running.map(row('Em execução'))}</ul>
           </Section>
         )}
         {visibleProjects.length > 0 && (
           // every project, running ones included; its label only matters when "Em execução" sits above it
           <Section label="Todos os projetos" showLabel={running.length > 0}>
-            <ul>{visibleProjects.map(row)}</ul>
+            <ul>{visibleProjects.map(row('Todos os projetos'))}</ul>
           </Section>
         )}
         {hasArchived && (
