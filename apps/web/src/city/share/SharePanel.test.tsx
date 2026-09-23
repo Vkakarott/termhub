@@ -233,6 +233,52 @@ describe('SharePanel', () => {
     expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
+  it('takes the focus on open and keeps it inside while the phases change', async () => {
+    captureStill.mockReturnValue(new Promise(() => {}));
+    renderPanel();
+    const dialog = screen.getByRole('dialog', { name: 'Compartilhar a cidade' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    const story = screen.getByRole('button', { name: 'Story (imagem)' });
+    story.focus();
+    await act(async () => {
+      fireEvent.click(story);
+    });
+    // the pressed button is gone with the menu: the focus must not fall back to the page
+    expect(screen.queryByRole('button', { name: 'Story (imagem)' })).toBeNull();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it('closes on Esc without letting the key reach the page underneath', () => {
+    const page = vi.fn();
+    window.addEventListener('keydown', page);
+    try {
+      renderPanel();
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(page).not.toHaveBeenCalled();
+      // any other key goes on as usual
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'a' });
+      expect(page).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', page);
+    }
+  });
+
+  it('announces the progress in a live region', async () => {
+    fakeRecording();
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Vídeo para story (10 s, com som)' }));
+    progress(3_000);
+    expect(screen.getByText('Gravando… 3 s').closest('[aria-live]')).toBeTruthy();
+    cleanup();
+    captureStill.mockReturnValue(new Promise(() => {}));
+    renderPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Post (imagem)' }));
+    });
+    expect(screen.getByText('Preparando a imagem…').closest('[aria-live]')).toBeTruthy();
+  });
+
   it('cancels a recording when the panel goes away', () => {
     const rec = fakeRecording();
     const { unmount } = renderPanel();

@@ -41,6 +41,29 @@ export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { 
   }, [model]);
   const info = () => shareInfoFor(city, modelRef.current, cityUrl);
 
+  const dialog = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Esc closes the panel and goes no further: the city's own Esc (walk the camera up, change the
+  // address) listens on window, so this listens there too, in the capture phase that runs first
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Esc in a field elsewhere on the page (the beta form) belongs to that field
+      const t = e.target as HTMLElement | null;
+      const editing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (editing && !dialog.current?.contains(t)) return;
+      e.stopPropagation();
+      e.preventDefault();
+      onCloseRef.current();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
   useEffect(() => {
     if (phase.kind !== 'done') return;
     const url = phase.preview;
@@ -105,11 +128,19 @@ export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { 
     }
   };
 
+  // the focus moves into the panel when it opens, and stays in it when a phase takes away the button
+  // that had it (every phase swaps its buttons): otherwise it would fall back to the page's body
+  useEffect(() => {
+    const box = dialog.current;
+    if (box && !box.contains(document.activeElement)) box.focus();
+  }, [phase.kind]);
+
   const seconds = phase.kind === 'recording' ? Math.floor(phase.elapsedMs / 1000) : 0;
   const total = STORY_VIDEO_MS / 1000;
+  const status = phase.kind === 'busy' ? 'Preparando a imagem…' : phase.kind === 'recording' ? `Gravando… ${seconds} s` : '';
 
   return (
-    <div role="dialog" aria-label="Compartilhar a cidade" className="space-y-3 rounded-b-xl border border-line bg-bg-2 p-4 shadow-xl sm:rounded-lg">
+    <div ref={dialog} tabIndex={-1} role="dialog" aria-label="Compartilhar a cidade" className="space-y-3 rounded-b-xl border border-line bg-bg-2 p-4 shadow-xl outline-none sm:rounded-lg">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-fg">Compartilhar</h2>
         <button type="button" aria-label="Fechar" className="rounded px-2 text-fg-muted hover:text-fg" onClick={onClose}>
@@ -133,11 +164,13 @@ export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { 
         </div>
       )}
 
-      {phase.kind === 'busy' && <p className="text-sm text-fg-muted">Preparando a imagem…</p>}
+      {/* always in the page, so a screen reader hears each change of it */}
+      <p role="status" aria-live="polite" className={status ? `text-sm ${phase.kind === 'recording' ? 'text-fg' : 'text-fg-muted'}` : 'sr-only'}>
+        {status}
+      </p>
 
       {phase.kind === 'recording' && (
         <div className="space-y-2">
-          <p className="text-sm text-fg">{`Gravando… ${seconds} s`}</p>
           <div role="progressbar" aria-label="Progresso da gravação" aria-valuemin={0} aria-valuemax={total} aria-valuenow={seconds} className="h-1.5 overflow-hidden rounded bg-bg-4">
             <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.min(100, (phase.elapsedMs / STORY_VIDEO_MS) * 100)}%` }} />
           </div>

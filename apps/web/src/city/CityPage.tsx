@@ -59,6 +59,12 @@ export function CityPage({ nickname }: { nickname: string }) {
   const [failed, setFailed] = useState(false);
   const [betaOpen, setBetaOpen] = useBetaCard();
   const [shareOpen, setShareOpen] = useState(false);
+  const shareButton = useRef<HTMLButtonElement>(null);
+  /** the panel closed (its ×, Esc): the focus goes back to the button that opened it */
+  const closeShare = useCallback(() => {
+    setShareOpen(false);
+    shareButton.current?.focus();
+  }, []);
   const sceneRef = useRef<OfficeScene | null>(null);
 
   const gone = useRef(false);
@@ -232,6 +238,7 @@ export function CityPage({ nickname }: { nickname: string }) {
             <CopyLinkButton url={copyUrl} className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" />
           ) : (
             <button
+              ref={shareButton}
               type="button"
               disabled={!canShare}
               aria-expanded={shareOpen}
@@ -269,7 +276,7 @@ export function CityPage({ nickname }: { nickname: string }) {
         {shareOpen && !failed && canShare && city && sceneRef.current && (
           // full width under the bar on a phone, a card in the top-right corner from `sm` up
           <div className="absolute inset-x-0 top-0 z-20 max-h-full overflow-y-auto sm:left-auto sm:right-4 sm:top-4 sm:w-[22rem]">
-            <SharePanel scene={sceneRef.current} city={city} model={model} cityUrl={cityUrl} copyUrl={copyUrl} onClose={() => setShareOpen(false)} />
+            <SharePanel scene={sceneRef.current} city={city} model={model} cityUrl={cityUrl} copyUrl={copyUrl} onClose={closeShare} />
           </div>
         )}
       </div>

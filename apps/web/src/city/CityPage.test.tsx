@@ -288,6 +288,36 @@ describe('CityPage sharing', () => {
     expect(writeText).toHaveBeenCalledWith(`${location.origin}/city/@pedro/b1`);
   });
 
+  it('closes the panel on Esc without walking the camera up, and gives the focus back', async () => {
+    history.replaceState(null, '', '/city/@pedro/b1');
+    fetchMock.mockResolvedValueOnce(json(withLink));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    const share = screen.getByRole('button', { name: 'Compartilhar' });
+    fireEvent.click(share);
+    const panel = screen.getByRole('dialog', { name: 'Compartilhar a cidade' });
+    expect(panel.contains(document.activeElement)).toBe(true);
+    const focusCalls = scene().focus.mock.calls.length;
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Compartilhar a cidade' })).toBeNull();
+    expect(location.pathname).toBe('/city/@pedro/b1');
+    expect(scene().focus.mock.calls.length).toBe(focusCalls);
+    expect(document.activeElement).toBe(share);
+    // with the panel gone, Esc walks up again
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(location.pathname).toBe('/city/@pedro');
+  });
+
+  it('gives the focus back to Compartilhar when the panel is closed with its button', async () => {
+    fetchMock.mockResolvedValueOnce(json(withLink));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    const share = screen.getByRole('button', { name: 'Compartilhar' });
+    fireEvent.click(share);
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
+    expect(document.activeElement).toBe(share);
+  });
+
   it('hides Compartilhar when the scene cannot draw, and keeps Copiar link in the page', async () => {
     const writeText = stubClipboard();
     FakeOfficeScene.failMount = true;
