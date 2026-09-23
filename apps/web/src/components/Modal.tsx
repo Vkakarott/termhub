@@ -9,7 +9,7 @@ const openStack: symbol[] = [];
  * dialog opened from the chat drawer closes before the drawer does. Keyed on `open` only, so a
  * re-render with a new callback keeps the stack order.
  */
-export function useEscapeLayer(open: boolean, onEscape: () => void, enabled = true): void {
+export function useEscapeLayer(open: boolean, onEscape: (e: KeyboardEvent) => void, enabled = true): void {
   const latest = useRef({ onEscape, enabled });
   latest.current = { onEscape, enabled };
   useEffect(() => {
@@ -18,7 +18,7 @@ export function useEscapeLayer(open: boolean, onEscape: () => void, enabled = tr
     openStack.push(id);
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || openStack[openStack.length - 1] !== id) return;
-      if (latest.current.enabled) latest.current.onEscape();
+      if (latest.current.enabled) latest.current.onEscape(e);
     };
     window.addEventListener('keydown', onKey);
     return () => {

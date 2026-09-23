@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Navigate, NavLink, Outlet } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
 import { ProjectChatProvider } from '../lib/project-chat';
 import { ProjectGroupsProvider } from '../lib/project-groups';
+import { isSettingsPath, useSettingsExit } from '../lib/settings-nav';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { ChatDrawer } from './chat/ChatDrawer';
 import { NeedsYouToasts } from './NeedsYouToasts';
+import { SettingsSidebar } from './SettingsSidebar';
 import { Sidebar } from './Sidebar';
 import { NicknamePrompt } from './NicknamePrompt';
 
@@ -46,12 +48,14 @@ export function Layout() {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
+  // remembers the last page outside settings and answers Esc under settings (lib/settings-nav)
+  const leaveSettings = useSettingsExit();
 
   return (
     <FocusProvider>
       <ProjectChatProvider>
         <div className="flex h-full">
-          <Chrome collapsed={collapsed} setCollapsed={setCollapsed} />
+          <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={leaveSettings} />
           <main className="relative min-w-0 flex-1">
             <Outlet />
           </main>
@@ -62,11 +66,17 @@ export function Layout() {
   );
 }
 
-/** Hides the sidebar entirely while the page is in focus mode — only `/office` has one (lib/focus). */
-function Chrome({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) {
+/**
+ * The sidebar slot: Configurações' own sidebar under /settings, the projects sidebar elsewhere, the
+ * rail when collapsed. Hidden entirely while the page is in focus mode — only `/office` has one (lib/focus).
+ */
+export function Chrome({ collapsed, setCollapsed, onLeaveSettings }: { collapsed: boolean; setCollapsed: (v: boolean) => void; onLeaveSettings: () => void }) {
   const { focus } = useFocusMode();
+  const { pathname } = useLocation();
   if (focus) return null;
-  return collapsed ? <SidebarRail onExpand={() => setCollapsed(false)} /> : <Sidebar onCollapse={() => setCollapsed(true)} />;
+  if (collapsed) return <SidebarRail onExpand={() => setCollapsed(false)} />;
+  if (isSettingsPath(pathname)) return <SettingsSidebar onBack={onLeaveSettings} onCollapse={() => setCollapsed(true)} />;
+  return <Sidebar onCollapse={() => setCollapsed(true)} />;
 }
 
 /** Sidebar recolhida: uma faixa estreita com o logo e o botão de expandir (o terminal ganha o espaço). */
