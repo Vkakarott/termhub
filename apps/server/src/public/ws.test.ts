@@ -288,4 +288,14 @@ describe('registerPublicWs', () => {
     const a = await connect('/ws/public/pedro');
     a.terminate();
   });
+
+  it('tells the visitor a tab of a published room is gone, by its public id only', async () => {
+    const client = await connect('/ws/public/pedro');
+    publicBus.publishTabRemoved({ tab_id: 't9', project_id: 'p2', machine_id: 'm1' }); // a private room: nothing
+    publicBus.publishTabRemoved({ tab_id: 't1', project_id: 'p1', machine_id: 'm1' });
+    const frame = await nextMessage(client);
+    expect(frame).toEqual({ type: 'robot_gone', building: publicId('machine', 'm1'), room: publicId('project', 'p1'), robot: publicId('tab', 't1') });
+    await expect(nextMessage(client, { timeoutMs: 200 })).rejects.toThrow(/timeout/);
+    client.terminate();
+  });
 });

@@ -59,6 +59,8 @@ const cityMemo = new Map<string, { at: number; city: Promise<PublicCity | undefi
 // A publish, an unpublish, an archive or a deletion drops every memoised city at once: those are
 // rare, and an unpublished room must be gone for the very next read, not a few seconds later.
 publicBus.subscribe(() => cityMemo.clear());
+// A closed tab, likewise: a reload right after must not bring its robot back for a few seconds.
+publicBus.subscribeTabRemoved(() => cityMemo.clear());
 
 /** Tests only. */
 export function clearPublicCityMemo(): void {

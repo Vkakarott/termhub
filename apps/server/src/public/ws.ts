@@ -5,7 +5,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import { rejectUpgrade, type PublicUpgradeContext } from '../ws/router.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
-import { toPublicRobot } from './city.js';
+import { toPublicRobot, toPublicRobotGone } from './city.js';
 import { publicId } from './public-id.js';
 import { normalizeNickname } from './nickname.js';
 import { publicAlive } from './read.js';
@@ -112,9 +112,14 @@ export function registerPublicWs(
         published.delete(change.project_id);
         ws.close(1000, 'unpublished');
       });
+      const offGone = publicBus.subscribeTabRemoved((removed) => {
+        if (!published.has(removed.project_id) || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify(toPublicRobotGone({ machineId: removed.machine_id, projectId: removed.project_id, tabId: removed.tab_id })));
+      });
       const teardown = () => {
         offTab();
         offPublic();
+        offGone();
         release();
       };
       log.info({ nickname: parsed.value, rooms: published.size }, 'public visitor connected');

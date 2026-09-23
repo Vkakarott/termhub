@@ -14,6 +14,17 @@ export interface RobotFrame {
   robot: PublicRobot;
 }
 
+/** A tab of a published room was closed or deleted: its robot leaves. `robot` is the robot's id. */
+export interface RobotGoneFrame {
+  type: 'robot_gone';
+  building: string;
+  room: string;
+  robot: string;
+}
+
+/** Everything /ws/public sends. */
+export type CityFrame = RobotFrame | RobotGoneFrame;
+
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
@@ -38,7 +49,7 @@ export async function fetchCity(nickname: string): Promise<PublicCity | null> {
  * here — only a fresh read of the snapshot can tell the two apart, so that is the caller's job.
  * Returns the close.
  */
-export function openCitySocket(nickname: string, handlers: { onRobot: (frame: RobotFrame) => void; onClosed: () => void }): () => void {
+export function openCitySocket(nickname: string, handlers: { onRobot: (frame: CityFrame) => void; onClosed: () => void }): () => void {
   let ws: WebSocket | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let wait = RECONNECT_MIN_MS;
@@ -51,13 +62,14 @@ export function openCitySocket(nickname: string, handlers: { onRobot: (frame: Ro
       wait = RECONNECT_MIN_MS;
     };
     ws.onmessage = (ev) => {
-      let frame: RobotFrame;
+      let frame: CityFrame;
       try {
-        frame = JSON.parse(String(ev.data)) as RobotFrame;
+        frame = JSON.parse(String(ev.data)) as CityFrame;
       } catch {
         return;
       }
       if (frame?.type === 'robot' && frame.robot) handlers.onRobot(frame);
+      else if (frame?.type === 'robot_gone' && typeof frame.robot === 'string') handlers.onRobot(frame);
     };
     ws.onclose = () => {
       ws = null;

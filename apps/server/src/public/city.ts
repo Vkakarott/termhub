@@ -34,6 +34,13 @@ export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: Office
   };
 }
 
+/** A robot leaving its room (its tab was closed or deleted): public ids and nothing else. */
+export interface PublicRobotGone { type: 'robot_gone'; building: string; room: string; robot: string }
+
+export function toPublicRobotGone(input: { machineId: string; projectId: string; tabId: string }): PublicRobotGone {
+  return { type: 'robot_gone', building: publicId('machine', input.machineId), room: publicId('project', input.projectId), robot: publicId('tab', input.tabId) };
+}
+
 export function toPublicCity(input: {
   nickname: string;
   ownerName: string;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildCityModel, resolveFocus, sameFocus, type CityModel, type FocusTarget } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import type { PublicCity } from '../lib/types';
-import { fetchCity, openCitySocket, toMachineEntries, type RobotFrame } from './api';
+import { fetchCity, openCitySocket, toMachineEntries, type CityFrame } from './api';
 import { cityPath, restFromUrl, type Rest } from './url';
 
 /** Where the landing takes someone who wants a city of their own. */
@@ -19,7 +19,7 @@ const readRest = (): Rest => restFromUrl(location.pathname, location.search);
  * costs a second read of the city; a frame for a building or a room this page has never seen is
  * dropped, since there is nowhere to draw it.
  */
-function applyRobot(city: PublicCity | null, frame: RobotFrame): PublicCity | null {
+function applyRobot(city: PublicCity | null, frame: CityFrame): PublicCity | null {
   if (!city) return city;
   let landed = false;
   const buildings = city.buildings.map((building) => {
@@ -27,6 +27,8 @@ function applyRobot(city: PublicCity | null, frame: RobotFrame): PublicCity | nu
     const rooms = building.rooms.map((room) => {
       if (room.id !== frame.room) return room;
       landed = true;
+      // a tab closed or deleted while somebody watches leaves its desk at once
+      if (frame.type === 'robot_gone') return { ...room, robots: room.robots.filter((r) => r.id !== frame.robot) };
       const i = room.robots.findIndex((r) => r.id === frame.robot.id);
       const robots = room.robots.slice();
       // a tab opened while somebody is watching joins the room instead of waiting for a reload

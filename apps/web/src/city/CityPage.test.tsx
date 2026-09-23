@@ -112,6 +112,23 @@ describe('CityPage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  // A tab closed or deleted while somebody watches leaves the room, instead of sitting there until a reload.
+  it('removes a robot when the channel says its tab is gone', async () => {
+    fetchMock.mockResolvedValueOnce(json(CITY));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Pedro/);
+    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' })));
+
+    act(() => socket.emit({ type: 'robot_gone', building: 'b1', room: 'r1', robot: 'x1' }));
+
+    await waitFor(() =>
+      expect(scene().setModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ machines: [expect.objectContaining({ floor: expect.objectContaining({ rooms: [expect.objectContaining({ desks: [] })] }) })] }),
+      ),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('goes to the not-found state, without a reload, when the city is unpublished under the visitor', async () => {
     fetchMock.mockResolvedValueOnce(json(CITY)).mockResolvedValueOnce(new Response('', { status: 404 }));
     render(<CityPage nickname="pedro" />);
