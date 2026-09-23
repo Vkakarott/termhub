@@ -53,6 +53,20 @@ describe('captureStill', () => {
   });
 });
 
+describe('captureStill when drawing fails', () => {
+  it('rejects and lets go of the scene instead of waiting forever', async () => {
+    const { source, listeners, render } = fakeSource();
+    ctx.fillRect.mockImplementationOnce(() => {
+      throw new Error('canvas lost');
+    });
+    const pending = captureStill(source, 'story', info);
+    render();
+    await expect(pending).rejects.toThrow('canvas lost');
+    expect(listeners.size).toBe(0);
+    expect(encoded).toEqual([]);
+  });
+});
+
 describe('fileNameFor', () => {
   it('names the files after the city', () => {
     expect(fileNameFor('pedro', 'story', 'png')).toBe('termhub-cidade-pedro-story.png');

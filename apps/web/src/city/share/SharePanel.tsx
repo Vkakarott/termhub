@@ -58,10 +58,19 @@ export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { 
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
-  // closing the panel mid-recording stops it (and so unlocks the camera)
-  useEffect(() => () => recording.current?.cancel(), []);
+  // closing the panel mid-recording stops it (and so unlocks the camera); an image still on its way
+  // afterwards is dropped, so no preview URL is made that nothing would ever revoke
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      recording.current?.cancel();
+    };
+  }, []);
 
   const finish = (blob: Blob, name: string, video: boolean, warn: boolean) => {
+    if (!mounted.current) return;
     // the bare type: Chrome's share sheet refuses 'video/mp4;codecs=…' where it takes 'video/mp4'
     const file = new File([blob], name, { type: baseType(blob.type) });
     setPhase({ kind: 'done', file, preview: URL.createObjectURL(file), video, warn });

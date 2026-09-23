@@ -221,6 +221,18 @@ describe('SharePanel', () => {
     expect(screen.getByRole('button', { name: 'Link copiado' })).toBeTruthy();
   });
 
+  it('makes no preview for an image that arrives after the panel was closed', async () => {
+    let deliver!: (b: Blob) => void;
+    captureStill.mockReturnValue(new Promise<Blob>((res) => (deliver = res)));
+    const { unmount } = renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Story (imagem)' }));
+    unmount();
+    await act(async () => {
+      deliver(new Blob(['png'], { type: 'image/png' }));
+    });
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
   it('cancels a recording when the panel goes away', () => {
     const rec = fakeRecording();
     const { unmount } = renderPanel();

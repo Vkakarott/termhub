@@ -30,9 +30,14 @@ export function captureStill(source: FrameSource, format: ShareFormat, info: Sha
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      drawFrame(ctx, layoutFor(format, info), scene);
       // unsubscribe outside the render loop that is calling us
       queueMicrotask(() => off());
+      try {
+        drawFrame(ctx, layoutFor(format, info), scene);
+      } catch (err) {
+        // a failed draw is an answer too: the panel must not wait on "Preparando a imagem…" forever
+        return reject(err instanceof Error ? err : new Error('the frame could not be drawn'));
+      }
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('the canvas gave no image'))), 'image/png');
     });
   });
