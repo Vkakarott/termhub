@@ -69,9 +69,9 @@ export function PublishControl({ project }: { project: Project }) {
         title={project.is_public ? 'Deixar de publicar' : 'Publicar na cidade pública'}
         disabled={busy}
         onClick={onToggle}
-        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${project.is_public ? 'bg-accent' : 'bg-bg-4'}`}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${project.is_public ? 'bg-accent' : 'bg-fg-dim/40'}`}
       >
-        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${project.is_public ? 'translate-x-4' : 'translate-x-0.5'}`} />
+        <span className={`absolute left-0 top-0.5 h-4 w-4 rounded-full transition-transform ${project.is_public ? 'translate-x-[18px] bg-white' : 'translate-x-0.5 bg-fg-muted'}`} />
       </button>
       {confirming && (
         <div className="absolute right-0 top-full z-10 mt-2 w-72 rounded-lg border border-line bg-bg-2 p-3 text-xs shadow-lg">
