@@ -84,7 +84,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const [deletingGroup, setDeletingGroup] = useState<ProjectGroup | null>(null);
   /** the open Grupos… menu; `key` changes per opening so a menu never inherits another row's state */
   const [menuFor, setMenuFor] = useState<{ projectId: string; anchor: HTMLElement; key: number } | null>(null);
-  // the drag in progress: browsers hide dataTransfer's data during dragover (and jsdom barely has it), so it is kept here too
+  // the drag in progress: browsers hide dataTransfer's data during dragover (only its types show), so it is kept here too
   const dragRef = useRef<Drag | null>(null);
   const [dropAt, setDropAt] = useState<DropAt | null>(null);
   /** the group header a dragged group would land on, and on which side of it */
@@ -135,10 +135,14 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     setDropAt(null);
     setGroupDropAt(null);
   };
+  // The ref stands in for the data only while the drag carries our type: if the source row unmounted
+  // mid-drag (no dragend), a stale ref must not make a foreign drag, such as an OS file, look like ours.
+  const carries = (e: DragEvent, mime: string) => Array.from(e.dataTransfer?.types ?? []).includes(mime);
   const draggedProject = (e: DragEvent): DragSource | null =>
-    decodeProjectDrag(e.dataTransfer?.getData(PROJECT_MIME) ?? '') ?? (dragRef.current?.kind === 'project' ? dragRef.current.source : null);
+    decodeProjectDrag(e.dataTransfer?.getData(PROJECT_MIME) ?? '') ??
+    (dragRef.current?.kind === 'project' && carries(e, PROJECT_MIME) ? dragRef.current.source : null);
   const draggedGroup = (e: DragEvent): string | null =>
-    decodeGroupDrag(e.dataTransfer?.getData(GROUP_MIME) ?? '') ?? (dragRef.current?.kind === 'group' ? dragRef.current.groupId : null);
+    decodeGroupDrag(e.dataTransfer?.getData(GROUP_MIME) ?? '') ?? (dragRef.current?.kind === 'group' && carries(e, GROUP_MIME) ? dragRef.current.groupId : null);
   const sortedGroups = [...groups].sort((a, b) => a.position - b.position);
 
   /** A visible slot → the index in the group's project_ids, which may also hold projects this list hides (archived ones). */

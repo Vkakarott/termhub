@@ -54,11 +54,23 @@ const mount = () =>
     </MemoryRouter>,
   );
 
-/** a stand-in for the browser's DataTransfer (jsdom has none) */
+/** a stand-in for the browser's DataTransfer (jsdom has none); like a browser, `types` lists what setData stored */
 const dt = () => {
   const store: Record<string, string> = {};
-  return { setData: (k: string, v: string) => (store[k] = v), getData: (k: string) => store[k] ?? '', effectAllowed: '', dropEffect: '', types: [] as string[] };
+  const types: string[] = [];
+  return {
+    setData: (k: string, v: string) => {
+      if (!types.includes(k)) types.push(k);
+      store[k] = v;
+    },
+    getData: (k: string) => store[k] ?? '',
+    effectAllowed: '',
+    dropEffect: '',
+    types,
+  };
 };
+/** the same transfer as a real browser shows it during dragover: the types are readable, the data is not */
+const protectedView = (data: Data): Data => ({ ...data, getData: () => '' });
 type Data = ReturnType<typeof dt>;
 /**
  * Fires a drag event. jsdom has no DragEvent, so the plain Event it falls back to drops `altKey` and `clientY`:
@@ -211,6 +223,33 @@ describe('Sidebar drag and drop: projects', () => {
     expect(rowIn('Clientes', 'beta')).toHaveClass('border-t-2');
     drag('dragEnd', source, data);
     expect(rowIn('Clientes', 'beta')).not.toHaveClass('border-t-2');
+  });
+});
+
+describe('Sidebar drag and drop: what counts as our drag', () => {
+  it('during dragover the data is hidden (real browsers): the drag in progress is recognised by its type', () => {
+    groupsState.groups = [custom('g1', 'Clientes', 0)];
+    mount();
+    const data = dt();
+    drag('dragStart', rowIn('Outros', 'gamma'), data);
+    expect(drag('dragOver', hintIn('Clientes'), protectedView(data))).toBe(false);
+    drag('drop', hintIn('Clientes'), protectedView(data));
+    expect(groupsState.setMemberships).toHaveBeenCalledWith(expect.anything(), [{ id: 'g1', project_ids: ['p3'] }]);
+  });
+
+  it('a foreign drag (an OS file) is not taken for a stale sidebar drag', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1)];
+    mount();
+    // a project drag and a group drag start, and their source goes away without a dragend
+    drag('dragStart', rowIn('Outros', 'gamma'), dt());
+    const file = { ...dt(), types: ['Files'] };
+    expect(drag('dragOver', hintIn('Clientes'), file)).toBe(true);
+    drag('drop', hintIn('Clientes'), file);
+    drag('dragStart', headerOf('Clientes'), dt());
+    expect(drag('dragOver', headerOf('Favoritos'), file)).toBe(true);
+    drag('drop', headerOf('Favoritos'), file);
+    expect(groupsState.setMemberships).not.toHaveBeenCalled();
+    expect(groupsState.reorderGroups).not.toHaveBeenCalled();
   });
 });
 
