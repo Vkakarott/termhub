@@ -4,11 +4,21 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ProjectChatProvider, useProjectChat } from './project-chat';
 
 const projectsMock = vi.fn();
+const useChatStreamMock = vi.fn((_r: unknown, cb: (e: unknown) => void) => ((emit = cb), { events: [], connected: true }));
 let emit!: (e: unknown) => void;
+// `can` defaults to true for both permissions the status feed needs, so the existing tests exercise
+// the feed exactly as before; the gating test below overrides it.
+let canMock = (_resource: string, _action?: string) => true;
 vi.mock('./api', () => ({ api: { chatProjects: (...a: unknown[]) => projectsMock(...a) } }));
-vi.mock('./chat', () => ({ useChatStream: (_r: unknown, cb: (e: unknown) => void) => ((emit = cb), { events: [], connected: true }) }));
+vi.mock('./chat', () => ({ useChatStream: (...a: [unknown, (e: unknown) => void]) => useChatStreamMock(...a) }));
+vi.mock('./auth', () => ({ useAuth: () => ({ can: (r: string, a?: string) => canMock(r, a) }) }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  canMock = () => true;
+  projectsMock.mockReset();
+  useChatStreamMock.mockClear();
+});
 
 function Probe() {
   const { openProjectId, toggle, status } = useProjectChat();
@@ -46,5 +56,19 @@ it('reads statuses on load and re-reads them on chat events', async () => {
 it('works without a provider (the sidebar in isolation): closed, no status', () => {
   render(<Probe />);
   expect(screen.getByTestId('open').textContent).toBe('none');
+  expect(screen.getByTestId('p1').textContent).toBe('{"busy":false,"pending":0}');
+});
+
+it('without chat permission, neither /chat/projects nor the ws stream is touched, and status stays idle', async () => {
+  // A role without `chat` (or without `terminals:read`, which the `/ws/chat` upgrade guard also
+  // requires — ws/router.ts) must never open the websocket or poll the endpoint: both 403 for that
+  // role, and a websocket that keeps 403ing reconnects every 5s for the life of the tab (this
+  // provider is mounted for every signed-in user in Layout).
+  canMock = () => false;
+  render(<ProjectChatProvider><Probe /></ProjectChatProvider>);
+  // Give any stray microtask a turn before asserting the negative.
+  await Promise.resolve();
+  expect(projectsMock).not.toHaveBeenCalled();
+  expect(useChatStreamMock).not.toHaveBeenCalled();
   expect(screen.getByTestId('p1').textContent).toBe('{"busy":false,"pending":0}');
 });
