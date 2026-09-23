@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canSeeSettings, DEFAULT_SETTINGS_SECTION, SETTINGS_SECTIONS, settingsGroups, visibleSettingsSections } from './settings-sections';
+import { DEFAULT_SETTINGS_SECTION, SETTINGS_SECTIONS, settingsGroups, visibleSettingsSections } from './settings-sections';
 
 const keysOf = (groups: ReturnType<typeof settingsGroups>) => groups.map((g) => [g.label, g.sections.map((s) => s.key)]);
 
@@ -41,9 +41,5 @@ describe('settings sections', () => {
       ['Conta', ['profile', 'city']],
       ['Administração', ['uploads']],
     ]);
-  });
-
-  it('always shows Configurações', () => {
-    expect(canSeeSettings(() => false)).toBe(true);
   });
 });

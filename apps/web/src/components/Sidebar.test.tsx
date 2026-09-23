@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Machine, MonitorItem, Project, ProjectGroup, Tab } from '../lib/types';
 
@@ -318,6 +318,46 @@ describe('Sidebar footer', () => {
     expect(machinesLink).toHaveAttribute('href', '/machines');
     expect(screen.getByTitle('Novo projeto')).toBeInTheDocument();
     expect(screen.queryByText('+ máquina')).not.toBeInTheDocument();
+  });
+
+  it('shows the daily menus with icons, Escritório first', () => {
+    renderSidebar();
+    const links = within(screen.getByRole('navigation', { name: 'Menu principal' })).getAllByRole('link');
+    expect(links.map((l) => l.textContent)).toEqual(['Escritório', 'Chat', 'Máquinas']);
+    expect(links[0].querySelector('svg')).not.toBeNull();
+  });
+
+  it('ends with the profile row, which opens Perfil', () => {
+    let where = '';
+    function Where() {
+      where = useLocation().pathname;
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Sidebar />
+        <Where />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Configurações e perfil' }));
+    expect(where).toBe('/settings/profile');
+  });
+
+  it('no longer carries Ver como, Integrações, Configurações, Cookies or Sair', () => {
+    renderSidebar();
+    for (const name of [/Ver como/, /Integrações/, /^Configurações$/, /Cookies/, /^Sair$/]) {
+      expect(screen.queryByRole('link', { name })).toBeNull();
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+  });
+
+  it('collapses with a line icon', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar onCollapse={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: 'Recolher sidebar' }).querySelector('svg')).not.toBeNull();
   });
 });
 

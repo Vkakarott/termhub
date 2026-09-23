@@ -40,7 +40,3 @@ export function settingsGroups(can: (resource: string) => boolean): { id: Settin
     .map((id) => ({ id, label: GROUP_LABEL[id], sections: visible.filter((s) => s.group === id) }))
     .filter((g) => g.sections.length > 0);
 }
-
-export function canSeeSettings(can: (resource: string) => boolean): boolean {
-  return visibleSettingsSections(can).length > 0;
-}
