@@ -252,4 +252,20 @@ export class ChatActionsRepository {
     });
     return count;
   }
+
+  /** Reset closes every open question of the conversation it archives: nobody reads that session any
+   * more, so a pending card or an unconsumed approval must not be injected into it later. */
+  async expireOpenForConversation(conversationId: string): Promise<number> {
+    const { count } = await this.db.chatAction.updateMany({
+      where: { conversationId, status: { in: ['pending', 'approved'] satisfies ChatActionStatus[] } },
+      data: { status: 'expired' satisfies ChatActionStatus },
+    });
+    return count;
+  }
+
+  async countPendingByConversation(ids: string[]): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.db.chatAction.groupBy({ by: ['conversationId'], where: { conversationId: { in: ids }, status: 'pending' satisfies ChatActionStatus }, _count: { _all: true } });
+    return new Map(rows.map((r) => [r.conversationId, r._count._all]));
+  }
 }

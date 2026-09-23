@@ -9,15 +9,19 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
   let db: PrismaClient;
   let repo: ChatRepository;
   let userId: string;
+  let projectId: string;
 
   beforeAll(async () => {
     db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
     repo = new ChatRepository(db);
     userId = newId();
     await db.user.create({ data: { id: userId, email: `${userId}@test.local`, name: 'test' } });
+    projectId = newId();
+    await db.project.create({ data: { id: projectId, key: `K${projectId.slice(-5).toUpperCase()}`, name: 'proj', ownerId: userId } });
   });
 
   afterAll(async () => {
+    await db.project.delete({ where: { id: projectId } }); // cascades its conversations
     await db.user.delete({ where: { id: userId } }); // cascades the conversation and its messages
     await db.$disconnect();
   });
@@ -186,5 +190,52 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     } finally {
       await db.user.delete({ where: { id: raceUserId } }); // cascades the conversation
     }
+  });
+
+  it('keeps one active conversation per project, separate from the account-wide one', async () => {
+    const wide = await repo.getOrCreateForUser(userId);
+    const [a, b] = await Promise.all([repo.getOrCreateForProject(userId, projectId), repo.getOrCreateForProject(userId, projectId)]);
+    expect(a.id).toBe(b.id);
+    expect(a.id).not.toBe(wide.id);
+    expect(a.project_id).toBe(projectId);
+    expect(wide.project_id).toBeNull();
+  });
+
+  it('archive frees the scope: the next lookup creates a fresh row with no session', async () => {
+    const before = await repo.getOrCreateForProject(userId, projectId);
+    await repo.setCliSession(before.id, '3f1e9b1e-0000-4000-8000-0000000000aa');
+    await repo.archive(before.id);
+    const after = await repo.getOrCreateForProject(userId, projectId);
+    expect(after.id).not.toBe(before.id);
+    expect(after.cli_session_id).toBeNull();
+    expect((await repo.findByIdForUser(before.id, userId))?.archived_at).not.toBeNull();
+  });
+
+  it('findByIdForUser never answers for another user', async () => {
+    const c = await repo.getOrCreateForProject(userId, projectId);
+    expect(await repo.findByIdForUser(c.id, 'someone-else')).toBeUndefined();
+  });
+
+  it('clearProjectSessions drops the session of every active project conversation and only those', async () => {
+    const wide = await repo.getOrCreateForUser(userId);
+    const p = await repo.getOrCreateForProject(userId, projectId);
+    await repo.setCliSession(wide.id, '3f1e9b1e-0000-4000-8000-0000000000b1');
+    await repo.setCliSession(p.id, '3f1e9b1e-0000-4000-8000-0000000000b2');
+    await repo.clearProjectSessions(userId);
+    expect((await repo.findByIdForUser(wide.id, userId))?.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-0000000000b1');
+    expect((await repo.findByIdForUser(p.id, userId))?.cli_session_id).toBeNull();
+  });
+
+  it('lists active project conversations only', async () => {
+    const p = await repo.getOrCreateForProject(userId, projectId);
+    expect(await repo.listActiveProjectConversations(userId)).toEqual([{ id: p.id, project_id: projectId }]);
+  });
+
+  it('deleting the project deletes its conversations', async () => {
+    const otherProject = newId();
+    await db.project.create({ data: { id: otherProject, key: `K${otherProject.slice(-5).toUpperCase()}`, name: 'tmp', ownerId: userId } });
+    const c = await repo.getOrCreateForProject(userId, otherProject);
+    await db.project.delete({ where: { id: otherProject } });
+    expect(await repo.findByIdForUser(c.id, userId)).toBeUndefined();
   });
 });
