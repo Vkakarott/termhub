@@ -66,4 +66,13 @@ describe('PATCH /auth/me/nickname', () => {
     expect(res.statusCode).toBe(400);
     expect(setNickname).not.toHaveBeenCalled();
   });
+
+  // The app builds share links from this, never from a hardcoded host: on a self-hosted instance a
+  // termhub.dev link would point at somebody else's city.
+  it('GET /auth/config tells the app where public cities live', async () => {
+    const { config } = await import('../config.js');
+    const res = await buildApp({ id: 'u1', nickname: null }).inject({ method: 'GET', url: '/auth/config' });
+    expect(res.json().public_city_url).toBe(config.publicCityUrl);
+    expect(res.json().public_city_url).toMatch(/^https?:\/\/[^/]+\/city$/);
+  });
 });

@@ -1,6 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
-import fastifyStatic from '@fastify/static';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT_DIR } from './config.js';
@@ -25,7 +24,7 @@ import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { publicCityRoutes } from './routes/public-city.js';
 import { registerPublicWs } from './public/ws.js';
-import { renderCityPage } from './public/city-page.js';
+import { defaultFrontendDirs, registerFrontend } from './frontend.js';
 import { loadPublicIdKey, setPublicIdKey } from './public/public-id.js';
 import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
@@ -60,7 +59,12 @@ export interface App {
   auth: AuthContext;
 }
 
-export async function buildApp(): Promise<App> {
+export interface BuildAppOptions {
+  /** Where the built web bundles are read from (tests); defaults to apps/web/dist and dist-city. */
+  frontend?: { webDist?: string; cityDist?: string };
+}
+
+export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   const fastify = Fastify({
     logger: {
       level: config.isProd ? 'info' : 'debug',
@@ -183,40 +187,8 @@ export async function buildApp(): Promise<App> {
   await fastify.register((a) => mcpRoutes(a, { repos, version: SERVER_VERSION }));
 
   // --- Frontend buildado (produção) ---
-  const webDist = path.join(ROOT_DIR, 'apps', 'web', 'dist');
-  const cityDist = path.join(ROOT_DIR, 'apps', 'web', 'dist-city');
-  const cityIndexPath = path.join(cityDist, 'index-city.html');
-  const hasApp = fs.existsSync(path.join(webDist, 'index.html'));
-  const hasCity = fs.existsSync(cityIndexPath);
-
-  if (hasApp) {
-    await fastify.register(fastifyStatic, { root: webDist, prefix: '/', index: ['index.html'] });
-  }
-  if (hasCity) {
-    // A second static root beside the app's: `decorateReply: false` because only one plugin
-    // instance may add the `sendFile` decorator, and the city document below is never sent
-    // through it anyway — it is built fresh from `cityTemplate` on every request.
-    await fastify.register(fastifyStatic, { root: cityDist, prefix: '/city/', index: false, decorateReply: false });
-  }
-
-  if (hasApp || hasCity) {
-    const cityTemplate = hasCity ? fs.readFileSync(cityIndexPath, 'utf8') : null;
-    // SPA fallback: a non-API, non-ws, non-mcp route that matched no static file falls here.
-    // `/city/*` gets dist-city's own document, its title and Open Graph tags set for the depth the
-    // URL points at (apps/server/src/public/city-page.ts); every other route gets the app's own.
-    fastify.setNotFoundHandler(async (request, reply) => {
-      if (request.url.startsWith('/api/') || request.url.startsWith('/ws/') || request.url.startsWith('/mcp')) {
-        return reply.code(404).send({ error: 'Não encontrado' });
-      }
-      if (request.url.startsWith('/city/')) {
-        if (!cityTemplate) return reply.code(404).send({ error: 'Não encontrado' });
-        const html = await renderCityPage(repos, cityTemplate, request.url);
-        return reply.type('text/html').send(html);
-      }
-      if (!hasApp) return reply.code(404).send({ error: 'Não encontrado' });
-      return reply.sendFile('index.html');
-    });
-  } else {
+  const dirs = { ...defaultFrontendDirs(ROOT_DIR), ...opts.frontend };
+  if (!(await registerFrontend(fastify, { repos, ...dirs, publicCityUrl: config.publicCityUrl }))) {
     fastify.log.warn('apps/web/dist e apps/web/dist-city não encontrados — rodando só a API (use "npm run build" e "npm run build:city -w @termhub/web" para servir os bundles)');
   }
 

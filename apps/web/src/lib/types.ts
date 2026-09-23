@@ -405,9 +405,6 @@ export interface PublicCity {
   buildings: PublicBuilding[];
 }
 
-/** Where a nickname's public city lives; the address the app builds share links from. */
-export const PUBLIC_CITY_BASE = 'https://termhub.dev/city';
-
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
 export interface UploadEntry {
   machine_id: string;
@@ -474,6 +471,8 @@ export interface AuthConfig {
   google: boolean;
   password: boolean;
   email_code: boolean;
+  /** where this instance's public cities live, e.g. https://termhub.dev/city — share links are built from it */
+  public_city_url: string;
 }
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {

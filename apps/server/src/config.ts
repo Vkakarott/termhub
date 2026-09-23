@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { resolvePublicCityUrl } from './public/base-url.js';
 
 // Raiz do monorepo (funciona tanto em src/ quanto em dist/).
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -49,6 +50,13 @@ const envSchema = z.object({
    * app outside Cloudflare Access (https://termhub.dev/api/hooks/events). Default: PUBLIC_URL.
    */
   HOOKS_URL: z.string().url().optional(),
+
+  /**
+   * Where public cities live (https://termhub.dev/city in production): share links, the city page's
+   * og:url and og:image are built from it. Must be a host without Cloudflare Access. Default: the
+   * origin of HOOKS_URL, else PUBLIC_URL (see public/base-url.ts).
+   */
+  PUBLIC_CITY_URL: z.string().url().optional(),
 
   /**
    * Public MCP endpoint (https://termhub.dev/mcp in production), shown in the "claude mcp add"
@@ -134,6 +142,7 @@ export const config = {
   publicUrl: env.PUBLIC_URL.replace(/\/$/, ''),
   hooksUrl: env.HOOKS_URL ?? `${env.PUBLIC_URL.replace(/\/$/, '')}/api/hooks/events`,
   mcpUrl: env.MCP_URL ?? null,
+  publicCityUrl: resolvePublicCityUrl(env),
   alphaCommunityUrl: env.ALPHA_COMMUNITY_URL,
   auth: {
     modes: authModes,

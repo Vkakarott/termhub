@@ -69,6 +69,10 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
     google: isGoogleEnabled(),
     password: true,
     email_code: true,
+    // Where this instance's public cities live (share links, the nickname preview). Public by nature:
+    // it is the address handed to strangers. Served here, beside the rest of the instance's config,
+    // because every sign-in path reads this once at boot and none of them returns it otherwise.
+    public_city_url: config.publicCityUrl,
   }));
 
   app.get('/me', { config: { public: true } }, async (request) => {

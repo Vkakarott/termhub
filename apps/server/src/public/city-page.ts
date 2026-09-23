@@ -13,6 +13,8 @@ interface CityMeta {
   title: string;
   description: string;
   image: string;
+  /** og:url; absent for the neutral not-found document */
+  url?: string;
 }
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -25,15 +27,29 @@ function attr(s: string): string {
 /** The neutral document for a nickname nobody can read a city out of: no name, the landing's own card. */
 const FALLBACK_TITLE = 'Cidade não encontrada · termhub';
 const FALLBACK_DESCRIPTION = 'Cada tab é uma sessão tmux que sobrevive ao navegador. Self-hosted, open source (MIT).';
-const FALLBACK_IMAGE = 'https://termhub.dev/og-image.png';
+
+/**
+ * Every absolute URL below is built from this instance's own public-city address
+ * (`config.publicCityUrl`, e.g. https://termhub.dev/city), never a hardcoded host: on a self-hosted
+ * instance a termhub.dev URL would unfurl to somebody else's city, or to nothing.
+ */
+const originOf = (base: string) => new URL(base).origin;
 
 /** The card this depth's link unfurls to — same nickname and `?building=`/`?room=` the page itself carries (Task 9's route). */
-function cardImageUrl(nickname: string, depth: CityDepth): string {
+function cardImageUrl(base: string, nickname: string, depth: CityDepth): string {
   const params = new URLSearchParams();
   if (depth.building) params.set('building', depth.building);
   if (depth.room) params.set('room', depth.room);
   const qs = params.toString();
-  return `https://termhub.dev/api/public/city/${encodeURIComponent(nickname)}/card.png${qs ? `?${qs}` : ''}`;
+  return `${originOf(base)}/api/public/city/${encodeURIComponent(nickname)}/card.png${qs ? `?${qs}` : ''}`;
+}
+
+/** The canonical address of this depth of the city: the same shape the app's share button copies. */
+function cityPageUrl(base: string, nickname: string, depth: CityDepth): string {
+  let url = `${base}/@${encodeURIComponent(nickname)}`;
+  if (depth.building) url += `/${encodeURIComponent(depth.building)}`;
+  if (depth.building && depth.room) url += `?room=${encodeURIComponent(depth.room)}`;
+  return url;
 }
 
 /**
@@ -42,16 +58,19 @@ function cardImageUrl(nickname: string, depth: CityDepth): string {
  * (stale link, wrong id) resolves one level up, the same forgiving rule `buildCardSvg` uses — never
  * a broken page over a slightly-too-shallow one.
  */
-export function cityMetaFor(city: PublicCity | undefined, depth: CityDepth): CityMeta {
-  if (!city) return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION, image: FALLBACK_IMAGE };
+export function cityMetaFor(city: PublicCity | undefined, depth: CityDepth, base: string): CityMeta {
+  if (!city) return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION, image: `${originOf(base)}/og-image.png` };
   const building = depth.building ? city.buildings.find((b) => b.id === depth.building) : undefined;
   const room = building && depth.room ? building.rooms.find((r) => r.id === depth.room) : undefined;
-  const image = cardImageUrl(city.nickname, { building: building?.id, room: room?.id });
+  const resolved = { building: building?.id, room: room?.id };
+  const image = cardImageUrl(base, city.nickname, resolved);
+  const url = cityPageUrl(base, city.nickname, resolved);
   if (room) {
     return {
       title: `${room.name} — a cidade de ${city.owner_name}`,
       description: `${room.name}, em ${building!.name}: um projeto publicado na cidade de ${city.owner_name} no termhub.`,
       image,
+      url,
     };
   }
   if (building) {
@@ -59,12 +78,14 @@ export function cityMetaFor(city: PublicCity | undefined, depth: CityDepth): Cit
       title: `${building.name} — a cidade de ${city.owner_name}`,
       description: `${building.name}, uma das máquinas publicadas na cidade de ${city.owner_name} no termhub.`,
       image,
+      url,
     };
   }
   return {
     title: `A cidade de ${city.owner_name} no termhub`,
     description: `Terminais e projetos publicados por ${city.owner_name}, ao vivo, no termhub.`,
     image,
+    url,
   };
 }
 
@@ -75,6 +96,7 @@ export function renderCityDocument(html: string, meta: CityMeta): string {
     `<meta property="og:title" content="${attr(meta.title)}" />`,
     `<meta property="og:description" content="${attr(meta.description)}" />`,
     `<meta property="og:image" content="${attr(meta.image)}" />`,
+    ...(meta.url ? [`<meta property="og:url" content="${attr(meta.url)}" />`] : []),
   ].join('\n    ');
   return withTitle.replace('</head>', `    ${tags}\n  </head>`);
 }
@@ -107,9 +129,9 @@ export function depthFromCityUrl(url: string): { nickname: string; depth: CityDe
  * renders the same neutral, name-free document a crawler would otherwise see for a broken link; the
  * page itself is what shows *Cidade não encontrada* once it fetches the snapshot.
  */
-export async function renderCityPage(repos: Repositories, template: string, url: string): Promise<string> {
+export async function renderCityPage(repos: Repositories, template: string, url: string, base: string): Promise<string> {
   const { nickname, depth } = depthFromCityUrl(url);
   const parsed = normalizeNickname(nickname);
   const city = parsed.ok ? await readPublicCityCached(repos, parsed.value) : undefined;
-  return renderCityDocument(template, cityMetaFor(city, depth));
+  return renderCityDocument(template, cityMetaFor(city, depth, base));
 }

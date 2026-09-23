@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
-import { PUBLIC_CITY_BASE, type Machine } from '../lib/types';
+import type { Machine } from '../lib/types';
 import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type CityModel, type FocusTarget, type MachineEntry, type MachineModel } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import { useOfficeSnapshots, type MachineSnapshotState } from '../office/useOfficeSnapshots';
@@ -19,7 +19,7 @@ export function OfficePage() {
   const { machineId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { can, user } = useAuth();
+  const { can, user, publicCityUrl } = useAuth();
   const { machines, projects, statuses, loading } = useData();
   const { items, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
@@ -240,7 +240,7 @@ export function OfficePage() {
   if (machineId && machineName) trail.push({ label: machineName, go: () => go(machineId, null, true) });
   const roomName = here?.floor.rooms.find((r) => r.id === room)?.name;
   if (roomName) trail.push({ label: roomName });
-  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, machines, byMachine);
+  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, publicCityUrl, machines, byMachine);
 
   return (
     <div className="flex h-full flex-col">
@@ -360,11 +360,14 @@ function shareResultFor(
   target: FocusTarget,
   userId: string | undefined,
   nickname: string | null,
+  publicCityUrl: string | null,
   machines: Machine[],
   byMachine: Record<string, MachineSnapshotState>,
 ): ShareResult {
   const owned = (m: Machine) => !!userId && m.owner_id === userId;
-  const base = nickname ? `${PUBLIC_CITY_BASE}/@${encodeURIComponent(nickname)}` : null;
+  // this instance's own address for public cities, as the server tells it — never a hardcoded host,
+  // which on a self-hosted instance would hand out a link to somebody else's city
+  const base = nickname && publicCityUrl ? `${publicCityUrl}/@${encodeURIComponent(nickname)}` : null;
 
   if (target.kind === 'city') {
     const ownMachines = machines.filter(owned);

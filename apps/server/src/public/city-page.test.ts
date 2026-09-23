@@ -15,6 +15,8 @@ vi.mock('../terminal/machine-exec.js', () => ({
 
 const { cityMetaFor, renderCityDocument, depthFromCityUrl, renderCityPage } = await import('./city-page.js');
 
+const BASE = 'https://termhub.dev/city';
+
 const TEMPLATE = `<!doctype html>
 <html lang="pt-BR" class="dark">
   <head>
@@ -51,13 +53,13 @@ const CITY: PublicCity = {
 
 describe('cityMetaFor', () => {
   it('names the owner at the city depth, and the card at no depth', () => {
-    const meta = cityMetaFor(CITY, {});
+    const meta = cityMetaFor(CITY, {}, BASE);
     expect(meta.title).toBe('A cidade de Pedro no termhub');
     expect(meta.image).toBe('https://termhub.dev/api/public/city/pedro/card.png');
   });
 
   it('names the building at the building depth', () => {
-    const meta = cityMetaFor(CITY, { building: CITY.buildings[0]!.id });
+    const meta = cityMetaFor(CITY, { building: CITY.buildings[0]!.id }, BASE);
     expect(meta.title).toBe('Jarvis Office — a cidade de Pedro');
     expect(meta.image).toBe(`https://termhub.dev/api/public/city/pedro/card.png?building=${CITY.buildings[0]!.id}`);
   });
@@ -65,18 +67,18 @@ describe('cityMetaFor', () => {
   it('names the room at the room depth', () => {
     const building = CITY.buildings[0]!;
     const room = building.rooms[0]!;
-    const meta = cityMetaFor(CITY, { building: building.id, room: room.id });
+    const meta = cityMetaFor(CITY, { building: building.id, room: room.id }, BASE);
     expect(meta.title).toBe('Engage Easy — a cidade de Pedro');
     expect(meta.image).toBe(`https://termhub.dev/api/public/city/pedro/card.png?building=${building.id}&room=${room.id}`);
   });
 
   it('falls back one level up when a depth id matches nothing in this city, same as buildCardSvg', () => {
-    const meta = cityMetaFor(CITY, { building: 'does-not-exist' });
+    const meta = cityMetaFor(CITY, { building: 'does-not-exist' }, BASE);
     expect(meta.title).toBe('A cidade de Pedro no termhub');
   });
 
   it('answers the neutral, name-free document for no city at all', () => {
-    const meta = cityMetaFor(undefined, {});
+    const meta = cityMetaFor(undefined, {}, BASE);
     expect(meta.title).toBe('Cidade não encontrada · termhub');
     expect(meta.title).not.toContain('Pedro');
     expect(meta.image).toBe('https://termhub.dev/og-image.png');
@@ -139,10 +141,10 @@ function stubRepos(): Repositories {
 }
 
 /** The document at `/city/*`, wired exactly the way `app.ts`'s SPA fallback wires it — the same function, over HTTP. */
-function buildDocumentApp(repos: Repositories) {
+function buildDocumentApp(repos: Repositories, base = BASE) {
   const app = Fastify();
   app.setNotFoundHandler(async (request, reply) => {
-    const html = await renderCityPage(repos, TEMPLATE, request.url);
+    const html = await renderCityPage(repos, TEMPLATE, request.url, base);
     return reply.type('text/html').send(html);
   });
   return app;
@@ -172,5 +174,24 @@ describe('GET /city/:nickname — the document', () => {
     expect(res.body).toContain('<title>Cidade não encontrada · termhub</title>');
     expect(res.body).not.toContain('Pedro');
     expect(res.body).toContain('<meta property="og:image" content="https://termhub.dev/og-image.png" />');
+  });
+
+  it('sets og:url to the canonical address of the depth the link points at', async () => {
+    const app = buildDocumentApp(stubRepos());
+    const building = publicId('machine', 'm1');
+    const room = publicId('project', 'p1');
+    const res = await app.inject({ method: 'GET', url: `/city/@pedro/${building}?room=${room}` });
+    expect(res.body).toContain(`<meta property="og:url" content="https://termhub.dev/city/@pedro/${building}?room=${room}" />`);
+  });
+
+  // A self-hosted instance: every URL in the document is its own, never termhub.dev's.
+  it('builds og:url, og:image and the fallback card from the instance\'s own base', async () => {
+    const app = buildDocumentApp(stubRepos(), 'https://th.example.org/city');
+    const found = await app.inject({ method: 'GET', url: '/city/@pedro' });
+    expect(found.body).toContain('<meta property="og:url" content="https://th.example.org/city/@pedro" />');
+    expect(found.body).toContain('<meta property="og:image" content="https://th.example.org/api/public/city/pedro/card.png" />');
+    const missing = await app.inject({ method: 'GET', url: '/city/@ninguem' });
+    expect(missing.body).toContain('<meta property="og:image" content="https://th.example.org/og-image.png" />');
+    expect(found.body + missing.body).not.toContain('termhub.dev');
   });
 });

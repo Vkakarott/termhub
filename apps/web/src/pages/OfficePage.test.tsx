@@ -51,14 +51,14 @@ const { officeMock, canMock, dataState, monitorState, authState, FakeOfficeScene
     monitorState: { current: { items: [] as unknown[], needsYou: [] as unknown[], tabState: () => undefined, connected: true } },
     // null by default: every pre-existing test above never claimed a nickname, and the share button
     // must stay out of their way (it renders as a quiet "nothing published" span, never a link)
-    authState: { current: { user: null as User | null } },
+    authState: { current: { user: null as User | null, publicCityUrl: 'https://termhub.dev/city' as string | null } },
     FakeOfficeScene,
   };
 });
 
 vi.mock('../office/scene/OfficeScene', () => ({ OfficeScene: FakeOfficeScene }));
 vi.mock('../lib/api', () => ({ api: { office: (...a: unknown[]) => officeMock(...a) } }));
-vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock, user: authState.current.user }) }));
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock, user: authState.current.user, publicCityUrl: authState.current.publicCityUrl }) }));
 vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
 vi.mock('../lib/monitor', () => ({ useMonitor: () => monitorState.current }));
 
@@ -133,7 +133,7 @@ beforeEach(() => {
   testSearch = '';
   dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' }, loading: true };
   monitorState.current = { items: [], needsYou: [], tabState: () => undefined, connected: true };
-  authState.current = { user: null };
+  authState.current = { user: null, publicCityUrl: 'https://termhub.dev/city' };
 });
 
 afterEach(() => {
@@ -579,7 +579,7 @@ describe('OfficePage share button', () => {
 
   it("copies the city's own address when something anywhere is published", async () => {
     const writeText = stubClipboard();
-    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User };
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
     twoMachinesOnePublished();
     renderPage('/office');
     await act(async () => {});
@@ -589,9 +589,22 @@ describe('OfficePage share button', () => {
     expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro');
   });
 
+  // A self-hosted instance: the link is its own public-city address, as the server reports it.
+  it("builds the link from this instance's own public-city address, never termhub.dev", async () => {
+    const writeText = stubClipboard();
+    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User, publicCityUrl: 'https://th.example.org/city' };
+    twoMachinesOnePublished();
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://th.example.org/city/@pedro/m1-pub');
+  });
+
   it("copies the building's address inside a machine, using the machine's public id", async () => {
     const writeText = stubClipboard();
-    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User };
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
     twoMachinesOnePublished();
     renderPage('/office/m1');
     await act(async () => {});
@@ -603,7 +616,7 @@ describe('OfficePage share button', () => {
 
   it("copies the room's address inside a room, using the project's public id", async () => {
     const writeText = stubClipboard();
-    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User };
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
     twoMachinesOnePublished();
     renderPage('/office/m1?room=p1');
     await act(async () => {});
@@ -615,7 +628,7 @@ describe('OfficePage share button', () => {
 
   it('explains itself instead of copying when nothing in view is published', async () => {
     const writeText = stubClipboard();
-    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User };
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
     twoMachinesOnePublished();
     renderPage('/office/m2'); // both of hal's rooms are unpublished
     await act(async () => {});
@@ -629,7 +642,7 @@ describe('OfficePage share button', () => {
     const writeText = stubClipboard();
     // the signed-in person is 'u1' (an admin, say), but m1 here belongs to someone else ('u2') and
     // has a published room — a nickname of 'u1' would either be missing or point at the wrong city
-    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User };
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
     twoMachinesOnePublished({ m1: 'u2', m2: 'u2' });
     renderPage('/office/m1');
     await act(async () => {});
@@ -641,7 +654,7 @@ describe('OfficePage share button', () => {
 
   it("does not build the city link from an admin's own nickname when only someone else's machine is published", async () => {
     const writeText = stubClipboard();
-    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User };
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
     twoMachinesOnePublished({ m1: 'u2', m2: 'u2' }); // nothing here is 'u1's own
     renderPage('/office');
     await act(async () => {});

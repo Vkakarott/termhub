@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // hence vi.hoisted(), not a plain top-level class the mock factory could not see.
 const { setNicknameMock, ApiError, auth } = vi.hoisted(() => {
   const setNicknameMock = vi.fn();
-  const auth = { user: null as { nickname: string | null } | null };
+  const auth = { user: null as { nickname: string | null } | null, publicCityUrl: 'https://termhub.dev/city' };
   // Same shape as the real one (apps/web/src/lib/api.ts): the dialog shows the server's own pt-BR
   // message on a 409, so a stand-in that swallowed it would make that untestable.
   class ApiError extends Error {
@@ -22,7 +22,7 @@ const { setNicknameMock, ApiError, auth } = vi.hoisted(() => {
   return { setNicknameMock, ApiError, auth };
 });
 vi.mock('../lib/api', () => ({ ApiError }));
-vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: auth.user, setNickname: (...a: unknown[]) => setNicknameMock(...a) }) }));
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: auth.user, publicCityUrl: auth.publicCityUrl, setNickname: (...a: unknown[]) => setNicknameMock(...a) }) }));
 
 import { NicknameDialog } from './NicknameDialog';
 
@@ -30,6 +30,7 @@ afterEach(() => {
   cleanup();
   setNicknameMock.mockReset();
   auth.user = null;
+  auth.publicCityUrl = 'https://termhub.dev/city';
 });
 
 function renderDialog(onSaved = vi.fn()) {
@@ -65,6 +66,14 @@ describe('NicknameDialog', () => {
     typeNickname('pedro');
 
     expect(screen.getByText('termhub.dev/city/@pedro')).toBeTruthy();
+  });
+
+  it("previews this instance's own address, as the server reports it", () => {
+    auth.publicCityUrl = 'https://th.example.org/city';
+    renderDialog();
+    typeNickname('pedro');
+
+    expect(screen.getByText('th.example.org/city/@pedro')).toBeTruthy();
   });
 
   it('surfaces the server 409 as "Esse apelido já é de outra pessoa"', async () => {

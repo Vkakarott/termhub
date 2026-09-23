@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useAuth } from '../lib/auth';
 import { ApiError } from '../lib/api';
-import { PUBLIC_CITY_BASE } from '../lib/types';
 import { Modal } from './Modal';
 
 /**
@@ -34,7 +33,9 @@ interface Props {
  * `NICKNAME_REQUIRED`.
  */
 export function NicknameDialog({ open, onClose, onSaved }: Props) {
-  const { user, setNickname } = useAuth();
+  const { user, setNickname, publicCityUrl } = useAuth();
+  // The address as the visitor will read it, host and all: this instance's own, told by the server.
+  const address = (nickname: string) => `${(publicCityUrl ?? '/city').replace(/^https?:\/\//, '')}/@${nickname}`;
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,7 +70,7 @@ export function NicknameDialog({ open, onClose, onSaved }: Props) {
         <div className="space-y-3">
           <p className="text-sm text-fg-muted">É o endereço da sua cidade pública e não pode ser trocado.</p>
           <p className="text-sm font-medium">
-            {PUBLIC_CITY_BASE.replace(/^https?:\/\//, '')}/@{user.nickname}
+            {address(user.nickname)}
           </p>
           <div className="flex justify-end pt-2">
             <button type="button" className="btn-ghost" onClick={onClose}>
@@ -101,7 +102,7 @@ export function NicknameDialog({ open, onClose, onSaved }: Props) {
             required
           />
           <p className="mt-1 text-xs text-fg-dim">
-            {PUBLIC_CITY_BASE.replace(/^https?:\/\//, '')}/@{preview || '…'}
+            {address(preview || '…')}
           </p>
         </div>
         {error && <p className="text-sm text-danger">{error}</p>}
