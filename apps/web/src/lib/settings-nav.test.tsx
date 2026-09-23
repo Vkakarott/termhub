@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { Link, MemoryRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Modal } from '../components/Modal';
+import { Modal, useEscapeLayer } from '../components/Modal';
 import { isSettingsPath, keepsEscape, useSettingsExit } from './settings-nav';
 
 /** Stands in for Layout: stays mounted while the routes under it change, like the real one. */
@@ -11,11 +11,20 @@ function Shell() {
   const leave = useSettingsExit();
   const { pathname, search } = useLocation();
   const [dialog, setDialog] = useState(false);
+  const [drawer, setDrawer] = useState(false);
+  // stands in for the chat drawer: a non-modal dialog mounted in Layout that answers Esc itself
+  useEscapeLayer(drawer, () => setDrawer(false));
   return (
     <>
       <p data-testid="where">{`${pathname}${search}`}</p>
       <button onClick={leave}>voltar</button>
       <button onClick={() => setDialog(true)}>abrir diálogo</button>
+      <button onClick={() => setDrawer(true)}>abrir gaveta</button>
+      {drawer && (
+        <aside role="dialog" aria-label="Chat">
+          <textarea aria-label="mensagem" />
+        </aside>
+      )}
       <Link to="/settings/users">configurações</Link>
       <Link to="/integrations">integrações antigas</Link>
       <Routes>
@@ -70,6 +79,12 @@ describe('keepsEscape', () => {
     expect(keepsEscape(document.createElement('select'))).toBe(true);
     expect(keepsEscape(inDialog)).toBe(true);
     expect(keepsEscape(document.createElement('div'))).toBe(false);
+  });
+
+  it('keeps Esc only in text-like inputs, not in checkboxes, radios, buttons or ranges', () => {
+    const input = (type: string) => Object.assign(document.createElement('input'), { type });
+    for (const type of ['text', 'search', 'email', 'url', 'tel', 'password', 'number']) expect(keepsEscape(input(type))).toBe(true);
+    for (const type of ['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file']) expect(keepsEscape(input(type))).toBe(false);
     expect(keepsEscape(null)).toBe(false);
   });
 });
@@ -114,6 +129,37 @@ describe('useSettingsExit', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(where()).toBe('/settings/users');
     esc();
+    expect(where()).toBe('/machines');
+  });
+
+  it('lets the chat drawer, opened before entering settings, take Esc first', () => {
+    mount('/machines');
+    fireEvent.click(screen.getByText('abrir gaveta'));
+    enterSettings();
+    esc();
+    expect(screen.queryByRole('dialog', { name: 'Chat' })).toBeNull();
+    expect(where()).toBe('/settings/users');
+    esc();
+    expect(where()).toBe('/machines');
+  });
+
+  it('closes the drawer with Esc from its own text field, staying in settings', () => {
+    mount('/machines');
+    fireEvent.click(screen.getByText('abrir gaveta'));
+    enterSettings();
+    esc(screen.getByLabelText('mensagem'));
+    expect(screen.queryByRole('dialog', { name: 'Chat' })).toBeNull();
+    expect(where()).toBe('/settings/users');
+  });
+
+  it('leaves settings with Esc from a checkbox', () => {
+    mount('/machines');
+    enterSettings();
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    document.body.appendChild(box);
+    esc(box);
+    box.remove();
     expect(where()).toBe('/machines');
   });
 

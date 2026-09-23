@@ -339,7 +339,7 @@ describe('Sidebar footer', () => {
         <Where />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Configurações e perfil' }));
+    fireEvent.click(screen.getByRole('button', { name: /configurações e perfil/ }));
     expect(where).toBe('/settings/profile');
   });
 

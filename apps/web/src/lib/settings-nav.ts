@@ -11,18 +11,23 @@ export function isSettingsPath(pathname: string): boolean {
   return pathname === '/settings' || pathname.startsWith('/settings/') || pathname === '/integrations';
 }
 
+/** Inputs that take typing (and so may use Esc themselves); a checkbox, radio, button or range does not. */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number', 'date', 'datetime-local', 'month', 'time', 'week']);
+
 /** Esc belongs to where it was pressed when that is a text field, a select or a dialog. */
 export function keepsEscape(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable) return true;
+  if (target instanceof HTMLInputElement) {
+    if (TEXT_INPUT_TYPES.has(target.type)) return true;
+  } else if (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable) return true;
   return !!target.closest('[role="dialog"], dialog');
 }
 
 /**
  * Remembers the last location outside settings (in memory: spec 2026-09-23 app chrome §7) and returns
  * the way back to it — `/` when settings was the first page opened. Esc takes the same way while under
- * settings, as one layer of the Escape stack (components/Modal): a dialog opened over a section closes
- * first. Call it once, in the layout, which stays mounted while the pages under it change.
+ * settings, as the base layer of the Escape stack (components/Modal): a dialog opened over a section,
+ * or the chat drawer, closes first. Call it once, in the layout, which stays mounted while the pages under it change.
  */
 export function useSettingsExit(): () => void {
   const { pathname, search } = useLocation();
@@ -35,8 +40,14 @@ export function useSettingsExit(): () => void {
   const leave = useCallback(() => {
     void navigate(lastOutside.current ?? '/');
   }, [navigate]);
-  useEscapeLayer(inside, (e) => {
-    if (!keepsEscape(e.target)) leave();
-  });
+  // a base layer: an open dialog or the chat drawer answers Esc before settings does
+  useEscapeLayer(
+    inside,
+    (e) => {
+      if (!keepsEscape(e.target)) leave();
+    },
+    true,
+    { base: true },
+  );
   return leave;
 }

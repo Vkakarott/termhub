@@ -44,6 +44,7 @@ export function ProjectPage() {
       <PageHeader
         title={project.name}
         subtitle={`${project.key} · ${projectMachines.length === 0 ? 'sem máquina' : projectMachines.map((m) => m.name).join(', ')}`}
+        subtitleTitle={project.machines.map((l) => `${projectMachines.find((m) => m.id === l.machine_id)?.name ?? l.machine_id}: ${l.cwd}`).join('\n') || undefined}
         tabs={SECTIONS.map((s) => ({
           to: `/projects/${project.id}${s.path ? '/' + s.path : ''}`,
           label: s.label,

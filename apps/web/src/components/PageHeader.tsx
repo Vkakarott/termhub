@@ -14,6 +14,8 @@ export interface PageHeaderProps {
   title: string;
   /** short context next to the title, truncated; a long explanation goes at the top of the content instead */
   subtitle?: string;
+  /** the subtitle's tooltip, when it has more to say than the subtitle itself (the project's cwd per machine) */
+  subtitleTitle?: string;
   tabs?: PageHeaderTab[];
   /** content between the tabs and the actions (the office's Cidade › máquina › sala trail) */
   extra?: ReactNode;
@@ -22,36 +24,43 @@ export interface PageHeaderProps {
 }
 
 /**
- * The one header every page inside the sidebar layout uses (spec 2026-09-23 app chrome §6). It never
- * clips its overflow: popovers anchored in the actions (PublishControl) hang below the bar.
+ * The one header every page inside the sidebar layout uses (spec 2026-09-23 app chrome §6). The bar
+ * itself never clips its overflow: popovers anchored in the actions (PublishControl) hang below it.
+ * On a narrow window only the middle — tabs and extra — shrinks and scrolls sideways, so the actions
+ * stay in view at the same height.
  */
-export function PageHeader({ title, subtitle, tabs, extra, actions }: PageHeaderProps) {
+export function PageHeader({ title, subtitle, subtitleTitle, tabs, extra, actions }: PageHeaderProps) {
+  const hasTabs = !!tabs && tabs.length > 0;
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line bg-bg-2 px-4">
       <h1 className="min-w-0 shrink truncate text-sm font-semibold" title={title}>
         {title}
       </h1>
       {subtitle && (
-        <span className="min-w-0 truncate text-xs text-fg-muted" title={subtitle}>
+        <span className="min-w-0 truncate text-xs text-fg-muted" title={subtitleTitle ?? subtitle}>
           {subtitle}
         </span>
       )}
-      {tabs && tabs.length > 0 && (
-        <nav aria-label={`Seções de ${title}`} className="flex shrink-0 items-center gap-1">
-          {tabs.map((t) => (
-            <NavLink
-              key={t.to}
-              to={t.to}
-              end={t.end}
-              className={({ isActive }) => `rounded px-3 py-1 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}
-            >
-              {t.label}
-              {!!t.badge && <span className="ml-1 text-[10px] text-fg-dim">{t.badge}</span>}
-            </NavLink>
-          ))}
-        </nav>
+      {(hasTabs || extra) && (
+        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {hasTabs && (
+            <nav aria-label={`Seções de ${title}`} className="flex shrink-0 items-center gap-1">
+              {tabs!.map((t) => (
+                <NavLink
+                  key={t.to}
+                  to={t.to}
+                  end={t.end}
+                  className={({ isActive }) => `whitespace-nowrap rounded px-3 py-1 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}
+                >
+                  {t.label}
+                  {!!t.badge && <span className="ml-1 text-[10px] text-fg-dim">{t.badge}</span>}
+                </NavLink>
+              ))}
+            </nav>
+          )}
+          {extra && <div className="flex shrink-0 items-center whitespace-nowrap text-xs text-fg-muted">{extra}</div>}
+        </div>
       )}
-      {extra && <div className="flex min-w-0 items-center text-xs text-fg-muted">{extra}</div>}
       {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
     </header>
   );

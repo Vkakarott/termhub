@@ -65,6 +65,7 @@ describe('SettingsSidebar', () => {
 
   it('goes back from its header', () => {
     const onBack = mount();
+    expect(screen.getByRole('button', { name: 'Voltar de Configurações' })).toHaveAttribute('data-chrome-focus', 'settings-back');
     fireEvent.click(screen.getByRole('button', { name: 'Voltar de Configurações' }));
     expect(onBack).toHaveBeenCalledTimes(1);
   });

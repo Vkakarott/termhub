@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { User } from '../lib/types';
+import { viewAsLabel } from '../lib/view-as';
 
 /**
  * Admin-only data-scope switch: the app normally shows an admin their own machines, like any user;
@@ -25,7 +26,7 @@ export function ViewAsSwitch() {
   if (!isAdmin) return null;
 
   const current = viewAs === null ? 'me' : viewAs === 'all' ? 'all' : viewAs.id;
-  const label = viewAs === null ? null : viewAs === 'all' ? 'Vendo: todas as máquinas' : `Vendo como ${viewAs.name}`;
+  const label = viewAsLabel(viewAs);
 
   const choose = async (value: string) => {
     setBusy(true);

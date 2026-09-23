@@ -58,6 +58,39 @@ describe('PageHeader', () => {
   });
 });
 
+describe('PageHeader on a narrow window', () => {
+  it('scrolls the tabs and the extra sideways instead of pushing the actions out, without clipping the header', () => {
+    render(
+      <MemoryRouter>
+        <PageHeader
+          title="alpha"
+          tabs={[
+            { to: '/a', label: 'Terminais' },
+            { to: '/b', label: 'Tarefas' },
+          ]}
+          extra={<nav aria-label="Trilha">Cidade</nav>}
+          actions={<button>publicar</button>}
+        />
+      </MemoryRouter>,
+    );
+    const middle = screen.getByRole('navigation', { name: 'Seções de alpha' }).parentElement!;
+    expect(middle).toHaveClass('min-w-0', 'flex-1', 'overflow-x-auto');
+    expect(middle).toContainElement(screen.getByLabelText('Trilha'));
+    expect(screen.getByRole('button', { name: 'publicar' }).parentElement).toHaveClass('ml-auto', 'shrink-0');
+    const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
+    expect(header.className).not.toMatch(/overflow/);
+  });
+
+  it('can give the subtitle a longer tooltip than its text', () => {
+    render(
+      <MemoryRouter>
+        <PageHeader title="alpha" subtitle="MEU · jarvis" subtitleTitle={'jarvis: /home/pedro/meu-projeto'} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('MEU · jarvis')).toHaveAttribute('title', 'jarvis: /home/pedro/meu-projeto');
+  });
+});
+
 describe('PageFrame', () => {
   it('puts the header above a scrolling body', () => {
     render(

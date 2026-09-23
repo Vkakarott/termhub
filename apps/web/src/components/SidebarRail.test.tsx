@@ -72,7 +72,7 @@ describe('SidebarRail', () => {
     mount('/');
     const daily = within(screen.getByRole('navigation', { name: 'Menu principal' })).getAllByRole('link');
     expect(daily.map((l) => l.getAttribute('aria-label'))).toEqual(['Máquinas']);
-    expect(screen.getByRole('button', { name: 'Configurações e perfil' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /configurações e perfil/ })).toBeInTheDocument();
   });
 
   it('expands', () => {
@@ -91,6 +91,7 @@ describe('SidebarRail', () => {
       ['Minha cidade', 'Minha cidade'],
     ]);
     expect(screen.getByRole('link', { name: 'Minha cidade' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'Voltar de Configurações' })).toHaveAttribute('data-chrome-focus', 'settings-back');
     fireEvent.click(screen.getByRole('button', { name: 'Voltar de Configurações' }));
     expect(onBack).toHaveBeenCalledTimes(1);
   });

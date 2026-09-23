@@ -192,6 +192,8 @@ describe('ProjectPage header', () => {
     renderPage(proj);
     expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['meu-projeto']);
     expect(screen.getByText('MEU · jarvis')).toBeTruthy();
+    // the machines' working directories, which the old header showed on hover
+    expect(screen.getByText('MEU · jarvis').getAttribute('title')).toContain('/home/pedro/meu-projeto');
     const tabs = screen.getByRole('navigation', { name: 'Seções de meu-projeto' });
     expect(within(tabs).getAllByRole('link').map((l) => l.getAttribute('href'))).toEqual([
       '/projects/p1',

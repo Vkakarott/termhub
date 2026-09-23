@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
@@ -74,11 +74,29 @@ export function Layout() {
 export function Chrome({ collapsed, setCollapsed, onLeaveSettings }: { collapsed: boolean; setCollapsed: (v: boolean) => void; onLeaveSettings: () => void }) {
   const { focus } = useFocusMode();
   const { pathname } = useLocation();
-  if (focus) return null;
   const settings = isSettingsPath(pathname);
+  useSwapFocus(settings);
+  if (focus) return null;
   if (collapsed) return <SidebarRail mode={settings ? 'settings' : 'main'} onExpand={() => setCollapsed(false)} onBack={onLeaveSettings} />;
   if (settings) return <SettingsSidebar onBack={onLeaveSettings} onCollapse={() => setCollapsed(true)} />;
   return <Sidebar onCollapse={() => setCollapsed(true)} />;
+}
+
+/**
+ * Swapping the sidebar unmounts the control that was pressed (the profile row, Voltar), dropping focus
+ * on <body>. Hand it to the new sidebar's counterpart: the way back when entering settings, the
+ * profile button when leaving. Only when focus was actually lost, and never on the first render, so a
+ * page opened straight on settings or a link pressed in the page keeps its focus.
+ */
+function useSwapFocus(settings: boolean) {
+  const previous = useRef(settings);
+  useEffect(() => {
+    if (previous.current === settings) return;
+    previous.current = settings;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    document.querySelector<HTMLElement>(`[data-chrome-focus="${settings ? 'settings-back' : 'profile'}"]`)?.focus();
+  }, [settings]);
 }
 
 export function FullScreenMessage({ children }: { children: React.ReactNode }) {

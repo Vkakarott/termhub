@@ -80,7 +80,7 @@ function SettingsRail({ onBack }: { onBack: () => void }) {
   const { can } = useAuth();
   return (
     <>
-      <button type="button" className={`mt-1 ${SQUARE} ${IDLE}`} onClick={onBack} title="Voltar (Esc)" aria-label="Voltar de Configurações">
+      <button type="button" className={`mt-1 ${SQUARE} ${IDLE}`} onClick={onBack} title="Voltar (Esc)" aria-label="Voltar de Configurações" data-chrome-focus="settings-back">
         <ArrowLeft size={18} aria-hidden="true" />
       </button>
       <nav aria-label="Seções de Configurações" className="mt-1 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto border-t border-line py-2">

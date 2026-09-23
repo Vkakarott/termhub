@@ -23,6 +23,7 @@ export function SettingsSidebar({ onBack, onCollapse }: { onBack: () => void; on
           onClick={onBack}
           title="Voltar (Esc)"
           aria-label="Voltar de Configurações"
+          data-chrome-focus="settings-back"
         >
           <ArrowLeft size={16} aria-hidden="true" />
           Configurações
