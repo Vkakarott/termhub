@@ -69,6 +69,24 @@ export class TabsRepository {
   }
 
   /**
+   * Every terminal tab on the owner's machines (null = every owner), reported a state or not: the
+   * sidebar's "open agents". Scoped like `listWithState`, by the machine the tab runs on.
+   */
+  async listOpenTerminals(owner: string | null = null): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({
+      where: { kind: 'terminal', ...(owner ? { machine: { ownerId: owner } } : {}) },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    });
+    return rows.map(mapTab);
+  }
+
+  /** Every tab on one machine. */
+  async listByMachine(machineId: string): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({ where: { machineId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+    return rows.map(mapTab);
+  }
+
+  /**
    * Per machine: how many terminal tabs exist and how many already reported a state. A tab that
    * never reported one is invisible to the monitor (see `listWithState`), which is what "the
    * machine has tabs but the office/monitor is empty" looks like — the machine list shows both

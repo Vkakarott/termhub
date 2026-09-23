@@ -86,7 +86,10 @@ function buildApp(
 
   const repos = {
     machineHooks,
-    tabs: { countsByMachine: vi.fn(async () => health.counts ?? {}) },
+    tabs: {
+      countsByMachine: vi.fn(async () => health.counts ?? {}),
+      listByMachine: vi.fn(async (id: string) => (id === 'm1' ? [{ id: 't1', project_id: 'p1', machine_id: 'm1' }, { id: 't2', project_id: 'p2', machine_id: 'm1' }] : [])),
+    },
     aiAccounts: { list: vi.fn(async () => aiAccounts) },
     machines: {
       findById: async (id: string) => store[id],
@@ -270,6 +273,23 @@ describe('DELETE /api/machines/:id', () => {
     const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1' });
     expect(res.statusCode).toBe(200);
     expect(store.m1).toBeUndefined();
+  });
+
+  it('announces the removal of every tab the cascade takes, under the machine owner', async () => {
+    const { monitorBus } = await import('../monitor/bus.js');
+    store.m1 = makeMachine({ id: 'm1', type: 'agent', owner_id: 'u7' });
+    ({ app } = buildApp(store));
+    const events: unknown[] = [];
+    const off = monitorBus.subscribeLifecycle((e) => events.push(e));
+    try {
+      await app.inject({ method: 'DELETE', url: '/api/machines/m1' });
+    } finally {
+      off();
+    }
+    expect(events).toEqual([
+      { kind: 'removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1', owner_id: 'u7' },
+      { kind: 'removed', tab_id: 't2', project_id: 'p2', machine_id: 'm1', owner_id: 'u7' },
+    ]);
   });
 });
 

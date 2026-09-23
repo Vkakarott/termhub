@@ -19,6 +19,7 @@ import { installHooks, uninstallHooks } from '../monitor/install.js';
 import { newHookToken } from '../monitor/token.js';
 import type { Machine } from '../db/repositories/types.js';
 import { publicBus } from '../public/bus.js';
+import { publishTabOpened, publishTabRemoved, publishTabsRemoved } from '../monitor/tab-events.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
@@ -143,15 +144,22 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     if (owner_id !== undefined && owner_id !== current.owner_id) {
       publicBus.publishRoomsGone({ machine_id: id });
       request.log.info({ machineId: id }, 'machine transferred: left its old owner\'s public city');
+      // its tabs leave the old owner's open tabs (sidebar) and join the new owner's
+      for (const tab of await repos.tabs.listByMachine(id)) {
+        publishTabRemoved(tab, current);
+        publishTabOpened(tab, machine ?? { id, owner_id: owner_id ?? null });
+      }
     }
     return { machine };
   });
 
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    await scoped(repos, request).machine(id);
+    const machine = await scoped(repos, request).machine(id);
     // The DB cascade removes this machine's project links and its own tabs; the projects survive.
+    const tabs = await repos.tabs.listByMachine(id);
     await repos.machines.delete(id);
+    await publishTabsRemoved(repos, tabs, [machine]);
     // its buildings leave every public city at once (the projects, and their publish switch, stay)
     publicBus.publishRoomsGone({ machine_id: id });
     agents.disconnect(id, CLOSE.UNAUTHORIZED, 'deleted');

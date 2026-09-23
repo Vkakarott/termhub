@@ -9,6 +9,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import { ProjectRuleError } from '../db/repositories/projects.js';
 import type { Machine, Project, ProjectMachine, Tab } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
+import { monitorBus, type TabLifecycle } from '../monitor/bus.js';
 import { projectRoutes } from './projects.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
@@ -284,5 +285,39 @@ describe('tabs', () => {
     expect(none.statusCode).toBe(400);
     expect(none.json().code).toBe('NO_MACHINE');
     expect((await app.inject({ method: 'POST', url: '/projects/p1/tabs', payload: { machine_id: 'm2' } })).statusCode).toBe(404);
+  });
+});
+
+describe('tab lifecycle on the monitor bus', () => {
+  async function lifecycleDuring(work: () => Promise<unknown>): Promise<TabLifecycle[]> {
+    const events: TabLifecycle[] = [];
+    const off = monitorBus.subscribeLifecycle((e) => events.push(e));
+    try {
+      await work();
+    } finally {
+      off();
+    }
+    return events;
+  }
+
+  it('opening a tab publishes it, scoped by its machine owner', async () => {
+    const { app } = buildApp();
+    const events = await lifecycleDuring(() => app.inject({ method: 'POST', url: '/projects/p1/tabs', payload: {} }));
+    expect(events).toEqual([{ kind: 'upsert', tab: expect.objectContaining({ project_id: 'p1', machine_id: 'm1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' }]);
+  });
+
+  it('unlinking a machine publishes the removal of each of its tabs', async () => {
+    const { app } = buildApp();
+    const events = await lifecycleDuring(() => app.inject({ method: 'DELETE', url: '/projects/p2/machines/m2' }));
+    expect(events).toEqual([{ kind: 'removed', tab_id: 't2', project_id: 'p2', machine_id: 'm2', owner_id: 'u1' }]);
+  });
+
+  it('deleting a project publishes the removal of every tab the cascade takes, the cross-owner one under its own owner', async () => {
+    const { app } = buildApp();
+    const events = await lifecycleDuring(() => app.inject({ method: 'DELETE', url: '/projects/p4' }));
+    expect(events).toEqual([
+      { kind: 'removed', tab_id: 't3', project_id: 'p4', machine_id: 'm1', owner_id: 'u1' },
+      { kind: 'removed', tab_id: 't4', project_id: 'p4', machine_id: 'mx', owner_id: 'u2' },
+    ]);
   });
 });

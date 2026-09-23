@@ -268,3 +268,22 @@ describe('closeTab', () => {
     expect(ctx.repos.tabs.delete).toHaveBeenCalledWith('t1');
   });
 });
+
+describe('open/close on the monitor bus', () => {
+  it('openTab publishes the new tab and closeTab its removal, scoped by the machine owner', async () => {
+    const { monitorBus } = await import('../monitor/bus.js');
+    const events: unknown[] = [];
+    const off = monitorBus.subscribeLifecycle((e) => events.push(e));
+    try {
+      await openTab(ctxWith(), { project_id: 'p1' });
+      killTmuxSession.mockResolvedValue(true);
+      await closeTab(ctxWith(), { tab_id: 't1' });
+    } finally {
+      off();
+    }
+    expect(events).toEqual([
+      { kind: 'upsert', tab: expect.objectContaining({ id: 't1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' },
+      { kind: 'removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1', owner_id: 'u1' },
+    ]);
+  });
+});
