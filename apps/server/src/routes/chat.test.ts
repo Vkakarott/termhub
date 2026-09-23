@@ -26,6 +26,7 @@ function build(opts: {
   hostMachines?: { id: string; name: string; type: string }[];
   aiAccounts?: { id: string; provider: string; machine_id: string; config_dir: string | null }[];
   clearProjectSessions?: ReturnType<typeof vi.fn>;
+  setHost?: ReturnType<typeof vi.fn>;
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
@@ -33,7 +34,10 @@ function build(opts: {
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
   const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => undefined);
   const listByConversation = opts.listByConversation ?? vi.fn(async () => []);
-  const conversationFor = opts.conversationFor ?? vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null }));
+  // `cli_session_id: null` explicitly, not left `undefined`: production's `ChatConversation` is always
+  // `string | null` here, and the `/host` guard's `!== null` check must be exercised against that same
+  // shape, not against a fixture that happens to satisfy it by omission.
+  const conversationFor = opts.conversationFor ?? vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: null }));
   const service = {
     conversationFor,
     send,
@@ -48,7 +52,7 @@ function build(opts: {
   const fixturesOwner = opts.fixturesOwner ?? 'u1';
   const hostMachines = opts.hostMachines ?? [{ id: 'm1', name: 'jarvis', type: 'agent' }];
   const aiAccounts = opts.aiAccounts ?? [];
-  const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ id, user_id: 'u1', cli_session_id: null, ...host }));
+  const setHost = opts.setHost ?? vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ id, user_id: 'u1', cli_session_id: null, ...host }));
   const clearProjectSessions = opts.clearProjectSessions ?? vi.fn(async () => undefined);
   const repos = {
     chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]), setHost, clearProjectSessions },
@@ -350,6 +354,28 @@ it('POST /host also drops the sessions of the project chats', async () => {
   });
   await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
   expect(repos.chat.clearProjectSessions).toHaveBeenCalledWith('u1');
+});
+
+it('POST /host does not drop project sessions when there was no session to strand', async () => {
+  // The account-wide conversation had no CLI session at all — `cli_session_id: null` before, same
+  // after `setHost`'s default fake. Nothing moved off a session, so nothing downstream should be
+  // told a session was stranded.
+  const { app, repos } = build();
+  await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
+  expect(repos.chat.clearProjectSessions).not.toHaveBeenCalled();
+});
+
+it('POST /host does not drop project sessions when the pair did not really move', async () => {
+  // A session existed ('s-old') and `setHost` says it survived — re-picking the same host the
+  // conversation was already running on. Only `setHost` knows this; the route must trust its answer,
+  // not assume any host write strands a session.
+  const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ id, user_id: 'u1', cli_session_id: 's-old', ...host }));
+  const { app, repos } = build({
+    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: 's-old' })),
+    setHost,
+  });
+  await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
+  expect(repos.chat.clearProjectSessions).not.toHaveBeenCalled();
 });
 
 it('a double click on the same decision still answers 409 the second time, having injected only once', async () => {
