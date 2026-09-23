@@ -3,14 +3,15 @@ import { NavLink, useParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { AccessStatus, InviteResult, PermissionAction, ResourcePermissions, Role, User } from '../lib/types';
-import { SETTINGS_SECTIONS, type SettingsSection } from '../lib/settings-sections';
+import { visibleSettingsSections, type SettingsSection } from '../lib/settings-sections';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { UploadsView } from '../components/UploadsView';
 import { ApiTokensView } from '../components/ApiTokensView';
+import { MyCityView } from '../components/MyCityView';
 
 /**
  * Settings: users, roles, the permission matrix (resource × create/read/update/delete), uploads
- * and the signed-in user's own personal API tokens.
+ * the signed-in user's own personal API tokens and their public city (Minha cidade, open to everyone).
  * Same model as the engenhariainversa CMS: admin roles bypass everything, system roles cannot be deleted.
  */
 
@@ -20,7 +21,7 @@ const ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete'];
 export function SettingsPage() {
   const { section } = useParams<{ section?: string }>();
   const { can } = useAuth();
-  const visible = SETTINGS_SECTIONS.filter((s) => can(s.resource));
+  const visible = visibleSettingsSections(can);
   const current: SettingsSection | undefined = (visible.find((s) => s.key === section) ?? visible[0])?.key;
 
   return (
@@ -39,6 +40,7 @@ export function SettingsPage() {
         {current === 'permissions' && <PermissionsSection />}
         {current === 'uploads' && <UploadsView />}
         {current === 'api-tokens' && <ApiTokensView />}
+        {current === 'city' && <MyCityView />}
         {!current && <p className="text-sm text-fg-dim">Sem permissão para ver as configurações.</p>}
       </div>
     </div>

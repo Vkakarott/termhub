@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
+import { cityLinkFor } from '../lib/public-city';
 import type { Machine, OfficeRoom } from '../lib/types';
 import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type CityModel, type FocusTarget, type MachineEntry, type MachineModel } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
@@ -366,9 +367,7 @@ function shareResultFor(
   // a room on the viewer's own street: their published project, on a machine they own
   const onStreet = (m: Machine, r: OfficeRoom) => r.project.is_public && ownsProject(r) && ownsMachine(m);
   const foreign = (r: OfficeRoom) => r.project.is_public && !ownsProject(r);
-  // this instance's own address for public cities, as the server tells it — never a hardcoded host,
-  // which on a self-hosted instance would hand out a link to somebody else's city
-  const base = nickname && publicCityUrl ? `${publicCityUrl}/@${encodeURIComponent(nickname)}` : null;
+  const base = cityLinkFor(publicCityUrl, nickname);
 
   if (target.kind === 'city') {
     if (base && machines.some((m) => roomsOf(m).some((r) => onStreet(m, r)))) return { kind: 'link', url: base };
