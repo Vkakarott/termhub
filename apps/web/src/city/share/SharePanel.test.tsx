@@ -161,14 +161,14 @@ describe('SharePanel', () => {
     expect(downloadFile).toHaveBeenCalledWith(expect.any(File), 'termhub-cidade-pedro-story.mp4');
   });
 
-  it('warns about an MP4 that does not hold H.264 and AAC (Chromium writes VP9 in it)', async () => {
+  it('trusts an MP4 the recorder reports bare, as Safari does: no warning', async () => {
     const rec = fakeRecording();
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Vídeo para story (10 s, com som)' }));
     await act(async () => {
-      rec.resolve({ blob: new Blob(['v'], { type: 'video/mp4' }), mimeType: 'video/mp4;codecs=vp9,opus' });
+      rec.resolve({ blob: new Blob(['v'], { type: 'video/mp4' }), mimeType: 'video/mp4' });
     });
-    expect(screen.getByText('O Instagram pode não aceitar WebM. No celular, use o Safari ou o Chrome.')).toBeTruthy();
+    expect(screen.queryByText(/webm/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Baixar' }));
     expect(downloadFile).toHaveBeenCalledWith(expect.any(File), 'termhub-cidade-pedro-story.mp4');
   });

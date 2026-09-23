@@ -3,7 +3,18 @@ import { baseType, extensionFor, instagramReady, isWebm, pickMimeType, Recording
 
 describe('pickMimeType', () => {
   it('prefers MP4 with H.264 and AAC, then WebM — never a bare MP4, which Chromium fills with VP9', () => {
-    expect(VIDEO_TYPES).toEqual(['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/webm;codecs=vp9,opus', 'video/webm']);
+    expect(VIDEO_TYPES).toEqual([
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4;codecs="avc1.42E01E, mp4a.40.2"',
+      'video/mp4;codecs=avc1,mp4a',
+      'video/mp4;codecs=avc1',
+      'video/webm;codecs=vp9,opus',
+      'video/webm',
+    ]);
+    expect(VIDEO_TYPES).not.toContain('video/mp4');
+    // a browser (Safari) that only takes a looser H.264 spelling still gets an MP4, not WebM
+    expect(pickMimeType((t) => t === 'video/mp4;codecs=avc1,mp4a' || t.startsWith('video/webm'))).toBe('video/mp4;codecs=avc1,mp4a');
+    expect(pickMimeType((t) => t === 'video/mp4;codecs=avc1' || t.startsWith('video/webm'))).toBe('video/mp4;codecs=avc1');
     expect(pickMimeType(() => true)).toBe('video/mp4;codecs=avc1.42E01E,mp4a.40.2');
     expect(pickMimeType((t) => t === 'video/mp4' || t.startsWith('video/webm'))).toBe('video/webm;codecs=vp9,opus');
     expect(pickMimeType((t) => t.startsWith('video/webm'))).toBe('video/webm;codecs=vp9,opus');
@@ -22,14 +33,16 @@ describe('pickMimeType', () => {
     expect(isWebm('video/mp4')).toBe(false);
   });
 
-  it('calls a video Instagram-ready only for H.264 and AAC in an MP4, as the recorder reports it', () => {
+  it('calls a video Instagram-ready when the recorder wrote an MP4, and never a WebM', () => {
     expect(instagramReady('video/mp4;codecs=avc1.42E01E,mp4a.40.2')).toBe(true);
     expect(instagramReady('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')).toBe(true);
     expect(instagramReady('VIDEO/MP4;codecs=AVC1.42E01E,MP4A.40.2')).toBe(true);
-    expect(instagramReady('video/mp4')).toBe(false);
-    expect(instagramReady('video/mp4;codecs=vp9,opus')).toBe(false);
-    expect(instagramReady('video/mp4;codecs=avc1.42E01E,opus')).toBe(false);
+    // MP4 is only ever asked for with H.264, so an MP4 recording is one — Safari reports it bare
+    expect(instagramReady('video/mp4')).toBe(true);
+    expect(instagramReady('video/mp4;codecs=avc1')).toBe(true);
     expect(instagramReady('video/webm;codecs=vp9,opus')).toBe(false);
+    expect(instagramReady('video/webm')).toBe(false);
+    expect(instagramReady('video/x-matroska;codecs=avc1')).toBe(false);
   });
 
   it('drops the codecs for a file type: share sheets compare the bare type', () => {

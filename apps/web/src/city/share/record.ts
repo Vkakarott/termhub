@@ -12,11 +12,20 @@ import { createSoundscape, soundEvents } from './sound';
 export const STORY_VIDEO_MS = 10_000;
 
 /**
- * First supported wins: H.264 + AAC in an MP4 is what Instagram takes; WebM is the fallback some
- * browsers only have. No bare 'video/mp4': Chromium accepts it and writes VP9 + Opus inside an MP4,
- * which Instagram refuses while the file name promises otherwise.
+ * First supported wins: H.264 + AAC in an MP4 is what Instagram takes, spelled several ways because
+ * browsers disagree on the exact codec string (Safari may refuse the precise one and would otherwise
+ * fall to WebM); WebM is the fallback some browsers only have. Never a bare 'video/mp4': Chromium
+ * accepts it and writes VP9 + Opus inside an MP4, which Instagram refuses. So every MP4 asked for here
+ * is H.264, and `instagramReady` can trust an MP4 recording.
  */
-export const VIDEO_TYPES: readonly string[] = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/webm;codecs=vp9,opus', 'video/webm'];
+export const VIDEO_TYPES: readonly string[] = [
+  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+  'video/mp4;codecs="avc1.42E01E, mp4a.40.2"',
+  'video/mp4;codecs=avc1,mp4a',
+  'video/mp4;codecs=avc1',
+  'video/webm;codecs=vp9,opus',
+  'video/webm',
+];
 
 export function pickMimeType(isTypeSupported: (type: string) => boolean): string | null {
   for (const type of VIDEO_TYPES) {
@@ -34,10 +43,13 @@ export const baseType = (mimeType: string): string => mimeType.split(';')[0].tri
 export const isWebm = (mimeType: string): boolean => baseType(mimeType) === 'video/webm';
 export const extensionFor = (mimeType: string): 'mp4' | 'webm' => (isWebm(mimeType) ? 'webm' : 'mp4');
 
-/** H.264 video and AAC audio in an MP4, judged by what the recorder says it wrote: anything else gets the warning. */
+/**
+ * Whether Instagram takes the recording, judged by what the recorder says it wrote. MP4 is only ever
+ * asked for with H.264 (VIDEO_TYPES), so any MP4 is one — Safari reports it as a bare 'video/mp4'.
+ * Anything else (WebM) gets the warning.
+ */
 export function instagramReady(mimeType: string): boolean {
-  const type = mimeType.toLowerCase();
-  return baseType(type) === 'video/mp4' && type.includes('avc1') && type.includes('mp4a');
+  return baseType(mimeType) === 'video/mp4';
 }
 
 /** MediaRecorder, canvas capture and at least one type this browser can write. */
