@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { CLAUDE_HOOK_EVENTS, HOOK_SCRIPT, claudeConfigDirs, expandHome, hookEnvFile, mergeClaudeSettings, mergeCodexConfig, stripClaudeSettings, stripCodexConfig } from './hooks.js';
+import {
+  CLAUDE_HOOK_EVENTS,
+  CURSOR_HOOK_EVENTS,
+  HOOK_SCRIPT,
+  claudeConfigDirs,
+  expandHome,
+  hookEnvFile,
+  mergeClaudeSettings,
+  mergeCodexConfig,
+  mergeCursorHooks,
+  stripClaudeSettings,
+  stripCodexConfig,
+  stripCursorHooks,
+} from './hooks.js';
 
 const script = '/Users/p/.termhub/bin/termhub-hook';
 
@@ -36,6 +49,21 @@ describe('mergeClaudeSettings', () => {
     expect(() => mergeClaudeSettings('[1,2]', script)).toThrow();
     expect(() => mergeClaudeSettings('{not json', script)).toThrow();
   });
+
+  it('refuses a `hooks` that is there but is not an object, rather than replacing what the person wrote', () => {
+    for (const hooks of ['[{"matcher":"*"}]', '"x"', '1', 'true']) {
+      expect(() => mergeClaudeSettings(`{"model":"opus","hooks":${hooks}}`, script)).toThrow('~/.claude/settings.json: o campo "hooks" não é um objeto');
+    }
+    // absent, null, or [] holds nothing to lose — install must still work
+    expect(JSON.parse(mergeClaudeSettings('{"model":"opus","hooks":null}', script)).hooks.Stop).toHaveLength(1);
+    expect(JSON.parse(mergeClaudeSettings('{"model":"opus","hooks":[]}', script)).hooks.Stop).toHaveLength(1);
+  });
+
+  it('names the settings file the caller passed, not a hardcoded ~/.claude', () => {
+    expect(() => mergeClaudeSettings('{"hooks":[1]}', script, '~/.claude-work/settings.json')).toThrow(
+      '~/.claude-work/settings.json: o campo "hooks" não é um objeto',
+    );
+  });
 });
 
 describe('stripClaudeSettings', () => {
@@ -58,6 +86,56 @@ describe('codex config', () => {
   it('strips only our notify line', () => {
     expect(stripCodexConfig(`notify = ["${script}", "codex"]\nmodel = "o3"\n`)).toBe('model = "o3"\n');
     expect(stripCodexConfig('notify = ["other"]\n')).toBe('notify = ["other"]\n');
+  });
+});
+
+describe('cursor hooks.json', () => {
+  type CursorFile = { version: number; hooks: Record<string, { command: string }[]> };
+
+  it('adds one command per event to an empty or missing file', () => {
+    const out = JSON.parse(mergeCursorHooks('', script)) as CursorFile;
+    expect(out.version).toBe(1);
+    expect(Object.keys(out.hooks).sort()).toEqual([...CURSOR_HOOK_EVENTS].sort());
+    expect(out.hooks.stop).toEqual([{ command: `${script} cursor` }]);
+  });
+
+  it('keeps the user\'s own hooks and version, and is idempotent', () => {
+    const current = JSON.stringify({ version: 2, hooks: { stop: [{ command: 'say done' }], beforeShellExecution: [{ command: './audit.sh' }] } });
+    const once = mergeCursorHooks(current, script);
+    expect(mergeCursorHooks(once, script)).toBe(once);
+    const out = JSON.parse(once) as CursorFile;
+    expect(out.version).toBe(2);
+    expect(out.hooks.beforeShellExecution).toEqual([{ command: './audit.sh' }]);
+    expect(out.hooks.stop.map((e) => e.command)).toEqual(['say done', `${script} cursor`]);
+  });
+
+  it('registers exactly these events: no hook that could answer a permission check', () => {
+    // beforeSubmitPrompt is the one blocking event on purpose: it is the only signal that a new turn
+    // started, and the script prints nothing, which Cursor reads as "go on" (see hook-script.test.ts).
+    // Every other before* / preToolUse hook can allow or deny a command, a file or an MCP call.
+    expect([...CURSOR_HOOK_EVENTS]).toEqual(['sessionStart', 'beforeSubmitPrompt', 'afterAgentResponse', 'stop', 'sessionEnd']);
+  });
+
+  it('refuses to clobber a file that is not a JSON object', () => {
+    expect(() => mergeCursorHooks('[1]', script)).toThrow();
+    expect(() => mergeCursorHooks('{nope', script)).toThrow();
+  });
+
+  it('refuses a `hooks` that is there but is not an object, rather than replacing what the person wrote', () => {
+    for (const hooks of ['[{"command":"say done"}]', '"x"', '1', 'true']) {
+      expect(() => mergeCursorHooks(`{"version":1,"hooks":${hooks}}`, script)).toThrow('~/.cursor/hooks.json: o campo "hooks" não é um objeto');
+    }
+    // absent, null, or [] holds nothing to lose
+    expect(JSON.parse(mergeCursorHooks('{"version":1,"hooks":null}', script)).hooks.stop).toEqual([{ command: `${script} cursor` }]);
+    expect(JSON.parse(mergeCursorHooks('{"version":1,"hooks":[]}', script)).hooks.stop).toEqual([{ command: `${script} cursor` }]);
+  });
+
+  it('strips only our entries, drops events left empty and leaves odd files alone', () => {
+    const merged = mergeCursorHooks(JSON.stringify({ version: 1, hooks: { stop: [{ command: 'say done' }] } }), script);
+    expect(JSON.parse(stripCursorHooks(merged))).toEqual({ version: 1, hooks: { stop: [{ command: 'say done' }] } });
+    expect(JSON.parse(stripCursorHooks(mergeCursorHooks('', script)))).toEqual({ version: 1 });
+    expect(stripCursorHooks('[1]')).toBe('[1]');
+    expect(stripCursorHooks('')).toBe('');
   });
 });
 

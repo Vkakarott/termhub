@@ -1,6 +1,6 @@
 /**
- * Monitor hooks: the small POSIX script under ~/.termhub/bin that forwards Claude Code / Codex
- * hook payloads to termhub, and the pure merge/strip of the two config files that make the
+ * Monitor hooks: the small POSIX script under ~/.termhub/bin that forwards Claude Code / Codex /
+ * Cursor CLI hook payloads to termhub, and the pure merge/strip of the config files that make the
  * tools call it. Shared by the server (ssh/local machines, written through `sh -s`) and the
  * agent (`hooks.install` RPC, written with node:fs on the machine itself).
  */
@@ -38,11 +38,22 @@ export function expandHome(dir: string, home: string): string {
 /** Claude Code hook events we subscribe to (see the server's monitor/state.ts for what each one means). */
 export const CLAUDE_HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Notification', 'Stop', 'SessionEnd'] as const;
 
-/** The script itself. Reads the hook JSON (stdin for Claude, argv for Codex), tags it with the tmux session and posts it in the background. */
+/**
+ * Cursor CLI hook events we subscribe to (~/.cursor/hooks.json; see the server's monitor/state.ts).
+ * No hook that answers a permission check: `beforeShellExecution`, `beforeMCPExecution`,
+ * `beforeReadFile` and `preToolUse` can allow or deny, and ours must never be in that position.
+ * `beforeSubmitPrompt` is blocking too — its stdout can cancel the prompt — and is taken on purpose:
+ * it is the only signal that a new turn started. The script prints nothing, which Cursor reads as
+ * "go on" (checked against cursor-agent 2026.09.18; hook-script.test.ts keeps stdout empty).
+ */
+export const CURSOR_HOOK_EVENTS = ['sessionStart', 'beforeSubmitPrompt', 'afterAgentResponse', 'stop', 'sessionEnd'] as const;
+
+/** The script itself. Reads the hook JSON (stdin for Claude and Cursor, argv for Codex), tags it with the tmux session and posts it in the background. */
 export const HOOK_SCRIPT = `#!/bin/sh
-# termhub monitor hook — installed by termhub; forwards Claude Code / Codex hook events to
-# termhub tagged with the tmux session, so the app knows which tab is waiting for you.
-# Safe to delete (also remove the entries in ~/.claude/settings.json and ~/.codex/config.toml).
+# termhub monitor hook — installed by termhub; forwards Claude Code / Codex / Cursor CLI hook
+# events to termhub tagged with the tmux session, so the app knows which tab is waiting for you.
+# Safe to delete (also remove the entries in ~/.claude/settings.json, ~/.codex/config.toml and
+# ~/.cursor/hooks.json).
 TOOL="\${1:-claude}"
 [ -f "$HOME/${HOOK_ENV_REL}" ] || exit 0
 . "$HOME/${HOOK_ENV_REL}"
@@ -116,27 +127,41 @@ export function hookEnvFile(hooksUrl: string, token: string): string {
 
 type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string }[] };
 
+const asObject = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+
+/**
+ * `hooks` we can merge into: a real object, or nothing to lose (absent, null, or `[]`).
+ * A non-empty array / string / number would be replaced by ours alone — refuse those.
+ */
+const asHooksRecord = (v: unknown): Record<string, unknown> | null => {
+  if (v == null || (Array.isArray(v) && v.length === 0)) return {};
+  return asObject(v);
+};
+
 const isOurs = (e: HookEntry) => !!e && typeof e === 'object' && Array.isArray(e.hooks) && e.hooks.some((h) => typeof h?.command === 'string' && h.command.includes(HOOK_MARK));
 
 /** Merges our entries into Claude Code's settings.json; keeps everything else. Throws on a file that is not a JSON object. */
-export function mergeClaudeSettings(current: string, scriptPath: string): string {
+export function mergeClaudeSettings(current: string, scriptPath: string, shown = '~/.claude/settings.json'): string {
   let settings: Record<string, unknown> = {};
   if (current.trim()) {
     const parsed = JSON.parse(current) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('~/.claude/settings.json não é um objeto JSON');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${shown} não é um objeto JSON`);
     settings = parsed as Record<string, unknown>;
   }
-  const hooks = (settings.hooks && typeof settings.hooks === 'object' && !Array.isArray(settings.hooks) ? settings.hooks : {}) as Record<string, unknown>;
+  // a `hooks` we cannot read would be replaced by ours alone, and uninstall could not give it back
+  const hooks = asHooksRecord(settings.hooks);
+  if (settings.hooks != null && hooks === null) throw new Error(`${shown}: o campo "hooks" não é um objeto`);
+  const next = hooks ?? {};
   for (const event of CLAUDE_HOOK_EVENTS) {
-    const list = (Array.isArray(hooks[event]) ? hooks[event] : []) as HookEntry[];
+    const list = (Array.isArray(next[event]) ? next[event] : []) as HookEntry[];
     const others = list.filter((e) => !isOurs(e));
     const entry: HookEntry = { hooks: [{ type: 'command', command: `${scriptPath} claude`, timeout: 10 } as { type: string; command: string }] };
     // A tool event's entry is filtered by tool name; '*' says every tool explicitly (so would no matcher).
     if (event === 'PreToolUse') entry.matcher = '*';
     others.push(entry);
-    hooks[event] = others;
+    next[event] = others;
   }
-  settings.hooks = hooks;
+  settings.hooks = next;
   return `${JSON.stringify(settings, null, 2)}\n`;
 }
 
@@ -174,4 +199,47 @@ export function mergeCodexConfig(current: string, scriptPath: string): string {
 export function stripCodexConfig(current: string): string {
   const lines = current.split('\n').filter((l) => !(/^\s*notify\s*=/.test(l) && l.includes(HOOK_MARK)));
   return lines.join('\n');
+}
+
+type CursorEntry = { command?: unknown };
+
+const isOurCursorEntry = (e: CursorEntry) => !!e && typeof e === 'object' && typeof e.command === 'string' && e.command.includes(HOOK_MARK);
+
+
+/** Merges our entries into Cursor's ~/.cursor/hooks.json (`{ version, hooks: { event: [{ command }] } }`); keeps everything else. Throws on a file that is not a JSON object. */
+export function mergeCursorHooks(current: string, scriptPath: string, shown = '~/.cursor/hooks.json'): string {
+  let file: Record<string, unknown> = {};
+  if (current.trim()) {
+    const parsed = asObject(JSON.parse(current) as unknown);
+    if (!parsed) throw new Error(`${shown} não é um objeto JSON`);
+    file = parsed;
+  }
+  // a `hooks` we cannot read would be replaced by ours alone, and uninstall could not give it back
+  const hooks = asHooksRecord(file.hooks);
+  if (file.hooks != null && hooks === null) throw new Error(`${shown}: o campo "hooks" não é um objeto`);
+  const next = hooks ?? {};
+  for (const event of CURSOR_HOOK_EVENTS) {
+    const others = ((Array.isArray(next[event]) ? next[event] : []) as CursorEntry[]).filter((e) => !isOurCursorEntry(e));
+    others.push({ command: `${scriptPath} cursor` });
+    next[event] = others;
+  }
+  return `${JSON.stringify({ ...file, version: typeof file.version === 'number' ? file.version : 1, hooks: next }, null, 2)}\n`;
+}
+
+/** Removes our entries; drops events left empty, and `hooks` when nothing is left. Leaves anything that is not a JSON object alone. */
+export function stripCursorHooks(current: string): string {
+  if (!current.trim()) return current;
+  const file = asObject(JSON.parse(current) as unknown);
+  if (!file) return current;
+  const hooks = asObject(file.hooks);
+  if (hooks) {
+    for (const key of Object.keys(hooks)) {
+      if (!Array.isArray(hooks[key])) continue;
+      const kept = (hooks[key] as CursorEntry[]).filter((e) => !isOurCursorEntry(e));
+      if (kept.length) hooks[key] = kept;
+      else delete hooks[key];
+    }
+    if (Object.keys(hooks).length === 0) delete file.hooks;
+  }
+  return `${JSON.stringify(file, null, 2)}\n`;
 }

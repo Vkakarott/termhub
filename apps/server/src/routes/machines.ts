@@ -247,8 +247,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
       throw conflict(err instanceof Error ? err.message : 'Instalação falhou');
     }
     const hook = await repos.machineHooks.upsert(machine.id, hash);
-    request.log.info({ machineId: machine.id, claude: report.claude, claudeDirs: report.claude_dirs.length, codex: report.codex }, 'monitor: hooks installed');
-    return { installed_at: hook.installed_at, hooks_url: report.hooks_url, claude: report.claude, codex: report.codex, claude_dirs: report.claude_dirs };
+    request.log.info({ machineId: machine.id, claude: report.claude, claudeDirs: report.claude_dirs.length, codex: report.codex, cursor: report.cursor }, 'monitor: hooks installed');
+    return { installed_at: hook.installed_at, hooks_url: report.hooks_url, claude: report.claude, codex: report.codex, cursor: report.cursor, claude_dirs: report.claude_dirs };
   });
 
   /** Removes the hooks from the machine and revokes its token. */

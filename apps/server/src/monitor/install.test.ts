@@ -51,6 +51,33 @@ describe('installHooks on a local/ssh machine', () => {
     await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('skips the Cursor CLI when ~/.cursor is absent', async () => {
+    const r = await installHooks(machine, 'thb_hk_abc', url);
+    expect(r.cursor).toBe('skipped');
+    await expect(stat(path.join(home, '.cursor'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('hooks the Cursor CLI when ~/.cursor exists, keeping its own hooks, and gives them back on uninstall', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await writeFile(path.join(home, '.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { stop: [{ command: 'say done' }] } }));
+    const r = await installHooks(machine, 'thb_hk_abc', url);
+    expect(r.cursor).toBe('installed');
+    const file = JSON.parse(await read('.cursor/hooks.json')) as { hooks: Record<string, { command: string }[]> };
+    expect(file.hooks.stop.map((e) => e.command)).toEqual(['say done', `${home}/.termhub/bin/termhub-hook cursor`]);
+    expect(file.hooks.afterAgentResponse).toEqual([{ command: `${home}/.termhub/bin/termhub-hook cursor` }]);
+
+    await uninstallHooks(machine);
+    expect(JSON.parse(await read('.cursor/hooks.json'))).toEqual({ version: 1, hooks: { stop: [{ command: 'say done' }] } });
+  });
+
+  it('refuses a broken ~/.cursor/hooks.json before writing anything', async () => {
+    await mkdir(path.join(home, '.cursor'), { recursive: true });
+    await writeFile(path.join(home, '.cursor/hooks.json'), '{not json');
+    await expect(installHooks(machine, 'thb_hk_abc', url)).rejects.toThrow('~/.cursor/hooks.json não é JSON válido');
+    await expect(stat(path.join(home, '.termhub'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await read('.cursor/hooks.json')).toBe('{not json');
+  });
+
   it('finds the machine\'s own config dirs when nothing is registered, and gives them back on uninstall', async () => {
     await mkdir(path.join(home, '.claude-work'), { recursive: true });
     await writeFile(path.join(home, '.claude-work/settings.json'), '{}\n');
