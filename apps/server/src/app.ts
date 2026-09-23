@@ -11,6 +11,7 @@ import { AuthService, authRoutes, buildAuthHook, type AuthContext } from './auth
 import { applyErrorHandler } from './lib/errors.js';
 import { machineRoutes } from './routes/machines.js';
 import { projectRoutes } from './routes/projects.js';
+import { projectGroupRoutes } from './routes/project-groups.js';
 import { transcriptionRoutes } from './routes/transcriptions.js';
 import { tabRoutes } from './routes/tabs.js';
 import { projectTaskRoutes, taskRoutes } from './routes/tasks.js';
@@ -161,6 +162,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       await api.register((a) => cityLinkRoutes(a, { shortLinks }), { prefix: '/auth' });
       await guarded('machines', (a) => machineRoutes(a, repos), '/machines');
       await guarded('projects', (a) => projectRoutes(a, repos, { simulators }), '/projects');
+      await guarded('projects', (a) => projectGroupRoutes(a, repos), '/project-groups');
       await guarded('tasks', (a) => projectTaskRoutes(a, repos), '/projects');
       await guarded('notes', (a) => noteRoutes(a, repos), '/projects');
       await guarded('tasks', (a) => taskRoutes(a, repos), '/tasks');
