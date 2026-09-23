@@ -425,6 +425,8 @@ export interface PublicBuilding {
 export interface PublicCity {
   nickname: string;
   owner_name: string;
+  /** the owner's short link (77a.it/…), or null: use the long /city/@nickname address */
+  short_url: string | null;
   buildings: PublicBuilding[];
 }
 
