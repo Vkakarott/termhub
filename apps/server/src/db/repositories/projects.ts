@@ -9,9 +9,10 @@ export interface ProjectInput {
   name: string;
   status?: ProjectStatus;
   description?: string | null;
+  is_public?: boolean;
 }
 
-export type ProjectPatch = Partial<Pick<ProjectInput, 'name' | 'status' | 'description'>>;
+export type ProjectPatch = Partial<Pick<ProjectInput, 'name' | 'status' | 'description' | 'is_public'>>;
 
 export type ProjectRuleCode = 'KEY_INVALID' | 'KEY_TAKEN' | 'MACHINE_ALREADY_LINKED' | 'MACHINE_NOT_LINKED' | 'MACHINE_REQUIRED' | 'NO_MACHINE';
 
@@ -80,6 +81,7 @@ export class ProjectsRepository {
         name: input.name,
         status: input.status ?? 'active',
         description: input.description ?? null,
+        isPublic: input.is_public ?? false,
       },
     });
     return mapProject(p);
@@ -91,7 +93,7 @@ export class ProjectsRepository {
     const next = { ...current, ...patch };
     const p = await this.db.project.update({
       where: { id },
-      data: { name: next.name, status: next.status, description: next.description ?? null },
+      data: { name: next.name, status: next.status, description: next.description ?? null, isPublic: next.is_public },
     });
     return mapProject(p);
   }

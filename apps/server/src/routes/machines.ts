@@ -18,6 +18,7 @@ import { config } from '../config.js';
 import { installHooks, uninstallHooks } from '../monitor/install.js';
 import { newHookToken } from '../monitor/token.js';
 import type { Machine } from '../db/repositories/types.js';
+import { publicBus } from '../public/bus.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
@@ -135,7 +136,15 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
       if (!(await isAdmin(repos, request.user))) throw forbidden('Só administradores transferem máquinas');
       if (owner_id && !(await repos.users.findById(owner_id))) throw badRequest('Usuário inexistente');
     }
-    return { machine: await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) }) };
+    const machine = await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) });
+    // A city only ever shows machines its person owns (public/read.ts), so a transferred machine
+    // leaves the old owner's city by that rule alone — its projects stay published (they belong to
+    // their own owners now, not to the machine). Any public page showing the building drops it at once.
+    if (owner_id !== undefined && owner_id !== current.owner_id) {
+      publicBus.publishRoomsGone({ machine_id: id });
+      request.log.info({ machineId: id }, 'machine transferred: left its old owner\'s public city');
+    }
+    return { machine };
   });
 
   app.delete('/:id', async (request) => {
@@ -143,6 +152,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     await scoped(repos, request).machine(id);
     // The DB cascade removes this machine's project links and its own tabs; the projects survive.
     await repos.machines.delete(id);
+    // its buildings leave every public city at once (the projects, and their publish switch, stay)
+    publicBus.publishRoomsGone({ machine_id: id });
     agents.disconnect(id, CLOSE.UNAUTHORIZED, 'deleted');
     return { ok: true };
   });

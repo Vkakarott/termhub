@@ -1,6 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
-import fastifyStatic from '@fastify/static';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT_DIR } from './config.js';
@@ -23,6 +22,10 @@ import { setupRoutes } from './routes/setup.js';
 import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
+import { publicCityRoutes } from './routes/public-city.js';
+import { registerPublicWs } from './public/ws.js';
+import { defaultFrontendDirs, registerFrontend } from './frontend.js';
+import { loadPublicIdKey, setPublicIdKey } from './public/public-id.js';
 import { hooksRoutes } from './routes/hooks.js';
 import { monitorRoutes } from './routes/monitor.js';
 import { registerMonitorWs } from './monitor/ws.js';
@@ -56,7 +59,12 @@ export interface App {
   auth: AuthContext;
 }
 
-export async function buildApp(): Promise<App> {
+export interface BuildAppOptions {
+  /** Where the built web bundles are read from (tests); defaults to apps/web/dist and dist-city. */
+  frontend?: { webDist?: string; cityDist?: string };
+}
+
+export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   const fastify = Fastify({
     logger: {
       level: config.isProd ? 'info' : 'debug',
@@ -71,6 +79,9 @@ export async function buildApp(): Promise<App> {
   const prisma = getPrisma();
   await prisma.$connect();
   const repos = createRepositories(prisma);
+  // Before anything maps a machine or a project (the seed does): every public id is an HMAC with
+  // this key, and publicId() refuses to answer without it.
+  setPublicIdKey(await loadPublicIdKey(repos));
   await seed(repos, (m) => fastify.log.info(m));
 
   const mailer = createMailer((m) => fastify.log.info(m));
@@ -114,6 +125,7 @@ export async function buildApp(): Promise<App> {
   const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
   registerMonitorWs(upgrades, { log: fastify.log });
   registerChatWs(upgrades, { log: fastify.log });
+  registerPublicWs(upgrades, { repos, log: fastify.log });
 
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
@@ -164,6 +176,7 @@ export async function buildApp(): Promise<App> {
       // default — and the operator's container is no longer in this path at all.
       const chat = new ChatService({ repos, agents, runnerFor: (machineId) => agentRunner(machineId) });
       await guarded('chat', (a) => chatRoutes(a, repos, { service: chat }), '/chat');
+      await api.register((a) => publicCityRoutes(a, repos), { prefix: '/public' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },
@@ -174,18 +187,9 @@ export async function buildApp(): Promise<App> {
   await fastify.register((a) => mcpRoutes(a, { repos, version: SERVER_VERSION }));
 
   // --- Frontend buildado (produção) ---
-  const webDist = path.join(ROOT_DIR, 'apps', 'web', 'dist');
-  if (fs.existsSync(path.join(webDist, 'index.html'))) {
-    await fastify.register(fastifyStatic, { root: webDist, prefix: '/', index: ['index.html'] });
-    // SPA fallback: qualquer rota não-API devolve o index.html
-    fastify.setNotFoundHandler((request, reply) => {
-      if (request.url.startsWith('/api/') || request.url.startsWith('/ws/') || request.url.startsWith('/mcp')) {
-        return reply.code(404).send({ error: 'Não encontrado' });
-      }
-      return reply.sendFile('index.html');
-    });
-  } else {
-    fastify.log.warn('apps/web/dist não encontrado — rodando só a API (use "npm run build" para servir o frontend)');
+  const dirs = { ...defaultFrontendDirs(ROOT_DIR), ...opts.frontend };
+  if (!(await registerFrontend(fastify, { repos, ...dirs, publicCityUrl: config.publicCityUrl }))) {
+    fastify.log.warn('apps/web/dist e apps/web/dist-city não encontrados — rodando só a API (use "npm run build" e "npm run build:city -w @termhub/web" para servir os bundles)');
   }
 
   // Limpeza periódica de sessões expiradas e de perguntas do chat que ninguém respondeu

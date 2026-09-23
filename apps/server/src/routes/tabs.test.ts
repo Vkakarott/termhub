@@ -47,6 +47,7 @@ function buildApp(tabs: Record<string, Tab>, ownerId: string | null = null, mach
   const tabsRepo = {
     findById: vi.fn(async (id: string) => tabs[id]),
     markSeen,
+    delete: vi.fn(async (id: string) => delete tabs[id]),
   };
   const repos = {
     tabs: tabsRepo,
@@ -123,5 +124,23 @@ describe('POST /tabs/:id/input', () => {
     const r = await app.inject({ method: 'POST', url: '/tabs/t1/input', payload: { text: 'oi', enter: false } });
     expect(r.statusCode).toBe(409);
     expect(r.json().error).toBe('tmux não respondeu');
+  });
+});
+
+describe('DELETE /tabs/:id', () => {
+  // A visitor watching a published room must see the robot leave, not sit there until a reload.
+  it('tells the public channel the tab is gone', async () => {
+    const { publicBus } = await import('../public/bus.js');
+    const gone: unknown[] = [];
+    const off = publicBus.subscribeTabRemoved((c) => gone.push(c));
+    try {
+      const store = { t1: tab({ id: 't1', tmux_session: null }) };
+      const { app } = buildApp(store);
+      const res = await app.inject({ method: 'DELETE', url: '/tabs/t1' });
+      expect(res.statusCode).toBe(200);
+      expect(gone).toEqual([{ tab_id: 't1', project_id: 'p1', machine_id: 'm1' }]);
+    } finally {
+      off();
+    }
   });
 });

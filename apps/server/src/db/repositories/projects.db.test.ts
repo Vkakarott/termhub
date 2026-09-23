@@ -75,4 +75,13 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ProjectsRepository (Postg
     const u = await repo.update(p.id, { name: 'b', status: 'paused', description: 'd' });
     expect(u).toMatchObject({ key: p.key, name: 'b', status: 'paused', description: 'd' });
   });
+
+  it('a project is born private; update publishes and unpublishes it', async () => {
+    const p = await repo.create({ owner_id: ownerId, key: key(), name: 'pub' });
+    expect(p.is_public).toBe(false);
+    expect((await repo.update(p.id, { is_public: true }))?.is_public).toBe(true);
+    // a later patch that does not mention is_public keeps it
+    expect((await repo.update(p.id, { name: 'renamed' }))?.is_public).toBe(true);
+    expect((await repo.update(p.id, { is_public: false }))?.is_public).toBe(false);
+  });
 });

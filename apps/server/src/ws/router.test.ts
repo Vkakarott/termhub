@@ -1,5 +1,6 @@
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { AuthContext } from '../auth/index.js';
@@ -196,5 +197,112 @@ describe('createUpgradeRouter', () => {
       const outcome = await attempt(`ws://127.0.0.1:${pubPort}/ws/ok/abc123`, { headers: { Origin: `http://127.0.0.1:${pubPort}` } });
       expect(outcome.statusCode).toBe(401);
     });
+  });
+
+  // Node's http server drops its own socket `error` handler once it hands a socket to `upgrade`, and
+  // `ws` only adds one inside handleUpgrade: a client resetting the connection while a route still
+  // awaits a lookup would raise an unhandled ECONNRESET and take the whole process down.
+  describe('a client that resets mid-admission', () => {
+    let rstServer: http.Server;
+    let rstWss: WebSocketServer;
+    let rstPort: number;
+    let seenErrorListeners: number[];
+    interface Gate {
+      entered: Promise<void>;
+      proceed: () => void;
+      finished: Promise<void>;
+      wait: (socket: Duplex) => Promise<void>;
+    }
+    let gates: { pub: Gate; auth: Gate };
+
+    /** Stands in for a slow DB lookup: tells the test the handler is waiting, and waits for its go. */
+    function gate(): Gate {
+      let entered!: () => void;
+      let done!: () => void;
+      let proceed!: () => void;
+      const go = new Promise<void>((r) => (proceed = r));
+      const g: Gate = {
+        entered: new Promise((r) => (entered = r)),
+        proceed: () => proceed(),
+        finished: new Promise((r) => (done = r)),
+        wait: async (socket) => {
+          seenErrorListeners.push(socket.listenerCount('error'));
+          entered();
+          await go;
+          await new Promise((r) => setTimeout(r, 20));
+          done();
+        },
+      };
+      return g;
+    }
+
+    beforeEach(async () => {
+      seenErrorListeners = [];
+      rstServer = http.createServer();
+      const router = createUpgradeRouter(rstServer, { auth: {} as AuthContext });
+      rstWss = new WebSocketServer({ noServer: true });
+      gates = { pub: gate(), auth: gate() };
+      const upgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer) =>
+        rstWss.handleUpgrade(req, socket, head, (ws) => rstWss.emit('connection', ws, req));
+      router.addPublic(/^\/pub\/slow$/, async ({ req, socket, head }) => {
+        await gates.pub.wait(socket);
+        upgrade(req, socket, head);
+      });
+      router.add(/^\/ws\/slow$/, async ({ req, socket, head }) => {
+        await gates.auth.wait(socket);
+        upgrade(req, socket, head);
+      });
+      rstPort = await listen(rstServer);
+    });
+
+    afterEach(async () => {
+      rstWss.close();
+      await shutdown(rstServer);
+    });
+
+    function resetDuringAdmission(path: string, g: Gate): Promise<void> {
+      return new Promise((resolve, reject) => {
+        const client = net.connect(rstPort, '127.0.0.1', () => {
+          client.write(
+            `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${rstPort}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+              'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n',
+          );
+        });
+        client.on('error', () => {});
+        g.entered.then(() => {
+          client.resetAndDestroy();
+          client.on('close', () => resolve());
+        }, reject);
+      });
+    }
+
+    for (const [label, path, key] of [
+      ['public route', '/pub/slow', 'pub'],
+      ['authenticated route', '/ws/slow', 'auth'],
+    ] as const) {
+      it(`${label}: the socket already has an error listener while the handler awaits, and the process survives a reset`, async () => {
+        resolveUserMock.mockResolvedValue({ id: 'u1' });
+        const onUncaught = vi.fn();
+        process.on('uncaughtException', onUncaught);
+        try {
+          const g = gates[key];
+          await resetDuringAdmission(path, g);
+          // Give the server time to see the RST before the handler goes on to write to the socket.
+          await new Promise((r) => setTimeout(r, 50));
+          g.proceed();
+          await g.finished;
+          await new Promise((r) => setTimeout(r, 50));
+          expect(seenErrorListeners).toHaveLength(1);
+          expect(seenErrorListeners[0]).toBeGreaterThan(0);
+          expect(onUncaught).not.toHaveBeenCalled();
+        } finally {
+          process.off('uncaughtException', onUncaught);
+        }
+        // and the server still answers
+        resolveUserMock.mockResolvedValue(null);
+        const outcome = await attempt(`ws://127.0.0.1:${rstPort}/ws/nope`);
+        expect(outcome.statusCode).toBe(404);
+      });
+    }
   });
 });

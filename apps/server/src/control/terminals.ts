@@ -9,6 +9,7 @@ import { killTmuxSession } from '../terminal/machine-exec.js';
 import { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } from '../terminal/session-ops.js';
 import { ControlError, type ControlContext } from './context.js';
 import { assertTerminal, clamp, offline, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES, waitForState } from './screen.js';
+import { publicBus } from '../public/bus.js';
 
 export { INPUT_MAX_CHARS };
 
@@ -186,5 +187,6 @@ export async function closeTab(ctx: ControlContext, input: { tab_id: string; for
     }
   }
   await ctx.repos.tabs.delete(tab.id);
+  publicBus.publishTabRemoved({ tab_id: tab.id, project_id: tab.project_id, machine_id: machine.id });
   return { tab_id: tab.id, killed };
 }

@@ -7,6 +7,7 @@ import { VIEW_AS_ALL, VIEW_AS_COOKIE, type Scope } from './scope.js';
 import { HttpError, badRequest, forbidden, unauthorized } from '../lib/errors.js';
 import type { AuthContext } from './middleware.js';
 import { buildAuthorizationUrl, exchangeCode, isGoogleEnabled } from './google.js';
+import { normalizeNickname } from '../public/nickname.js';
 import { CSRF_COOKIE, OAUTH_COOKIE, SESSION_COOKIE } from './tokens.js';
 
 const loginSchema = z.object({
@@ -48,6 +49,7 @@ function viewAsOf(scope: Scope | undefined) {
 }
 
 const viewAsSchema = z.object({ user_id: z.string().min(1).max(64).nullable() });
+const nicknameBodySchema = z.object({ nickname: z.string() });
 
 export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
   /** Public user + role summary + flat permission list: what the client needs to gate its UI. */
@@ -67,11 +69,32 @@ export async function authRoutes(app: FastifyInstance, ctx: AuthContext) {
     google: isGoogleEnabled(),
     password: true,
     email_code: true,
+    // Where this instance's public cities live (share links, the nickname preview). Public by nature:
+    // it is the address handed to strangers. Served here, beside the rest of the instance's config,
+    // because every sign-in path reads this once at boot and none of them returns it otherwise.
+    public_city_url: config.publicCityUrl,
   }));
 
   app.get('/me', { config: { public: true } }, async (request) => {
     if (!request.user) throw unauthorized();
     return { user: await withRole(request.user), view_as: viewAsOf(request.scope) };
+  });
+
+  app.patch('/me/nickname', async (request, reply) => {
+    if (!request.user) throw unauthorized();
+    const body = nicknameBodySchema.parse(request.body);
+    const parsed = normalizeNickname(body.nickname);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.reason === 'reserved' ? 'Esse apelido é reservado' : 'Use de 3 a 30 letras, números ou hífen', code: 'NICKNAME_INVALID' });
+    // Once claimed, the address is this person's for good (spec §8): releasing it would let anyone
+    // claim it next and inherit every /city/@nick link already shared. Re-sending the same one is a no-op.
+    if (request.user.nickname && request.user.nickname !== parsed.value) {
+      return reply.code(409).send({ error: 'Seu apelido já foi escolhido e não pode ser trocado', code: 'NICKNAME_LOCKED' });
+    }
+    const out = await ctx.repos.users.setNickname(request.user.id, parsed.value);
+    if (out === 'taken') return reply.code(409).send({ error: 'Esse apelido já é de outra pessoa', code: 'NICKNAME_TAKEN' });
+    if (out === 'locked') return reply.code(409).send({ error: 'Seu apelido já foi escolhido e não pode ser trocado', code: 'NICKNAME_LOCKED' });
+    request.log.info({ userId: request.user.id }, 'nickname: claimed');
+    return { user: await withRole({ ...request.user, nickname: parsed.value }) };
   });
 
   /**

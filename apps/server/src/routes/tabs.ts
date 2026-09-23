@@ -8,6 +8,7 @@ import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { PASTE_MAX_BYTES, saveFileOnMachine } from '../terminal/paste-file.js';
 import { INPUT_MAX_CHARS, sendKeysToSession } from '../monitor/send-keys.js';
 import { applyState, publishTabChange } from '../monitor/ingest.js';
+import { publicBus } from '../public/bus.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const pasteQuery = z.object({ name: z.string().max(255).optional() });
@@ -100,6 +101,7 @@ export async function tabRoutes(
       }
     }
     await repos.tabs.delete(id);
+    publicBus.publishTabRemoved({ tab_id: tab.id, project_id: tab.project_id, machine_id: machine.id });
     return { ok: true, killed };
   });
 

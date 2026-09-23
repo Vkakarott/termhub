@@ -38,6 +38,8 @@ model User {
   email        String    @unique
   name         String
   avatarUrl    String?   @map("avatar_url")
+  /// The address of this person's public city (/city/@nickname). Null = no city. Unique, lowercase.
+  nickname     String?   @unique
   passwordHash String?   @map("password_hash")
   googleId     String?   @unique @map("google_id")
   /// DEPRECATED: replaced by roleId (kept one release for the blue/green window; drop next)
@@ -176,6 +178,8 @@ model Project {
   name           String
   status         ProjectStatus @default(active)
   description    String?
+  /// Published: one room per machine the project's owner owns and links it to — with its tabs and that machine's name — is readable by anyone with the link. A link to somebody else's machine never becomes a room.
+  isPublic       Boolean       @default(false) @map("is_public")
   lastTerminalAt DateTime?     @map("last_terminal_at")
   createdAt      DateTime      @default(now()) @map("created_at")
   owner          User?         @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
@@ -603,4 +607,14 @@ model ChatAction {
 
   @@index([conversationId, createdAt])
   @@map("chat_actions")
+}
+
+/// A secret this instance generates for itself, once, and keeps: no env var to configure, and blue
+/// and green read the same row. `public_id` keys the HMAC behind every id on the public city.
+model InstanceSecret {
+  name      String   @id
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("instance_secrets")
 }

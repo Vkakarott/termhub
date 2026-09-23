@@ -248,6 +248,19 @@ describe('closeTab', () => {
     await expect(closeTab(ctx, { tab_id: 't1', force: true })).resolves.toMatchObject({ tab_id: 't1' });
   });
 
+  it('tells the public channel the tab is gone', async () => {
+    const { publicBus } = await import('../public/bus.js');
+    const gone: unknown[] = [];
+    const off = publicBus.subscribeTabRemoved((c) => gone.push(c));
+    try {
+      killTmuxSession.mockResolvedValue(true);
+      await closeTab(ctxWith(), { tab_id: 't1' });
+      expect(gone).toEqual([{ tab_id: 't1', project_id: 'p1', machine_id: 'm1' }]);
+    } finally {
+      off();
+    }
+  });
+
   it('still removes the tab when the session could not be killed', async () => {
     killTmuxSession.mockRejectedValue(new Error('offline'));
     const ctx = ctxWith();

@@ -4,9 +4,10 @@ import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
+import type { Machine, OfficeRoom } from '../lib/types';
 import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type CityModel, type FocusTarget, type MachineEntry, type MachineModel } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
-import { useOfficeSnapshots } from '../office/useOfficeSnapshots';
+import { useOfficeSnapshots, type MachineSnapshotState } from '../office/useOfficeSnapshots';
 
 /**
  * The office: the whole account as a city, live. The URL is the state, and each of its rests is a
@@ -18,7 +19,7 @@ export function OfficePage() {
   const { machineId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { can } = useAuth();
+  const { can, user, publicCityUrl } = useAuth();
   const { machines, projects, statuses, loading } = useData();
   const { items, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
@@ -239,6 +240,7 @@ export function OfficePage() {
   if (machineId && machineName) trail.push({ label: machineName, go: () => go(machineId, null, true) });
   const roomName = here?.floor.rooms.find((r) => r.id === room)?.name;
   if (roomName) trail.push({ label: roomName });
+  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, publicCityUrl, machines, byMachine);
 
   return (
     <div className="flex h-full flex-col">
@@ -248,6 +250,7 @@ export function OfficePage() {
           <Trail parts={trail} />
           <span className="ml-auto flex items-center gap-3">
             <StatusNotices machine={here} connected={connected} />
+            <ShareButton result={shareResult} />
             <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
               modo foco
             </button>
@@ -261,6 +264,7 @@ export function OfficePage() {
         {focus && (
           <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
             <StatusNotices machine={here} connected={connected} />
+            <ShareButton result={shareResult} />
             <button className="rounded hover:text-fg" onClick={() => setFocus(false)}>
               sair do foco (Esc)
             </button>
@@ -328,4 +332,123 @@ function Message({ children }: { children: React.ReactNode }) {
 
 function Overlay({ children }: { children: React.ReactNode }) {
   return <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-fg-muted">{children}</div>;
+}
+
+/**
+ * `unpublished`: nothing in view has been made public (or the viewer has no nickname yet, which can
+ * only be true before anything of theirs was ever published). `foreign`: something IS published
+ * here, but it is a project somebody else owns (view-as/view-all only) — there is no link this
+ * viewer's own nickname could build for it. `offstreet`: the viewer's own published project, in a
+ * room on a machine somebody else owns — a public city never shows another person's machine, so
+ * that room has no public address.
+ */
+type ShareResult = { kind: 'link'; url: string } | { kind: 'unpublished' } | { kind: 'foreign' } | { kind: 'offstreet' };
+
+/**
+ * The public city a nickname points to is that nickname's OWNER's city: their own published projects,
+ * on the machines they own (one room per project and machine) — never the signed-in viewer's view.
+ * The two only agree while someone looks at their own work; under the view-as/view-all admin scope
+ * the office can carry other people's projects and machines, and building the link from the viewer's
+ * own nickname would then point at a city that does not contain them. So the check is on the
+ * PROJECT's owner (who publishes), and the machine's owner decides whether that room is on the street.
+ */
+function shareResultFor(
+  target: FocusTarget,
+  userId: string | undefined,
+  nickname: string | null,
+  publicCityUrl: string | null,
+  machines: Machine[],
+  byMachine: Record<string, MachineSnapshotState>,
+): ShareResult {
+  const ownsMachine = (m: Machine) => !!userId && m.owner_id === userId;
+  const ownsProject = (r: OfficeRoom) => !!userId && r.project.owner_id === userId;
+  const roomsOf = (m: Machine): OfficeRoom[] => byMachine[m.id]?.snapshot?.rooms ?? [];
+  // a room on the viewer's own street: their published project, on a machine they own
+  const onStreet = (m: Machine, r: OfficeRoom) => r.project.is_public && ownsProject(r) && ownsMachine(m);
+  const foreign = (r: OfficeRoom) => r.project.is_public && !ownsProject(r);
+  // this instance's own address for public cities, as the server tells it — never a hardcoded host,
+  // which on a self-hosted instance would hand out a link to somebody else's city
+  const base = nickname && publicCityUrl ? `${publicCityUrl}/@${encodeURIComponent(nickname)}` : null;
+
+  if (target.kind === 'city') {
+    if (base && machines.some((m) => roomsOf(m).some((r) => onStreet(m, r)))) return { kind: 'link', url: base };
+    if (machines.some((m) => roomsOf(m).some(foreign))) return { kind: 'foreign' };
+    if (machines.some((m) => roomsOf(m).some((r) => r.project.is_public))) return { kind: 'offstreet' };
+    return { kind: 'unpublished' };
+  }
+
+  const machine = machines.find((m) => m.id === target.machineId);
+  if (!machine) return { kind: 'unpublished' };
+  const rooms = roomsOf(machine);
+
+  if (target.kind === 'machine') {
+    if (base && rooms.some((r) => onStreet(machine, r))) return { kind: 'link', url: `${base}/${encodeURIComponent(machine.public_id)}` };
+    if (rooms.some(foreign)) return { kind: 'foreign' };
+    if (rooms.some((r) => r.project.is_public)) return { kind: 'offstreet' };
+    return { kind: 'unpublished' };
+  }
+
+  const room = rooms.find((r) => r.project.id === target.roomId);
+  if (!room?.project.is_public) return { kind: 'unpublished' };
+  if (!ownsProject(room)) return { kind: 'foreign' };
+  if (!ownsMachine(machine)) return { kind: 'offstreet' };
+  if (!base) return { kind: 'unpublished' };
+  return { kind: 'link', url: `${base}/${encodeURIComponent(machine.public_id)}?room=${encodeURIComponent(room.public_id)}` };
+}
+
+type ShareStatus = 'idle' | 'copied' | 'failed';
+
+/**
+ * Copies the current rest's public link. When there is nothing to copy, the button explains why
+ * instead of pretending there is something to copy — nothing published yet, something published
+ * that belongs to a city this viewer's own nickname cannot address (view-as/view-all), or the
+ * viewer's own project in a room on somebody else's machine, which no public city shows.
+ */
+function ShareButton({ result }: { result: ShareResult }) {
+  const [status, setStatus] = useState<ShareStatus>('idle');
+
+  useEffect(() => {
+    if (status === 'idle') return;
+    const id = setTimeout(() => setStatus('idle'), 2500);
+    return () => clearTimeout(id);
+  }, [status]);
+
+  if (result.kind === 'unpublished') {
+    return (
+      <span className="rounded px-2 py-1 text-fg-dim" title="Publique um projeto para gerar o link público">
+        nada publicado aqui ainda
+      </span>
+    );
+  }
+  if (result.kind === 'foreign') {
+    return (
+      <span className="rounded px-2 py-1 text-fg-dim" title="Só o dono de um projeto pode compartilhar o link dele">
+        pertence a outra pessoa
+      </span>
+    );
+  }
+  if (result.kind === 'offstreet') {
+    return (
+      <span className="rounded px-2 py-1 text-fg-dim" title="A cidade pública só mostra as suas máquinas: esta é de outra pessoa">
+        máquina de outra pessoa
+      </span>
+    );
+  }
+
+  const link = result.url;
+  const copy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('no clipboard API');
+      await navigator.clipboard.writeText(link);
+      setStatus('copied');
+    } catch {
+      setStatus('failed');
+    }
+  };
+
+  return (
+    <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => void copy()} title={link}>
+      {status === 'copied' ? 'link copiado' : status === 'failed' ? 'selecione e copie' : 'compartilhar'}
+    </button>
+  );
 }

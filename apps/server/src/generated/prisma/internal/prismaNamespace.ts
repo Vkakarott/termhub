@@ -421,7 +421,8 @@ export const ModelName = {
   ApiTokenEvent: 'ApiTokenEvent',
   ChatConversation: 'ChatConversation',
   ChatMessage: 'ChatMessage',
-  ChatAction: 'ChatAction'
+  ChatAction: 'ChatAction',
+  InstanceSecret: 'InstanceSecret'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -437,7 +438,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAction"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAction" | "instanceSecret"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2291,6 +2292,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    InstanceSecret: {
+      payload: Prisma.$InstanceSecretPayload<ExtArgs>
+      fields: Prisma.InstanceSecretFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.InstanceSecretFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.InstanceSecretFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>
+        }
+        findFirst: {
+          args: Prisma.InstanceSecretFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.InstanceSecretFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>
+        }
+        findMany: {
+          args: Prisma.InstanceSecretFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>[]
+        }
+        create: {
+          args: Prisma.InstanceSecretCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>
+        }
+        createMany: {
+          args: Prisma.InstanceSecretCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.InstanceSecretCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>[]
+        }
+        delete: {
+          args: Prisma.InstanceSecretDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>
+        }
+        update: {
+          args: Prisma.InstanceSecretUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>
+        }
+        deleteMany: {
+          args: Prisma.InstanceSecretDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.InstanceSecretUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.InstanceSecretUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>[]
+        }
+        upsert: {
+          args: Prisma.InstanceSecretUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$InstanceSecretPayload>
+        }
+        aggregate: {
+          args: Prisma.InstanceSecretAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateInstanceSecret>
+        }
+        groupBy: {
+          args: Prisma.InstanceSecretGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.InstanceSecretGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.InstanceSecretCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.InstanceSecretCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -2335,6 +2410,7 @@ export const UserScalarFieldEnum = {
   email: 'email',
   name: 'name',
   avatarUrl: 'avatarUrl',
+  nickname: 'nickname',
   passwordHash: 'passwordHash',
   googleId: 'googleId',
   role: 'role',
@@ -2436,6 +2512,7 @@ export const ProjectScalarFieldEnum = {
   name: 'name',
   status: 'status',
   description: 'description',
+  isPublic: 'isPublic',
   lastTerminalAt: 'lastTerminalAt',
   createdAt: 'createdAt'
 } as const
@@ -2703,6 +2780,15 @@ export const ChatActionScalarFieldEnum = {
 } as const
 
 export type ChatActionScalarFieldEnum = (typeof ChatActionScalarFieldEnum)[keyof typeof ChatActionScalarFieldEnum]
+
+
+export const InstanceSecretScalarFieldEnum = {
+  name: 'name',
+  value: 'value',
+  createdAt: 'createdAt'
+} as const
+
+export type InstanceSecretScalarFieldEnum = (typeof InstanceSecretScalarFieldEnum)[keyof typeof InstanceSecretScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -3137,6 +3223,7 @@ export type GlobalOmitConfig = {
   chatConversation?: Prisma.ChatConversationOmit
   chatMessage?: Prisma.ChatMessageOmit
   chatAction?: Prisma.ChatActionOmit
+  instanceSecret?: Prisma.InstanceSecretOmit
 }
 
 /* Types for Logging */

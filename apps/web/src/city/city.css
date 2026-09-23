@@ -1,0 +1,7 @@
+/* The public bundle's own stylesheet: the app's src/index.css belongs to the app, and nothing of the
+   app ships to the street. Only what a canvas, a top bar and one link need. */
+@tailwind base;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }

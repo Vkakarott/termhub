@@ -10,6 +10,7 @@ import { scoped } from '../auth/scope.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { ensureDirectory } from '../terminal/machine-fs.js';
+import { publicBus } from '../public/bus.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const linkParams = z.object({ id: z.string().min(1).max(64), machineId: z.string().min(1).max(64) });
@@ -36,7 +37,15 @@ const createBody = z
   .refine((b) => (b.machine_id === undefined) === (b.cwd === undefined), { message: 'machine_id e cwd vêm juntos' });
 
 /** `key` and `cwd` are not patchable: the key never changes, the cwd lives on the machine link. */
-const patchBody = z.object({ name: z.string().trim().min(1).max(120).optional(), status: statusSchema.optional(), description: z.string().trim().max(2000).optional().nullable() }).strict();
+const patchBody = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    status: statusSchema.optional(),
+    description: z.string().trim().max(2000).optional().nullable(),
+    /** published: readable by anyone with the /city/@nickname link (owner only, see PATCH) */
+    is_public: z.boolean().optional(),
+  })
+  .strict();
 
 const linkBody = z.object({ machine_id: z.string().min(1).max(64), cwd: cwdSchema, create_dir: z.boolean().optional() }).strict();
 const linkPatchBody = z.object({ cwd: cwdSchema, create_dir: z.boolean().optional() }).strict();
@@ -114,11 +123,33 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     return { project: (await withLinks([project]))[0] };
   });
 
-  app.patch('/:id', async (request) => {
+  app.patch('/:id', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    await scoped(repos, request).project(id);
+    const { project: current } = await scoped(repos, request).project(id);
     const patch = patchBody.parse(request.body);
+    if (patch.is_public === true && !current.is_public) {
+      // Publishing belongs to the project's owner: an admin acting as someone else, or on an
+      // orphan project, cannot put another person's work on the street.
+      if (!current.owner_id) return reply.code(409).send({ error: 'Esse projeto não tem dono', code: 'PROJECT_UNOWNED' });
+      if (current.owner_id !== request.user!.id) return reply.code(403).send({ error: 'Só quem é dono do projeto pode publicar', code: 'NOT_OWNER' });
+      if (!request.user!.nickname) return reply.code(409).send({ error: 'Escolha seu apelido antes de publicar', code: 'NICKNAME_REQUIRED' });
+    }
     const project = await repos.projects.update(id, patch);
+    // The public bus fans this out to any `/ws/public/:nickname` socket watching this project's
+    // rooms: a publish opens them up, an unpublish drops the connection at once (see public/ws.ts).
+    // Archiving takes the rooms out of the snapshot's filter too (`status !== 'archived'`), so it
+    // counts as "no longer publicly visible" here as well — the two surfaces must not disagree.
+    if (patch.is_public !== undefined && patch.is_public !== current.is_public) {
+      publicBus.publish({ project_id: id, is_public: patch.is_public });
+    }
+    if (patch.status === 'archived' && current.status !== 'archived') {
+      publicBus.publish({ project_id: id, is_public: false });
+    }
+    // Unarchiving brings a published project's rooms back into the snapshot's filter: the memoised
+    // cities must be dropped at once, as they are for a publish.
+    if (patch.status !== undefined && patch.status !== 'archived' && current.status === 'archived') {
+      publicBus.publish({ project_id: id, is_public: patch.is_public ?? current.is_public });
+    }
     return { project: project ? (await withLinks([project]))[0] : undefined };
   });
 
@@ -139,6 +170,9 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
         }),
     );
     await repos.projects.delete(id);
+    // A deleted room can never be publicly visible again either — tell the public bus regardless
+    // of whether this project was ever published; a socket that never had it just no-ops.
+    publicBus.publish({ project_id: id, is_public: false });
     return { ok: true };
   });
 
@@ -151,13 +185,15 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
 
   app.post('/:id/machines', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    await scoped(repos, request).project(id);
+    const { project } = await scoped(repos, request).project(id);
     const { machine_id, cwd, create_dir } = linkBody.parse(request.body);
     const machine = await scoped(repos, request).machine(machine_id).catch(() => {
       throw badRequest('Máquina inexistente');
     });
     const resolved = await resolveCwd(machine, cwd, create_dir);
     const link = await rule(() => repos.projectMachines.link({ project_id: id, machine_id: machine.id, cwd: resolved }));
+    // a published project on a new machine may be a new public room: the next public read must see it
+    if (project.is_public) publicBus.publish({ project_id: id, is_public: true });
     return reply.code(201).send({ link: linkView(link) });
   });
 
@@ -177,6 +213,8 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     await Promise.allSettled(tabs.filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)));
     for (const t of tabs) await repos.tabs.delete(t.id);
     await repos.projectMachines.unlink(id, machineId);
+    // that room leaves the street at once (the project stays published on its other machines)
+    publicBus.publishRoomsGone({ machine_id: machineId, project_id: id });
     return { ok: true, closed_tabs: tabs.length };
   });
 

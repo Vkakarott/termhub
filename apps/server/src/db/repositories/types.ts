@@ -10,6 +10,7 @@ import type {
   Note as PrismaNote,
   Ticket as PrismaTicket,
 } from '../../generated/prisma/client.js';
+import { publicId } from '../../public/public-id.js';
 
 export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh' | 'agent';
@@ -31,6 +32,8 @@ export interface User {
   email: string;
   name: string;
   avatar_url: string | null;
+  /** the address of this person's public city (/city/@nickname); null = no city */
+  nickname: string | null;
   password_hash: string | null;
   google_id: string | null;
   /** DEPRECATED legacy flag; use role_id */
@@ -74,6 +77,8 @@ export interface Machine {
   /** owner's display name (list/detail convenience for the "all" view) */
   owner_name: string | null;
   created_at: string;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
 }
 
 export interface Project {
@@ -86,6 +91,8 @@ export interface Project {
   name: string;
   status: ProjectStatus;
   description: string | null;
+  /** published: readable by anyone with the /city/@nickname link */
+  is_public: boolean;
   last_terminal_at: string | null;
   created_at: string;
 }
@@ -212,6 +219,7 @@ export const mapUser = (u: PrismaUser): User => ({
   email: u.email,
   name: u.name,
   avatar_url: u.avatarUrl,
+  nickname: u.nickname,
   password_hash: u.passwordHash,
   google_id: u.googleId,
   role: u.role,
@@ -246,6 +254,7 @@ export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null 
   owner_id: m.ownerId,
   owner_name: m.owner?.name ?? null,
   created_at: m.createdAt.toISOString(),
+  public_id: publicId('machine', m.id),
 });
 
 export const mapProject = (p: PrismaProject): Project => ({
@@ -256,6 +265,7 @@ export const mapProject = (p: PrismaProject): Project => ({
   name: p.name,
   status: p.status,
   description: p.description,
+  is_public: p.isPublic,
   last_terminal_at: iso(p.lastTerminalAt),
   created_at: p.createdAt.toISOString(),
 });

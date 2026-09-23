@@ -20,6 +20,7 @@ import { UploadsRepository } from './uploads.js';
 import { ApiTokensRepository } from './api-tokens.js';
 import { ChatRepository } from './chat.js';
 import { ChatActionsRepository } from './chat-actions.js';
+import { InstanceSecretsRepository } from './instance-secrets.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -43,6 +44,7 @@ export interface Repositories {
   apiTokens: ApiTokensRepository;
   chat: ChatRepository;
   chatActions: ChatActionsRepository;
+  instanceSecrets: InstanceSecretsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -68,6 +70,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     apiTokens: new ApiTokensRepository(db),
     chat: new ChatRepository(db),
     chatActions: new ChatActionsRepository(db),
+    instanceSecrets: new InstanceSecretsRepository(db),
   };
 }
 

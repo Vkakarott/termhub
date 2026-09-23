@@ -24,6 +24,8 @@ export interface User {
   invited_at: string | null;
   /** last successful sign-in; null = never (invite pending) */
   last_login_at: string | null;
+  /** the address of this user's public city (`/city/@<nickname>`); null until claimed */
+  nickname: string | null;
 }
 
 /** Side effects of an invite (the user row is created regardless). */
@@ -88,6 +90,8 @@ export interface Machine {
   /** terminal tabs on the machine, and how many of them ever reported a state to the monitor */
   tabs?: number;
   tabs_reporting?: number;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
 }
 
 /** Admin data-scope switch: null = own data, "all" = everything, or the impersonated user. */
@@ -136,6 +140,8 @@ export interface Project {
   created_at: string;
   /** machines the project runs on; empty = board and notes only */
   machines: ProjectMachineLink[];
+  /** whether this project's rooms (one per machine its owner owns) are readable on the owner's public city */
+  is_public: boolean;
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
@@ -149,6 +155,8 @@ export interface ProjectInput {
   machine_id?: string;
   cwd?: string;
   create_dir?: boolean;
+  /** edit only (a project is born private): publishes its rooms on the owner's public city */
+  is_public?: boolean;
 }
 
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
@@ -370,6 +378,8 @@ export interface OfficeTab extends Tab {
 
 export interface OfficeRoom {
   project: Project;
+  /** this room's id on the owner's public city: one per (project, machine), used by the share link */
+  public_id: string;
   tabs: OfficeTab[];
   /** null when the board could not be read (no `tasks:read`); a project with no tasks sends zeros */
   tasks: OfficeTaskCounts | null;
@@ -380,6 +390,42 @@ export interface OfficeSnapshot {
   /** false when the machine could not be asked which tmux sessions are alive */
   reachable: boolean;
   rooms: OfficeRoom[];
+}
+
+/**
+ * The public city, mirrored field for field from apps/server/src/public/city.ts — the only shape a
+ * visitor with no account ever sees. The names follow the office snapshot's on purpose, so the same
+ * model code draws both (src/city/api.ts adapts one into the other). The ids are derived from the
+ * real ones by the server and are what the public surfaces join on.
+ */
+export interface PublicRobot {
+  id: string;
+  name: string;
+  kind: TabKind;
+  state: TabState | null;
+  state_at: string | null;
+  activity: TabActivity | null;
+  alive: boolean;
+  /** the board task bound to the tab, without its title: a bar, never what it says */
+  progress: { done: number; total: number } | null;
+}
+
+export interface PublicRoom {
+  id: string;
+  name: string;
+  robots: PublicRobot[];
+}
+
+export interface PublicBuilding {
+  id: string;
+  name: string;
+  rooms: PublicRoom[];
+}
+
+export interface PublicCity {
+  nickname: string;
+  owner_name: string;
+  buildings: PublicBuilding[];
 }
 
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
@@ -448,6 +494,8 @@ export interface AuthConfig {
   google: boolean;
   password: boolean;
   email_code: boolean;
+  /** where this instance's public cities live, e.g. https://termhub.dev/city — share links are built from it */
+  public_city_url: string;
 }
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {

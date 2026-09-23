@@ -1,0 +1,186 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Machine, Project, User } from '../lib/types';
+
+// vi.mock factories are hoisted above every other top-level statement, including this file's own
+// `import { ProjectPage } from './ProjectPage'` below — everything a factory needs must come through
+// vi.hoisted(), not a plain top-level const.
+const { patchMock, dataState, authState } = vi.hoisted(() => {
+  const patchMock = vi.fn(async (_id: string, input: Record<string, unknown>) => ({ ...input }));
+  const dataState = {
+    current: {
+      projects: [] as Project[],
+      machines: [] as Machine[],
+      statuses: {} as Record<string, 'checking' | 'online' | 'offline'>,
+      loading: false,
+      updateProject: (id: string, input: Record<string, unknown>) => patchMock(id, input),
+      machinesOf: (p: Project): Machine[] => p.machines.flatMap((l) => dataState.current.machines.filter((m) => m.id === l.machine_id)),
+    },
+  };
+  const authState = { current: { user: null as User | null } };
+  return { patchMock, dataState, authState };
+});
+
+vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
+vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
+// The rest of the page (terminals, tasks, tickets, notes, setup) is heavy — sockets, xterm, its own
+// API calls — and none of it is this task's concern. Stubbed out so only the header and the publish
+// control, which this test is about, render for real.
+vi.mock('../components/TerminalsView', () => ({ TerminalsView: () => null }));
+vi.mock('../components/TasksBoard', () => ({ TasksBoard: () => null }));
+vi.mock('../components/TicketsView', () => ({ TicketsView: () => null }));
+vi.mock('../components/NotesEditor', () => ({ NotesEditor: () => null }));
+vi.mock('../components/ProjectSettings', () => ({ ProjectSettings: () => null }));
+
+import { ProjectPage } from './ProjectPage';
+
+function machine(id: string, name: string): Machine {
+  return {
+    id,
+    name,
+    host: null,
+    ssh_user: null,
+    ssh_port: 22,
+    type: 'agent',
+    os: 'macos',
+    capabilities: [],
+    checked_at: null,
+    agent_version: null,
+    agent_last_seen_at: null,
+    agent_auto_update: false,
+    is_local: false,
+    owner_id: 'u1',
+    owner_name: 'pedro',
+    created_at: '2026-01-01T00:00:00Z',
+    public_id: 'mpub1',
+  };
+}
+
+function project(over: Partial<Project> = {}): Project {
+  return {
+    id: 'p1',
+    owner_id: 'u1',
+    key: 'MEU',
+    next_task_number: 1,
+    name: 'meu-projeto',
+    status: 'active',
+    description: null,
+    last_terminal_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    machines: [{ machine_id: 'm1', cwd: '/home/pedro/meu-projeto', position: 0 }],
+    is_public: false,
+    ...over,
+  };
+}
+
+function renderPage(proj: Project) {
+  return render(
+    <MemoryRouter initialEntries={[`/projects/${proj.id}`]}>
+      <Routes>
+        <Route path="/projects/:id" element={<ProjectPage />} />
+        <Route path="/projects/:id/:section" element={<ProjectPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  patchMock.mockReset();
+  patchMock.mockImplementation(async (_id, input) => ({ ...input }));
+  dataState.current = { ...dataState.current, machines: [machine('m1', 'jarvis')] };
+  authState.current = { user: { id: 'u1', email: 'a@b.c', name: 'Pedro', avatar_url: null, role: 'owner', role_info: null, permissions: [], has_password: true, has_google: false, invited_at: null, last_login_at: null, nickname: 'pedro' } };
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe('ProjectPage publish switch', () => {
+  it('says what publishing makes readable before it flips', async () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    renderPage(proj);
+
+    fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+    expect(screen.getByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeTruthy();
+    // merge ruling 2: somebody else's machine linked to the project never shows, and the panel says so
+    expect(screen.getByText(/máquinas de outras pessoas vinculadas ao projeto não aparecem/i)).toBeTruthy();
+    // spec §4: the owner's display name and nickname become public too
+    expect(screen.getByText(/seu nome e seu apelido/i)).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /publicar/i }));
+    });
+    expect(patchMock).toHaveBeenCalledWith(proj.id, expect.objectContaining({ is_public: true }));
+  });
+
+  it('asks for the nickname when the server says it is missing', async () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    patchMock.mockRejectedValueOnce({ code: 'NICKNAME_REQUIRED' });
+    renderPage(proj);
+
+    fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /publicar/i }));
+    });
+
+    // The account here already has a nickname on the client, so the dialog opens in its read-only
+    // form (a set nickname is never changed); what matters is that the refusal opens it at all.
+    expect((await screen.findAllByText(/apelido/i)).length).toBeGreaterThan(0);
+  });
+
+  it('opens the nickname dialog straight away when the account has none yet, without asking the server', async () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    authState.current = { user: { ...authState.current.user!, nickname: null } };
+    renderPage(proj);
+
+    fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /publicar/i }));
+    });
+
+    expect(await screen.findByLabelText(/apelido/i)).toBeTruthy();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('unpublishes immediately, without the confirmation panel', async () => {
+    const proj = project({ is_public: true });
+    dataState.current = { ...dataState.current, projects: [proj] };
+    renderPage(proj);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+    });
+
+    expect(patchMock).toHaveBeenCalledWith(proj.id, expect.objectContaining({ is_public: false }));
+    expect(screen.queryByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeNull();
+  });
+
+  it('says so when unpublishing fails, on the same path that bypasses the confirmation panel', async () => {
+    const proj = project({ is_public: true });
+    dataState.current = { ...dataState.current, projects: [proj] };
+    patchMock.mockRejectedValueOnce(new Error('network down'));
+    renderPage(proj);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+    });
+
+    expect(screen.getByText('Erro ao despublicar')).toBeTruthy();
+  });
+
+  it('keeps the switch reading "off" to a screen reader while the confirmation is still pending', async () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    renderPage(proj);
+
+    fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+
+    // the warning is up, but nothing has actually published yet — aria-checked must say so too
+    expect(screen.getByRole('switch', { name: /publicar/i }).getAttribute('aria-checked')).toBe('false');
+  });
+});
