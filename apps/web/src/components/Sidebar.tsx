@@ -42,6 +42,27 @@ const isGroupSection = (id: SectionId) => id !== 'running' && id !== 'others';
 const LINE_ABOVE = 'border-t-2 border-accent';
 const LINE_BELOW = 'border-b-2 border-accent';
 
+/**
+ * Accessible names for the sections, unique across the sidebar: group names can repeat, or equal
+ * "Em execução"/"Outros". Those two keep their label; a group whose label is taken gets " (2)", " (3)"…
+ * The visible label never changes.
+ */
+function sectionNames(sections: Section[]): Map<SectionId, string> {
+  const taken = new Set(sections.filter((s) => !isGroupSection(s.id)).map((s) => s.label));
+  const names = new Map<SectionId, string>();
+  for (const s of sections) {
+    if (!isGroupSection(s.id)) {
+      names.set(s.id, s.label);
+      continue;
+    }
+    let name = s.label;
+    for (let n = 2; taken.has(name); n++) name = `${s.label} (${n})`;
+    taken.add(name);
+    names.set(s.id, name);
+  }
+  return names;
+}
+
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can } = useAuth();
   const { projects, machinesOf, loading, deleteProject } = useData();
@@ -96,6 +117,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const hasArchived = projects.some((p) => p.status === 'archived');
   const running = visibleProjects.filter((p) => agents.has(p.id));
   const sections = buildSections(projects, groups, new Set(agents.keys()), showArchived);
+  const names = sectionNames(sections);
+  const nameOf = (section: Section) => names.get(section.id) ?? section.label;
   const anyExpanded = running.some((p) => !collapsed.has(p.id));
 
   const toggleAll = () => {
@@ -219,7 +242,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         // a project can show in several sections
         key={`${section.id}:${p.id}`}
         project={p}
-        section={section.label}
+        section={nameOf(section)}
         agents={agents.get(p.id) ?? []}
         machines={machinesOf(p)}
         waiting={waiting.get(p.id) ?? 0}
@@ -241,7 +264,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const renderSection = (section: Section) => {
     if (section.kind === 'running') {
       return (
-        <section key={section.id} aria-label={section.label} className="mb-2">
+        <section key={section.id} aria-label={nameOf(section)} className="mb-2">
           <p className={SECTION_LABEL}>{section.label}</p>
           <ul>{section.projects.map(row(section))}</ul>
         </section>
@@ -255,7 +278,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     return (
       <section
         key={section.id}
-        aria-label={section.label}
+        aria-label={nameOf(section)}
         // Outros has no order and a collapsed group shows no rows: the whole section lights up instead of a line
         className={`mb-2 ${over && (isOthers || !open) ? 'rounded ring-1 ring-accent' : ''}`}
         // dropped on the header, the list's padding or the empty hint, a project goes to the end
@@ -264,6 +287,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       >
         <GroupHeader
           section={section}
+          name={nameOf(section)}
           collapsed={!open}
           onToggle={() => toggleGroup(section.id)}
           editable={section.kind === 'custom'}

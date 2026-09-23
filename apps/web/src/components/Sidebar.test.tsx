@@ -300,6 +300,20 @@ const fav = (ids: string[] = []): ProjectGroup => ({ id: 'fav', name: 'Favoritos
 const custom = (id: string, name: string, position: number, ids: string[] = []): ProjectGroup => ({ id, name, kind: 'custom', position, project_ids: ids });
 
 describe('Sidebar groups', () => {
+  it('gives every section a unique accessible name, even when group names repeat or match Outros/Em execução', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p1']), custom('g2', 'Clientes', 2, ['p1']), custom('g3', 'Outros', 3, ['p1']), custom('g4', 'Em execução', 4)];
+    renderSidebar();
+    const labels = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(labels).toEqual(['Em execução', 'Favoritos', 'Clientes', 'Clientes (2)', 'Outros (2)', 'Em execução (2)', 'Outros']);
+    // the visible names stay as the user typed them
+    expect(within(section('Clientes (2)')).getByText('Clientes', { selector: 'span' })).toBeInTheDocument();
+    const lists = screen.getAllByRole('list', { name: /^Agentes de alpha/ }).map((l) => l.getAttribute('aria-label'));
+    expect(new Set(lists).size).toBe(lists.length);
+    expect(lists).toContain('Agentes de alpha · Clientes (2)');
+    const toggles = screen.getAllByRole('button', { name: /^Recolher Clientes/ }).map((b) => b.getAttribute('aria-label'));
+    expect(toggles).toEqual(['Recolher Clientes', 'Recolher Clientes (2)']);
+  });
+
   it('renders sections in order: Em execução, Favoritos, custom groups, Outros', () => {
     groupsState.groups = [fav(['p1']), custom('g1', 'Clientes', 1, ['p1', 'p2'])];
     renderSidebar(); // alpha (p1) and beta (p2) have open tabs
