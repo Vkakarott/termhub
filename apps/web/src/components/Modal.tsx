@@ -7,25 +7,29 @@ const openStack: symbol[] = [];
 /**
  * Joins the stack of open layers for as long as `open` is true: only the top one answers Escape, so a
  * dialog opened from the chat drawer closes before the drawer does. Keyed on `open` only, so a
- * re-render with a new callback keeps the stack order.
+ * re-render with a new callback keeps the stack order. A `base` layer (a page's own Esc, like leaving
+ * settings) goes under every other layer, whenever each opened: a dialog or the chat drawer always
+ * answers first, even one opened before the page's layer joined.
  */
-export function useEscapeLayer(open: boolean, onEscape: () => void, enabled = true): void {
+export function useEscapeLayer(open: boolean, onEscape: (e: KeyboardEvent) => void, enabled = true, options: { base?: boolean } = {}): void {
   const latest = useRef({ onEscape, enabled });
   latest.current = { onEscape, enabled };
+  const base = !!options.base;
   useEffect(() => {
     if (!open) return;
     const id = Symbol('layer');
-    openStack.push(id);
+    if (base) openStack.unshift(id);
+    else openStack.push(id);
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || openStack[openStack.length - 1] !== id) return;
-      if (latest.current.enabled) latest.current.onEscape();
+      if (latest.current.enabled) latest.current.onEscape(e);
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
       openStack.splice(openStack.indexOf(id), 1);
     };
-  }, [open]);
+  }, [open, base]);
 }
 
 interface Props {

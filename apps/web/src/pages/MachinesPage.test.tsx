@@ -72,4 +72,10 @@ describe('MachinesPage', () => {
     await Promise.resolve();
     expect(deleteMachine).toHaveBeenCalledWith('m1');
   });
+
+  it('uses the shared page header: one title, "+ máquina" among its actions', () => {
+    mount();
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Máquinas']);
+    expect(screen.getByRole('button', { name: '+ máquina' }).closest('header')).not.toBeNull();
+  });
 });

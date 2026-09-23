@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Machine, Project, User } from '../lib/types';
@@ -182,5 +182,28 @@ describe('ProjectPage publish switch', () => {
 
     // the warning is up, but nothing has actually published yet — aria-checked must say so too
     expect(screen.getByRole('switch', { name: /publicar/i }).getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+describe('ProjectPage header', () => {
+  it('is the shared page header: the name as the only title, its sections as tabs, publish among the actions', () => {
+    const proj = project({ open_tasks: 3 });
+    dataState.current = { ...dataState.current, projects: [proj] };
+    renderPage(proj);
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['meu-projeto']);
+    expect(screen.getByText('MEU · jarvis')).toBeTruthy();
+    // the machines' working directories, which the old header showed on hover
+    expect(screen.getByText('MEU · jarvis').getAttribute('title')).toContain('/home/pedro/meu-projeto');
+    const tabs = screen.getByRole('navigation', { name: 'Seções de meu-projeto' });
+    expect(within(tabs).getAllByRole('link').map((l) => l.getAttribute('href'))).toEqual([
+      '/projects/p1',
+      '/projects/p1/tasks',
+      '/projects/p1/tickets',
+      '/projects/p1/notes',
+      '/projects/p1/settings',
+    ]);
+    expect(within(tabs).getByRole('link', { name: /Tarefas/ }).textContent).toBe('Tarefas3');
+    expect(within(tabs).getByRole('link', { name: 'Terminais' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('switch', { name: /publicar/i }).closest('header')).not.toBeNull();
   });
 });

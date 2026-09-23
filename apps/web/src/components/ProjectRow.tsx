@@ -142,8 +142,9 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
                 >
                   {/* an open tab is a live one here: no state = the neutral dot the tab bar shows */}
                   <span data-dot className={`h-1.5 w-1.5 shrink-0 rounded-full ${tabDotClass(true, tab)}`} title={tab.state ? TAB_STATE_LABEL[tab.state] : undefined} />
-                  <span className="truncate">{tab.name}</span>
-                  {machineName && <span className="shrink-0 truncate text-fg-dim"> · {machineName}</span>}
+                  {/* the tab's name wins the width, up to a cap; a long machine name gives way first */}
+                  <span className="max-w-[9rem] shrink-0 truncate">{tab.name}</span>
+                  {machineName && <span className="min-w-0 truncate text-fg-dim"> · {machineName}</span>}
                 </Link>
               </li>
             );

@@ -1,9 +1,7 @@
+import { ChevronsLeft } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type HTMLAttributes } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { canSeeSettings } from '../lib/settings-sections';
-import { ANALYTICS_ENABLED } from '../lib/analytics';
-import { openCookieBanner } from './AnalyticsGate';
 import { useData } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
@@ -14,11 +12,12 @@ import { decodeGroupDrag, decodeProjectDrag, encodeProjectDrag, GROUP_MIME, PROJ
 import { loadCollapsedGroups, loadCollapsedProjects, saveCollapsedGroups, saveCollapsedProjects } from '../lib/sidebar-prefs';
 import type { Project, ProjectGroup, Tab } from '../lib/types';
 import { GroupHeader } from './GroupHeader';
+import { MainNav } from './MainNav';
+import { ProfileButton } from './ProfileButton';
 import { ProjectForm } from './ProjectForm';
 import { ProjectGroupsMenu } from './ProjectGroupsMenu';
 import { ProjectRow } from './ProjectRow';
 import { ConfirmDialog } from './Modal';
-import { ViewAsSwitch } from './ViewAsSwitch';
 
 /** a section's projects hang from its header like a project's agents hang from the project: indent plus a guide line */
 const SECTION_LIST = 'ml-4 border-l border-line pl-2';
@@ -67,13 +66,12 @@ function sectionNames(sections: Section[]): Map<SectionId, string> {
 }
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
-  const { user, logout, can } = useAuth();
+  const { can } = useAuth();
   const { projects, machinesOf, loading } = useData();
-  const { items: monitorItems, openTabs, needsYou } = useMonitor();
+  const { items: monitorItems, openTabs } = useMonitor();
   const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
   // every open terminal tab, reported a state or not: "Em execução" means a tab is open
   const agents = useMemo(() => agentsByProject(openTabs), [openTabs]);
-  const navigate = useNavigate();
   const projectChat = useProjectChat();
   const [projectFormOpen, setProjectFormOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -337,8 +335,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             </button>
           )}
           {onCollapse && (
-            <button className="rounded px-1.5 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onCollapse} title="Recolher sidebar" aria-label="Recolher sidebar">
-              «
+            <button className="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onCollapse} title="Recolher sidebar" aria-label="Recolher sidebar">
+              <ChevronsLeft size={16} aria-hidden="true" />
             </button>
           )}
         </span>
@@ -379,60 +377,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         {sections.map(renderSection)}
       </nav>
 
-      <ViewAsSwitch />
-      <div className="border-t border-line px-3 py-1.5">
-        {can('machines') && (
-          <NavLink to="/machines" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            🖥 Máquinas
-          </NavLink>
-        )}
-        {can('projects', 'read') && can('terminals', 'read') && (
-          <NavLink to="/office" className={({ isActive }) => `flex items-center justify-between rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            Escritório
-            {needsYou.length > 0 && <i className="h-1.5 w-1.5 rounded-full bg-attention" aria-label="alguém precisa de você" />}
-          </NavLink>
-        )}
-        {can('chat') && (
-          <NavLink to="/chat" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            💬 Chat
-          </NavLink>
-        )}
-        {can('integrations') && (
-          <NavLink to="/integrations" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            ⚙ Integrações
-          </NavLink>
-        )}
-        {canSeeSettings(can) && (
-          <NavLink to="/settings" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            ⚙ Configurações
-          </NavLink>
-        )}
-      </div>
-      <div className="flex items-center gap-2 border-t border-line px-3 py-2">
-        {user?.avatar_url ? (
-          <img src={user.avatar_url} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />
-        ) : (
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-bg-4 text-xs font-semibold">
-            {user?.name?.[0]?.toUpperCase() ?? '?'}
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs text-fg-muted" title={user?.email}>
-          {user?.name}
-        </span>
-        {ANALYTICS_ENABLED && (
-          <button className="text-xs text-fg-dim hover:text-fg" onClick={openCookieBanner} title="Alterar a escolha sobre cookies">
-            Cookies
-          </button>
-        )}
-        <button
-          className="text-xs text-fg-dim hover:text-fg"
-          onClick={() => {
-            void logout().then(() => navigate('/login'));
-          }}
-        >
-          Sair
-        </button>
-      </div>
+      <MainNav variant="list" />
+      <ProfileButton variant="row" />
 
       {projectFormOpen && <ProjectForm open onClose={() => setProjectFormOpen(false)} />}
       {menuFor && <ProjectGroupsMenu key={menuFor.key} projectId={menuFor.projectId} anchor={menuFor.anchor} onClose={() => setMenuFor(null)} />}

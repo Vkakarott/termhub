@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useData } from '../lib/data';
 import { useAuth } from '../lib/auth';
@@ -9,6 +9,7 @@ import { HardwareView } from '../components/HardwareView';
 import { WaitlistView } from '../components/WaitlistView';
 import { NeedsYouList } from '../components/NeedsYouList';
 import { ProjectCards } from '../components/ProjectCards';
+import { PageFrame } from '../components/PageHeader';
 
 /** Home tabs; each one is shown only when the user's role grants its resource. */
 const TABS: { path: string; label: string; resource: string }[] = [
@@ -24,21 +25,9 @@ export function HomePage() {
   const tabs = TABS.filter((t) => t.resource === 'projects' || can(t.resource));
   const allowed = tabs.some((t) => t.path === pathname);
   return (
-    <div className="flex h-full flex-col">
-      <nav className="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-bg-2 px-4">
-        {tabs.map((t) => (
-          <NavLink
-            key={t.path}
-            to={t.path}
-            end
-            className={({ isActive }) => `rounded px-3 py-1 text-sm ${isActive ? 'bg-accent/15 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}
-          >
-            {t.label}
-          </NavLink>
-        ))}
-      </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">{!allowed ? <p className="text-sm text-fg-dim">Sem permissão para esta aba.</p> : pathname === '/ai' ? <AiAccountsView /> : pathname === '/hardware' ? <HardwareView /> : pathname === '/waitlist' ? <WaitlistView /> : <Dashboard />}</div>
-    </div>
+    <PageFrame title="Início" tabs={tabs.map((t) => ({ to: t.path, label: t.label, end: true }))}>
+      {!allowed ? <p className="text-sm text-fg-dim">Sem permissão para esta aba.</p> : pathname === '/ai' ? <AiAccountsView /> : pathname === '/hardware' ? <HardwareView /> : pathname === '/waitlist' ? <WaitlistView /> : <Dashboard />}
+    </PageFrame>
   );
 }
 
@@ -72,7 +61,7 @@ function Dashboard() {
       <NeedsYouList now={now} />
       <div className="mb-5 flex items-end gap-4">
         <div>
-          <h1 className="text-lg font-semibold">O que estou fazendo</h1>
+          <h2 className="text-lg font-semibold">O que estou fazendo</h2>
           <p className="text-sm text-fg-muted">
             {items ? `${items.length} projeto(s) ativo(s) · ${totalDoing} em andamento · ${totalOpen} aberta(s)` : 'Carregando…'}
           </p>

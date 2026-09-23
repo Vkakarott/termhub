@@ -1,3 +1,4 @@
+import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
@@ -7,6 +8,7 @@ import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
 import { cityLinkFor } from '../lib/public-city';
 import type { Machine, OfficeRoom } from '../lib/types';
+import { PageHeader } from '../components/PageHeader';
 import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type CityModel, type FocusTarget, type MachineEntry, type MachineModel } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import { useOfficeSnapshots, type MachineSnapshotState } from '../office/useOfficeSnapshots';
@@ -249,17 +251,19 @@ export function OfficePage() {
   return (
     <div className="flex h-full flex-col">
       {!focus && (
-        <div className="flex flex-wrap items-center gap-3 border-b border-line bg-bg-2 px-3 py-2 text-xs text-fg-muted">
-          <span className="text-sm font-semibold text-fg">Escritório</span>
-          <Trail parts={trail} />
-          <span className="ml-auto flex items-center gap-3">
-            <StatusNotices machine={here} connected={connected} />
-            <ShareButton result={shareResult} />
-            <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
-              modo foco
-            </button>
-          </span>
-        </div>
+        <PageHeader
+          title="Escritório"
+          extra={<Trail parts={trail} />}
+          actions={
+            <span className="flex items-center gap-3 text-xs text-fg-muted">
+              <StatusNotices machine={here} connected={connected} />
+              <ShareButton result={shareResult} />
+              <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
+                modo foco
+              </button>
+            </span>
+          }
+        />
       )}
       <div className="relative min-h-0 flex-1">
         {/* an offline machine is dimmed by the scene now — its whole block is drawn dark — so the
@@ -320,11 +324,19 @@ function Trail({ parts }: { parts: Array<{ label: string; go?: () => void }> }) 
  * frozen picture that looks live. One machine's own trouble is only said at its rest — in the city
  * its block is dark and its sign carries the notice.
  */
+const TMUX_SILENT = 'sem resposta do tmux: estado pode estar desatualizado';
+
 function StatusNotices({ machine, connected }: { machine: MachineModel | null; connected: boolean }) {
   return (
     <>
       {machine?.notice === 'offline' && <span className="text-warn">máquina offline</span>}
-      {machine?.notice === 'silent' && <span className="text-warn">sem resposta do tmux: estado pode estar desatualizado</span>}
+      {machine?.notice === 'silent' && (
+        // compact: the header's actions must fit a narrow window; the whole sentence is on hover and for screen readers
+        <span className="flex items-center gap-1 whitespace-nowrap text-warn" role="status" aria-label={TMUX_SILENT} title={TMUX_SILENT}>
+          <TriangleAlert size={14} aria-hidden="true" />
+          tmux sem resposta
+        </span>
+      )}
       {!connected && <span className="text-warn">reconectando…</span>}
     </>
   );

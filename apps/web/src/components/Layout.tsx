@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react';
-import { Navigate, NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
 import { ProjectChatProvider } from '../lib/project-chat';
 import { ProjectGroupsProvider } from '../lib/project-groups';
+import { isSettingsPath, useSettingsExit } from '../lib/settings-nav';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { ChatDrawer } from './chat/ChatDrawer';
 import { NeedsYouToasts } from './NeedsYouToasts';
+import { SettingsSidebar } from './SettingsSidebar';
+import { SidebarRail } from './SidebarRail';
 import { Sidebar } from './Sidebar';
 import { NicknamePrompt } from './NicknamePrompt';
 
@@ -46,12 +49,14 @@ export function Layout() {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
+  // remembers the last page outside settings and answers Esc under settings (lib/settings-nav)
+  const leaveSettings = useSettingsExit();
 
   return (
     <FocusProvider>
       <ProjectChatProvider>
         <div className="flex h-full">
-          <Chrome collapsed={collapsed} setCollapsed={setCollapsed} />
+          <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={leaveSettings} />
           <main className="relative min-w-0 flex-1">
             <Outlet />
           </main>
@@ -62,25 +67,36 @@ export function Layout() {
   );
 }
 
-/** Hides the sidebar entirely while the page is in focus mode — only `/office` has one (lib/focus). */
-function Chrome({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) {
+/**
+ * The sidebar slot: Configurações' own sidebar under /settings, the projects sidebar elsewhere, the
+ * rail when collapsed. Hidden entirely while the page is in focus mode — only `/office` has one (lib/focus).
+ */
+export function Chrome({ collapsed, setCollapsed, onLeaveSettings }: { collapsed: boolean; setCollapsed: (v: boolean) => void; onLeaveSettings: () => void }) {
   const { focus } = useFocusMode();
+  const { pathname } = useLocation();
+  const settings = isSettingsPath(pathname);
+  useSwapFocus(settings);
   if (focus) return null;
-  return collapsed ? <SidebarRail onExpand={() => setCollapsed(false)} /> : <Sidebar onCollapse={() => setCollapsed(true)} />;
+  if (collapsed) return <SidebarRail mode={settings ? 'settings' : 'main'} onExpand={() => setCollapsed(false)} onBack={onLeaveSettings} />;
+  if (settings) return <SettingsSidebar onBack={onLeaveSettings} onCollapse={() => setCollapsed(true)} />;
+  return <Sidebar onCollapse={() => setCollapsed(true)} />;
 }
 
-/** Sidebar recolhida: uma faixa estreita com o logo e o botão de expandir (o terminal ganha o espaço). */
-function SidebarRail({ onExpand }: { onExpand: () => void }) {
-  return (
-    <aside className="flex h-full w-9 shrink-0 flex-col items-center border-r border-line bg-bg-2">
-      <NavLink to="/" className="flex h-11 w-full items-center justify-center border-b border-line text-sm font-semibold text-accent" title="termhub — início">
-        ▮
-      </NavLink>
-      <button className="mt-1 rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onExpand} title="Mostrar sidebar" aria-label="Mostrar sidebar">
-        »
-      </button>
-    </aside>
-  );
+/**
+ * Swapping the sidebar unmounts the control that was pressed (the profile row, Voltar), dropping focus
+ * on <body>. Hand it to the new sidebar's counterpart: the way back when entering settings, the
+ * profile button when leaving. Only when focus was actually lost, and never on the first render, so a
+ * page opened straight on settings or a link pressed in the page keeps its focus.
+ */
+function useSwapFocus(settings: boolean) {
+  const previous = useRef(settings);
+  useEffect(() => {
+    if (previous.current === settings) return;
+    previous.current = settings;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    document.querySelector<HTMLElement>(`[data-chrome-focus="${settings ? 'settings-back' : 'profile'}"]`)?.focus();
+  }, [settings]);
 }
 
 export function FullScreenMessage({ children }: { children: React.ReactNode }) {

@@ -491,7 +491,7 @@ describe('OfficePage status notices', () => {
     await act(async () => {});
     expect(screen.getByText('máquina offline')).toBeTruthy();
     // an offline machine already explains the silence; the tmux notice is for a machine that answers
-    expect(screen.queryByText(/sem resposta do tmux/)).toBeNull();
+    expect(screen.queryByText(/tmux sem resposta/)).toBeNull();
   });
 
   it('says so when a machine that answers cannot read its tmux', async () => {
@@ -500,7 +500,11 @@ describe('OfficePage status notices', () => {
     renderPage('/office/m1');
     await act(async () => {});
 
-    expect(screen.getByText('sem resposta do tmux: estado pode estar desatualizado')).toBeTruthy();
+    // compact in the header: a short label, the whole sentence for hover and screen readers
+    const notice = screen.getByLabelText('sem resposta do tmux: estado pode estar desatualizado');
+    expect(notice.textContent).toBe('tmux sem resposta');
+    expect(notice.getAttribute('title')).toBe('sem resposta do tmux: estado pode estar desatualizado');
+    expect(notice.querySelector('svg')).not.toBeNull();
   });
 
   it('says so at the machine rest when that machine\'s snapshot could not be read', async () => {
@@ -725,5 +729,18 @@ describe('OfficePage share button', () => {
     expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
     expect(screen.getByText(/máquina de outra pessoa/i)).toBeTruthy();
     expect(writeText).not.toHaveBeenCalled();
+  });
+});
+
+describe('OfficePage header', () => {
+  it('is the shared page header: Escritório as the only title, the trail and the actions in it', async () => {
+    officeMock.mockReturnValue(new Promise(() => {}));
+    dataState.current = { ...dataState.current, loading: false };
+    renderPage('/office');
+    await act(async () => {});
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Escritório']);
+    const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
+    expect(header.contains(screen.getByLabelText('Trilha'))).toBe(true);
+    expect(header.contains(screen.getByText('modo foco'))).toBe(true);
   });
 });
