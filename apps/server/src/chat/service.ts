@@ -338,7 +338,7 @@ export class ChatService {
       try {
         // Wide scopes are safe here only because mintConciergeToken always pairs them with
         // `gated: true` — every write this token can attempt still stops at the chat's gate.
-        token = await mintConciergeToken(this.deps.repos, user.id, ['read', 'tasks', 'terminals']);
+        token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals'], { accountWide: conversation.project_id === null });
       } catch {
         errorCode = 'TOKEN_FAILED';
       }

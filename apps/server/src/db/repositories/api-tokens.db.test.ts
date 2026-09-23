@@ -74,6 +74,12 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ApiTokensRepository (Post
     expect(await repo.countActive(userId)).toBe(2);
   });
 
+  it('countActive ignores gated (concierge) tokens', async () => {
+    const before = await repo.countActive(userId);
+    await repo.create(userId, { name: 'concierge (automático)', scopes: ['read'], expiresAt: null, gated: true }, `h_${newId()}`);
+    expect(await repo.countActive(userId)).toBe(before);
+  });
+
   it('finds an active token by hash, and never a revoked, expired or unknown one', async () => {
     const active = await make(userId, { hash: 'h-active' });
     await make(userId, { hash: 'h-expired', expiresAt: new Date(Date.now() - 1000) });

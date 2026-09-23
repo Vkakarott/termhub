@@ -148,7 +148,7 @@ function fakeChatActions() {
   };
 }
 
-function build(opts: { gated: boolean }) {
+function build(opts: { gated: boolean; conversationId?: string }) {
   const tab = (id: string, name: string) => ({ id, project_id: 'p1', machine_id: 'm1', name, kind: 'terminal', tmux_session: `termhub-p1-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: null });
   const tabs = new Map<string, Record<string, unknown>>([
     ['t1', tab('t1', 'Terminal 1')],
@@ -158,7 +158,11 @@ function build(opts: { gated: boolean }) {
   ]);
   const foreignTabIds = new Set(['t9']);
   const apiTokens = {
-    findActiveByHash: vi.fn(async (h: string) => (h === hashApiToken(SECRET) ? { id: 'tok1', user_id: 'u1', name: 'concierge', scopes: ['read', 'terminals'], expires_at: null, revoked_at: null, last_used_at: null, created_at: '', gated: opts.gated } : undefined)),
+    findActiveByHash: vi.fn(async (h: string) =>
+      h === hashApiToken(SECRET)
+        ? { id: 'tok1', user_id: 'u1', name: 'concierge', scopes: ['read', 'terminals'], expires_at: null, revoked_at: null, last_used_at: null, created_at: '', gated: opts.gated, chat_conversation_id: opts.conversationId ?? null }
+        : undefined,
+    ),
     touchLastUsed: vi.fn(async () => {}),
     recordEvent: vi.fn(async () => {}),
   };
@@ -244,6 +248,17 @@ it('asks instead of acting, and says so in a way the model can act on', async ()
   expect(apiTokens.recordEvent).toHaveBeenCalledTimes(1);
   expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ token_id: 'tok1', tool: 'send_input', tab_id: 't1', ok: false, error_code: 'CONFIRMATION_PENDING' });
   expect(JSON.stringify(apiTokens.recordEvent.mock.calls[0][0])).not.toContain('npm test');
+});
+
+it('asks in the conversation named by the token, not the account-wide one', async () => {
+  const typed: string[] = [];
+  attachFakeTmux(typed);
+  const { app, actions } = build({ gated: true, conversationId: 'c_project' });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+  expect(resultOf(res).isError).toBe(true);
+  expect(textOf(res)).toMatch(/pendente de confirmação/i);
+  expect(actions.insertPending).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: 'c_project' }));
 });
 
 it('does not ask twice for the same proposal', async () => {
