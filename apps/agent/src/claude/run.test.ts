@@ -311,6 +311,9 @@ exec sleep 30
     await claude.open(1, baseParams, socket);
 
     expect(sendControl).toHaveBeenCalledWith({ type: 'open_error', ch: 1, error: { code: 'invalid', message: 'channel in use' } });
+    // The first CLI must have recorded its start before the close kills it: on a busy runner the
+    // kill could land before its first line, and the count below would read 0.
+    await waitFor('the first CLI to start', () => startCount(out) >= 1);
     claude.close(1);
     await waitForClosed(sendControl);
     // Counted, not merely "a file exists": the fake appends one line per start, so a second CLI
