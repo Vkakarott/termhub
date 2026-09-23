@@ -4,6 +4,7 @@ import { Modal } from './Modal';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { MachineForm } from './MachineForm';
 import { STATUS_DOT } from '../lib/machine-status';
+import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import type { ProjectInput } from '../lib/types';
 import { api, ApiError } from '../lib/api';
@@ -29,8 +30,14 @@ const keyHint: Record<KeyState['kind'], { text: string; cls: string }> = {
 /** New-project walkthrough: 1) project (name/key/description) 2) machine 3) directory. */
 export function ProjectForm({ open, onClose, machineId }: Props) {
   const { createProject, machines, statuses } = useData();
+  const { can } = useAuth();
   const navigate = useNavigate();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStepRaw] = useState<1 | 2 | 3>(1);
+  // an error belongs to the step that raised it
+  const setStep = (s: 1 | 2 | 3) => {
+    setError(null);
+    setStepRaw(s);
+  };
 
   // step 1
   const [name, setName] = useState('');
@@ -50,6 +57,14 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // a directory picked on one machine means nothing on another
+  const pickMachine = (id: string) => {
+    if (id === machine) return;
+    setMachine(id);
+    setCwd('');
+    setBrowsing(false);
+  };
 
   // suggestion follows the name until the person edits the key by hand
   const onName = (v: string) => {
@@ -161,7 +176,7 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
                 return (
                   <li key={m.id}>
                     <label className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-sm hover:bg-bg-3">
-                      <input type="radio" name="project-machine" checked={machine === m.id} onChange={() => setMachine(m.id)} />
+                      <input type="radio" name="project-machine" checked={machine === m.id} onChange={() => pickMachine(m.id)} />
                       <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`} />
                       <span className="truncate">{m.name}</span>
                     </label>
@@ -170,13 +185,15 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
               })}
             </ul>
           </div>
-          <button
-            type="button"
-            className="btn-ghost border border-line text-xs"
-            onClick={() => setMachineForm({ open: true, priorIds: new Set(machines.map((m) => m.id)) })}
-          >
-            Cadastrar nova máquina
-          </button>
+          {can('machines', 'create') && (
+            <button
+              type="button"
+              className="btn-ghost border border-line text-xs"
+              onClick={() => setMachineForm({ open: true, priorIds: new Set(machines.map((m) => m.id)) })}
+            >
+              Cadastrar nova máquina
+            </button>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="flex items-center justify-between gap-2 pt-2">
             <button type="button" className="btn-ghost text-xs" onClick={skip} disabled={busy}>
@@ -238,7 +255,7 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
           open
           onClose={() => {
             const created = machines.find((m) => !machineForm.priorIds.has(m.id));
-            if (created) setMachine(created.id);
+            if (created) pickMachine(created.id);
             setMachineForm(null);
           }}
         />

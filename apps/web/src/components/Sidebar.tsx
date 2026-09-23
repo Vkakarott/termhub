@@ -90,6 +90,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                     className="shrink-0 px-1.5 py-1 text-[9px] text-fg-dim hover:text-fg"
                     title={isExpanded ? 'Recolher' : 'Expandir'}
                     aria-label={isExpanded ? 'Recolher máquinas do projeto' : 'Expandir máquinas do projeto'}
+                    aria-expanded={isExpanded}
                     onClick={() => setCollapsedProjects((c) => ({ ...c, [p.id]: isExpanded }))}
                   >
                     {isExpanded ? '▼' : '▶'}

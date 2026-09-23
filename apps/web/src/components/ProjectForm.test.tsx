@@ -17,12 +17,17 @@ vi.mock('../lib/data', () => ({
 }));
 vi.mock('../lib/api', async (orig) => ({ ...(await orig<typeof import('../lib/api')>()), api: { projects: { keyAvailable } } }));
 vi.mock('./DirectoryBrowser', () => ({ DirectoryBrowser: () => null }));
+const perms = vi.hoisted(() => ({ machinesCreate: true }));
+vi.mock('../lib/auth', () => ({
+  useAuth: () => ({ can: (res: string, act?: string) => !(res === 'machines' && act === 'create') || perms.machinesCreate }),
+}));
 vi.mock('./MachineForm', () => ({ MachineForm: () => null }));
 
 import { ProjectForm } from './ProjectForm';
 
 afterEach(() => {
   cleanup();
+  perms.machinesCreate = true;
   vi.clearAllMocks();
 });
 
@@ -66,6 +71,16 @@ describe('ProjectForm', () => {
     await screen.findByText('Passo 2 de 3');
     fireEvent.click(screen.getByRole('button', { name: 'Pular por enquanto' }));
     await waitFor(() => expect(createProject).toHaveBeenCalledWith({ name: 'Novo', key: 'NOV', description: null }));
+  });
+
+  it('step 2: "Cadastrar nova máquina" shows only to who can create machines', async () => {
+    keyAvailable.mockResolvedValue({ available: true });
+    perms.machinesCreate = false;
+    mount();
+    await fillStep1('Novo');
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    await screen.findByText('Passo 2 de 3');
+    expect(screen.queryByRole('button', { name: 'Cadastrar nova máquina' })).toBeNull();
   });
 
   it('step 2 → 3: picking a machine and a directory creates the project with machine_id/cwd/create_dir', async () => {
