@@ -557,7 +557,7 @@ export interface HardwareSnapshot {
   collected_at: string;
 }
 
-/** GET /chat: one conversation per user (v1). */
+/** GET /chat: the account-wide conversation (no project) or one project's own. */
 export interface ChatConversation {
   id: string;
   title: string | null;
@@ -567,6 +567,10 @@ export interface ChatConversation {
   machine_id?: string | null;
   /** The Claude account on that host; null = the machine's own default login. */
   ai_account_id?: string | null;
+  /** null = the account-wide chat; a project id = that project's own chat. */
+  project_id: string | null;
+  /** When this conversation was archived by a "Nova conversa" reset; null while it is the active one. */
+  archived_at: string | null;
   last_message_at: string | null;
 }
 
@@ -670,19 +674,32 @@ export interface ChatAction {
   created_at: string;
 }
 
-/** Pushed over /ws/chat for the signed-in user only; carries no history. */
+/**
+ * Pushed over /ws/chat for the signed-in user only; carries no history. The socket is per user, not
+ * per conversation — it carries the account-wide chat and every project chat together — so every
+ * member gains `conversation_id`, which is what a reader (`ChatPanel`) filters live events by.
+ * Optional, not required: an older server that predates project chats never sends it, and every event
+ * without one is treated as belonging to whichever conversation is open.
+ */
 export type ChatEvent =
-  | { type: 'message'; message: ChatMessage }
-  | { type: 'delta'; message_id: string; delta: string }
-  | { type: 'action'; message_id: string; tool: string; tool_use_id: string; args: unknown }
-  | { type: 'action_result'; message_id: string; tool_use_id: string; ok: boolean }
+  | { type: 'message'; message: ChatMessage; conversation_id?: string }
+  | { type: 'delta'; message_id: string; delta: string; conversation_id?: string }
+  | { type: 'action'; message_id: string; tool: string; tool_use_id: string; args: unknown; conversation_id?: string }
+  | { type: 'action_result'; message_id: string; tool_use_id: string; ok: boolean; conversation_id?: string }
   /** the server retried the run on a fresh CLI session: drop whatever streamed for this message so far */
-  | { type: 'reset'; message_id: string }
+  | { type: 'reset'; message_id: string; conversation_id?: string }
   /** A new pending action to show a card for, enriched exactly like `GET /api/chat`'s `actions` —
    * never resolve a name from this event, the server already did it. */
-  | ({ type: 'confirmation'; action_id: string } & Omit<ChatAction, 'id' | 'status'>)
+  | ({ type: 'confirmation'; action_id: string; conversation_id?: string } & Omit<ChatAction, 'id' | 'status'>)
   /** Someone answered a pending action (possibly in another tab): update the card by its id. */
-  | { type: 'decision'; action_id: string; status: 'approved' | 'denied' };
+  | { type: 'decision'; action_id: string; status: 'approved' | 'denied'; conversation_id?: string };
+
+/** `GET /chat/projects`: which project chats have anything going on, for a sidebar badge. */
+export interface ProjectChatStatus {
+  project_id: string;
+  busy: boolean;
+  pending_confirmations: number;
+}
 
 /** Cloud waitlist sign-up (GET /waitlist) */
 export interface WaitlistEntry {
