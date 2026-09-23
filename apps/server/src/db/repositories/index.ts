@@ -5,6 +5,7 @@ import { LoginAttemptsRepository } from './login-attempts.js';
 import { LoginCodesRepository } from './login-codes.js';
 import { MachinesRepository } from './machines.js';
 import { ProjectsRepository } from './projects.js';
+import { ProjectMachinesRepository } from './project-machines.js';
 import { TabsRepository } from './tabs.js';
 import { TasksRepository } from './tasks.js';
 import { NotesRepository } from './notes.js';
@@ -19,6 +20,8 @@ import { UploadsRepository } from './uploads.js';
 import { ApiTokensRepository } from './api-tokens.js';
 import { ChatRepository } from './chat.js';
 import { ChatActionsRepository } from './chat-actions.js';
+import { InstanceSecretsRepository } from './instance-secrets.js';
+import { ProjectGroupsRepository } from './project-groups.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -27,6 +30,7 @@ export interface Repositories {
   loginCodes: LoginCodesRepository;
   machines: MachinesRepository;
   projects: ProjectsRepository;
+  projectMachines: ProjectMachinesRepository;
   tabs: TabsRepository;
   tasks: TasksRepository;
   notes: NotesRepository;
@@ -41,6 +45,8 @@ export interface Repositories {
   apiTokens: ApiTokensRepository;
   chat: ChatRepository;
   chatActions: ChatActionsRepository;
+  instanceSecrets: InstanceSecretsRepository;
+  projectGroups: ProjectGroupsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -51,6 +57,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     loginCodes: new LoginCodesRepository(db),
     machines: new MachinesRepository(db),
     projects: new ProjectsRepository(db),
+    projectMachines: new ProjectMachinesRepository(db),
     tabs: new TabsRepository(db),
     tasks: new TasksRepository(db),
     notes: new NotesRepository(db),
@@ -65,6 +72,8 @@ export function createRepositories(db: PrismaClient): Repositories {
     apiTokens: new ApiTokensRepository(db),
     chat: new ChatRepository(db),
     chatActions: new ChatActionsRepository(db),
+    instanceSecrets: new InstanceSecretsRepository(db),
+    projectGroups: new ProjectGroupsRepository(db),
   };
 }
 
@@ -77,3 +86,7 @@ export type { Upload } from './uploads.js';
 export { SYSTEM_ROLE_IDS } from './roles.js';
 export type { ChatConversation, ChatMessage, ChatRole } from './chat.js';
 export type { ChatAction, ChatActionClass, ChatActionStatus, InsertPendingInput } from './chat-actions.js';
+export { ProjectRuleError } from './projects.js';
+export type { ProjectRuleCode } from './projects.js';
+export { ProjectGroupRuleError } from './project-groups.js';
+export type { ProjectGroup, ProjectGroupRuleCode } from './project-groups.js';

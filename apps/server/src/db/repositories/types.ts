@@ -3,12 +3,14 @@ import type {
   Session as PrismaSession,
   Machine as PrismaMachine,
   Project as PrismaProject,
+  ProjectMachine as PrismaProjectMachine,
   Tab as PrismaTab,
   TabEvent as PrismaTabEvent,
   Task as PrismaTask,
   Note as PrismaNote,
   Ticket as PrismaTicket,
 } from '../../generated/prisma/client.js';
+import { publicId } from '../../public/public-id.js';
 
 export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh' | 'agent';
@@ -30,6 +32,12 @@ export interface User {
   email: string;
   name: string;
   avatar_url: string | null;
+  /** the address of this person's public city (/city/@nickname); null = no city */
+  nickname: string | null;
+  /** the short link termhub created for the city through TypeToAccess; null = none yet */
+  city_short_url_partner: string | null;
+  /** a short link the person pasted instead; the effective one is custom ?? partner */
+  city_short_url_custom: string | null;
   password_hash: string | null;
   google_id: string | null;
   /** DEPRECATED legacy flag; use role_id */
@@ -73,22 +81,41 @@ export interface Machine {
   /** owner's display name (list/detail convenience for the "all" view) */
   owner_name: string | null;
   created_at: string;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
 }
 
 export interface Project {
   id: string;
-  machine_id: string;
+  /** null = orphan (owner deleted), visible only to admins viewing "all" */
+  owner_id: string | null;
+  /** short key used in URLs and card numbers (TERMHUB); unique, immutable */
+  key: string;
+  next_task_number: number;
   name: string;
-  cwd: string;
   status: ProjectStatus;
   description: string | null;
+  /** published: readable by anyone with the /city/@nickname link */
+  is_public: boolean;
   last_terminal_at: string | null;
+  created_at: string;
+}
+
+/** A project's link to one machine: where its terminals run there. */
+export interface ProjectMachine {
+  id: string;
+  project_id: string;
+  machine_id: string;
+  cwd: string;
+  position: number;
   created_at: string;
 }
 
 export interface Tab {
   id: string;
   project_id: string;
+  /** the machine this tab's tmux session runs on */
+  machine_id: string;
   name: string;
   kind: TabKind;
   tmux_session: string | null;
@@ -106,6 +133,8 @@ export interface Tab {
   state_seen_at: string | null;
   /** monitor: what a working agent is doing; null = not working or never reported */
   activity: TabActivity | null;
+  /** Claude Code's spinner verb that came with `activity` ("Moonwalking"); cleared with it */
+  activity_verb: string | null;
   created_at: string;
 }
 
@@ -196,6 +225,9 @@ export const mapUser = (u: PrismaUser): User => ({
   email: u.email,
   name: u.name,
   avatar_url: u.avatarUrl,
+  nickname: u.nickname,
+  city_short_url_partner: u.cityShortUrlPartner,
+  city_short_url_custom: u.cityShortUrlCustom,
   password_hash: u.passwordHash,
   google_id: u.googleId,
   role: u.role,
@@ -230,22 +262,35 @@ export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null 
   owner_id: m.ownerId,
   owner_name: m.owner?.name ?? null,
   created_at: m.createdAt.toISOString(),
+  public_id: publicId('machine', m.id),
 });
 
 export const mapProject = (p: PrismaProject): Project => ({
   id: p.id,
-  machine_id: p.machineId,
+  owner_id: p.ownerId,
+  key: p.key,
+  next_task_number: p.nextTaskNumber,
   name: p.name,
-  cwd: p.cwd,
   status: p.status,
   description: p.description,
+  is_public: p.isPublic,
   last_terminal_at: iso(p.lastTerminalAt),
   created_at: p.createdAt.toISOString(),
+});
+
+export const mapProjectMachine = (l: PrismaProjectMachine): ProjectMachine => ({
+  id: l.id,
+  project_id: l.projectId,
+  machine_id: l.machineId,
+  cwd: l.cwd,
+  position: l.position,
+  created_at: l.createdAt.toISOString(),
 });
 
 export const mapTab = (t: PrismaTab): Tab => ({
   id: t.id,
   project_id: t.projectId,
+  machine_id: t.machineId,
   name: t.name,
   kind: t.kind,
   tmux_session: t.tmuxSession,
@@ -258,6 +303,7 @@ export const mapTab = (t: PrismaTab): Tab => ({
   state_at: iso(t.stateAt),
   state_seen_at: iso(t.stateSeenAt),
   activity: t.activity,
+  activity_verb: t.activityVerb,
   created_at: t.createdAt.toISOString(),
 });
 
@@ -312,10 +358,11 @@ export const mapNote = (n: PrismaNote): Note => ({
 });
 
 /** Remove campos sensíveis antes de enviar ao cliente. */
-export type PublicUser = Omit<User, 'password_hash' | 'google_id'> & { has_password: boolean; has_google: boolean };
+export type PublicUser = Omit<User, 'password_hash' | 'google_id' | 'city_short_url_partner' | 'city_short_url_custom'> & { has_password: boolean; has_google: boolean };
 
 export function toPublicUser(u: User): PublicUser {
-  const { password_hash, google_id, ...rest } = u;
+  // the city short links are served by /auth/me/city-link and the public snapshot, not the account payload
+  const { password_hash, google_id, city_short_url_partner, city_short_url_custom, ...rest } = u;
   return { ...rest, has_password: !!password_hash, has_google: !!google_id };
 }
 

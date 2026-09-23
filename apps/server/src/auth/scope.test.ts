@@ -9,7 +9,7 @@ const admin = user('adm', 'role_admin');
 const alice = user('alice', 'role_auth');
 const bob = user('bob', 'role_auth');
 
-/** Two machines (alice's m1 with project p1/tab t1/task k1, bob's m2) and one integration each. */
+/** alice owns m1 and project p1 (linked to m1, tab t1 on m1, task k1); bob owns m2; m3 is an orphan; p2 is alice's project with two machines; p3 has none. */
 function fakeRepos(): Repositories {
   const users = [admin, alice, bob];
   const roles = { role_admin: { id: 'role_admin', is_admin: true }, role_auth: { id: 'role_auth', is_admin: false } };
@@ -17,9 +17,21 @@ function fakeRepos(): Repositories {
     { id: 'm1', owner_id: 'alice' },
     { id: 'm2', owner_id: 'bob' },
     { id: 'm3', owner_id: null },
+    { id: 'm4', owner_id: 'alice' },
   ];
-  const projects = [{ id: 'p1', machine_id: 'm1' }];
-  const tabs = [{ id: 't1', project_id: 'p1' }];
+  const projects = [
+    { id: 'p1', owner_id: 'alice' },
+    { id: 'p2', owner_id: 'alice' },
+    { id: 'p3', owner_id: 'alice' },
+    { id: 'p9', owner_id: null },
+  ];
+  const links = [
+    { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/p1' },
+    { id: 'l2', project_id: 'p2', machine_id: 'm1', cwd: '/p2-m1' },
+    { id: 'l3', project_id: 'p2', machine_id: 'm4', cwd: '/p2-m4' },
+    { id: 'l4', project_id: 'p1', machine_id: 'm2', cwd: '/bobs' }, // a link to a machine alice does not own
+  ];
+  const tabs = [{ id: 't1', project_id: 'p1', machine_id: 'm1' }, { id: 't2', project_id: 'p1', machine_id: 'm2' }];
   const tasks = [{ id: 'k1', project_id: 'p1' }];
   const integrations = [{ id: 'i1', owner_id: 'alice' }];
   const accounts = [{ id: 'a1', machine_id: 'm2' }];
@@ -29,6 +41,10 @@ function fakeRepos(): Repositories {
     roles: { findById: async (id: string) => (roles as Record<string, unknown>)[id], permissionsOf: async () => [] },
     machines: { findById: find(machines) },
     projects: { findById: find(projects) },
+    projectMachines: {
+      find: async (p: string, m: string) => links.find((l) => l.project_id === p && l.machine_id === m),
+      listByProject: async (p: string) => links.filter((l) => l.project_id === p),
+    },
     tabs: { findById: find(tabs) },
     tasks: { findById: find(tasks) },
     integrations: { findById: find(integrations) },
@@ -69,28 +85,49 @@ describe('Scoped', () => {
   const repos = fakeRepos();
   const as = (ownerId: string | null) => new Scoped(repos, { user: alice, viewAs: { kind: 'self' }, ownerId, createAs: ownerId ?? 'adm' });
 
-  it('resolves rows of the owner and everything under their machines', async () => {
+  it('resolves rows of the owner: projects by owner_id, tabs through their machine link', async () => {
     const s = as('alice');
     expect((await s.machine('m1')).id).toBe('m1');
-    expect((await s.project('p1')).machine.id).toBe('m1');
-    expect((await s.tab('t1')).project.id).toBe('p1');
-    expect((await s.task('k1')).machine.id).toBe('m1');
+    expect((await s.project('p1')).project.owner_id).toBe('alice');
+    const tab = await s.tab('t1');
+    expect([tab.project.id, tab.machine.id, tab.cwd]).toEqual(['p1', 'm1', '/p1']);
+    expect((await s.task('k1')).project.id).toBe('p1');
     expect((await s.integration('i1')).id).toBe('i1');
+    expect((await s.projectMachine('p2', 'm4')).link.cwd).toBe('/p2-m4');
+  });
+
+  it('projectMachines lists only linked machines the owner can see', async () => {
+    const r = await as('alice').projectMachines('p1');
+    expect(r.machines.map((x) => x.machine.id)).toEqual(['m1']); // m2 is bob's: left out
+    expect((await as(null).projectMachines('p1')).machines.map((x) => x.machine.id)).toEqual(['m1', 'm2']);
+  });
+
+  it('projectMachineFor picks the only machine, requires one when there are several, refuses when there are none', async () => {
+    const s = as('alice');
+    expect((await s.projectMachineFor('p1')).machine.id).toBe('m1');
+    expect((await s.projectMachineFor('p2', 'm4')).link.cwd).toBe('/p2-m4');
+    await expect(s.projectMachineFor('p2')).rejects.toMatchObject({ statusCode: 400, code: 'MACHINE_REQUIRED' });
+    await expect(s.projectMachineFor('p3')).rejects.toMatchObject({ statusCode: 400, code: 'NO_MACHINE' });
+    await expect(s.projectMachineFor('p1', 'm4')).rejects.toMatchObject({ statusCode: 404 }); // not linked
+    await expect(s.projectMachineFor('p1', 'm2')).rejects.toMatchObject({ statusCode: 404 }); // linked, but bob's machine
   });
 
   it("answers 404 for another user's rows, orphans and missing ids alike", async () => {
     const s = as('bob');
-    for (const p of [s.machine('m1'), s.machine('m3'), s.machine('nope'), s.project('p1'), s.tab('t1'), s.task('k1'), s.integration('i1')]) {
+    for (const p of [s.machine('m1'), s.machine('m3'), s.machine('nope'), s.project('p1'), s.project('p9'), s.tab('t1'), s.tab('t2'), s.task('k1'), s.integration('i1'), s.projectMachine('p1', 'm2')]) {
       await expect(p).rejects.toMatchObject({ statusCode: 404 });
     }
     expect((await s.aiAccount('a1')).machine.id).toBe('m2');
     await expect(as('alice').aiAccount('a1')).rejects.toMatchObject({ statusCode: 404 });
+    await expect(as('alice').tab('t2')).rejects.toMatchObject({ statusCode: 404 }); // alice's project, bob's machine
   });
 
   it('sees everything with a null owner filter (admin "all")', async () => {
     const s = as(null);
     expect((await s.machine('m1')).id).toBe('m1');
     expect((await s.machine('m3')).id).toBe('m3');
+    expect((await s.project('p9')).project.id).toBe('p9');
+    expect((await s.tab('t2')).machine.id).toBe('m2');
     expect((await s.aiAccount('a1')).account.id).toBe('a1');
   });
 });

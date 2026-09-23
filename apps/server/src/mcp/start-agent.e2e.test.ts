@@ -53,19 +53,24 @@ function build(cwd: string) {
     touchLastUsed: vi.fn(async () => {}),
     recordEvent: vi.fn(async () => {}),
   };
+  const link = { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd, position: 0, created_at: '' };
   const repos = {
     apiTokens,
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
     machines: { findById: vi.fn(async () => machine), list: vi.fn(async () => [machine]) },
-    projects: { findById: vi.fn(async () => ({ id: 'p1', name: 'app', cwd, machine_id: 'm1', status: 'active' })) },
+    projects: { findById: vi.fn(async () => ({ id: 'p1', name: 'app', status: 'active', owner_id: 'u1', key: 'APP', next_task_number: 1 })) },
+    projectMachines: {
+      find: vi.fn(async () => link),
+      listByProject: vi.fn(async () => [link]),
+    },
     aiAccounts: { findById: vi.fn(async (id: string) => accounts.find((a) => a.id === id)), list: vi.fn(async () => accounts) },
     tabs: {
       listByProject: vi.fn(async () => [...tabs.values()]),
       countOpenByToken: vi.fn(async () => 0),
       findById: vi.fn(async (id: string) => tabs.get(id)),
-      create: vi.fn(async (projectId: string, name: string, opts: { created_by_token_id?: string | null } = {}) => {
+      create: vi.fn(async (projectId: string, machineId: string, name: string, opts: { created_by_token_id?: string | null } = {}) => {
         const id = `t${tabs.size + 1}`;
-        const tab = { id, project_id: projectId, name, kind: 'terminal', tmux_session: `termhub-${SOCKET}-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: opts.created_by_token_id ?? null };
+        const tab = { id, project_id: projectId, machine_id: machineId, name, kind: 'terminal', tmux_session: `termhub-${SOCKET}-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: opts.created_by_token_id ?? null };
         tabs.set(id, tab);
         return tab;
       }),

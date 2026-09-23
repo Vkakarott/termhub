@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Tab } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
-import { monitorBus } from '../monitor/bus.js';
+import { monitorBus, type TabLifecycle } from '../monitor/bus.js';
 
 const { sendKeysToSession } = vi.hoisted(() => ({ sendKeysToSession: vi.fn() }));
 vi.mock('../monitor/send-keys.js', () => ({ INPUT_MAX_CHARS: 4000, sendKeysToSession }));
@@ -12,6 +12,7 @@ import { tabRoutes } from './tabs.js';
 
 const tab = (over: Partial<Tab> & { id: string; project_id?: string }): Tab => ({
   project_id: 'p1',
+  machine_id: 'm1',
   name: 'claude',
   kind: 'terminal',
   tmux_session: `th-${over.id}`,
@@ -46,10 +47,13 @@ function buildApp(tabs: Record<string, Tab>, ownerId: string | null = null, mach
   const tabsRepo = {
     findById: vi.fn(async (id: string) => tabs[id]),
     markSeen,
+    delete: vi.fn(async (id: string) => delete tabs[id]),
+    update: vi.fn(async (id: string, patch: { name?: string }) => (tabs[id] = { ...tabs[id], ...patch })),
   };
   const repos = {
     tabs: tabsRepo,
-    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', machine_id: machine.id } : undefined)) },
+    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', owner_id: 'u1' } : undefined)) },
+    projectMachines: { find: vi.fn(async (p: string, m: string) => (p === 'p1' && m === machine.id ? { id: 'l1', project_id: 'p1', machine_id: m, cwd: '/tmp', position: 0, created_at: '' } : undefined)) },
     machines: { findById: vi.fn(async (id: string) => (id === machine.id ? { owner_id: 'u1', ...machine } : undefined)) },
   } as unknown as Repositories;
   const deps = { simulators: {} as never, closeSimulatorTab: vi.fn() };
@@ -121,5 +125,61 @@ describe('POST /tabs/:id/input', () => {
     const r = await app.inject({ method: 'POST', url: '/tabs/t1/input', payload: { text: 'oi', enter: false } });
     expect(r.statusCode).toBe(409);
     expect(r.json().error).toBe('tmux não respondeu');
+  });
+});
+
+describe('DELETE /tabs/:id', () => {
+  // A visitor watching a published room must see the robot leave, not sit there until a reload.
+  it('tells the public channel the tab is gone', async () => {
+    const { publicBus } = await import('../public/bus.js');
+    const gone: unknown[] = [];
+    const off = publicBus.subscribeTabRemoved((c) => gone.push(c));
+    try {
+      const store = { t1: tab({ id: 't1', tmux_session: null }) };
+      const { app } = buildApp(store);
+      const res = await app.inject({ method: 'DELETE', url: '/tabs/t1' });
+      expect(res.statusCode).toBe(200);
+      expect(gone).toEqual([{ tab_id: 't1', project_id: 'p1', machine_id: 'm1' }]);
+    } finally {
+      off();
+    }
+  });
+});
+
+/** Collects the monitor's tab lifecycle events (the sidebar's open tabs) while `work` runs. */
+async function lifecycleDuring(work: () => Promise<unknown>): Promise<TabLifecycle[]> {
+  const events: TabLifecycle[] = [];
+  const off = monitorBus.subscribeLifecycle((e) => events.push(e));
+  try {
+    await work();
+  } finally {
+    off();
+  }
+  return events;
+}
+
+describe('tab lifecycle on the monitor bus', () => {
+  it('PATCH (rename) publishes the renamed tab, scoped by its machine owner', async () => {
+    const store = { t1: tab({ id: 't1' }) };
+    const { app } = buildApp(store);
+    const events = await lifecycleDuring(() => app.inject({ method: 'PATCH', url: '/tabs/t1', payload: { name: 'Ana' } }));
+    expect(events).toEqual([{ kind: 'upsert', tab: expect.objectContaining({ id: 't1', name: 'Ana' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' }]);
+  });
+
+  it('DELETE publishes the removal', async () => {
+    const store = { t1: tab({ id: 't1', tmux_session: null }) };
+    const { app } = buildApp(store);
+    const events = await lifecycleDuring(() => app.inject({ method: 'DELETE', url: '/tabs/t1' }));
+    expect(events).toEqual([{ kind: 'removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1', owner_id: 'u1' }]);
+  });
+
+  it('publishes nothing for a tab outside the scope', async () => {
+    const store = { t1: tab({ id: 't1', tmux_session: null }) };
+    const { app } = buildApp(store, 'someone-else');
+    const events = await lifecycleDuring(async () => {
+      await app.inject({ method: 'PATCH', url: '/tabs/t1', payload: { name: 'Ana' } });
+      await app.inject({ method: 'DELETE', url: '/tabs/t1' });
+    });
+    expect(events).toEqual([]);
   });
 });

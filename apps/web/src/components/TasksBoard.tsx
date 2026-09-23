@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEven
 import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useData } from '../lib/data';
+import { readLastMachine, writeLastMachine } from '../lib/last-machine';
 import { PROVIDER_LABEL, TASK_STATUS_LABEL, type Task, type TaskStatus } from '../lib/types';
+import { MachinePicker } from './MachinePicker';
 import { Modal } from './Modal';
 import { SubtaskList } from './SubtaskList';
 
@@ -20,12 +22,15 @@ interface DragState {
 }
 
 export function TasksBoard({ projectId }: Props) {
-  const { setOpenTasks } = useData();
+  const { projects, machinesOf, setOpenTasks } = useData();
   const navigate = useNavigate();
+  const project = projects.find((p) => p.id === projectId);
+  const projectMachines = project ? machinesOf(project) : [];
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [pickingMachineFor, setPickingMachineFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -75,15 +80,34 @@ export function TasksBoard({ projectId }: Props) {
   const setSubtasks = (parentId: string, v: Task[] | ((prev: Task[]) => Task[])) =>
     setTasks((t) => (t ?? []).map((x) => (x.id === parentId ? { ...x, subtasks: typeof v === 'function' ? v(x.subtasks ?? []) : v } : x)));
 
-  const openTerminal = async (id: string) => {
+  const openTerminal = async (id: string, machineId?: string) => {
     try {
-      const r = await api.tasks.openTerminal(id);
+      const r = await api.tasks.openTerminal(id, machineId);
+      if (machineId) writeLastMachine(projectId, machineId);
       replaceTask(r.task);
       setEditing(null);
       navigate(`/projects/${projectId}?tab=${r.tab.id}`);
     } catch (e) {
       fail(e, 'Erro ao abrir terminal');
     }
+  };
+
+  /** Resolves which machine to open the task's terminal on before calling the API. */
+  const chooseTerminal = (id: string) => {
+    if (projectMachines.length === 0) {
+      setError('Vincule uma máquina ao projeto em Setup → Máquinas para abrir terminais.');
+      return;
+    }
+    if (projectMachines.length === 1) {
+      void openTerminal(id, projectMachines[0].id);
+      return;
+    }
+    const last = readLastMachine(projectId);
+    if (last && projectMachines.some((m) => m.id === last)) {
+      void openTerminal(id, last);
+      return;
+    }
+    setPickingMachineFor(id);
   };
 
   const pushStatus = async (id: string) => {
@@ -222,7 +246,7 @@ export function TasksBoard({ projectId }: Props) {
           onSave={(patch) => void update(editing.id, patch)}
           onStatus={(s) => void move(editing.id, s, 0)}
           onDelete={() => void remove(editing.id)}
-          onOpenTerminal={() => void openTerminal(editing.id)}
+          onOpenTerminal={() => chooseTerminal(editing.id)}
           onPushStatus={() => pushStatus(editing.id)}
           terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
           onSubtasks={(subtasks) => setSubtasks(editing.id, subtasks)}
@@ -230,6 +254,19 @@ export function TasksBoard({ projectId }: Props) {
             setError(message);
             void load();
           }}
+        />
+      )}
+      {project && (
+        <MachinePicker
+          open={pickingMachineFor !== null}
+          project={project}
+          machines={projectMachines}
+          onPick={(machineId) => {
+            const id = pickingMachineFor;
+            setPickingMachineFor(null);
+            if (id) void openTerminal(id, machineId);
+          }}
+          onClose={() => setPickingMachineFor(null)}
         />
       )}
     </div>

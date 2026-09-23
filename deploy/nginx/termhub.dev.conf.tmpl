@@ -8,17 +8,26 @@ limit_req_zone $http_cf_connecting_ip zone=termhub_hooks:1m rate=20r/s;
 # MCP endpoint (global terminal): per-client budget; the app also limits per token
 limit_req_zone $http_cf_connecting_ip zone=termhub_mcp:1m rate=10r/s;
 
+# Public city: per-client budget for an audience with no account (the client IP comes from Cloudflare)
+limit_req_zone $http_cf_connecting_ip zone=termhub_public:1m rate=5r/s;
+limit_conn_zone $http_cf_connecting_ip zone=termhub_public_conn:1m;
+
 # Landing page
 server {
     listen 80;
     server_name termhub.dev www.termhub.dev;
-    # resolver do Docker + variável: nginx re-resolve o IP quando o container é recriado
+    # resolver do Docker + variável: nginx re-resolve o IP quando o container é recriado.
+    # Todo upstream deste arquivo tem que passar por variável: um `proxy_pass` com o host
+    # literal cria um server group implícito chamado `host:porta`, e nginx procura o nome
+    # nesses grupos ANTES de usar o resolver — um único literal para o mesmo `host:porta`
+    # deixa a variável presa no IP resolvido na carga da config e torna o resolver inócuo.
     resolver 127.0.0.11 valid=10s ipv6=off;
+    set $upstream_app __APP_HOST__;
     set $upstream_landing termhub-landing;
     # Cloud waitlist form: same-origin POST forwarded to the app (public route, no Access on this host)
     location = /api/waitlist {
         limit_except POST { deny all; }
-        proxy_pass http://__APP_HOST__:3000;
+        proxy_pass http://$upstream_app:3000;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $http_cf_connecting_ip;
@@ -31,7 +40,7 @@ server {
         limit_except POST { deny all; }
         limit_req zone=termhub_hooks burst=40 nodelay;
         limit_req_status 429;
-        proxy_pass http://__APP_HOST__:3000;
+        proxy_pass http://$upstream_app:3000;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $http_cf_connecting_ip;
@@ -44,7 +53,7 @@ server {
         limit_except POST { deny all; }
         limit_req zone=termhub_mcp burst=20 nodelay;
         limit_req_status 429;
-        proxy_pass http://__APP_HOST__:3000;
+        proxy_pass http://$upstream_app:3000;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $http_cf_connecting_ip;
@@ -53,6 +62,41 @@ server {
         proxy_buffering off;
         proxy_read_timeout 120s;
         client_max_body_size 256k;
+    }
+    # The public city: the page, its snapshot and its live channel (public routes; no Access on this host)
+    location /city/ {
+        limit_except GET { deny all; }
+        limit_req zone=termhub_public burst=10 nodelay;
+        limit_req_status 429;
+        proxy_pass http://__APP_HOST__:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+    location /api/public/ {
+        limit_except GET { deny all; }
+        limit_req zone=termhub_public burst=10 nodelay;
+        limit_req_status 429;
+        proxy_pass http://__APP_HOST__:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+    location /ws/public/ {
+        limit_conn termhub_public_conn 4;
+        proxy_pass http://__APP_HOST__:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 3600s;
     }
     location / {
         proxy_pass http://$upstream_landing:80;
@@ -68,8 +112,11 @@ server {
 server {
     listen 80;
     server_name app.termhub.dev;
+    # mesma regra do bloco acima: resolver do Docker + variável, nunca o host literal
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $upstream_app __APP_HOST__;
     location / {
-        proxy_pass http://__APP_HOST__:3000;
+        proxy_pass http://$upstream_app:3000;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $http_cf_connecting_ip;

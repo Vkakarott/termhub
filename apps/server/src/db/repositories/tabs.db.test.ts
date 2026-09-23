@@ -23,10 +23,12 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     projectId = newId();
     tabId = newId();
     await db.machine.create({ data: { id: machineId, name: 'test', type: 'agent' } });
-    await db.project.create({ data: { id: projectId, machineId, name: 'p', cwd: '/tmp' } });
-    await db.tab.create({ data: { id: tabId, projectId, name: 't', tmuxSession: `th-${tabId}` } });
+    await db.project.create({ data: { id: projectId, key: 'K' + projectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p' } });
+    await db.projectMachine.create({ data: { id: newId(), projectId, machineId, cwd: '/tmp' } });
+    await db.tab.create({ data: { id: tabId, projectId, machineId, name: 't', tmuxSession: `th-${tabId}` } });
     return async () => {
-      await db.machine.delete({ where: { id: machineId } }); // cascades project and tab
+      await db.project.delete({ where: { id: projectId } }); // cascades link and tab
+      await db.machine.delete({ where: { id: machineId } });
     };
   });
 
@@ -98,35 +100,40 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
         { id: otherMachineId, name: 'theirs', type: 'agent', ownerId: otherOwnerId },
       ] });
       await db.project.createMany({ data: [
-        { id: ownedProjectId, machineId: ownedMachineId, name: 'p', cwd: '/tmp' },
-        { id: otherProjectId, machineId: otherMachineId, name: 'p2', cwd: '/tmp' },
+        { id: ownedProjectId, ownerId, key: 'K' + ownedProjectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p' },
+        { id: otherProjectId, ownerId: otherOwnerId, key: 'K' + otherProjectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p2' },
+      ] });
+      await db.projectMachine.createMany({ data: [
+        { id: newId(), projectId: ownedProjectId, machineId: ownedMachineId, cwd: '/tmp' },
+        { id: newId(), projectId: otherProjectId, machineId: otherMachineId, cwd: '/tmp' },
       ] });
       await db.tab.createMany({ data: [
-        { id: ownedTabId, projectId: ownedProjectId, name: 'mine', tmuxSession: `th-${ownedTabId}` },
-        { id: otherTabId, projectId: otherProjectId, name: 'theirs', tmuxSession: `th-${otherTabId}` },
+        { id: ownedTabId, projectId: ownedProjectId, machineId: ownedMachineId, name: 'mine', tmuxSession: `th-${ownedTabId}` },
+        { id: otherTabId, projectId: otherProjectId, machineId: otherMachineId, name: 'theirs', tmuxSession: `th-${otherTabId}` },
       ] });
 
       const found = await repo.findByIdsForOwner([ownedTabId, otherTabId, 'nope'], ownerId);
       expect(found.map((t) => t.id)).toEqual([ownedTabId]); // another owner's tab is absent, indistinguishable from "does not exist"
       expect(await repo.findByIdsForOwner([], ownerId)).toEqual([]);
     } finally {
-      await db.machine.deleteMany({ where: { id: { in: [ownedMachineId, otherMachineId] } } }); // cascades projects and tabs
+      await db.project.deleteMany({ where: { id: { in: [ownedProjectId, otherProjectId] } } }); // cascades links and tabs
+      await db.machine.deleteMany({ where: { id: { in: [ownedMachineId, otherMachineId] } } });
       await db.user.deleteMany({ where: { id: { in: [ownerId, otherOwnerId] } } });
     }
   });
 
   it('listByProjects returns the tabs of the given projects in tab-bar order, and nothing for none', async () => {
     const second = newId();
-    await db.tab.create({ data: { id: second, projectId, name: 'second', position: 1, tmuxSession: `th-${second}` } });
+    await db.tab.create({ data: { id: second, projectId, machineId, name: 'second', position: 1, tmuxSession: `th-${second}` } });
     expect((await repo.listByProjects([projectId])).map((t) => t.id)).toEqual([tabId, second]);
     expect(await repo.listByProjects([])).toEqual([]);
   });
 
   describe('created_by_token_id / countOpenByToken', () => {
     it('records which token opened a tab and counts the ones still open', async () => {
-      const a = await repo.create(projectId, 'T1', { created_by_token_id: 'tok1' });
-      await repo.create(projectId, 'T2', { created_by_token_id: 'tok1' });
-      await repo.create(projectId, 'T3');
+      const a = await repo.create(projectId, machineId, 'T1', { created_by_token_id: 'tok1' });
+      await repo.create(projectId, machineId, 'T2', { created_by_token_id: 'tok1' });
+      await repo.create(projectId, machineId, 'T3');
 
       expect(a.created_by_token_id).toBe('tok1');
       expect(await repo.countOpenByToken('tok1')).toBe(2);
@@ -262,7 +269,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     it('setActivity changes only the activity and the time, with no event row', async () => {
       const { tab: before } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
       const events = await db.tabEvent.count({ where: { tabId } });
-      const updated = await repo.setActivity(tabId, 'reading');
+      const updated = await repo.setActivity(tabId, 'reading', null);
       expect(updated?.activity).toBe('reading');
       expect(updated?.state).toBe('working');
       expect(updated?.state_text).toBe(before.state_text);
@@ -273,7 +280,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     it('setActivity writes nothing once the tab has left working (a Stop landing between the read and the write)', async () => {
       await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
       const { tab: stopped } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
-      expect(await repo.setActivity(tabId, 'reading')).toBeUndefined();
+      expect(await repo.setActivity(tabId, 'reading', null)).toBeUndefined();
       const reloaded = await repo.findById(tabId);
       expect(reloaded?.activity).toBeNull(); // a waiting tab never reads as coding
       expect(reloaded?.state).toBe('waiting_input');
@@ -281,7 +288,33 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
 
     it('setActivity returns undefined for a tab that does not exist', async () => {
-      expect(await repo.setActivity(newId(), 'reading')).toBeUndefined();
+      expect(await repo.setActivity(newId(), 'reading', null)).toBeUndefined();
+    });
+
+    it('recordEvent stores the spinner verb of a working event and clears it with the activity', async () => {
+      const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Moonwalking' });
+      expect(tab.activity_verb).toBe('Moonwalking');
+      const again = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
+      expect(again.tab.activity_verb).toBeNull();
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Brewing' });
+      // a verb sent along with a non-working state is never kept
+      const waiting = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?', activityVerb: 'Brewing' });
+      expect(waiting.tab.activity_verb).toBeNull();
+    });
+
+    it('setActivity moves the verb with the activity, and only on a working tab', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Brewing' });
+      expect((await repo.setActivity(tabId, 'coding', 'Musing'))?.activity_verb).toBe('Musing');
+      expect((await repo.setActivity(tabId, 'reading', null))?.activity_verb).toBeNull();
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
+      expect(await repo.setActivity(tabId, 'reading', 'Pondering')).toBeUndefined();
+      expect((await repo.findById(tabId))?.activity_verb).toBeNull();
+    });
+
+    it('clearState clears the verb too', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'terminal', activityVerb: 'Brewing' });
+      await repo.clearState(tabId);
+      expect((await repo.findById(tabId))?.activity_verb).toBeNull();
     });
 
     it('clearState clears the activity too', async () => {
@@ -289,5 +322,59 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       await repo.clearState(tabId);
       expect((await repo.findById(tabId))?.activity).toBeNull();
     });
+  });
+});
+
+describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.listOpenTerminals / listByMachine (Postgres)', () => {
+  let db: PrismaClient;
+  let repo: TabsRepository;
+  let ownerId: string;
+  let mine: string;
+  let theirs: string;
+  let projectId: string;
+
+  beforeAll(() => {
+    db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+    repo = new TabsRepository(db);
+  });
+
+  beforeEach(async () => {
+    ownerId = newId();
+    mine = newId();
+    theirs = newId();
+    projectId = newId();
+    await db.user.create({ data: { id: ownerId, email: `${ownerId}@test.local`, name: 'o' } });
+    await db.machine.createMany({ data: [
+      { id: mine, name: 'mine', type: 'agent', ownerId },
+      { id: theirs, name: 'theirs', type: 'agent' },
+    ] });
+    await db.project.create({ data: { id: projectId, key: 'K' + projectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p', ownerId } });
+    return async () => {
+      await db.project.delete({ where: { id: projectId } });
+      await db.machine.deleteMany({ where: { id: { in: [mine, theirs] } } });
+      await db.user.delete({ where: { id: ownerId } });
+    };
+  });
+
+  afterAll(async () => {
+    await db?.$disconnect();
+  });
+
+  it('lists every terminal tab on the owner\'s machines, reported a state or not, in tab-bar order', async () => {
+    const b = await repo.create(projectId, mine, 'Bia');
+    const a = await repo.create(projectId, mine, 'Ana');
+    await repo.create(projectId, mine, 'Sim', { kind: 'simulator' });
+    await repo.create(projectId, theirs, 'Caio');
+    await repo.recordEvent(a.id, { kind: 'working', tool: 'claude', text: null });
+
+    expect((await repo.listOpenTerminals(ownerId)).map((t) => t.name)).toEqual([b.name, a.name]); // position order, never-reported included
+    expect((await repo.listOpenTerminals(null)).map((t) => t.name)).toEqual(expect.arrayContaining(['Bia', 'Ana', 'Caio']));
+    expect((await repo.listOpenTerminals(null)).some((t) => t.name === 'Sim')).toBe(false);
+  });
+
+  it('lists every tab on one machine (read before a machine delete cascades them)', async () => {
+    await repo.create(projectId, mine, 'Ana');
+    await repo.create(projectId, theirs, 'Caio');
+    expect((await repo.listByMachine(mine)).map((t) => t.name)).toEqual(['Ana']);
   });
 });

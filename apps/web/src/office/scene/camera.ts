@@ -51,6 +51,8 @@ export class Camera {
   dragged = 0;
   /** called when the person zooms or pans by hand (the page uses it to notice "zoomed out of the room") */
   onUserMove: (() => void) | null = null;
+  /** while recording a video: wheel and drag are ignored, so the picture does not shake */
+  locked = false;
   private snapNext = true;
   private cleanup: Array<() => void> = [];
 
@@ -58,16 +60,23 @@ export class Camera {
     let last: { x: number; y: number } | null = null;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      if (this.locked) return;
       const r = canvas.getBoundingClientRect();
       this.target = zoomAt(this.target, e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
       this.onUserMove?.();
     };
     const onDown = (e: PointerEvent) => {
-      last = { x: e.clientX, y: e.clientY };
       this.dragged = 0;
+      // a locked camera starts no drag at all (a tap on a room still counts as a click)
+      last = this.locked ? null : { x: e.clientX, y: e.clientY };
     };
     const onMove = (e: PointerEvent) => {
       if (!last) return;
+      // locked mid-drag: the press ends here, so unlocking later does not make the picture jump
+      if (this.locked) {
+        last = null;
+        return;
+      }
       const dx = e.clientX - last.x;
       const dy = e.clientY - last.y;
       this.dragged += Math.abs(dx) + Math.abs(dy);

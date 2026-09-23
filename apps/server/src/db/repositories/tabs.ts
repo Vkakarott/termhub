@@ -23,6 +23,19 @@ export class TabsRepository {
     return rows.map(mapTab);
   }
 
+  /** Tabs of one project on one machine (closed when the machine is unlinked). */
+  async listByProjectMachine(projectId: string, machineId: string): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({ where: { projectId, machineId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+    return rows.map(mapTab);
+  }
+
+  /** Every tab of the given projects that runs on this machine (the office floor of one machine). */
+  async listByProjectsOnMachine(projectIds: string[], machineId: string): Promise<Tab[]> {
+    if (projectIds.length === 0) return [];
+    const rows = await this.db.tab.findMany({ where: { projectId: { in: projectIds }, machineId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+    return rows.map(mapTab);
+  }
+
   async findById(id: string): Promise<Tab | undefined> {
     const t = await this.db.tab.findUnique({ where: { id } });
     return t ? mapTab(t) : undefined;
@@ -30,28 +43,46 @@ export class TabsRepository {
 
   /**
    * Batched by id, one query regardless of how many ids are asked for, filtered to one owner's tabs
-   * through their project and machine — never "no filter": a caller that resolves names for one
+   * through their machine — never "no filter": a caller that resolves names for one
    * person's screen (e.g. the chat action trail) must not be able to pass `null` and see everyone's.
    * Another owner's tab id is simply absent from the result, like a row that does not exist. The
    * owner filter is a join condition, not a reason to query per row.
    */
   async findByIdsForOwner(ids: string[], ownerId: string): Promise<Tab[]> {
     if (ids.length === 0) return [];
-    return (await this.db.tab.findMany({ where: { id: { in: ids }, project: { machine: { ownerId } } } })).map(mapTab);
+    return (await this.db.tab.findMany({ where: { id: { in: ids }, machine: { ownerId } } })).map(mapTab);
   }
 
   /** Tab by tmux session name, restricted to the machine that reported it (session names are unique anyway). */
   async findByTmuxSession(machineId: string, session: string): Promise<Tab | undefined> {
-    const t = await this.db.tab.findFirst({ where: { tmuxSession: session, project: { machineId } } });
+    const t = await this.db.tab.findFirst({ where: { tmuxSession: session, machineId } });
     return t ? mapTab(t) : undefined;
   }
 
   /** Tabs whose tool reported a state (monitor list). `owner`: only tabs on that user's machines (null = all). */
   async listWithState(owner: string | null = null): Promise<Tab[]> {
     const rows = await this.db.tab.findMany({
-      where: { state: { not: null }, ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
+      where: { state: { not: null }, ...(owner ? { machine: { ownerId: owner } } : {}) },
       orderBy: [{ stateAt: 'desc' }],
     });
+    return rows.map(mapTab);
+  }
+
+  /**
+   * Every terminal tab on the owner's machines (null = every owner), reported a state or not: the
+   * sidebar's "open agents". Scoped like `listWithState`, by the machine the tab runs on.
+   */
+  async listOpenTerminals(owner: string | null = null): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({
+      where: { kind: 'terminal', ...(owner ? { machine: { ownerId: owner } } : {}) },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    });
+    return rows.map(mapTab);
+  }
+
+  /** Every tab on one machine. */
+  async listByMachine(machineId: string): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({ where: { machineId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
     return rows.map(mapTab);
   }
 
@@ -63,12 +94,12 @@ export class TabsRepository {
    */
   async countsByMachine(owner: string | null = null): Promise<Record<string, { tabs: number; reporting: number }>> {
     const rows = await this.db.tab.findMany({
-      where: { kind: 'terminal', ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
-      select: { state: true, project: { select: { machineId: true } } },
+      where: { kind: 'terminal', ...(owner ? { machine: { ownerId: owner } } : {}) },
+      select: { state: true, machineId: true },
     });
     const out: Record<string, { tabs: number; reporting: number }> = {};
     for (const row of rows) {
-      const counts = (out[row.project.machineId] ??= { tabs: 0, reporting: 0 });
+      const counts = (out[row.machineId] ??= { tabs: 0, reporting: 0 });
       counts.tabs += 1;
       if (row.state !== null) counts.reporting += 1;
     }
@@ -81,7 +112,7 @@ export class TabsRepository {
    * for the person) in a detached tmux session holds no channel open at all.
    */
   async countBusyByMachine(machineId: string): Promise<number> {
-    return this.db.tab.count({ where: { state: { in: BUSY_STATES }, project: { machineId } } });
+    return this.db.tab.count({ where: { state: { in: BUSY_STATES }, machineId } });
   }
 
   /**
@@ -96,7 +127,7 @@ export class TabsRepository {
    */
   async recordEvent(
     tabId: string,
-    event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown>; activity?: TabActivity; continuesWait?: boolean },
+    event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown>; activity?: TabActivity; activityVerb?: string | null; continuesWait?: boolean },
   ): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
     const [e, t] = await this.db.$transaction(async (tx) => {
@@ -109,7 +140,7 @@ export class TabsRepository {
       const ev = await tx.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } });
       const updated = await tx.tab.update({
         where: { id: tabId },
-        data: { state: event.kind, stateText: text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
+        data: { state: event.kind, stateText: text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, activityVerb: event.kind === 'working' ? (event.activityVerb ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
       });
       await tx.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`;
       return [ev, updated] as const;
@@ -124,11 +155,12 @@ export class TabsRepository {
 
   /** Clears the monitor state (e.g. the tmux session is gone). */
   async clearState(tabId: string): Promise<void> {
-    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null, activity: null } });
+    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null, activity: null, activityVerb: null } });
   }
 
   /**
-   * A tool change on a tab that is already working: the activity and the time move, nothing else,
+   * A tool change on a tab that is already working: the activity (with the spinner verb that came
+   * with it, or null) and the time move, nothing else,
    * and no event row is written — an active agent changes tool several times a minute, and the
    * event table is for state changes. `updateMany…AndReturn` so a tab that is gone comes back as
    * `undefined` (like `markSeen`) instead of throwing, still in a single statement.
@@ -138,8 +170,8 @@ export class TabsRepository {
    * write — and a waiting tab must never read as coding, nor have its `stateAt` pushed past the
    * `stateSeenAt` that says the person already saw it. Nothing updated = it is no longer working.
    */
-  async setActivity(tabId: string, activity: TabActivity): Promise<Tab | undefined> {
-    const [t] = await this.db.tab.updateManyAndReturn({ where: { id: tabId, state: 'working' }, data: { activity, stateAt: new Date() } });
+  async setActivity(tabId: string, activity: TabActivity, verb: string | null): Promise<Tab | undefined> {
+    const [t] = await this.db.tab.updateManyAndReturn({ where: { id: tabId, state: 'working' }, data: { activity, activityVerb: verb, stateAt: new Date() } });
     return t ? mapTab(t) : undefined;
   }
 
@@ -162,7 +194,7 @@ export class TabsRepository {
     return written > 0 ? this.findById(id) : undefined;
   }
 
-  async create(projectId: string, name: string, opts: { kind?: TabKind; simulator_udid?: string | null; created_by_token_id?: string | null } = {}): Promise<Tab> {
+  async create(projectId: string, machineId: string, name: string, opts: { kind?: TabKind; simulator_udid?: string | null; created_by_token_id?: string | null } = {}): Promise<Tab> {
     const id = newId();
     const kind = opts.kind ?? 'terminal';
     const agg = await this.db.tab.aggregate({ where: { projectId }, _max: { position: true } });
@@ -170,6 +202,7 @@ export class TabsRepository {
       data: {
         id,
         projectId,
+        machineId,
         name,
         kind,
         tmuxSession: kind === 'terminal' ? `termhub-${projectId}-${id}` : null,

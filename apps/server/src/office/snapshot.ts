@@ -1,3 +1,4 @@
+import { publicRoomId } from '../public/public-id.js';
 import type { Machine, OfficeProgress, OfficeTabProgress, OfficeTaskCounts, Project, Tab } from '../db/repositories/types.js';
 
 export interface OfficeTab extends Tab {
@@ -7,6 +8,12 @@ export interface OfficeTab extends Tab {
 
 export interface OfficeRoom {
   project: Project;
+  /**
+   * The id this room carries on the owner's public city (one per project and machine), so the share
+   * button can build the room's link. One-way: it cannot be reversed, and it is sent to the person
+   * who already reads the real ids.
+   */
+  public_id: string;
   tabs: OfficeTab[];
   /** null = the person cannot read tasks */
   tasks: OfficeTaskCounts | null;
@@ -41,6 +48,7 @@ export function buildOfficeSnapshot(input: {
     .filter((p) => p.status !== 'archived')
     .map((project) => ({
       project,
+      public_id: publicRoomId(project.id, input.machine.id),
       tasks: input.progress ? (input.progress.counts[project.id] ?? { todo: 0, doing: 0, done: 0 }) : null,
       tabs: (tabsByProject.get(project.id) ?? []).map((t) => ({
         ...t,

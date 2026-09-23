@@ -2,12 +2,12 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project } from '../lib/types';
+import type { Machine, OfficeRoom, OfficeSnapshot, OfficeTab, Project, User } from '../lib/types';
 
 // vi.mock factories are hoisted above every other top-level statement in this file, including this
 // file's own `import { OfficePage } from './OfficePage'` below — so everything a factory needs to
 // reference has to be created through vi.hoisted(), not as a plain top-level const/class.
-const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoisted(() => {
+const { officeMock, canMock, dataState, monitorState, authState, FakeOfficeScene } = vi.hoisted(() => {
   /**
    * Pins the scene-mount effect's stability: no WebGL in jsdom, so `OfficeScene` itself is replaced
    * with a spy-able stand-in that records what the page does to it, instead of trying to draw anything.
@@ -47,15 +47,20 @@ const { officeMock, canMock, dataState, monitorState, FakeOfficeScene } = vi.hoi
     canMock: vi.fn(() => true),
     // mutable containers: the mocked hooks below read `.current` fresh on every call, so the test
     // body can reassign it (e.g. flipping `loading`) and a rerender picks up the new value
-    dataState: { current: { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' as const }, loading: true } },
+    dataState: { current: { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], statuses: { m1: 'online' as const }, loading: true } },
     monitorState: { current: { items: [] as unknown[], needsYou: [] as unknown[], tabState: () => undefined, connected: true } },
+    // null by default: every pre-existing test above never claimed a nickname, and the share button
+    // must stay out of their way (it renders as a quiet "nothing published" span, never a link)
+    authState: { current: { user: null as User | null, publicCityUrl: 'https://termhub.dev/city' as string | null } },
     FakeOfficeScene,
   };
 });
 
+const { cityLinkState } = vi.hoisted(() => ({ cityLinkState: { current: { link: null as { short_url: string | null } | null } } }));
+vi.mock('../lib/city-link', () => ({ useCityLink: () => cityLinkState.current }));
 vi.mock('../office/scene/OfficeScene', () => ({ OfficeScene: FakeOfficeScene }));
 vi.mock('../lib/api', () => ({ api: { office: (...a: unknown[]) => officeMock(...a) } }));
-vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock }) }));
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock, user: authState.current.user, publicCityUrl: authState.current.publicCityUrl }) }));
 vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
 vi.mock('../lib/monitor', () => ({ useMonitor: () => monitorState.current }));
 
@@ -63,8 +68,8 @@ import { FocusProvider } from '../lib/focus';
 import { OfficePage } from './OfficePage';
 
 const tab = (id: string, projectId: string): OfficeTab =>
-  ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, alive: true, progress: null }) as OfficeTab;
-const room = (id: string, tabs: OfficeTab[] = []): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null });
+  ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, activity_verb: null, alive: true, progress: null }) as OfficeTab;
+const room = (id: string, tabs: OfficeTab[] = []): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, public_id: `${id}-room`, tabs, tasks: null });
 const snap = (machineId: string, rooms: OfficeRoom[]): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms });
 
 /** m1 "jarvis" with two rooms that have desks (no auto-drill), m2 "hal" with one. */
@@ -75,9 +80,9 @@ function twoMachines() {
       { id: 'm2', name: 'hal' },
     ],
     projects: [
-      { id: 'p1', machine_id: 'm1', status: 'active' },
-      { id: 'p1b', machine_id: 'm1', status: 'active' },
-      { id: 'p2', machine_id: 'm2', status: 'active' },
+      { id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+      { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+      { id: 'p2', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
     ],
     statuses: { m1: 'online', m2: 'online' },
     loading: false,
@@ -122,14 +127,16 @@ const escape = () => fireEvent.keyDown(document.body, { key: 'Escape' });
 
 beforeEach(() => {
   FakeOfficeScene.instances = [];
+  cityLinkState.current = { link: null };
   officeMock.mockReset();
   canMock.mockReset();
   canMock.mockReturnValue(true);
   testNavigate = undefined;
   testPath = '';
   testSearch = '';
-  dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machine_id: 'm1', status: 'active' }], statuses: { m1: 'online' }, loading: true };
+  dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], statuses: { m1: 'online' }, loading: true };
   monitorState.current = { items: [], needsYou: [], tabState: () => undefined, connected: true };
+  authState.current = { user: null, publicCityUrl: 'https://termhub.dev/city' };
 });
 
 afterEach(() => {
@@ -189,7 +196,7 @@ describe('OfficePage scene lifecycle', () => {
 
   it('keeps the same scene when focus mode is toggled by the real button, not just the fake scene', async () => {
     officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
     renderPage('/office/m1');
     await act(async () => {});
     expect(FakeOfficeScene.instances).toHaveLength(1);
@@ -252,7 +259,7 @@ describe('OfficePage scene lifecycle', () => {
 describe('OfficePage rests and the URL', () => {
   it('with a single machine, /office lands on that machine and keeps ?focus=1', async () => {
     officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
     renderPage('/office?focus=1');
     await act(async () => {});
 
@@ -284,7 +291,7 @@ describe('OfficePage rests and the URL', () => {
 
   it('a zoom-out gesture never leaves focus mode, even at the rest of a single machine', async () => {
     officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machine_id: 'm1', status: 'active' }], loading: false };
+    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
     renderPage('/office/m1?focus=1'); // two rooms with desks: no auto-drill, rests at the machine
     await act(async () => {});
     expect(testPath).toBe('/office/m1');
@@ -531,5 +538,192 @@ describe('OfficePage status notices', () => {
 
     expect(testPath).toBe('/office');
     expect(screen.queryByText('máquina offline')).toBeNull();
+  });
+});
+
+describe('OfficePage share button', () => {
+  // owned by 'u1' unless told otherwise — the signed-in viewer in every test below, except the one
+  // that deliberately looks at a machine owned by someone else (view-as/view-all)
+  const pMachine = (id: string, name: string, ownerId: string | null = 'u1'): Machine => ({ id, name, public_id: `${id}-pub`, owner_id: ownerId }) as Machine;
+  // a project is owned by 'u1' (the viewer) unless told otherwise: merge ruling 5 — who may share a
+  // published room is decided by the PROJECT's owner; the machine's owner decides whether that room
+  // is on the street at all. The room's public id is per (project, machine), like the server's.
+  const pProject = (id: string, isPublic: boolean, ownerId: string | null = 'u1'): Project => ({ id, name: id, status: 'active', owner_id: ownerId, is_public: isPublic }) as Project;
+  const pRoom = (id: string, machineId: string, isPublic: boolean, tabs: OfficeTab[] = [], ownerId: string | null = 'u1'): OfficeRoom => ({ project: pProject(id, isPublic, ownerId), public_id: `${id}-${machineId}-room`, tabs, tasks: null });
+
+  /**
+   * m1 has two rooms with desks (p1 published, p1b not); m2 has two rooms with desks, neither
+   * published. Machines owned by `owners.m1`/`owners.m2`, p1 by `owners.p1` (default 'u1', the viewer).
+   */
+  function twoMachinesOnePublished(owners: { m1?: string | null; m2?: string | null; p1?: string | null } = {}) {
+    dataState.current = {
+      machines: [pMachine('m1', 'jarvis', owners.m1 ?? 'u1'), pMachine('m2', 'hal', owners.m2 ?? 'u1')],
+      projects: [
+        { id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+        { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
+        { id: 'p2', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
+        { id: 'p2b', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
+      ],
+      statuses: { m1: 'online', m2: 'online' },
+      loading: false,
+    };
+    officeMock.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'm1'
+          ? snap('m1', [pRoom('p1', 'm1', true, [tab('t1', 'p1')], owners.p1 === undefined ? 'u1' : owners.p1), pRoom('p1b', 'm1', false, [tab('t1b', 'p1b')])])
+          : snap('m2', [pRoom('p2', 'm2', false, [tab('t2', 'p2')]), pRoom('p2b', 'm2', false, [tab('t2b', 'p2b')])]),
+      ),
+    );
+  }
+
+  function stubClipboard() {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    return writeText;
+  }
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  });
+
+  it("copies the city's own address when something anywhere is published", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro');
+  });
+
+  it('copies the short link at the city, when there is one', async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    cityLinkState.current = { link: { short_url: 'https://77a.it/pedro' } };
+    twoMachinesOnePublished();
+    renderPage('/office');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://77a.it/pedro');
+  });
+
+  it('keeps the long link inside a building even with a short link (only the city has one)', async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    cityLinkState.current = { link: { short_url: 'https://77a.it/pedro' } };
+    twoMachinesOnePublished();
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub');
+  });
+
+  // A self-hosted instance: the link is its own public-city address, as the server reports it.
+  it("builds the link from this instance's own public-city address, never termhub.dev", async () => {
+    const writeText = stubClipboard();
+    authState.current = { user: { id: 'u1', nickname: 'pedro' } as User, publicCityUrl: 'https://th.example.org/city' };
+    twoMachinesOnePublished();
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://th.example.org/city/@pedro/m1-pub');
+  });
+
+  it("copies the building's address inside a machine, using the machine's public id", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub');
+  });
+
+  it("copies the room's address inside a room, using the room's own public id", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
+    await act(async () => {});
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub?room=p1-m1-room');
+  });
+
+  it('explains itself instead of copying when nothing in view is published', async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished();
+    renderPage('/office/m2'); // both of hal's rooms are unpublished
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/nada publicado/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('produces no link for a published project whose owner is not the viewer (view-as/view-all)', async () => {
+    const writeText = stubClipboard();
+    // the signed-in person is 'u1' (an admin, say), but p1 and the machines here belong to someone
+    // else ('u2') — a nickname of 'u1' would either be missing or point at the wrong city
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished({ m1: 'u2', m2: 'u2', p1: 'u2' });
+    renderPage('/office/m1');
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("does not build the city link from an admin's own nickname when only someone else's machine is published", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished({ m1: 'u2', m2: 'u2', p1: 'u2' }); // nothing here is 'u1's own
+    renderPage('/office');
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  // Merge ruling 5: the check is on the PROJECT's owner. Somebody else's published project in a room
+  // on the viewer's own machine is still not the viewer's to share.
+  it("says a published room belongs to somebody else when the project is theirs, even on the viewer's machine", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished({ p1: 'u2' });
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  // Merge ruling 2: the viewer's own published project, in a room on somebody else's machine, is not
+  // on any street — the public city never shows another person's machine — so there is no link.
+  it("gives no link for the viewer's own published project in a room on somebody else's machine", async () => {
+    const writeText = stubClipboard();
+    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    twoMachinesOnePublished({ m1: 'u2' });
+    renderPage('/office/m1?room=p1');
+    await act(async () => {});
+
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/máquina de outra pessoa/i)).toBeTruthy();
+    expect(writeText).not.toHaveBeenCalled();
   });
 });

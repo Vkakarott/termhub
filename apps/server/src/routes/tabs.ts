@@ -8,6 +8,8 @@ import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { PASTE_MAX_BYTES, saveFileOnMachine } from '../terminal/paste-file.js';
 import { INPUT_MAX_CHARS, sendKeysToSession } from '../monitor/send-keys.js';
 import { applyState, publishTabChange } from '../monitor/ingest.js';
+import { publishTabOpened, publishTabRemoved } from '../monitor/tab-events.js';
+import { publicBus } from '../public/bus.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const pasteQuery = z.object({ name: z.string().max(255).optional() });
@@ -29,10 +31,11 @@ export async function tabRoutes(
 
   app.patch('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    const { tab } = await scoped(repos, request).tab(id);
+    const { tab, machine } = await scoped(repos, request).tab(id);
     const body = patchBody.parse(request.body);
     if (body.simulator_udid !== undefined && tab.kind !== 'simulator') throw badRequest('Só tabs de simulador têm aparelho');
     const updated = await repos.tabs.update(id, body);
+    if (updated) publishTabOpened(updated, machine);
     if (body.simulator_udid !== undefined && body.simulator_udid !== tab.simulator_udid) deps.closeSimulatorTab(id);
     return { tab: updated };
   });
@@ -51,10 +54,10 @@ export async function tabRoutes(
 
   app.get('/:id/simulator/screenshot', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const { tab, project } = await scoped(repos, request).tab(id);
+    const { tab, machine } = await scoped(repos, request).tab(id);
     if (tab.kind !== 'simulator') throw notFound('Tab não encontrada');
     if (!tab.simulator_udid) throw conflict('Simulador não está conectado');
-    const client = deps.simulators.getClient(project.machine_id, tab.simulator_udid);
+    const client = deps.simulators.getClient(machine.id, tab.simulator_udid);
     if (!client) throw conflict('Simulador não está conectado');
     const png = await client.screenshotPng();
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -100,6 +103,8 @@ export async function tabRoutes(
       }
     }
     await repos.tabs.delete(id);
+    publicBus.publishTabRemoved({ tab_id: tab.id, project_id: tab.project_id, machine_id: machine.id });
+    publishTabRemoved(tab, machine);
     return { ok: true, killed };
   });
 

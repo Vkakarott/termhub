@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useFocusTabFromParam } from '../lib/tab-param';
 import { api, ApiError } from '../lib/api';
 import {
   cellRects,
@@ -24,9 +25,11 @@ import { SimulatorView } from './SimulatorView';
 import { PaneLayer, PANE_HEADER_HEIGHT } from './PaneLayer';
 import { FloatingWindow, FLOATING_TITLE_HEIGHT } from './FloatingWindow';
 import { ConfirmDialog } from './Modal';
+import { MachinePicker } from './MachinePicker';
 import { useData } from '../lib/data';
 import { useMarkSeenOnFocus } from '../lib/monitor';
 import { setTabsOnScreen } from '../lib/visible-tabs';
+import { writeLastMachine } from '../lib/last-machine';
 
 interface Props {
   project: Project;
@@ -34,11 +37,17 @@ interface Props {
 }
 
 export function TerminalsView({ project, visible }: Props) {
-  const { machines, missingTmux } = useData();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const machine = machines.find((m) => m.id === project.machine_id);
-  const noTmux = !!missingTmux[project.machine_id];
-  const canSimulator = !!machine?.capabilities.includes('wda');
+  const { machines, machinesOf, missingTmux } = useData();
+  // `machinesOf` itself is not stable: it lives on `useData()`'s value, whose memo also depends on
+  // `statuses` (updated on every status poll), so its identity changes far more often than the
+  // machine list. Key on the actual inputs instead so this doesn't re-run `newTab`'s effects on
+  // every poll.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `machinesOf` itself is unstable (see above); the real inputs are `project.machines` and `machines`.
+  const projectMachines = useMemo(() => machinesOf(project), [project.machines, machines]);
+  const machineById = (id: string) => projectMachines.find((m) => m.id === id);
+  const noTmux = projectMachines.some((m) => missingTmux[m.id]);
+  const canSimulator = projectMachines.some((m) => m.capabilities.includes('wda'));
+  const [picking, setPicking] = useState<{ kind: TabKind; cell?: number } | null>(null);
   const [tabs, setTabs] = useState<Tab[] | null>(null);
   const [reachable, setReachable] = useState(true);
   const [closing, setClosing] = useState<Tab | null>(null);
@@ -147,25 +156,55 @@ export function TerminalsView({ project, visible }: Props) {
     void load();
   }, [load]);
 
-  // ?tab=<id> (from a task card) shows the tab in the focused cell and clears the param.
+  // An unlink (in this tab or another) must not leave that machine's tabs on screen until the next
+  // reload: prune them from state (and the layout, like `onClose` does) right away, then re-fetch to
+  // pick up whatever the server did (e.g. tabs it already closed on unlink).
+  const linkedMachineIds = project.machines.map((l) => l.machine_id).join(',');
+  const linkedMachineIdsMounted = useRef(false);
   useEffect(() => {
-    const wanted = searchParams.get('tab');
-    if (!wanted || !tabs) return;
-    if (tabs.some((t) => t.id === wanted)) dispatch({ type: 'assign', tabId: wanted });
-    else void load();
-    setSearchParams(
-      (p) => {
-        p.delete('tab');
-        return p;
-      },
-      { replace: true },
-    );
-  }, [searchParams, tabs, setSearchParams, load, dispatch]);
+    if (!linkedMachineIdsMounted.current) {
+      // first run: the mount effect above already loads the tabs for the initial link set.
+      linkedMachineIdsMounted.current = true;
+      return;
+    }
+    const allowed = new Set(linkedMachineIds ? linkedMachineIds.split(',') : []);
+    // `setTabs`'s updater must stay pure: compute the stale ids from `tabs` (in scope — this effect's
+    // closure holds the value from the render that changed `linkedMachineIds`) and dispatch for each
+    // in a plain loop, outside the updater.
+    const stale = (tabs ?? []).filter((x) => !allowed.has(x.machine_id));
+    for (const s of stale) dispatch({ type: 'closeTab', tabId: s.id });
+    if (stale.length > 0) setTabs((t) => (t ?? []).filter((x) => allowed.has(x.machine_id)));
+    void load();
+    // `dispatch`/`load` are effectively stable for this purpose (see the `machinesOf` note above);
+    // this must only re-run when the set of linked machine ids actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedMachineIds]);
+
+  // ?tab=<id> (from a task card or a sidebar agent) shows the tab in the focused cell; a tab this
+  // view does not know yet is waited for across one reload (see useFocusTabFromParam).
+  const focusTab = useCallback((tabId: string) => dispatch({ type: 'assign', tabId }), [dispatch]);
+  useFocusTabFromParam(tabs, load, focusTab);
 
   const newTab = useCallback(
-    async (kind: TabKind = 'terminal', cell?: number) => {
+    async (kind: TabKind = 'terminal', cell?: number, machineId?: string) => {
+      // A simulator only runs on a machine with its WDA prepared; a plain terminal runs on any linked one.
+      const candidates = kind === 'simulator' ? projectMachines.filter((m) => m.capabilities.includes('wda')) : projectMachines;
+      if (candidates.length === 0) {
+        setError(
+          kind === 'simulator'
+            ? 'Nenhuma máquina vinculada tem o WDA preparado para simuladores.'
+            : 'Vincule uma máquina ao projeto em Setup → Máquinas para abrir terminais.',
+        );
+        return;
+      }
+      const chosen = machineId ?? (candidates.length === 1 ? candidates[0].id : undefined);
+      if (!chosen) {
+        setPicking({ kind, cell });
+        return;
+      }
       try {
-        const { tab } = await api.projects.createTab(project.id, { kind });
+        const { tab } = await api.projects.createTab(project.id, { kind, machine_id: chosen });
+        writeLastMachine(project.id, chosen);
         setTabs((t) => [...(t ?? []), tab]);
         setLayout((l) => {
           const target = cell ?? (l.cells.indexOf(null) === -1 ? l.focusedCell : l.cells.indexOf(null));
@@ -175,7 +214,7 @@ export function TerminalsView({ project, visible }: Props) {
         setError(e instanceof ApiError ? e.message : 'Erro ao criar tab');
       }
     },
-    [project.id, area],
+    [project.id, area, projectMachines],
   );
 
   const rename = useCallback(
@@ -268,11 +307,26 @@ export function TerminalsView({ project, visible }: Props) {
           const t = (tabs ?? []).find((x) => x.id === id);
           if (t) setClosing(t);
         }}
+        badges={
+          projectMachines.length > 1
+            ? Object.fromEntries((tabs ?? []).map((t) => [t.id, machineById(t.machine_id)?.name ?? '']))
+            : undefined
+        }
       />
+      {projectMachines.length === 0 && (
+        <div className="border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">
+          Este projeto não tem máquina vinculada.{' '}
+          <Link to={`/projects/${project.id}/settings`} className="underline">
+            Vincular em Setup → Máquinas
+          </Link>
+          .
+        </div>
+      )}
       {noTmux && (
         <div className="border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs text-warn">
-          <strong>{machine?.name}</strong> está online mas não tem <code className="font-mono">tmux</code> instalado. Instale (ex.:{' '}
-          <code className="font-mono">sudo apt install tmux</code>) para abrir terminais.
+          <strong>{projectMachines.filter((m) => missingTmux[m.id]).map((m) => m.name).join(', ')}</strong> está online mas não tem{' '}
+          <code className="font-mono">tmux</code> instalado. Instale (ex.: <code className="font-mono">sudo apt install tmux</code>) para abrir
+          terminais.
         </div>
       )}
       {!reachable && (
@@ -328,7 +382,7 @@ export function TerminalsView({ project, visible }: Props) {
                   {t.kind === 'simulator' ? (
                     <SimulatorView
                       tab={t}
-                      machineId={project.machine_id}
+                      machineId={t.machine_id}
                       active={active}
                       focused={focused}
                       floating={isFloating}
@@ -399,6 +453,17 @@ export function TerminalsView({ project, visible }: Props) {
         onConfirm={() => {
           if (closing) void closeTab(closing);
         }}
+      />
+      <MachinePicker
+        open={!!picking}
+        project={project}
+        machines={picking?.kind === 'simulator' ? projectMachines.filter((m) => m.capabilities.includes('wda')) : projectMachines}
+        onPick={(machineId) => {
+          const p = picking!;
+          setPicking(null);
+          void newTab(p.kind, p.cell, machineId);
+        }}
+        onClose={() => setPicking(null)}
       />
     </div>
   );

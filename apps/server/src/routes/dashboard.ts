@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Repositories } from '../db/repositories/index.js';
 
-/** Visão "o que estou fazendo agora": projetos ativos + máquina + tasks em andamento + último terminal. */
+/** Visão "o que estou fazendo agora": active projects + their machines + tasks in progress + last terminal. */
 export async function dashboardRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/', async (request) => {
     const owner = request.scope.ownerId;
@@ -11,14 +11,19 @@ export async function dashboardRoutes(app: FastifyInstance, repos: Repositories)
       repos.tasks.listDoing(owner),
       repos.tasks.openCountByProject(),
     ]);
+    const links = await repos.projectMachines.listByProjects(projects.map((p) => p.id));
     const machineById = new Map(machines.map((m) => [m.id, m]));
     const items = projects
-      .map((p) => ({
-        project: p,
-        machine: machineById.get(p.machine_id) ?? null,
-        doing: doing.filter((t) => t.project_id === p.id),
-        open_tasks: openCounts[p.id] ?? 0,
-      }))
+      .map((p) => {
+        const own = links.filter((l) => l.project_id === p.id);
+        return {
+          // the same shape /projects serves: the web's Project type carries its links
+          project: { ...p, machines: own.map((l) => ({ machine_id: l.machine_id, cwd: l.cwd, position: l.position })) },
+          machines: own.map((l) => machineById.get(l.machine_id)).filter((m): m is NonNullable<typeof m> => !!m),
+          doing: doing.filter((t) => t.project_id === p.id),
+          open_tasks: openCounts[p.id] ?? 0,
+        };
+      })
       .sort((a, b) => (b.project.last_terminal_at ?? '').localeCompare(a.project.last_terminal_at ?? ''));
     return { items };
   });

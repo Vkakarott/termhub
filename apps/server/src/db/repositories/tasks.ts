@@ -62,14 +62,14 @@ export class TasksRepository {
 
   /**
    * Batched by id, one query regardless of how many ids are asked for, filtered to one owner's tasks
-   * through their project and machine — never "no filter": a caller that resolves names for one
+   * through their project — never "no filter": a caller that resolves names for one
    * person's screen (e.g. the chat action trail) must not be able to pass `null` and see everyone's.
    * Another owner's task id is simply absent from the result, like a row that does not exist. The
    * owner filter is a join condition, not a reason to query per row.
    */
   async findByIdsForOwner(ids: string[], ownerId: string): Promise<Task[]> {
     if (ids.length === 0) return [];
-    return (await this.db.task.findMany({ where: { id: { in: ids }, project: { machine: { ownerId } } } })).map(mapTask);
+    return (await this.db.task.findMany({ where: { id: { in: ids }, project: { ownerId } } })).map(mapTask);
   }
 
   /** Top-level: created at the top of its column (position 0), pushing the others down. Subtask: appended last. */
@@ -277,10 +277,10 @@ export class TasksRepository {
     return Object.fromEntries(rows.map((r) => [r.projectId, r._count._all]));
   }
 
-  /** `owner`: only tasks of projects on machines of that user (null = all). */
+  /** `owner`: only tasks of that user's projects (null = all). */
   async listDoing(owner: string | null = null): Promise<Task[]> {
     const rows = await this.db.task.findMany({
-      where: { status: 'doing', parentId: null, ...(owner ? { project: { machine: { ownerId: owner } } } : {}) },
+      where: { status: 'doing', parentId: null, ...(owner ? { project: { ownerId: owner } } : {}) },
       orderBy: [{ projectId: 'asc' }, { position: 'asc' }],
     });
     return rows.map(mapTask);

@@ -12,8 +12,8 @@ function build(opts: {
   decide?: ReturnType<typeof vi.fn>;
   findByIdForUser?: ReturnType<typeof vi.fn>;
   listByConversation?: ReturnType<typeof vi.fn>;
-  tabs?: { id: string; project_id: string; name: string }[];
-  projects?: { id: string; machine_id: string; name: string }[];
+  tabs?: { id: string; project_id: string; machine_id?: string; name: string }[];
+  projects?: { id: string; owner_id: string; name: string }[];
   machines?: { id: string; name: string }[];
   /** Ids that only ever resolve for this owner — the request's own user id ('u1') unless overridden,
    * matching every one of the fixtures above by default. Used to prove the route scopes by the
@@ -141,8 +141,8 @@ it('returns the trail as sentences enriched with real names, keyed by each row\'
   ];
   const { app } = build({
     listByConversation: vi.fn(async () => rows),
-    tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 2' }],
-    projects: [{ id: 'p1', machine_id: 'm1', name: 'reactivando' }],
+    tabs: [{ id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 2' }],
+    projects: [{ id: 'p1', owner_id: 'u1', name: 'reactivando' }],
     machines: [{ id: 'm1', name: 'macbook m3' }],
   });
 

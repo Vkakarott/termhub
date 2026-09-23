@@ -90,10 +90,10 @@ export interface StartAgentResult {
  */
 export async function startAgent(
   ctx: ControlContext,
-  input: { project_id: string; account_id: string; prompt: string; task_id?: string; tab_name?: string },
+  input: { project_id: string; machine_id?: string; account_id: string; prompt: string; task_id?: string; tab_name?: string },
 ): Promise<StartAgentResult> {
   const prompt = checkPrompt(input.prompt);
-  const { project, machine } = await ctx.scoped.project(input.project_id);
+  const { project, machine } = await ctx.scoped.projectMachineFor(input.project_id, input.machine_id);
   const account = await accountOnMachine(ctx, input.account_id, machine);
   const { binary } = launcher(account.provider);
   if (!machine.capabilities.includes(binary)) {
@@ -113,7 +113,7 @@ export async function startAgent(
   const line = launchLine(account.provider, account.config_dir, prompt);
   const name = (input.tab_name?.trim() || task?.title || `${binary} · ${account.label}`).slice(0, TAB_NAME_MAX);
   // openTab does the readiness checks (online, agent version, tab limit) and keeps the tab if the session fails.
-  const tab = await openTab(ctx, { project_id: project.id, name });
+  const tab = await openTab(ctx, { project_id: project.id, machine_id: machine.id, name });
 
   // The line is typed right after `tmux new-session`: the shell may still be starting, but bash and zsh
   // keep typeahead (they never flush the tty on startup), so the text is waiting when the prompt appears.

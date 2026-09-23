@@ -17,6 +17,8 @@ interface Props {
   onPreset: (p: Preset) => void;
   /** whether the tab is currently on screen (in a cell or floating) */
   onScreen: (tabId: string) => boolean;
+  /** small extra text after the tab name (e.g. which machine it runs on), keyed by tab id */
+  badges?: Record<string, string>;
 }
 
 /** 16×12 glyph of the preset's cell arrangement. */
@@ -55,7 +57,7 @@ function PresetIcon({ preset }: { preset: Preset }) {
   );
 }
 
-export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSimulator, onRename, onClose, preset, onPreset, onScreen }: Props) {
+export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSimulator, onRename, onClose, preset, onPreset, onScreen, badges }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -117,6 +119,7 @@ export function TabBar({ tabs, activeId, onSelect, onNew, onNewSimulator, canSim
               ) : (
                 <span className="truncate">{t.name}</span>
               )}
+              {badges?.[t.id] && <span className="ml-1 max-w-[72px] truncate rounded bg-bg-4 px-1 text-[10px] text-fg-dim">{badges[t.id]}</span>}
               <button
                 className={`ml-auto rounded px-1 text-fg-dim hover:bg-bg-4 hover:text-fg ${active ? '' : 'invisible group-hover:visible'}`}
                 onClick={(e) => {

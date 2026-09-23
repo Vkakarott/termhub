@@ -48,6 +48,10 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/termhub
           TERMHUB_DB_TESTS: '1'
         run: npm test -w @termhub/server
+      # Ahead of the web tests on purpose: the public city ships as its own bundle, and the test
+      # that proves it carries nothing of the private app greps that bundle's built output.
+      - name: Build do bundle público da cidade
+        run: npm run build:city -w @termhub/web
       - name: Testes web
         run: npm test -w @termhub/web
       - name: Testes protocolo do agente

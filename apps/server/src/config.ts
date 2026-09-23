@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { resolvePublicCityUrl } from './public/base-url.js';
 
 // Raiz do monorepo (funciona tanto em src/ quanto em dist/).
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -51,6 +52,13 @@ const envSchema = z.object({
   HOOKS_URL: z.string().url().optional(),
 
   /**
+   * Where public cities live (https://termhub.dev/city in production): share links, the city page's
+   * og:url and og:image are built from it. Must be a host without Cloudflare Access. Default: the
+   * origin of HOOKS_URL, else PUBLIC_URL (see public/base-url.ts).
+   */
+  PUBLIC_CITY_URL: z.string().url().optional(),
+
+  /**
    * Public MCP endpoint (https://termhub.dev/mcp in production), shown in the "claude mcp add"
    * command when a token is created. Unset = the command is not shown, and the chat concierge
    * counts as not configured: it has no endpoint to reach the machines through.
@@ -59,6 +67,13 @@ const envSchema = z.object({
 
   /** WhatsApp group the alpha-tester invite (Waitlist tab → Convidar) links to */
   ALPHA_COMMUNITY_URL: z.string().url().default('https://77a.it/comunidadetermhub'),
+
+  /**
+   * TypeToAccess API key (a partner of termhub): creates each public city's short link
+   * (77a.it/<nickname>). Unset = the short-link feature is off — no calls, no UI — and the long city
+   * link is used everywhere, as on a self-hosted instance.
+   */
+  TYPETOACCESS_API_KEY: z.string().min(1).optional(),
 
   LOCAL_SHELL: z.string().optional(),
   TMUX_PATH: z.string().default('tmux'),
@@ -134,7 +149,9 @@ export const config = {
   publicUrl: env.PUBLIC_URL.replace(/\/$/, ''),
   hooksUrl: env.HOOKS_URL ?? `${env.PUBLIC_URL.replace(/\/$/, '')}/api/hooks/events`,
   mcpUrl: env.MCP_URL ?? null,
+  publicCityUrl: resolvePublicCityUrl(env),
   alphaCommunityUrl: env.ALPHA_COMMUNITY_URL,
+  typeToAccess: env.TYPETOACCESS_API_KEY ? { apiKey: env.TYPETOACCESS_API_KEY } : null,
   auth: {
     modes: authModes,
     sessionTtlMs: env.SESSION_TTL_DAYS * 24 * 60 * 60 * 1000,
