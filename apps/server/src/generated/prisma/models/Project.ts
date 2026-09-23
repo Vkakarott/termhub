@@ -1486,7 +1486,7 @@ export type $ProjectPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
     status: $Enums.ProjectStatus
     description: string | null
     /**
-     * Published: this project's room, its tabs and its machine's name are readable by anyone with the link.
+     * Published: one room per machine the project's owner owns and links it to — with its tabs and that machine's name — is readable by anyone with the link. A link to somebody else's machine never becomes a room.
      */
     isPublic: boolean
     lastTerminalAt: Date | null

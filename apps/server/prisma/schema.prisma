@@ -178,7 +178,7 @@ model Project {
   name           String
   status         ProjectStatus @default(active)
   description    String?
-  /// Published: this project's room, its tabs and its machine's name are readable by anyone with the link.
+  /// Published: one room per machine the project's owner owns and links it to — with its tabs and that machine's name — is readable by anyone with the link. A link to somebody else's machine never becomes a room.
   isPublic       Boolean       @default(false) @map("is_public")
   lastTerminalAt DateTime?     @map("last_terminal_at")
   createdAt      DateTime      @default(now()) @map("created_at")

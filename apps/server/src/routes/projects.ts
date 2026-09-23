@@ -145,6 +145,11 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     if (patch.status === 'archived' && current.status !== 'archived') {
       publicBus.publish({ project_id: id, is_public: false });
     }
+    // Unarchiving brings a published project's rooms back into the snapshot's filter: the memoised
+    // cities must be dropped at once, as they are for a publish.
+    if (patch.status !== undefined && patch.status !== 'archived' && current.status === 'archived') {
+      publicBus.publish({ project_id: id, is_public: patch.is_public ?? current.is_public });
+    }
     return { project: project ? (await withLinks([project]))[0] : undefined };
   });
 

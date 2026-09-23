@@ -10,6 +10,12 @@ export interface PublicChange { project_id: string; is_public: boolean }
  */
 export interface RoomsGone { machine_id: string; project_id?: string }
 
+/**
+ * A user was deleted: their nickname, and with it their whole city, is gone. Their projects and
+ * machines survive with no owner, so no per-project or per-machine event says so on its own.
+ */
+export interface OwnerGone { owner_id: string }
+
 /** A tab was closed or deleted. The monitor bus carries state changes only, never a removal. */
 export interface TabRemoved { tab_id: string; project_id: string; machine_id: string }
 
@@ -25,6 +31,11 @@ class PublicBus {
   subscribeRoomsGone(listener: (gone: RoomsGone) => void): () => void {
     this.emitter.on('rooms-gone', listener);
     return () => this.emitter.off('rooms-gone', listener);
+  }
+  publishOwnerGone(gone: OwnerGone): void { this.emitter.emit('owner-gone', gone); }
+  subscribeOwnerGone(listener: (gone: OwnerGone) => void): () => void {
+    this.emitter.on('owner-gone', listener);
+    return () => this.emitter.off('owner-gone', listener);
   }
   publishTabRemoved(removed: TabRemoved): void { this.emitter.emit('tab-removed', removed); }
   subscribeTabRemoved(listener: (removed: TabRemoved) => void): () => void {

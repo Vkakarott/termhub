@@ -3,7 +3,7 @@ import type { Repositories } from '../db/repositories/index.js';
 
 vi.mock('../terminal/machine-exec.js', () => ({ cachedTmuxProbe: () => undefined }));
 
-const { PUBLIC_CITY_MEMO_MAX, PUBLIC_CITY_MEMO_MS, clearPublicCityMemo, readPublicCityCached } = await import('./read.js');
+const { PUBLIC_CITY_MEMO_MAX, PUBLIC_CITY_MEMO_MS, clearPublicCityMemo, readPublicCityCached, resolvePublicRooms } = await import('./read.js');
 const { publicBus } = await import('./bus.js');
 
 function stubRepos() {
@@ -11,7 +11,7 @@ function stubRepos() {
   const repos = {
     users: { findByNickname },
     machines: { list: vi.fn(async (owner: string) => [{ id: 'm1', name: 'M', owner_id: owner }]) },
-    projects: { list: vi.fn(async () => [{ id: 'p1', name: 'P', is_public: true, status: 'active' }]) },
+    projects: { list: vi.fn(async (q: { owner: string }) => [{ id: 'p1', name: 'P', owner_id: q.owner, is_public: true, status: 'active' }]) },
     projectMachines: { listByProjects: vi.fn(async () => [{ project_id: 'p1', machine_id: 'm1' }]) },
     tabs: { listByProjectsOnMachine: vi.fn(async () => []) },
   } as unknown as Repositories;
@@ -62,6 +62,15 @@ describe('readPublicCityCached', () => {
     expect(findByNickname).toHaveBeenCalledTimes(2);
   });
 
+  // A deleted owner takes their nickname and their city with them, at once.
+  it('forgets everything the moment an owner is deleted', async () => {
+    const { repos, findByNickname } = stubRepos();
+    await readPublicCityCached(repos, 'pedro');
+    publicBus.publishOwnerGone({ owner_id: 'u-pedro' });
+    await readPublicCityCached(repos, 'pedro');
+    expect(findByNickname).toHaveBeenCalledTimes(2);
+  });
+
   it('never keeps a failed read', async () => {
     const { repos, findByNickname } = stubRepos();
     findByNickname.mockRejectedValueOnce(new Error('db down'));
@@ -78,5 +87,39 @@ describe('readPublicCityCached', () => {
     expect(findByNickname).toHaveBeenCalledTimes(PUBLIC_CITY_MEMO_MAX + 2);
     await readPublicCityCached(repos, `n${PUBLIC_CITY_MEMO_MAX}`);
     expect(findByNickname).toHaveBeenCalledTimes(PUBLIC_CITY_MEMO_MAX + 2);
+  });
+});
+
+describe('resolvePublicRooms', () => {
+  const machines = [{ id: 'm1', owner_id: 'u1' }];
+  const links = [
+    { project_id: 'p1', machine_id: 'm1' },
+    { project_id: 'pX', machine_id: 'm1' },
+  ];
+  function repos(projects: unknown[]) {
+    return {
+      projects: { list: vi.fn(async () => projects) },
+      machines: { list: vi.fn(async () => machines) },
+      projectMachines: { listByProjects: vi.fn(async (ids: string[]) => links.filter((l) => ids.includes(l.project_id))) },
+    } as unknown as Repositories;
+  }
+
+  // Defence in depth: `projects.list({ owner })` already filters, but a published project of
+  // somebody else must never become a room even if that filter ever slips.
+  it('drops a published project the owner does not own, even if the repository returns it', async () => {
+    const r = repos([
+      { id: 'p1', owner_id: 'u1', is_public: true, status: 'active' },
+      { id: 'pX', owner_id: 'u2', is_public: true, status: 'active' },
+      { id: 'pO', owner_id: null, is_public: true, status: 'active' },
+    ]);
+    const rooms = await resolvePublicRooms(r, 'u1');
+    expect(rooms.map((b) => b.projects.map((p) => p.id))).toEqual([['p1']]);
+  });
+
+  // An empty owner id could read as "no owner filter" further down; it is refused before any read.
+  it('refuses an empty owner id without reading anything', async () => {
+    const r = repos([{ id: 'p1', owner_id: '', is_public: true, status: 'active' }]);
+    expect(await resolvePublicRooms(r, '')).toEqual([]);
+    expect(r.projects.list).not.toHaveBeenCalled();
   });
 });

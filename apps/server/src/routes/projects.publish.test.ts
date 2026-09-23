@@ -17,6 +17,7 @@ const PROJECTS: Record<string, unknown> = {
   p3: { id: 'p3', owner_id: 'u1', key: 'JAP', name: 'Já público', status: 'active', description: null, is_public: true },
   p4: { id: 'p4', owner_id: 'u1', key: 'ALH', name: 'Na máquina alheia', status: 'active', description: null, is_public: false },
   p5: { id: 'p5', owner_id: 'u9', key: 'OUT', name: 'De outra pessoa', status: 'active', description: null, is_public: false },
+  p6: { id: 'p6', owner_id: 'u1', key: 'ARQ', name: 'Arquivado público', status: 'archived', description: null, is_public: true },
 };
 const MACHINES: Record<string, unknown> = {
   m1: { id: 'm1', name: 'Jarvis', owner_id: 'u1' },
@@ -122,6 +123,14 @@ describe('PATCH /projects/:id is_public', () => {
     const res = await patch(owner, 'p3', { status: 'archived' });
     expect(res.statusCode).toBe(200);
     expect(publish).toHaveBeenCalledWith({ project_id: 'p3', is_public: false });
+  });
+
+  // Unarchiving a published project brings its rooms back to the snapshot: the memoised city must
+  // be dropped at once, as it is for a publish.
+  it('tells the public bus when a published project is unarchived', async () => {
+    const res = await patch(owner, 'p6', { status: 'active' });
+    expect(res.statusCode).toBe(200);
+    expect(publish).toHaveBeenCalledWith({ project_id: 'p6', is_public: true });
   });
 
   it('does not touch the public bus for a status change that is not archiving', async () => {

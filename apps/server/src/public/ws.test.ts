@@ -19,12 +19,12 @@ const { registerPublicWs } = await import('./ws.js');
 const { readPublicCity } = await import('./read.js');
 
 const pedro = { id: 'u1', nickname: 'pedro' } as User;
-const p1 = { id: 'p1', is_public: true, status: 'active' } as Project;
+const p1 = { id: 'p1', owner_id: 'u1', is_public: true, status: 'active' } as Project;
 // p2 (private) and p3 (archived) belong to the same owner as p1: present in `projects.list`, so
 // a test that deletes the is_public/status filter and leaves only set membership would still pass
 // unless something asserts these two are excluded (see "filters by is_public and status" below).
-const p2 = { id: 'p2', is_public: false, status: 'active' } as Project;
-const p3 = { id: 'p3', is_public: true, status: 'archived' } as Project;
+const p2 = { id: 'p2', owner_id: 'u1', is_public: false, status: 'active' } as Project;
+const p3 = { id: 'p3', owner_id: 'u1', is_public: true, status: 'archived' } as Project;
 
 // Pedro owns m1 and m3; mB is somebody else's machine that p1 happens to be linked to (merge
 // ruling 2: it must never show). p1 runs on all three, so it has a room on m1 and one on m3.
@@ -229,6 +229,62 @@ describe('registerPublicWs', () => {
     const wentClosed = closed(client);
     publicBus.publishRoomsGone({ machine_id: 'm3', project_id: 'p1' });
     await expect(wentClosed).resolves.toBe(true);
+  });
+
+  it('closes the socket when the city\'s owner is deleted, not when somebody else is', async () => {
+    const client = await connect('/ws/public/pedro');
+    let isClosed = false;
+    client.on('close', () => (isClosed = true));
+    publicBus.publishOwnerGone({ owner_id: 'u2' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(isClosed).toBe(false);
+    publicBus.publishOwnerGone({ owner_id: 'u1' });
+    await vi.waitFor(() => expect(isClosed).toBe(true));
+  });
+
+  // The rooms are resolved before the socket exists: an unpublish that lands while those reads are
+  // in flight must not be lost, or the visitor keeps streaming a room that is already private.
+  for (const event of ['unpublish', 'rooms-gone', 'owner-gone'] as const) {
+    it(`never streams a room that stopped being public (${event}) while the rooms were being resolved`, async () => {
+      let calls = 0;
+      repos.projects.list.mockImplementation(async () => {
+        calls++;
+        if (calls === 1) {
+          // the read already happened (stale: p1 still public), then the change lands before admission ends
+          if (event === 'unpublish') publicBus.publish({ project_id: 'p1', is_public: false });
+          else if (event === 'rooms-gone') publicBus.publishRoomsGone({ machine_id: 'm1' });
+          else publicBus.publishOwnerGone({ owner_id: 'u1' });
+          return [p1, p2, p3];
+        }
+        return [{ ...p1, is_public: false }, p2, p3];
+      });
+      let client: WebSocket | undefined;
+      try {
+        client = await connect('/ws/public/pedro');
+      } catch (err) {
+        // refused outright: the re-read found nothing public
+        expect(String(err)).toMatch(/404/);
+        return;
+      }
+      // admitted on the stale read: it must not stream p1, and must hang up so the page re-reads
+      const wentClosed = closed(client);
+      monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+      await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
+      await expect(wentClosed).resolves.toBe(true);
+    });
+  }
+
+  it('admits a visitor normally when an unrelated project changes during admission', async () => {
+    let calls = 0;
+    repos.projects.list.mockImplementation(async () => {
+      calls++;
+      if (calls === 1) publicBus.publish({ project_id: 'p9', is_public: false });
+      return [p1, p2, p3];
+    });
+    const client = await connect('/ws/public/pedro');
+    monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    expect((await nextMessage(client)).type).toBe('robot');
+    client.terminate();
   });
 
   it('refuses a nickname whose published projects sit only on other people\'s machines', async () => {

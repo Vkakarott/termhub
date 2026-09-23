@@ -34,7 +34,11 @@ export async function resolvePublicRooms(
   repos: Pick<Repositories, 'machines' | 'projects' | 'projectMachines'>,
   ownerId: string,
 ): Promise<Array<{ machine: Machine; projects: Project[] }>> {
-  const projects = (await repos.projects.list({ owner: ownerId })).filter((p) => p.is_public && p.status !== 'archived');
+  // An empty id must never reach `projects.list`, where a falsy owner could read as "no filter".
+  if (!ownerId) return [];
+  // `projects.list({ owner })` already filters by owner; checked again here for the same reason as
+  // the machines below: this is the line that decides whose work goes on the street.
+  const projects = (await repos.projects.list({ owner: ownerId })).filter((p) => p.owner_id === ownerId && p.is_public && p.status !== 'archived');
   if (projects.length === 0) return [];
   const [machines, links] = await Promise.all([repos.machines.list(ownerId), repos.projectMachines.listByProjects(projects.map((p) => p.id))]);
   const buildings = [];
@@ -85,11 +89,13 @@ export const PUBLIC_CITY_MEMO_MAX = 500;
 
 const cityMemo = new Map<string, { at: number; city: Promise<PublicCity | undefined> }>();
 
-// A publish, an unpublish, an archive or a deletion drops every memoised city at once: those are
+// A publish, an unpublish, an archive, an unarchive or a deletion drops every memoised city at once: those are
 // rare, and an unpublished room must be gone for the very next read, not a few seconds later.
 publicBus.subscribe(() => cityMemo.clear());
 // A building or a room leaving the street (owner reassigned, machine deleted, project unlinked), likewise.
 publicBus.subscribeRoomsGone(() => cityMemo.clear());
+// A deleted owner (their nickname, and so their whole city), likewise.
+publicBus.subscribeOwnerGone(() => cityMemo.clear());
 // A closed tab, likewise: a reload right after must not bring its robot back for a few seconds.
 publicBus.subscribeTabRemoved(() => cityMemo.clear());
 

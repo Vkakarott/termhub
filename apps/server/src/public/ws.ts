@@ -14,13 +14,41 @@ import { cachedTmuxProbe } from '../terminal/machine-exec.js';
  * `/ws/public/<nickname>`: the live city for a visitor with no account. It is not `/ws/monitor` with
  * a filter — a different channel, a different payload, and a set of public rooms (published project
  * × owned machine, see `resolvePublicRooms`) resolved at connect and kept current by `publicBus`, so
- * unpublishing, a machine changing owner or a project unlinked drops the socket instead of leaving
+ * unpublishing, a machine changing owner, a project unlinked or the owner deleted drops the socket instead of leaving
  * somebody watching a room that is no longer public.
  */
 /** Every public socket this process holds at once, across all cities: past it, new visitors get a 503. */
 export const PUBLIC_WS_MAX_SOCKETS = 1_000;
 /** How often each public socket is pinged; one that has not answered the previous ping is dropped. */
 export const PUBLIC_WS_HEARTBEAT_MS = 30_000;
+
+/** How many times admission re-reads a city whose rooms changed under it before answering 503. */
+export const PUBLIC_WS_ADMISSION_ATTEMPTS = 3;
+
+/** One public room, as a socket tracks it. */
+interface PublicRoom { projectId: string; machineId: string }
+
+/** A public-bus change that can take rooms off a socket: a project unpublished (or archived or deleted), rooms leaving the street, the owner deleted. */
+type PublicRoomsChange =
+  | { kind: 'unpublished'; projectId: string }
+  | { kind: 'rooms-gone'; machineId: string; projectId?: string }
+  | { kind: 'owner-gone'; ownerId: string };
+
+function touches(change: PublicRoomsChange, ownerId: string, room: PublicRoom): boolean {
+  switch (change.kind) {
+    case 'unpublished':
+      return room.projectId === change.projectId;
+    case 'rooms-gone':
+      return room.machineId === change.machineId && (change.projectId === undefined || room.projectId === change.projectId);
+    case 'owner-gone':
+      return change.ownerId === ownerId;
+  }
+}
+
+function touchesAny(change: PublicRoomsChange, ownerId: string, rooms: Map<string, PublicRoom>): boolean {
+  for (const room of rooms.values()) if (touches(change, ownerId, room)) return true;
+  return false;
+}
 
 export function registerPublicWs(
   router: ReturnType<typeof createUpgradeRouter>,
@@ -76,10 +104,50 @@ export function registerPublicWs(
     }
   });
 
-  async function admit({ req, socket, head, params }: PublicUpgradeContext, release: () => void): Promise<void> {
+  async function admit(ctx: PublicUpgradeContext, release: () => void): Promise<void> {
+    // The public bus is listened to from the very start of admission, not from the moment the socket
+    // opens: the rooms are resolved across several awaits, and an unpublish, an archive, a room
+    // leaving the street or the owner being deleted that lands during them would otherwise be missed
+    // for good — the socket would then stream a room that is already private. While admission runs,
+    // changes are only recorded; once the socket is open, they drop its rooms (see `live` below).
+    const pending: PublicRoomsChange[] = [];
+    let onChange: (change: PublicRoomsChange) => void = (change) => pending.push(change);
+    const offs = [
+      publicBus.subscribe((change) => {
+        if (!change.is_public) onChange({ kind: 'unpublished', projectId: change.project_id });
+      }),
+      publicBus.subscribeRoomsGone((gone) => onChange({ kind: 'rooms-gone', machineId: gone.machine_id, projectId: gone.project_id })),
+      publicBus.subscribeOwnerGone((gone) => onChange({ kind: 'owner-gone', ownerId: gone.owner_id })),
+    ];
+    const unsubscribe = () => {
+      for (const off of offs.splice(0)) off();
+    };
+    // However admission ends — refused, reset by the visitor, a handshake `ws` aborts without
+    // calling back, or the open socket closing later — the listeners go with the socket.
+    ctx.socket.once('close', unsubscribe);
+    let upgrading = false;
+    try {
+      upgrading = await admitResolved(ctx, release, {
+        takePending: () => pending.splice(0),
+        goLive: (live) => {
+          onChange = live;
+          return unsubscribe;
+        },
+      });
+    } finally {
+      if (!upgrading) unsubscribe();
+    }
+  }
+
+  async function admitResolved(
+    { req, socket, head, params }: PublicUpgradeContext,
+    release: () => void,
+    changes: { takePending: () => PublicRoomsChange[]; goLive: (live: (change: PublicRoomsChange) => void) => () => void },
+  ): Promise<boolean> {
     const reject = (status: number, text: string) => {
       release();
       rejectUpgrade(socket, status, text);
+      return false;
     };
     // A malformed escape (`%`) makes decodeURIComponent throw; every rejected nickname answers
     // the same 404, not a 500 that would tell a stranger their input broke something.
@@ -93,13 +161,30 @@ export function registerPublicWs(
     if (!parsed.ok) return reject(404, 'Not Found');
     const owner = await deps.repos.users.findByNickname(parsed.value);
     if (!owner) return reject(404, 'Not Found');
-    const rooms = new Map<string, { projectId: string; machineId: string }>();
-    for (const { machine, projects } of await resolvePublicRooms(deps.repos, owner.id)) {
-      for (const project of projects) rooms.set(roomKey(project.id, machine.id), { projectId: project.id, machineId: machine.id });
+    const resolveRooms = async () => {
+      const resolved = new Map<string, PublicRoom>();
+      for (const { machine, projects } of await resolvePublicRooms(deps.repos, owner.id)) {
+        for (const project of projects) resolved.set(roomKey(project.id, machine.id), { projectId: project.id, machineId: machine.id });
+      }
+      return resolved;
+    };
+    // A change recorded while the rooms were read may have landed after the read (the read is then
+    // stale) or before it (harmless): only one that touches a room the read returned forces a
+    // re-read. Past a few attempts under a storm of changes, the visitor is told to come back.
+    let rooms = await resolveRooms();
+    for (let attempt = 1; changes.takePending().some((change) => touchesAny(change, owner.id, rooms)); attempt++) {
+      if (attempt >= PUBLIC_WS_ADMISSION_ATTEMPTS) {
+        log.warn({ nickname: parsed.value }, 'public visitor refused: rooms kept changing during admission');
+        return reject(503, 'Service Unavailable');
+      }
+      rooms = await resolveRooms();
     }
     if (rooms.size === 0) return reject(404, 'Not Found');
     // The visitor left while the lookups ran: nothing to upgrade (its `close` already released the slot).
-    if (socket.destroyed) return release();
+    if (socket.destroyed) {
+      release();
+      return false;
+    }
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
@@ -117,23 +202,20 @@ export function registerPublicWs(
         const alive = publicAlive(change.tab, probe);
         ws.send(JSON.stringify(toPublicRobotFrame({ machineId: change.machine_id, projectId: change.project_id, tab: change.tab, alive, progress: null })));
       });
-      /** Drops the rooms that match and hangs up if there were any: the page re-reads the snapshot. */
-      const dropRooms = (match: (room: { projectId: string; machineId: string }) => boolean) => {
+      /** Drops the rooms a change touches and hangs up if there were any: the page re-reads the snapshot. */
+      const live = (change: PublicRoomsChange) => {
         let dropped = 0;
         for (const [key, room] of rooms) {
-          if (!match(room)) continue;
+          if (!touches(change, owner.id, room)) continue;
           rooms.delete(key);
           dropped++;
         }
         if (dropped > 0) ws.close(1000, 'unpublished');
       };
-      const offPublic = publicBus.subscribe((change) => {
-        if (change.is_public) return;
-        dropRooms((room) => room.projectId === change.project_id);
-      });
-      const offRooms = publicBus.subscribeRoomsGone((gone) => {
-        dropRooms((room) => room.machineId === gone.machine_id && (gone.project_id === undefined || room.projectId === gone.project_id));
-      });
+      // Anything that landed between the last read and this callback is applied before going live.
+      const early = changes.takePending();
+      const offPublic = changes.goLive(live);
+      for (const change of early) live(change);
       const offGone = publicBus.subscribeTabRemoved((removed) => {
         if (!rooms.has(roomKey(removed.project_id, removed.machine_id)) || ws.readyState !== WebSocket.OPEN) return;
         ws.send(JSON.stringify(toPublicRobotGone({ machineId: removed.machine_id, projectId: removed.project_id, tabId: removed.tab_id })));
@@ -141,7 +223,6 @@ export function registerPublicWs(
       const teardown = () => {
         offTab();
         offPublic();
-        offRooms();
         offGone();
         release();
       };
@@ -158,6 +239,7 @@ export function registerPublicWs(
         log.warn({ nickname: parsed.value, err: err.message }, 'public visitor socket error');
       });
     });
+    return true;
   }
 
   return wss;

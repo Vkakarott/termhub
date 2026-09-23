@@ -5,6 +5,7 @@ import type { User } from '../db/repositories/types.js';
 import type { Role } from '../db/repositories/roles.js';
 import type { Mail } from '../email/mailer.js';
 import { applyErrorHandler } from '../lib/errors.js';
+import { publicBus } from '../public/bus.js';
 import { userRoutes } from './users.js';
 
 const role: Role = { id: 'r-auth', name: 'AUTHENTICATED', label: 'Autenticado', description: null, is_system: true, is_admin: false, created_at: '' };
@@ -122,5 +123,34 @@ describe('POST /api/users/invite-from-waitlist', () => {
     const { app } = buildApp({ entries: [entry({})] });
     const res = await invite(app, { ids: ['w1'], role_id: 'r-nope' });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('DELETE /api/users/:id', () => {
+  // The deleted person's nickname and city go with them: the public bus drops the memoised city
+  // and hangs up every visitor watching it (public/read.ts, public/ws.ts).
+  it('tells the public bus the owner is gone', async () => {
+    const app = Fastify();
+    applyErrorHandler(app);
+    app.addHook('preHandler', async (request) => {
+      request.user = user({ id: 'admin', name: 'Pedro', email: 'pedro@gmail.com' });
+    });
+    const del = vi.fn(async () => {});
+    const repos = {
+      users: { findById: async (id: string) => (id === 'u-ana' ? user({ id: 'u-ana' }) : undefined), delete: del },
+      roles: { findById: async (id: string) => (id === role.id ? role : undefined) },
+    } as unknown as Repositories;
+    const access = { add: vi.fn(), remove: vi.fn(), status: vi.fn() };
+    app.register((instance) => userRoutes(instance, repos, { mailer: { send: vi.fn() }, access: access as never }), { prefix: '/api/users' });
+    const gone: unknown[] = [];
+    const off = publicBus.subscribeOwnerGone((g) => gone.push(g));
+    try {
+      const res = await app.inject({ method: 'DELETE', url: '/api/users/u-ana' });
+      expect(res.statusCode).toBe(200);
+      expect(del).toHaveBeenCalledWith('u-ana');
+      expect(gone).toEqual([{ owner_id: 'u-ana' }]);
+    } finally {
+      off();
+    }
   });
 });
