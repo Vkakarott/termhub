@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project, Tab } from '../lib/types';
-import { activityLabel, buildCityModel, buildModel, lookOf, missingTabIds, resolveFocus, sameFocus, truncateLabel, type MachineEntry } from './model';
+import { activityLabel, buildCityModel, buildModel, lookOf, missingTabIds, resolveFocus, sameFocus, truncateLabel, workingLabel, type MachineEntry } from './model';
 
 const tab = (id: string, over: Partial<OfficeTab> = {}): OfficeTab =>
-  ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, alive: true, progress: null, ...over }) as OfficeTab;
+  ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, activity_verb: null, alive: true, progress: null, ...over }) as OfficeTab;
 const room = (id: string, tabs: OfficeTab[], over: Partial<OfficeRoom> = {}): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null, ...over });
 const snap = (rooms: OfficeRoom[], machineId = 'm1', over: Partial<OfficeSnapshot> = {}): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms, ...over });
 const none = () => undefined;
@@ -143,6 +143,28 @@ describe('activity', () => {
   it('is null when the tab is not working, whatever the snapshot says', () => {
     const d = buildModel(snap([room('p1', [tab('a', { state: 'waiting_input', state_at: at, activity: 'coding' })])]), none).rooms[0].desks[0];
     expect(d.activity).toBeNull();
+  });
+  it('carries the spinner verb with the activity, from the snapshot and from a newer monitor push', () => {
+    const snapOnly = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding', activity_verb: 'Brewing' })])]), none).rooms[0].desks[0];
+    expect(snapOnly.verb).toBe('Brewing');
+    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), state: 'working', state_at: '2026-09-22T10:01:00.000Z', activity: 'reading', activity_verb: 'Moonwalking' } as Tab) : undefined);
+    const merged = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding', activity_verb: 'Brewing' })])]), live).rooms[0].desks[0];
+    expect([merged.activity, merged.verb]).toEqual(['reading', 'Moonwalking']);
+  });
+  it('drops the verb when the tab is not working, and on a desk nobody is at', () => {
+    const waiting = buildModel(snap([room('p1', [tab('a', { state: 'waiting_input', state_at: at, activity: 'coding', activity_verb: 'Brewing' })])]), none).rooms[0].desks[0];
+    expect(waiting.verb).toBeNull();
+    const gone = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding', activity_verb: 'Brewing', alive: false })])]), none).rooms[0].desks[0];
+    expect(gone.verb).toBeNull();
+  });
+  it('shows "<Verb>…" before the activity label while working, and the activity alone without a verb', () => {
+    expect(workingLabel('coding', 'Moonwalking')).toBe('Moonwalking… · codando');
+    expect(workingLabel('reading', null)).toBe('lendo arquivos');
+    expect(workingLabel(null, 'Brewing')).toBe('Brewing…');
+    expect(workingLabel(null, null)).toBeNull();
+    // the longest default verb with the longest label is cut rather than run over the next desk
+    expect(Array.from(workingLabel('reading', 'Flibbertigibbeting')!)).toHaveLength(28);
+    expect(workingLabel('reading', 'Flibbertigibbeting')!.startsWith('Flibbertigibbeting… · ')).toBe(true);
   });
   it('labels every category in pt-BR and nothing for null', () => {
     expect(activityLabel('coding')).toBe('codando');

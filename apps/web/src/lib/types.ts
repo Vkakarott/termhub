@@ -316,6 +316,8 @@ export interface Tab {
   state_seen_at: string | null;
   /** which tool the working tab is about to call, mapped to a category; null off `working`, or an agent too old to report it */
   activity: TabActivity | null;
+  /** Claude Code's spinner verb that came with `activity` ("Moonwalking"); null without one */
+  activity_verb: string | null;
   created_at: string;
   alive: boolean;
 }
