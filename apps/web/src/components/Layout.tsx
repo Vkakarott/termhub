@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
+import { ProjectGroupsProvider } from '../lib/project-groups';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { NeedsYouToasts } from './NeedsYouToasts';
 import { Sidebar } from './Sidebar';
@@ -25,12 +26,14 @@ export function AppShell() {
   return (
     <DataProvider>
       <MonitorProvider>
-        <ToastProvider>
-          <Outlet />
-          <NeedsYouToasts />
-          <NicknamePrompt />
-          <Toaster />
-        </ToastProvider>
+        <ProjectGroupsProvider>
+          <ToastProvider>
+            <Outlet />
+            <NeedsYouToasts />
+            <NicknamePrompt />
+            <Toaster />
+          </ToastProvider>
+        </ProjectGroupsProvider>
       </MonitorProvider>
     </DataProvider>
   );

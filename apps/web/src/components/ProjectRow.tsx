@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, type HTMLAttributes } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { tabDotClass } from '../lib/needs-you';
 import { TAB_STATE_LABEL, type Machine, type Project, type Tab } from '../lib/types';
@@ -16,16 +16,36 @@ interface Props {
   expanded: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  /** in Favoritos: the pin is pressed and always shown */
+  favorite: boolean;
+  onToggleFavorite: () => void;
+  /** opens the "Grupos…" menu under the given button */
+  onOpenGroups: (anchor: HTMLElement) => void;
+  /** drag-and-drop handlers for moving the row between groups; filled by the sidebar's drag layer */
+  dragProps?: HTMLAttributes<HTMLLIElement>;
 }
 
 /** One project in the sidebar: its link and actions, and its running agents underneath. */
-export function ProjectRow({ project: p, section, agents, machines, waiting, expanded, onToggle, onDelete }: Props) {
+export function ProjectRow({ project: p, section, agents, machines, waiting, expanded, onToggle, onDelete, favorite, onToggleFavorite, onOpenGroups, dragProps }: Props) {
   const navigate = useNavigate();
   const hasAgents = agents.length > 0;
   const showMachine = machines.length > 1;
   const listId = useId();
+  const pinLabel = favorite ? 'Tirar de Favoritos' : 'Fixar em Favoritos';
+  const pin = (
+    <button
+      type="button"
+      className={`rounded px-1 text-xs hover:bg-bg-4 ${favorite ? 'text-accent opacity-70 hover:opacity-100' : 'text-fg-dim opacity-60 grayscale hover:text-fg hover:opacity-100'}`}
+      title={pinLabel}
+      aria-label={pinLabel}
+      aria-pressed={favorite}
+      onClick={onToggleFavorite}
+    >
+      📌
+    </button>
+  );
   return (
-    <li className="mb-0.5">
+    <li {...dragProps} className={`mb-0.5 ${dragProps?.className ?? ''}`}>
       <div className="group/p flex items-center rounded-r hover:bg-bg-3">
         {hasAgents ? (
           <button
@@ -66,8 +86,21 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
           {p.status === 'paused' && <span className={`${waiting ? '' : 'ml-auto '}text-[10px] text-warn group-hover/p:hidden`}>pausado</span>}
           {p.status === 'archived' && <span className={`${waiting ? '' : 'ml-auto '}text-[10px] text-fg-dim group-hover/p:hidden`}>arquivado</span>}
         </NavLink>
-        {/* actions: hover only; outside the link so clicking them does not navigate */}
-        <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-hover/p:flex">
+        {/* a favourite's pin stays visible; the other actions show on hover or while the row has keyboard focus
+            (the Grupos… menu is the keyboard path). All outside the link so clicking them does not navigate */}
+        {favorite && <span className="flex shrink-0 items-center pr-1 group-focus-within/p:pr-0 group-hover/p:pr-0">{pin}</span>}
+        <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-focus-within/p:flex group-hover/p:flex">
+          {!favorite && pin}
+          <button
+            type="button"
+            className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg"
+            title="Grupos…"
+            aria-label="Grupos…"
+            aria-haspopup="menu"
+            onClick={(e) => onOpenGroups(e.currentTarget)}
+          >
+            ⋯
+          </button>
           <button type="button" className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Editar projeto" onClick={() => navigate(`/projects/${p.id}/settings`)}>
             ✎
           </button>

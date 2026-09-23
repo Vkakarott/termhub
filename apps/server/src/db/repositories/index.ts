@@ -21,6 +21,7 @@ import { ApiTokensRepository } from './api-tokens.js';
 import { ChatRepository } from './chat.js';
 import { ChatActionsRepository } from './chat-actions.js';
 import { InstanceSecretsRepository } from './instance-secrets.js';
+import { ProjectGroupsRepository } from './project-groups.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -45,6 +46,7 @@ export interface Repositories {
   chat: ChatRepository;
   chatActions: ChatActionsRepository;
   instanceSecrets: InstanceSecretsRepository;
+  projectGroups: ProjectGroupsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -71,6 +73,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     chat: new ChatRepository(db),
     chatActions: new ChatActionsRepository(db),
     instanceSecrets: new InstanceSecretsRepository(db),
+    projectGroups: new ProjectGroupsRepository(db),
   };
 }
 
@@ -85,3 +88,5 @@ export type { ChatConversation, ChatMessage, ChatRole } from './chat.js';
 export type { ChatAction, ChatActionClass, ChatActionStatus, InsertPendingInput } from './chat-actions.js';
 export { ProjectRuleError } from './projects.js';
 export type { ProjectRuleCode } from './projects.js';
+export { ProjectGroupRuleError } from './project-groups.js';
+export type { ProjectGroup, ProjectGroupRuleCode } from './project-groups.js';

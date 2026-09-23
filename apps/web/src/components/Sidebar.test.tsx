@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Machine, MonitorItem, Project, Tab } from '../lib/types';
+import type { Machine, MonitorItem, Project, ProjectGroup, Tab } from '../lib/types';
 
 const state = vi.hoisted(() => ({
   projects: [] as Project[],
@@ -22,6 +22,19 @@ vi.mock('../lib/auth', () => ({
     viewAs: 'self',
   }),
 }));
+const groupsState = vi.hoisted(() => ({
+  groups: [] as import('../lib/types').ProjectGroup[],
+  error: null as string | null,
+  createGroup: vi.fn(async (_name: string) => null as import('../lib/types').ProjectGroup | null),
+  renameGroup: vi.fn(async (_id: string, _name: string) => {}),
+  deleteGroup: vi.fn(async (_id: string) => {}),
+  reorderGroups: vi.fn(async () => {}),
+  setMemberships: vi.fn(async () => {}),
+  reload: vi.fn(async () => {}),
+  toggleFavorite: vi.fn(async (_id: string) => {}),
+  isFavorite: (id: string): boolean => groupsState.groups.some((g) => g.kind === 'favorites' && g.project_ids.includes(id)),
+}));
+vi.mock('../lib/project-groups', () => ({ useProjectGroups: () => groupsState }));
 vi.mock('../lib/monitor', () => ({ useMonitor: () => ({ items: state.items, openTabs: state.openTabs, needsYou: [] }) }));
 vi.mock('../lib/data', () => ({
   useData: () => ({
@@ -86,27 +99,31 @@ beforeEach(() => {
   seed();
   localStorage.clear();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  groupsState.groups = [];
+  groupsState.error = null;
+  vi.clearAllMocks();
+});
 
 describe('Sidebar sections', () => {
-  it('puts running projects in "Em execução" and every project in the list below it — a running project in both', () => {
+  it('puts running projects in "Em execução" and every ungrouped project in "Outros" — a running project in both', () => {
     renderSidebar();
     const running = section('Em execução');
     expect(within(running).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
     expect(within(running).getByRole('link', { name: /beta/ })).toBeInTheDocument();
     expect(within(running).queryByRole('link', { name: /gamma/ })).not.toBeInTheDocument();
 
-    const all = section('Todos os projetos');
+    const all = section('Outros');
     expect(within(all).getAllByRole('link', { name: /^[A-Z]+ [a-z]+/ }).map((l) => l.textContent)).toEqual(['ALPHAalpha', 'BETAbeta', 'GAMMAgamma']);
     expect(within(all).queryByRole('link', { name: /omega/ })).not.toBeInTheDocument(); // archived, hidden by default
   });
 
-  it('hides "Em execução" (and the list\'s own label) when nothing is running', () => {
+  it('hides "Em execução" when nothing is running', () => {
     state.openTabs = [];
     renderSidebar();
     expect(screen.queryByRole('region', { name: 'Em execução' })).not.toBeInTheDocument();
-    expect(within(section('Todos os projetos')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
-    expect(screen.queryByText('Todos os projetos')).not.toBeInTheDocument(); // "Projetos" above already says it
+    expect(within(section('Outros')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
     expect(screen.getByText('Projetos')).toBeInTheDocument();
   });
 
@@ -115,7 +132,18 @@ describe('Sidebar sections', () => {
     state.openTabs = [];
     renderSidebar();
     expect(screen.getByRole('button', { name: '+ novo projeto' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Todos os projetos' })).not.toBeInTheDocument();
+    // Outros always renders: it is where a project is dropped to leave its groups
+    const others = section('Outros');
+    expect(within(others).getByText('· 0')).toBeInTheDocument();
+    expect(within(others).queryByText('arraste projetos para cá')).toBeNull();
+  });
+
+  it('keeps an empty Outros when every project is in a group', () => {
+    state.projects = state.projects.filter((p) => p.status !== 'archived');
+    groupsState.groups = [custom('g1', 'Tudo', 0, ['p1', 'p2', 'p3'])];
+    renderSidebar();
+    expect(within(section('Outros')).getByText('· 0')).toBeInTheDocument();
+    expect(within(section('Outros')).getByRole('button', { name: 'Recolher Outros' })).toBeInTheDocument();
   });
 
   it('"Mostrar arquivados" applies to every section', () => {
@@ -123,16 +151,18 @@ describe('Sidebar sections', () => {
     renderSidebar();
     expect(screen.queryByRole('link', { name: /omega/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Mostrar arquivados' }));
-    expect(within(section('Todos os projetos')).getByRole('link', { name: /omega/ })).toBeInTheDocument();
+    expect(within(section('Outros')).getByRole('link', { name: /omega/ })).toBeInTheDocument();
     expect(within(section('Em execução')).getByRole('link', { name: /omega/ })).toBeInTheDocument();
   });
 
-  it('keeps the project actions: edit and delete, and no pin yet', () => {
+  it('keeps the project actions (edit, delete) next to the pin and the Grupos… button', () => {
     renderSidebar();
-    const all = section('Todos os projetos');
+    const all = section('Outros');
     expect(within(all).getAllByTitle('Editar projeto')).toHaveLength(3);
     expect(within(all).getAllByTitle(/Excluir projeto/)).toHaveLength(3);
-    expect(screen.queryByRole('button', { name: /Fixar projeto/ })).not.toBeInTheDocument();
+    expect(within(all).getAllByRole('button', { name: 'Fixar em Favoritos' })).toHaveLength(3);
+    expect(within(all).getAllByTitle('Grupos…')).toHaveLength(3);
+    expect(within(all).getAllByTitle('Grupos…')[0]).toHaveAttribute('aria-haspopup', 'menu');
   });
 });
 
@@ -152,7 +182,7 @@ describe('Sidebar agent rows', () => {
   it('names each agent list after its section too, so a running project\'s two lists are told apart', () => {
     renderSidebar();
     const names = screen.getAllByRole('list', { name: /^Agentes de alpha/ }).map((l) => l.getAttribute('aria-label'));
-    expect(names).toEqual(['Agentes de alpha · Em execução', 'Agentes de alpha · Todos os projetos']);
+    expect(names).toEqual(['Agentes de alpha · Em execução', 'Agentes de alpha · Outros']);
     const toggles = screen.getAllByRole('button', { name: 'Recolher agentes de alpha' });
     expect(toggles.map((b) => document.getElementById(b.getAttribute('aria-controls')!)?.getAttribute('aria-label'))).toEqual(names);
   });
@@ -185,7 +215,7 @@ describe('Sidebar agent rows', () => {
 
   it('a project without open tabs has no agent list and no chevron', () => {
     renderSidebar();
-    const all = section('Todos os projetos');
+    const all = section('Outros');
     expect(agentsOf(all, 'gamma')).toBeNull();
     expect(within(all).queryByRole('button', { name: /agentes de gamma/ })).not.toBeInTheDocument();
     expect(within(all).getByRole('button', { name: 'Recolher agentes de alpha' })).toBeInTheDocument();
@@ -193,8 +223,8 @@ describe('Sidebar agent rows', () => {
 
   it('collapsing a project collapses it in every section, and it is remembered', () => {
     renderSidebar();
-    fireEvent.click(within(section('Todos os projetos')).getByRole('button', { name: 'Recolher agentes de alpha' }));
-    expect(agentsOf(section('Todos os projetos'), 'alpha')).toBeNull();
+    fireEvent.click(within(section('Outros')).getByRole('button', { name: 'Recolher agentes de alpha' }));
+    expect(agentsOf(section('Outros'), 'alpha')).toBeNull();
     expect(agentsOf(section('Em execução'), 'alpha')).toBeNull();
     expect(agentsOf(section('Em execução'), 'beta')).not.toBeNull();
 
@@ -241,7 +271,7 @@ describe('Sidebar collapse/expand all', () => {
     expect(screen.getByRole('button', { name: 'Expandir todos' })).toHaveAttribute('aria-expanded', 'false');
     expect(agentsOf(running(), 'alpha')).toBeNull();
     expect(agentsOf(running(), 'beta')).toBeNull();
-    expect(agentsOf(section('Todos os projetos'), 'alpha')).toBeNull(); // the same project, collapsed everywhere
+    expect(agentsOf(section('Outros'), 'alpha')).toBeNull(); // the same project, collapsed everywhere
 
     fireEvent.click(screen.getByRole('button', { name: 'Expandir todos' }));
     expect(agentsOf(running(), 'alpha')).not.toBeNull();
@@ -263,5 +293,190 @@ describe('Sidebar footer', () => {
     expect(machinesLink).toHaveAttribute('href', '/machines');
     expect(screen.getByTitle('Novo projeto')).toBeInTheDocument();
     expect(screen.queryByText('+ máquina')).not.toBeInTheDocument();
+  });
+});
+
+const fav = (ids: string[] = []): ProjectGroup => ({ id: 'fav', name: 'Favoritos', kind: 'favorites', position: 0, project_ids: ids });
+const custom = (id: string, name: string, position: number, ids: string[] = []): ProjectGroup => ({ id, name, kind: 'custom', position, project_ids: ids });
+
+describe('Sidebar groups', () => {
+  it('gives every section a unique accessible name, even when group names repeat or match Outros/Em execução', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p1']), custom('g2', 'Clientes', 2, ['p1']), custom('g3', 'Outros', 3, ['p1']), custom('g4', 'Em execução', 4)];
+    renderSidebar();
+    const labels = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(labels).toEqual(['Em execução', 'Favoritos', 'Clientes', 'Clientes (2)', 'Outros (2)', 'Em execução (2)', 'Outros']);
+    // the visible names stay as the user typed them
+    expect(within(section('Clientes (2)')).getByText('Clientes', { selector: 'span' })).toBeInTheDocument();
+    const lists = screen.getAllByRole('list', { name: /^Agentes de alpha/ }).map((l) => l.getAttribute('aria-label'));
+    expect(new Set(lists).size).toBe(lists.length);
+    expect(lists).toContain('Agentes de alpha · Clientes (2)');
+    const toggles = screen.getAllByRole('button', { name: /^Recolher Clientes/ }).map((b) => b.getAttribute('aria-label'));
+    expect(toggles).toEqual(['Recolher Clientes', 'Recolher Clientes (2)']);
+  });
+
+  it('renders sections in order: Em execução, Favoritos, custom groups, Outros', () => {
+    groupsState.groups = [fav(['p1']), custom('g1', 'Clientes', 1, ['p1', 'p2'])];
+    renderSidebar(); // alpha (p1) and beta (p2) have open tabs
+    const labels = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(labels).toEqual(['Em execução', 'Favoritos', 'Clientes', 'Outros']);
+    expect(within(section('Clientes')).getAllByRole('link', { name: /^[A-Z]+ [a-z]+/ }).map((l) => l.textContent)).toEqual(['ALPHAalpha', 'BETAbeta']);
+    expect(within(section('Outros')).queryByRole('link', { name: /alpha/ })).toBeNull();
+    expect(within(section('Outros')).getByRole('link', { name: /gamma/ })).toBeInTheDocument();
+    // a project in two groups shows in both, each row with its own agent list
+    expect(agentsOf(section('Favoritos'), 'alpha')).not.toBeNull();
+    expect(agentsOf(section('Clientes'), 'alpha')).not.toBeNull();
+  });
+
+  it('the pin toggles Favoritos and is pressed for favorites', () => {
+    groupsState.groups = [fav(['p1'])];
+    renderSidebar();
+    expect(within(section('Favoritos')).getByRole('button', { name: 'Tirar de Favoritos' })).toHaveAttribute('aria-pressed', 'true');
+    const pin = within(section('Outros')).getAllByRole('button', { name: 'Fixar em Favoritos' })[0];
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(pin);
+    expect(groupsState.toggleFavorite).toHaveBeenCalledWith('p2');
+  });
+
+  it('Outros is an accordion with a count and keeps its state', () => {
+    renderSidebar();
+    expect(within(section('Outros')).getByText('· 3')).toBeInTheDocument();
+    const toggle = within(section('Outros')).getByRole('button', { name: 'Recolher Outros' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(toggle);
+    expect(localStorage.getItem('termhub:sidebar:collapsed-groups')).toContain('others');
+    expect(within(section('Outros')).queryByRole('link', { name: /gamma/ })).toBeNull();
+
+    cleanup();
+    renderSidebar();
+    expect(within(section('Outros')).getByRole('button', { name: 'Expandir Outros' })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(section('Outros')).queryByRole('link', { name: /gamma/ })).toBeNull();
+  });
+
+  it('a group collapses on its own', () => {
+    groupsState.groups = [custom('g1', 'Clientes', 1, ['p3'])];
+    renderSidebar();
+    fireEvent.click(within(section('Clientes')).getByRole('button', { name: 'Recolher Clientes' }));
+    expect(within(section('Clientes')).queryByRole('link', { name: /gamma/ })).toBeNull();
+    expect(within(section('Outros')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
+  });
+
+  it('keeps the archived toggle inside Outros', () => {
+    renderSidebar();
+    expect(within(section('Outros')).getByRole('button', { name: 'Mostrar arquivados' })).toBeInTheDocument();
+  });
+
+  it('renames and deletes a custom group, never Favoritos', async () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1)];
+    renderSidebar();
+    expect(within(section('Favoritos')).queryByTitle('Renomear grupo')).toBeNull();
+    expect(within(section('Favoritos')).queryByTitle('Excluir grupo')).toBeNull();
+    const g1 = section('Clientes');
+    fireEvent.click(within(g1).getByTitle('Renomear grupo'));
+    const input = within(g1).getByRole('textbox');
+    fireEvent.change(input, { target: { value: '  Trabalho ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(groupsState.renameGroup).toHaveBeenCalledWith('g1', 'Trabalho');
+    expect(groupsState.renameGroup).toHaveBeenCalledTimes(1);
+    expect(within(g1).queryByRole('textbox')).toBeNull();
+    fireEvent.click(within(g1).getByTitle('Excluir grupo'));
+    expect(screen.getByText(/Os projetos não são apagados/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
+    await waitFor(() => expect(groupsState.deleteGroup).toHaveBeenCalledWith('g1'));
+  });
+
+  it('Esc cancels a rename and an empty name is not saved', () => {
+    groupsState.groups = [custom('g1', 'Clientes', 1)];
+    renderSidebar();
+    const g1 = section('Clientes');
+    fireEvent.click(within(g1).getByTitle('Renomear grupo'));
+    fireEvent.change(within(g1).getByRole('textbox'), { target: { value: 'Outro nome' } });
+    fireEvent.keyDown(within(g1).getByRole('textbox'), { key: 'Escape' });
+    expect(within(g1).queryByRole('textbox')).toBeNull();
+    fireEvent.click(within(g1).getByTitle('Renomear grupo'));
+    fireEvent.change(within(g1).getByRole('textbox'), { target: { value: '   ' } });
+    fireEvent.keyDown(within(g1).getByRole('textbox'), { key: 'Enter' });
+    expect(groupsState.renameGroup).not.toHaveBeenCalled();
+  });
+
+  it('an empty group shows the drop hint', () => {
+    groupsState.groups = [custom('g1', 'Vazio', 0)];
+    renderSidebar();
+    expect(within(section('Vazio')).getByText('arraste projetos para cá')).toBeInTheDocument();
+  });
+
+  it('+ grupo creates "Novo grupo" and opens its rename input', async () => {
+    groupsState.createGroup.mockImplementationOnce(async (name: string) => {
+      const g = custom('g9', name, 1);
+      groupsState.groups = [...groupsState.groups, g];
+      return g;
+    });
+    const view = renderSidebar();
+    fireEvent.click(screen.getByTitle('Novo grupo'));
+    expect(groupsState.createGroup).toHaveBeenCalledWith('Novo grupo');
+    await waitFor(() => expect(groupsState.groups).toHaveLength(1));
+    view.rerender(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(within(section('Novo grupo')).getByRole('textbox')).toHaveValue('Novo grupo'));
+  });
+
+  it('the Grupos… button opens the groups menu for that project', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p3'])];
+    renderSidebar();
+    fireEvent.click(within(section('Clientes')).getByTitle('Grupos…'));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitemcheckbox', { name: /Clientes/ })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('the row actions show while the row has keyboard focus', () => {
+    renderSidebar();
+    const others = section('Outros');
+    const link = within(others).getByRole('link', { name: /gamma/ });
+    link.focus();
+    const dots = within(link.closest('li')!).getByTitle('Grupos…');
+    // the hover-only span also shows on focus-within, so Tab reaches the pin and ⋯
+    expect(dots.parentElement).toHaveClass('group-focus-within/p:flex');
+    dots.focus();
+    expect(dots).toHaveFocus();
+  });
+
+  it('the menu focuses its first item, and Esc returns focus to the ⋯ button', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p3'])];
+    renderSidebar();
+    const dots = within(section('Clientes')).getByTitle('Grupos…');
+    dots.focus();
+    fireEvent.click(dots);
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitemcheckbox')[0]).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(dots).toHaveFocus();
+  });
+
+  it('⋯ of the same project in another section moves the menu instead of closing it; ⋯ on the same button closes it', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p1'])];
+    renderSidebar();
+    fireEvent.click(within(section('Clientes')).getByTitle('Grupos…'));
+    fireEvent.click(within(section('Em execução')).getAllByTitle('Grupos…')[0]); // alpha again, other row
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.click(within(section('Em execução')).getAllByTitle('Grupos…')[0]);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('switching the menu to another project starts it fresh', () => {
+    groupsState.groups = [fav(), custom('g1', 'Clientes', 1, ['p1'])];
+    renderSidebar();
+    fireEvent.click(within(section('Clientes')).getByTitle('Grupos…'));
+    fireEvent.click(screen.getByText('Novo grupo…'));
+    expect(within(screen.getByRole('menu')).getByRole('textbox')).toBeInTheDocument();
+    fireEvent.click(within(section('Outros')).getAllByTitle('Grupos…')[0]); // beta
+    expect(within(screen.getByRole('menu')).queryByRole('textbox')).toBeNull();
+  });
+
+  it('shows the groups error', () => {
+    groupsState.error = 'Não foi possível salvar os grupos. Tente de novo.';
+    renderSidebar();
+    expect(screen.getByRole('alert')).toHaveTextContent('Não foi possível salvar');
   });
 });
