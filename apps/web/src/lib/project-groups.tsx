@@ -28,13 +28,6 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
   const [groups, setGroupsState] = useState<ProjectGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef(groups);
-  // Outgoing member lists only name projects the client knows: a project deleted here, or gone from
-  // the scope, may still sit in `groups` until the next reload, and the server refuses unknown ids
-  // (404 PROJECT_NOT_FOUND), which would fail every later write to that group.
-  const { projects, loading } = useData();
-  const known = useRef<Set<string> | null>(null);
-  known.current = loading ? null : new Set(projects.map((p) => p.id));
-  const prune = useCallback((ids: string[]) => (known.current ? ids.filter((id) => known.current!.has(id)) : ids), []);
   const setGroups = (g: ProjectGroup[]) => {
     ref.current = g;
     setGroupsState(g);
@@ -53,6 +46,20 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
   // optimistic write in flight) on every unrelated re-render.
   const viewAsKey = JSON.stringify(viewAs);
   useEffect(() => { void reload(); }, [reload, viewAsKey]);
+
+  // A project that leaves the client's project list (deleted here) leaves every group too: the
+  // server would refuse its id (404 PROJECT_NOT_FOUND) in the next write to those groups. Only ids
+  // the list had and lost are pruned; a member the client never knew (created in another browser)
+  // is kept. Other stale ids heal through the reload that follows a failed write.
+  const { projects } = useData();
+  const seen = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const now = new Set(projects.map((p) => p.id));
+    const gone = [...seen.current].filter((id) => !now.has(id));
+    seen.current = now;
+    if (!gone.length || !ref.current.some((g) => g.project_ids.some((id) => gone.includes(id)))) return;
+    setGroups(ref.current.map((g) => (g.project_ids.some((id) => gone.includes(id)) ? { ...g, project_ids: g.project_ids.filter((id) => !gone.includes(id)) } : g)));
+  }, [projects]);
 
   /**
    * Applies `next` now, runs the request, then reconciles. Writes can overlap (a drag while a rename
@@ -109,14 +116,7 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
         const next = moveGroup(ref.current, groupId, toIndex);
         return optimistic(next, async () => (await api.projectGroups.reorder(next.map((g) => g.id))).groups);
       },
-      setMemberships: (next, changes) => {
-        const clean = changes.map((c) => ({ id: c.id, project_ids: prune(c.project_ids) }));
-        const shown = next.map((g) => {
-          const c = clean.find((x) => x.id === g.id);
-          return c ? { ...g, project_ids: c.project_ids } : g;
-        });
-        return optimistic(shown, async () => (await api.projectGroups.setMemberships(clean)).groups);
-      },
+      setMemberships: (next, changes) => optimistic(next, async () => (await api.projectGroups.setMemberships(changes)).groups),
       isFavorite: (projectId) => !!favorites()?.project_ids.includes(projectId),
       toggleFavorite: (projectId) => {
         const fav = favorites();
@@ -125,13 +125,12 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
           setError(FAILED);
           return reload();
         }
-        const current = prune(fav.project_ids);
-        const project_ids = current.includes(projectId) ? current.filter((id) => id !== projectId) : [...current, projectId];
+        const project_ids = fav.project_ids.includes(projectId) ? fav.project_ids.filter((id) => id !== projectId) : [...fav.project_ids, projectId];
         const next = ref.current.map((g) => (g.id === fav.id ? { ...g, project_ids } : g));
         return optimistic(next, async () => (await api.projectGroups.setMemberships([{ id: fav.id, project_ids }])).groups);
       },
     };
-  }, [groups, error, reload, optimistic, prune]);
+  }, [groups, error, reload, optimistic]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -122,16 +122,40 @@ describe('ProjectGroupsProvider', () => {
     rerender(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
   });
-  it('never sends the id of a project the client no longer knows (deleted, or out of the scope)', async () => {
-    api.list.mockResolvedValue({ groups: [{ ...fav, project_ids: ['a', 'dead'] }, { ...g1, project_ids: ['dead'] }] });
-    render(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
-    await screen.findByText('Favoritos:a,dead|Clientes:dead');
+  it('a project deleted in this client leaves its groups: the next pin sends a list without it', async () => {
+    data.projects = ['a', 'b', 'c'].map((id) => ({ id }));
+    api.list.mockResolvedValue({ groups: [{ ...fav, project_ids: ['a', 'c'] }, { ...g1, project_ids: ['c'] }] });
+    const { rerender } = render(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await screen.findByText('Favoritos:a,c|Clientes:c');
+    // deleteProject succeeded: the data layer drops it from the project list
+    data.projects = ['a', 'b'].map((id) => ({ id }));
+    rerender(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await screen.findByText('Favoritos:a|Clientes:');
     api.setMemberships.mockResolvedValueOnce({ groups: [{ ...fav, project_ids: ['a', 'b'] }, g1] });
     await act(async () => { await state.toggleFavorite('b'); });
     expect(api.setMemberships).toHaveBeenLastCalledWith([{ id: 'fav', project_ids: ['a', 'b'] }]);
-    api.setMemberships.mockResolvedValueOnce({ groups: [fav, { ...g1, project_ids: ['a'] }] });
-    await act(async () => { await state.setMemberships([fav, { ...g1, project_ids: ['dead', 'a'] }], [{ id: 'g1', project_ids: ['dead', 'a'] }]); });
-    expect(api.setMemberships).toHaveBeenLastCalledWith([{ id: 'g1', project_ids: ['a'] }]);
+  });
+
+  it('keeps a member the client never knew (created in another browser) in the outgoing list', async () => {
+    api.list.mockResolvedValue({ groups: [{ ...fav, project_ids: ['a', 'elsewhere'] }, g1] });
+    render(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await screen.findByText('Favoritos:a,elsewhere|Clientes:');
+    api.setMemberships.mockResolvedValueOnce({ groups: [{ ...fav, project_ids: ['a', 'elsewhere', 'b'] }, g1] });
+    await act(async () => { await state.toggleFavorite('b'); });
+    expect(api.setMemberships).toHaveBeenLastCalledWith([{ id: 'fav', project_ids: ['a', 'elsewhere', 'b'] }]);
+  });
+
+  it('a stale id refused with 404 PROJECT_NOT_FOUND heals through the reload', async () => {
+    // 'gone' was deleted elsewhere (or left the scope): the server refuses it once, then the reload drops it
+    api.list.mockResolvedValue({ groups: [{ ...fav, project_ids: ['a', 'gone'] }, g1] });
+    render(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await screen.findByText('Favoritos:a,gone|Clientes:');
+    api.list.mockResolvedValue({ groups: [fav, g1] });
+    api.setMemberships.mockRejectedValueOnce(Object.assign(new Error('Projeto não encontrado'), { status: 404, code: 'PROJECT_NOT_FOUND' }));
+    await act(async () => { await state.toggleFavorite('b'); });
+    expect(api.setMemberships).toHaveBeenLastCalledWith([{ id: 'fav', project_ids: ['a', 'gone', 'b'] }]);
+    await waitFor(() => expect(screen.getByTestId('out')).toHaveTextContent(/^Favoritos:a\|Clientes: !/));
+    expect(api.list).toHaveBeenCalledTimes(2);
   });
 
   it('after rolling back a failed write, re-syncs from the server', async () => {
