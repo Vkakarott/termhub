@@ -1,11 +1,28 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { FastifyBaseLogger } from 'fastify';
 import type { createUpgradeRouter } from '../ws/router.js';
-import { monitorBus } from './bus.js';
+import { monitorBus, type TabLifecycle, type TabStateChange } from './bus.js';
+
+/** Whether a change on a machine of `ownerId` belongs to the scope (null = an admin viewing "all"). */
+const inScope = (scopeOwner: string | null, ownerId: string | null) => scopeOwner === null || ownerId === scopeOwner;
+
+/** A tab's monitor state changed (`type: 'tab'`); null when outside the scope. */
+export function stateFrame(scopeOwner: string | null, change: TabStateChange) {
+  if (!inScope(scopeOwner, change.owner_id)) return null;
+  return { type: 'tab' as const, tab: change.tab, project_id: change.project_id, machine_id: change.machine_id };
+}
+
+/** A tab opened or renamed (`tab_upsert`, the whole row) or closed (`tab_removed`); null when outside the scope. */
+export function lifecycleFrame(scopeOwner: string | null, event: TabLifecycle) {
+  if (!inScope(scopeOwner, event.owner_id)) return null;
+  if (event.kind === 'upsert') return { type: 'tab_upsert' as const, tab: event.tab, project_id: event.project_id, machine_id: event.machine_id };
+  return { type: 'tab_removed' as const, tab_id: event.tab_id, project_id: event.project_id, machine_id: event.machine_id };
+}
 
 /**
- * `/ws/monitor`: pushes tab state changes to the browser (home list, tab bar dots). One
- * message per change, filtered by the caller's scope; the client fetches the snapshot over REST.
+ * `/ws/monitor`: pushes tab state changes (home list, tab bar dots) and tabs opened, renamed and
+ * closed (the sidebar's open tabs) to the browser. One message per change, filtered by the
+ * caller's scope; the client fetches the snapshots over REST.
  * Only metadata and the tool's own message travel here — never terminal content.
  */
 export function registerMonitorWs(router: ReturnType<typeof createUpgradeRouter>, deps: { log: FastifyBaseLogger }): WebSocketServer {
@@ -19,10 +36,15 @@ export function registerMonitorWs(router: ReturnType<typeof createUpgradeRouter>
       w.isAlive = true;
       ws.on('pong', () => (w.isAlive = true));
 
-      const unsubscribe = monitorBus.subscribe((change) => {
-        if (scope.ownerId !== null && change.owner_id !== scope.ownerId) return;
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'tab', tab: change.tab, project_id: change.project_id, machine_id: change.machine_id }));
-      });
+      const send = (frame: object | null) => {
+        if (frame && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
+      };
+      const offState = monitorBus.subscribe((change) => send(stateFrame(scope.ownerId, change)));
+      const offLifecycle = monitorBus.subscribeLifecycle((event) => send(lifecycleFrame(scope.ownerId, event)));
+      const unsubscribe = () => {
+        offState();
+        offLifecycle();
+      };
       log.info({ userId: scope.user.id }, 'monitor conectado');
       ws.on('close', () => {
         unsubscribe();

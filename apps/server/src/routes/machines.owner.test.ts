@@ -24,6 +24,7 @@ function buildApp() {
       update: vi.fn(async (id: string, patch: Partial<Machine>) => (store[id] = { ...store[id]!, ...patch })),
       delete: vi.fn(async (id: string) => delete store[id]),
     },
+    tabs: { listByMachine: vi.fn(async () => []) },
     // no `projects` on purpose: a transfer must not touch any project (nothing is unpublished)
   } as unknown as Repositories;
   app.register((a) => machineRoutes(a, repos), { prefix: '/machines' });

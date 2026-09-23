@@ -224,3 +224,57 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
   });
 });
+
+describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.listOpenTerminals / listByMachine (Postgres)', () => {
+  let db: PrismaClient;
+  let repo: TabsRepository;
+  let ownerId: string;
+  let mine: string;
+  let theirs: string;
+  let projectId: string;
+
+  beforeAll(() => {
+    db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+    repo = new TabsRepository(db);
+  });
+
+  beforeEach(async () => {
+    ownerId = newId();
+    mine = newId();
+    theirs = newId();
+    projectId = newId();
+    await db.user.create({ data: { id: ownerId, email: `${ownerId}@test.local`, name: 'o' } });
+    await db.machine.createMany({ data: [
+      { id: mine, name: 'mine', type: 'agent', ownerId },
+      { id: theirs, name: 'theirs', type: 'agent' },
+    ] });
+    await db.project.create({ data: { id: projectId, key: 'K' + projectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p', ownerId } });
+    return async () => {
+      await db.project.delete({ where: { id: projectId } });
+      await db.machine.deleteMany({ where: { id: { in: [mine, theirs] } } });
+      await db.user.delete({ where: { id: ownerId } });
+    };
+  });
+
+  afterAll(async () => {
+    await db?.$disconnect();
+  });
+
+  it('lists every terminal tab on the owner\'s machines, reported a state or not, in tab-bar order', async () => {
+    const b = await repo.create(projectId, mine, 'Bia');
+    const a = await repo.create(projectId, mine, 'Ana');
+    await repo.create(projectId, mine, 'Sim', { kind: 'simulator' });
+    await repo.create(projectId, theirs, 'Caio');
+    await repo.recordEvent(a.id, { kind: 'working', tool: 'claude', text: null });
+
+    expect((await repo.listOpenTerminals(ownerId)).map((t) => t.name)).toEqual([b.name, a.name]); // position order, never-reported included
+    expect((await repo.listOpenTerminals(null)).map((t) => t.name)).toEqual(expect.arrayContaining(['Bia', 'Ana', 'Caio']));
+    expect((await repo.listOpenTerminals(null)).some((t) => t.name === 'Sim')).toBe(false);
+  });
+
+  it('lists every tab on one machine (read before a machine delete cascades them)', async () => {
+    await repo.create(projectId, mine, 'Ana');
+    await repo.create(projectId, theirs, 'Caio');
+    expect((await repo.listByMachine(mine)).map((t) => t.name)).toEqual(['Ana']);
+  });
+});
