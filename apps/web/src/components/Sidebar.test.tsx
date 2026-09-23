@@ -119,6 +119,19 @@ describe('Sidebar sections', () => {
     expect(within(all).queryByRole('link', { name: /omega/ })).not.toBeInTheDocument(); // archived, hidden by default
   });
 
+  it('collapses "Em execução" like any other section, and remembers it', () => {
+    renderSidebar();
+    fireEvent.click(within(section('Em execução')).getByRole('button', { name: 'Recolher Em execução' }));
+    expect(within(section('Em execução')).queryByRole('link', { name: /alpha/ })).not.toBeInTheDocument();
+    expect(within(section('Em execução')).getByRole('button', { name: 'Expandir Em execução' })).toHaveAttribute('aria-expanded', 'false');
+    // the project itself is not collapsed: Outros still lists it
+    expect(within(section('Outros')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
+
+    cleanup();
+    renderSidebar();
+    expect(within(section('Em execução')).queryByRole('link', { name: /alpha/ })).not.toBeInTheDocument();
+  });
+
   it('hides "Em execução" when nothing is running', () => {
     state.openTabs = [];
     renderSidebar();

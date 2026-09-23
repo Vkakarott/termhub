@@ -19,6 +19,8 @@ import { ProjectRow } from './ProjectRow';
 import { ConfirmDialog } from './Modal';
 import { ViewAsSwitch } from './ViewAsSwitch';
 
+/** a section's projects hang from its header like a project's agents hang from the project: indent plus a guide line */
+const SECTION_LIST = 'ml-4 border-l border-line pl-2';
 const SECTION_LABEL = 'px-3 pb-1 pt-1 text-[10px] uppercase tracking-wide text-fg-dim';
 
 /** Open terminal tabs ("agents") per project, in tab-bar order: position, then name. */
@@ -267,10 +269,20 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
   const renderSection = (section: Section) => {
     if (section.kind === 'running') {
+      // collapsible like the groups (remembered the same way), but neither editable nor a drop target
+      const runningOpen = !collapsedGroups.has(section.id);
       return (
         <section key={section.id} aria-label={nameOf(section)} className="mb-2">
-          <p className={SECTION_LABEL}>{section.label}</p>
-          <ul>{section.projects.map(row(section))}</ul>
+          <GroupHeader
+            section={section}
+            name={nameOf(section)}
+            collapsed={!runningOpen}
+            onToggle={() => toggleGroup(section.id)}
+            editable={false}
+            onRename={() => {}}
+            onDelete={() => {}}
+          />
+          {runningOpen && <ul className={SECTION_LIST}>{section.projects.map(row(section))}</ul>}
         </section>
       );
     }
@@ -301,7 +313,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
           onDelete={() => group && setDeletingGroup(group)}
           headerDragProps={isOthers ? undefined : headerDragProps(section)}
         />
-        {open && section.projects.length > 0 && <ul>{section.projects.map(row(section))}</ul>}
+        {open && section.projects.length > 0 && <ul className={SECTION_LIST}>{section.projects.map(row(section))}</ul>}
         {open && !isOthers && section.projects.length === 0 && (
           <p className={`mx-3 my-1 rounded border border-dashed px-2 py-1.5 text-center text-[11px] ${over ? 'border-accent text-fg' : 'border-line text-fg-dim'}`}>
             arraste projetos para cá
