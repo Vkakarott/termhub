@@ -28,14 +28,16 @@ export interface PublicBuilding { id: string; name: string; rooms: PublicRoom[] 
 export interface PublicCity { nickname: string; owner_name: string; buildings: PublicBuilding[] }
 
 export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: OfficeTabProgress | null }): PublicRobot {
+  // what the robot is doing only means something while it works: never publish a leftover
+  const working = tab.state === 'working';
   return {
     id: publicId('tab', tab.id),
     name: tab.name,
     kind: tab.kind,
     state: tab.state,
     state_at: tab.state_at,
-    activity: tab.activity,
-    activity_verb: publicSpinnerVerb(tab.activity_verb),
+    activity: working ? tab.activity : null,
+    activity_verb: working ? publicSpinnerVerb(tab.activity_verb) : null,
     alive: opts.alive,
     progress: opts.progress ? { done: opts.progress.done, total: opts.progress.total } : null,
   };

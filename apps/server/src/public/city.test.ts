@@ -53,6 +53,15 @@ describe('the public payload', () => {
     for (const custom of ['Acmeing', 'Deploying', 'moonwalking', 'MOONWALKING', 'toString', 'constructor', '__proto__']) expect(robot(custom)).toBeNull();
   });
 
+  it('publishes activity and verb only while the robot is working, whatever the row still holds', () => {
+    for (const state of ['waiting_input', 'waiting_permission', 'idle', 'error', null] as const) {
+      const r = toPublicRobot(tab({ state, activity: 'coding', activity_verb: 'Moonwalking' }), { alive: true, progress: null });
+      expect([r.state, r.activity, r.activity_verb]).toEqual([state, null, null]);
+    }
+    const working = toPublicRobot(tab({ state: 'working', activity: 'coding', activity_verb: 'Moonwalking' }), { alive: true, progress: null });
+    expect([working.activity, working.activity_verb]).toEqual(['coding', 'Moonwalking']);
+  });
+
   it('keeps a custom verb out of the whole payload', () => {
     const body = JSON.stringify(toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', buildings: [{ machine: machine(), rooms: [{ project: project(), tabs: [{ tab: tab({ activity_verb: 'Acmeing' }), alive: true, progress: null }] }] }] }));
     expect(body).not.toContain('Acmeing');
