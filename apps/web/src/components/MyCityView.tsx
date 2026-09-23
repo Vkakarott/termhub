@@ -198,7 +198,7 @@ function ShortLinkSection({ state }: { state: CityLinkState }) {
           </div>
           {link.source === 'partner' && <p className="mt-1 text-xs text-fg-dim">Criado pelo TypeToAccess, parceiro do termhub</p>}
           {/* only when there is a partner link to go back to (the server refuses safely otherwise) */}
-      {link.source === 'custom' && link.enabled && link.partner_url && (
+          {link.source === 'custom' && link.enabled && link.partner_url && (
             <button type="button" className="btn-ghost mt-2 text-xs" disabled={saving} onClick={() => void restorePartner()}>
               Voltar ao link da parceria
             </button>
