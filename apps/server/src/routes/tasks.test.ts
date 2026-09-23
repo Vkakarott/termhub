@@ -44,8 +44,7 @@ function buildApp(tasks: Record<string, Task>) {
   const repos = {
     tasks: tasksRepo,
     tickets: { unlinkTask },
-    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', machine_id: 'm1' } : undefined)) },
-    machines: { findById: vi.fn(async () => ({ id: 'm1', owner_id: 'u1' })) },
+    projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', owner_id: 'u1' } : undefined)) },
   } as unknown as Repositories;
   app.register((a) => projectTaskRoutes(a, repos), { prefix: '/projects' });
   app.register((a) => taskRoutes(a, repos), { prefix: '/tasks' });

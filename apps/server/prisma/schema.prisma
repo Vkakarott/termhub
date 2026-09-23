@@ -38,6 +38,12 @@ model User {
   email        String    @unique
   name         String
   avatarUrl    String?   @map("avatar_url")
+  /// The address of this person's public city (/city/@nickname). Null = no city. Unique, lowercase.
+  nickname     String?   @unique
+  /// The short link termhub created for this person's city through TypeToAccess (partner). Written once.
+  cityShortUrlPartner String? @map("city_short_url_partner")
+  /// A short link the person pasted to replace the partner one; the effective link is custom ?? partner.
+  cityShortUrlCustom  String? @map("city_short_url_custom")
   passwordHash String?   @map("password_hash")
   googleId     String?   @unique @map("google_id")
   /// DEPRECATED: replaced by roleId (kept one release for the blue/green window; drop next)
@@ -51,10 +57,12 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   sessions     Session[]
   machines     Machine[]     @relation("MachineOwner")
+  projects     Project[]     @relation("ProjectOwner")
   integrations Integration[] @relation("IntegrationOwner")
   uploads      Upload[]
   apiTokens    ApiToken[]
   chatConversations ChatConversation[]
+  projectGroups ProjectGroup[]
 
   @@index([roleId])
   @@map("users")
@@ -150,7 +158,8 @@ model Machine {
   ownerId   String?     @map("owner_id")
   owner     User?       @relation("MachineOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt DateTime    @default(now()) @map("created_at")
-  projects   Project[]
+  projectLinks ProjectMachine[]
+  tabs         Tab[]
   aiAccounts AiAccount[]
   hook       MachineHook?
   uploads    Upload[]
@@ -163,27 +172,57 @@ model Machine {
 
 model Project {
   id             String        @id
-  machineId      String        @map("machine_id")
+  /// Owner: the project and everything under it (tasks, notes, tickets, setup, tabs) is visible
+  /// only to them (and to admins viewing as them or as "all"). Null = orphan (owner deleted).
+  ownerId        String?       @map("owner_id")
+  /// Short key shown in URLs and card numbers (TERMHUB-42): 2–10 chars, ^[A-Z][A-Z0-9]{1,9}$,
+  /// unique across the instance, never changed after creation.
+  key            String        @unique
+  /// Next card number for this project (used by the task-hierarchy spec; untouched here).
+  nextTaskNumber Int           @default(1) @map("next_task_number")
   name           String
-  cwd            String
   status         ProjectStatus @default(active)
   description    String?
+  /// Published: one room per machine the project's owner owns and links it to — with its tabs and that machine's name — is readable by anyone with the link. A link to somebody else's machine never becomes a room.
+  isPublic       Boolean       @default(false) @map("is_public")
   lastTerminalAt DateTime?     @map("last_terminal_at")
   createdAt      DateTime      @default(now()) @map("created_at")
-  machine        Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  owner          User?         @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Machines this project runs on, each with its own working directory.
+  machines       ProjectMachine[]
   tabs           Tab[]
   tasks          Task[]
   note           Note?
   setup          ProjectSetup?
   tickets        Ticket[]
+  groupItems     ProjectGroupItem[]
 
-  @@index([machineId])
+  @@index([ownerId])
   @@map("projects")
+}
+
+/// A project linked to a machine: where its terminals run and in which directory.
+model ProjectMachine {
+  id        String   @id
+  projectId String   @map("project_id")
+  machineId String   @map("machine_id")
+  /// absolute path on that machine
+  cwd       String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, machineId])
+  @@index([machineId])
+  @@map("project_machines")
 }
 
 model Tab {
   id            String   @id
   projectId     String   @map("project_id")
+  /// The machine this tab's tmux session runs on (one of the project's linked machines).
+  machineId     String   @map("machine_id")
   name          String
   kind          TabKind  @default(terminal)
   tmuxSession   String?  @unique @map("tmux_session")
@@ -199,14 +238,18 @@ model Tab {
   stateSeenAt   DateTime? @map("state_seen_at")
   /// Set while `state` is working; cleared when the tab leaves it. null = not working or never reported.
   activity      TabActivity?
+  /// Claude Code's spinner verb that came with `activity` (one ASCII word); set and cleared with it.
+  activityVerb  String?  @map("activity_verb")
   /// API token that opened this tab through /mcp (null: opened in the browser). Used by close_tab and the per-token open-tab limit.
   createdByTokenId String?  @map("created_by_token_id")
   createdAt     DateTime @default(now()) @map("created_at")
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   tasks         Task[]
   events        TabEvent[]
 
   @@index([projectId])
+  @@index([machineId])
   @@index([createdByTokenId])
   @@map("tabs")
 }
@@ -572,4 +615,44 @@ model ChatAction {
 
   @@index([conversationId, createdAt])
   @@map("chat_actions")
+}
+
+/// A secret this instance generates for itself, once, and keeps: no env var to configure, and blue
+/// and green read the same row. `public_id` keys the HMAC behind every id on the public city.
+model InstanceSecret {
+  name      String   @id
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("instance_secrets")
+}
+
+/// A user's own grouping of projects in the sidebar. system_key 'favorites' = the default
+/// Favoritos group (one per user: NULLs are distinct in the unique index, so any number of
+/// custom groups with a null key).
+model ProjectGroup {
+  id        String   @id
+  userId    String   @map("user_id")
+  name      String
+  systemKey String?  @map("system_key")
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     ProjectGroupItem[]
+
+  @@unique([userId, systemKey])
+  @@map("project_groups")
+}
+
+model ProjectGroupItem {
+  groupId   String       @map("group_id")
+  projectId String       @map("project_id")
+  position  Int          @default(0)
+  createdAt DateTime     @default(now()) @map("created_at")
+  group     ProjectGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, projectId])
+  @@index([projectId])
+  @@map("project_group_items")
 }

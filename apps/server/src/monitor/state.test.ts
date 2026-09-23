@@ -48,19 +48,29 @@ describe('interpretHookEvent — claude', () => {
   it('maps PreToolUse to working with the tool\'s activity, keeping nothing of the tool input', () => {
     const withInput = interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '/secret', new_string: 'x' } });
     const without = interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit' });
-    expect(withInput).toEqual({ kind: 'working', text: null, activity: 'coding', meta: { event: 'PreToolUse', tool: 'Edit' } });
+    expect(withInput).toEqual({ kind: 'working', text: null, activity: 'coding', verb: null, meta: { event: 'PreToolUse', tool: 'Edit' } });
     expect(withInput).toEqual(without);
     expect(JSON.stringify(withInput)).not.toContain('secret');
   });
 
   it('maps a PreToolUse without a tool name to plain working', () => {
-    expect(interpretHookEvent('claude', { hook_event_name: 'PreToolUse' })).toEqual({ kind: 'working', text: null, activity: 'working', meta: { event: 'PreToolUse', tool: null } });
+    expect(interpretHookEvent('claude', { hook_event_name: 'PreToolUse' })).toEqual({ kind: 'working', text: null, activity: 'working', verb: null, meta: { event: 'PreToolUse', tool: null } });
+  });
+
+  it('carries the spinner verb of a PreToolUse when it is a plain word, and drops anything else', () => {
+    expect(interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit', verb: 'Moonwalking' })).toEqual({ kind: 'working', text: null, activity: 'coding', verb: 'Moonwalking', meta: { event: 'PreToolUse', tool: 'Edit' } });
+    expect(interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit' })?.verb).toBeNull();
+    for (const bad of ['', 'X', 'Two words', 'Ev"il', 'Construção', 'A'.repeat(25), 42, null, { a: 1 }, 'Brewing…']) {
+      expect(interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit', verb: bad })?.verb).toBeNull();
+    }
+    expect(interpretHookEvent('claude', { hook_event_name: 'PreToolUse', tool_name: 'Edit', verb: 'A'.repeat(24) })?.verb).toBe('A'.repeat(24));
   });
 
   it('leaves activity undefined on every other event', () => {
     expect(interpretHookEvent('claude', { hook_event_name: 'UserPromptSubmit' })?.activity).toBeUndefined();
     expect(interpretHookEvent('claude', { hook_event_name: 'Stop' })?.activity).toBeUndefined();
     expect(interpretHookEvent('codex', { type: 'agent-turn-complete' })?.activity).toBeUndefined();
+    expect(interpretHookEvent('claude', { hook_event_name: 'UserPromptSubmit', verb: 'Brewing' })?.verb).toBeUndefined();
   });
 });
 

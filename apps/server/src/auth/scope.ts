@@ -1,15 +1,16 @@
 import type { FastifyRequest } from 'fastify';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Integration } from '../db/repositories/integrations.js';
-import type { AiAccount, Machine, Project, Tab, Task, User } from '../db/repositories/types.js';
-import { notFound } from '../lib/errors.js';
+import type { AiAccount, Machine, Project, ProjectMachine, Tab, Task, User } from '../db/repositories/types.js';
+import { HttpError, notFound } from '../lib/errors.js';
 import { isAdmin } from './permissions.js';
 
 /**
- * Data scope: machines (and everything under them) and integrations belong to a user. A request
- * sees only the rows of one owner — the signed-in user by default. Admins can switch that owner
- * with the "view as" cookie: another user's id (support/impersonation) or "*" for everything.
- * Non-admins never leave their own scope, whatever the cookie says.
+ * Data scope: machines, projects and integrations belong to a user (`owner_id`); tabs, tasks,
+ * notes and tickets follow their project, and a tab additionally runs on a machine of the same
+ * scope. A request sees only the rows of one owner — the signed-in user by default. Admins can
+ * switch that owner with the "view as" cookie: another user's id (support/impersonation) or "*"
+ * for everything. Non-admins never leave their own scope, whatever the cookie says.
  */
 
 export const VIEW_AS_COOKIE = 'termhub_view_as';
@@ -61,30 +62,64 @@ export class Scoped {
     return m;
   }
 
-  async project(id: string): Promise<{ project: Project; machine: Machine }> {
+  async project(id: string): Promise<{ project: Project }> {
     const project = await this.repos.projects.findById(id);
-    if (!project) throw notFound('Projeto não encontrado');
-    const machine = await this.repos.machines.findById(project.machine_id);
-    if (!machine || !this.owns(machine.owner_id)) throw notFound('Projeto não encontrado');
-    return { project, machine };
+    if (!project || !this.owns(project.owner_id)) throw notFound('Projeto não encontrado');
+    return { project };
   }
 
-  async tab(id: string): Promise<{ tab: Tab; project: Project; machine: Machine }> {
+  /** A project and one of its linked machines; the link and the machine must both be in scope. */
+  async projectMachine(projectId: string, machineId: string): Promise<{ project: Project; machine: Machine; link: ProjectMachine }> {
+    const { project } = await this.project(projectId);
+    const link = await this.repos.projectMachines.find(projectId, machineId);
+    if (!link) throw notFound('Máquina não vinculada ao projeto');
+    const machine = await this.machine(machineId).catch(() => {
+      throw notFound('Máquina não vinculada ao projeto');
+    });
+    return { project, machine, link };
+  }
+
+  /** A project with every linked machine the scope can see (a link to a machine outside it is skipped). */
+  async projectMachines(projectId: string): Promise<{ project: Project; machines: Array<{ machine: Machine; link: ProjectMachine }> }> {
+    const { project } = await this.project(projectId);
+    const links = await this.repos.projectMachines.listByProject(projectId);
+    const machines: Array<{ machine: Machine; link: ProjectMachine }> = [];
+    for (const link of links) {
+      const machine = await this.repos.machines.findById(link.machine_id);
+      if (machine && this.owns(machine.owner_id)) machines.push({ machine, link });
+    }
+    return { project, machines };
+  }
+
+  /**
+   * The machine a new tab opens on: `machineId` when given (must be linked), else the only linked
+   * machine. 400 MACHINE_REQUIRED with several, 400 NO_MACHINE with none — the messages tell the
+   * person (or the agent) what to do.
+   */
+  async projectMachineFor(projectId: string, machineId?: string): Promise<{ project: Project; machine: Machine; link: ProjectMachine }> {
+    if (machineId) return this.projectMachine(projectId, machineId);
+    const { project, machines } = await this.projectMachines(projectId);
+    if (machines.length === 0) throw new HttpError(400, 'Vincule uma máquina ao projeto antes de abrir um terminal', 'NO_MACHINE');
+    if (machines.length > 1) throw new HttpError(400, 'Escolha a máquina onde abrir o terminal (machine_id)', 'MACHINE_REQUIRED');
+    return { project, ...machines[0] };
+  }
+
+  async tab(id: string): Promise<{ tab: Tab; project: Project; machine: Machine; cwd: string }> {
     const tab = await this.repos.tabs.findById(id);
     if (!tab) throw notFound('Tab não encontrada');
-    const { project, machine } = await this.project(tab.project_id).catch(() => {
+    const { project, machine, link } = await this.projectMachine(tab.project_id, tab.machine_id).catch(() => {
       throw notFound('Tab não encontrada');
     });
-    return { tab, project, machine };
+    return { tab, project, machine, cwd: link.cwd };
   }
 
-  async task(id: string): Promise<{ task: Task; project: Project; machine: Machine }> {
+  async task(id: string): Promise<{ task: Task; project: Project }> {
     const task = await this.repos.tasks.findById(id);
     if (!task) throw notFound('Tarefa não encontrada');
-    const { project, machine } = await this.project(task.project_id).catch(() => {
+    const { project } = await this.project(task.project_id).catch(() => {
       throw notFound('Tarefa não encontrada');
     });
-    return { task, project, machine };
+    return { task, project };
   }
 
   async integration(id: string): Promise<Integration> {

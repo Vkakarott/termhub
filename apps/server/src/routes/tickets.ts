@@ -5,9 +5,11 @@ import { badRequest, HttpError } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
 import { getProvider } from '../integrations/index.js';
 import { externalId, ticketRef } from '../setup/tickets-sync.js';
+import { publishTabOpened } from '../monitor/tab-events.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const importBody = z.object({ ticket_ids: z.array(z.string().min(1).max(64)).min(1).max(200) });
+const terminalBody = z.object({ machine_id: z.string().min(1).max(64).optional() }).strict();
 
 /** Montado em /projects: lista de tickets sincronizados e importação para o backlog. */
 export async function projectTicketRoutes(app: FastifyInstance, repos: Repositories) {
@@ -81,9 +83,14 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
       const existing = await repos.tabs.findById(task.tab_id);
       if (existing) return { task, tab: existing, created: false };
     }
+    // Same contract as `POST /projects/:id/tabs`: with one linked machine it is used; with several,
+    // `machine_id` is required (400 MACHINE_REQUIRED); with none, 400 NO_MACHINE (see `projectMachineFor`).
+    const { machine_id } = terminalBody.parse(request.body ?? {});
+    const { machine } = await scoped(repos, request).projectMachineFor(task.project_id, machine_id);
     const ref = task.external_ref as { identifier?: string } | null;
     const name = (ref?.identifier ?? task.title).slice(0, 40);
-    const tab = await repos.tabs.create(task.project_id, name);
+    const tab = await repos.tabs.create(task.project_id, machine.id, name);
+    publishTabOpened(tab, machine);
     const updated = await repos.tasks.setTab(id, tab.id);
     return { task: updated, tab, created: true };
   });

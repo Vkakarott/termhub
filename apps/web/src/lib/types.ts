@@ -24,6 +24,8 @@ export interface User {
   invited_at: string | null;
   /** last successful sign-in; null = never (invite pending) */
   last_login_at: string | null;
+  /** the address of this user's public city (`/city/@<nickname>`); null until claimed */
+  nickname: string | null;
 }
 
 /** Side effects of an invite (the user row is created regardless). */
@@ -88,6 +90,8 @@ export interface Machine {
   /** terminal tabs on the machine, and how many of them ever reported a state to the monitor */
   tabs?: number;
   tabs_reporting?: number;
+  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
+  public_id: string;
 }
 
 /** Admin data-scope switch: null = own data, "all" = everything, or the impersonated user. */
@@ -115,21 +119,53 @@ export interface FsListing {
   roots: FsRoot[];
 }
 
+/** One machine a project is linked to and its working directory there. */
+export interface ProjectMachineLink {
+  machine_id: string;
+  cwd: string;
+  position: number;
+}
+
 export interface Project {
   id: string;
-  machine_id: string;
+  /** null = orphan (visible only to admins viewing "all") */
+  owner_id: string | null;
+  /** short key: URLs and card numbers (TERMHUB-42); unique, never changes */
+  key: string;
+  next_task_number: number;
   name: string;
-  cwd: string;
   status: ProjectStatus;
   description: string | null;
   last_terminal_at: string | null;
   created_at: string;
+  /** machines the project runs on; empty = board and notes only */
+  machines: ProjectMachineLink[];
+  /** whether this project's rooms (one per machine its owner owns) are readable on the owner's public city */
+  is_public: boolean;
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
 
-/** Corpo de criação/edição de projeto. `create_dir`: cria a pasta na máquina se não existir. */
-export type ProjectInput = Partial<Project> & { create_dir?: boolean };
+export interface ProjectGroup {
+  id: string;
+  name: string;
+  kind: 'favorites' | 'custom';
+  position: number;
+  project_ids: string[];
+}
+
+/** Corpo de criação/edição. `machine_id` + `cwd` juntos criam o primeiro vínculo; `create_dir` cria a pasta na máquina. */
+export interface ProjectInput {
+  name?: string;
+  key?: string;
+  description?: string | null;
+  status?: ProjectStatus;
+  machine_id?: string;
+  cwd?: string;
+  create_dir?: boolean;
+  /** edit only (a project is born private): publishes its rooms on the owner's public city */
+  is_public?: boolean;
+}
 
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
@@ -255,7 +291,7 @@ export interface Note {
 
 export interface DashboardItem {
   project: Project;
-  machine: Machine | null;
+  machines: Machine[];
   doing: Task[];
   open_tasks: number;
 }
@@ -272,6 +308,7 @@ export type TabKind = 'terminal' | 'simulator';
 export interface Tab {
   id: string;
   project_id: string;
+  machine_id: string;
   name: string;
   kind: TabKind;
   tmux_session: string | null;
@@ -287,6 +324,8 @@ export interface Tab {
   state_seen_at: string | null;
   /** which tool the working tab is about to call, mapped to a category; null off `working`, or an agent too old to report it */
   activity: TabActivity | null;
+  /** Claude Code's spinner verb that came with `activity` ("Moonwalking"); null without one */
+  activity_verb: string | null;
   created_at: string;
   alive: boolean;
 }
@@ -349,6 +388,8 @@ export interface OfficeTab extends Tab {
 
 export interface OfficeRoom {
   project: Project;
+  /** this room's id on the owner's public city: one per (project, machine), used by the share link */
+  public_id: string;
   tabs: OfficeTab[];
   /** null when the board could not be read (no `tasks:read`); a project with no tasks sends zeros */
   tasks: OfficeTaskCounts | null;
@@ -359,6 +400,58 @@ export interface OfficeSnapshot {
   /** false when the machine could not be asked which tmux sessions are alive */
   reachable: boolean;
   rooms: OfficeRoom[];
+}
+
+/**
+ * The public city, mirrored field for field from apps/server/src/public/city.ts — the only shape a
+ * visitor with no account ever sees. The names follow the office snapshot's on purpose, so the same
+ * model code draws both (src/city/api.ts adapts one into the other). The ids are derived from the
+ * real ones by the server and are what the public surfaces join on.
+ */
+export interface PublicRobot {
+  id: string;
+  name: string;
+  kind: TabKind;
+  state: TabState | null;
+  state_at: string | null;
+  activity: TabActivity | null;
+  /** Claude Code's spinner verb, only when it is one of its defaults (the server drops custom verbs) */
+  activity_verb: string | null;
+  alive: boolean;
+  /** the board task bound to the tab, without its title: a bar, never what it says */
+  progress: { done: number; total: number } | null;
+}
+
+export interface PublicRoom {
+  id: string;
+  name: string;
+  robots: PublicRobot[];
+}
+
+export interface PublicBuilding {
+  id: string;
+  name: string;
+  rooms: PublicRoom[];
+}
+
+export interface PublicCity {
+  nickname: string;
+  owner_name: string;
+  /** the owner's short link (77a.it/…), or null: use the long /city/@nickname address */
+  short_url: string | null;
+  buildings: PublicBuilding[];
+}
+
+/** GET/PUT /api/auth/me/city-link: the signed-in person's city address and its short link. */
+export interface CityLink {
+  /** the instance has a TypeToAccess key: partner links are created and a custom one can be set */
+  enabled: boolean;
+  /** the long address, null until the person has a nickname */
+  city_url: string | null;
+  /** the link to hand out: the custom one, else the partner one; null = use city_url */
+  short_url: string | null;
+  source: 'custom' | 'partner' | null;
+  partner_url: string | null;
 }
 
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */
@@ -427,6 +520,8 @@ export interface AuthConfig {
   google: boolean;
   password: boolean;
   email_code: boolean;
+  /** where this instance's public cities live, e.g. https://termhub.dev/city — share links are built from it */
+  public_city_url: string;
 }
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {

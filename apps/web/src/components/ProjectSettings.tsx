@@ -5,33 +5,28 @@ import { ApiError } from '../lib/api';
 import { PROJECT_STATUS_LABEL, type Project, type ProjectStatus } from '../lib/types';
 import { ConfirmDialog } from './Modal';
 import { SetupForm } from './SetupForm';
-import { DirectoryBrowser } from './DirectoryBrowser';
+import { ProjectMachines } from './ProjectMachines';
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'archived'];
 
 export function ProjectSettings({ project }: { project: Project }) {
-  const { updateProject, deleteProject, machines } = useData();
+  const { updateProject, deleteProject } = useData();
   const navigate = useNavigate();
   const [name, setName] = useState(project.name);
-  const [cwd, setCwd] = useState(project.cwd);
   const [description, setDescription] = useState(project.description ?? '');
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const [browsing, setBrowsing] = useState(false);
-  const [createDir, setCreateDir] = useState(false);
-  const machine = machines.find((m) => m.id === project.machine_id);
 
-  const dirty = name !== project.name || cwd !== project.cwd || (description || null) !== (project.description ?? null) || status !== project.status;
+  const dirty = name !== project.name || (description || null) !== (project.description ?? null) || status !== project.status;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setMsg(null);
     try {
-      const saved = await updateProject(project.id, { name, cwd, description: description || null, status, create_dir: createDir });
-      setCwd(saved.cwd);
+      await updateProject(project.id, { name, description: description || null, status });
       setMsg({ ok: true, text: 'Salvo.' });
     } catch (err) {
       setMsg({ ok: false, text: err instanceof ApiError ? err.message : 'Erro ao salvar' });
@@ -50,30 +45,9 @@ export function ProjectSettings({ project }: { project: Project }) {
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
         <div>
-          <label className="label">Diretório em {machine?.name ?? 'máquina'}</label>
-          <div className="flex gap-2">
-            <input className="input font-mono" value={cwd} onChange={(e) => setCwd(e.target.value)} required />
-            <button type="button" className="btn-ghost shrink-0 border border-line" onClick={() => setBrowsing((b) => !b)} title="Listar discos e pastas da máquina">
-              {browsing ? 'Ocultar' : 'Procurar…'}
-            </button>
-          </div>
-          <label className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-muted">
-            <input type="checkbox" checked={createDir} onChange={(e) => setCreateDir(e.target.checked)} /> criar a pasta na máquina se não existir
-          </label>
-          {browsing && (
-            <div className="mt-2">
-              <DirectoryBrowser
-                machineId={project.machine_id}
-                initialPath={cwd}
-                onSelect={(path) => {
-                  setCwd(path);
-                  setBrowsing(false);
-                }}
-                onClose={() => setBrowsing(false)}
-              />
-            </div>
-          )}
-          <p className="mt-1 text-xs text-fg-dim">Vale para novas sessões tmux; tabs já abertas continuam onde estão.</p>
+          <label className="label">Chave</label>
+          <p className="font-mono text-sm">{project.key}</p>
+          <p className="mt-1 text-xs text-fg-dim">Usada nas URLs e nos números dos cards; não muda.</p>
         </div>
         <div>
           <label className="label">Descrição</label>
@@ -103,12 +77,14 @@ export function ProjectSettings({ project }: { project: Project }) {
         </div>
       </form>
 
+      <ProjectMachines project={project} />
+
       <SetupForm project={project} />
 
       <div className="mt-10 max-w-2xl rounded-lg border border-danger/30 p-4">
         <h3 className="text-sm font-semibold text-danger">Excluir projeto</h3>
         <p className="mt-1 text-xs text-fg-muted">
-          Remove o projeto, suas tasks e notas, e encerra as sessões tmux das tabs em {machine?.name ?? 'máquina'}. Não apaga arquivos.
+          Remove o projeto, suas tasks, notas e tickets, e encerra as sessões tmux das tabs nas máquinas vinculadas. Não apaga arquivos.
         </p>
         <button className="btn-danger mt-3" onClick={() => setConfirm(true)}>
           Excluir projeto

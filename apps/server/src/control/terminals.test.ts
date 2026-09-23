@@ -26,24 +26,45 @@ vi.mock('./screen.js', async (importOriginal) => {
 const { closeTab, MAX_TABS_PER_TOKEN, openTab, runCommand, sendInput, sendKey } = await import('./terminals.js');
 
 const machine = { id: 'm1', name: 'jarvis', type: 'agent', os: 'linux', capabilities: ['tmux'], owner_id: 'u1' };
-const project = { id: 'p1', name: 'app', cwd: '/home/u/app', machine_id: 'm1', status: 'active' };
-const tab = (over: Record<string, unknown> = {}) => ({ id: 't1', project_id: 'p1', name: 'Terminal 1', kind: 'terminal', tmux_session: 'termhub-p1-t1', state: null, state_text: null, state_at: null, created_by_token_id: 'tok1', ...over });
+const machine2 = { id: 'm2', name: 'mac mini', type: 'agent', os: 'macos', capabilities: ['tmux'], owner_id: 'u1' };
+const project = { id: 'p1', name: 'app', status: 'active', owner_id: 'u1', key: 'APP', next_task_number: 1 };
+const link = { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/home/u/app', position: 0, created_at: '' };
+const tab = (over: Record<string, unknown> = {}) => ({ id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 1', kind: 'terminal', tmux_session: 'termhub-p1-t1', state: null, state_text: null, state_at: null, created_by_token_id: 'tok1', ...over });
 
 function ctxWith(over: Record<string, unknown> = {}) {
   const tabs = {
-    create: vi.fn(async (_p, name) => tab({ name })),
+    create: vi.fn(async (_p, _m, name) => tab({ name })),
     listByProject: vi.fn(async () => []),
     countOpenByToken: vi.fn(async () => 0),
     delete: vi.fn(async () => true),
     findById: vi.fn(async () => tab()),
     ...(over.tabs as object),
   };
+  const projectMachines = {
+    find: vi.fn(async (p: string, m: string) => (p === 'p1' && m === 'm1' ? link : undefined)),
+    listByProject: vi.fn(async () => [link]),
+    ...(over.projectMachines as object),
+  };
   return {
-    repos: { tabs },
+    repos: { tabs, projectMachines },
     scope: { ownerId: 'u1', createAs: 'u1' },
     scoped: {
-      project: vi.fn(async () => ({ project, machine })),
-      tab: vi.fn(async () => ({ tab: (over.tab as object) ?? tab(), project, machine })),
+      project: vi.fn(async () => ({ project })),
+      projectMachine: vi.fn(async () => ({ project, machine, link })),
+      projectMachines: vi.fn(async () => ({ project, machines: (await projectMachines.listByProject('p1')).map((l: typeof link) => ({ machine: l.machine_id === 'm1' ? machine : machine2, link: l })) })),
+      projectMachineFor: vi.fn(async (projectId: string, machineId?: string) => {
+        const pick = (l: typeof link) => (l.machine_id === 'm1' ? machine : machine2);
+        if (machineId) {
+          const l = await projectMachines.find(projectId, machineId);
+          if (!l) throw new HttpError(404, 'Máquina não vinculada ao projeto', 'NOT_FOUND');
+          return { project, machine: pick(l), link: l };
+        }
+        const links = await projectMachines.listByProject(projectId);
+        if (links.length === 0) throw new HttpError(400, 'Vincule uma máquina ao projeto antes de abrir um terminal', 'NO_MACHINE');
+        if (links.length > 1) throw new HttpError(400, 'Escolha a máquina onde abrir o terminal (machine_id)', 'MACHINE_REQUIRED');
+        return { project, machine: pick(links[0]), link: links[0] };
+      }),
+      tab: vi.fn(async () => ({ tab: (over.tab as object) ?? tab(), machine, cwd: link.cwd })),
     },
     can: vi.fn(async () => true),
     token: { id: 'tok1', scopes: ['terminals'] },
@@ -63,9 +84,20 @@ describe('openTab', () => {
   it('creates the tab, starts its session in the project cwd and records the token', async () => {
     const ctx = ctxWith();
     const r = await openTab(ctx, { project_id: 'p1' });
-    expect(ctx.repos.tabs.create).toHaveBeenCalledWith('p1', expect.stringMatching(/^[A-Z][a-z]+$/), { created_by_token_id: 'tok1' });
+    expect(ctx.repos.tabs.create).toHaveBeenCalledWith('p1', 'm1', expect.stringMatching(/^[A-Z][a-z]+$/), { created_by_token_id: 'tok1' });
     expect(ensureSession).toHaveBeenCalledWith(machine, 'termhub-p1-t1', '/home/u/app');
-    expect(r).toMatchObject({ tab_id: 't1', created: true });
+    expect(r).toMatchObject({ tab_id: 't1', machine_id: 'm1', created: true });
+  });
+
+  it('openTab needs machine_id when the project has two machines and reports it in the result', async () => {
+    const ctx = ctxWith();
+    (ctx.repos.projectMachines.listByProject as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/a', position: 0, created_at: '' },
+      { id: 'l2', project_id: 'p1', machine_id: 'm2', cwd: '/b', position: 1, created_at: '' },
+    ]);
+    await expect(openTab(ctx, { project_id: 'p1' })).rejects.toMatchObject({ code: 'MACHINE_REQUIRED' });
+    const r = await openTab(ctx, { project_id: 'p1', machine_id: 'm1' });
+    expect(r.machine_id).toBe('m1');
   });
 
   it('stops at the per-token limit instead of filling the project with tabs', async () => {
@@ -216,10 +248,42 @@ describe('closeTab', () => {
     await expect(closeTab(ctx, { tab_id: 't1', force: true })).resolves.toMatchObject({ tab_id: 't1' });
   });
 
+  it('tells the public channel the tab is gone', async () => {
+    const { publicBus } = await import('../public/bus.js');
+    const gone: unknown[] = [];
+    const off = publicBus.subscribeTabRemoved((c) => gone.push(c));
+    try {
+      killTmuxSession.mockResolvedValue(true);
+      await closeTab(ctxWith(), { tab_id: 't1' });
+      expect(gone).toEqual([{ tab_id: 't1', project_id: 'p1', machine_id: 'm1' }]);
+    } finally {
+      off();
+    }
+  });
+
   it('still removes the tab when the session could not be killed', async () => {
     killTmuxSession.mockRejectedValue(new Error('offline'));
     const ctx = ctxWith();
     await expect(closeTab(ctx, { tab_id: 't1' })).resolves.toEqual({ tab_id: 't1', killed: false });
     expect(ctx.repos.tabs.delete).toHaveBeenCalledWith('t1');
+  });
+});
+
+describe('open/close on the monitor bus', () => {
+  it('openTab publishes the new tab and closeTab its removal, scoped by the machine owner', async () => {
+    const { monitorBus } = await import('../monitor/bus.js');
+    const events: unknown[] = [];
+    const off = monitorBus.subscribeLifecycle((e) => events.push(e));
+    try {
+      await openTab(ctxWith(), { project_id: 'p1' });
+      killTmuxSession.mockResolvedValue(true);
+      await closeTab(ctxWith(), { tab_id: 't1' });
+    } finally {
+      off();
+    }
+    expect(events).toEqual([
+      { kind: 'upsert', tab: expect.objectContaining({ id: 't1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' },
+      { kind: 'removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1', owner_id: 'u1' },
+    ]);
   });
 });

@@ -78,7 +78,7 @@ function verbPhrase(action: ChatAction, task: Task | undefined): string {
  * is no tab, or a machine when there is neither) failed to resolve inside that scope: not found and
  * "found but belongs to someone else" are deliberately the same case, exactly like `missing` for a
  * task above, so this view never confirms that a foreign id exists. `project`/`machine` derived
- * *from* a resolved primary reference (a tab's project, a project's machine) are never flagged this
+ * *from* a resolved primary reference (a tab's project, a tab's machine) are never flagged this
  * way if they happen to be absent — that can only be a benign, momentary inconsistency between two
  * reads of an owner-scoped chain that is otherwise guaranteed consistent, not a scope violation, and
  * it degrades to simply omitting that part of the sentence.
@@ -139,12 +139,13 @@ const toCard = (action: ChatAction, summary: string): ChatActionCard => ({
  * the batch, exactly like a row that does not exist at all (`targetPhrase`'s `missing` case).
  *
  * A row that only carries a tab_id (most terminal tools) still gets its project's and machine's
- * names: the tab is looked up first, and its project_id and the project's machine_id feed the next
- * two batches — themselves also owner-scoped, though by this point that is redundant with the tab's
- * own scoping (a tab that resolved under `ownerId` can only belong to a project and machine that also
+ * names: the tab is looked up first, and its project_id and its own machine_id feed the next two
+ * batches — themselves also owner-scoped, though by this point that is redundant with the tab's own
+ * scoping (a tab that resolved under `ownerId` can only belong to a project and machine that also
  * belong to `ownerId`, by construction of the join). A task tool (whose args carry a task_id the gate
  * never copies onto the row) is resolved the same way: the task is looked up alongside the tabs, and
- * its project_id feeds the same project batch a tab's would.
+ * its project_id feeds the same project batch a tab's would — but a task/project has no single
+ * machine any more (a project can link to 0–N), so only a tab's action names one.
  */
 export async function describeActions(repos: Repositories, actions: ChatAction[], ownerId: string): Promise<ChatActionCard[]> {
   const tabIds = [...new Set(actions.map((a) => a.tab_id).filter((v): v is string => v !== null))];
@@ -165,7 +166,7 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
 
   const machineIds = new Set<string>();
   for (const a of actions) if (a.machine_id) machineIds.add(a.machine_id);
-  for (const p of projects) machineIds.add(p.machine_id);
+  for (const t of tabs) machineIds.add(t.machine_id);
   const machines = machineIds.size ? await repos.machines.findByIdsForOwner([...machineIds], ownerId) : [];
   const machineById = new Map(machines.map((m) => [m.id, m]));
 
@@ -177,27 +178,28 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
     // for terminal tools, a task_id for the four task tools, a project_id for open_tab/create_task/
     // start_agent, a machine_id for none today (kept for a future tool that might carry one). Each
     // is the *primary* reference this specific action names, and its own resolution decides the
-    // whole "where" — a project/machine derived from a resolved tab or task is a secondary, best-
-    // effort addition, never itself a reason to say something is missing.
+    // whole "where" — a project derived from a resolved tab or task (and a machine, only from a
+    // resolved tab — a project has no single machine any more) is a secondary, best-effort addition,
+    // never itself a reason to say something is missing.
     let loc: Location;
     if (action.tab_id) {
       const tab = tabById.get(action.tab_id);
       if (!tab) loc = { missing: 'tab' };
       else {
         const project = projectById.get(tab.project_id);
-        loc = { tab: tab.name, project: project?.name, machine: project ? machineById.get(project.machine_id)?.name : undefined };
+        loc = { tab: tab.name, project: project?.name, machine: machineById.get(tab.machine_id)?.name };
       }
     } else if (taskId) {
       // A missing task is already said in full by `verbPhrase` ("...que não existe mais"); no
-      // location is appended to it. A found task still gets its project/machine named here.
+      // location is appended to it. A found task still gets its project named here.
       if (!task) loc = {};
       else {
         const project = projectById.get(task.project_id);
-        loc = { project: project?.name, machine: project ? machineById.get(project.machine_id)?.name : undefined };
+        loc = { project: project?.name };
       }
     } else if (action.project_id) {
       const project = projectById.get(action.project_id);
-      loc = project ? { project: project.name, machine: machineById.get(project.machine_id)?.name } : { missing: 'project' };
+      loc = project ? { project: project.name } : { missing: 'project' };
     } else if (action.machine_id) {
       const machine = machineById.get(action.machine_id);
       loc = machine ? { machine: machine.name } : { missing: 'machine' };

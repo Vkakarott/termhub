@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { Tab, TabActivity, TabState } from '../db/repositories/types.js';
 import { activityOf } from './activity.js';
 
@@ -14,6 +15,8 @@ export interface Interpreted {
   meta: Record<string, unknown>;
   /** only for events that say which tool the agent is about to call */
   activity?: TabActivity;
+  /** Claude Code's spinner verb ("Moonwalking"), with `activity`; null when none was sent or it was not a plain word */
+  verb?: string | null;
   /**
    * The event is a late echo of the wait already open, not a new one: a person who saw that wait
    * must not be alerted again. Only the tool's interpreter can tell — Claude's idle_prompt follows
@@ -21,6 +24,17 @@ export interface Interpreted {
    */
   continuesWait?: true;
 }
+
+/**
+ * The spinner verb the hook script extracts from the pane: one word of 2 to 24 ASCII letters —
+ * the same pattern the script (@termhub/machine-ops HOOK_SCRIPT) applies, checked again here
+ * because the endpoint is reachable by anything holding a machine's hook token.
+ */
+export const SPINNER_VERB = z.string().regex(/^[A-Za-z]{2,24}$/);
+const verbOf = (v: unknown): string | null => {
+  const r = SPINNER_VERB.safeParse(v);
+  return r.success ? r.data : null;
+};
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
@@ -36,9 +50,10 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
       // the prompt is the user's content: only the fact that it is busy is kept
       return { kind: 'working', text: null, meta: { event: name } };
     case 'PreToolUse': {
-      // the script already reduced this event to the tool's name; whatever else arrives is ignored
+      // the script already reduced this event to the tool's name and the spinner's verb; whatever
+      // else arrives is ignored, and a verb that is not a plain word is dropped, not the event
       const tool = str(ev.tool_name);
-      return { kind: 'working', text: null, activity: activityOf(tool), meta: { event: name, tool } };
+      return { kind: 'working', text: null, activity: activityOf(tool), verb: verbOf(ev.verb), meta: { event: name, tool } };
     }
     case 'Notification': {
       const type = str(ev.notification_type);

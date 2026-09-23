@@ -59,6 +59,7 @@ export const ModelName = {
   LoginAttempt: 'LoginAttempt',
   Machine: 'Machine',
   Project: 'Project',
+  ProjectMachine: 'ProjectMachine',
   Tab: 'Tab',
   TabEvent: 'TabEvent',
   MachineHook: 'MachineHook',
@@ -74,7 +75,10 @@ export const ModelName = {
   ApiTokenEvent: 'ApiTokenEvent',
   ChatConversation: 'ChatConversation',
   ChatMessage: 'ChatMessage',
-  ChatAction: 'ChatAction'
+  ChatAction: 'ChatAction',
+  InstanceSecret: 'InstanceSecret',
+  ProjectGroup: 'ProjectGroup',
+  ProjectGroupItem: 'ProjectGroupItem'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -98,6 +102,9 @@ export const UserScalarFieldEnum = {
   email: 'email',
   name: 'name',
   avatarUrl: 'avatarUrl',
+  nickname: 'nickname',
+  cityShortUrlPartner: 'cityShortUrlPartner',
+  cityShortUrlCustom: 'cityShortUrlCustom',
   passwordHash: 'passwordHash',
   googleId: 'googleId',
   role: 'role',
@@ -193,11 +200,13 @@ export type MachineScalarFieldEnum = (typeof MachineScalarFieldEnum)[keyof typeo
 
 export const ProjectScalarFieldEnum = {
   id: 'id',
-  machineId: 'machineId',
+  ownerId: 'ownerId',
+  key: 'key',
+  nextTaskNumber: 'nextTaskNumber',
   name: 'name',
-  cwd: 'cwd',
   status: 'status',
   description: 'description',
+  isPublic: 'isPublic',
   lastTerminalAt: 'lastTerminalAt',
   createdAt: 'createdAt'
 } as const
@@ -205,9 +214,22 @@ export const ProjectScalarFieldEnum = {
 export type ProjectScalarFieldEnum = (typeof ProjectScalarFieldEnum)[keyof typeof ProjectScalarFieldEnum]
 
 
+export const ProjectMachineScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  machineId: 'machineId',
+  cwd: 'cwd',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectMachineScalarFieldEnum = (typeof ProjectMachineScalarFieldEnum)[keyof typeof ProjectMachineScalarFieldEnum]
+
+
 export const TabScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
+  machineId: 'machineId',
   name: 'name',
   kind: 'kind',
   tmuxSession: 'tmuxSession',
@@ -219,6 +241,7 @@ export const TabScalarFieldEnum = {
   stateAt: 'stateAt',
   stateSeenAt: 'stateSeenAt',
   activity: 'activity',
+  activityVerb: 'activityVerb',
   createdByTokenId: 'createdByTokenId',
   createdAt: 'createdAt'
 } as const
@@ -452,6 +475,37 @@ export const ChatActionScalarFieldEnum = {
 } as const
 
 export type ChatActionScalarFieldEnum = (typeof ChatActionScalarFieldEnum)[keyof typeof ChatActionScalarFieldEnum]
+
+
+export const InstanceSecretScalarFieldEnum = {
+  name: 'name',
+  value: 'value',
+  createdAt: 'createdAt'
+} as const
+
+export type InstanceSecretScalarFieldEnum = (typeof InstanceSecretScalarFieldEnum)[keyof typeof InstanceSecretScalarFieldEnum]
+
+
+export const ProjectGroupScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  name: 'name',
+  systemKey: 'systemKey',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectGroupScalarFieldEnum = (typeof ProjectGroupScalarFieldEnum)[keyof typeof ProjectGroupScalarFieldEnum]
+
+
+export const ProjectGroupItemScalarFieldEnum = {
+  groupId: 'groupId',
+  projectId: 'projectId',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectGroupItemScalarFieldEnum = (typeof ProjectGroupItemScalarFieldEnum)[keyof typeof ProjectGroupItemScalarFieldEnum]
 
 
 export const SortOrder = {

@@ -24,11 +24,12 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
     await db.machine.create({ data: { id: machineId, name: 'test', type: 'agent' } });
     await db.project.createMany({
       data: [
-        { id: projectId, machineId, name: 'p', cwd: '/tmp' },
-        { id: otherProjectId, machineId, name: 'other', cwd: '/tmp' },
+        { id: projectId, key: 'K' + projectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p' },
+        { id: otherProjectId, key: 'K' + otherProjectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'other' },
       ],
     });
     return async () => {
+      await db.project.deleteMany({ where: { id: { in: [projectId, otherProjectId] } } });
       await db.machine.delete({ where: { id: machineId } }); // cascades projects and tasks
     };
   });
@@ -49,11 +50,11 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
       { id: otherOwnerId, email: `${otherOwnerId}@test.local`, name: 'other' },
     ] });
     try {
-      // This suite's shared `machineId` fixture is orphaned (no owner) — give it to `ownerId` for
+      // This suite's shared `projectId` fixture is orphaned (no owner) — give it to `ownerId` for
       // this test only, and set up a second, foreign machine/project for the other user's task.
-      await db.machine.update({ where: { id: machineId }, data: { ownerId } });
+      await db.project.update({ where: { id: projectId }, data: { ownerId } });
       await db.machine.create({ data: { id: otherMachineId, name: 'theirs', type: 'agent', ownerId: otherOwnerId } });
-      await db.project.create({ data: { id: foreignProjectId, machineId: otherMachineId, name: 'p2', cwd: '/tmp' } });
+      await db.project.create({ data: { id: foreignProjectId, ownerId: otherOwnerId, key: 'K' + foreignProjectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p2' } });
 
       const mine = await repo.create(projectId, { title: 'mine' });
       const theirs = await repo.create(foreignProjectId, { title: 'theirs' });
@@ -62,7 +63,8 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
       expect(titles(found)).toEqual(['mine']); // another owner's task is absent, indistinguishable from "does not exist"
       expect(await repo.findByIdsForOwner([], ownerId)).toEqual([]);
     } finally {
-      await db.machine.deleteMany({ where: { id: otherMachineId } }); // cascades the foreign project and task
+      await db.project.deleteMany({ where: { id: foreignProjectId } }); // cascades the foreign task
+      await db.machine.deleteMany({ where: { id: otherMachineId } });
       await db.user.deleteMany({ where: { id: { in: [ownerId, otherOwnerId] } } });
     }
   });
@@ -235,7 +237,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
 
     it('reports the doing task bound to a tab with its subtask counts', async () => {
       const tabId = newId();
-      await db.tab.create({ data: { id: tabId, projectId, name: 't', tmuxSession: `th-${tabId}` } });
+      await db.tab.create({ data: { id: tabId, projectId, machineId, name: 't', tmuxSession: `th-${tabId}` } });
       const doing = await repo.create(projectId, { title: 'Ship it', status: 'doing' });
       await repo.setTab(doing.id, tabId);
       const subs = await repo.createSubtasks(doing.id, [{ title: 's1' }, { title: 's2' }, { title: 's3' }]);
@@ -246,7 +248,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
 
     it('ignores a bound task that is not in doing, and picks the first by position when two are', async () => {
       const tabId = newId();
-      await db.tab.create({ data: { id: tabId, projectId, name: 't', tmuxSession: `th-${tabId}` } });
+      await db.tab.create({ data: { id: tabId, projectId, machineId, name: 't', tmuxSession: `th-${tabId}` } });
       const todo = await repo.create(projectId, { title: 'not doing', status: 'todo' });
       await repo.setTab(todo.id, tabId);
       expect((await repo.officeProgress([projectId])).byTab[tabId]).toBeUndefined();

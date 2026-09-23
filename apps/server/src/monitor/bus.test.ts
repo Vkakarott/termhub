@@ -16,3 +16,20 @@ describe('monitorBus', () => {
     }
   });
 });
+
+describe('monitorBus lifecycle', () => {
+  it('delivers tab opened/removed events on their own channel, never to the state subscribers', () => {
+    const state: unknown[] = [];
+    const lifecycle: unknown[] = [];
+    const offState = monitorBus.subscribe((c) => state.push(c));
+    const offLife = monitorBus.subscribeLifecycle((e) => lifecycle.push(e));
+    try {
+      monitorBus.publishLifecycle({ kind: 'removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+      expect(lifecycle).toEqual([{ kind: 'removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1', owner_id: 'u1' }]);
+      expect(state).toEqual([]); // wait_for_state and the public city keep seeing only state changes
+    } finally {
+      offState();
+      offLife();
+    }
+  });
+});

@@ -4,9 +4,11 @@ import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
+import { ProjectGroupsProvider } from '../lib/project-groups';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { NeedsYouToasts } from './NeedsYouToasts';
 import { Sidebar } from './Sidebar';
+import { NicknamePrompt } from './NicknamePrompt';
 
 const SIDEBAR_KEY = 'termhub:sidebar-collapsed';
 
@@ -24,11 +26,14 @@ export function AppShell() {
   return (
     <DataProvider>
       <MonitorProvider>
-        <ToastProvider>
-          <Outlet />
-          <NeedsYouToasts />
-          <Toaster />
-        </ToastProvider>
+        <ProjectGroupsProvider>
+          <ToastProvider>
+            <Outlet />
+            <NeedsYouToasts />
+            <NicknamePrompt />
+            <Toaster />
+          </ToastProvider>
+        </ProjectGroupsProvider>
       </MonitorProvider>
     </DataProvider>
   );

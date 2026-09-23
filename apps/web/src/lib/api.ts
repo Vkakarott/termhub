@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MonitorItem, Note, Project, ProjectInput, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -91,6 +91,16 @@ export const api = {
     sendCode: (email: string) => request<{ ok: true; ttl_minutes: number }>('POST', '/auth/code/send', { email }),
     verifyCode: (email: string, code: string) => request<{ user: User }>('POST', '/auth/code/verify', { email, code }),
     logout: () => request<{ ok: true }>('POST', '/auth/logout'),
+    /** Claims the address of the user's public city. 400 NICKNAME_INVALID for a bad shape or a
+     *  reserved word, 409 NICKNAME_TAKEN when somebody else already holds it, 409 NICKNAME_LOCKED
+     *  when the account already has one (a claimed address is never changed). */
+    setNickname: (nickname: string) => request<{ user: User }>('PATCH', '/auth/me/nickname', { nickname }),
+    /** The city address and its short link. May create the partner link on the way (the server rate-limits that). */
+    cityLink: () => request<CityLink>('GET', '/auth/me/city-link'),
+    /** 400 SHORT_LINK_INVALID, 400 SHORT_LINK_MISMATCH (the message says where the link really goes), 502 SHORT_LINK_UNREACHABLE */
+    setCustomCityLink: (short_url: string) => request<CityLink>('PUT', '/auth/me/city-link', { short_url }),
+    /** back to the partner link */
+    clearCustomCityLink: () => request<CityLink>('DELETE', '/auth/me/city-link/custom'),
   },
   machines: {
     list: () => request<{ machines: Machine[]; latest_agent_version: string | null }>('GET', '/machines'),
@@ -128,12 +138,28 @@ export const api = {
   projects: {
     list: () => request<{ projects: Project[] }>('GET', '/projects'),
     get: (id: string) => request<{ project: Project }>('GET', `/projects/${id}`),
+    keyAvailable: (key: string) => request<{ available: boolean; reason?: 'invalid' | 'taken' }>('GET', `/projects/key-available?key=${encodeURIComponent(key)}`),
     create: (input: ProjectInput) => request<{ project: Project }>('POST', '/projects', input),
+    /** `input.is_public: true` publishes the project's rooms to the owner's public city; refused with
+     *  403 NOT_OWNER (not the project's owner), 409 PROJECT_UNOWNED (no owner at all) or 409
+     *  NICKNAME_REQUIRED (the owner has not claimed a nickname yet). */
     update: (id: string, input: ProjectInput) => request<{ project: Project }>('PATCH', `/projects/${id}`, input),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/projects/${id}`),
+    machines: (id: string) => request<{ machines: Array<ProjectMachineLink & { machine: { id: string; name: string; type: MachineType } }> }>('GET', `/projects/${id}/machines`),
+    linkMachine: (id: string, input: { machine_id: string; cwd: string; create_dir?: boolean }) => request<{ link: ProjectMachineLink }>('POST', `/projects/${id}/machines`, input),
+    updateMachine: (id: string, machineId: string, input: { cwd: string; create_dir?: boolean }) => request<{ link: ProjectMachineLink }>('PATCH', `/projects/${id}/machines/${machineId}`, input),
+    unlinkMachine: (id: string, machineId: string) => request<{ ok: true; closed_tabs: number }>('DELETE', `/projects/${id}/machines/${machineId}`),
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),
-    createTab: (id: string, input: { name?: string; kind?: TabKind; simulator_udid?: string } = {}) =>
+    createTab: (id: string, input: { name?: string; kind?: TabKind; simulator_udid?: string; machine_id?: string } = {}) =>
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
+  },
+  projectGroups: {
+    list: () => request<{ groups: ProjectGroup[] }>('GET', '/project-groups'),
+    create: (name: string) => request<{ group: ProjectGroup }>('POST', '/project-groups', { name }),
+    rename: (id: string, name: string) => request<{ group: ProjectGroup }>('PATCH', `/project-groups/${id}`, { name }),
+    remove: (id: string) => request<void>('DELETE', `/project-groups/${id}`),
+    reorder: (ids: string[]) => request<{ groups: ProjectGroup[] }>('PUT', '/project-groups/order', { ids }),
+    setMemberships: (groups: { id: string; project_ids: string[] }[]) => request<{ groups: ProjectGroup[] }>('PUT', '/project-groups/memberships', { groups }),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
   office: (machineId: string, fresh = false) => request<OfficeSnapshot>('GET', `/office/${encodeURIComponent(machineId)}${fresh ? '?fresh=1' : ''}`),
@@ -169,6 +195,8 @@ export const api = {
     request<{ action: { id: string; status: ChatActionStatus }; message?: ChatMessage; queued?: true; note?: string }>('POST', `/chat/actions/${id}/decision`, { decision }),
   monitor: {
     tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
+    /** every open terminal tab of the scope, reported a state or not (the sidebar's agents) */
+    openTabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/open-tabs'),
   },
   tasks: {
     list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),
@@ -182,7 +210,8 @@ export const api = {
       request<{ subtasks: Task[] }>('POST', `/tasks/${id}/subtasks`, { items }),
     reorder: (id: string, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/reorder`, { position }),
     pushStatus: (id: string) => request<{ task: Task; state: string }>('POST', `/tasks/${id}/push-status`, {}),
-    openTerminal: (id: string) => request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, {}),
+    openTerminal: (id: string, machineId?: string) =>
+      request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, machineId ? { machine_id: machineId } : {}),
     detachTerminal: (id: string) => request<{ task: Task }>('DELETE', `/tasks/${id}/terminal`),
   },
   tickets: {

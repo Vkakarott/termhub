@@ -9,6 +9,7 @@ import { alphaInviteMail, inviteMail, type AlphaLocale } from '../email/template
 import type { Mail } from '../email/mailer.js';
 import type { AccessAllowlist } from '../cloudflare/access.js';
 import { config } from '../config.js';
+import { publicBus } from '../public/bus.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const patchBody = z.object({ role_id: z.string().min(1).max(64) });
@@ -180,6 +181,9 @@ export async function userRoutes(app: FastifyInstance, repos: Repositories, deps
       if (role?.is_admin && (await repos.users.countAdmins()) <= 1) throw badRequest('Este é o único administrador');
     }
     await repos.users.delete(id);
+    // Their nickname is gone, and with it their public city: drop the memoised copy and hang up
+    // every visitor watching it (their projects and machines outlive them, ownerless).
+    publicBus.publishOwnerGone({ owner_id: id });
     // Best effort: the account is gone either way; a stale allowlist entry only lets them reach the login screen.
     let accessRemoved = false;
     try {

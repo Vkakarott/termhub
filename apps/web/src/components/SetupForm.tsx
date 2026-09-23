@@ -46,8 +46,8 @@ export function SetupForm({ project }: Props) {
 
   const dirty = data !== null && JSON.stringify(data) !== saved;
   const runnerMachine = useMemo(
-    () => machines.find((m) => m.id === (data?.runner.machine_id ?? project.machine_id)),
-    [machines, data?.runner.machine_id, project.machine_id],
+    () => machines.find((m) => m.id === (data?.runner.machine_id ?? project.machines[0]?.machine_id)),
+    [machines, data?.runner.machine_id, project.machines],
   );
 
   if (!data) return <p className="text-sm text-fg-dim">Carregando setup…</p>;
@@ -237,7 +237,7 @@ export function SetupForm({ project }: Props) {
           )}
         </Row>
         <Row label="Diretório de trabalho" hint="vazio = diretório do projeto">
-          <input className="input font-mono" value={data.runner.cwd ?? ''} onChange={(e) => patch('runner', { ...data.runner, cwd: e.target.value || null })} placeholder={project.cwd} />
+          <input className="input font-mono" value={data.runner.cwd ?? ''} onChange={(e) => patch('runner', { ...data.runner, cwd: e.target.value || null })} placeholder={project.machines.find((l) => l.machine_id === (data.runner.machine_id ?? project.machines[0]?.machine_id))?.cwd ?? ''} />
         </Row>
         <Row label="Comando de preparação" hint="roda antes de cada run">
           <input className="input font-mono" value={data.runner.setup_command ?? ''} onChange={(e) => patch('runner', { ...data.runner, setup_command: e.target.value || null })} placeholder="pnpm install" />

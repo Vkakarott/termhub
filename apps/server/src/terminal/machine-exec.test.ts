@@ -7,7 +7,7 @@ import type { AgentConnection } from '../agent/connection.js';
 import { AgentRpcError } from '../agent/connection.js';
 import { agents } from '../agent/registry.js';
 import type { Machine } from '../db/repositories/types.js';
-import { FRESH_GRACE_MS, PROBE_TTL_MS, clearTmuxProbeMemo, listTmuxSessions, probeTmuxSessions, probeTmuxSessionsCached } from './machine-exec.js';
+import { FRESH_GRACE_MS, PROBE_TTL_MS, cachedTmuxProbe, clearTmuxProbeMemo, listTmuxSessions, probeTmuxSessions, probeTmuxSessionsCached } from './machine-exec.js';
 
 const machine = (type: Machine['type'], id = 'm1'): Machine =>
   ({ id, name: 'box', type, host: type === 'ssh' ? 'box.local' : null, ssh_user: 'u', ssh_port: 22, os: 'linux', capabilities: ['tmux'] }) as Machine;
@@ -193,6 +193,52 @@ describe('probeTmuxSessionsCached', () => {
     const probe = await probeTmuxSessionsCached(m, { now });
     expect(probeCallCount()).toBe(calls + 1);
     expect(probe.reachable).toBe(true);
+  });
+});
+
+describe('cachedTmuxProbe', () => {
+  const probeCallCount = () => vi.mocked(execFile).mock.calls.length;
+
+  beforeEach(() => clearTmuxProbeMemo());
+
+  it('answers undefined when nothing is memoised yet, and never touches the machine', () => {
+    expect(cachedTmuxProbe(machine('ssh'), { now: () => 0 })).toBeUndefined();
+    expect(probeCallCount()).toBe(0);
+  });
+
+  it('answers the memoised probe while it is warm, without another round-trip', async () => {
+    const now = () => 1_000;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    expect(cachedTmuxProbe(m, { now })).toEqual({ reachable: true, sessions: new Set(['th-a']) });
+    expect(probeCallCount()).toBe(calls);
+  });
+
+  // The public channel only has the machine id a monitor change carries, not the row.
+  it('answers the same memo by machine id', async () => {
+    const now = () => 1_000;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    expect(cachedTmuxProbe(m.id, { now })).toEqual(cachedTmuxProbe(m, { now }));
+    expect(cachedTmuxProbe('m-unknown', { now })).toBeUndefined();
+    expect(probeCallCount()).toBe(calls);
+  });
+
+  it('answers undefined once the memo has expired, and does not refresh it', async () => {
+    let t = 0;
+    const now = () => t;
+    const m = machine('ssh');
+    execAnswers({ code: 0, stdout: 'th-a\n' });
+    await probeTmuxSessionsCached(m, { now });
+    const calls = probeCallCount();
+    t += PROBE_TTL_MS.reachable;
+    expect(cachedTmuxProbe(m, { now })).toBeUndefined();
+    // a caller that must not probe (the public city) gets "cold", not a fresh round-trip on its behalf
+    expect(probeCallCount()).toBe(calls);
   });
 });
 

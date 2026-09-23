@@ -42,6 +42,8 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
     VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID \
     VITE_BUILD_SHA=$VITE_BUILD_SHA
 RUN npm run prisma:generate && npm run build
+# The public city, built on its own with base /city/ so it never shares an asset path with the app bundle above.
+RUN npm run build:city -w @termhub/web
 # Só dependências de produção na imagem final
 RUN npm prune --omit=dev
 
@@ -49,7 +51,10 @@ RUN npm prune --omit=dev
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
-RUN apk add --no-cache tmux openssh-client bash tini \
+# rsvg-convert + font-inter: the public city's link preview card (apps/server/src/public/card.ts)
+# rasterises with the same librsvg tool apps/landing/og/build.sh uses, as a runtime subprocess.
+# Package names are Alpine's (apk), not Debian's librsvg2-bin — this image is node:22-alpine.
+RUN apk add --no-cache tmux openssh-client bash tini rsvg-convert font-inter \
  && addgroup -S app && adduser -S app -G app -h /home/app -s /bin/bash \
  && mkdir -p /home/app/.ssh && chown app:app /home/app/.ssh && chmod 700 /home/app/.ssh
 COPY --from=build --chown=app:app /app/node_modules ./node_modules
@@ -59,6 +64,7 @@ COPY --from=build --chown=app:app /app/apps/server/dist ./apps/server/dist
 COPY --from=build --chown=app:app /app/apps/server/prisma ./apps/server/prisma
 COPY --from=build --chown=app:app /app/apps/server/prisma.config.ts ./apps/server/
 COPY --from=build --chown=app:app /app/apps/web/dist ./apps/web/dist
+COPY --from=build --chown=app:app /app/apps/web/dist-city ./apps/web/dist-city
 # @termhub/server imports these at runtime through the node_modules/@termhub/* workspace symlinks
 # (copied above with node_modules), which point at ../../packages/<name> — the targets must exist
 # at that same relative path in the runner stage.

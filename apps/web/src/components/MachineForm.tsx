@@ -7,6 +7,7 @@ import { AgentUpdateCard } from './AgentUpdateCard';
 import { MonitorHooksCard } from './MonitorHooksCard';
 import { useData } from '../lib/data';
 import type { Machine, User } from '../lib/types';
+import { TYPE_LABEL } from '../lib/machine-status';
 import { api, ApiError } from '../lib/api';
 
 interface Props {
@@ -14,9 +15,6 @@ interface Props {
   onClose: () => void;
   machine?: Machine | null;
 }
-
-/** Legacy transports (kept for machines that already exist; new machines are agent-only). */
-const TYPE_LABEL = { agent: 'Agente', ssh: 'SSH (legado)', local: 'Servidor do termhub (legado)' } as const;
 
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
