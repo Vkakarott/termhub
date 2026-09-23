@@ -5,7 +5,7 @@ import { shareInfoFor, type ShareFormat } from './compose';
 import { CopyLinkButton } from './CopyLinkButton';
 import { canShareFile, downloadFile, shareOrDownload } from './deliver';
 import { captureStill, fileNameFor, type FrameSource } from './images';
-import { canRecordVideo, extensionFor, isWebm, recordStory, RecordingCancelled, STORY_VIDEO_MS, type Recording } from './record';
+import { baseType, canRecordVideo, extensionFor, instagramReady, recordStory, RecordingCancelled, STORY_VIDEO_MS, type Recording } from './record';
 
 /** What the panel needs from the scene: its frames, and a camera it can hold still. OfficeScene is one. */
 export interface ShareScene extends FrameSource {
@@ -16,7 +16,8 @@ type Phase =
   | { kind: 'menu' }
   | { kind: 'busy' }
   | { kind: 'recording'; elapsedMs: number }
-  | { kind: 'done'; file: File; preview: string; video: boolean; webm: boolean }
+  /** `warn`: a video Instagram may refuse (not H.264 + AAC in an MP4) */
+  | { kind: 'done'; file: File; preview: string; video: boolean; warn: boolean }
   | { kind: 'stopped'; reason: 'hidden' | 'failed'; video: boolean };
 
 const OPTION = 'w-full rounded-md border border-line bg-bg-3 px-3 py-2 text-left text-sm text-fg hover:bg-bg-4 disabled:cursor-not-allowed disabled:opacity-50';
@@ -60,9 +61,10 @@ export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { 
   // closing the panel mid-recording stops it (and so unlocks the camera)
   useEffect(() => () => recording.current?.cancel(), []);
 
-  const finish = (blob: Blob, name: string, video: boolean, webm: boolean) => {
-    const file = new File([blob], name, { type: blob.type });
-    setPhase({ kind: 'done', file, preview: URL.createObjectURL(file), video, webm });
+  const finish = (blob: Blob, name: string, video: boolean, warn: boolean) => {
+    // the bare type: Chrome's share sheet refuses 'video/mp4;codecs=…' where it takes 'video/mp4'
+    const file = new File([blob], name, { type: baseType(blob.type) });
+    setPhase({ kind: 'done', file, preview: URL.createObjectURL(file), video, warn });
   };
 
   const still = async (format: ShareFormat) => {
@@ -78,11 +80,12 @@ export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { 
     stoppedByHide.current = false;
     setPhase({ kind: 'recording', elapsedMs: 0 });
     scene.lockCamera(true);
-    const rec = recordStory({ source: scene, info, model: () => modelRef.current, durationMs: STORY_VIDEO_MS, onProgress: (elapsedMs) => setPhase({ kind: 'recording', elapsedMs }) });
-    recording.current = rec;
     try {
+      // inside the try: a recording that throws while starting must still unlock the camera
+      const rec = recordStory({ source: scene, info, model: () => modelRef.current, durationMs: STORY_VIDEO_MS, onProgress: (elapsedMs) => setPhase({ kind: 'recording', elapsedMs }) });
+      recording.current = rec;
       const { blob, mimeType } = await rec.done;
-      finish(blob, fileNameFor(city.nickname, 'story', extensionFor(mimeType)), true, isWebm(mimeType));
+      finish(blob, fileNameFor(city.nickname, 'story', extensionFor(mimeType)), true, !instagramReady(mimeType));
     } catch (err) {
       if (stoppedByHide.current) setPhase({ kind: 'stopped', reason: 'hidden', video: true });
       else if (err instanceof RecordingCancelled) setPhase({ kind: 'menu' });
@@ -143,7 +146,7 @@ export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { 
           ) : (
             <img src={phase.preview} alt="Prévia da imagem" className="max-h-72 w-full rounded object-contain" />
           )}
-          {phase.webm && <p className="text-xs text-warn">O Instagram pode não aceitar WebM. No celular, use o Safari ou o Chrome.</p>}
+          {phase.warn && <p className="text-xs text-warn">O Instagram pode não aceitar WebM. No celular, use o Safari ou o Chrome.</p>}
           <div className="flex flex-wrap gap-2">
             {canShareFile(phase.file) && (
               <button type="button" className={PRIMARY} onClick={() => void shareOrDownload(phase.file)}>

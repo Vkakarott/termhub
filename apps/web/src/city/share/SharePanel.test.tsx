@@ -135,27 +135,56 @@ describe('SharePanel', () => {
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Vídeo para story (10 s, com som)' }));
     await act(async () => {
-      rec.resolve({ blob: new Blob(['v'], { type: 'video/webm' }), mimeType: 'video/webm;codecs=vp9,opus' });
+      rec.resolve({ blob: new Blob(['v'], { type: 'video/webm;codecs=vp9,opus' }), mimeType: 'video/webm;codecs=vp9,opus' });
     });
     expect(screen.getByText('O Instagram pode não aceitar WebM. No celular, use o Safari ou o Chrome.')).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Compartilhar' }));
     });
-    expect((shareOrDownload.mock.calls[0][0] as File).name).toBe('termhub-cidade-pedro-story.webm');
+    const shared = shareOrDownload.mock.calls[0][0] as File;
+    expect(shared.name).toBe('termhub-cidade-pedro-story.webm');
+    // the share sheet compares the bare type: codecs in it make Chrome refuse the file
+    expect(shared.type).toBe('video/webm');
     expect(screen.getByRole('button', { name: 'Gravar de novo' })).toBeTruthy();
   });
 
-  it('only downloads where there is no share sheet, and says nothing about WebM for an MP4', async () => {
+  it('only downloads where there is no share sheet, and says nothing about WebM for an H.264 MP4', async () => {
     const rec = fakeRecording();
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Vídeo para story (10 s, com som)' }));
     await act(async () => {
-      rec.resolve({ blob: new Blob(['v'], { type: 'video/mp4' }), mimeType: 'video/mp4' });
+      rec.resolve({ blob: new Blob(['v'], { type: 'video/mp4' }), mimeType: 'video/mp4;codecs=avc1.42E01E,mp4a.40.2' });
     });
     expect(screen.queryByRole('button', { name: 'Compartilhar' })).toBeNull();
     expect(screen.queryByText(/webm/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Baixar' }));
     expect(downloadFile).toHaveBeenCalledWith(expect.any(File), 'termhub-cidade-pedro-story.mp4');
+  });
+
+  it('warns about an MP4 that does not hold H.264 and AAC (Chromium writes VP9 in it)', async () => {
+    const rec = fakeRecording();
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Vídeo para story (10 s, com som)' }));
+    await act(async () => {
+      rec.resolve({ blob: new Blob(['v'], { type: 'video/mp4' }), mimeType: 'video/mp4;codecs=vp9,opus' });
+    });
+    expect(screen.getByText('O Instagram pode não aceitar WebM. No celular, use o Safari ou o Chrome.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Baixar' }));
+    expect(downloadFile).toHaveBeenCalledWith(expect.any(File), 'termhub-cidade-pedro-story.mp4');
+  });
+
+  it('unlocks the camera and says so when the recording cannot even start', async () => {
+    recordStory.mockImplementation(() => {
+      throw new Error('no AudioContext');
+    });
+    renderPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Vídeo para story (10 s, com som)' }));
+    });
+    expect(scene.lockCamera).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByText(/Gravando/)).toBeNull();
+    expect(screen.getByText('Não foi possível gerar o arquivo.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Gravar de novo' })).toBeTruthy();
   });
 
   it('makes a story image of the live city, with its short link and counts', async () => {
