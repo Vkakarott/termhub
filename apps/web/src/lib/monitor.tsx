@@ -49,11 +49,35 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
     return () => void listeners.current.delete(listener);
   }, []);
 
+  /**
+   * Open-tab pushes received while a snapshot is in flight: the snapshot may have been read before
+   * them (a closed tab would come back until the next resync), so they are re-applied on top of it.
+   * Numbered so overlapping reloads each replay only what came after they started.
+   */
+  const openFrames = useRef({ seq: 0, inFlight: 0, log: [] as Array<{ seq: number; frame: OpenTabFrame }> });
+  const applyOpenFrame = useCallback((frame: OpenTabFrame) => {
+    const f = openFrames.current;
+    f.seq += 1;
+    if (f.inFlight > 0) f.log.push({ seq: f.seq, frame });
+    setOpenTabs((list) => applyOpenTabFrame(list, frame));
+  }, []);
+
   const reload = useCallback(async () => {
-    // each snapshot on its own: a failure keeps that one's last copy; the next resync retries
-    const [state, open] = await Promise.allSettled([api.monitor.tabs(), api.monitor.openTabs()]);
-    if (state.status === 'fulfilled') setItems(state.value.items);
-    if (open.status === 'fulfilled') setOpenTabs(open.value.items.map((i) => i.tab));
+    const f = openFrames.current;
+    const startedAt = f.seq;
+    f.inFlight += 1;
+    try {
+      // each snapshot on its own: a failure keeps that one's last copy; the next resync retries
+      const [state, open] = await Promise.allSettled([api.monitor.tabs(), api.monitor.openTabs()]);
+      if (state.status === 'fulfilled') setItems(state.value.items);
+      if (open.status === 'fulfilled') {
+        const later = f.log.filter((e) => e.seq > startedAt).map((e) => e.frame);
+        setOpenTabs(later.reduce(applyOpenTabFrame, open.value.items.map((i) => i.tab)));
+      }
+    } finally {
+      f.inFlight -= 1;
+      if (f.inFlight === 0) f.log = [];
+    }
   }, []);
 
   useEffect(() => {
@@ -77,16 +101,15 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
         }
         // tabs opened, renamed and closed only move the open-tab list (the sidebar's agents)
         if (msg.type === 'tab_upsert' && msg.tab) {
-          setOpenTabs((list) => applyOpenTabFrame(list, { type: 'tab_upsert', tab: msg.tab! }));
+          applyOpenFrame({ type: 'tab_upsert', tab: msg.tab });
           return;
         }
         if (msg.type === 'tab_removed' && msg.tab_id) {
-          setOpenTabs((list) => applyOpenTabFrame(list, { type: 'tab_removed', tab_id: msg.tab_id! }));
+          applyOpenFrame({ type: 'tab_removed', tab_id: msg.tab_id });
           return;
         }
         if (msg.type !== 'tab' || !msg.tab) return;
-        const frame: OpenTabFrame = { type: 'tab', tab: msg.tab };
-        setOpenTabs((list) => applyOpenTabFrame(list, frame));
+        applyOpenFrame({ type: 'tab', tab: msg.tab });
         const tab = msg.tab;
         // compared with what was on screen before this push (a tab never seen counts as not needing you)
         const prev = itemsRef.current.find((i) => i.tab.id === tab.id)?.tab;
@@ -123,7 +146,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       clearInterval(resync);
       ws?.close();
     };
-  }, [reload]);
+  }, [reload, applyOpenFrame]);
 
   const value = useMemo<MonitorState>(
     () => ({

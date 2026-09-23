@@ -80,3 +80,36 @@ describe('MonitorProvider open tabs', () => {
     expect(m().openTabs.find((t) => t.id === 't2')?.state).toBe('waiting_input');
   });
 });
+
+describe('MonitorProvider open tabs vs a snapshot in flight', () => {
+  it('keeps pushes that arrive while a reload is in flight: the older snapshot does not undo them', async () => {
+    const m = mount();
+    await waitFor(() => expect(m().openTabs).toHaveLength(2));
+    // the next snapshot was read before t1 closed and before t3 opened, and lands after both pushes
+    let land!: () => void;
+    api.openTabs.mockReturnValueOnce(
+      new Promise((resolve) => {
+        land = () => resolve({ items: [item(tab('t1')), item(tab('t2'))] });
+      }),
+    );
+    let reloading!: Promise<void>;
+    act(() => {
+      reloading = m().reload();
+    });
+    const ws = FakeSocket.last!;
+    act(() => ws.push({ type: 'tab_removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1' }));
+    act(() => ws.push({ type: 'tab_upsert', tab: tab('t3'), project_id: 'p1', machine_id: 'm1' }));
+    await act(async () => {
+      land();
+      await reloading;
+    });
+    expect(m().openTabs.map((t) => t.id)).toEqual(['t2', 't3']);
+
+    // once applied, the frames are forgotten: the next snapshot is the truth again
+    api.openTabs.mockResolvedValueOnce({ items: [item(tab('t1')), item(tab('t2'))] });
+    await act(async () => {
+      await m().reload();
+    });
+    expect(m().openTabs.map((t) => t.id)).toEqual(['t1', 't2']);
+  });
+});
