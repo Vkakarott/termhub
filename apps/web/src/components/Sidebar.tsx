@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { canSeeSettings } from '../lib/settings-sections';
@@ -7,9 +7,13 @@ import { openCookieBanner } from './AnalyticsGate';
 import { useData } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
-import { loadCollapsedProjects, saveCollapsedProjects } from '../lib/sidebar-prefs';
-import type { Project, Tab } from '../lib/types';
+import { buildSections, type Section } from '../lib/project-groups-model';
+import { useProjectGroups } from '../lib/project-groups';
+import { loadCollapsedGroups, loadCollapsedProjects, saveCollapsedGroups, saveCollapsedProjects } from '../lib/sidebar-prefs';
+import type { Project, ProjectGroup, Tab } from '../lib/types';
+import { GroupHeader } from './GroupHeader';
 import { ProjectForm } from './ProjectForm';
+import { ProjectGroupsMenu } from './ProjectGroupsMenu';
 import { ProjectRow } from './ProjectRow';
 import { ConfirmDialog } from './Modal';
 import { ViewAsSwitch } from './ViewAsSwitch';
@@ -28,16 +32,6 @@ function agentsByProject(tabs: Tab[]): Map<string, Tab[]> {
   return byProject;
 }
 
-/** A labelled group of project rows; `showLabel` false keeps it a named region without the visible header. */
-function Section({ label, showLabel = true, children }: { label: string; showLabel?: boolean; children: ReactNode }) {
-  return (
-    <section aria-label={label} className="mb-2">
-      {showLabel && <p className={SECTION_LABEL}>{label}</p>}
-      {children}
-    </section>
-  );
-}
-
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can } = useAuth();
   const { projects, machinesOf, loading, deleteProject } = useData();
@@ -52,6 +46,12 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [collapsed, setCollapsedState] = useState<Set<string>>(loadCollapsedProjects);
+  const { groups, error: groupsError, createGroup, renameGroup, deleteGroup, isFavorite, toggleFavorite } = useProjectGroups();
+  const [collapsedGroups, setCollapsedGroupsState] = useState<Set<string>>(loadCollapsedGroups);
+  /** the group "+ grupo" just created: its header opens in rename mode */
+  const [newGroupId, setNewGroupId] = useState<string | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<ProjectGroup | null>(null);
+  const [menuFor, setMenuFor] = useState<{ projectId: string; anchor: HTMLElement } | null>(null);
 
   const setCollapsed = (next: Set<string>) => {
     setCollapsedState(next);
@@ -64,10 +64,22 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     setCollapsed(next);
   };
 
+  const setCollapsedGroups = (next: Set<string>) => {
+    setCollapsedGroupsState(next);
+    saveCollapsedGroups(next);
+  };
+  const toggleGroup = (id: string) => {
+    const next = new Set(collapsedGroups);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setCollapsedGroups(next);
+  };
+
   // one visibility rule for every section: archived projects only when asked for
   const visibleProjects = projects.filter((p) => showArchived || p.status !== 'archived');
   const hasArchived = projects.some((p) => p.status === 'archived');
   const running = visibleProjects.filter((p) => agents.has(p.id));
+  const sections = buildSections(projects, groups, new Set(agents.keys()), showArchived);
   const anyExpanded = running.some((p) => !collapsed.has(p.id));
 
   const toggleAll = () => {
@@ -79,11 +91,17 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
     setCollapsed(next);
   };
 
-  const row = (section: string) => (p: Project) => (
+  const addGroup = async () => {
+    const group = await createGroup('Novo grupo');
+    if (group) setNewGroupId(group.id);
+  };
+
+  const row = (section: Section) => (p: Project) => (
     <ProjectRow
-      key={p.id}
+      // a project can show in several sections
+      key={`${section.id}:${p.id}`}
       project={p}
-      section={section}
+      section={section.label}
       agents={agents.get(p.id) ?? []}
       machines={machinesOf(p)}
       waiting={waiting.get(p.id) ?? 0}
@@ -93,8 +111,52 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         setDeleteError(null);
         setDeletingProject(p);
       }}
+      favorite={isFavorite(p.id)}
+      onToggleFavorite={() => void toggleFavorite(p.id)}
+      onOpenGroups={(anchor) => setMenuFor((cur) => (cur?.projectId === p.id ? null : { projectId: p.id, anchor }))}
     />
   );
+
+  const renderSection = (section: Section) => {
+    if (section.kind === 'running') {
+      return (
+        <section key={section.id} aria-label={section.label} className="mb-2">
+          <p className={SECTION_LABEL}>{section.label}</p>
+          <ul>{section.projects.map(row(section))}</ul>
+        </section>
+      );
+    }
+    const isOthers = section.kind === 'others';
+    // Outros is automatic: hidden when empty, unless it holds the archived toggle
+    if (isOthers && section.projects.length === 0 && !hasArchived) return null;
+    const group = groups.find((g) => g.id === section.id);
+    const open = !collapsedGroups.has(section.id);
+    return (
+      <section key={section.id} aria-label={section.label} className="mb-2">
+        <GroupHeader
+          section={section}
+          collapsed={!open}
+          onToggle={() => toggleGroup(section.id)}
+          editable={section.kind === 'custom'}
+          startEditing={section.id === newGroupId}
+          onRename={(name) => {
+            setNewGroupId(null);
+            void renameGroup(section.id, name);
+          }}
+          onDelete={() => group && setDeletingGroup(group)}
+        />
+        {open && section.projects.length > 0 && <ul>{section.projects.map(row(section))}</ul>}
+        {open && !isOthers && section.projects.length === 0 && (
+          <p className="mx-3 my-1 rounded border border-dashed border-line px-2 py-1.5 text-center text-[11px] text-fg-dim">arraste projetos para cá</p>
+        )}
+        {open && isOthers && hasArchived && (
+          <button className="mt-1 px-3 text-xs text-fg-dim hover:text-fg" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived ? 'Ocultar arquivados' : 'Mostrar arquivados'}
+          </button>
+        )}
+      </section>
+    );
+  };
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-line bg-bg-2">
@@ -119,8 +181,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       <nav className="min-h-0 flex-1 overflow-y-auto py-2">
         {loading && <p className="px-3 py-2 text-xs text-fg-dim">Carregando…</p>}
 
-        <div className="flex items-center justify-between pr-2">
-          <p className={SECTION_LABEL}>Projetos</p>
+        <div className="flex items-center pr-2">
+          <p className={`${SECTION_LABEL} flex-1`}>Projetos</p>
           {running.length > 0 && (
             <button
               type="button"
@@ -133,29 +195,22 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
               {anyExpanded ? '⊟' : '⊞'}
             </button>
           )}
+          <button type="button" className="rounded px-1 text-[10px] text-fg-dim hover:bg-bg-3 hover:text-fg" title="Novo grupo" onClick={() => void addGroup()}>
+            + grupo
+          </button>
         </div>
+        {groupsError && (
+          <p role="alert" className="px-3 text-[11px] text-danger">
+            {groupsError}
+          </p>
+        )}
         {!loading && visibleProjects.length === 0 && (
           <button className="px-3 py-1 text-xs text-fg-dim hover:text-fg" onClick={() => setProjectFormOpen(true)}>
             + novo projeto
           </button>
         )}
 
-        {running.length > 0 && (
-          <Section label="Em execução">
-            <ul>{running.map(row('Em execução'))}</ul>
-          </Section>
-        )}
-        {visibleProjects.length > 0 && (
-          // every project, running ones included; its label only matters when "Em execução" sits above it
-          <Section label="Todos os projetos" showLabel={running.length > 0}>
-            <ul>{visibleProjects.map(row('Todos os projetos'))}</ul>
-          </Section>
-        )}
-        {hasArchived && (
-          <button className="mt-1 px-3 text-xs text-fg-dim hover:text-fg" onClick={() => setShowArchived((v) => !v)}>
-            {showArchived ? 'Ocultar arquivados' : 'Mostrar arquivados'}
-          </button>
-        )}
+        {sections.map(renderSection)}
       </nav>
 
       <ViewAsSwitch />
@@ -214,6 +269,26 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       </div>
 
       {projectFormOpen && <ProjectForm open onClose={() => setProjectFormOpen(false)} />}
+      {menuFor && <ProjectGroupsMenu projectId={menuFor.projectId} anchor={menuFor.anchor} onClose={() => setMenuFor(null)} />}
+      <ConfirmDialog
+        open={!!deletingGroup}
+        title="Excluir grupo"
+        message={`Excluir o grupo "${deletingGroup?.name ?? ''}"? Os projetos não são apagados.`}
+        confirmLabel="Excluir"
+        danger
+        onCancel={() => setDeletingGroup(null)}
+        onConfirm={async () => {
+          if (!deletingGroup) return;
+          const id = deletingGroup.id;
+          setDeletingGroup(null);
+          if (collapsedGroups.has(id)) {
+            const next = new Set(collapsedGroups);
+            next.delete(id);
+            setCollapsedGroups(next);
+          }
+          await deleteGroup(id);
+        }}
+      />
       <ConfirmDialog
         open={!!deletingProject}
         title="Remover projeto"
