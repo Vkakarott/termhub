@@ -163,12 +163,23 @@ function CityLink({ url }: { url: string }) {
  * person has a nickname (no city to link to).
  */
 function ShortLinkSection({ state }: { state: CityLinkState }) {
-  const { link, saving, error, setCustom, restorePartner } = state;
+  const { link, saving, error, setCustom, restorePartner, clearError } = state;
   const [status, copy] = useCopy();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
 
   if (!link?.city_url || (!link.enabled && !link.short_url)) return null;
+
+  const openForm = () => {
+    clearError();
+    setDraft('');
+    setEditing(true);
+  };
+  const cancel = () => {
+    clearError();
+    setDraft('');
+    setEditing(false);
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,7 +201,8 @@ function ShortLinkSection({ state }: { state: CityLinkState }) {
             </button>
           </div>
           {link.source === 'partner' && <p className="mt-1 text-xs text-fg-dim">Criado pelo TypeToAccess, parceiro do termhub</p>}
-          {link.source === 'custom' && link.enabled && (
+          {/* only when there is a partner link to go back to (the server refuses safely otherwise) */}
+          {link.source === 'custom' && link.enabled && link.partner_url && (
             <button type="button" className="btn-ghost mt-2 text-xs" disabled={saving} onClick={() => void restorePartner()}>
               Voltar ao link da parceria
             </button>
@@ -220,21 +232,22 @@ function ShortLinkSection({ state }: { state: CityLinkState }) {
               <button type="submit" className="btn-primary text-xs" disabled={saving || !draft.trim()}>
                 Salvar
               </button>
-              <button type="button" className="btn-ghost text-xs" onClick={() => setEditing(false)}>
+              <button type="button" className="btn-ghost text-xs" onClick={cancel}>
                 Cancelar
               </button>
             </div>
-            {error && (
-              <p role="alert" className="text-xs text-danger">
-                {error}
-              </p>
-            )}
           </form>
         ) : (
-          <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => setEditing(true)}>
+          <button type="button" className="btn-ghost mt-2 text-xs" onClick={openForm}>
             Usar meu próprio link curto
           </button>
         ))}
+      {/* outside the form: a failed restore ("Voltar ao link da parceria") is reported here too */}
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-danger">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

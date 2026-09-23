@@ -187,6 +187,8 @@ export const api = {
     request<{ action: { id: string; status: ChatActionStatus }; message?: ChatMessage; queued?: true; note?: string }>('POST', `/chat/actions/${id}/decision`, { decision }),
   monitor: {
     tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
+    /** every open terminal tab of the scope, reported a state or not (the sidebar's agents) */
+    openTabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/open-tabs'),
   },
   tasks: {
     list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),

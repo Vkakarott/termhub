@@ -10,6 +10,7 @@ import { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TE
 import { ControlError, type ControlContext } from './context.js';
 import { assertTerminal, clamp, offline, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES, waitForState } from './screen.js';
 import { publicBus } from '../public/bus.js';
+import { publishTabOpened, publishTabRemoved } from '../monitor/tab-events.js';
 
 export { INPUT_MAX_CHARS };
 
@@ -71,6 +72,7 @@ export async function openTab(
   const existing = await ctx.repos.tabs.listByProject(project.id);
   const name = input.name?.trim() || nextTerminalName(existing.map((t) => t.name));
   const tab = await ctx.repos.tabs.create(project.id, machine.id, name, { created_by_token_id: ctx.token?.id ?? null });
+  publishTabOpened(tab, machine);
 
   try {
     const { created } = await ensureSession(machine, tab.tmux_session as string, link.cwd);
@@ -188,5 +190,6 @@ export async function closeTab(ctx: ControlContext, input: { tab_id: string; for
   }
   await ctx.repos.tabs.delete(tab.id);
   publicBus.publishTabRemoved({ tab_id: tab.id, project_id: tab.project_id, machine_id: machine.id });
+  publishTabRemoved(tab, machine);
   return { tab_id: tab.id, killed };
 }

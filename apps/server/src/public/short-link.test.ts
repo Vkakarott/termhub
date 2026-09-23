@@ -17,6 +17,7 @@ function fakeUsers(...seed: User[]) {
   const rows = new Map(seed.map((u) => [u.id, u]));
   return {
     rows,
+    findById: vi.fn(async (id: string) => rows.get(id)),
     setCityShortUrlPartner: vi.fn(async (id: string, url: string) => {
       const u = rows.get(id)!;
       if (u.city_short_url_partner) return false;
@@ -66,6 +67,33 @@ describe('the partner link', () => {
     expect(http!.createLink).toHaveBeenCalledTimes(2);
     expect(http!.createLink.mock.calls[1][0]).toEqual({ url: 'https://termhub.dev/city/@pedro' });
     expect(users.rows.get('u1')?.city_short_url_partner).toBe('https://77a.it/x9k2');
+  });
+
+  // Review fix 3: a 409 on the nickname may be this city's own link from an earlier attempt whose
+  // answer was lost (a timeout after the partner created it). Reuse it rather than spend a second
+  // link on a random slug.
+  it('reuses the nickname link when the taken slug already points to this city', async () => {
+    const { s, users, http } = service({ http: fakeHttp([{ kind: 'slug_taken' }], 'https://termhub.dev/city/@pedro/') });
+    expect(await s.ensurePartner(user())).toBe('https://77a.it/pedro');
+    expect(http!.locationOf).toHaveBeenCalledWith('https://77a.it/pedro');
+    expect(http!.createLink).toHaveBeenCalledTimes(1);
+    expect(users.rows.get('u1')?.city_short_url_partner).toBe('https://77a.it/pedro');
+  });
+
+  it('creates a random link when the taken slug points elsewhere', async () => {
+    const { s, http } = service({ http: fakeHttp([{ kind: 'slug_taken' }, { kind: 'created', shortUrl: 'https://77a.it/x9k2' }], 'https://termhub.dev/city/@ana') });
+    expect(await s.ensurePartner(user())).toBe('https://77a.it/x9k2');
+    expect(http!.createLink).toHaveBeenCalledTimes(2);
+  });
+
+  // Review fix 6: an attempt that finished between the caller loading its user and asking here
+  // stored a link; the rate-limit short-circuit reads it back instead of answering null.
+  it('answers the stored link when a recent attempt already created it', async () => {
+    const { s, users } = service({ http: fakeHttp([{ kind: 'created', shortUrl: 'https://77a.it/pedro' }]) });
+    const stale = user();
+    expect(await s.ensurePartner(stale)).toBe('https://77a.it/pedro');
+    expect(await s.ensurePartner(stale)).toBe('https://77a.it/pedro');
+    expect(users.findById).toHaveBeenCalledWith('u1');
   });
 
   it('stores nothing when the partner fails, and logs metadata only', async () => {
@@ -187,12 +215,25 @@ describe('the custom link', () => {
     const withPartner = user({ city_short_url_partner: 'https://77a.it/pedro', city_short_url_custom: 'https://77a.it/meu' });
     const a = service({ users: fakeUsers(withPartner) });
     const cleared = await a.s.clearCustom(withPartner);
-    expect(effectiveShortUrl(cleared)).toBe('https://77a.it/pedro');
+    expect(cleared.ok).toBe(true);
+    expect(cleared.ok && effectiveShortUrl(cleared.user)).toBe('https://77a.it/pedro');
     expect(a.http!.createLink).not.toHaveBeenCalled();
 
     const noPartner = user({ city_short_url_custom: 'https://77a.it/meu' });
     const b = service({ users: fakeUsers(noPartner), http: fakeHttp([{ kind: 'created', shortUrl: 'https://77a.it/pedro' }]) });
-    expect(effectiveShortUrl(await b.s.clearCustom(noPartner))).toBe('https://77a.it/pedro');
+    const restored = await b.s.clearCustom(noPartner);
+    expect(restored.ok && effectiveShortUrl(restored.user)).toBe('https://77a.it/pedro');
+    expect(b.users.rows.get('u1')?.city_short_url_custom).toBeNull();
+  });
+
+  // Review fix 1: the custom link may be the only working one; it is cleared only once a partner
+  // link exists to take its place.
+  it('keeps the custom link when no partner link can be had', async () => {
+    const noPartner = user({ city_short_url_custom: 'https://77a.it/meu' });
+    const c = service({ users: fakeUsers(noPartner), http: fakeHttp([{ kind: 'failed', status: 500 }]) });
+    expect(await c.s.clearCustom(noPartner)).toEqual({ ok: false, code: 'SHORT_LINK_PARTNER_UNAVAILABLE' });
+    expect(c.users.setCityShortUrlCustom).not.toHaveBeenCalled();
+    expect(c.users.rows.get('u1')?.city_short_url_custom).toBe('https://77a.it/meu');
   });
 });
 

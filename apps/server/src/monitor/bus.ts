@@ -11,6 +11,14 @@ export interface TabStateChange {
 
 type Listener = (change: TabStateChange) => void;
 
+/**
+ * A tab was opened or renamed (`upsert`, carrying the whole row) or closed (`removed`). Its own
+ * channel: the state subscribers (wait_for_state, the public city) only ever see state changes.
+ */
+export type TabLifecycle =
+  | { kind: 'upsert'; tab: Tab; project_id: string; machine_id: string; owner_id: string | null }
+  | { kind: 'removed'; tab_id: string; project_id: string; machine_id: string; owner_id: string | null };
+
 /** In-process fan-out of monitor state changes (one server process; the WS handler subscribes). */
 class MonitorBus {
   private emitter = new EventEmitter();
@@ -29,7 +37,16 @@ class MonitorBus {
     return () => this.emitter.off('tab', listener);
   }
 
-  /** Number of subscribers (tests, diagnostics). */
+  publishLifecycle(event: TabLifecycle): void {
+    this.emitter.emit('lifecycle', event);
+  }
+
+  subscribeLifecycle(listener: (event: TabLifecycle) => void): () => void {
+    this.emitter.on('lifecycle', listener);
+    return () => this.emitter.off('lifecycle', listener);
+  }
+
+  /** Number of state subscribers (tests, diagnostics). */
   listenerCount(): number {
     return this.emitter.listenerCount('tab');
   }

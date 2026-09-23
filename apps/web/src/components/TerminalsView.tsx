@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useFocusTabFromParam } from '../lib/tab-param';
 import { api, ApiError } from '../lib/api';
 import {
   cellRects,
@@ -37,7 +38,6 @@ interface Props {
 
 export function TerminalsView({ project, visible }: Props) {
   const { machines, machinesOf, missingTmux } = useData();
-  const [searchParams, setSearchParams] = useSearchParams();
   // `machinesOf` itself is not stable: it lives on `useData()`'s value, whose memo also depends on
   // `statuses` (updated on every status poll), so its identity changes far more often than the
   // machine list. Key on the actual inputs instead so this doesn't re-run `newTab`'s effects on
@@ -180,20 +180,10 @@ export function TerminalsView({ project, visible }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedMachineIds]);
 
-  // ?tab=<id> (from a task card) shows the tab in the focused cell and clears the param.
-  useEffect(() => {
-    const wanted = searchParams.get('tab');
-    if (!wanted || !tabs) return;
-    if (tabs.some((t) => t.id === wanted)) dispatch({ type: 'assign', tabId: wanted });
-    else void load();
-    setSearchParams(
-      (p) => {
-        p.delete('tab');
-        return p;
-      },
-      { replace: true },
-    );
-  }, [searchParams, tabs, setSearchParams, load, dispatch]);
+  // ?tab=<id> (from a task card or a sidebar agent) shows the tab in the focused cell; a tab this
+  // view does not know yet is waited for across one reload (see useFocusTabFromParam).
+  const focusTab = useCallback((tabId: string) => dispatch({ type: 'assign', tabId }), [dispatch]);
+  useFocusTabFromParam(tabs, load, focusTab);
 
   const newTab = useCallback(
     async (kind: TabKind = 'terminal', cell?: number, machineId?: string) => {

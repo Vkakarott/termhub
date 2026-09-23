@@ -64,7 +64,9 @@ export type SetCustomOutcome =
   | { ok: false; code: 'SHORT_LINK_MISMATCH'; location: string | null }
   | { ok: false; code: 'SHORT_LINK_UNREACHABLE' };
 
-type UsersPort = Pick<UsersRepository, 'setCityShortUrlPartner' | 'setCityShortUrlCustom'>;
+export type ClearCustomOutcome = { ok: true; user: User } | { ok: false; code: 'SHORT_LINK_PARTNER_UNAVAILABLE' };
+
+type UsersPort = Pick<UsersRepository, 'findById' | 'setCityShortUrlPartner' | 'setCityShortUrlCustom'>;
 
 export class ShortLinkService {
   /** user id -> when the last partner attempt started (in memory: a restart may try once more, which is fine) */
@@ -116,29 +118,67 @@ export class ShortLinkService {
     if (running) return running;
     const now = this.now();
     for (const [id, at] of this.attempts) if (now - at >= SHORT_LINK_RETRY_MS) this.attempts.delete(id);
-    if (this.attempts.has(user.id)) return Promise.resolve(null);
+    // Rate-limited: no new attempt, but the last one may have stored a link after the caller loaded
+    // its user (a claim's background attempt finishing just before "Minha cidade" asks) — read it back.
+    if (this.attempts.has(user.id)) return this.storedPartner(user.id);
     this.attempts.set(user.id, now);
     const attempt = this.createPartner(http, user.id, user.nickname).finally(() => this.inflight.delete(user.id));
     this.inflight.set(user.id, attempt);
     return attempt;
   }
 
+  /** The partner link as stored now; never throws. */
+  private async storedPartner(userId: string): Promise<string | null> {
+    try {
+      return (await this.deps.users.findById(userId))?.city_short_url_partner ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether 77a.it/<nickname> already leads to this city: a 409 on the nickname slug is most likely
+   * this city's own link from an earlier attempt whose answer was lost (a timeout after the partner
+   * created it). False when it goes elsewhere or cannot be checked.
+   */
+  private async nicknameLinkIsOurs(http: ShortLinkHttp, userId: string, nickname: string, cityUrl: string): Promise<string | null> {
+    const candidate = normalizeCustomShortUrl(`https://77a.it/${nickname}`);
+    if (!candidate) return null;
+    try {
+      const location = await http.locationOf(candidate);
+      return location && sameCityUrl(location, cityUrl) ? candidate : null;
+    } catch (err) {
+      this.deps.log.warn({ userId, err: err instanceof Error ? err.message : String(err) }, 'short link: taken nickname slug not checked');
+      return null;
+    }
+  }
+
   private async createPartner(http: ShortLinkHttp, userId: string, nickname: string): Promise<string | null> {
     const url = this.cityUrlOf(nickname);
-    let slug: 'nickname' | 'random' = 'nickname';
+    let slug: 'nickname' | 'existing' | 'random' = 'nickname';
     try {
+      let shortUrl: string | null = null;
       let out = await http.createLink({ url, slug: nickname });
       if (out.kind === 'slug_taken') {
-        slug = 'random';
-        out = await http.createLink({ url });
+        shortUrl = await this.nicknameLinkIsOurs(http, userId, nickname, url);
+        if (shortUrl) {
+          slug = 'existing';
+        } else {
+          slug = 'random';
+          out = await http.createLink({ url });
+        }
       }
-      if (out.kind !== 'created') {
-        this.deps.log.warn({ userId, slug, status: out.kind === 'failed' ? out.status : 409 }, 'short link: partner link not created');
-        return null;
+      if (!shortUrl) {
+        if (out.kind !== 'created') {
+          this.deps.log.warn({ userId, slug, status: out.kind === 'failed' ? out.status : 409 }, 'short link: partner link not created');
+          return null;
+        }
+        shortUrl = out.shortUrl;
       }
-      const stored = await this.deps.users.setCityShortUrlPartner(userId, out.shortUrl);
+      const stored = await this.deps.users.setCityShortUrlPartner(userId, shortUrl);
       this.deps.log.info({ userId, slug, stored }, 'short link: partner link created');
-      return stored ? out.shortUrl : null;
+      // not stored = another attempt (the other app color) got there first: that one is the link
+      return stored ? shortUrl : await this.storedPartner(userId);
     } catch (err) {
       this.deps.log.warn({ userId, slug, err: err instanceof Error ? err.message : String(err) }, 'short link: partner link not created');
       return null;
@@ -164,11 +204,17 @@ export class ShortLinkService {
     return { ok: true, user: await this.deps.users.setCityShortUrlCustom(user.id, shortUrl) };
   }
 
-  /** Back to the partner link; when there is none yet, one is created as on a first claim. */
-  async clearCustom(user: User): Promise<User> {
+  /**
+   * Back to the partner link. When there is none yet, one is created as on a first claim — FIRST:
+   * the custom link may be the only working one, so it is cleared only once a partner link exists.
+   */
+  async clearCustom(user: User): Promise<ClearCustomOutcome> {
+    const partner = user.city_short_url_partner ?? (await this.ensurePartner(user));
+    if (!partner) {
+      this.deps.log.info({ userId: user.id }, 'short link: custom link kept, no partner link to go back to');
+      return { ok: false, code: 'SHORT_LINK_PARTNER_UNAVAILABLE' };
+    }
     const updated = await this.deps.users.setCityShortUrlCustom(user.id, null);
-    if (updated.city_short_url_partner) return updated;
-    const partner = await this.ensurePartner(updated);
-    return partner ? { ...updated, city_short_url_partner: partner } : updated;
+    return { ok: true, user: updated.city_short_url_partner ? updated : { ...updated, city_short_url_partner: partner } };
   }
 }

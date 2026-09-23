@@ -64,7 +64,7 @@ import { CityPage } from './CityPage';
 
 const AT = '2026-09-22T10:00:00.000Z';
 const LATER = '2026-09-22T10:05:00.000Z';
-const CITY: PublicCity = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: AT, activity: 'coding', alive: true, progress: null }] }] }] };
+const CITY: PublicCity = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: AT, activity: 'coding', activity_verb: 'Moonwalking', alive: true, progress: null }] }] }] };
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 const fetchMock = vi.fn();
@@ -180,6 +180,13 @@ describe('CityPage', () => {
 
     await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'reading' }))));
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the published spinner verb like the office does', async () => {
+    fetchMock.mockResolvedValueOnce(json(CITY));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding', verb: 'Moonwalking' })));
   });
 
   // A tab closed or deleted while somebody watches leaves the room, instead of sitting there until a reload.

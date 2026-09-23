@@ -17,6 +17,7 @@ function build(opts: { user?: User; http?: ShortLinkHttp | null; now?: () => num
   const me = opts.user ?? user();
   const rows = new Map([[me.id, me]]);
   const users = {
+    findById: vi.fn(async (id: string) => rows.get(id)),
     setCityShortUrlPartner: vi.fn(async (id: string, url: string) => {
       const u = rows.get(id)!;
       if (u.city_short_url_partner) return false;
@@ -139,6 +140,17 @@ describe('DELETE /auth/me/city-link/custom', () => {
     const http = httpWith([{ kind: 'created', shortUrl: 'https://77a.it/pedro' }]);
     const res = await build({ http, user: user({ city_short_url_custom: 'https://77a.it/meu' }) }).app.inject({ method: 'DELETE', url: '/auth/me/city-link/custom' });
     expect(res.json()).toMatchObject({ short_url: 'https://77a.it/pedro', source: 'partner' });
+  });
+
+  // Review fix 1: never leave the person without a working short link
+  it('keeps the custom link and says why when the partner link cannot be created', async () => {
+    const { app, rows, users } = build({ http: httpWith([{ kind: 'failed', status: 500 }]), user: user({ city_short_url_custom: 'https://77a.it/meu' }) });
+    const res = await app.inject({ method: 'DELETE', url: '/auth/me/city-link/custom' });
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toMatchObject({ code: 'SHORT_LINK_PARTNER_UNAVAILABLE' });
+    expect(res.json().error).toMatch(/continua valendo/);
+    expect(users.setCityShortUrlCustom).not.toHaveBeenCalled();
+    expect(rows.get('u1')?.city_short_url_custom).toBe('https://77a.it/meu');
   });
 
   it('is off without a key', async () => {

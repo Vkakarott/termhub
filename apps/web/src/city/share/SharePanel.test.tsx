@@ -24,7 +24,7 @@ const CITY: PublicCity = {
   nickname: 'pedro',
   owner_name: 'Pedro',
   short_url: 'https://77a.it/pedro',
-  buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: '2026-09-23T10:00:00.000Z', activity: 'coding', alive: true, progress: null }] }] }],
+  buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: '2026-09-23T10:00:00.000Z', activity: 'coding', activity_verb: null, alive: true, progress: null }] }] }],
 };
 const MODEL = buildCityModel(toMachineEntries(CITY), () => undefined);
 

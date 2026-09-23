@@ -11,6 +11,7 @@ import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { ensureDirectory } from '../terminal/machine-fs.js';
 import { publicBus } from '../public/bus.js';
+import { publishTabOpened, publishTabsRemoved } from '../monitor/tab-events.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const linkParams = z.object({ id: z.string().min(1).max(64), machineId: z.string().min(1).max(64) });
@@ -160,7 +161,9 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     // Only the scope's own machines: a tab on a link outside the scope (cross-owner link) is neither
     // touched nor asked to close a session it has no business reaching.
     const machineIds = new Set(machines.map(({ machine }) => machine.id));
-    const tabs = (await repos.tabs.listByProject(id)).filter((t) => machineIds.has(t.machine_id));
+    // every tab goes with the project (the database cascades them), so every one is announced gone
+    const allTabs = await repos.tabs.listByProject(id);
+    const tabs = allTabs.filter((t) => machineIds.has(t.machine_id));
     await Promise.allSettled(
       tabs
         .filter((t) => t.tmux_session)
@@ -170,6 +173,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
         }),
     );
     await repos.projects.delete(id);
+    await publishTabsRemoved(repos, allTabs, machines.map(({ machine }) => machine));
     // A deleted room can never be publicly visible again either — tell the public bus regardless
     // of whether this project was ever published; a socket that never had it just no-ops.
     publicBus.publish({ project_id: id, is_public: false });
@@ -212,6 +216,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     const tabs = await repos.tabs.listByProjectMachine(id, machineId);
     await Promise.allSettled(tabs.filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)));
     for (const t of tabs) await repos.tabs.delete(t.id);
+    await publishTabsRemoved(repos, tabs, [machine]);
     await repos.projectMachines.unlink(id, machineId);
     // that room leaves the street at once (the project stays published on its other machines)
     publicBus.publishRoomsGone({ machine_id: machineId, project_id: id });
@@ -255,6 +260,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     const name = body.name ?? (kind === 'simulator' ? `Simulador ${count}` : nextTerminalName(existing.map((t) => t.name)));
     if (kind === 'simulator' && !machine.capabilities.includes('wda')) throw badRequest('Prepare o WDA nesta máquina antes de abrir um simulador');
     const tab = await repos.tabs.create(id, machine.id, name, { kind, simulator_udid: body.simulator_udid ?? null });
+    publishTabOpened(tab, machine);
     return reply.code(201).send({ tab: { ...tab, alive: false } });
   });
 }
