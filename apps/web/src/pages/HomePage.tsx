@@ -8,7 +8,7 @@ import { AiAccountsView } from '../components/AiAccountsView';
 import { HardwareView } from '../components/HardwareView';
 import { WaitlistView } from '../components/WaitlistView';
 import { NeedsYouList } from '../components/NeedsYouList';
-import { ProjectsByMachine } from '../components/ProjectsByMachine';
+import { ProjectCards } from '../components/ProjectCards';
 
 /** Home tabs; each one is shown only when the user's role grants its resource. */
 const TABS: { path: string; label: string; resource: string }[] = [
@@ -81,10 +81,10 @@ function Dashboard() {
 
       {error && <p className="text-sm text-danger">Não foi possível carregar o dashboard.</p>}
       {items && items.length === 0 && (
-        <p className="text-sm text-fg-dim">Nenhum projeto ativo. Passe o mouse sobre uma máquina na sidebar e clique em "+".</p>
+        <p className="text-sm text-fg-dim">Nenhum projeto ativo. Clique em "+ projeto" na sidebar.</p>
       )}
 
-      {items && <ProjectsByMachine items={items} statuses={statuses} />}
+      {items && <ProjectCards items={items} statuses={statuses} />}
     </div>
   );
 }

@@ -141,7 +141,7 @@ export function OfficePage() {
     const tabIds = items.map((i) => i.tab.id);
     const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
     for (const machine of machines) {
-      const mine = new Set(projects.filter((p) => p.machine_id === machine.id && p.status !== 'archived').map((p) => p.id));
+      const mine = new Set(projects.filter((p) => p.machines.some((l) => l.machine_id === machine.id) && p.status !== 'archived').map((p) => p.id));
       const missing = missingTabIds(byMachine[machine.id]?.snapshot ?? null, tabIds, mine, projectOf);
       if (missing.length === 0) continue;
       const asked = notified.current.get(machine.id) ?? new Set<string>();

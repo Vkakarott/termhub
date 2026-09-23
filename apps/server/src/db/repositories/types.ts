@@ -3,6 +3,7 @@ import type {
   Session as PrismaSession,
   Machine as PrismaMachine,
   Project as PrismaProject,
+  ProjectMachine as PrismaProjectMachine,
   Tab as PrismaTab,
   TabEvent as PrismaTabEvent,
   Task as PrismaTask,
@@ -82,9 +83,12 @@ export interface Machine {
 
 export interface Project {
   id: string;
-  machine_id: string;
+  /** null = orphan (owner deleted), visible only to admins viewing "all" */
+  owner_id: string | null;
+  /** short key used in URLs and card numbers (TERMHUB); unique, immutable */
+  key: string;
+  next_task_number: number;
   name: string;
-  cwd: string;
   status: ProjectStatus;
   description: string | null;
   /** published: readable by anyone with the /city/@nickname link */
@@ -95,9 +99,21 @@ export interface Project {
   public_id: string;
 }
 
+/** A project's link to one machine: where its terminals run there. */
+export interface ProjectMachine {
+  id: string;
+  project_id: string;
+  machine_id: string;
+  cwd: string;
+  position: number;
+  created_at: string;
+}
+
 export interface Tab {
   id: string;
   project_id: string;
+  /** the machine this tab's tmux session runs on */
+  machine_id: string;
   name: string;
   kind: TabKind;
   tmux_session: string | null;
@@ -245,9 +261,10 @@ export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null 
 
 export const mapProject = (p: PrismaProject): Project => ({
   id: p.id,
-  machine_id: p.machineId,
+  owner_id: p.ownerId,
+  key: p.key,
+  next_task_number: p.nextTaskNumber,
   name: p.name,
-  cwd: p.cwd,
   status: p.status,
   description: p.description,
   is_public: p.isPublic,
@@ -256,9 +273,19 @@ export const mapProject = (p: PrismaProject): Project => ({
   public_id: publicId('project', p.id),
 });
 
+export const mapProjectMachine = (l: PrismaProjectMachine): ProjectMachine => ({
+  id: l.id,
+  project_id: l.projectId,
+  machine_id: l.machineId,
+  cwd: l.cwd,
+  position: l.position,
+  created_at: l.createdAt.toISOString(),
+});
+
 export const mapTab = (t: PrismaTab): Tab => ({
   id: t.id,
   project_id: t.projectId,
+  machine_id: t.machineId,
   name: t.name,
   kind: t.kind,
   tmux_session: t.tmuxSession,

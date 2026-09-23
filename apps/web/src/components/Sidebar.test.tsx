@@ -1,6 +1,46 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Machine } from '../lib/types';
-import { agentVersionBadge, machineTitle } from './Sidebar';
+
+vi.mock('../lib/auth', () => ({
+  useAuth: () => ({
+    user: { id: 'u1', name: 'Pedro', avatar_url: null, email: 'pedro@example.com' },
+    logout: vi.fn(),
+    can: () => true,
+    viewAs: 'self',
+  }),
+}));
+vi.mock('../lib/monitor', () => ({ useMonitor: () => ({ items: [], needsYou: [] }) }));
+vi.mock('../lib/data', () => {
+  const machines = [
+    { id: 'm1', name: 'mac', type: 'agent', capabilities: [], is_local: false, os: null, owner_name: null, hooks_installed_at: new Date().toISOString() },
+    { id: 'm2', name: 'jarvis', type: 'agent', capabilities: [], is_local: false, os: null, owner_name: null, hooks_installed_at: new Date().toISOString() },
+  ];
+  const projects = [
+    { id: 'p1', key: 'ALPHA', name: 'alpha', status: 'active', machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }, { machine_id: 'm2', cwd: '/a', position: 1 }] },
+    { id: 'p2', key: 'BETA', name: 'beta', status: 'active', machines: [] },
+  ];
+  return {
+    useData: () => ({
+      machines,
+      projects,
+      hiddenLocal: [],
+      claimLocal: vi.fn(),
+      statuses: {},
+      missingTmux: {},
+      loading: false,
+      deleteMachine: vi.fn(),
+      deleteProject: vi.fn(),
+      checkStatus: vi.fn(),
+      machinesOf: (p: { machines: { machine_id: string }[] }) => p.machines.map((l) => machines.find((m) => m.id === l.machine_id)).filter(Boolean),
+    }),
+  };
+});
+
+import { Sidebar, agentVersionBadge, machineTitle } from './Sidebar';
 
 function agentMachine(overrides: Partial<Machine> = {}): Machine {
   return {
@@ -53,5 +93,33 @@ describe('agentVersionBadge', () => {
   it('is null without a reported version or for non-agent machines', () => {
     expect(agentVersionBadge(agentMachine({ agent_version: null }))).toBeNull();
     expect(agentVersionBadge(agentMachine({ type: 'ssh', host: 'h' }))).toBeNull();
+  });
+});
+
+describe('Sidebar', () => {
+  afterEach(() => cleanup());
+
+  it('lists projects with their machines nested, and no top-level machine list', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('alpha')).toBeInTheDocument();
+    expect(screen.getAllByText('mac')).toHaveLength(1);
+    expect(screen.getAllByText('jarvis')).toHaveLength(1);
+    expect(screen.getByText(/sem máquina/)).toBeInTheDocument();
+  });
+
+  it('has a "Máquinas" nav link to /machines and a single "Novo projeto" add button', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+    const machinesLink = screen.getByRole('link', { name: /Máquinas/ });
+    expect(machinesLink).toHaveAttribute('href', '/machines');
+    expect(screen.getByTitle('Novo projeto')).toBeInTheDocument();
+    expect(screen.queryByText('+ máquina')).not.toBeInTheDocument();
   });
 });

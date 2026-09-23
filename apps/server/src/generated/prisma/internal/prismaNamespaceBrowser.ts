@@ -59,6 +59,7 @@ export const ModelName = {
   LoginAttempt: 'LoginAttempt',
   Machine: 'Machine',
   Project: 'Project',
+  ProjectMachine: 'ProjectMachine',
   Tab: 'Tab',
   TabEvent: 'TabEvent',
   MachineHook: 'MachineHook',
@@ -195,9 +196,10 @@ export type MachineScalarFieldEnum = (typeof MachineScalarFieldEnum)[keyof typeo
 
 export const ProjectScalarFieldEnum = {
   id: 'id',
-  machineId: 'machineId',
+  ownerId: 'ownerId',
+  key: 'key',
+  nextTaskNumber: 'nextTaskNumber',
   name: 'name',
-  cwd: 'cwd',
   status: 'status',
   description: 'description',
   isPublic: 'isPublic',
@@ -208,9 +210,22 @@ export const ProjectScalarFieldEnum = {
 export type ProjectScalarFieldEnum = (typeof ProjectScalarFieldEnum)[keyof typeof ProjectScalarFieldEnum]
 
 
+export const ProjectMachineScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  machineId: 'machineId',
+  cwd: 'cwd',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectMachineScalarFieldEnum = (typeof ProjectMachineScalarFieldEnum)[keyof typeof ProjectMachineScalarFieldEnum]
+
+
 export const TabScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
+  machineId: 'machineId',
   name: 'name',
   kind: 'kind',
   tmuxSession: 'tmuxSession',

@@ -131,9 +131,10 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
 
     const project: Project = {
       id: 'p1',
-      machine_id: 'm1',
+      owner_id: 'u1',
+      key: 'E2E',
+      next_task_number: 1,
       name: 'e2e-project',
-      cwd: projectCwd,
       status: 'active',
       description: null,
       last_terminal_at: null,
@@ -148,6 +149,7 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
       tabs[id] = {
         id,
         project_id: 'p1',
+        machine_id: 'm1',
         name,
         kind: 'terminal',
         tmux_session: session,
@@ -165,6 +167,9 @@ describe.skipIf(!hasTmux)('agent e2e: browser <-> server <-> agent <-> real tmux
       projects: {
         findById: vi.fn(async () => project),
         touchTerminal: vi.fn(async () => {}),
+      },
+      projectMachines: {
+        find: vi.fn(async () => ({ id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: projectCwd, position: 0, created_at: '' })),
       },
       machines: {
         findById: vi.fn(async () => machine),

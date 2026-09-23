@@ -27,15 +27,15 @@ const action = (over: Partial<ChatAction>): ChatAction => ({
 });
 
 // This owner's own rows.
-const tab = { id: 't1', project_id: 'p1', name: 'Terminal 2' };
-const project = { id: 'p1', machine_id: 'm1', name: 'reactivando' };
+const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 2' };
+const project = { id: 'p1', name: 'reactivando' };
 const machine = { id: 'm1', name: 'macbook m3' };
 const task = { id: 'tk1', project_id: 'p1', title: 'Corrigir o build' };
 
 // Another user's rows — a proposed action naming one of these ids must never surface its name,
 // title, or existence on this owner's card (the cross-tenant disclosure this fix closes).
-const foreignTab = { id: 't9', project_id: 'p9', name: 'Aba Alheia' };
-const foreignProject = { id: 'p9', machine_id: 'm9', name: 'Projeto Alheio' };
+const foreignTab = { id: 't9', project_id: 'p9', machine_id: 'm9', name: 'Aba Alheia' };
+const foreignProject = { id: 'p9', name: 'Projeto Alheio' };
 const foreignMachine = { id: 'm9', name: 'Máquina Alheia' };
 const foreignTask = { id: 'tk9', project_id: 'p9', title: 'Tarefa Alheia' };
 
@@ -74,10 +74,10 @@ it('resolves the project and machine through the tab when the row itself only ca
   expect(card.summary).toBe('rodar o comando `ls -la` na aba Terminal 2 do projeto reactivando, no macbook m3');
 });
 
-it('describes a project-only action (no tab) with the project and machine, not "na aba"', async () => {
+it('describes a project-only action (no tab) with the project, not "na aba" — and no machine: a project has no single one', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ tool: 'open_tab', args: { project_id: 'p1' }, project_id: 'p1' })], OWNER);
-  expect(card.summary).toBe('abrir uma aba nova no projeto reactivando, no macbook m3');
+  expect(card.summary).toBe('abrir uma aba nova no projeto reactivando');
 });
 
 it('falls back to the verb alone when nothing at all can be resolved (no tab, no project, no task id)', async () => {
@@ -96,22 +96,22 @@ it('names an unrecognised tool inside a sentence rather than showing it bare', a
 // — its args only carry a task_id, which the gate never copies onto the row — so the task itself has
 // to be resolved to say anything better than a bare id. delete_task is irreversible: this card is the
 // only thing the user sees before authorising it, so approving by id alone would be approving blind.
-it('names a delete_task card by the task\'s title and the project it belongs to', async () => {
+it('names a delete_task card by the task\'s title and the project it belongs to — no machine: a task/project has no single one', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ tool: 'delete_task', args: { task_id: 'tk1', confirm: true }, class: 'irreversible' })], OWNER);
-  expect(card.summary).toBe('apagar a tarefa "Corrigir o build" no projeto reactivando, no macbook m3');
+  expect(card.summary).toBe('apagar a tarefa "Corrigir o build" no projeto reactivando');
 });
 
 it('names every other task tool by the task\'s title too', async () => {
   const repos = fakeRepos();
   const [addSubtasks] = await describeActions(repos, [action({ tool: 'add_subtasks', args: { task_id: 'tk1', subtasks: [{ title: 'x' }] } })], OWNER);
-  expect(addSubtasks.summary).toBe('adicionar subtarefas à tarefa "Corrigir o build" no projeto reactivando, no macbook m3');
+  expect(addSubtasks.summary).toBe('adicionar subtarefas à tarefa "Corrigir o build" no projeto reactivando');
 
   const [updateTask] = await describeActions(repos, [action({ tool: 'update_task', args: { task_id: 'tk1', title: 'y' } })], OWNER);
-  expect(updateTask.summary).toBe('atualizar a tarefa "Corrigir o build" no projeto reactivando, no macbook m3');
+  expect(updateTask.summary).toBe('atualizar a tarefa "Corrigir o build" no projeto reactivando');
 
   const [moveTask] = await describeActions(repos, [action({ tool: 'move_task', args: { task_id: 'tk1', status: 'done' } })], OWNER);
-  expect(moveTask.summary).toBe('mover a tarefa "Corrigir o build" no projeto reactivando, no macbook m3');
+  expect(moveTask.summary).toBe('mover a tarefa "Corrigir o build" no projeto reactivando');
 });
 
 it('says plainly that a deleted task no longer exists, rather than falling back to its bare id — itself useful for deciding', async () => {

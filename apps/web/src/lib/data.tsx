@@ -8,7 +8,7 @@ export type MachineStatus = 'checking' | 'online' | 'offline';
 interface DataState {
   /** machines visible in this browser: local machines of other computers are left out */
   machines: Machine[];
-  /** projects of the visible machines */
+  /** every project of the scope (machines a browser hides do not hide projects) */
   projects: Project[];
   /** local machines (someone's own computer) added from another browser; hidden until claimed */
   hiddenLocal: Machine[];
@@ -28,6 +28,12 @@ interface DataState {
   deleteProject: (id: string) => Promise<void>;
   /** atualiza o contador de tasks abertas do projeto (sidebar) */
   setOpenTasks: (projectId: string, n: number) => void;
+  linkMachine: (projectId: string, input: { machine_id: string; cwd: string; create_dir?: boolean }) => Promise<void>;
+  updateProjectMachine: (projectId: string, machineId: string, cwd: string, createDir: boolean) => Promise<void>;
+  /** removes the link; resolves with how many tabs were closed */
+  unlinkMachine: (projectId: string, machineId: string) => Promise<number>;
+  /** the visible Machine records a project is linked to, in link order */
+  machinesOf: (project: Project) => Machine[];
 }
 
 const DataContext = createContext<DataState | null>(null);
@@ -40,10 +46,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [localIds, setLocalIds] = useState(() => localMachineIds());
   const { machines, projects, hiddenLocal } = useMemo(() => {
     const visible = allMachines.filter((m) => !m.is_local || localIds.has(m.id));
-    const ids = new Set(visible.map((m) => m.id));
     return {
       machines: visible,
-      projects: allProjects.filter((p) => ids.has(p.machine_id)),
+      projects: allProjects,
       hiddenLocal: allMachines.filter((m) => m.is_local && !localIds.has(m.id)),
     };
   }, [allMachines, allProjects, localIds]);
@@ -142,6 +147,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         await api.machines.remove(id);
         forgetLocalMachine(id);
         setMachines((m) => m.filter((x) => x.id !== id));
+        setProjects((p) => p.map((x) => ({ ...x, machines: x.machines.filter((l) => l.machine_id !== id) })));
       },
       async createProject(input) {
         const { project } = await api.projects.create(input);
@@ -158,6 +164,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setProjects((p) => p.filter((x) => x.id !== id));
       },
       setOpenTasks,
+      async linkMachine(projectId, input) {
+        const { link } = await api.projects.linkMachine(projectId, input);
+        setProjects((p) => p.map((x) => (x.id === projectId ? { ...x, machines: [...x.machines, link] } : x)));
+      },
+      async updateProjectMachine(projectId, machineId, cwd, createDir) {
+        const { link } = await api.projects.updateMachine(projectId, machineId, { cwd, create_dir: createDir });
+        setProjects((p) => p.map((x) => (x.id === projectId ? { ...x, machines: x.machines.map((l) => (l.machine_id === machineId ? link : l)) } : x)));
+      },
+      async unlinkMachine(projectId, machineId) {
+        const { closed_tabs } = await api.projects.unlinkMachine(projectId, machineId);
+        setProjects((p) => p.map((x) => (x.id === projectId ? { ...x, machines: x.machines.filter((l) => l.machine_id !== machineId) } : x)));
+        return closed_tabs;
+      },
+      machinesOf(project) {
+        return project.machines.map((l) => machines.find((m) => m.id === l.machine_id)).filter((m): m is Machine => !!m);
+      },
     }),
     [machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, refresh, checkStatus, setOpenTasks],
   );

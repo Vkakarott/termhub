@@ -405,6 +405,7 @@ export const ModelName = {
   LoginAttempt: 'LoginAttempt',
   Machine: 'Machine',
   Project: 'Project',
+  ProjectMachine: 'ProjectMachine',
   Tab: 'Tab',
   TabEvent: 'TabEvent',
   MachineHook: 'MachineHook',
@@ -437,7 +438,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAction" | "instanceSecret"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAction" | "instanceSecret"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1030,6 +1031,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.ProjectCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.ProjectCountAggregateOutputType> | number
+        }
+      }
+    }
+    ProjectMachine: {
+      payload: Prisma.$ProjectMachinePayload<ExtArgs>
+      fields: Prisma.ProjectMachineFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ProjectMachineFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ProjectMachineFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>
+        }
+        findFirst: {
+          args: Prisma.ProjectMachineFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ProjectMachineFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>
+        }
+        findMany: {
+          args: Prisma.ProjectMachineFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>[]
+        }
+        create: {
+          args: Prisma.ProjectMachineCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>
+        }
+        createMany: {
+          args: Prisma.ProjectMachineCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ProjectMachineCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>[]
+        }
+        delete: {
+          args: Prisma.ProjectMachineDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>
+        }
+        update: {
+          args: Prisma.ProjectMachineUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>
+        }
+        deleteMany: {
+          args: Prisma.ProjectMachineDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ProjectMachineUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ProjectMachineUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>[]
+        }
+        upsert: {
+          args: Prisma.ProjectMachineUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProjectMachinePayload>
+        }
+        aggregate: {
+          args: Prisma.ProjectMachineAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateProjectMachine>
+        }
+        groupBy: {
+          args: Prisma.ProjectMachineGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectMachineGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ProjectMachineCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProjectMachineCountAggregateOutputType> | number
         }
       }
     }
@@ -2431,9 +2506,10 @@ export type MachineScalarFieldEnum = (typeof MachineScalarFieldEnum)[keyof typeo
 
 export const ProjectScalarFieldEnum = {
   id: 'id',
-  machineId: 'machineId',
+  ownerId: 'ownerId',
+  key: 'key',
+  nextTaskNumber: 'nextTaskNumber',
   name: 'name',
-  cwd: 'cwd',
   status: 'status',
   description: 'description',
   isPublic: 'isPublic',
@@ -2444,9 +2520,22 @@ export const ProjectScalarFieldEnum = {
 export type ProjectScalarFieldEnum = (typeof ProjectScalarFieldEnum)[keyof typeof ProjectScalarFieldEnum]
 
 
+export const ProjectMachineScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  machineId: 'machineId',
+  cwd: 'cwd',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectMachineScalarFieldEnum = (typeof ProjectMachineScalarFieldEnum)[keyof typeof ProjectMachineScalarFieldEnum]
+
+
 export const TabScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
+  machineId: 'machineId',
   name: 'name',
   kind: 'kind',
   tmuxSession: 'tmuxSession',
@@ -3117,6 +3206,7 @@ export type GlobalOmitConfig = {
   loginAttempt?: Prisma.LoginAttemptOmit
   machine?: Prisma.MachineOmit
   project?: Prisma.ProjectOmit
+  projectMachine?: Prisma.ProjectMachineOmit
   tab?: Prisma.TabOmit
   tabEvent?: Prisma.TabEventOmit
   machineHook?: Prisma.MachineHookOmit

@@ -309,7 +309,8 @@ export type MachineWhereInput = {
   ownerId?: Prisma.StringNullableFilter<"Machine"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Machine"> | Date | string
   owner?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
-  projects?: Prisma.ProjectListRelationFilter
+  projectLinks?: Prisma.ProjectMachineListRelationFilter
+  tabs?: Prisma.TabListRelationFilter
   aiAccounts?: Prisma.AiAccountListRelationFilter
   hook?: Prisma.XOR<Prisma.MachineHookNullableScalarRelationFilter, Prisma.MachineHookWhereInput> | null
   uploads?: Prisma.UploadListRelationFilter
@@ -335,7 +336,8 @@ export type MachineOrderByWithRelationInput = {
   ownerId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   owner?: Prisma.UserOrderByWithRelationInput
-  projects?: Prisma.ProjectOrderByRelationAggregateInput
+  projectLinks?: Prisma.ProjectMachineOrderByRelationAggregateInput
+  tabs?: Prisma.TabOrderByRelationAggregateInput
   aiAccounts?: Prisma.AiAccountOrderByRelationAggregateInput
   hook?: Prisma.MachineHookOrderByWithRelationInput
   uploads?: Prisma.UploadOrderByRelationAggregateInput
@@ -364,7 +366,8 @@ export type MachineWhereUniqueInput = Prisma.AtLeast<{
   ownerId?: Prisma.StringNullableFilter<"Machine"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Machine"> | Date | string
   owner?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
-  projects?: Prisma.ProjectListRelationFilter
+  projectLinks?: Prisma.ProjectMachineListRelationFilter
+  tabs?: Prisma.TabListRelationFilter
   aiAccounts?: Prisma.AiAccountListRelationFilter
   hook?: Prisma.XOR<Prisma.MachineHookNullableScalarRelationFilter, Prisma.MachineHookWhereInput> | null
   uploads?: Prisma.UploadListRelationFilter
@@ -437,7 +440,8 @@ export type MachineCreateInput = {
   isLocal?: boolean
   createdAt?: Date | string
   owner?: Prisma.UserCreateNestedOneWithoutMachinesInput
-  projects?: Prisma.ProjectCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadCreateNestedManyWithoutMachineInput
@@ -462,7 +466,8 @@ export type MachineUncheckedCreateInput = {
   isLocal?: boolean
   ownerId?: string | null
   createdAt?: Date | string
-  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountUncheckedCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookUncheckedCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutMachineInput
@@ -487,7 +492,8 @@ export type MachineUpdateInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneWithoutMachinesNestedInput
-  projects?: Prisma.ProjectUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutMachineNestedInput
@@ -512,7 +518,8 @@ export type MachineUncheckedUpdateInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projects?: Prisma.ProjectUncheckedUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUncheckedUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUncheckedUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUncheckedUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutMachineNestedInput
@@ -710,18 +717,32 @@ export type EnumMachineTypeFieldUpdateOperationsInput = {
   set?: $Enums.MachineType
 }
 
-export type MachineCreateNestedOneWithoutProjectsInput = {
-  create?: Prisma.XOR<Prisma.MachineCreateWithoutProjectsInput, Prisma.MachineUncheckedCreateWithoutProjectsInput>
-  connectOrCreate?: Prisma.MachineCreateOrConnectWithoutProjectsInput
+export type MachineCreateNestedOneWithoutProjectLinksInput = {
+  create?: Prisma.XOR<Prisma.MachineCreateWithoutProjectLinksInput, Prisma.MachineUncheckedCreateWithoutProjectLinksInput>
+  connectOrCreate?: Prisma.MachineCreateOrConnectWithoutProjectLinksInput
   connect?: Prisma.MachineWhereUniqueInput
 }
 
-export type MachineUpdateOneRequiredWithoutProjectsNestedInput = {
-  create?: Prisma.XOR<Prisma.MachineCreateWithoutProjectsInput, Prisma.MachineUncheckedCreateWithoutProjectsInput>
-  connectOrCreate?: Prisma.MachineCreateOrConnectWithoutProjectsInput
-  upsert?: Prisma.MachineUpsertWithoutProjectsInput
+export type MachineUpdateOneRequiredWithoutProjectLinksNestedInput = {
+  create?: Prisma.XOR<Prisma.MachineCreateWithoutProjectLinksInput, Prisma.MachineUncheckedCreateWithoutProjectLinksInput>
+  connectOrCreate?: Prisma.MachineCreateOrConnectWithoutProjectLinksInput
+  upsert?: Prisma.MachineUpsertWithoutProjectLinksInput
   connect?: Prisma.MachineWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.MachineUpdateToOneWithWhereWithoutProjectsInput, Prisma.MachineUpdateWithoutProjectsInput>, Prisma.MachineUncheckedUpdateWithoutProjectsInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.MachineUpdateToOneWithWhereWithoutProjectLinksInput, Prisma.MachineUpdateWithoutProjectLinksInput>, Prisma.MachineUncheckedUpdateWithoutProjectLinksInput>
+}
+
+export type MachineCreateNestedOneWithoutTabsInput = {
+  create?: Prisma.XOR<Prisma.MachineCreateWithoutTabsInput, Prisma.MachineUncheckedCreateWithoutTabsInput>
+  connectOrCreate?: Prisma.MachineCreateOrConnectWithoutTabsInput
+  connect?: Prisma.MachineWhereUniqueInput
+}
+
+export type MachineUpdateOneRequiredWithoutTabsNestedInput = {
+  create?: Prisma.XOR<Prisma.MachineCreateWithoutTabsInput, Prisma.MachineUncheckedCreateWithoutTabsInput>
+  connectOrCreate?: Prisma.MachineCreateOrConnectWithoutTabsInput
+  upsert?: Prisma.MachineUpsertWithoutTabsInput
+  connect?: Prisma.MachineWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.MachineUpdateToOneWithWhereWithoutTabsInput, Prisma.MachineUpdateWithoutTabsInput>, Prisma.MachineUncheckedUpdateWithoutTabsInput>
 }
 
 export type MachineCreateNestedOneWithoutHookInput = {
@@ -799,7 +820,8 @@ export type MachineCreateWithoutOwnerInput = {
   agentAutoUpdate?: boolean
   isLocal?: boolean
   createdAt?: Date | string
-  projects?: Prisma.ProjectCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadCreateNestedManyWithoutMachineInput
@@ -823,7 +845,8 @@ export type MachineUncheckedCreateWithoutOwnerInput = {
   agentAutoUpdate?: boolean
   isLocal?: boolean
   createdAt?: Date | string
-  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountUncheckedCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookUncheckedCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutMachineInput
@@ -879,7 +902,7 @@ export type MachineScalarWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Machine"> | Date | string
 }
 
-export type MachineCreateWithoutProjectsInput = {
+export type MachineCreateWithoutProjectLinksInput = {
   id: string
   name: string
   host?: string | null
@@ -897,13 +920,14 @@ export type MachineCreateWithoutProjectsInput = {
   isLocal?: boolean
   createdAt?: Date | string
   owner?: Prisma.UserCreateNestedOneWithoutMachinesInput
+  tabs?: Prisma.TabCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadCreateNestedManyWithoutMachineInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutMachineInput
 }
 
-export type MachineUncheckedCreateWithoutProjectsInput = {
+export type MachineUncheckedCreateWithoutProjectLinksInput = {
   id: string
   name: string
   host?: string | null
@@ -921,29 +945,30 @@ export type MachineUncheckedCreateWithoutProjectsInput = {
   isLocal?: boolean
   ownerId?: string | null
   createdAt?: Date | string
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountUncheckedCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookUncheckedCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutMachineInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutMachineInput
 }
 
-export type MachineCreateOrConnectWithoutProjectsInput = {
+export type MachineCreateOrConnectWithoutProjectLinksInput = {
   where: Prisma.MachineWhereUniqueInput
-  create: Prisma.XOR<Prisma.MachineCreateWithoutProjectsInput, Prisma.MachineUncheckedCreateWithoutProjectsInput>
+  create: Prisma.XOR<Prisma.MachineCreateWithoutProjectLinksInput, Prisma.MachineUncheckedCreateWithoutProjectLinksInput>
 }
 
-export type MachineUpsertWithoutProjectsInput = {
-  update: Prisma.XOR<Prisma.MachineUpdateWithoutProjectsInput, Prisma.MachineUncheckedUpdateWithoutProjectsInput>
-  create: Prisma.XOR<Prisma.MachineCreateWithoutProjectsInput, Prisma.MachineUncheckedCreateWithoutProjectsInput>
+export type MachineUpsertWithoutProjectLinksInput = {
+  update: Prisma.XOR<Prisma.MachineUpdateWithoutProjectLinksInput, Prisma.MachineUncheckedUpdateWithoutProjectLinksInput>
+  create: Prisma.XOR<Prisma.MachineCreateWithoutProjectLinksInput, Prisma.MachineUncheckedCreateWithoutProjectLinksInput>
   where?: Prisma.MachineWhereInput
 }
 
-export type MachineUpdateToOneWithWhereWithoutProjectsInput = {
+export type MachineUpdateToOneWithWhereWithoutProjectLinksInput = {
   where?: Prisma.MachineWhereInput
-  data: Prisma.XOR<Prisma.MachineUpdateWithoutProjectsInput, Prisma.MachineUncheckedUpdateWithoutProjectsInput>
+  data: Prisma.XOR<Prisma.MachineUpdateWithoutProjectLinksInput, Prisma.MachineUncheckedUpdateWithoutProjectLinksInput>
 }
 
-export type MachineUpdateWithoutProjectsInput = {
+export type MachineUpdateWithoutProjectLinksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -961,13 +986,14 @@ export type MachineUpdateWithoutProjectsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneWithoutMachinesNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutMachineNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutMachineNestedInput
 }
 
-export type MachineUncheckedUpdateWithoutProjectsInput = {
+export type MachineUncheckedUpdateWithoutProjectLinksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -985,6 +1011,123 @@ export type MachineUncheckedUpdateWithoutProjectsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutMachineNestedInput
+  aiAccounts?: Prisma.AiAccountUncheckedUpdateManyWithoutMachineNestedInput
+  hook?: Prisma.MachineHookUncheckedUpdateOneWithoutMachineNestedInput
+  uploads?: Prisma.UploadUncheckedUpdateManyWithoutMachineNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutMachineNestedInput
+}
+
+export type MachineCreateWithoutTabsInput = {
+  id: string
+  name: string
+  host?: string | null
+  sshUser?: string | null
+  sshPort?: number
+  type: $Enums.MachineType
+  os?: string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Date | string | null
+  agentTokenHash?: string | null
+  agentTokenCreatedAt?: Date | string | null
+  agentVersion?: string | null
+  agentLastSeenAt?: Date | string | null
+  agentAutoUpdate?: boolean
+  isLocal?: boolean
+  createdAt?: Date | string
+  owner?: Prisma.UserCreateNestedOneWithoutMachinesInput
+  projectLinks?: Prisma.ProjectMachineCreateNestedManyWithoutMachineInput
+  aiAccounts?: Prisma.AiAccountCreateNestedManyWithoutMachineInput
+  hook?: Prisma.MachineHookCreateNestedOneWithoutMachineInput
+  uploads?: Prisma.UploadCreateNestedManyWithoutMachineInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutMachineInput
+}
+
+export type MachineUncheckedCreateWithoutTabsInput = {
+  id: string
+  name: string
+  host?: string | null
+  sshUser?: string | null
+  sshPort?: number
+  type: $Enums.MachineType
+  os?: string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Date | string | null
+  agentTokenHash?: string | null
+  agentTokenCreatedAt?: Date | string | null
+  agentVersion?: string | null
+  agentLastSeenAt?: Date | string | null
+  agentAutoUpdate?: boolean
+  isLocal?: boolean
+  ownerId?: string | null
+  createdAt?: Date | string
+  projectLinks?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutMachineInput
+  aiAccounts?: Prisma.AiAccountUncheckedCreateNestedManyWithoutMachineInput
+  hook?: Prisma.MachineHookUncheckedCreateNestedOneWithoutMachineInput
+  uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutMachineInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutMachineInput
+}
+
+export type MachineCreateOrConnectWithoutTabsInput = {
+  where: Prisma.MachineWhereUniqueInput
+  create: Prisma.XOR<Prisma.MachineCreateWithoutTabsInput, Prisma.MachineUncheckedCreateWithoutTabsInput>
+}
+
+export type MachineUpsertWithoutTabsInput = {
+  update: Prisma.XOR<Prisma.MachineUpdateWithoutTabsInput, Prisma.MachineUncheckedUpdateWithoutTabsInput>
+  create: Prisma.XOR<Prisma.MachineCreateWithoutTabsInput, Prisma.MachineUncheckedCreateWithoutTabsInput>
+  where?: Prisma.MachineWhereInput
+}
+
+export type MachineUpdateToOneWithWhereWithoutTabsInput = {
+  where?: Prisma.MachineWhereInput
+  data: Prisma.XOR<Prisma.MachineUpdateWithoutTabsInput, Prisma.MachineUncheckedUpdateWithoutTabsInput>
+}
+
+export type MachineUpdateWithoutTabsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sshPort?: Prisma.IntFieldUpdateOperationsInput | number
+  type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  agentTokenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentTokenCreatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  agentVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentLastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  agentAutoUpdate?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  owner?: Prisma.UserUpdateOneWithoutMachinesNestedInput
+  projectLinks?: Prisma.ProjectMachineUpdateManyWithoutMachineNestedInput
+  aiAccounts?: Prisma.AiAccountUpdateManyWithoutMachineNestedInput
+  hook?: Prisma.MachineHookUpdateOneWithoutMachineNestedInput
+  uploads?: Prisma.UploadUpdateManyWithoutMachineNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutMachineNestedInput
+}
+
+export type MachineUncheckedUpdateWithoutTabsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sshPort?: Prisma.IntFieldUpdateOperationsInput | number
+  type?: Prisma.EnumMachineTypeFieldUpdateOperationsInput | $Enums.MachineType
+  os?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  capabilities?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  checkedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  agentTokenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentTokenCreatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  agentVersion?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  agentLastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  agentAutoUpdate?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  projectLinks?: Prisma.ProjectMachineUncheckedUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUncheckedUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUncheckedUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutMachineNestedInput
@@ -1009,7 +1152,8 @@ export type MachineCreateWithoutHookInput = {
   isLocal?: boolean
   createdAt?: Date | string
   owner?: Prisma.UserCreateNestedOneWithoutMachinesInput
-  projects?: Prisma.ProjectCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountCreateNestedManyWithoutMachineInput
   uploads?: Prisma.UploadCreateNestedManyWithoutMachineInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutMachineInput
@@ -1033,7 +1177,8 @@ export type MachineUncheckedCreateWithoutHookInput = {
   isLocal?: boolean
   ownerId?: string | null
   createdAt?: Date | string
-  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountUncheckedCreateNestedManyWithoutMachineInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutMachineInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutMachineInput
@@ -1073,7 +1218,8 @@ export type MachineUpdateWithoutHookInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneWithoutMachinesNestedInput
-  projects?: Prisma.ProjectUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUpdateManyWithoutMachineNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutMachineNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutMachineNestedInput
@@ -1097,7 +1243,8 @@ export type MachineUncheckedUpdateWithoutHookInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projects?: Prisma.ProjectUncheckedUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUncheckedUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUncheckedUpdateManyWithoutMachineNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutMachineNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutMachineNestedInput
@@ -1121,7 +1268,8 @@ export type MachineCreateWithoutAiAccountsInput = {
   isLocal?: boolean
   createdAt?: Date | string
   owner?: Prisma.UserCreateNestedOneWithoutMachinesInput
-  projects?: Prisma.ProjectCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadCreateNestedManyWithoutMachineInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutMachineInput
@@ -1145,7 +1293,8 @@ export type MachineUncheckedCreateWithoutAiAccountsInput = {
   isLocal?: boolean
   ownerId?: string | null
   createdAt?: Date | string
-  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookUncheckedCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutMachineInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutMachineInput
@@ -1185,7 +1334,8 @@ export type MachineUpdateWithoutAiAccountsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneWithoutMachinesNestedInput
-  projects?: Prisma.ProjectUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutMachineNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutMachineNestedInput
@@ -1209,7 +1359,8 @@ export type MachineUncheckedUpdateWithoutAiAccountsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projects?: Prisma.ProjectUncheckedUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUncheckedUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUncheckedUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutMachineNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutMachineNestedInput
@@ -1233,7 +1384,8 @@ export type MachineCreateWithoutUploadsInput = {
   isLocal?: boolean
   createdAt?: Date | string
   owner?: Prisma.UserCreateNestedOneWithoutMachinesInput
-  projects?: Prisma.ProjectCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookCreateNestedOneWithoutMachineInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutMachineInput
@@ -1257,7 +1409,8 @@ export type MachineUncheckedCreateWithoutUploadsInput = {
   isLocal?: boolean
   ownerId?: string | null
   createdAt?: Date | string
-  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountUncheckedCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookUncheckedCreateNestedOneWithoutMachineInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutMachineInput
@@ -1297,7 +1450,8 @@ export type MachineUpdateWithoutUploadsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneWithoutMachinesNestedInput
-  projects?: Prisma.ProjectUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUpdateOneWithoutMachineNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutMachineNestedInput
@@ -1321,7 +1475,8 @@ export type MachineUncheckedUpdateWithoutUploadsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projects?: Prisma.ProjectUncheckedUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUncheckedUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUncheckedUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUncheckedUpdateOneWithoutMachineNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutMachineNestedInput
@@ -1345,7 +1500,8 @@ export type MachineCreateWithoutChatConversationsInput = {
   isLocal?: boolean
   createdAt?: Date | string
   owner?: Prisma.UserCreateNestedOneWithoutMachinesInput
-  projects?: Prisma.ProjectCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadCreateNestedManyWithoutMachineInput
@@ -1369,7 +1525,8 @@ export type MachineUncheckedCreateWithoutChatConversationsInput = {
   isLocal?: boolean
   ownerId?: string | null
   createdAt?: Date | string
-  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutMachineInput
+  projectLinks?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutMachineInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutMachineInput
   aiAccounts?: Prisma.AiAccountUncheckedCreateNestedManyWithoutMachineInput
   hook?: Prisma.MachineHookUncheckedCreateNestedOneWithoutMachineInput
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutMachineInput
@@ -1409,7 +1566,8 @@ export type MachineUpdateWithoutChatConversationsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneWithoutMachinesNestedInput
-  projects?: Prisma.ProjectUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutMachineNestedInput
@@ -1433,7 +1591,8 @@ export type MachineUncheckedUpdateWithoutChatConversationsInput = {
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projects?: Prisma.ProjectUncheckedUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUncheckedUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUncheckedUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUncheckedUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutMachineNestedInput
@@ -1475,7 +1634,8 @@ export type MachineUpdateWithoutOwnerInput = {
   agentAutoUpdate?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projects?: Prisma.ProjectUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUpdateManyWithoutMachineNestedInput
@@ -1499,7 +1659,8 @@ export type MachineUncheckedUpdateWithoutOwnerInput = {
   agentAutoUpdate?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isLocal?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  projects?: Prisma.ProjectUncheckedUpdateManyWithoutMachineNestedInput
+  projectLinks?: Prisma.ProjectMachineUncheckedUpdateManyWithoutMachineNestedInput
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutMachineNestedInput
   aiAccounts?: Prisma.AiAccountUncheckedUpdateManyWithoutMachineNestedInput
   hook?: Prisma.MachineHookUncheckedUpdateOneWithoutMachineNestedInput
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutMachineNestedInput
@@ -1531,14 +1692,16 @@ export type MachineUncheckedUpdateManyWithoutOwnerInput = {
  */
 
 export type MachineCountOutputType = {
-  projects: number
+  projectLinks: number
+  tabs: number
   aiAccounts: number
   uploads: number
   chatConversations: number
 }
 
 export type MachineCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  projects?: boolean | MachineCountOutputTypeCountProjectsArgs
+  projectLinks?: boolean | MachineCountOutputTypeCountProjectLinksArgs
+  tabs?: boolean | MachineCountOutputTypeCountTabsArgs
   aiAccounts?: boolean | MachineCountOutputTypeCountAiAccountsArgs
   uploads?: boolean | MachineCountOutputTypeCountUploadsArgs
   chatConversations?: boolean | MachineCountOutputTypeCountChatConversationsArgs
@@ -1557,8 +1720,15 @@ export type MachineCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Exte
 /**
  * MachineCountOutputType without action
  */
-export type MachineCountOutputTypeCountProjectsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.ProjectWhereInput
+export type MachineCountOutputTypeCountProjectLinksArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ProjectMachineWhereInput
+}
+
+/**
+ * MachineCountOutputType without action
+ */
+export type MachineCountOutputTypeCountTabsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TabWhereInput
 }
 
 /**
@@ -1602,7 +1772,8 @@ export type MachineSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   ownerId?: boolean
   createdAt?: boolean
   owner?: boolean | Prisma.Machine$ownerArgs<ExtArgs>
-  projects?: boolean | Prisma.Machine$projectsArgs<ExtArgs>
+  projectLinks?: boolean | Prisma.Machine$projectLinksArgs<ExtArgs>
+  tabs?: boolean | Prisma.Machine$tabsArgs<ExtArgs>
   aiAccounts?: boolean | Prisma.Machine$aiAccountsArgs<ExtArgs>
   hook?: boolean | Prisma.Machine$hookArgs<ExtArgs>
   uploads?: boolean | Prisma.Machine$uploadsArgs<ExtArgs>
@@ -1675,7 +1846,8 @@ export type MachineSelectScalar = {
 export type MachineOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "host" | "sshUser" | "sshPort" | "type" | "os" | "capabilities" | "checkedAt" | "agentTokenHash" | "agentTokenCreatedAt" | "agentVersion" | "agentLastSeenAt" | "agentAutoUpdate" | "isLocal" | "ownerId" | "createdAt", ExtArgs["result"]["machine"]>
 export type MachineInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   owner?: boolean | Prisma.Machine$ownerArgs<ExtArgs>
-  projects?: boolean | Prisma.Machine$projectsArgs<ExtArgs>
+  projectLinks?: boolean | Prisma.Machine$projectLinksArgs<ExtArgs>
+  tabs?: boolean | Prisma.Machine$tabsArgs<ExtArgs>
   aiAccounts?: boolean | Prisma.Machine$aiAccountsArgs<ExtArgs>
   hook?: boolean | Prisma.Machine$hookArgs<ExtArgs>
   uploads?: boolean | Prisma.Machine$uploadsArgs<ExtArgs>
@@ -1693,7 +1865,8 @@ export type $MachinePayload<ExtArgs extends runtime.Types.Extensions.InternalArg
   name: "Machine"
   objects: {
     owner: Prisma.$UserPayload<ExtArgs> | null
-    projects: Prisma.$ProjectPayload<ExtArgs>[]
+    projectLinks: Prisma.$ProjectMachinePayload<ExtArgs>[]
+    tabs: Prisma.$TabPayload<ExtArgs>[]
     aiAccounts: Prisma.$AiAccountPayload<ExtArgs>[]
     hook: Prisma.$MachineHookPayload<ExtArgs> | null
     uploads: Prisma.$UploadPayload<ExtArgs>[]
@@ -2131,7 +2304,8 @@ readonly fields: MachineFieldRefs;
 export interface Prisma__MachineClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   owner<T extends Prisma.Machine$ownerArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Machine$ownerArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
-  projects<T extends Prisma.Machine$projectsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Machine$projectsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  projectLinks<T extends Prisma.Machine$projectLinksArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Machine$projectLinksArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectMachinePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  tabs<T extends Prisma.Machine$tabsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Machine$tabsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TabPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   aiAccounts<T extends Prisma.Machine$aiAccountsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Machine$aiAccountsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AiAccountPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   hook<T extends Prisma.Machine$hookArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Machine$hookArgs<ExtArgs>>): Prisma.Prisma__MachineHookClient<runtime.Types.Result.GetResult<Prisma.$MachineHookPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   uploads<T extends Prisma.Machine$uploadsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Machine$uploadsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$UploadPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -2602,27 +2776,51 @@ export type Machine$ownerArgs<ExtArgs extends runtime.Types.Extensions.InternalA
 }
 
 /**
- * Machine.projects
+ * Machine.projectLinks
  */
-export type Machine$projectsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type Machine$projectLinksArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
-   * Select specific fields to fetch from the Project
+   * Select specific fields to fetch from the ProjectMachine
    */
-  select?: Prisma.ProjectSelect<ExtArgs> | null
+  select?: Prisma.ProjectMachineSelect<ExtArgs> | null
   /**
-   * Omit specific fields from the Project
+   * Omit specific fields from the ProjectMachine
    */
-  omit?: Prisma.ProjectOmit<ExtArgs> | null
+  omit?: Prisma.ProjectMachineOmit<ExtArgs> | null
   /**
    * Choose, which related nodes to fetch as well
    */
-  include?: Prisma.ProjectInclude<ExtArgs> | null
-  where?: Prisma.ProjectWhereInput
-  orderBy?: Prisma.ProjectOrderByWithRelationInput | Prisma.ProjectOrderByWithRelationInput[]
-  cursor?: Prisma.ProjectWhereUniqueInput
+  include?: Prisma.ProjectMachineInclude<ExtArgs> | null
+  where?: Prisma.ProjectMachineWhereInput
+  orderBy?: Prisma.ProjectMachineOrderByWithRelationInput | Prisma.ProjectMachineOrderByWithRelationInput[]
+  cursor?: Prisma.ProjectMachineWhereUniqueInput
   take?: number
   skip?: number
-  distinct?: Prisma.ProjectScalarFieldEnum | Prisma.ProjectScalarFieldEnum[]
+  distinct?: Prisma.ProjectMachineScalarFieldEnum | Prisma.ProjectMachineScalarFieldEnum[]
+}
+
+/**
+ * Machine.tabs
+ */
+export type Machine$tabsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Tab
+   */
+  select?: Prisma.TabSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Tab
+   */
+  omit?: Prisma.TabOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TabInclude<ExtArgs> | null
+  where?: Prisma.TabWhereInput
+  orderBy?: Prisma.TabOrderByWithRelationInput | Prisma.TabOrderByWithRelationInput[]
+  cursor?: Prisma.TabWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TabScalarFieldEnum | Prisma.TabScalarFieldEnum[]
 }
 
 /**

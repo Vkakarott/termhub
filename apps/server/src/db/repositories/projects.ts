@@ -1,26 +1,42 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
+import { isValidProjectKey } from '../../lib/project-key.js';
 import { mapProject, type Project, type ProjectStatus } from './types.js';
 
 export interface ProjectInput {
-  machine_id: string;
+  owner_id: string | null;
+  key: string;
   name: string;
-  cwd: string;
   status?: ProjectStatus;
   description?: string | null;
   is_public?: boolean;
 }
 
+export type ProjectPatch = Partial<Pick<ProjectInput, 'name' | 'status' | 'description' | 'is_public'>>;
+
+export type ProjectRuleCode = 'KEY_INVALID' | 'KEY_TAKEN' | 'MACHINE_ALREADY_LINKED' | 'MACHINE_NOT_LINKED' | 'MACHINE_REQUIRED' | 'NO_MACHINE';
+
+/** A project rule broken by the caller (pt-BR message, shown as is by the routes). */
+export class ProjectRuleError extends Error {
+  constructor(
+    readonly code: ProjectRuleCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ProjectRuleError';
+  }
+}
+
 export class ProjectsRepository {
   constructor(private db: PrismaClient) {}
 
-  /** `owner`: restrict to projects whose machine belongs to that user (undefined/null = no filter). */
+  /** `owner`: only that user's projects (undefined/null = no filter). `machine_id`: only projects linked to it. */
   async list(filter?: { machine_id?: string; status?: ProjectStatus; owner?: string | null }): Promise<Project[]> {
     const rows = await this.db.project.findMany({
       where: {
-        ...(filter?.machine_id ? { machineId: filter.machine_id } : {}),
+        ...(filter?.machine_id ? { machines: { some: { machineId: filter.machine_id } } } : {}),
         ...(filter?.status ? { status: filter.status } : {}),
-        ...(filter?.owner ? { machine: { ownerId: filter.owner } } : {}),
+        ...(filter?.owner ? { ownerId: filter.owner } : {}),
       },
       orderBy: { name: 'asc' },
     });
@@ -32,25 +48,37 @@ export class ProjectsRepository {
     return p ? mapProject(p) : undefined;
   }
 
+  async findByKey(key: string): Promise<Project | undefined> {
+    const p = await this.db.project.findUnique({ where: { key } });
+    return p ? mapProject(p) : undefined;
+  }
+
   /**
-   * Batched by id, one query regardless of how many ids are asked for, filtered to one owner's
-   * projects through their machine — never "no filter": a caller that resolves names for one
-   * person's screen (e.g. the chat action trail) must not be able to pass `null` and see everyone's.
-   * Another owner's project id is simply absent from the result, like a row that does not exist. The
-   * owner filter is a join condition, not a reason to query per row.
+   * Batched by id, one query regardless of how many ids are asked for, filtered to one owner —
+   * never "no filter": a caller that resolves names for one person's screen (e.g. the chat action
+   * trail) must not be able to pass `null` and see everyone's. Another owner's project id is simply
+   * absent from the result, like a row that does not exist.
    */
   async findByIdsForOwner(ids: string[], ownerId: string): Promise<Project[]> {
     if (ids.length === 0) return [];
-    return (await this.db.project.findMany({ where: { id: { in: ids }, machine: { ownerId } } })).map(mapProject);
+    return (await this.db.project.findMany({ where: { id: { in: ids }, ownerId } })).map(mapProject);
+  }
+
+  /** false for an invalid key too, so the create form can show one answer for both. */
+  async isKeyAvailable(key: string): Promise<boolean> {
+    if (!isValidProjectKey(key)) return false;
+    return (await this.db.project.count({ where: { key } })) === 0;
   }
 
   async create(input: ProjectInput): Promise<Project> {
+    if (!isValidProjectKey(input.key)) throw new ProjectRuleError('KEY_INVALID', 'Chave inválida: 2 a 10 letras maiúsculas ou dígitos, começando com letra');
+    if ((await this.db.project.count({ where: { key: input.key } })) > 0) throw new ProjectRuleError('KEY_TAKEN', `A chave ${input.key} já está em uso`);
     const p = await this.db.project.create({
       data: {
         id: newId(),
-        machineId: input.machine_id,
+        ownerId: input.owner_id,
+        key: input.key,
         name: input.name,
-        cwd: input.cwd,
         status: input.status ?? 'active',
         description: input.description ?? null,
         isPublic: input.is_public ?? false,
@@ -59,13 +87,13 @@ export class ProjectsRepository {
     return mapProject(p);
   }
 
-  async update(id: string, patch: Partial<Omit<ProjectInput, 'machine_id'>>): Promise<Project | undefined> {
+  async update(id: string, patch: ProjectPatch): Promise<Project | undefined> {
     const current = await this.findById(id);
     if (!current) return undefined;
     const next = { ...current, ...patch };
     const p = await this.db.project.update({
       where: { id },
-      data: { name: next.name, cwd: next.cwd, status: next.status, description: next.description ?? null, isPublic: next.is_public },
+      data: { name: next.name, status: next.status, description: next.description ?? null, isPublic: next.is_public },
     });
     return mapProject(p);
   }

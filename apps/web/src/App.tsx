@@ -11,6 +11,7 @@ import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
 import { ChatPage } from './pages/ChatPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
+import { MachinesPage } from './pages/MachinesPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 // lazy so PixiJS stays out of the main bundle; the retry survives the chunk hashes a deploy changes
@@ -52,6 +53,7 @@ export function App() {
                 <Route path="/hardware" element={<HomePage />} />
                 <Route path="/waitlist" element={<HomePage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
+                <Route path="/machines" element={<MachinesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/:section" element={<SettingsPage />} />
                 <Route path="/projects/:id" element={<ProjectPage />} />

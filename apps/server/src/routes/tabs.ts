@@ -52,10 +52,10 @@ export async function tabRoutes(
 
   app.get('/:id/simulator/screenshot', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const { tab, project } = await scoped(repos, request).tab(id);
+    const { tab, machine } = await scoped(repos, request).tab(id);
     if (tab.kind !== 'simulator') throw notFound('Tab não encontrada');
     if (!tab.simulator_udid) throw conflict('Simulador não está conectado');
-    const client = deps.simulators.getClient(project.machine_id, tab.simulator_udid);
+    const client = deps.simulators.getClient(machine.id, tab.simulator_udid);
     if (!client) throw conflict('Simulador não está conectado');
     const png = await client.screenshotPng();
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');

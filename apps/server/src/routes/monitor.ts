@@ -18,7 +18,7 @@ export async function monitorRoutes(app: FastifyInstance, repos: Repositories) {
     const items: MonitorItem[] = [];
     for (const tab of tabs) {
       const project = projectById.get(tab.project_id);
-      const machine = project ? machineById.get(project.machine_id) : undefined;
+      const machine = machineById.get(tab.machine_id);
       if (project && machine) items.push({ tab, project, machine });
     }
     return { items };

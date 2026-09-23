@@ -12,7 +12,8 @@ vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof impor
 
 const SECRET = 'thb_pat_' + 'A'.repeat(43);
 const machine = { id: 'm1', name: 'jarvis', type: 'agent', os: 'linux', capabilities: ['tmux'], owner_id: 'u1' };
-const project = { id: 'p1', name: 'app', cwd: '/home/u/app', machine_id: 'm1', status: 'active', owner_id: 'u1' };
+const project = { id: 'p1', name: 'app', status: 'active', owner_id: 'u1', key: 'APP', next_task_number: 1 };
+const link = { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/home/u/app', position: 0, created_at: '' };
 
 /** The fake machine: one tmux session whose screen is whatever was typed into it. */
 function attachFakeTmux(typed: string[]) {
@@ -52,15 +53,19 @@ function build() {
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
     machines: { findById: vi.fn(async () => machine), list: vi.fn(async () => [machine]) },
     projects: { findById: vi.fn(async () => project) },
+    projectMachines: {
+      find: vi.fn(async () => link),
+      listByProject: vi.fn(async () => [link]),
+    },
     tasks: { listByProject: vi.fn(async () => []) },
     tabs: {
       listByProject: vi.fn(async () => [...tabs.values()]),
       countOpenByToken: vi.fn(async () => 0),
       findById: vi.fn(async (id: string) => tabs.get(id)),
       delete: vi.fn(async (id: string) => tabs.delete(id)),
-      create: vi.fn(async (projectId: string, name: string, opts: { created_by_token_id?: string | null } = {}) => {
+      create: vi.fn(async (projectId: string, machineId: string, name: string, opts: { created_by_token_id?: string | null } = {}) => {
         const id = `t${tabs.size + 1}`;
-        const tab = { id, project_id: projectId, name, kind: 'terminal', tmux_session: `termhub-${projectId}-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: opts.created_by_token_id ?? null };
+        const tab = { id, project_id: projectId, machine_id: machineId, name, kind: 'terminal', tmux_session: `termhub-${projectId}-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: opts.created_by_token_id ?? null };
         tabs.set(id, tab);
         return tab;
       }),

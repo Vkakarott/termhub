@@ -18,7 +18,8 @@ const CONVERSATION = 'c1';
 /** What `insertPending` stamps a new pending row with: a value nothing else in a run can produce. */
 const PENDING_CREATED_AT = '2020-05-05T05:05:05.050Z';
 const machine = { id: 'm1', name: 'jarvis', type: 'agent', os: 'linux', capabilities: ['tmux'], owner_id: 'u1' };
-const project = { id: 'p1', name: 'app', cwd: '/home/u/app', machine_id: 'm1', status: 'active', owner_id: 'u1' };
+const project = { id: 'p1', name: 'app', status: 'active', owner_id: 'u1', key: 'APP', next_task_number: 1 };
+const link = { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/home/u/app', position: 0, created_at: '' };
 
 /** The fake machine: one tmux session whose screen is whatever was typed into it. `agentVersion` is
  * how the "this machine cannot do it" failures are staged: an agent older than the terminal RPCs makes
@@ -148,7 +149,7 @@ function fakeChatActions() {
 }
 
 function build(opts: { gated: boolean }) {
-  const tab = (id: string, name: string) => ({ id, project_id: 'p1', name, kind: 'terminal', tmux_session: `termhub-p1-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: null });
+  const tab = (id: string, name: string) => ({ id, project_id: 'p1', machine_id: 'm1', name, kind: 'terminal', tmux_session: `termhub-p1-${id}`, simulator_udid: null, position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, created_at: '', created_by_token_id: null });
   const tabs = new Map<string, Record<string, unknown>>([
     ['t1', tab('t1', 'Terminal 1')],
     // Somebody else's tab: it exists, so an unscoped `findById` resolves it, and the owner-scoped read
@@ -176,6 +177,10 @@ function build(opts: { gated: boolean }) {
     projects: {
       findById: vi.fn(async () => project),
       findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === machine.owner_id && ids.includes(project.id) ? [project] : [])),
+    },
+    projectMachines: {
+      find: vi.fn(async () => link),
+      listByProject: vi.fn(async () => [link]),
     },
     tasks: { listByProject: vi.fn(async () => []), findByIdsForOwner: vi.fn(async () => []) },
     tabs: {

@@ -20,15 +20,26 @@ export type ProjectModel = runtime.Types.Result.DefaultSelection<Prisma.$Project
 
 export type AggregateProject = {
   _count: ProjectCountAggregateOutputType | null
+  _avg: ProjectAvgAggregateOutputType | null
+  _sum: ProjectSumAggregateOutputType | null
   _min: ProjectMinAggregateOutputType | null
   _max: ProjectMaxAggregateOutputType | null
 }
 
+export type ProjectAvgAggregateOutputType = {
+  nextTaskNumber: number | null
+}
+
+export type ProjectSumAggregateOutputType = {
+  nextTaskNumber: number | null
+}
+
 export type ProjectMinAggregateOutputType = {
   id: string | null
-  machineId: string | null
+  ownerId: string | null
+  key: string | null
+  nextTaskNumber: number | null
   name: string | null
-  cwd: string | null
   status: $Enums.ProjectStatus | null
   description: string | null
   isPublic: boolean | null
@@ -38,9 +49,10 @@ export type ProjectMinAggregateOutputType = {
 
 export type ProjectMaxAggregateOutputType = {
   id: string | null
-  machineId: string | null
+  ownerId: string | null
+  key: string | null
+  nextTaskNumber: number | null
   name: string | null
-  cwd: string | null
   status: $Enums.ProjectStatus | null
   description: string | null
   isPublic: boolean | null
@@ -50,9 +62,10 @@ export type ProjectMaxAggregateOutputType = {
 
 export type ProjectCountAggregateOutputType = {
   id: number
-  machineId: number
+  ownerId: number
+  key: number
+  nextTaskNumber: number
   name: number
-  cwd: number
   status: number
   description: number
   isPublic: number
@@ -62,11 +75,20 @@ export type ProjectCountAggregateOutputType = {
 }
 
 
+export type ProjectAvgAggregateInputType = {
+  nextTaskNumber?: true
+}
+
+export type ProjectSumAggregateInputType = {
+  nextTaskNumber?: true
+}
+
 export type ProjectMinAggregateInputType = {
   id?: true
-  machineId?: true
+  ownerId?: true
+  key?: true
+  nextTaskNumber?: true
   name?: true
-  cwd?: true
   status?: true
   description?: true
   isPublic?: true
@@ -76,9 +98,10 @@ export type ProjectMinAggregateInputType = {
 
 export type ProjectMaxAggregateInputType = {
   id?: true
-  machineId?: true
+  ownerId?: true
+  key?: true
+  nextTaskNumber?: true
   name?: true
-  cwd?: true
   status?: true
   description?: true
   isPublic?: true
@@ -88,9 +111,10 @@ export type ProjectMaxAggregateInputType = {
 
 export type ProjectCountAggregateInputType = {
   id?: true
-  machineId?: true
+  ownerId?: true
+  key?: true
+  nextTaskNumber?: true
   name?: true
-  cwd?: true
   status?: true
   description?: true
   isPublic?: true
@@ -137,6 +161,18 @@ export type ProjectAggregateArgs<ExtArgs extends runtime.Types.Extensions.Intern
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: ProjectAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: ProjectSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: ProjectMinAggregateInputType
@@ -167,21 +203,26 @@ export type ProjectGroupByArgs<ExtArgs extends runtime.Types.Extensions.Internal
   take?: number
   skip?: number
   _count?: ProjectCountAggregateInputType | true
+  _avg?: ProjectAvgAggregateInputType
+  _sum?: ProjectSumAggregateInputType
   _min?: ProjectMinAggregateInputType
   _max?: ProjectMaxAggregateInputType
 }
 
 export type ProjectGroupByOutputType = {
   id: string
-  machineId: string
+  ownerId: string | null
+  key: string
+  nextTaskNumber: number
   name: string
-  cwd: string
   status: $Enums.ProjectStatus
   description: string | null
   isPublic: boolean
   lastTerminalAt: Date | null
   createdAt: Date
   _count: ProjectCountAggregateOutputType | null
+  _avg: ProjectAvgAggregateOutputType | null
+  _sum: ProjectSumAggregateOutputType | null
   _min: ProjectMinAggregateOutputType | null
   _max: ProjectMaxAggregateOutputType | null
 }
@@ -206,15 +247,17 @@ export type ProjectWhereInput = {
   OR?: Prisma.ProjectWhereInput[]
   NOT?: Prisma.ProjectWhereInput | Prisma.ProjectWhereInput[]
   id?: Prisma.StringFilter<"Project"> | string
-  machineId?: Prisma.StringFilter<"Project"> | string
+  ownerId?: Prisma.StringNullableFilter<"Project"> | string | null
+  key?: Prisma.StringFilter<"Project"> | string
+  nextTaskNumber?: Prisma.IntFilter<"Project"> | number
   name?: Prisma.StringFilter<"Project"> | string
-  cwd?: Prisma.StringFilter<"Project"> | string
   status?: Prisma.EnumProjectStatusFilter<"Project"> | $Enums.ProjectStatus
   description?: Prisma.StringNullableFilter<"Project"> | string | null
   isPublic?: Prisma.BoolFilter<"Project"> | boolean
   lastTerminalAt?: Prisma.DateTimeNullableFilter<"Project"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
-  machine?: Prisma.XOR<Prisma.MachineScalarRelationFilter, Prisma.MachineWhereInput>
+  owner?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
+  machines?: Prisma.ProjectMachineListRelationFilter
   tabs?: Prisma.TabListRelationFilter
   tasks?: Prisma.TaskListRelationFilter
   note?: Prisma.XOR<Prisma.NoteNullableScalarRelationFilter, Prisma.NoteWhereInput> | null
@@ -224,15 +267,17 @@ export type ProjectWhereInput = {
 
 export type ProjectOrderByWithRelationInput = {
   id?: Prisma.SortOrder
-  machineId?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrderInput | Prisma.SortOrder
+  key?: Prisma.SortOrder
+  nextTaskNumber?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrderInput | Prisma.SortOrder
   isPublic?: Prisma.SortOrder
   lastTerminalAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
-  machine?: Prisma.MachineOrderByWithRelationInput
+  owner?: Prisma.UserOrderByWithRelationInput
+  machines?: Prisma.ProjectMachineOrderByRelationAggregateInput
   tabs?: Prisma.TabOrderByRelationAggregateInput
   tasks?: Prisma.TaskOrderByRelationAggregateInput
   note?: Prisma.NoteOrderByWithRelationInput
@@ -242,38 +287,43 @@ export type ProjectOrderByWithRelationInput = {
 
 export type ProjectWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  key?: string
   AND?: Prisma.ProjectWhereInput | Prisma.ProjectWhereInput[]
   OR?: Prisma.ProjectWhereInput[]
   NOT?: Prisma.ProjectWhereInput | Prisma.ProjectWhereInput[]
-  machineId?: Prisma.StringFilter<"Project"> | string
+  ownerId?: Prisma.StringNullableFilter<"Project"> | string | null
+  nextTaskNumber?: Prisma.IntFilter<"Project"> | number
   name?: Prisma.StringFilter<"Project"> | string
-  cwd?: Prisma.StringFilter<"Project"> | string
   status?: Prisma.EnumProjectStatusFilter<"Project"> | $Enums.ProjectStatus
   description?: Prisma.StringNullableFilter<"Project"> | string | null
   isPublic?: Prisma.BoolFilter<"Project"> | boolean
   lastTerminalAt?: Prisma.DateTimeNullableFilter<"Project"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
-  machine?: Prisma.XOR<Prisma.MachineScalarRelationFilter, Prisma.MachineWhereInput>
+  owner?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
+  machines?: Prisma.ProjectMachineListRelationFilter
   tabs?: Prisma.TabListRelationFilter
   tasks?: Prisma.TaskListRelationFilter
   note?: Prisma.XOR<Prisma.NoteNullableScalarRelationFilter, Prisma.NoteWhereInput> | null
   setup?: Prisma.XOR<Prisma.ProjectSetupNullableScalarRelationFilter, Prisma.ProjectSetupWhereInput> | null
   tickets?: Prisma.TicketListRelationFilter
-}, "id">
+}, "id" | "key">
 
 export type ProjectOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
-  machineId?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrderInput | Prisma.SortOrder
+  key?: Prisma.SortOrder
+  nextTaskNumber?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrderInput | Prisma.SortOrder
   isPublic?: Prisma.SortOrder
   lastTerminalAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.ProjectCountOrderByAggregateInput
+  _avg?: Prisma.ProjectAvgOrderByAggregateInput
   _max?: Prisma.ProjectMaxOrderByAggregateInput
   _min?: Prisma.ProjectMinOrderByAggregateInput
+  _sum?: Prisma.ProjectSumOrderByAggregateInput
 }
 
 export type ProjectScalarWhereWithAggregatesInput = {
@@ -281,9 +331,10 @@ export type ProjectScalarWhereWithAggregatesInput = {
   OR?: Prisma.ProjectScalarWhereWithAggregatesInput[]
   NOT?: Prisma.ProjectScalarWhereWithAggregatesInput | Prisma.ProjectScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"Project"> | string
-  machineId?: Prisma.StringWithAggregatesFilter<"Project"> | string
+  ownerId?: Prisma.StringNullableWithAggregatesFilter<"Project"> | string | null
+  key?: Prisma.StringWithAggregatesFilter<"Project"> | string
+  nextTaskNumber?: Prisma.IntWithAggregatesFilter<"Project"> | number
   name?: Prisma.StringWithAggregatesFilter<"Project"> | string
-  cwd?: Prisma.StringWithAggregatesFilter<"Project"> | string
   status?: Prisma.EnumProjectStatusWithAggregatesFilter<"Project"> | $Enums.ProjectStatus
   description?: Prisma.StringNullableWithAggregatesFilter<"Project"> | string | null
   isPublic?: Prisma.BoolWithAggregatesFilter<"Project"> | boolean
@@ -293,14 +344,16 @@ export type ProjectScalarWhereWithAggregatesInput = {
 
 export type ProjectCreateInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
-  machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteCreateNestedOneWithoutProjectInput
@@ -310,14 +363,16 @@ export type ProjectCreateInput = {
 
 export type ProjectUncheckedCreateInput = {
   id: string
-  machineId: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteUncheckedCreateNestedOneWithoutProjectInput
@@ -327,14 +382,16 @@ export type ProjectUncheckedCreateInput = {
 
 export type ProjectUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
@@ -344,14 +401,16 @@ export type ProjectUpdateInput = {
 
 export type ProjectUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  machineId?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
@@ -361,9 +420,10 @@ export type ProjectUncheckedUpdateInput = {
 
 export type ProjectCreateManyInput = {
   id: string
-  machineId: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
@@ -373,8 +433,9 @@ export type ProjectCreateManyInput = {
 
 export type ProjectUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -384,9 +445,10 @@ export type ProjectUpdateManyMutationInput = {
 
 export type ProjectUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  machineId?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -406,9 +468,10 @@ export type ProjectOrderByRelationAggregateInput = {
 
 export type ProjectCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
-  machineId?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  nextTaskNumber?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrder
   isPublic?: Prisma.SortOrder
@@ -416,11 +479,16 @@ export type ProjectCountOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
 }
 
+export type ProjectAvgOrderByAggregateInput = {
+  nextTaskNumber?: Prisma.SortOrder
+}
+
 export type ProjectMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
-  machineId?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  nextTaskNumber?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrder
   isPublic?: Prisma.SortOrder
@@ -430,9 +498,10 @@ export type ProjectMaxOrderByAggregateInput = {
 
 export type ProjectMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
-  machineId?: Prisma.SortOrder
+  ownerId?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  nextTaskNumber?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  cwd?: Prisma.SortOrder
   status?: Prisma.SortOrder
   description?: Prisma.SortOrder
   isPublic?: Prisma.SortOrder
@@ -440,55 +509,73 @@ export type ProjectMinOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
 }
 
+export type ProjectSumOrderByAggregateInput = {
+  nextTaskNumber?: Prisma.SortOrder
+}
+
 export type ProjectScalarRelationFilter = {
   is?: Prisma.ProjectWhereInput
   isNot?: Prisma.ProjectWhereInput
 }
 
-export type ProjectCreateNestedManyWithoutMachineInput = {
-  create?: Prisma.XOR<Prisma.ProjectCreateWithoutMachineInput, Prisma.ProjectUncheckedCreateWithoutMachineInput> | Prisma.ProjectCreateWithoutMachineInput[] | Prisma.ProjectUncheckedCreateWithoutMachineInput[]
-  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutMachineInput | Prisma.ProjectCreateOrConnectWithoutMachineInput[]
-  createMany?: Prisma.ProjectCreateManyMachineInputEnvelope
+export type ProjectCreateNestedManyWithoutOwnerInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutOwnerInput, Prisma.ProjectUncheckedCreateWithoutOwnerInput> | Prisma.ProjectCreateWithoutOwnerInput[] | Prisma.ProjectUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutOwnerInput | Prisma.ProjectCreateOrConnectWithoutOwnerInput[]
+  createMany?: Prisma.ProjectCreateManyOwnerInputEnvelope
   connect?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
 }
 
-export type ProjectUncheckedCreateNestedManyWithoutMachineInput = {
-  create?: Prisma.XOR<Prisma.ProjectCreateWithoutMachineInput, Prisma.ProjectUncheckedCreateWithoutMachineInput> | Prisma.ProjectCreateWithoutMachineInput[] | Prisma.ProjectUncheckedCreateWithoutMachineInput[]
-  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutMachineInput | Prisma.ProjectCreateOrConnectWithoutMachineInput[]
-  createMany?: Prisma.ProjectCreateManyMachineInputEnvelope
+export type ProjectUncheckedCreateNestedManyWithoutOwnerInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutOwnerInput, Prisma.ProjectUncheckedCreateWithoutOwnerInput> | Prisma.ProjectCreateWithoutOwnerInput[] | Prisma.ProjectUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutOwnerInput | Prisma.ProjectCreateOrConnectWithoutOwnerInput[]
+  createMany?: Prisma.ProjectCreateManyOwnerInputEnvelope
   connect?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
 }
 
-export type ProjectUpdateManyWithoutMachineNestedInput = {
-  create?: Prisma.XOR<Prisma.ProjectCreateWithoutMachineInput, Prisma.ProjectUncheckedCreateWithoutMachineInput> | Prisma.ProjectCreateWithoutMachineInput[] | Prisma.ProjectUncheckedCreateWithoutMachineInput[]
-  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutMachineInput | Prisma.ProjectCreateOrConnectWithoutMachineInput[]
-  upsert?: Prisma.ProjectUpsertWithWhereUniqueWithoutMachineInput | Prisma.ProjectUpsertWithWhereUniqueWithoutMachineInput[]
-  createMany?: Prisma.ProjectCreateManyMachineInputEnvelope
+export type ProjectUpdateManyWithoutOwnerNestedInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutOwnerInput, Prisma.ProjectUncheckedCreateWithoutOwnerInput> | Prisma.ProjectCreateWithoutOwnerInput[] | Prisma.ProjectUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutOwnerInput | Prisma.ProjectCreateOrConnectWithoutOwnerInput[]
+  upsert?: Prisma.ProjectUpsertWithWhereUniqueWithoutOwnerInput | Prisma.ProjectUpsertWithWhereUniqueWithoutOwnerInput[]
+  createMany?: Prisma.ProjectCreateManyOwnerInputEnvelope
   set?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
   disconnect?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
   delete?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
   connect?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
-  update?: Prisma.ProjectUpdateWithWhereUniqueWithoutMachineInput | Prisma.ProjectUpdateWithWhereUniqueWithoutMachineInput[]
-  updateMany?: Prisma.ProjectUpdateManyWithWhereWithoutMachineInput | Prisma.ProjectUpdateManyWithWhereWithoutMachineInput[]
+  update?: Prisma.ProjectUpdateWithWhereUniqueWithoutOwnerInput | Prisma.ProjectUpdateWithWhereUniqueWithoutOwnerInput[]
+  updateMany?: Prisma.ProjectUpdateManyWithWhereWithoutOwnerInput | Prisma.ProjectUpdateManyWithWhereWithoutOwnerInput[]
   deleteMany?: Prisma.ProjectScalarWhereInput | Prisma.ProjectScalarWhereInput[]
 }
 
-export type ProjectUncheckedUpdateManyWithoutMachineNestedInput = {
-  create?: Prisma.XOR<Prisma.ProjectCreateWithoutMachineInput, Prisma.ProjectUncheckedCreateWithoutMachineInput> | Prisma.ProjectCreateWithoutMachineInput[] | Prisma.ProjectUncheckedCreateWithoutMachineInput[]
-  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutMachineInput | Prisma.ProjectCreateOrConnectWithoutMachineInput[]
-  upsert?: Prisma.ProjectUpsertWithWhereUniqueWithoutMachineInput | Prisma.ProjectUpsertWithWhereUniqueWithoutMachineInput[]
-  createMany?: Prisma.ProjectCreateManyMachineInputEnvelope
+export type ProjectUncheckedUpdateManyWithoutOwnerNestedInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutOwnerInput, Prisma.ProjectUncheckedCreateWithoutOwnerInput> | Prisma.ProjectCreateWithoutOwnerInput[] | Prisma.ProjectUncheckedCreateWithoutOwnerInput[]
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutOwnerInput | Prisma.ProjectCreateOrConnectWithoutOwnerInput[]
+  upsert?: Prisma.ProjectUpsertWithWhereUniqueWithoutOwnerInput | Prisma.ProjectUpsertWithWhereUniqueWithoutOwnerInput[]
+  createMany?: Prisma.ProjectCreateManyOwnerInputEnvelope
   set?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
   disconnect?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
   delete?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
   connect?: Prisma.ProjectWhereUniqueInput | Prisma.ProjectWhereUniqueInput[]
-  update?: Prisma.ProjectUpdateWithWhereUniqueWithoutMachineInput | Prisma.ProjectUpdateWithWhereUniqueWithoutMachineInput[]
-  updateMany?: Prisma.ProjectUpdateManyWithWhereWithoutMachineInput | Prisma.ProjectUpdateManyWithWhereWithoutMachineInput[]
+  update?: Prisma.ProjectUpdateWithWhereUniqueWithoutOwnerInput | Prisma.ProjectUpdateWithWhereUniqueWithoutOwnerInput[]
+  updateMany?: Prisma.ProjectUpdateManyWithWhereWithoutOwnerInput | Prisma.ProjectUpdateManyWithWhereWithoutOwnerInput[]
   deleteMany?: Prisma.ProjectScalarWhereInput | Prisma.ProjectScalarWhereInput[]
 }
 
 export type EnumProjectStatusFieldUpdateOperationsInput = {
   set?: $Enums.ProjectStatus
+}
+
+export type ProjectCreateNestedOneWithoutMachinesInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutMachinesInput, Prisma.ProjectUncheckedCreateWithoutMachinesInput>
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutMachinesInput
+  connect?: Prisma.ProjectWhereUniqueInput
+}
+
+export type ProjectUpdateOneRequiredWithoutMachinesNestedInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutMachinesInput, Prisma.ProjectUncheckedCreateWithoutMachinesInput>
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutMachinesInput
+  upsert?: Prisma.ProjectUpsertWithoutMachinesInput
+  connect?: Prisma.ProjectWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectUpdateToOneWithWhereWithoutMachinesInput, Prisma.ProjectUpdateWithoutMachinesInput>, Prisma.ProjectUncheckedUpdateWithoutMachinesInput>
 }
 
 export type ProjectCreateNestedOneWithoutTabsInput = {
@@ -561,15 +648,17 @@ export type ProjectUpdateOneRequiredWithoutSetupNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectUpdateToOneWithWhereWithoutSetupInput, Prisma.ProjectUpdateWithoutSetupInput>, Prisma.ProjectUncheckedUpdateWithoutSetupInput>
 }
 
-export type ProjectCreateWithoutMachineInput = {
+export type ProjectCreateWithoutOwnerInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteCreateNestedOneWithoutProjectInput
@@ -577,10 +666,90 @@ export type ProjectCreateWithoutMachineInput = {
   tickets?: Prisma.TicketCreateNestedManyWithoutProjectInput
 }
 
-export type ProjectUncheckedCreateWithoutMachineInput = {
+export type ProjectUncheckedCreateWithoutOwnerInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
+  status?: $Enums.ProjectStatus
+  description?: string | null
+  isPublic?: boolean
+  lastTerminalAt?: Date | string | null
+  createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
+  tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
+  note?: Prisma.NoteUncheckedCreateNestedOneWithoutProjectInput
+  setup?: Prisma.ProjectSetupUncheckedCreateNestedOneWithoutProjectInput
+  tickets?: Prisma.TicketUncheckedCreateNestedManyWithoutProjectInput
+}
+
+export type ProjectCreateOrConnectWithoutOwnerInput = {
+  where: Prisma.ProjectWhereUniqueInput
+  create: Prisma.XOR<Prisma.ProjectCreateWithoutOwnerInput, Prisma.ProjectUncheckedCreateWithoutOwnerInput>
+}
+
+export type ProjectCreateManyOwnerInputEnvelope = {
+  data: Prisma.ProjectCreateManyOwnerInput | Prisma.ProjectCreateManyOwnerInput[]
+  skipDuplicates?: boolean
+}
+
+export type ProjectUpsertWithWhereUniqueWithoutOwnerInput = {
+  where: Prisma.ProjectWhereUniqueInput
+  update: Prisma.XOR<Prisma.ProjectUpdateWithoutOwnerInput, Prisma.ProjectUncheckedUpdateWithoutOwnerInput>
+  create: Prisma.XOR<Prisma.ProjectCreateWithoutOwnerInput, Prisma.ProjectUncheckedCreateWithoutOwnerInput>
+}
+
+export type ProjectUpdateWithWhereUniqueWithoutOwnerInput = {
+  where: Prisma.ProjectWhereUniqueInput
+  data: Prisma.XOR<Prisma.ProjectUpdateWithoutOwnerInput, Prisma.ProjectUncheckedUpdateWithoutOwnerInput>
+}
+
+export type ProjectUpdateManyWithWhereWithoutOwnerInput = {
+  where: Prisma.ProjectScalarWhereInput
+  data: Prisma.XOR<Prisma.ProjectUpdateManyMutationInput, Prisma.ProjectUncheckedUpdateManyWithoutOwnerInput>
+}
+
+export type ProjectScalarWhereInput = {
+  AND?: Prisma.ProjectScalarWhereInput | Prisma.ProjectScalarWhereInput[]
+  OR?: Prisma.ProjectScalarWhereInput[]
+  NOT?: Prisma.ProjectScalarWhereInput | Prisma.ProjectScalarWhereInput[]
+  id?: Prisma.StringFilter<"Project"> | string
+  ownerId?: Prisma.StringNullableFilter<"Project"> | string | null
+  key?: Prisma.StringFilter<"Project"> | string
+  nextTaskNumber?: Prisma.IntFilter<"Project"> | number
+  name?: Prisma.StringFilter<"Project"> | string
+  status?: Prisma.EnumProjectStatusFilter<"Project"> | $Enums.ProjectStatus
+  description?: Prisma.StringNullableFilter<"Project"> | string | null
+  isPublic?: Prisma.BoolFilter<"Project"> | boolean
+  lastTerminalAt?: Prisma.DateTimeNullableFilter<"Project"> | Date | string | null
+  createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
+}
+
+export type ProjectCreateWithoutMachinesInput = {
+  id: string
+  key: string
+  nextTaskNumber?: number
+  name: string
+  status?: $Enums.ProjectStatus
+  description?: string | null
+  isPublic?: boolean
+  lastTerminalAt?: Date | string | null
+  createdAt?: Date | string
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
+  tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
+  note?: Prisma.NoteCreateNestedOneWithoutProjectInput
+  setup?: Prisma.ProjectSetupCreateNestedOneWithoutProjectInput
+  tickets?: Prisma.TicketCreateNestedManyWithoutProjectInput
+}
+
+export type ProjectUncheckedCreateWithoutMachinesInput = {
+  id: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
+  name: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
@@ -593,57 +762,70 @@ export type ProjectUncheckedCreateWithoutMachineInput = {
   tickets?: Prisma.TicketUncheckedCreateNestedManyWithoutProjectInput
 }
 
-export type ProjectCreateOrConnectWithoutMachineInput = {
+export type ProjectCreateOrConnectWithoutMachinesInput = {
   where: Prisma.ProjectWhereUniqueInput
-  create: Prisma.XOR<Prisma.ProjectCreateWithoutMachineInput, Prisma.ProjectUncheckedCreateWithoutMachineInput>
+  create: Prisma.XOR<Prisma.ProjectCreateWithoutMachinesInput, Prisma.ProjectUncheckedCreateWithoutMachinesInput>
 }
 
-export type ProjectCreateManyMachineInputEnvelope = {
-  data: Prisma.ProjectCreateManyMachineInput | Prisma.ProjectCreateManyMachineInput[]
-  skipDuplicates?: boolean
+export type ProjectUpsertWithoutMachinesInput = {
+  update: Prisma.XOR<Prisma.ProjectUpdateWithoutMachinesInput, Prisma.ProjectUncheckedUpdateWithoutMachinesInput>
+  create: Prisma.XOR<Prisma.ProjectCreateWithoutMachinesInput, Prisma.ProjectUncheckedCreateWithoutMachinesInput>
+  where?: Prisma.ProjectWhereInput
 }
 
-export type ProjectUpsertWithWhereUniqueWithoutMachineInput = {
-  where: Prisma.ProjectWhereUniqueInput
-  update: Prisma.XOR<Prisma.ProjectUpdateWithoutMachineInput, Prisma.ProjectUncheckedUpdateWithoutMachineInput>
-  create: Prisma.XOR<Prisma.ProjectCreateWithoutMachineInput, Prisma.ProjectUncheckedCreateWithoutMachineInput>
+export type ProjectUpdateToOneWithWhereWithoutMachinesInput = {
+  where?: Prisma.ProjectWhereInput
+  data: Prisma.XOR<Prisma.ProjectUpdateWithoutMachinesInput, Prisma.ProjectUncheckedUpdateWithoutMachinesInput>
 }
 
-export type ProjectUpdateWithWhereUniqueWithoutMachineInput = {
-  where: Prisma.ProjectWhereUniqueInput
-  data: Prisma.XOR<Prisma.ProjectUpdateWithoutMachineInput, Prisma.ProjectUncheckedUpdateWithoutMachineInput>
+export type ProjectUpdateWithoutMachinesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
+  tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
+  note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
+  setup?: Prisma.ProjectSetupUpdateOneWithoutProjectNestedInput
+  tickets?: Prisma.TicketUpdateManyWithoutProjectNestedInput
 }
 
-export type ProjectUpdateManyWithWhereWithoutMachineInput = {
-  where: Prisma.ProjectScalarWhereInput
-  data: Prisma.XOR<Prisma.ProjectUpdateManyMutationInput, Prisma.ProjectUncheckedUpdateManyWithoutMachineInput>
-}
-
-export type ProjectScalarWhereInput = {
-  AND?: Prisma.ProjectScalarWhereInput | Prisma.ProjectScalarWhereInput[]
-  OR?: Prisma.ProjectScalarWhereInput[]
-  NOT?: Prisma.ProjectScalarWhereInput | Prisma.ProjectScalarWhereInput[]
-  id?: Prisma.StringFilter<"Project"> | string
-  machineId?: Prisma.StringFilter<"Project"> | string
-  name?: Prisma.StringFilter<"Project"> | string
-  cwd?: Prisma.StringFilter<"Project"> | string
-  status?: Prisma.EnumProjectStatusFilter<"Project"> | $Enums.ProjectStatus
-  description?: Prisma.StringNullableFilter<"Project"> | string | null
-  isPublic?: Prisma.BoolFilter<"Project"> | boolean
-  lastTerminalAt?: Prisma.DateTimeNullableFilter<"Project"> | Date | string | null
-  createdAt?: Prisma.DateTimeFilter<"Project"> | Date | string
+export type ProjectUncheckedUpdateWithoutMachinesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
+  tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
+  note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
+  setup?: Prisma.ProjectSetupUncheckedUpdateOneWithoutProjectNestedInput
+  tickets?: Prisma.TicketUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutTabsInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
-  machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteCreateNestedOneWithoutProjectInput
   setup?: Prisma.ProjectSetupCreateNestedOneWithoutProjectInput
@@ -652,14 +834,16 @@ export type ProjectCreateWithoutTabsInput = {
 
 export type ProjectUncheckedCreateWithoutTabsInput = {
   id: string
-  machineId: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteUncheckedCreateNestedOneWithoutProjectInput
   setup?: Prisma.ProjectSetupUncheckedCreateNestedOneWithoutProjectInput
@@ -684,14 +868,16 @@ export type ProjectUpdateToOneWithWhereWithoutTabsInput = {
 
 export type ProjectUpdateWithoutTabsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
   setup?: Prisma.ProjectSetupUpdateOneWithoutProjectNestedInput
@@ -700,14 +886,16 @@ export type ProjectUpdateWithoutTabsInput = {
 
 export type ProjectUncheckedUpdateWithoutTabsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  machineId?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
   setup?: Prisma.ProjectSetupUncheckedUpdateOneWithoutProjectNestedInput
@@ -716,14 +904,16 @@ export type ProjectUncheckedUpdateWithoutTabsInput = {
 
 export type ProjectCreateWithoutTicketsInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
-  machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteCreateNestedOneWithoutProjectInput
@@ -732,14 +922,16 @@ export type ProjectCreateWithoutTicketsInput = {
 
 export type ProjectUncheckedCreateWithoutTicketsInput = {
   id: string
-  machineId: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteUncheckedCreateNestedOneWithoutProjectInput
@@ -764,14 +956,16 @@ export type ProjectUpdateToOneWithWhereWithoutTicketsInput = {
 
 export type ProjectUpdateWithoutTicketsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
@@ -780,14 +974,16 @@ export type ProjectUpdateWithoutTicketsInput = {
 
 export type ProjectUncheckedUpdateWithoutTicketsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  machineId?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
@@ -796,14 +992,16 @@ export type ProjectUncheckedUpdateWithoutTicketsInput = {
 
 export type ProjectCreateWithoutTasksInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
-  machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteCreateNestedOneWithoutProjectInput
   setup?: Prisma.ProjectSetupCreateNestedOneWithoutProjectInput
@@ -812,14 +1010,16 @@ export type ProjectCreateWithoutTasksInput = {
 
 export type ProjectUncheckedCreateWithoutTasksInput = {
   id: string
-  machineId: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteUncheckedCreateNestedOneWithoutProjectInput
   setup?: Prisma.ProjectSetupUncheckedCreateNestedOneWithoutProjectInput
@@ -844,14 +1044,16 @@ export type ProjectUpdateToOneWithWhereWithoutTasksInput = {
 
 export type ProjectUpdateWithoutTasksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
   setup?: Prisma.ProjectSetupUpdateOneWithoutProjectNestedInput
@@ -860,14 +1062,16 @@ export type ProjectUpdateWithoutTasksInput = {
 
 export type ProjectUncheckedUpdateWithoutTasksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  machineId?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
   setup?: Prisma.ProjectSetupUncheckedUpdateOneWithoutProjectNestedInput
@@ -876,14 +1080,16 @@ export type ProjectUncheckedUpdateWithoutTasksInput = {
 
 export type ProjectCreateWithoutNoteInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
-  machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
   setup?: Prisma.ProjectSetupCreateNestedOneWithoutProjectInput
@@ -892,14 +1098,16 @@ export type ProjectCreateWithoutNoteInput = {
 
 export type ProjectUncheckedCreateWithoutNoteInput = {
   id: string
-  machineId: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
   setup?: Prisma.ProjectSetupUncheckedCreateNestedOneWithoutProjectInput
@@ -924,14 +1132,16 @@ export type ProjectUpdateToOneWithWhereWithoutNoteInput = {
 
 export type ProjectUpdateWithoutNoteInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
   setup?: Prisma.ProjectSetupUpdateOneWithoutProjectNestedInput
@@ -940,14 +1150,16 @@ export type ProjectUpdateWithoutNoteInput = {
 
 export type ProjectUncheckedUpdateWithoutNoteInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  machineId?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
   setup?: Prisma.ProjectSetupUncheckedUpdateOneWithoutProjectNestedInput
@@ -956,14 +1168,16 @@ export type ProjectUncheckedUpdateWithoutNoteInput = {
 
 export type ProjectCreateWithoutSetupInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
-  machine: Prisma.MachineCreateNestedOneWithoutProjectsInput
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteCreateNestedOneWithoutProjectInput
@@ -972,14 +1186,16 @@ export type ProjectCreateWithoutSetupInput = {
 
 export type ProjectUncheckedCreateWithoutSetupInput = {
   id: string
-  machineId: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
   lastTerminalAt?: Date | string | null
   createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
   tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
   note?: Prisma.NoteUncheckedCreateNestedOneWithoutProjectInput
@@ -1004,14 +1220,16 @@ export type ProjectUpdateToOneWithWhereWithoutSetupInput = {
 
 export type ProjectUpdateWithoutSetupInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  machine?: Prisma.MachineUpdateOneRequiredWithoutProjectsNestedInput
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
@@ -1020,24 +1238,27 @@ export type ProjectUpdateWithoutSetupInput = {
 
 export type ProjectUncheckedUpdateWithoutSetupInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  machineId?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
   tickets?: Prisma.TicketUncheckedUpdateManyWithoutProjectNestedInput
 }
 
-export type ProjectCreateManyMachineInput = {
+export type ProjectCreateManyOwnerInput = {
   id: string
+  key: string
+  nextTaskNumber?: number
   name: string
-  cwd: string
   status?: $Enums.ProjectStatus
   description?: string | null
   isPublic?: boolean
@@ -1045,15 +1266,17 @@ export type ProjectCreateManyMachineInput = {
   createdAt?: Date | string
 }
 
-export type ProjectUpdateWithoutMachineInput = {
+export type ProjectUpdateWithoutOwnerInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
@@ -1061,15 +1284,17 @@ export type ProjectUpdateWithoutMachineInput = {
   tickets?: Prisma.TicketUpdateManyWithoutProjectNestedInput
 }
 
-export type ProjectUncheckedUpdateWithoutMachineInput = {
+export type ProjectUncheckedUpdateWithoutOwnerInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
   tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
   note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
@@ -1077,10 +1302,11 @@ export type ProjectUncheckedUpdateWithoutMachineInput = {
   tickets?: Prisma.TicketUncheckedUpdateManyWithoutProjectNestedInput
 }
 
-export type ProjectUncheckedUpdateManyWithoutMachineInput = {
+export type ProjectUncheckedUpdateManyWithoutOwnerInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  cwd?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -1094,12 +1320,14 @@ export type ProjectUncheckedUpdateManyWithoutMachineInput = {
  */
 
 export type ProjectCountOutputType = {
+  machines: number
   tabs: number
   tasks: number
   tickets: number
 }
 
 export type ProjectCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  machines?: boolean | ProjectCountOutputTypeCountMachinesArgs
   tabs?: boolean | ProjectCountOutputTypeCountTabsArgs
   tasks?: boolean | ProjectCountOutputTypeCountTasksArgs
   tickets?: boolean | ProjectCountOutputTypeCountTicketsArgs
@@ -1113,6 +1341,13 @@ export type ProjectCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Exte
    * Select specific fields to fetch from the ProjectCountOutputType
    */
   select?: Prisma.ProjectCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * ProjectCountOutputType without action
+ */
+export type ProjectCountOutputTypeCountMachinesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ProjectMachineWhereInput
 }
 
 /**
@@ -1139,15 +1374,17 @@ export type ProjectCountOutputTypeCountTicketsArgs<ExtArgs extends runtime.Types
 
 export type ProjectSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
-  machineId?: boolean
+  ownerId?: boolean
+  key?: boolean
+  nextTaskNumber?: boolean
   name?: boolean
-  cwd?: boolean
   status?: boolean
   description?: boolean
   isPublic?: boolean
   lastTerminalAt?: boolean
   createdAt?: boolean
-  machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
+  owner?: boolean | Prisma.Project$ownerArgs<ExtArgs>
+  machines?: boolean | Prisma.Project$machinesArgs<ExtArgs>
   tabs?: boolean | Prisma.Project$tabsArgs<ExtArgs>
   tasks?: boolean | Prisma.Project$tasksArgs<ExtArgs>
   note?: boolean | Prisma.Project$noteArgs<ExtArgs>
@@ -1158,35 +1395,38 @@ export type ProjectSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
 
 export type ProjectSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
-  machineId?: boolean
+  ownerId?: boolean
+  key?: boolean
+  nextTaskNumber?: boolean
   name?: boolean
-  cwd?: boolean
   status?: boolean
   description?: boolean
   isPublic?: boolean
   lastTerminalAt?: boolean
   createdAt?: boolean
-  machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
+  owner?: boolean | Prisma.Project$ownerArgs<ExtArgs>
 }, ExtArgs["result"]["project"]>
 
 export type ProjectSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
-  machineId?: boolean
+  ownerId?: boolean
+  key?: boolean
+  nextTaskNumber?: boolean
   name?: boolean
-  cwd?: boolean
   status?: boolean
   description?: boolean
   isPublic?: boolean
   lastTerminalAt?: boolean
   createdAt?: boolean
-  machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
+  owner?: boolean | Prisma.Project$ownerArgs<ExtArgs>
 }, ExtArgs["result"]["project"]>
 
 export type ProjectSelectScalar = {
   id?: boolean
-  machineId?: boolean
+  ownerId?: boolean
+  key?: boolean
+  nextTaskNumber?: boolean
   name?: boolean
-  cwd?: boolean
   status?: boolean
   description?: boolean
   isPublic?: boolean
@@ -1194,9 +1434,10 @@ export type ProjectSelectScalar = {
   createdAt?: boolean
 }
 
-export type ProjectOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "machineId" | "name" | "cwd" | "status" | "description" | "isPublic" | "lastTerminalAt" | "createdAt", ExtArgs["result"]["project"]>
+export type ProjectOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "ownerId" | "key" | "nextTaskNumber" | "name" | "status" | "description" | "isPublic" | "lastTerminalAt" | "createdAt", ExtArgs["result"]["project"]>
 export type ProjectInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
+  owner?: boolean | Prisma.Project$ownerArgs<ExtArgs>
+  machines?: boolean | Prisma.Project$machinesArgs<ExtArgs>
   tabs?: boolean | Prisma.Project$tabsArgs<ExtArgs>
   tasks?: boolean | Prisma.Project$tasksArgs<ExtArgs>
   note?: boolean | Prisma.Project$noteArgs<ExtArgs>
@@ -1205,16 +1446,20 @@ export type ProjectInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs
   _count?: boolean | Prisma.ProjectCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type ProjectIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
+  owner?: boolean | Prisma.Project$ownerArgs<ExtArgs>
 }
 export type ProjectIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
+  owner?: boolean | Prisma.Project$ownerArgs<ExtArgs>
 }
 
 export type $ProjectPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "Project"
   objects: {
-    machine: Prisma.$MachinePayload<ExtArgs>
+    owner: Prisma.$UserPayload<ExtArgs> | null
+    /**
+     * Machines this project runs on, each with its own working directory.
+     */
+    machines: Prisma.$ProjectMachinePayload<ExtArgs>[]
     tabs: Prisma.$TabPayload<ExtArgs>[]
     tasks: Prisma.$TaskPayload<ExtArgs>[]
     note: Prisma.$NotePayload<ExtArgs> | null
@@ -1223,9 +1468,21 @@ export type $ProjectPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
-    machineId: string
+    /**
+     * Owner: the project and everything under it (tasks, notes, tickets, setup, tabs) is visible
+     * only to them (and to admins viewing as them or as "all"). Null = orphan (owner deleted).
+     */
+    ownerId: string | null
+    /**
+     * Short key shown in URLs and card numbers (TERMHUB-42): 2–10 chars, ^[A-Z][A-Z0-9]{1,9}$,
+     * unique across the instance, never changed after creation.
+     */
+    key: string
+    /**
+     * Next card number for this project (used by the task-hierarchy spec; untouched here).
+     */
+    nextTaskNumber: number
     name: string
-    cwd: string
     status: $Enums.ProjectStatus
     description: string | null
     /**
@@ -1628,7 +1885,8 @@ readonly fields: ProjectFieldRefs;
  */
 export interface Prisma__ProjectClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
-  machine<T extends Prisma.MachineDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.MachineDefaultArgs<ExtArgs>>): Prisma.Prisma__MachineClient<runtime.Types.Result.GetResult<Prisma.$MachinePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  owner<T extends Prisma.Project$ownerArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$ownerArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  machines<T extends Prisma.Project$machinesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$machinesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectMachinePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tabs<T extends Prisma.Project$tabsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$tabsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TabPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tasks<T extends Prisma.Project$tasksArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$tasksArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TaskPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   note<T extends Prisma.Project$noteArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$noteArgs<ExtArgs>>): Prisma.Prisma__NoteClient<runtime.Types.Result.GetResult<Prisma.$NotePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
@@ -1664,9 +1922,10 @@ export interface Prisma__ProjectClient<T, Null = never, ExtArgs extends runtime.
  */
 export interface ProjectFieldRefs {
   readonly id: Prisma.FieldRef<"Project", 'String'>
-  readonly machineId: Prisma.FieldRef<"Project", 'String'>
+  readonly ownerId: Prisma.FieldRef<"Project", 'String'>
+  readonly key: Prisma.FieldRef<"Project", 'String'>
+  readonly nextTaskNumber: Prisma.FieldRef<"Project", 'Int'>
   readonly name: Prisma.FieldRef<"Project", 'String'>
-  readonly cwd: Prisma.FieldRef<"Project", 'String'>
   readonly status: Prisma.FieldRef<"Project", 'ProjectStatus'>
   readonly description: Prisma.FieldRef<"Project", 'String'>
   readonly isPublic: Prisma.FieldRef<"Project", 'Boolean'>
@@ -2070,6 +2329,49 @@ export type ProjectDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.Inter
    * Limit how many Projects to delete.
    */
   limit?: number
+}
+
+/**
+ * Project.owner
+ */
+export type Project$ownerArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the User
+   */
+  select?: Prisma.UserSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the User
+   */
+  omit?: Prisma.UserOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.UserInclude<ExtArgs> | null
+  where?: Prisma.UserWhereInput
+}
+
+/**
+ * Project.machines
+ */
+export type Project$machinesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ProjectMachine
+   */
+  select?: Prisma.ProjectMachineSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ProjectMachine
+   */
+  omit?: Prisma.ProjectMachineOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ProjectMachineInclude<ExtArgs> | null
+  where?: Prisma.ProjectMachineWhereInput
+  orderBy?: Prisma.ProjectMachineOrderByWithRelationInput | Prisma.ProjectMachineOrderByWithRelationInput[]
+  cursor?: Prisma.ProjectMachineWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ProjectMachineScalarFieldEnum | Prisma.ProjectMachineScalarFieldEnum[]
 }
 
 /**
