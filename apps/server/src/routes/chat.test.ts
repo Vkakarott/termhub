@@ -234,7 +234,7 @@ it('approves a row the user owns: 200, decided through the repository, and the r
   expect(resumeAfterDecision.mock.calls[0][0]).toMatchObject({ id: 'u1' });
   expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'approved' });
   // Every open tab must learn of the decision, not only the one that clicked.
-  expect(events).toContainEqual({ type: 'decision', user_id: 'u1', action_id: 'act1', status: 'approved' });
+  expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'approved' });
 });
 
 it('denies a row the user owns: 200, decided as denied, and the run is resumed', async () => {

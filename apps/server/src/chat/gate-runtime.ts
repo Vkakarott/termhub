@@ -263,6 +263,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
   chatBus.publish({
     type: 'confirmation',
     user_id: ctx.scope.user.id,
+    conversation_id: conversationId,
     action_id: row.id,
     tool: row.tool,
     args: row.args,

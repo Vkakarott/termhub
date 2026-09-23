@@ -243,3 +243,13 @@ it('only ever hosts on an agent machine: a local or ssh machine is not one of th
   const { ctx } = build({ machines: [machine('m1', 'servidor', { type: 'local' }), machine('m2', 'vps', { type: 'ssh' })] });
   expect(await resolveHost(ctx, user)).toEqual({ kind: 'no_machine' });
 });
+
+it('requires the extra capability when asked to', async () => {
+  // A project chat needs an agent that forwards its prompt (spec §4.3); the account-wide chat on the
+  // very same agent is still ready.
+  const chosen = machine('m1', 'macbook');
+  const { ctx } = build({ machines: [chosen], conversation: { machine_id: 'm1' }, online: { m1: { capabilities: ['pty', 'claude'], agent_version: '0.5.0' } } });
+
+  expect(await resolveHost(ctx, user, { requires: 'claude.system_prompt' })).toEqual({ kind: 'agent_too_old', machine: chosen, version: '0.5.0' });
+  expect((await resolveHost(ctx, user)).kind).toBe('ready');
+});

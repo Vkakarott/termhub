@@ -71,7 +71,9 @@ export type HostChoice =
 export type HostProblem = Exclude<HostChoice, { kind: 'ready' }>;
 
 /**
- * Resolves the host pair for this user's conversation. It reads and never writes: a stale choice is
+ * Resolves the host pair for this user's conversation — always the account-wide row's, which a project
+ * chat shares (spec 2026-09-23 §3): `requires` is how a project chat asks for the one extra capability
+ * it needs, on the same host. It reads and never writes: a stale choice is
  * reported as "choose again", never silently rewritten, so two runs racing cannot disagree about
  * which machine answered.
  *
@@ -80,7 +82,7 @@ export type HostProblem = Exclude<HostChoice, { kind: 'ready' }>;
  * list is owner-scoped in SQL, so a chosen id that belongs to someone else is simply not in it. That
  * is what makes `ready` unreachable for a machine the user does not own.
  */
-export async function resolveHost(ctx: HostContext, user: User): Promise<HostChoice> {
+export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string } = {}): Promise<HostChoice> {
   const [conversation, machines] = await Promise.all([ctx.repos.chat.getOrCreateForUser(user.id), ctx.repos.machines.list(user.id)]);
   const candidates = machines.filter((m) => m.type === 'agent');
   if (candidates.length === 0) return { kind: 'no_machine' };
@@ -107,6 +109,11 @@ export async function resolveHost(ctx: HostContext, user: User): Promise<HostCho
     // The version comes from the live `hello` (an agent that is connected always has one); the stored
     // one is the fallback, and an empty string means the agent never said — the message then drops
     // the version rather than inventing one.
+    return { kind: 'agent_too_old', machine, version: ctx.agents.info(machine.id)?.agent_version ?? machine.agent_version ?? '' };
+  }
+  // A project chat needs more of the agent than the account-wide chat does (spec §4.3): an agent that
+  // does not forward the project's prompt would run the chat unfocused without saying so.
+  if (opts.requires && !capabilities.includes(opts.requires)) {
     return { kind: 'agent_too_old', machine, version: ctx.agents.info(machine.id)?.agent_version ?? machine.agent_version ?? '' };
   }
 

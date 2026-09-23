@@ -97,7 +97,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     }
 
     // Every open tab must see the decision, not only the one that clicked it.
-    chatBus.publish({ type: 'decision', user_id: user.id, action_id: action.id, status });
+    chatBus.publish({ type: 'decision', user_id: user.id, conversation_id: action.conversation_id, action_id: action.id, status });
 
     try {
       const message = await deps.service.resumeAfterDecision(user, action);
