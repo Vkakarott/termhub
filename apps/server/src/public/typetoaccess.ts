@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeCustomShortUrl } from './short-link.js';
 
 /**
  * TypeToAccess, the partner that shortens public-city links (77a.it/<slug>). This module is the only
@@ -45,12 +46,19 @@ export function createTypeToAccessClient(opts: { apiKey: string; fetchImpl?: typ
         return { kind: 'failed', status: res.status };
       }
       const parsed = createdSchema.safeParse(await res.json().catch(() => null));
-      return parsed.success ? { kind: 'created', shortUrl: parsed.data.shortUrl } : { kind: 'failed', status: res.status };
+      // only a https://77a.it/<slug> link is printed on a city; anything else stores nothing
+      const shortUrl = parsed.success ? normalizeCustomShortUrl(parsed.data.shortUrl) : null;
+      return shortUrl ? { kind: 'created', shortUrl } : { kind: 'failed', status: res.status };
     },
 
     async locationOf(url) {
-      const res = await doFetch(url, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+      // HEAD, so checking a link does not count as a click on it; GET only for a server that refuses HEAD
+      let res = await doFetch(url, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
       await res.body?.cancel().catch(() => {});
+      if (res.status === 405 || res.status === 501) {
+        res = await doFetch(url, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+        await res.body?.cancel().catch(() => {});
+      }
       if (res.status < 300 || res.status >= 400) return null;
       const location = res.headers.get('location');
       if (!location) return null;

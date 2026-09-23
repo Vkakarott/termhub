@@ -33,6 +33,8 @@ describe('createTypeToAccessClient', () => {
     expect(await client(new TypeError('fetch failed')).createLink({ url: 'u' })).toEqual({ kind: 'failed', status: null });
     // a 201 whose body is not what the API documents is not a link
     expect(await client(json(201, { nope: true })).createLink({ url: 'u' })).toEqual({ kind: 'failed', status: 201 });
+    // a created link that is not https://77a.it/<slug> is not one to print on a city
+    expect(await client(json(201, { ...CREATED, shortUrl: 'https://evil.example/pedro' })).createLink({ url: 'u' })).toEqual({ kind: 'failed', status: 201 });
   });
 
   it('gives up after the timeout instead of holding the caller', async () => {
@@ -48,6 +50,19 @@ describe('createTypeToAccessClient', () => {
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://77a.it/pedro');
     expect(init.redirect).toBe('manual');
+    // HEAD, so checking a pasted link does not count as a click on it
+    expect(init.method).toBe('HEAD');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to GET only when HEAD is not allowed', async () => {
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'HEAD' ? new Response(null, { status: 405 }) : new Response(null, { status: 302, headers: { location: 'https://termhub.dev/city/@pedro' } }),
+    );
+    const client = createTypeToAccessClient({ apiKey: 'k', fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(await client.locationOf('https://77a.it/pedro')).toBe('https://termhub.dev/city/@pedro');
+    expect(fetchImpl.mock.calls.map((c) => (c[1] as RequestInit).method)).toEqual(['HEAD', 'GET']);
+    expect((fetchImpl.mock.calls[1][1] as RequestInit).redirect).toBe('manual');
   });
 
   it('answers null for a link that does not redirect, and throws when it cannot be reached', async () => {

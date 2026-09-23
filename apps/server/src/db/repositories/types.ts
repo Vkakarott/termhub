@@ -355,10 +355,11 @@ export const mapNote = (n: PrismaNote): Note => ({
 });
 
 /** Remove campos sensíveis antes de enviar ao cliente. */
-export type PublicUser = Omit<User, 'password_hash' | 'google_id'> & { has_password: boolean; has_google: boolean };
+export type PublicUser = Omit<User, 'password_hash' | 'google_id' | 'city_short_url_partner' | 'city_short_url_custom'> & { has_password: boolean; has_google: boolean };
 
 export function toPublicUser(u: User): PublicUser {
-  const { password_hash, google_id, ...rest } = u;
+  // the city short links are served by /auth/me/city-link and the public snapshot, not the account payload
+  const { password_hash, google_id, city_short_url_partner, city_short_url_custom, ...rest } = u;
   return { ...rest, has_password: !!password_hash, has_google: !!google_id };
 }
 

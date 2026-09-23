@@ -80,6 +80,7 @@ export async function readPublicCity(repos: Repositories, nickname: string): Pro
       })),
     });
   }
+  // A saved link keeps showing even if the key is removed later: it still works; the key gates creation and editing only.
   return toPublicCity({ nickname, ownerName: owner.name, shortUrl: effectiveShortUrl(owner), buildings });
 }
 

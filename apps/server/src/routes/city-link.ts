@@ -17,6 +17,7 @@ export async function cityLinkRoutes(app: FastifyInstance, deps: { shortLinks: S
     let user = request.user;
     // the lazy retry (spec §3.3): a claimed nickname, the key set and no short link yet — one
     // attempt, rate-limited per user inside the service, and shared with a claim still running
+    // A saved link keeps showing even if the key is removed later: it still works; the key gates creation and editing only.
     if (links.enabled && user.nickname && !effectiveShortUrl(user)) {
       const partner = await links.ensurePartner(user);
       if (partner) user = { ...user, city_short_url_partner: partner };
@@ -47,8 +48,11 @@ export async function cityLinkRoutes(app: FastifyInstance, deps: { shortLinks: S
   app.delete('/me/city-link/custom', async (request, reply) => {
     if (!request.user) throw unauthorized();
     if (!links.enabled) return reply.code(404).send({ error: 'O link curto não está disponível nesta instância', code: 'SHORT_LINK_DISABLED' });
-    const user = await links.clearCustom(request.user);
+    const out = await links.clearCustom(request.user);
+    if (!out.ok) {
+      return reply.code(502).send({ error: 'Não foi possível criar o link da parceria agora. Seu link curto continua valendo; tente de novo mais tarde.', code: out.code });
+    }
     request.log.info({ userId: request.user.id }, 'short link: custom link cleared');
-    return links.view(user);
+    return links.view(out.user);
   });
 }
