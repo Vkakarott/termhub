@@ -245,7 +245,7 @@ function Page() {
 
         <Compare />
 
-        {/* cloud + waitlist */}
+        {/* cloud + free beta sign-up */}
         <section id="cloud">
           <div className="mx-auto grid max-w-page gap-10 px-4 py-20 md:grid-cols-2 md:px-6">
             <div>
