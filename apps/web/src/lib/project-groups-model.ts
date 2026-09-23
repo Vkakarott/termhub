@@ -40,20 +40,15 @@ export function applyDrop(groups: ProjectGroup[], drag: DragSource, drop: DropTa
     if (!source) return null;
     changes.push({ id: source.id, project_ids: source.project_ids.filter((id) => id !== drag.projectId) });
   } else if (target) {
-    if (source && source.id === target.id) {
-      const from = target.project_ids.indexOf(drag.projectId);
-      const without = target.project_ids.filter((id) => id !== drag.projectId);
-      const index = from !== -1 && drop.index > from ? drop.index - 1 : drop.index;
-      const next = insertAt(without, drag.projectId, index);
-      if (same(next, target.project_ids)) return null;
+    const from = target.project_ids.indexOf(drag.projectId);
+    const without = target.project_ids.filter((id) => id !== drag.projectId);
+    const index = from !== -1 && drop.index > from ? drop.index - 1 : drop.index;
+    const next = insertAt(without, drag.projectId, index);
+    if (source && source.id !== target.id && !opts.copy) {
+      changes.push({ id: source.id, project_ids: source.project_ids.filter((id) => id !== drag.projectId) });
+    }
+    if (!same(next, target.project_ids)) {
       changes.push({ id: target.id, project_ids: next });
-    } else {
-      if (source && !opts.copy) changes.push({ id: source.id, project_ids: source.project_ids.filter((id) => id !== drag.projectId) });
-      const from = target.project_ids.indexOf(drag.projectId);
-      const without = target.project_ids.filter((id) => id !== drag.projectId);
-      const index = from !== -1 && drop.index > from ? drop.index - 1 : drop.index;
-      const next = insertAt(without, drag.projectId, index);
-      if (!same(next, target.project_ids)) changes.push({ id: target.id, project_ids: next });
     }
   } else {
     return null;
