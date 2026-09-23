@@ -1,18 +1,22 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Machine } from '../lib/types';
 
+let canChat = true;
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
     user: { id: 'u1', name: 'Pedro', avatar_url: null, email: 'pedro@example.com' },
     logout: vi.fn(),
-    can: () => true,
+    can: (resource: string) => (resource === 'chat' ? canChat : true),
     viewAs: 'self',
   }),
 }));
+
+const chat = vi.hoisted(() => ({ toggle: vi.fn(), status: vi.fn(() => ({ busy: false, pending: 0 })) }));
+vi.mock('../lib/project-chat', () => ({ useProjectChat: () => ({ openProjectId: null, close: vi.fn(), ...chat }) }));
 vi.mock('../lib/monitor', () => ({ useMonitor: () => ({ items: [], needsYou: [] }) }));
 vi.mock('../lib/data', () => {
   const machines = [
@@ -96,15 +100,27 @@ describe('agentVersionBadge', () => {
   });
 });
 
+const PROJECT_NAME = 'alpha';
+const PROJECT_ID = 'p1';
+
+function renderSidebar() {
+  return render(
+    <MemoryRouter>
+      <Sidebar />
+    </MemoryRouter>,
+  );
+}
+
 describe('Sidebar', () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    canChat = true;
+    chat.toggle.mockClear();
+    chat.status.mockReset().mockReturnValue({ busy: false, pending: 0 });
+  });
 
   it('lists projects with their machines nested, and no top-level machine list', () => {
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
+    renderSidebar();
     expect(screen.getByText('alpha')).toBeInTheDocument();
     expect(screen.getAllByText('mac')).toHaveLength(1);
     expect(screen.getAllByText('jarvis')).toHaveLength(1);
@@ -112,14 +128,37 @@ describe('Sidebar', () => {
   });
 
   it('has a "Máquinas" nav link to /machines and a single "Novo projeto" add button', () => {
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
+    renderSidebar();
     const machinesLink = screen.getByRole('link', { name: /Máquinas/ });
     expect(machinesLink).toHaveAttribute('href', '/machines');
     expect(screen.getByTitle('Novo projeto')).toBeInTheDocument();
     expect(screen.queryByText('+ máquina')).not.toBeInTheDocument();
+  });
+
+  it('a project row has chat and edit, and no delete', () => {
+    renderSidebar();
+    const row = screen.getByText(PROJECT_NAME).closest('li')!;
+    expect(within(row).getByRole('button', { name: 'Chat do projeto' })).toBeTruthy();
+    expect(within(row).getByTitle('Editar projeto')).toBeTruthy();
+    expect(within(row).queryByTitle(/Excluir projeto/)).toBeNull();
+  });
+
+  it('💬 toggles that project chat', () => {
+    renderSidebar();
+    fireEvent.click(within(screen.getByText(PROJECT_NAME).closest('li')!).getByRole('button', { name: 'Chat do projeto' }));
+    expect(chat.toggle).toHaveBeenCalledWith(PROJECT_ID);
+  });
+
+  it('shows the 💬 without hover, with a dot, while that chat is answering or waiting', () => {
+    chat.status.mockReturnValue({ busy: false, pending: 1 });
+    renderSidebar();
+    const button = within(screen.getByText(PROJECT_NAME).closest('li')!).getByRole('button', { name: 'Chat do projeto' });
+    expect(button.getAttribute('data-active')).toBe('true');
+  });
+
+  it('no chat button without the chat permission', () => {
+    canChat = false;
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: 'Chat do projeto' })).toBeNull();
   });
 });

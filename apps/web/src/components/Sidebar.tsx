@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { canSeeSettings } from '../lib/settings-sections';
 import { ANALYTICS_ENABLED } from '../lib/analytics';
@@ -7,12 +7,12 @@ import { openCookieBanner } from './AnalyticsGate';
 import { useData, type MachineStatus } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
+import { useProjectChat } from '../lib/project-chat';
 import { STATUS_DOT, STATUS_LABEL } from '../lib/machine-status';
-import type { Machine, Project } from '../lib/types';
+import type { Machine } from '../lib/types';
 import { relativeTime } from '../lib/time';
 import { MachineForm } from './MachineForm';
 import { ProjectForm } from './ProjectForm';
-import { ConfirmDialog } from './Modal';
 import { ViewAsSwitch } from './ViewAsSwitch';
 
 /** Tooltip for a machine row: connection info (host, or "agente" with no host) + os/capabilities + last-seen when offline. */
@@ -34,15 +34,13 @@ export function agentVersionBadge(m: Machine): { text: string; title: string; ou
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can, viewAs } = useAuth();
-  const { projects, machinesOf, hiddenLocal, claimLocal, statuses, missingTmux, loading, deleteProject, checkStatus } = useData();
+  const { projects, machinesOf, hiddenLocal, claimLocal, statuses, missingTmux, loading, checkStatus } = useData();
   const { items: monitorItems, needsYou } = useMonitor();
   const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
+  const projectChat = useProjectChat();
   const navigate = useNavigate();
-  const location = useLocation();
   const [machineForm, setMachineForm] = useState<{ open: boolean; machine?: Machine | null }>({ open: false });
   const [projectFormOpen, setProjectFormOpen] = useState(false);
-  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
 
@@ -119,22 +117,32 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
                     {p.status === 'paused' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-warn group-hover/p:hidden`}>pausado</span>}
                     {p.status === 'archived' && <span className={`${waiting.get(p.id) ? '' : 'ml-auto '}text-[10px] text-fg-dim group-hover/p:hidden`}>arquivado</span>}
                   </NavLink>
-                  {/* ações: só no hover; ficam fora do link para não navegar ao clicar */}
-                  <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-hover/p:flex">
-                    <button className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Editar projeto" onClick={() => navigate(`/projects/${p.id}/settings`)}>
-                      ✎
-                    </button>
-                    <button
-                      className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-danger"
-                      title="Excluir projeto (as pastas nas máquinas não são apagadas)"
-                      onClick={() => {
-                        setDeleteError(null);
-                        setDeletingProject(p);
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </span>
+                  {/* ações: ficam fora do link para não navegar ao clicar. O 💬 fica visível sem hover
+                      enquanto o chat do projeto responde ou espera uma confirmação sua. */}
+                  {(() => {
+                    const chatStatus = projectChat.status(p.id);
+                    const chatActive = chatStatus.busy || chatStatus.pending > 0;
+                    return (
+                      <span className="flex shrink-0 items-center gap-0.5 pr-1">
+                        {can('chat') && (
+                          <button
+                            type="button"
+                            data-active={chatActive}
+                            className={`relative rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg ${chatActive || projectChat.openProjectId === p.id ? '' : 'hidden group-hover/p:inline-block'}`}
+                            aria-label="Chat do projeto"
+                            title={chatStatus.pending > 0 ? 'Chat do projeto — esperando sua confirmação' : chatStatus.busy ? 'Chat do projeto — respondendo' : 'Chat do projeto'}
+                            onClick={() => projectChat.toggle(p.id)}
+                          >
+                            💬
+                            {chatActive && <span className={`absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full ${chatStatus.pending > 0 ? 'bg-attention' : 'animate-pulse bg-accent'}`} />}
+                          </button>
+                        )}
+                        <button className="hidden rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover/p:inline-block" title="Editar projeto" onClick={() => navigate(`/projects/${p.id}/settings`)}>
+                          ✎
+                        </button>
+                      </span>
+                    );
+                  })()}
                 </div>
                 {isExpanded && (
                   <ul className="ml-4 border-l border-line pl-2">
@@ -295,31 +303,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         <MachineForm key={machineForm.machine?.id ?? 'new'} open onClose={() => setMachineForm({ open: false })} machine={machineForm.machine} />
       )}
       {projectFormOpen && <ProjectForm open onClose={() => setProjectFormOpen(false)} />}
-      <ConfirmDialog
-        open={!!deletingProject}
-        title="Remover projeto"
-        message={
-          <>
-            Remover <strong>{deletingProject?.name}</strong>? As tarefas, notas e tickets do projeto são apagados e as sessões tmux das tabs são encerradas nas
-            máquinas vinculadas. As pastas nas máquinas continuam intactas.
-            {deleteError && <p className="mt-2 text-danger">{deleteError}</p>}
-          </>
-        }
-        confirmLabel="Remover"
-        danger
-        onCancel={() => setDeletingProject(null)}
-        onConfirm={async () => {
-          if (!deletingProject) return;
-          try {
-            const wasOpen = location.pathname.startsWith(`/projects/${deletingProject.id}`);
-            await deleteProject(deletingProject.id);
-            setDeletingProject(null);
-            if (wasOpen) navigate('/');
-          } catch (e) {
-            setDeleteError((e as Error).message || 'Erro ao remover');
-          }
-        }}
-      />
     </aside>
   );
 }
