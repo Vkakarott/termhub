@@ -133,6 +133,8 @@ export interface Tab {
   state_seen_at: string | null;
   /** monitor: what a working agent is doing; null = not working or never reported */
   activity: TabActivity | null;
+  /** Claude Code's spinner verb that came with `activity` ("Moonwalking"); cleared with it */
+  activity_verb: string | null;
   created_at: string;
 }
 
@@ -301,6 +303,7 @@ export const mapTab = (t: PrismaTab): Tab => ({
   state_at: iso(t.stateAt),
   state_seen_at: iso(t.stateSeenAt),
   activity: t.activity,
+  activity_verb: t.activityVerb,
   created_at: t.createdAt.toISOString(),
 });
 

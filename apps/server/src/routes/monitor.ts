@@ -8,11 +8,10 @@ export interface MonitorItem {
   machine: Machine;
 }
 
-/** Monitor: every tab in the scope whose tool reported a state, newest change first. */
+/** Monitor: the scope's tabs with their project and machine, both of the scope's owner. */
 export async function monitorRoutes(app: FastifyInstance, repos: Repositories) {
-  app.get('/tabs', async (request) => {
-    const owner = request.scope.ownerId;
-    const [tabs, projects, machines] = await Promise.all([repos.tabs.listWithState(owner), repos.projects.list({ owner }), repos.machines.list(owner)]);
+  async function itemsOf(owner: string | null, tabsQuery: Promise<Tab[]>): Promise<MonitorItem[]> {
+    const [tabs, projects, machines] = await Promise.all([tabsQuery, repos.projects.list({ owner }), repos.machines.list(owner)]);
     const projectById = new Map(projects.map((p) => [p.id, p]));
     const machineById = new Map(machines.map((m) => [m.id, m]));
     const items: MonitorItem[] = [];
@@ -21,6 +20,21 @@ export async function monitorRoutes(app: FastifyInstance, repos: Repositories) {
       const machine = machineById.get(tab.machine_id);
       if (project && machine) items.push({ tab, project, machine });
     }
-    return { items };
+    return items;
+  }
+
+  /** Every tab whose tool reported a state, newest change first. */
+  app.get('/tabs', async (request) => {
+    const owner = request.scope.ownerId;
+    return { items: await itemsOf(owner, repos.tabs.listWithState(owner)) };
+  });
+
+  /**
+   * Every open terminal tab, reported a state or not, in tab-bar order: the sidebar's running
+   * agents. Kept live by the monitor WS (`tab_upsert` / `tab_removed`).
+   */
+  app.get('/open-tabs', async (request) => {
+    const owner = request.scope.ownerId;
+    return { items: await itemsOf(owner, repos.tabs.listOpenTerminals(owner)) };
   });
 }

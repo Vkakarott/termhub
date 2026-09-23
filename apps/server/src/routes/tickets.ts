@@ -5,6 +5,7 @@ import { badRequest, HttpError } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
 import { getProvider } from '../integrations/index.js';
 import { externalId, ticketRef } from '../setup/tickets-sync.js';
+import { publishTabOpened } from '../monitor/tab-events.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const importBody = z.object({ ticket_ids: z.array(z.string().min(1).max(64)).min(1).max(200) });
@@ -89,6 +90,7 @@ export async function taskTicketRoutes(app: FastifyInstance, repos: Repositories
     const ref = task.external_ref as { identifier?: string } | null;
     const name = (ref?.identifier ?? task.title).slice(0, 40);
     const tab = await repos.tabs.create(task.project_id, machine.id, name);
+    publishTabOpened(tab, machine);
     const updated = await repos.tasks.setTab(id, tab.id);
     return { task: updated, tab, created: true };
   });

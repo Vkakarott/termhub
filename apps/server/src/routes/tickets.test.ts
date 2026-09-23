@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, ProjectMachine, Tab, Task } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
+import { monitorBus, type TabLifecycle } from '../monitor/bus.js';
 import { taskTicketRoutes } from './tickets.js';
 
 /**
@@ -111,5 +112,25 @@ describe('POST /tasks/:id/terminal', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('NO_MACHINE');
     expect(createTab).not.toHaveBeenCalled();
+  });
+});
+
+async function lifecycleDuring(work: () => Promise<unknown>): Promise<TabLifecycle[]> {
+  const events: TabLifecycle[] = [];
+  const off = monitorBus.subscribeLifecycle((e) => events.push(e));
+  try {
+    await work();
+  } finally {
+    off();
+  }
+  return events;
+}
+
+describe('POST /tasks/:id/terminal on the monitor bus', () => {
+  it('publishes the tab it opens (the sidebar lists it at once), and nothing when it reuses one', async () => {
+    const { app } = buildApp([link('p1', 'm1')]);
+    const opened = await lifecycleDuring(() => app.inject({ method: 'POST', url: '/tasks/t1/terminal' }));
+    expect(opened).toEqual([{ kind: 'upsert', tab: expect.objectContaining({ id: 'new-m1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' }]);
+    expect(await lifecycleDuring(() => app.inject({ method: 'POST', url: '/tasks/t9/terminal' }))).toEqual([]);
   });
 });

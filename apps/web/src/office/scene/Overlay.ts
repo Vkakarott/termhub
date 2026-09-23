@@ -4,7 +4,7 @@
  * `place()` puts each one back over its world point every frame.
  */
 import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
-import { activityLabel, truncateLabel, type DeskModel, type MachineModel, type MachineNotice, type Marker, type RoomModel } from '../model';
+import { truncateLabel, workingLabel, type DeskModel, type MachineModel, type MachineNotice, type Marker, type RoomModel } from '../model';
 import type { View } from './camera';
 import { ROOM_SIGN_SCALE } from './detail';
 
@@ -64,7 +64,7 @@ export class DeskOverlay {
   }
 
   apply(model: DeskModel): void {
-    const activity = model.pose === 'type' && activityLabel(model.activity);
+    const activity = model.pose === 'type' && workingLabel(model.activity, model.verb);
     this.short = activity || model.label;
     this.showingActivity = !!activity;
     this.full = truncateLabel(model.name, HOVER_MAX);
