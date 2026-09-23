@@ -23,6 +23,9 @@ import { projectTicketRoutes, taskTicketRoutes } from './routes/tickets.js';
 import { aiAccountRoutes } from './routes/ai-accounts.js';
 import { waitlistRoutes } from './routes/waitlist.js';
 import { publicCityRoutes } from './routes/public-city.js';
+import { cityLinkRoutes } from './routes/city-link.js';
+import { ShortLinkService } from './public/short-link.js';
+import { createTypeToAccessClient } from './public/typetoaccess.js';
 import { registerPublicWs } from './public/ws.js';
 import { defaultFrontendDirs, registerFrontend } from './frontend.js';
 import { loadPublicIdKey, setPublicIdKey } from './public/public-id.js';
@@ -86,6 +89,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
 
   const mailer = createMailer((m) => fastify.log.info(m));
   const access = createAccessAllowlist(config.cloudflareAccess);
+  const shortLinks = new ShortLinkService({
+    users: repos.users,
+    http: config.typeToAccess ? createTypeToAccessClient({ apiKey: config.typeToAccess.apiKey }) : null,
+    cityBaseUrl: config.publicCityUrl,
+    log: fastify.log.child({ mod: 'short-link' }),
+  });
   if (config.cloudflareAccess) fastify.log.info({ domain: config.cloudflareAccess.appDomain, policy: config.cloudflareAccess.policyName }, 'cloudflare access allowlist sync enabled');
   const authService = new AuthService(repos, mailer);
   const auth: AuthContext = { service: authService, repos };
@@ -148,7 +157,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
           await plugin(a);
         }, { prefix });
 
-      await api.register((a) => authRoutes(a, auth), { prefix: '/auth' });
+      await api.register((a) => authRoutes(a, auth, { onNicknameClaimed: (u) => shortLinks.onNicknameClaimed(u) }), { prefix: '/auth' });
+      await api.register((a) => cityLinkRoutes(a, { shortLinks }), { prefix: '/auth' });
       await guarded('machines', (a) => machineRoutes(a, repos), '/machines');
       await guarded('projects', (a) => projectRoutes(a, repos, { simulators }), '/projects');
       await guarded('tasks', (a) => projectTaskRoutes(a, repos), '/projects');
