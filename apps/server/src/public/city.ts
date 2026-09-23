@@ -1,4 +1,5 @@
 import { publicId, publicRoomId } from './public-id.js';
+import { publicSpinnerVerb } from './spinner-verbs.js';
 import type { Machine, OfficeTabProgress, Project, Tab, TabActivity, TabState } from '../db/repositories/types.js';
 
 /**
@@ -13,6 +14,8 @@ export interface PublicRobot {
   state: TabState | null;
   state_at: string | null;
   activity: TabActivity | null;
+  /** Claude Code's spinner verb, only when it is one of its defaults (spinner-verbs.ts): a custom verb is the person's own words */
+  activity_verb: string | null;
   alive: boolean;
   progress: { done: number; total: number } | null;
 }
@@ -22,16 +25,19 @@ export interface PublicRobotFrame { type: 'robot'; building: string; room: strin
 
 export interface PublicRoom { id: string; name: string; robots: PublicRobot[] }
 export interface PublicBuilding { id: string; name: string; rooms: PublicRoom[] }
-export interface PublicCity { nickname: string; owner_name: string; buildings: PublicBuilding[] }
+export interface PublicCity { nickname: string; owner_name: string; short_url: string | null; buildings: PublicBuilding[] }
 
 export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: OfficeTabProgress | null }): PublicRobot {
+  // what the robot is doing only means something while it works: never publish a leftover
+  const working = tab.state === 'working';
   return {
     id: publicId('tab', tab.id),
     name: tab.name,
     kind: tab.kind,
     state: tab.state,
     state_at: tab.state_at,
-    activity: tab.activity,
+    activity: working ? tab.activity : null,
+    activity_verb: working ? publicSpinnerVerb(tab.activity_verb) : null,
     alive: opts.alive,
     progress: opts.progress ? { done: opts.progress.done, total: opts.progress.total } : null,
   };
@@ -56,11 +62,14 @@ export function toPublicRobotGone(input: { machineId: string; projectId: string;
 export function toPublicCity(input: {
   nickname: string;
   ownerName: string;
+  shortUrl: string | null;
   buildings: { machine: Machine; rooms: { project: Project; tabs: { tab: Tab; alive: boolean; progress: OfficeTabProgress | null }[] }[] }[];
 }): PublicCity {
   return {
     nickname: input.nickname,
     owner_name: input.ownerName,
+    // the owner's effective short link (custom ?? partner): printed on share images, public by nature
+    short_url: input.shortUrl,
     buildings: input.buildings.map((b) => ({
       id: publicId('machine', b.machine.id),
       name: b.machine.name,

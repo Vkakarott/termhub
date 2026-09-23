@@ -171,3 +171,15 @@ export type ChatAction = Prisma.ChatActionModel
  * and green read the same row. `public_id` keys the HMAC behind every id on the public city.
  */
 export type InstanceSecret = Prisma.InstanceSecretModel
+/**
+ * Model ProjectGroup
+ * A user's own grouping of projects in the sidebar. system_key 'favorites' = the default
+ * Favoritos group (one per user: NULLs are distinct in the unique index, so any number of
+ * custom groups with a null key).
+ */
+export type ProjectGroup = Prisma.ProjectGroupModel
+/**
+ * Model ProjectGroupItem
+ * 
+ */
+export type ProjectGroupItem = Prisma.ProjectGroupItemModel

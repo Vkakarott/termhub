@@ -49,6 +49,7 @@ export type TabMinAggregateOutputType = {
   stateAt: Date | null
   stateSeenAt: Date | null
   activity: $Enums.TabActivity | null
+  activityVerb: string | null
   createdByTokenId: string | null
   createdAt: Date | null
 }
@@ -68,6 +69,7 @@ export type TabMaxAggregateOutputType = {
   stateAt: Date | null
   stateSeenAt: Date | null
   activity: $Enums.TabActivity | null
+  activityVerb: string | null
   createdByTokenId: string | null
   createdAt: Date | null
 }
@@ -87,6 +89,7 @@ export type TabCountAggregateOutputType = {
   stateAt: number
   stateSeenAt: number
   activity: number
+  activityVerb: number
   createdByTokenId: number
   createdAt: number
   _all: number
@@ -116,6 +119,7 @@ export type TabMinAggregateInputType = {
   stateAt?: true
   stateSeenAt?: true
   activity?: true
+  activityVerb?: true
   createdByTokenId?: true
   createdAt?: true
 }
@@ -135,6 +139,7 @@ export type TabMaxAggregateInputType = {
   stateAt?: true
   stateSeenAt?: true
   activity?: true
+  activityVerb?: true
   createdByTokenId?: true
   createdAt?: true
 }
@@ -154,6 +159,7 @@ export type TabCountAggregateInputType = {
   stateAt?: true
   stateSeenAt?: true
   activity?: true
+  activityVerb?: true
   createdByTokenId?: true
   createdAt?: true
   _all?: true
@@ -260,6 +266,7 @@ export type TabGroupByOutputType = {
   stateAt: Date | null
   stateSeenAt: Date | null
   activity: $Enums.TabActivity | null
+  activityVerb: string | null
   createdByTokenId: string | null
   createdAt: Date
   _count: TabCountAggregateOutputType | null
@@ -302,6 +309,7 @@ export type TabWhereInput = {
   stateAt?: Prisma.DateTimeNullableFilter<"Tab"> | Date | string | null
   stateSeenAt?: Prisma.DateTimeNullableFilter<"Tab"> | Date | string | null
   activity?: Prisma.EnumTabActivityNullableFilter<"Tab"> | $Enums.TabActivity | null
+  activityVerb?: Prisma.StringNullableFilter<"Tab"> | string | null
   createdByTokenId?: Prisma.StringNullableFilter<"Tab"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
@@ -325,6 +333,7 @@ export type TabOrderByWithRelationInput = {
   stateAt?: Prisma.SortOrderInput | Prisma.SortOrder
   stateSeenAt?: Prisma.SortOrderInput | Prisma.SortOrder
   activity?: Prisma.SortOrderInput | Prisma.SortOrder
+  activityVerb?: Prisma.SortOrderInput | Prisma.SortOrder
   createdByTokenId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   project?: Prisma.ProjectOrderByWithRelationInput
@@ -351,6 +360,7 @@ export type TabWhereUniqueInput = Prisma.AtLeast<{
   stateAt?: Prisma.DateTimeNullableFilter<"Tab"> | Date | string | null
   stateSeenAt?: Prisma.DateTimeNullableFilter<"Tab"> | Date | string | null
   activity?: Prisma.EnumTabActivityNullableFilter<"Tab"> | $Enums.TabActivity | null
+  activityVerb?: Prisma.StringNullableFilter<"Tab"> | string | null
   createdByTokenId?: Prisma.StringNullableFilter<"Tab"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
@@ -374,6 +384,7 @@ export type TabOrderByWithAggregationInput = {
   stateAt?: Prisma.SortOrderInput | Prisma.SortOrder
   stateSeenAt?: Prisma.SortOrderInput | Prisma.SortOrder
   activity?: Prisma.SortOrderInput | Prisma.SortOrder
+  activityVerb?: Prisma.SortOrderInput | Prisma.SortOrder
   createdByTokenId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.TabCountOrderByAggregateInput
@@ -401,6 +412,7 @@ export type TabScalarWhereWithAggregatesInput = {
   stateAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Tab"> | Date | string | null
   stateSeenAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Tab"> | Date | string | null
   activity?: Prisma.EnumTabActivityNullableWithAggregatesFilter<"Tab"> | $Enums.TabActivity | null
+  activityVerb?: Prisma.StringNullableWithAggregatesFilter<"Tab"> | string | null
   createdByTokenId?: Prisma.StringNullableWithAggregatesFilter<"Tab"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Tab"> | Date | string
 }
@@ -418,6 +430,7 @@ export type TabCreateInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   project: Prisma.ProjectCreateNestedOneWithoutTabsInput
@@ -441,6 +454,7 @@ export type TabUncheckedCreateInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
@@ -460,6 +474,7 @@ export type TabUpdateInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
@@ -483,6 +498,7 @@ export type TabUncheckedUpdateInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
@@ -504,6 +520,7 @@ export type TabCreateManyInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
 }
@@ -521,6 +538,7 @@ export type TabUpdateManyMutationInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -540,6 +558,7 @@ export type TabUncheckedUpdateManyInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -569,6 +588,7 @@ export type TabCountOrderByAggregateInput = {
   stateAt?: Prisma.SortOrder
   stateSeenAt?: Prisma.SortOrder
   activity?: Prisma.SortOrder
+  activityVerb?: Prisma.SortOrder
   createdByTokenId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -592,6 +612,7 @@ export type TabMaxOrderByAggregateInput = {
   stateAt?: Prisma.SortOrder
   stateSeenAt?: Prisma.SortOrder
   activity?: Prisma.SortOrder
+  activityVerb?: Prisma.SortOrder
   createdByTokenId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -611,6 +632,7 @@ export type TabMinOrderByAggregateInput = {
   stateAt?: Prisma.SortOrder
   stateSeenAt?: Prisma.SortOrder
   activity?: Prisma.SortOrder
+  activityVerb?: Prisma.SortOrder
   createdByTokenId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -768,6 +790,7 @@ export type TabCreateWithoutMachineInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   project: Prisma.ProjectCreateNestedOneWithoutTabsInput
@@ -789,6 +812,7 @@ export type TabUncheckedCreateWithoutMachineInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
@@ -839,6 +863,7 @@ export type TabScalarWhereInput = {
   stateAt?: Prisma.DateTimeNullableFilter<"Tab"> | Date | string | null
   stateSeenAt?: Prisma.DateTimeNullableFilter<"Tab"> | Date | string | null
   activity?: Prisma.EnumTabActivityNullableFilter<"Tab"> | $Enums.TabActivity | null
+  activityVerb?: Prisma.StringNullableFilter<"Tab"> | string | null
   createdByTokenId?: Prisma.StringNullableFilter<"Tab"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Tab"> | Date | string
 }
@@ -856,6 +881,7 @@ export type TabCreateWithoutProjectInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   machine: Prisma.MachineCreateNestedOneWithoutTabsInput
@@ -877,6 +903,7 @@ export type TabUncheckedCreateWithoutProjectInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
@@ -922,6 +949,7 @@ export type TabCreateWithoutEventsInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   project: Prisma.ProjectCreateNestedOneWithoutTabsInput
@@ -944,6 +972,7 @@ export type TabUncheckedCreateWithoutEventsInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutTabInput
@@ -978,6 +1007,7 @@ export type TabUpdateWithoutEventsInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
@@ -1000,6 +1030,7 @@ export type TabUncheckedUpdateWithoutEventsInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
@@ -1018,6 +1049,7 @@ export type TabCreateWithoutTasksInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   project: Prisma.ProjectCreateNestedOneWithoutTabsInput
@@ -1040,6 +1072,7 @@ export type TabUncheckedCreateWithoutTasksInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
   events?: Prisma.TabEventUncheckedCreateNestedManyWithoutTabInput
@@ -1074,6 +1107,7 @@ export type TabUpdateWithoutTasksInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
@@ -1096,6 +1130,7 @@ export type TabUncheckedUpdateWithoutTasksInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   events?: Prisma.TabEventUncheckedUpdateManyWithoutTabNestedInput
@@ -1115,6 +1150,7 @@ export type TabCreateManyMachineInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
 }
@@ -1132,6 +1168,7 @@ export type TabUpdateWithoutMachineInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneRequiredWithoutTabsNestedInput
@@ -1153,6 +1190,7 @@ export type TabUncheckedUpdateWithoutMachineInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
@@ -1173,6 +1211,7 @@ export type TabUncheckedUpdateManyWithoutMachineInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1191,6 +1230,7 @@ export type TabCreateManyProjectInput = {
   stateAt?: Date | string | null
   stateSeenAt?: Date | string | null
   activity?: $Enums.TabActivity | null
+  activityVerb?: string | null
   createdByTokenId?: string | null
   createdAt?: Date | string
 }
@@ -1208,6 +1248,7 @@ export type TabUpdateWithoutProjectInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneRequiredWithoutTabsNestedInput
@@ -1229,6 +1270,7 @@ export type TabUncheckedUpdateWithoutProjectInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   tasks?: Prisma.TaskUncheckedUpdateManyWithoutTabNestedInput
@@ -1249,6 +1291,7 @@ export type TabUncheckedUpdateManyWithoutProjectInput = {
   stateAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   stateSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   activity?: Prisma.NullableEnumTabActivityFieldUpdateOperationsInput | $Enums.TabActivity | null
+  activityVerb?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdByTokenId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1308,6 +1351,7 @@ export type TabSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   stateAt?: boolean
   stateSeenAt?: boolean
   activity?: boolean
+  activityVerb?: boolean
   createdByTokenId?: boolean
   createdAt?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
@@ -1332,6 +1376,7 @@ export type TabSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   stateAt?: boolean
   stateSeenAt?: boolean
   activity?: boolean
+  activityVerb?: boolean
   createdByTokenId?: boolean
   createdAt?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
@@ -1353,6 +1398,7 @@ export type TabSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   stateAt?: boolean
   stateSeenAt?: boolean
   activity?: boolean
+  activityVerb?: boolean
   createdByTokenId?: boolean
   createdAt?: boolean
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
@@ -1374,11 +1420,12 @@ export type TabSelectScalar = {
   stateAt?: boolean
   stateSeenAt?: boolean
   activity?: boolean
+  activityVerb?: boolean
   createdByTokenId?: boolean
   createdAt?: boolean
 }
 
-export type TabOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "machineId" | "name" | "kind" | "tmuxSession" | "simulatorUdid" | "position" | "state" | "stateText" | "stateTool" | "stateAt" | "stateSeenAt" | "activity" | "createdByTokenId" | "createdAt", ExtArgs["result"]["tab"]>
+export type TabOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "machineId" | "name" | "kind" | "tmuxSession" | "simulatorUdid" | "position" | "state" | "stateText" | "stateTool" | "stateAt" | "stateSeenAt" | "activity" | "activityVerb" | "createdByTokenId" | "createdAt", ExtArgs["result"]["tab"]>
 export type TabInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
   machine?: boolean | Prisma.MachineDefaultArgs<ExtArgs>
@@ -1431,6 +1478,10 @@ export type $TabPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
      * Set while `state` is working; cleared when the tab leaves it. null = not working or never reported.
      */
     activity: $Enums.TabActivity | null
+    /**
+     * Claude Code's spinner verb that came with `activity` (one ASCII word); set and cleared with it.
+     */
+    activityVerb: string | null
     /**
      * API token that opened this tab through /mcp (null: opened in the browser). Used by close_tab and the per-token open-tab limit.
      */
@@ -1877,6 +1928,7 @@ export interface TabFieldRefs {
   readonly stateAt: Prisma.FieldRef<"Tab", 'DateTime'>
   readonly stateSeenAt: Prisma.FieldRef<"Tab", 'DateTime'>
   readonly activity: Prisma.FieldRef<"Tab", 'TabActivity'>
+  readonly activityVerb: Prisma.FieldRef<"Tab", 'String'>
   readonly createdByTokenId: Prisma.FieldRef<"Tab", 'String'>
   readonly createdAt: Prisma.FieldRef<"Tab", 'DateTime'>
 }

@@ -93,7 +93,7 @@ function buildApp() {
     users: {
       findByNickname: vi.fn(async (nickname: string) =>
         nickname === 'pedro'
-          ? { id: 'u1', name: 'Pedro' }
+          ? { id: 'u1', name: 'Pedro', city_short_url_partner: 'https://77a.it/pedro', city_short_url_custom: null }
           : nickname === 'semnada'
             ? { id: 'u2', name: 'Semnada' }
             : nickname === 'terceiro'
@@ -130,6 +130,12 @@ describe('GET /public/city/:nickname', () => {
     clearPublicCityMemo();
     probingFn.mockClear();
     cachedFn.mockClear();
+  });
+
+  it('carries the owner’s effective short link, and null for a city without one', async () => {
+    const { app } = buildApp();
+    expect((await app.inject({ method: 'GET', url: '/public/city/pedro' })).json().short_url).toBe('https://77a.it/pedro');
+    expect((await app.inject({ method: 'GET', url: '/public/city/terceiro' })).json().short_url).toBeNull();
   });
 
   it('answers the city of a nickname that has a public project', async () => {

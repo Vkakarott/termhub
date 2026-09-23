@@ -69,6 +69,24 @@ export class TabsRepository {
   }
 
   /**
+   * Every terminal tab on the owner's machines (null = every owner), reported a state or not: the
+   * sidebar's "open agents". Scoped like `listWithState`, by the machine the tab runs on.
+   */
+  async listOpenTerminals(owner: string | null = null): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({
+      where: { kind: 'terminal', ...(owner ? { machine: { ownerId: owner } } : {}) },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    });
+    return rows.map(mapTab);
+  }
+
+  /** Every tab on one machine. */
+  async listByMachine(machineId: string): Promise<Tab[]> {
+    const rows = await this.db.tab.findMany({ where: { machineId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+    return rows.map(mapTab);
+  }
+
+  /**
    * Per machine: how many terminal tabs exist and how many already reported a state. A tab that
    * never reported one is invisible to the monitor (see `listWithState`), which is what "the
    * machine has tabs but the office/monitor is empty" looks like — the machine list shows both
@@ -100,22 +118,29 @@ export class TabsRepository {
   /**
    * Monitor: records the event and makes it the tab's current state; keeps only the newest events
    * per tab. Leaving `stateSeenAt` untouched re-arms a seen tab by itself (the bumped `stateAt` is
-   * now newer than it) — except for the *same* `waiting_input` wait continuing: Claude's hooks send
-   * `Stop` and, ~1 min later, `Notification idle_prompt` for one turn, both mapped to `waiting_input`;
-   * if the person already saw the tab for that wait, a second `waiting_input` in a row must not
-   * re-open it, so the seen mark is carried forward to the new `stateAt` instead. Any transition
-   * through another state, or a `waiting_permission` (always a fresh ask), still re-arms as before.
+   * now newer than it) — except for an event that `continuesWait`: Claude's hooks send `Stop` and,
+   * ~1 min later, `Notification idle_prompt` for one turn, both mapped to `waiting_input`; if the
+   * person already saw the tab for that wait, the idle_prompt must not re-open it, so the seen mark
+   * is carried forward to the new `stateAt` instead; a continuation that brings no text keeps the
+   * wait's own. Two `waiting_input` in a row are not enough to tell: Codex sends only that, once
+   * per turn, so its next turn is a new wait that must re-arm.
    */
-  async recordEvent(tabId: string, event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown>; activity?: TabActivity }): Promise<{ tab: Tab; event: TabEvent }> {
+  async recordEvent(
+    tabId: string,
+    event: { kind: TabState; tool: string; text: string | null; meta?: Record<string, unknown>; activity?: TabActivity; activityVerb?: string | null; continuesWait?: boolean },
+  ): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
     const [e, t] = await this.db.$transaction(async (tx) => {
-      const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true } });
+      const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true } });
       const currentlySeen = !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt;
-      const carrySeen = current?.state === 'waiting_input' && event.kind === 'waiting_input' && currentlySeen;
+      const continuing = !!event.continuesWait && current?.state === 'waiting_input' && event.kind === 'waiting_input';
+      const carrySeen = continuing && currentlySeen;
+      // a continuation with nothing to say (Cursor's stop after its answer) must not wipe the question
+      const text = continuing && event.text === null ? (current?.stateText ?? null) : event.text;
       const ev = await tx.tabEvent.create({ data: { id: newId(), tabId, kind: event.kind, tool: event.tool, text: event.text, meta: (event.meta ?? {}) as object, createdAt: at } });
       const updated = await tx.tab.update({
         where: { id: tabId },
-        data: { state: event.kind, stateText: event.text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
+        data: { state: event.kind, stateText: text, stateTool: event.tool, stateAt: at, activity: event.kind === 'working' ? (event.activity ?? null) : null, activityVerb: event.kind === 'working' ? (event.activityVerb ?? null) : null, ...(carrySeen ? { stateSeenAt: at } : {}) },
       });
       await tx.$executeRaw`DELETE FROM "tab_events" WHERE "tab_id" = ${tabId} AND "id" NOT IN (SELECT "id" FROM "tab_events" WHERE "tab_id" = ${tabId} ORDER BY "created_at" DESC LIMIT ${EVENTS_KEPT_PER_TAB})`;
       return [ev, updated] as const;
@@ -130,11 +155,12 @@ export class TabsRepository {
 
   /** Clears the monitor state (e.g. the tmux session is gone). */
   async clearState(tabId: string): Promise<void> {
-    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null, activity: null } });
+    await this.db.tab.updateMany({ where: { id: tabId }, data: { state: null, stateText: null, stateTool: null, stateAt: null, stateSeenAt: null, activity: null, activityVerb: null } });
   }
 
   /**
-   * A tool change on a tab that is already working: the activity and the time move, nothing else,
+   * A tool change on a tab that is already working: the activity (with the spinner verb that came
+   * with it, or null) and the time move, nothing else,
    * and no event row is written — an active agent changes tool several times a minute, and the
    * event table is for state changes. `updateMany…AndReturn` so a tab that is gone comes back as
    * `undefined` (like `markSeen`) instead of throwing, still in a single statement.
@@ -144,8 +170,8 @@ export class TabsRepository {
    * write — and a waiting tab must never read as coding, nor have its `stateAt` pushed past the
    * `stateSeenAt` that says the person already saw it. Nothing updated = it is no longer working.
    */
-  async setActivity(tabId: string, activity: TabActivity): Promise<Tab | undefined> {
-    const [t] = await this.db.tab.updateManyAndReturn({ where: { id: tabId, state: 'working' }, data: { activity, stateAt: new Date() } });
+  async setActivity(tabId: string, activity: TabActivity, verb: string | null): Promise<Tab | undefined> {
+    const [t] = await this.db.tab.updateManyAndReturn({ where: { id: tabId, state: 'working' }, data: { activity, activityVerb: verb, stateAt: new Date() } });
     return t ? mapTab(t) : undefined;
   }
 

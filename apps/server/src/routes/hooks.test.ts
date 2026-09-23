@@ -50,6 +50,31 @@ describe('POST /api/hooks/events', () => {
     expect(published[0]).toMatchObject({ owner_id: 'u1', machine_id: 'm1', project_id: 'p1' });
   });
 
+  it('tells the repository which event continues the wait before it, and only that one', async () => {
+    const { app, recordEvent } = buildApp();
+    await post(app, { tool: 'claude', session: tab.tmux_session, event: { hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' } });
+    await post(app, { tool: 'codex', session: tab.tmux_session, event: { type: 'agent-turn-complete', 'last-assistant-message': 'dois' } });
+    expect(recordEvent.mock.calls.map((c) => (c[1] as { continuesWait?: boolean }).continuesWait)).toEqual([true, undefined]);
+  });
+
+  it('ignores the turn Codex runs to title the conversation: the tab keeps its answer', async () => {
+    const { app, recordEvent } = buildApp();
+    const r = await post(app, { tool: 'codex', session: tab.tmux_session, event: { type: 'agent-turn-complete', 'thread-id': 'side', 'input-messages': ['Generate a concise, single-line task title of at most 36 characters…\n\nresponda apenas: um'], 'last-assistant-message': '{"title":"Responder apenas um"}' } });
+    expect(r.statusCode).toBe(202);
+    expect(r.json()).toEqual({ ok: false, reason: 'ignored' });
+    expect(recordEvent).not.toHaveBeenCalled();
+  });
+
+  it('carries a plain spinner verb to the tab and drops anything else without refusing the event', async () => {
+    const { app, recordEvent } = buildApp();
+    const ok = await post(app, { tool: 'claude', session: tab.tmux_session, event: { hook_event_name: 'PreToolUse', tool_name: 'Edit', verb: 'Moonwalking' } });
+    expect(ok.statusCode).toBe(200);
+    expect(recordEvent).toHaveBeenLastCalledWith('tab1', expect.objectContaining({ kind: 'working', activity: 'coding', activityVerb: 'Moonwalking' }));
+    const hostile = await post(app, { tool: 'claude', session: tab.tmux_session, event: { hook_event_name: 'PreToolUse', tool_name: 'Edit', verb: '<img src=x onerror=alert(1)>' } });
+    expect(hostile.statusCode).toBe(200);
+    expect(recordEvent).toHaveBeenLastCalledWith('tab1', expect.objectContaining({ kind: 'working', activity: 'coding', activityVerb: null }));
+  });
+
   it('answers 202 for an unknown session or an event with nothing to show', async () => {
     const { app, recordEvent } = buildApp();
     const unknown = await post(app, { tool: 'claude', session: 'not-a-tab', event: { hook_event_name: 'Stop' } });

@@ -76,3 +76,39 @@ describe('PATCH /auth/me/nickname', () => {
     expect(res.json().public_city_url).toMatch(/^https?:\/\/[^/]+\/city$/);
   });
 });
+
+describe('PATCH /auth/me/nickname and the short link', () => {
+  function buildWithHook(user: { id: string; nickname: string | null }, onNicknameClaimed: (u: unknown) => void) {
+    const app = Fastify();
+    applyErrorHandler(app);
+    app.addHook('preHandler', async (request) => {
+      request.user = user as never;
+      request.scope = { user, viewAs: { kind: 'self' }, ownerId: user.id, createAs: user.id } as never;
+    });
+    const repos = { users: { setNickname, findByNickname: vi.fn(async () => undefined) } } as unknown as Repositories;
+    app.register((a) => authRoutes(a, { repos } as never, { onNicknameClaimed }), { prefix: '/auth' });
+    return app;
+  }
+
+  beforeEach(() => setNickname.mockReset().mockResolvedValue('ok'));
+
+  it('asks for the partner link once, after the first claim is written', async () => {
+    const onNicknameClaimed = vi.fn();
+    const res = await buildWithHook({ id: 'u1', nickname: null }, onNicknameClaimed).inject({ method: 'PATCH', url: '/auth/me/nickname', payload: { nickname: 'Pedro' } });
+    expect(res.statusCode).toBe(200);
+    expect(onNicknameClaimed).toHaveBeenCalledTimes(1);
+    expect(onNicknameClaimed.mock.calls[0][0]).toMatchObject({ id: 'u1', nickname: 'pedro' });
+    expect(setNickname.mock.invocationCallOrder[0]).toBeLessThan(onNicknameClaimed.mock.invocationCallOrder[0]);
+  });
+
+  it('does not ask on a re-sent nickname, on a refusal, or on a lost race', async () => {
+    const onNicknameClaimed = vi.fn();
+    await buildWithHook({ id: 'u1', nickname: 'pedro' }, onNicknameClaimed).inject({ method: 'PATCH', url: '/auth/me/nickname', payload: { nickname: 'pedro' } });
+    await buildWithHook({ id: 'u1', nickname: null }, onNicknameClaimed).inject({ method: 'PATCH', url: '/auth/me/nickname', payload: { nickname: 'city' } });
+    setNickname.mockResolvedValue('taken');
+    await buildWithHook({ id: 'u1', nickname: null }, onNicknameClaimed).inject({ method: 'PATCH', url: '/auth/me/nickname', payload: { nickname: 'pedro' } });
+    setNickname.mockResolvedValue('locked');
+    await buildWithHook({ id: 'u1', nickname: null }, onNicknameClaimed).inject({ method: 'PATCH', url: '/auth/me/nickname', payload: { nickname: 'pedro' } });
+    expect(onNicknameClaimed).not.toHaveBeenCalled();
+  });
+});

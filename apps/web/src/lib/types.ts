@@ -146,6 +146,14 @@ export interface Project {
   open_tasks?: number;
 }
 
+export interface ProjectGroup {
+  id: string;
+  name: string;
+  kind: 'favorites' | 'custom';
+  position: number;
+  project_ids: string[];
+}
+
 /** Corpo de criação/edição. `machine_id` + `cwd` juntos criam o primeiro vínculo; `create_dir` cria a pasta na máquina. */
 export interface ProjectInput {
   name?: string;
@@ -316,6 +324,8 @@ export interface Tab {
   state_seen_at: string | null;
   /** which tool the working tab is about to call, mapped to a category; null off `working`, or an agent too old to report it */
   activity: TabActivity | null;
+  /** Claude Code's spinner verb that came with `activity` ("Moonwalking"); null without one */
+  activity_verb: string | null;
   created_at: string;
   alive: boolean;
 }
@@ -405,6 +415,8 @@ export interface PublicRobot {
   state: TabState | null;
   state_at: string | null;
   activity: TabActivity | null;
+  /** Claude Code's spinner verb, only when it is one of its defaults (the server drops custom verbs) */
+  activity_verb: string | null;
   alive: boolean;
   /** the board task bound to the tab, without its title: a bar, never what it says */
   progress: { done: number; total: number } | null;
@@ -425,7 +437,21 @@ export interface PublicBuilding {
 export interface PublicCity {
   nickname: string;
   owner_name: string;
+  /** the owner's short link (77a.it/…), or null: use the long /city/@nickname address */
+  short_url: string | null;
   buildings: PublicBuilding[];
+}
+
+/** GET/PUT /api/auth/me/city-link: the signed-in person's city address and its short link. */
+export interface CityLink {
+  /** the instance has a TypeToAccess key: partner links are created and a custom one can be set */
+  enabled: boolean;
+  /** the long address, null until the person has a nickname */
+  city_url: string | null;
+  /** the link to hand out: the custom one, else the partner one; null = use city_url */
+  short_url: string | null;
+  source: 'custom' | 'partner' | null;
+  partner_url: string | null;
 }
 
 /** Settings → Arquivos: one file in ~/.cache/termhub/paste/ on a machine, with who pasted it when known. */

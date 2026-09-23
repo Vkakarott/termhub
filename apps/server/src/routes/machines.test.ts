@@ -86,7 +86,10 @@ function buildApp(
 
   const repos = {
     machineHooks,
-    tabs: { countsByMachine: vi.fn(async () => health.counts ?? {}) },
+    tabs: {
+      countsByMachine: vi.fn(async () => health.counts ?? {}),
+      listByMachine: vi.fn(async (id: string) => (id === 'm1' ? [{ id: 't1', project_id: 'p1', machine_id: 'm1' }, { id: 't2', project_id: 'p2', machine_id: 'm1' }] : [])),
+    },
     aiAccounts: { list: vi.fn(async () => aiAccounts) },
     machines: {
       findById: async (id: string) => store[id],
@@ -271,6 +274,23 @@ describe('DELETE /api/machines/:id', () => {
     expect(res.statusCode).toBe(200);
     expect(store.m1).toBeUndefined();
   });
+
+  it('announces the removal of every tab the cascade takes, under the machine owner', async () => {
+    const { monitorBus } = await import('../monitor/bus.js');
+    store.m1 = makeMachine({ id: 'm1', type: 'agent', owner_id: 'u7' });
+    ({ app } = buildApp(store));
+    const events: unknown[] = [];
+    const off = monitorBus.subscribeLifecycle((e) => events.push(e));
+    try {
+      await app.inject({ method: 'DELETE', url: '/api/machines/m1' });
+    } finally {
+      off();
+    }
+    expect(events).toEqual([
+      { kind: 'removed', tab_id: 't1', project_id: 'p1', machine_id: 'm1', owner_id: 'u7' },
+      { kind: 'removed', tab_id: 't2', project_id: 'p2', machine_id: 'm1', owner_id: 'u7' },
+    ]);
+  });
 });
 
 describe('GET /api/machines/:id/status', () => {
@@ -340,6 +360,23 @@ describe('/api/machines/:id/hooks (monitor hooks on an agent machine)', () => {
     expect(params.token.startsWith(HOOK_TOKEN_PREFIX)).toBe(true);
     expect(built.repos.machineHooks.upsert).toHaveBeenCalledWith('m1', hashHookToken(params.token));
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('POST reports the Cursor CLI as the agent answers it, and as agent_outdated when an older agent leaves it out', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    attachAgent('0.4.1', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'installed' })));
+    let built = buildApp(store);
+    app = built.app;
+    const old = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(old.statusCode).toBe(200);
+    expect(old.json()).toMatchObject({ claude: 'installed', codex: 'installed', cursor: 'agent_outdated' });
+
+    agents.reset();
+    attachAgent('0.4.3', vi.fn(async () => ({ home: '/Users/p', claude: 'installed', codex: 'skipped', cursor: 'installed' })));
+    built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines/m1/hooks' });
+    expect(res.json()).toMatchObject({ cursor: 'installed' });
   });
 
   it('POST also hooks the config dirs of this machine\'s Claude accounts, which needs agent 0.1.5', async () => {

@@ -40,6 +40,10 @@ model User {
   avatarUrl    String?   @map("avatar_url")
   /// The address of this person's public city (/city/@nickname). Null = no city. Unique, lowercase.
   nickname     String?   @unique
+  /// The short link termhub created for this person's city through TypeToAccess (partner). Written once.
+  cityShortUrlPartner String? @map("city_short_url_partner")
+  /// A short link the person pasted to replace the partner one; the effective link is custom ?? partner.
+  cityShortUrlCustom  String? @map("city_short_url_custom")
   passwordHash String?   @map("password_hash")
   googleId     String?   @unique @map("google_id")
   /// DEPRECATED: replaced by roleId (kept one release for the blue/green window; drop next)
@@ -58,6 +62,7 @@ model User {
   uploads      Upload[]
   apiTokens    ApiToken[]
   chatConversations ChatConversation[]
+  projectGroups ProjectGroup[]
 
   @@index([roleId])
   @@map("users")
@@ -191,6 +196,7 @@ model Project {
   setup          ProjectSetup?
   tickets        Ticket[]
   chatConversations ChatConversation[]
+  groupItems     ProjectGroupItem[]
 
   @@index([ownerId])
   @@map("projects")
@@ -233,6 +239,8 @@ model Tab {
   stateSeenAt   DateTime? @map("state_seen_at")
   /// Set while `state` is working; cleared when the tab leaves it. null = not working or never reported.
   activity      TabActivity?
+  /// Claude Code's spinner verb that came with `activity` (one ASCII word); set and cleared with it.
+  activityVerb  String?  @map("activity_verb")
   /// API token that opened this tab through /mcp (null: opened in the browser). Used by close_tab and the per-token open-tab limit.
   createdByTokenId String?  @map("created_by_token_id")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -629,4 +637,34 @@ model InstanceSecret {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("instance_secrets")
+}
+
+/// A user's own grouping of projects in the sidebar. system_key 'favorites' = the default
+/// Favoritos group (one per user: NULLs are distinct in the unique index, so any number of
+/// custom groups with a null key).
+model ProjectGroup {
+  id        String   @id
+  userId    String   @map("user_id")
+  name      String
+  systemKey String?  @map("system_key")
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     ProjectGroupItem[]
+
+  @@unique([userId, systemKey])
+  @@map("project_groups")
+}
+
+model ProjectGroupItem {
+  groupId   String       @map("group_id")
+  projectId String       @map("project_id")
+  position  Int          @default(0)
+  createdAt DateTime     @default(now()) @map("created_at")
+  group     ProjectGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, projectId])
+  @@index([projectId])
+  @@map("project_group_items")
 }

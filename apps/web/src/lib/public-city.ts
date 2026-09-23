@@ -6,3 +6,8 @@
 export function cityLinkFor(publicCityUrl: string | null, nickname: string | null): string | null {
   return nickname && publicCityUrl ? `${publicCityUrl}/@${encodeURIComponent(nickname)}` : null;
 }
+
+/** A link the way people type it: no scheme, no trailing slash (https://77a.it/pedro → 77a.it/pedro). */
+export function displayLink(url: string): string {
+  return url.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}

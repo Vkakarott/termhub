@@ -3,10 +3,10 @@ import { buildCityModel, resolveFocus, sameFocus, type CityModel, type FocusTarg
 import { OfficeScene } from '../office/scene/OfficeScene';
 import type { PublicCity } from '../lib/types';
 import { fetchCity, openCitySocket, toMachineEntries, type CityFrame } from './api';
+import { BetaCard, LANDING_URL, useBetaCard } from './BetaCard';
+import { CopyLinkButton } from './share/CopyLinkButton';
+import { SharePanel } from './share/SharePanel';
 import { cityPath, restFromUrl, type Rest } from './url';
-
-/** Where the landing takes someone who wants a city of their own. */
-const WAITLIST_URL = 'https://termhub.dev/#waitlist';
 
 /** A snapshot that could not be read is tried again, backing off the same way the socket does. */
 const RETRY_MIN_MS = 2_000;
@@ -57,6 +57,14 @@ export function CityPage({ nickname }: { nickname: string }) {
   // ref alone would never re-trigger the mount effect once it finally renders
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [failed, setFailed] = useState(false);
+  const [betaOpen, setBetaOpen] = useBetaCard();
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareButton = useRef<HTMLButtonElement>(null);
+  /** the panel closed (its ×, Esc): the focus goes back to the button that opened it */
+  const closeShare = useCallback(() => {
+    setShareOpen(false);
+    shareButton.current?.focus();
+  }, []);
   const sceneRef = useRef<OfficeScene | null>(null);
 
   const gone = useRef(false);
@@ -184,6 +192,9 @@ export function CityPage({ nickname }: { nickname: string }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Esc in the beta form is the person editing a field, not asking the camera to step back
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.key === 'Escape') handlers.current.onGoUp();
     };
     window.addEventListener('keydown', onKey);
@@ -192,12 +203,23 @@ export function CityPage({ nickname }: { nickname: string }) {
 
   if (missing) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+      // nothing else to show here, so the card is the page: open, and not something to put away
+      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-8 text-center">
         <p className="text-sm text-fg-muted">Cidade não encontrada.</p>
-        <CreateAccount />
+        <div className="w-full max-w-sm">
+          <BetaCard ownerName={null} />
+        </div>
       </div>
     );
   }
+
+  // the city's own address: the media footers print it when there is no short link
+  const cityUrl = `${location.origin}${cityPath(nickname, { building: null, room: null })}`;
+  // "Copiar link": only the city has a short link; a building or a room keeps its long address
+  const restUrl = target.kind === 'city' ? null : `${location.origin}${cityPath(nickname, { building: target.machineId, room: target.kind === 'room' ? target.roomId : null })}`;
+  const copyUrl = restUrl ?? city?.short_url ?? cityUrl;
+  // media are made from the scene: nothing to share before it has a city to draw
+  const canShare = !!city && model.machines.length > 0;
 
   const here = rest.building ? (model.machines.find((m) => m.id === rest.building) ?? null) : null;
   const trail: Array<{ label: string; go?: () => void }> = [];
@@ -211,24 +233,54 @@ export function CityPage({ nickname }: { nickname: string }) {
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-bg-2 px-3 py-2 text-xs text-fg-muted">
         <span className="text-sm font-semibold text-fg">Cidade de {city?.owner_name ?? '…'}</span>
         <Trail parts={trail} />
-        <span className="ml-auto">
-          <CreateAccount />
+        <span className="ml-auto flex items-center gap-3">
+          {failed ? (
+            <CopyLinkButton url={copyUrl} className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" />
+          ) : (
+            <button
+              ref={shareButton}
+              type="button"
+              disabled={!canShare}
+              aria-expanded={shareOpen}
+              onClick={() => setShareOpen((open) => !open)}
+              className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Compartilhar
+            </button>
+          )}
+          <a className="hidden hover:text-fg sm:inline" href={LANDING_URL}>
+            O que é o termhub?
+          </a>
+          <button
+            type="button"
+            onClick={() => setBetaOpen(true)}
+            aria-expanded={betaOpen}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white shadow-md shadow-accent/30 ring-1 ring-accent/60 transition-colors hover:bg-accent-hover"
+          >
+            <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+            Participar do beta grátis
+          </button>
         </span>
       </div>
       <div className="relative min-h-0 flex-1">
         <div ref={setHost} className="absolute inset-0 overflow-hidden" />
         {failed && <Overlay>Seu navegador não conseguiu desenhar a cidade.</Overlay>}
         {!failed && model.machines.length === 0 && <Overlay>Carregando a cidade…</Overlay>}
+        {betaOpen && (
+          // a bottom sheet on a phone, a card in the corner from `sm` up; only its own box takes the
+          // pointer, so the rest of the scene stays as draggable and clickable as without it
+          <div className="absolute inset-x-0 bottom-0 z-10 max-h-[75%] overflow-y-auto sm:bottom-4 sm:left-4 sm:right-auto sm:w-[22rem] sm:max-h-[calc(100%-2rem)]">
+            <BetaCard ownerName={city?.owner_name ?? null} onCollapse={() => setBetaOpen(false)} className="rounded-t-xl border-t sm:rounded-lg sm:border" />
+          </div>
+        )}
+        {shareOpen && !failed && canShare && city && sceneRef.current && (
+          // full width under the bar on a phone, a card in the top-right corner from `sm` up
+          <div className="absolute inset-x-0 top-0 z-20 max-h-full overflow-y-auto sm:left-auto sm:right-4 sm:top-4 sm:w-[22rem]">
+            <SharePanel scene={sceneRef.current} city={city} model={model} cityUrl={cityUrl} copyUrl={copyUrl} onClose={closeShare} />
+          </div>
+        )}
       </div>
     </div>
-  );
-}
-
-function CreateAccount() {
-  return (
-    <a className="inline-flex items-center rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover" href={WAITLIST_URL}>
-      Criar minha conta
-    </a>
   );
 }
 

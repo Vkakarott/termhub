@@ -33,7 +33,7 @@
 ### Task 1: Migration and `ChatRepository` scopes
 
 **Files:**
-- Create: `apps/server/prisma/migrations/20260923120000_project_chat/migration.sql`
+- Create: `apps/server/prisma/migrations/20260923150000_project_chat/migration.sql`
 - Modify: `apps/server/prisma/schema.prisma` (`ChatConversation`, `ApiToken`, `Project`)
 - Modify: `apps/server/src/db/repositories/chat.ts`
 - Modify: `apps/server/src/db/repositories/chat-actions.ts`
@@ -54,7 +54,7 @@
 
 - [ ] **Step 1: Write the migration**
 
-`apps/server/prisma/migrations/20260923120000_project_chat/migration.sql`:
+`apps/server/prisma/migrations/20260923150000_project_chat/migration.sql`:
 
 ```sql
 -- A chat per project (spec 2026-09-23-project-chat-design.md §3).

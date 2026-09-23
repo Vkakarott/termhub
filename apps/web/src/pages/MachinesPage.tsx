@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import type { Machine } from '../lib/types';
-import { agentVersionBadge, machineTitle } from '../components/Sidebar';
+import { agentVersionBadge, machineTitle } from '../lib/machine-labels';
 import { STATUS_DOT, STATUS_LABEL, TYPE_LABEL } from '../lib/machine-status';
 import { MachineForm } from '../components/MachineForm';
 import { ConfirmDialog } from '../components/Modal';

@@ -56,6 +56,7 @@ const tab = (over: Partial<Tab> = {}): Tab =>
     state_at: '2026-09-19T10:00:00.000Z',
     state_seen_at: null,
     activity: null,
+    activity_verb: null,
     created_at: '',
     ...over,
   }) as Tab;

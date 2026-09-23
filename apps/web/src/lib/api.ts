@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -95,6 +95,12 @@ export const api = {
      *  reserved word, 409 NICKNAME_TAKEN when somebody else already holds it, 409 NICKNAME_LOCKED
      *  when the account already has one (a claimed address is never changed). */
     setNickname: (nickname: string) => request<{ user: User }>('PATCH', '/auth/me/nickname', { nickname }),
+    /** The city address and its short link. May create the partner link on the way (the server rate-limits that). */
+    cityLink: () => request<CityLink>('GET', '/auth/me/city-link'),
+    /** 400 SHORT_LINK_INVALID, 400 SHORT_LINK_MISMATCH (the message says where the link really goes), 502 SHORT_LINK_UNREACHABLE */
+    setCustomCityLink: (short_url: string) => request<CityLink>('PUT', '/auth/me/city-link', { short_url }),
+    /** back to the partner link */
+    clearCustomCityLink: () => request<CityLink>('DELETE', '/auth/me/city-link/custom'),
   },
   machines: {
     list: () => request<{ machines: Machine[]; latest_agent_version: string | null }>('GET', '/machines'),
@@ -121,7 +127,7 @@ export const api = {
     simulators: (id: string) => request<{ simulators: Simulator[] }>('GET', `/machines/${id}/simulators`),
     wdaSetup: (id: string) => request<WdaSetupState>('GET', `/machines/${id}/simulator/setup`),
     hooks: (id: string) => request<MachineHooks>('GET', `/machines/${id}/hooks`),
-    installHooks: (id: string) => request<MachineHooks & { claude: 'installed' | 'skipped'; codex: 'installed' | 'skipped'; claude_dirs?: string[] }>('POST', `/machines/${id}/hooks`),
+    installHooks: (id: string) => request<MachineHooks & { claude: 'installed' | 'skipped'; codex: 'installed' | 'skipped'; cursor?: 'installed' | 'skipped' | 'agent_outdated'; claude_dirs?: string[] }>('POST', `/machines/${id}/hooks`),
     removeHooks: (id: string) => request<{ ok: true }>('DELETE', `/machines/${id}/hooks`),
     startWdaSetup: (id: string) => request<{ ok: true }>('POST', `/machines/${id}/simulator/setup`, {}),
     /** subpastas de `path` (padrão $HOME) + discos/mounts da máquina */
@@ -146,6 +152,14 @@ export const api = {
     tabs: (id: string) => request<{ reachable: boolean; tabs: Tab[] }>('GET', `/projects/${id}/tabs`),
     createTab: (id: string, input: { name?: string; kind?: TabKind; simulator_udid?: string; machine_id?: string } = {}) =>
       request<{ tab: Tab }>('POST', `/projects/${id}/tabs`, input),
+  },
+  projectGroups: {
+    list: () => request<{ groups: ProjectGroup[] }>('GET', '/project-groups'),
+    create: (name: string) => request<{ group: ProjectGroup }>('POST', '/project-groups', { name }),
+    rename: (id: string, name: string) => request<{ group: ProjectGroup }>('PATCH', `/project-groups/${id}`, { name }),
+    remove: (id: string) => request<void>('DELETE', `/project-groups/${id}`),
+    reorder: (ids: string[]) => request<{ groups: ProjectGroup[] }>('PUT', '/project-groups/order', { ids }),
+    setMemberships: (groups: { id: string; project_ids: string[] }[]) => request<{ groups: ProjectGroup[] }>('PUT', '/project-groups/memberships', { groups }),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
   office: (machineId: string, fresh = false) => request<OfficeSnapshot>('GET', `/office/${encodeURIComponent(machineId)}${fresh ? '?fresh=1' : ''}`),
@@ -189,6 +203,8 @@ export const api = {
     request<{ action: { id: string; status: ChatActionStatus }; message?: ChatMessage; queued?: true; note?: string }>('POST', `/chat/actions/${id}/decision`, { decision }),
   monitor: {
     tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
+    /** every open terminal tab of the scope, reported a state or not (the sidebar's agents) */
+    openTabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/open-tabs'),
   },
   tasks: {
     list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),

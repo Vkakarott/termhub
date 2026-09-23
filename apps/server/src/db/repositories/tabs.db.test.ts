@@ -144,13 +144,87 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
   });
 
-  describe('recordEvent — the same Claude wait (Stop, then idle_prompt ~1min later) stays seen', () => {
-    it('carries the seen mark forward: seen waiting_input + a new waiting_input stays seen', async () => {
+  describe('recordEvent — the same wait (Claude: Stop, then idle_prompt ~1min later) stays seen, a new one re-arms', () => {
+    it('carries the seen mark forward: seen waiting_input + a waiting_input that continues it stays seen', async () => {
       await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'first?' });
       await repo.markSeen(tabId);
-      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null });
+      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, continuesWait: true });
       expect(needsYou(updated)).toBe(false);
       expect(updated.state_seen_at).toBe(updated.state_at);
+    });
+
+    it('re-arms on a seen waiting_input followed by a new wait (the next Codex turn, which sends no working in between)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'um' });
+      await repo.markSeen(tabId);
+      const { tab: second } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'dois' });
+      expect(needsYou(second)).toBe(true);
+      expect(second.state_text).toBe('dois');
+      await repo.markSeen(tabId);
+      const { tab: third } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'tres' });
+      expect(needsYou(third)).toBe(true);
+    });
+
+    it('a continuation with no text keeps the text of the wait it continues (Cursor: an answer, then a stop that is not completed)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'dois' });
+      await repo.markSeen(tabId);
+      const { tab: seen } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(seen)).toBe(false);
+      expect(seen.state_text).toBe('dois');
+    });
+
+    it('keeps the text even while the wait is still unseen, and never re-arms nor silences it', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'dois' });
+      const { tab } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(tab)).toBe(true);
+      expect(tab.state_text).toBe('dois');
+    });
+
+    it('a continuation that brings its own text still replaces it (Claude idle_prompt)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Posso seguir?' });
+      const { tab } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Claude is waiting for your input', continuesWait: true });
+      expect(tab.state_text).toBe('Claude is waiting for your input');
+    });
+
+    it('Esc mid-turn: the first stop opens the wait, the second one does not alert again once seen', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab: first } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(first)).toBe(true);
+      await repo.markSeen(tabId);
+      const { tab: second } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(second)).toBe(false);
+    });
+
+    it('a lost answer leaves the tab working, and the stop that follows opens the wait (Cursor)', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(tab)).toBe(true);
+      expect(tab.state_text).toBeNull();
+    });
+
+    it('inverted Cursor race: stop before afterAgentResponse ends with the answer text and still needs you', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab: stop } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(stop)).toBe(true);
+      expect(stop.state_text).toBeNull();
+      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.', continuesWait: true });
+      expect(needsYou(answer)).toBe(true);
+      expect(answer.state_text).toBe('Pronto.');
+    });
+
+    it('inverted Cursor race: opening the tab between stop and answer keeps one alert', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      await repo.markSeen(tabId);
+      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.', continuesWait: true });
+      expect(needsYou(answer)).toBe(false);
+      expect(answer.state_text).toBe('Pronto.');
+    });
+
+    it('never carries a seen mark the tab does not have, even for a continuation', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null });
+      await repo.markSeen(tabId);
+      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, continuesWait: true });
+      expect(needsYou(updated)).toBe(true);
     });
 
     it('re-arms once the wait passes through another state (working) before returning to waiting_input', async () => {
@@ -195,7 +269,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     it('setActivity changes only the activity and the time, with no event row', async () => {
       const { tab: before } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
       const events = await db.tabEvent.count({ where: { tabId } });
-      const updated = await repo.setActivity(tabId, 'reading');
+      const updated = await repo.setActivity(tabId, 'reading', null);
       expect(updated?.activity).toBe('reading');
       expect(updated?.state).toBe('working');
       expect(updated?.state_text).toBe(before.state_text);
@@ -206,7 +280,7 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     it('setActivity writes nothing once the tab has left working (a Stop landing between the read and the write)', async () => {
       await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
       const { tab: stopped } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
-      expect(await repo.setActivity(tabId, 'reading')).toBeUndefined();
+      expect(await repo.setActivity(tabId, 'reading', null)).toBeUndefined();
       const reloaded = await repo.findById(tabId);
       expect(reloaded?.activity).toBeNull(); // a waiting tab never reads as coding
       expect(reloaded?.state).toBe('waiting_input');
@@ -214,7 +288,33 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
 
     it('setActivity returns undefined for a tab that does not exist', async () => {
-      expect(await repo.setActivity(newId(), 'reading')).toBeUndefined();
+      expect(await repo.setActivity(newId(), 'reading', null)).toBeUndefined();
+    });
+
+    it('recordEvent stores the spinner verb of a working event and clears it with the activity', async () => {
+      const { tab } = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Moonwalking' });
+      expect(tab.activity_verb).toBe('Moonwalking');
+      const again = await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding' });
+      expect(again.tab.activity_verb).toBeNull();
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Brewing' });
+      // a verb sent along with a non-working state is never kept
+      const waiting = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?', activityVerb: 'Brewing' });
+      expect(waiting.tab.activity_verb).toBeNull();
+    });
+
+    it('setActivity moves the verb with the activity, and only on a working tab', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'coding', activityVerb: 'Brewing' });
+      expect((await repo.setActivity(tabId, 'coding', 'Musing'))?.activity_verb).toBe('Musing');
+      expect((await repo.setActivity(tabId, 'reading', null))?.activity_verb).toBeNull();
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'q?' });
+      expect(await repo.setActivity(tabId, 'reading', 'Pondering')).toBeUndefined();
+      expect((await repo.findById(tabId))?.activity_verb).toBeNull();
+    });
+
+    it('clearState clears the verb too', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null, activity: 'terminal', activityVerb: 'Brewing' });
+      await repo.clearState(tabId);
+      expect((await repo.findById(tabId))?.activity_verb).toBeNull();
     });
 
     it('clearState clears the activity too', async () => {
@@ -222,5 +322,59 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
       await repo.clearState(tabId);
       expect((await repo.findById(tabId))?.activity).toBeNull();
     });
+  });
+});
+
+describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.listOpenTerminals / listByMachine (Postgres)', () => {
+  let db: PrismaClient;
+  let repo: TabsRepository;
+  let ownerId: string;
+  let mine: string;
+  let theirs: string;
+  let projectId: string;
+
+  beforeAll(() => {
+    db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+    repo = new TabsRepository(db);
+  });
+
+  beforeEach(async () => {
+    ownerId = newId();
+    mine = newId();
+    theirs = newId();
+    projectId = newId();
+    await db.user.create({ data: { id: ownerId, email: `${ownerId}@test.local`, name: 'o' } });
+    await db.machine.createMany({ data: [
+      { id: mine, name: 'mine', type: 'agent', ownerId },
+      { id: theirs, name: 'theirs', type: 'agent' },
+    ] });
+    await db.project.create({ data: { id: projectId, key: 'K' + projectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p', ownerId } });
+    return async () => {
+      await db.project.delete({ where: { id: projectId } });
+      await db.machine.deleteMany({ where: { id: { in: [mine, theirs] } } });
+      await db.user.delete({ where: { id: ownerId } });
+    };
+  });
+
+  afterAll(async () => {
+    await db?.$disconnect();
+  });
+
+  it('lists every terminal tab on the owner\'s machines, reported a state or not, in tab-bar order', async () => {
+    const b = await repo.create(projectId, mine, 'Bia');
+    const a = await repo.create(projectId, mine, 'Ana');
+    await repo.create(projectId, mine, 'Sim', { kind: 'simulator' });
+    await repo.create(projectId, theirs, 'Caio');
+    await repo.recordEvent(a.id, { kind: 'working', tool: 'claude', text: null });
+
+    expect((await repo.listOpenTerminals(ownerId)).map((t) => t.name)).toEqual([b.name, a.name]); // position order, never-reported included
+    expect((await repo.listOpenTerminals(null)).map((t) => t.name)).toEqual(expect.arrayContaining(['Bia', 'Ana', 'Caio']));
+    expect((await repo.listOpenTerminals(null)).some((t) => t.name === 'Sim')).toBe(false);
+  });
+
+  it('lists every tab on one machine (read before a machine delete cascades them)', async () => {
+    await repo.create(projectId, mine, 'Ana');
+    await repo.create(projectId, theirs, 'Caio');
+    expect((await repo.listByMachine(mine)).map((t) => t.name)).toEqual(['Ana']);
   });
 });

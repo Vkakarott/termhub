@@ -5,6 +5,7 @@ import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
 import { ProjectChatProvider } from '../lib/project-chat';
+import { ProjectGroupsProvider } from '../lib/project-groups';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { ChatDrawer } from './chat/ChatDrawer';
 import { NeedsYouToasts } from './NeedsYouToasts';
@@ -27,12 +28,14 @@ export function AppShell() {
   return (
     <DataProvider>
       <MonitorProvider>
-        <ToastProvider>
-          <Outlet />
-          <NeedsYouToasts />
-          <NicknamePrompt />
-          <Toaster />
-        </ToastProvider>
+        <ProjectGroupsProvider>
+          <ToastProvider>
+            <Outlet />
+            <NeedsYouToasts />
+            <NicknamePrompt />
+            <Toaster />
+          </ToastProvider>
+        </ProjectGroupsProvider>
       </MonitorProvider>
     </DataProvider>
   );
