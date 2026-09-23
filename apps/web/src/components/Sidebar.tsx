@@ -267,10 +267,20 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
   const renderSection = (section: Section) => {
     if (section.kind === 'running') {
+      // collapsible like the groups (remembered the same way), but neither editable nor a drop target
+      const runningOpen = !collapsedGroups.has(section.id);
       return (
         <section key={section.id} aria-label={nameOf(section)} className="mb-2">
-          <p className={SECTION_LABEL}>{section.label}</p>
-          <ul>{section.projects.map(row(section))}</ul>
+          <GroupHeader
+            section={section}
+            name={nameOf(section)}
+            collapsed={!runningOpen}
+            onToggle={() => toggleGroup(section.id)}
+            editable={false}
+            onRename={() => {}}
+            onDelete={() => {}}
+          />
+          {runningOpen && <ul>{section.projects.map(row(section))}</ul>}
         </section>
       );
     }
