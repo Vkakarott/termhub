@@ -1,4 +1,8 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+
+// Open modals, innermost last: only the top one answers Escape, so closing a
+// nested dialog never closes the one under it too.
+const openStack: symbol[] = [];
 
 interface Props {
   title: string;
@@ -11,14 +15,24 @@ interface Props {
 }
 
 export function Modal({ title, open, onClose, children, width = 'max-w-md', dismissible = true }: Props) {
+  const latest = useRef({ onClose, dismissible });
+  latest.current = { onClose, dismissible };
+
+  // keyed on `open` only, so re-renders with a new onClose keep the stack order
   useEffect(() => {
-    if (!open || !dismissible) return;
+    if (!open) return;
+    const id = Symbol('modal');
+    openStack.push(id);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape' || openStack[openStack.length - 1] !== id) return;
+      if (latest.current.dismissible) latest.current.onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, dismissible, onClose]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      openStack.splice(openStack.indexOf(id), 1);
+    };
+  }, [open]);
 
   if (!open) return null;
   return (
