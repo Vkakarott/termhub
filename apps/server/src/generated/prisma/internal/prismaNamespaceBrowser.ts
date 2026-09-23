@@ -76,7 +76,9 @@ export const ModelName = {
   ChatConversation: 'ChatConversation',
   ChatMessage: 'ChatMessage',
   ChatAction: 'ChatAction',
-  InstanceSecret: 'InstanceSecret'
+  InstanceSecret: 'InstanceSecret',
+  ProjectGroup: 'ProjectGroup',
+  ProjectGroupItem: 'ProjectGroupItem'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -482,6 +484,28 @@ export const InstanceSecretScalarFieldEnum = {
 } as const
 
 export type InstanceSecretScalarFieldEnum = (typeof InstanceSecretScalarFieldEnum)[keyof typeof InstanceSecretScalarFieldEnum]
+
+
+export const ProjectGroupScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  name: 'name',
+  systemKey: 'systemKey',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectGroupScalarFieldEnum = (typeof ProjectGroupScalarFieldEnum)[keyof typeof ProjectGroupScalarFieldEnum]
+
+
+export const ProjectGroupItemScalarFieldEnum = {
+  groupId: 'groupId',
+  projectId: 'projectId',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type ProjectGroupItemScalarFieldEnum = (typeof ProjectGroupItemScalarFieldEnum)[keyof typeof ProjectGroupItemScalarFieldEnum]
 
 
 export const SortOrder = {

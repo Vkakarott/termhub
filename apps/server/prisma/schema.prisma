@@ -62,6 +62,7 @@ model User {
   uploads      Upload[]
   apiTokens    ApiToken[]
   chatConversations ChatConversation[]
+  projectGroups ProjectGroup[]
 
   @@index([roleId])
   @@map("users")
@@ -194,6 +195,7 @@ model Project {
   note           Note?
   setup          ProjectSetup?
   tickets        Ticket[]
+  groupItems     ProjectGroupItem[]
 
   @@index([ownerId])
   @@map("projects")
@@ -623,4 +625,34 @@ model InstanceSecret {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("instance_secrets")
+}
+
+/// A user's own grouping of projects in the sidebar. system_key 'favorites' = the default
+/// Favoritos group (one per user: NULLs are distinct in the unique index, so any number of
+/// custom groups with a null key).
+model ProjectGroup {
+  id        String   @id
+  userId    String   @map("user_id")
+  name      String
+  systemKey String?  @map("system_key")
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     ProjectGroupItem[]
+
+  @@unique([userId, systemKey])
+  @@map("project_groups")
+}
+
+model ProjectGroupItem {
+  groupId   String       @map("group_id")
+  projectId String       @map("project_id")
+  position  Int          @default(0)
+  createdAt DateTime     @default(now()) @map("created_at")
+  group     ProjectGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, projectId])
+  @@index([projectId])
+  @@map("project_group_items")
 }
