@@ -56,6 +56,12 @@ describe('buildClaudeArgs', () => {
     const undefinedModel = buildClaudeArgs({ session_id: spec.session_id, resume: false, mcp_config_path: spec.mcp_config_path });
     expect(undefinedModel).not.toContain('--model');
   });
+
+  it('appends the system prompt as the last flag pair, only when set', () => {
+    expect(buildClaudeArgs({ ...spec, append_system_prompt: 'Você é o chat do projeto X.' }).slice(-2)).toEqual(['--append-system-prompt', 'Você é o chat do projeto X.']);
+    expect(buildClaudeArgs({ ...spec, append_system_prompt: null })).not.toContain('--append-system-prompt');
+    expect(buildClaudeArgs({ ...spec, append_system_prompt: '' })).not.toContain('--append-system-prompt');
+  });
 });
 
 describe('mcpConfig', () => {

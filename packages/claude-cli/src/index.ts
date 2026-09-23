@@ -13,6 +13,7 @@ export interface ClaudeRunSpec {
   resume: boolean;
   mcp_config_path: string;
   model?: string | null;
+  append_system_prompt?: string | null;
 }
 
 /** Tools the concierge must never have: with any of them it could reach a machine outside the MCP,
@@ -39,6 +40,10 @@ export function buildClaudeArgs(spec: ClaudeRunSpec): string[] {
     '--allowed-tools', 'mcp__termhub__*',
     '--disallowed-tools', DISALLOWED_TOOLS,
     ...(spec.model ? ['--model', spec.model] : []),
+    // Last, and only when set: the account-wide chat's argv stays exactly what it was. It is our own
+    // server-composed text (a project's name, key and paths), never the user's prompt, which still
+    // travels on stdin only.
+    ...(spec.append_system_prompt ? ['--append-system-prompt', spec.append_system_prompt] : []),
   ];
 }
 

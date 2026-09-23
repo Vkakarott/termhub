@@ -33,11 +33,41 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   // The host pair every case but the host-specific ones takes for granted: one agent machine of this
   // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
   // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
-  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null as string | null, model: null, machine_id: 'm1' as string | null, ai_account_id: opts.host?.account?.id ?? null, review_mode: false, last_message_at: null, created_at: '' };
+  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null as string | null, model: null, machine_id: 'm1' as string | null, ai_account_id: opts.host?.account?.id ?? null, project_id: null as string | null, archived_at: null as string | null, review_mode: false, last_message_at: null, created_at: '' };
+  // Project p1's active conversation: no host of its own (the host is always the account-wide row's).
+  const projectConversation = { ...conversation, id: 'c_p1', project_id: 'p1' as string | null, machine_id: null as string | null, cli_session_id: null as string | null };
+  const conversations = [conversation, projectConversation];
+  // The active row of a scope, or — once `reset` archived it — a fresh successor, like the repository's
+  // `getOrCreateActive`: no host, no session, no transcript of its own.
+  const activeFor = (projectId: string | null) => {
+    const found = conversations.find((c) => c.project_id === projectId && c.archived_at === null);
+    if (found) return found;
+    const fresh = { ...conversation, id: `c_new${conversations.length}`, project_id: projectId, machine_id: null as string | null, ai_account_id: null as string | null, cli_session_id: null as string | null, archived_at: null as string | null };
+    conversations.push(fresh);
+    return fresh;
+  };
   const messages: { id: string; role: string; text: string; error_code: string | null }[] = [];
   const chat = {
-    getOrCreateForUser: vi.fn(async () => conversation),
-    setCliSession: vi.fn(async (_id: string, s: string | null) => void (conversation.cli_session_id = s)),
+    getOrCreateForUser: vi.fn(async () => activeFor(null)),
+    getOrCreateForProject: vi.fn(async (_userId: string, projectId: string) => activeFor(projectId)),
+    setHost: vi.fn(async (id: string, h: { machine_id: string; ai_account_id: string | null }) => {
+      const row = conversations.find((c) => c.id === id)!;
+      const moved = (row.machine_id !== null && row.machine_id !== h.machine_id) || row.ai_account_id !== h.ai_account_id;
+      row.machine_id = h.machine_id;
+      row.ai_account_id = h.ai_account_id;
+      return { conversation: row, moved };
+    }),
+    findByIdForUser: vi.fn(async (id: string, userId: string) => (userId === user.id ? conversations.find((c) => c.id === id) : undefined)),
+    archive: vi.fn(async (id: string) => {
+      const row = conversations.find((c) => c.id === id);
+      if (row) row.archived_at = new Date().toISOString();
+    }),
+    clearProjectSessions: vi.fn(async () => undefined),
+    listActiveProjectConversations: vi.fn(async () => [{ id: 'c_p1', project_id: 'p1' }]),
+    setCliSession: vi.fn(async (id: string, s: string | null) => {
+      const row = conversations.find((c) => c.id === id);
+      if (row) row.cli_session_id = s;
+    }),
     // Same guard as the repository's `updateMany ... where machineId: null`: it fills a host that was
     // never chosen and never touches one that was.
     pinHostMachine: vi.fn(async (_id: string, machineId: string) => {
@@ -77,6 +107,8 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
         .sort((a, b) => Date.parse(a.decided_at ?? a.created_at) - Date.parse(b.decided_at ?? b.created_at));
       return open[0];
     }),
+    expireOpenForConversation: vi.fn(async () => 0),
+    countPendingByConversation: vi.fn(async () => new Map([['c_p1', 2]])),
   };
   // What `describeActions` resolves the approved proposal's sentence from, owner-scoped exactly like
   // the real repositories: another user's id is simply absent from the batch.
@@ -87,16 +119,17 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   const host = { id: 'm1', name: 'jarvis', type: 'agent', agent_version: '0.5.0' };
   const repos = {
     chat,
-    apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined) },
+    apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined), revokeForConversation: vi.fn(async () => 0) },
     chatActions,
     tabs: { findByIdsForOwner: ownedBy(tab) },
     tasks: { findByIdsForOwner: vi.fn(async () => []) },
     projects: { findByIdsForOwner: ownedBy(project) },
+    projectMachines: { listByProject: vi.fn(async (): Promise<{ machine_id: string; cwd: string }[]> => [{ machine_id: 'm1', cwd: '/srv/app' }]) },
     machines: { findByIdsForOwner: ownedBy(machine), list: vi.fn(async (owner: string | null) => (owner === user.id ? (opts.host?.machines ?? [host]) : [])) },
     aiAccounts: { findById: vi.fn(async () => opts.host?.account) },
   } as unknown as Repositories;
   const agents = {
-    capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude'])),
+    capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude', 'claude.system_prompt'])),
     info: vi.fn(() => ({ agent_version: '0.5.0' })),
   };
   const runner: RunnerClient = {
@@ -105,7 +138,9 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   /** Which machine each run was asked for: the service must drive the host, never a machine of its own choosing. */
   const hosted: string[] = [];
   const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner) });
-  return { service, chat, chatActions, actionsStore, runner, hosted, messages, conversation, repos, host };
+  /** Every `RunnerInput` the service handed a runner, in order. */
+  const inputs = () => vi.mocked(runner.run).mock.calls.map((c) => c[0]);
+  return { service, chat, chatActions, actionsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -221,7 +256,7 @@ it('starts a fresh session when resuming the old one fails, and tells the client
   // before the fresh run, so the next message cannot try to resume it either.
   expect(chat.setCliSession).toHaveBeenCalledWith('c1', null);
   expect(conversation.cli_session_id).toBe('3f1e9b1e-0000-4000-8000-000000000002');
-  expect(events).toContainEqual({ type: 'reset', user_id: 'u1', message_id: answer.id });
+  expect(events).toContainEqual({ type: 'reset', user_id: 'u1', conversation_id: 'c1', message_id: answer.id });
 });
 
 it('does not retry on an error frame that is not a missing session', async () => {
@@ -357,7 +392,7 @@ it('publishes the action and a shape-locked action_result over the bus, never th
   expect(actionResult).toBeDefined();
   // The exact key set pins the constraint that no terminal content — the tool's actual result
   // payload — ever crosses the bus: only whether the call failed, never its content.
-  expect(Object.keys(actionResult!).sort()).toEqual(['message_id', 'ok', 'tool_use_id', 'type', 'user_id'].sort());
+  expect(Object.keys(actionResult!).sort()).toEqual(['conversation_id', 'message_id', 'ok', 'tool_use_id', 'type', 'user_id'].sort());
   expect(actionResult).toMatchObject({ ok: false });
 });
 
@@ -605,6 +640,199 @@ it('drains two decisions queued behind one run, one per completion, oldest first
   expect(userTexts[2]).toContain('close_tab'); // a2: decided second
   expect(chatActions.markInjected).toHaveBeenNthCalledWith(1, 'a1');
   expect(chatActions.markInjected).toHaveBeenNthCalledWith(2, 'a2');
+});
+
+const host0 = { id: 'm1', name: 'jarvis', type: 'agent', agent_version: '0.5.0' };
+
+describe('project conversations', () => {
+  it('runs in the project conversation, on the account-wide host, with the project prompt', async () => {
+    const { service, inputs, repos, chat, hosted } = build([delta('ok'), done()]);
+    await service.send(user, 'como está o build?', { projectId: 'p1' });
+    expect(inputs()[0].append_system_prompt).toContain('"app" (key');
+    expect(inputs()[0].append_system_prompt).toContain('jarvis → /srv/app');
+    expect(chat.addMessage).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: 'c_p1' }));
+    expect(repos.apiTokens.create).toHaveBeenCalledWith('u1', expect.objectContaining({ chatConversationId: 'c_p1' }), expect.any(String));
+    // The host is the account-wide conversation's, and so is the pin — never the project row's.
+    expect(hosted).toEqual(['m1']);
+    expect(chat.pinHostMachine).toHaveBeenCalledWith('c1', 'm1');
+  });
+
+  it('never passes a system prompt for the account-wide chat', async () => {
+    const { service, inputs } = build([delta('ok'), done()]);
+    await service.send(user, 'oi');
+    expect(inputs()[0].append_system_prompt ?? null).toBeNull();
+  });
+
+  it('runs a project chat and the account-wide chat at the same time', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    // Released only once both runs are inside the runner: that is what proves they overlapped.
+    let entered = 0;
+    let bothIn!: () => void;
+    const overlapping = new Promise<void>((r) => (bothIn = r));
+    const { service } = build(() => (async function* () {
+      if (++entered === 2) bothIn();
+      await gate;
+      yield delta('ok');
+      yield done();
+    })());
+    const a = service.send(user, 'um', { projectId: 'p1' });
+    const b = service.send(user, 'dois');
+    await overlapping;
+    release();
+    await expect(Promise.all([a, b])).resolves.toHaveLength(2);
+  });
+
+  it('refuses to run a project chat without its focus when the project is gone by run time', async () => {
+    const { service, repos, messages, runner } = build([delta('ok'), done()]);
+    // Owned when the conversation was resolved, gone when the prompt is built.
+    vi.mocked(repos.projects.findByIdsForOwner).mockResolvedValueOnce([{ id: 'p1', name: 'app' }] as never).mockResolvedValueOnce([]);
+    await expect(service.send(user, 'oi', { projectId: 'p1' })).rejects.toMatchObject({ statusCode: 404, code: 'PROJECT_NOT_FOUND' });
+    expect(messages).toEqual([]);
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
+  it('reports sessionAtStake from the project conversation, not the account-wide one', async () => {
+    const other = { id: 'm2', name: 'mac', type: 'agent', agent_version: '0.5.0' };
+    const { service, conversation } = build([], { host: { machines: [host0, other] } });
+    // The account-wide chat ran and has no host stored; the project chat never ran.
+    conversation.machine_id = null;
+    conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+    expect(await service.hostFor(user, 'p1')).toMatchObject({ kind: 'not_chosen', sessionAtStake: false });
+    expect(await service.hostFor(user)).toMatchObject({ kind: 'not_chosen', sessionAtStake: true });
+  });
+
+  it('refuses a project the user does not own', async () => {
+    const { service, messages } = build([]);
+    await expect(service.send(user, 'oi', { projectId: 'not-mine' })).rejects.toMatchObject({ statusCode: 404, code: 'PROJECT_NOT_FOUND' });
+    expect(messages).toEqual([]);
+  });
+
+  it('reports agent_too_old for a project chat on an agent without claude.system_prompt, while the account-wide chat is ready', async () => {
+    const { service } = build([], { host: { capabilities: ['claude'] } });
+    expect((await service.hostFor(user, 'p1')).kind).toBe('agent_too_old');
+    expect((await service.hostFor(user)).kind).toBe('ready');
+  });
+
+  it('bus events carry the conversation id', async () => {
+    const seen: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => seen.push(e));
+    const { service } = build([delta('ok'), done()]);
+    try {
+      await service.send(user, 'oi', { projectId: 'p1' });
+    } finally {
+      off();
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((e) => e.conversation_id === 'c_p1')).toBe(true);
+  });
+
+  it('resumeAfterDecision runs in the action own conversation', async () => {
+    const { service, messages, chat } = build([delta('feito'), done()]);
+    await service.resumeAfterDecision(user, action({ conversation_id: 'c_p1' }));
+    expect(chat.findByIdForUser).toHaveBeenCalledWith('c_p1', 'u1');
+    expect(chat.addMessage).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: 'c_p1' }));
+    expect(messages[0].text).toMatch(/^O usuário autorizou:/);
+  });
+
+  it('resumeAfterDecision refuses a conversation archived since the decision', async () => {
+    const { service, projectConversation, runner } = build([delta('feito'), done()]);
+    projectConversation.archived_at = '2026-09-23T00:00:00.000Z';
+    await expect(service.resumeAfterDecision(user, action({ conversation_id: 'c_p1' }))).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_ARCHIVED' });
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
+  it('drains a decision queued in a project conversation into that conversation', async () => {
+    const { service, runner, chatActions, chat } = build([], { chatActions: [action({ id: 'a1', conversation_id: 'c_p1' })] });
+    vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r0'); yield done(); })());
+    vi.mocked(runner.run).mockImplementationOnce(() => (async function* () { yield delta('r1'); yield done(); })());
+    await service.send(user, 'um', { projectId: 'p1' });
+    await vi.waitFor(() => expect(runner.run).toHaveBeenCalledTimes(2));
+    expect(chatActions.findNextToInject).toHaveBeenCalledWith('c_p1', []);
+    expect(chat.addMessage).toHaveBeenLastCalledWith(expect.objectContaining({ conversation_id: 'c_p1' }));
+  });
+});
+
+describe('reset', () => {
+  it('archives, expires open actions, revokes the tokens and returns the fresh conversation', async () => {
+    const { service, repos } = build([]);
+    const fresh = await service.reset(user, 'p1');
+    expect(repos.chat.archive).toHaveBeenCalledWith('c_p1');
+    expect(repos.chatActions.expireOpenForConversation).toHaveBeenCalledWith('c_p1');
+    expect(repos.apiTokens.revokeForConversation).toHaveBeenCalledWith('c_p1');
+    expect(fresh.id).not.toBe('c_p1');
+    expect(fresh.archived_at).toBeNull();
+    expect(fresh.project_id).toBe('p1');
+  });
+
+  it('keeps the host machine and account when the account-wide chat is reset, and clears no project session', async () => {
+    const account = { id: 'acc1', provider: 'claude', machine_id: 'm1', config_dir: '/home/u/.claude-work' };
+    const { service, repos } = build([], { host: { account } });
+    const fresh = await service.reset(user, null);
+    expect(fresh.id).not.toBe('c1');
+    expect(fresh.archived_at).toBeNull();
+    expect(fresh).toMatchObject({ machine_id: 'm1', ai_account_id: 'acc1' });
+    expect(repos.chat.clearProjectSessions).not.toHaveBeenCalled();
+  });
+
+  it('cannot race a send that has not taken the lock yet: the send is refused, writes nothing and mints nothing', async () => {
+    const { service, repos, runner } = build([delta('ok'), done()]);
+    // Hold the send inside its prompt read — after it read the conversation, before it takes the lock.
+    let releaseRead!: () => void;
+    const readHeld = new Promise<void>((r) => (releaseRead = r));
+    let inRead!: () => void;
+    const reading = new Promise<void>((r) => (inRead = r));
+    vi.mocked(repos.projectMachines.listByProject).mockImplementationOnce(async () => {
+      inRead();
+      await readHeld;
+      return [{ machine_id: 'm1', cwd: '/srv/app' }];
+    });
+
+    const sending = service.send(user, 'oi', { projectId: 'p1' });
+    await reading;
+    await service.reset(user, 'p1');
+    releaseRead();
+
+    await expect(sending).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_ARCHIVED' });
+    expect(repos.chat.addMessage).not.toHaveBeenCalled();
+    expect(repos.apiTokens.create).not.toHaveBeenCalled();
+    expect(repos.chat.pinHostMachine).not.toHaveBeenCalled();
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
+  it('is refused while that conversation is answering', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { service, repos } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+    const running = service.send(user, 'um', { projectId: 'p1' });
+    await new Promise((r) => setTimeout(r, 0));
+    await expect(service.reset(user, 'p1')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+    expect(repos.chat.archive).not.toHaveBeenCalled();
+    release();
+    await running;
+  });
+
+  it('refuses a project the user does not own', async () => {
+    const { service, repos } = build([]);
+    await expect(service.reset(user, 'not-mine')).rejects.toMatchObject({ statusCode: 404, code: 'PROJECT_NOT_FOUND' });
+    expect(repos.chat.archive).not.toHaveBeenCalled();
+  });
+});
+
+it('projectStatuses reports busy and pending confirmations per project', async () => {
+  const { service } = build([]);
+  expect(await service.projectStatuses(user)).toEqual([{ project_id: 'p1', busy: false, pending_confirmations: 2 }]);
+});
+
+it('projectStatuses reports a project chat that is answering as busy', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { service } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+  const running = service.send(user, 'um', { projectId: 'p1' });
+  await new Promise((r) => setTimeout(r, 0));
+  expect(await service.projectStatuses(user)).toEqual([{ project_id: 'p1', busy: true, pending_confirmations: 2 }]);
+  release();
+  await running;
 });
 
 describe('purgeExpiredActions', () => {

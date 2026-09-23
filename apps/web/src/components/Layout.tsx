@@ -4,8 +4,10 @@ import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
+import { ProjectChatProvider } from '../lib/project-chat';
 import { ProjectGroupsProvider } from '../lib/project-groups';
 import { ToastProvider, Toaster } from '../lib/toast';
+import { ChatDrawer } from './chat/ChatDrawer';
 import { NeedsYouToasts } from './NeedsYouToasts';
 import { Sidebar } from './Sidebar';
 import { NicknamePrompt } from './NicknamePrompt';
@@ -47,12 +49,15 @@ export function Layout() {
 
   return (
     <FocusProvider>
-      <div className="flex h-full">
-        <Chrome collapsed={collapsed} setCollapsed={setCollapsed} />
-        <main className="relative min-w-0 flex-1">
-          <Outlet />
-        </main>
-      </div>
+      <ProjectChatProvider>
+        <div className="flex h-full">
+          <Chrome collapsed={collapsed} setCollapsed={setCollapsed} />
+          <main className="relative min-w-0 flex-1">
+            <Outlet />
+          </main>
+        </div>
+        <ChatDrawer />
+      </ProjectChatProvider>
     </FocusProvider>
   );
 }

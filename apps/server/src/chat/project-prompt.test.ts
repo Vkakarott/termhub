@@ -1,0 +1,22 @@
+import { expect, it } from 'vitest';
+import { projectSystemPrompt } from './project-prompt.js';
+
+it('names the project, its machines and paths, and asks for focus and brevity', () => {
+  const text = projectSystemPrompt({ name: 'Popingo monorepo', key: 'POP' }, [
+    { machine: 'jarvis', cwd: '/home/p/popingo' },
+    { machine: 'mac', cwd: '/Users/p/popingo' },
+  ]);
+  expect(text).toContain('"Popingo monorepo" (key POP)');
+  expect(text).toContain('jarvis → /home/p/popingo; mac → /Users/p/popingo');
+  expect(text).toMatch(/Do not report on other projects unless the person asks about them by name/);
+  expect(text).toMatch(/Keep answers short/);
+});
+
+it('says so when the project has no machine yet', () => {
+  expect(projectSystemPrompt({ name: 'X', key: 'X' }, [])).toContain('no machine linked yet');
+});
+
+it('stays under the protocol cap even with many long paths', () => {
+  const links = Array.from({ length: 200 }, (_, i) => ({ machine: `m${i}`, cwd: `/very/long/path/${'d'.repeat(40)}/${i}` }));
+  expect(projectSystemPrompt({ name: 'X', key: 'X' }, links).length).toBeLessThanOrEqual(4000);
+});

@@ -402,7 +402,8 @@ export const ApiTokenScalarFieldEnum = {
   lastUsedAt: 'lastUsedAt',
   revokedAt: 'revokedAt',
   createdAt: 'createdAt',
-  gated: 'gated'
+  gated: 'gated',
+  chatConversationId: 'chatConversationId'
 } as const
 
 export type ApiTokenScalarFieldEnum = (typeof ApiTokenScalarFieldEnum)[keyof typeof ApiTokenScalarFieldEnum]
@@ -432,6 +433,8 @@ export const ChatConversationScalarFieldEnum = {
   model: 'model',
   machineId: 'machineId',
   aiAccountId: 'aiAccountId',
+  projectId: 'projectId',
+  archivedAt: 'archivedAt',
   tabId: 'tabId',
   reviewMode: 'reviewMode',
   lastMessageAt: 'lastMessageAt',

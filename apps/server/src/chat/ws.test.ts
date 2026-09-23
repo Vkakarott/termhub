@@ -64,9 +64,9 @@ it('sends each connection only its own user events', async () => {
   const { opened } = await connect(['u1', 'u2']);
   const [first, second] = opened;
 
-  chatBus.publish({ type: 'message', user_id: 'u1', message: message('m1') });
-  chatBus.publish({ type: 'delta', user_id: 'u2', message_id: 'm2', delta: 'oi' });
-  chatBus.publish({ type: 'action', user_id: 'u1', message_id: 'm1', tool: 'list_tabs', tool_use_id: 'tu_1', args: {} });
+  chatBus.publish({ type: 'message', user_id: 'u1', conversation_id: 'c1', message: message('m1') });
+  chatBus.publish({ type: 'delta', user_id: 'u2', conversation_id: 'c1', message_id: 'm2', delta: 'oi' });
+  chatBus.publish({ type: 'action', user_id: 'u1', conversation_id: 'c1', message_id: 'm1', tool: 'list_tabs', tool_use_id: 'tu_1', args: {} });
 
   // The per-user filter is this socket's only cross-user isolation control: another account's
   // deltas, actions and messages must never reach a connection.
@@ -81,8 +81,8 @@ it('stops sending to a closed connection and leaves the other one working', asyn
   const [first, second] = opened;
 
   first.handlers.get('close')?.();
-  chatBus.publish({ type: 'message', user_id: 'u1', message: message('m1') });
-  chatBus.publish({ type: 'message', user_id: 'u2', message: message('m2') });
+  chatBus.publish({ type: 'message', user_id: 'u1', conversation_id: 'c1', message: message('m1') });
+  chatBus.publish({ type: 'message', user_id: 'u2', conversation_id: 'c1', message: message('m2') });
 
   expect(first.sent).toEqual([]);
   expect(second.sent).toHaveLength(1);

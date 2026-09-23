@@ -52,6 +52,12 @@ describe('control messages', () => {
       expect(claudeOpenParams.safeParse({ ...claudeParams, config_dir: null }).success).toBe(true));
     it('accepts config_dir as a path', () =>
       expect(claudeOpenParams.safeParse({ ...claudeParams, config_dir: '/home/u/.claude-work' }).success).toBe(true));
+    it('accepts a claude open with a system prompt, and one without (older servers)', () => {
+      const base = { type: 'open', ch: 1, kind: 'claude', params: { session_id: 's', resume: false, config_dir: null, mcp_url: 'https://x/mcp', token: 't' } };
+      expect(serverMessage.safeParse(base).success).toBe(true);
+      expect(serverMessage.safeParse({ ...base, params: { ...base.params, append_system_prompt: 'foco no projeto' } }).success).toBe(true);
+      expect(serverMessage.safeParse({ ...base, params: { ...base.params, append_system_prompt: 'x'.repeat(4001) } }).success).toBe(false);
+    });
   });
 
   describe('closed reason (ruling R1)', () => {

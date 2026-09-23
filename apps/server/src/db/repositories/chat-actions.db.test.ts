@@ -185,4 +185,51 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect(await repo.claimApproved(claimed.id)).toBe(true);
     expect(await repo.expireApproved(claimed.id)).toBe(false);
   });
+
+  describe('expireOpenForConversation / countPendingByConversation', () => {
+    // A fresh user and its own pair of conversations, isolated from `conversationId` above (which by
+    // this point in the file carries a pile of pending/approved rows left open by earlier tests) —
+    // otherwise the counts this group asserts would depend on execution order elsewhere in the file.
+    let scopedUserId: string;
+    let conversationId: string;
+    let otherConversationId: string;
+
+    beforeAll(async () => {
+      scopedUserId = newId();
+      await db.user.create({ data: { id: scopedUserId, email: `${scopedUserId}@test.local`, name: 'test' } });
+      conversationId = (await new ChatRepository(db).getOrCreateForUser(scopedUserId)).id;
+      // tabId set: bypasses the "one active conversation per scope" index, so it coexists with the
+      // account-wide one above for the same user — another conversation of the same user.
+      otherConversationId = (await db.chatConversation.create({ data: { id: newId(), userId: scopedUserId, tabId: newId() } })).id;
+
+      const mk = (convId: string, key: string) =>
+        repo.insertPending({ conversation_id: convId, tool: 'send_input', args: { tab_id: 't1', text: 'npm test' }, idempotency_key: key, class: 'write' });
+
+      await mk(conversationId, 'eo-pending');
+      const approved = await mk(conversationId, 'eo-approved');
+      await repo.decide(approved.id, scopedUserId, 'approved');
+      const denied = await mk(conversationId, 'eo-denied');
+      await repo.decide(denied.id, scopedUserId, 'denied');
+      await mk(otherConversationId, 'eo-other-pending');
+    });
+
+    afterAll(async () => {
+      await db.user.delete({ where: { id: scopedUserId } }); // cascades both conversations and their actions
+    });
+
+    it('expireOpenForConversation expires pending and approved rows of that conversation only', async () => {
+      // pending + approved in `conversationId`, a pending row in another conversation of the same user
+      const n = await repo.expireOpenForConversation(conversationId);
+      expect(n).toBe(2);
+      const rows = await repo.listByConversation(conversationId);
+      expect(rows.filter((r) => r.status === 'pending' || r.status === 'approved')).toEqual([]);
+      expect((await repo.listByConversation(otherConversationId)).some((r) => r.status === 'pending')).toBe(true);
+    });
+
+    it('countPendingByConversation counts only pending rows, per conversation', async () => {
+      const counts = await repo.countPendingByConversation([conversationId, otherConversationId]);
+      expect(counts.get(otherConversationId)).toBe(1);
+      expect(counts.get(conversationId) ?? 0).toBe(0);
+    });
+  });
 });

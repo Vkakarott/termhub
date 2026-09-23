@@ -19,8 +19,9 @@ import { ACTION_TTL_MS } from './service.js';
 export type GateOutcome = { ok: true; value: unknown } | { ok: false; code: string; message: string };
 
 export interface GatedCall {
-  /** Only `gated` matters here: whose token it is decides whether anything is mediated at all. */
-  token: { gated: boolean };
+  /** `gated` decides whether anything is mediated at all; `chat_conversation_id` names the chat a
+   * gated write is asked in (see `applyGate`). */
+  token: { gated: boolean; chat_conversation_id?: string | null };
   tool: string;
   args: Record<string, unknown>;
   /** The tool call itself, already scope-checked and argument-validated by the caller. */
@@ -262,6 +263,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
   chatBus.publish({
     type: 'confirmation',
     user_id: ctx.scope.user.id,
+    conversation_id: conversationId,
     action_id: row.id,
     tool: row.tool,
     args: row.args,
@@ -282,11 +284,12 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
   // they are the one calling, and asking them to confirm their own keystroke is nonsense.
   if (cls === 'read' || !call.token.gated) return { ok: true, value: await call.run() };
 
-  // v1 (spec §2): a user has exactly one conversation, which is what lets a call that carries only a
-  // token find the chat to ask in. Per-machine conversations will have to carry the id on the token.
-  const conversation = await ctx.repos.chat.getOrCreateForUser(ctx.scope.user.id);
-  const key = idempotencyKeyFor(conversation.id, call.tool, call.args);
-  const open = await ctx.repos.chatActions.findOpenByKey(conversation.id, key);
+  // The token names the conversation it was minted for (spec 2026-09-23 §4.2): that is the chat the
+  // question belongs in. A gated token with none predates per-conversation tokens (24 h at most) and
+  // can only have come from the account-wide chat.
+  const conversationId = call.token.chat_conversation_id ?? (await ctx.repos.chat.getOrCreateForUser(ctx.scope.user.id)).id;
+  const key = idempotencyKeyFor(conversationId, call.tool, call.args);
+  const open = await ctx.repos.chatActions.findOpenByKey(conversationId, key);
   // An approval is only an approval while it is fresh (`APPROVAL_HOLDS_MS`). An older one is retired
   // here, before any decision is taken on it, so a "yes" nobody consumed can never authorise a write
   // days after the fact. A stale `pending` row is not this branch's business: it keeps waiting until
@@ -294,12 +297,12 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
   if (open?.status === 'approved' && !approvalInForce(open)) return expireApproval(ctx, open);
   // The open row decides; with none, a recent "no" to the same proposal still does. Anything else —
   // no row, an executed one, a question left to expire, a denial older than the window — is asked.
-  const row = open ?? (await denialInForce(ctx, conversation.id, key));
+  const row = open ?? (await denialInForce(ctx, conversationId, key));
 
   const decision = gateDecision(row, cls);
   // `allow` and `refuse` only come back with a row (without one the decision is `ask`), so the guard
   // on `row` narrows the type rather than adding a branch of its own.
-  if (!row || decision === 'ask') return ask(ctx, call, conversation.id, key, cls);
+  if (!row || decision === 'ask') return ask(ctx, call, conversationId, key, cls);
   if (decision === 'waiting') return WAITING;
   if (decision === 'allow') return execute(ctx, call, row);
   return REFUSED;

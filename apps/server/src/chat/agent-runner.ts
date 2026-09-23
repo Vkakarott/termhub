@@ -145,6 +145,7 @@ async function* runOnAgent(
     // because the channel does not exist yet when the agent needs it.
     token: input.token,
     model: input.model ?? null,
+    append_system_prompt: input.append_system_prompt ?? null,
   };
 
   let channel: AgentChannel;

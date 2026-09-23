@@ -14,14 +14,22 @@ const state = vi.hoisted(() => ({
   items: [] as MonitorItem[],
 }));
 
+const auth = vi.hoisted(() => ({ canChat: true }));
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
     user: { id: 'u1', name: 'Pedro', avatar_url: null, email: 'pedro@example.com' },
     logout: vi.fn(),
-    can: () => true,
+    can: (resource: string) => resource !== 'chat' || auth.canChat,
     viewAs: 'self',
   }),
 }));
+const chat = vi.hoisted(() => ({
+  openProjectId: null as string | null,
+  toggle: vi.fn(),
+  close: vi.fn(),
+  status: vi.fn((_id: string) => ({ busy: false, pending: 0 })),
+}));
+vi.mock('../lib/project-chat', () => ({ useProjectChat: () => chat }));
 const groupsState = vi.hoisted(() => ({
   groups: [] as import('../lib/types').ProjectGroup[],
   error: null as string | null,
@@ -103,7 +111,10 @@ afterEach(() => {
   cleanup();
   groupsState.groups = [];
   groupsState.error = null;
+  auth.canChat = true;
+  chat.openProjectId = null;
   vi.clearAllMocks();
+  chat.status.mockImplementation(() => ({ busy: false, pending: 0 }));
 });
 
 describe('Sidebar sections', () => {
@@ -168,11 +179,12 @@ describe('Sidebar sections', () => {
     expect(within(section('Em execução')).getByRole('link', { name: /omega/ })).toBeInTheDocument();
   });
 
-  it('keeps the project actions (edit, delete) next to the pin and the Grupos… button', () => {
+  it('keeps the project actions (chat, edit) next to the pin and the Grupos… button; delete lives in the project settings', () => {
     renderSidebar();
     const all = section('Outros');
+    expect(within(all).getAllByRole('button', { name: 'Chat do projeto' })).toHaveLength(3);
     expect(within(all).getAllByTitle('Editar projeto')).toHaveLength(3);
-    expect(within(all).getAllByTitle(/Excluir projeto/)).toHaveLength(3);
+    expect(within(all).queryByTitle(/Excluir projeto/)).toBeNull();
     expect(within(all).getAllByRole('button', { name: 'Fixar em Favoritos' })).toHaveLength(3);
     expect(within(all).getAllByTitle('Grupos…')).toHaveLength(3);
     expect(within(all).getAllByTitle('Grupos…')[0]).toHaveAttribute('aria-haspopup', 'menu');
@@ -491,5 +503,37 @@ describe('Sidebar groups', () => {
     groupsState.error = 'Não foi possível salvar os grupos. Tente de novo.';
     renderSidebar();
     expect(screen.getByRole('alert')).toHaveTextContent('Não foi possível salvar');
+  });
+});
+
+describe('Sidebar project chat', () => {
+  const rowOf = (name: string) => within(section('Outros')).getByRole('link', { name: new RegExp(name) }).closest('li')!;
+
+  it('💬 toggles that project chat', () => {
+    renderSidebar();
+    fireEvent.click(within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' }));
+    expect(chat.toggle).toHaveBeenCalledWith('p3');
+  });
+
+  it('keeps the 💬 shown without hover, with a dot, while that chat is answering or waiting', () => {
+    chat.status.mockImplementation((id: string) => (id === 'p3' ? { busy: false, pending: 1 } : { busy: false, pending: 0 }));
+    renderSidebar();
+    const button = within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' });
+    expect(button).toHaveAttribute('data-active', 'true');
+    // outside the hover-only actions: its container is not the hidden span
+    expect(button.parentElement).not.toHaveClass('hidden');
+    expect(within(rowOf('beta')).getByRole('button', { name: 'Chat do projeto' }).parentElement).toHaveClass('hidden');
+  });
+
+  it('keeps the 💬 of the project whose chat is open shown without hover', () => {
+    chat.openProjectId = 'p3';
+    renderSidebar();
+    expect(within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' }).parentElement).not.toHaveClass('hidden');
+  });
+
+  it('has no chat button without the chat permission', () => {
+    auth.canChat = false;
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: 'Chat do projeto' })).toBeNull();
   });
 });

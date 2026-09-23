@@ -6,7 +6,9 @@ import type { ChatService } from '../chat/service.js';
 import { chatBus } from '../chat/bus.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
 
-const messageBody = z.object({ text: z.string().trim().min(1).max(8000) });
+const messageBody = z.object({ text: z.string().trim().min(1).max(8000), project_id: z.string().min(1).max(64).nullish() });
+const scopeQuery = z.object({ project: z.string().min(1).max(64).optional() });
+const resetBody = z.object({ project_id: z.string().min(1).max(64).nullish() });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
 const decisionBody = z.object({ decision: z.enum(['approve', 'deny']) });
 /** The host pair the user picks: the machine, and optionally which of its Claude accounts. No account
@@ -23,7 +25,9 @@ const QUEUED_NOTE = 'A decisão foi registrada e será aplicada assim que a resp
  * Live updates (deltas, actions) travel over `/ws/chat`, not here. */
 export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps: { service: ChatService }) {
   app.get('/', async (request) => {
-    const conversation = await deps.service.conversationFor(request.scope.user);
+    const { project } = scopeQuery.parse(request.query);
+    const projectId = project ?? null;
+    const conversation = await deps.service.conversationFor(request.scope.user, projectId);
     // The trail comes from here, not from live events (which only update what is already on
     // screen): a reload must see every pending/decided action exactly as the server has it,
     // including an old denied row sitting beside a newer pending one for the same proposal.
@@ -34,7 +38,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       // five reasons none can. The screen (Task 6) turns it into the line the person reads, and it is
       // here — on the same read as the history — so the chat can say so before anything is typed
       // instead of only after a message fails.
-      deps.service.hostFor(request.scope.user),
+      deps.service.hostFor(request.scope.user, projectId),
     ]);
     // Scoped to this request's own user: a card must never resolve a name this user cannot see.
     const actions = await describeActions(repos, rows, request.scope.user.id);
@@ -68,15 +72,29 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     }
 
     const current = await deps.service.conversationFor(user);
-    const conversation = await repos.chat.setHost(current.id, { machine_id: machine.id, ai_account_id: accountId });
+    const { conversation, moved } = await repos.chat.setHost(current.id, { machine_id: machine.id, ai_account_id: accountId });
+    // The project chats run on this same host (spec §3): a move strands their sessions exactly as it
+    // strands this one's. `moved` is `setHost`'s own verdict — inferring it from `cli_session_id`
+    // instead misses a real move whenever the account-wide row had no session to begin with (a user
+    // who only uses project chats, or right after "Nova conversa").
+    if (moved) await repos.chat.clearProjectSessions(user.id);
     return { conversation, host: await deps.service.hostFor(user) };
   });
 
   app.post('/messages', { config: { action: 'create' } }, async (request, reply) => {
-    const { text } = messageBody.parse(request.body);
-    const message = await deps.service.send(request.scope.user, text);
+    const { text, project_id } = messageBody.parse(request.body);
+    const message = await deps.service.send(request.scope.user, text, { projectId: project_id ?? null });
     return reply.code(201).send({ message });
   });
+
+  /** "Nova conversa": archives the scope's active conversation and answers the fresh, empty one. */
+  app.post('/reset', { config: { action: 'update' } }, async (request) => {
+    const { project_id } = resetBody.parse(request.body ?? {});
+    return { conversation: await deps.service.reset(request.scope.user, project_id ?? null) };
+  });
+
+  /** Per-project chat status for the sidebar's 💬: answering now, and questions waiting on the user. */
+  app.get('/projects', async (request) => ({ projects: await deps.service.projectStatuses(request.scope.user) }));
 
   app.post('/actions/:id/decision', async (request) => {
     const { id } = actionIdParam.parse(request.params);
@@ -97,7 +115,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     }
 
     // Every open tab must see the decision, not only the one that clicked it.
-    chatBus.publish({ type: 'decision', user_id: user.id, action_id: action.id, status });
+    chatBus.publish({ type: 'decision', user_id: user.id, conversation_id: action.conversation_id, action_id: action.id, status });
 
     try {
       const message = await deps.service.resumeAfterDecision(user, action);

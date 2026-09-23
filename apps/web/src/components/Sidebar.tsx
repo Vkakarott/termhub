@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent, type HTMLAttributes } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { canSeeSettings } from '../lib/settings-sections';
 import { ANALYTICS_ENABLED } from '../lib/analytics';
@@ -7,6 +7,7 @@ import { openCookieBanner } from './AnalyticsGate';
 import { useData } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
+import { useProjectChat } from '../lib/project-chat';
 import { applyDrop, buildSections, type DragSource, type Section, type SectionId } from '../lib/project-groups-model';
 import { useProjectGroups } from '../lib/project-groups';
 import { decodeGroupDrag, decodeProjectDrag, encodeProjectDrag, GROUP_MIME, PROJECT_MIME, slotFor } from '../lib/sidebar-dnd';
@@ -67,16 +68,14 @@ function sectionNames(sections: Section[]): Map<SectionId, string> {
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { user, logout, can } = useAuth();
-  const { projects, machinesOf, loading, deleteProject } = useData();
+  const { projects, machinesOf, loading } = useData();
   const { items: monitorItems, openTabs, needsYou } = useMonitor();
   const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
   // every open terminal tab, reported a state or not: "Em execução" means a tab is open
   const agents = useMemo(() => agentsByProject(openTabs), [openTabs]);
   const navigate = useNavigate();
-  const location = useLocation();
+  const projectChat = useProjectChat();
   const [projectFormOpen, setProjectFormOpen] = useState(false);
-  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [collapsed, setCollapsedState] = useState<Set<string>>(loadCollapsedProjects);
   const { groups, error: groupsError, createGroup, renameGroup, deleteGroup, reorderGroups, setMemberships, isFavorite, toggleFavorite } = useProjectGroups();
@@ -254,10 +253,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         waiting={waiting.get(p.id) ?? 0}
         expanded={!collapsed.has(p.id)}
         onToggle={() => toggleProject(p.id)}
-        onDelete={() => {
-          setDeleteError(null);
-          setDeletingProject(p);
-        }}
+        chat={can('chat') ? { status: projectChat.status(p.id), open: projectChat.openProjectId === p.id, onToggle: () => projectChat.toggle(p.id) } : null}
         favorite={isFavorite(p.id)}
         onToggleFavorite={() => void toggleFavorite(p.id)}
         // the same button closes it; any other ⋯ (even the same project in another section) moves it there
@@ -457,31 +453,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             setCollapsedGroups(next);
           }
           await deleteGroup(id);
-        }}
-      />
-      <ConfirmDialog
-        open={!!deletingProject}
-        title="Remover projeto"
-        message={
-          <>
-            Remover <strong>{deletingProject?.name}</strong>? As tarefas, notas e tickets do projeto são apagados e as sessões tmux das tabs são encerradas nas
-            máquinas vinculadas. As pastas nas máquinas continuam intactas.
-            {deleteError && <p className="mt-2 text-danger">{deleteError}</p>}
-          </>
-        }
-        confirmLabel="Remover"
-        danger
-        onCancel={() => setDeletingProject(null)}
-        onConfirm={async () => {
-          if (!deletingProject) return;
-          try {
-            const wasOpen = location.pathname.startsWith(`/projects/${deletingProject.id}`);
-            await deleteProject(deletingProject.id);
-            setDeletingProject(null);
-            if (wasOpen) navigate('/');
-          } catch (e) {
-            setDeleteError((e as Error).message || 'Erro ao remover');
-          }
         }}
       />
     </aside>
