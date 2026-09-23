@@ -18,6 +18,7 @@ import { config } from '../config.js';
 import { installHooks, uninstallHooks } from '../monitor/install.js';
 import { newHookToken } from '../monitor/token.js';
 import type { Machine } from '../db/repositories/types.js';
+import { publicBus } from '../public/bus.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
@@ -135,7 +136,16 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
       if (!(await isAdmin(repos, request.user))) throw forbidden('Só administradores transferem máquinas');
       if (owner_id && !(await repos.users.findById(owner_id))) throw badRequest('Usuário inexistente');
     }
-    return { machine: await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) }) };
+    const machine = await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) });
+    // Publishing is the machine owner's own decision: a transfer must not move published rooms into
+    // someone else's city (or leave them on an orphan's street). Every room goes back to private,
+    // and any public page watching one drops it at once.
+    if (owner_id !== undefined && owner_id !== current.owner_id) {
+      const unpublished = await repos.projects.unpublishByMachine(id);
+      for (const project_id of unpublished) publicBus.publish({ project_id, is_public: false });
+      if (unpublished.length > 0) request.log.info({ machineId: id, projects: unpublished.length }, 'machine transferred: projects unpublished');
+    }
+    return { machine };
   });
 
   app.delete('/:id', async (request) => {

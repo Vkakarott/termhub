@@ -70,6 +70,15 @@ export class ProjectsRepository {
     return mapProject(p);
   }
 
+  /** Takes every published project of a machine off the public city; answers the ids it changed. */
+  async unpublishByMachine(machineId: string): Promise<string[]> {
+    const rows = await this.db.project.findMany({ where: { machineId, isPublic: true }, select: { id: true } });
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    await this.db.project.updateMany({ where: { id: { in: ids } }, data: { isPublic: false } });
+    return ids;
+  }
+
   async touchTerminal(id: string): Promise<void> {
     await this.db.project.updateMany({ where: { id }, data: { lastTerminalAt: new Date() } });
   }
