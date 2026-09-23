@@ -7,7 +7,9 @@ const api = vi.hoisted(() => ({
   list: vi.fn(), create: vi.fn(), rename: vi.fn(), remove: vi.fn(), reorder: vi.fn(), setMemberships: vi.fn(),
 }));
 vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), api: { projectGroups: api } }));
-vi.mock('./auth', () => ({ useAuth: () => ({ viewAs: { kind: 'self' } }) }));
+// A mutable holder so a test can change viewAs (by value or by reference) between renders.
+const auth = vi.hoisted(() => ({ viewAs: { kind: 'self' } as unknown }));
+vi.mock('./auth', () => ({ useAuth: () => ({ viewAs: auth.viewAs }) }));
 
 import { ProjectGroupsProvider, useProjectGroups } from './project-groups';
 
@@ -24,7 +26,11 @@ const mount = async () => {
   await screen.findByText('Favoritos:a|Clientes:');
 };
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  auth.viewAs = { kind: 'self' };
+});
 
 describe('ProjectGroupsProvider', () => {
   it('toggleFavorite adds then removes, optimistically', async () => {
@@ -61,5 +67,52 @@ describe('ProjectGroupsProvider', () => {
     await act(async () => { await state.reorderGroups('g1', 0); });
     expect(api.reorder).toHaveBeenCalledWith(['g1', 'fav']);
     expect(screen.getByTestId('out')).toHaveTextContent('Clientes:|Favoritos:a');
+  });
+
+  it('keeps a later write that already succeeded when an earlier one then fails', async () => {
+    await mount();
+
+    // A: adds 'x' to Favoritos, but its request never settles until we reject it below.
+    let rejectA!: (e: unknown) => void;
+    const pendingA = new Promise((_resolve, reject) => (rejectA = reject));
+    api.setMemberships.mockReturnValueOnce(pendingA);
+    const nextA = [{ ...fav, project_ids: ['a', 'x'] }, g1];
+    let writeA!: Promise<void>;
+    act(() => { writeA = state.setMemberships(nextA, [{ id: 'fav', project_ids: ['a', 'x'] }]); });
+    expect(screen.getByTestId('out')).toHaveTextContent('Favoritos:a,x|Clientes:');
+
+    // B: while A is still in flight, adds 'y' to Clientes, and its own request succeeds right away.
+    const fromServerB = [fav, { ...g1, project_ids: ['y'] }];
+    api.setMemberships.mockResolvedValueOnce({ groups: fromServerB });
+    await act(async () => { await state.setMemberships([fav, { ...g1, project_ids: ['y'] }], [{ id: 'g1', project_ids: ['y'] }]); });
+    expect(screen.getByTestId('out')).toHaveTextContent('Favoritos:a|Clientes:y');
+
+    // A now rejects. It must not roll back over B's already-confirmed state; it re-syncs from the
+    // server instead, which by then reflects only B's write.
+    api.list.mockResolvedValueOnce({ groups: fromServerB });
+    await act(async () => {
+      rejectA(new Error('boom'));
+      await writeA;
+    });
+    await waitFor(() => expect(screen.getByTestId('out')).toHaveTextContent('Favoritos:a|Clientes:y'));
+    expect(screen.getByTestId('out')).toHaveTextContent('!');
+  });
+
+  it('reloads when viewAs changes by value, but not for an equal-value new object', async () => {
+    api.list.mockResolvedValue({ groups: [fav, g1] });
+    const { rerender } = render(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await screen.findByText('Favoritos:a|Clientes:');
+    expect(api.list).toHaveBeenCalledTimes(1);
+
+    // Same logical scope, a freshly built object: must not reload.
+    auth.viewAs = { kind: 'self' };
+    rerender(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await act(async () => {});
+    expect(api.list).toHaveBeenCalledTimes(1);
+
+    // A real scope change: must reload.
+    auth.viewAs = { kind: 'all' };
+    rerender(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
   });
 });

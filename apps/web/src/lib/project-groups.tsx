@@ -46,19 +46,27 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
   const viewAsKey = JSON.stringify(viewAs);
   useEffect(() => { void reload(); }, [reload, viewAsKey]);
 
-  /** Applies `next` now, runs the request, keeps the server's answer or restores the previous state. */
+  /**
+   * Applies `next` now, runs the request, then reconciles. Writes can overlap (a drag while a rename
+   * is still saving): this call only owns the outcome while its own `next` is still the current
+   * state. If a later write has since applied its own state, this call must not stomp on it — on
+   * success it leaves that newer state alone, and on failure it does not blindly restore its own
+   * `prev` (which would discard the newer write); it reloads from the server instead, since that is
+   * the only way to know what actually landed there.
+   */
   const optimistic = useCallback(async (next: ProjectGroup[], send: () => Promise<ProjectGroup[] | null>) => {
     const prev = ref.current;
     setGroups(next);
     try {
       const fromServer = await send();
-      if (fromServer) setGroups(fromServer);
+      if (ref.current === next && fromServer) setGroups(fromServer);
       setError(null);
     } catch {
-      setGroups(prev);
+      if (ref.current === next) setGroups(prev);
+      else void reload();
       setError(FAILED);
     }
-  }, []);
+  }, [reload]);
 
   const value = useMemo<ProjectGroupsState>(() => {
     const favorites = () => ref.current.find((g) => g.kind === 'favorites');
