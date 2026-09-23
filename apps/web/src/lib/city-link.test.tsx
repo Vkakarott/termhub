@@ -60,4 +60,17 @@ describe('useCityLink', () => {
     });
     expect(result.current.link).toEqual(PARTNER);
   });
+
+  it('keeps a failed restore as the error, and clears it on demand', async () => {
+    deleteMock.mockRejectedValue(new ApiError(502, 'Não foi possível criar o link da parceria agora. Seu link curto continua valendo; tente de novo mais tarde.', 'SHORT_LINK_PARTNER_UNAVAILABLE'));
+    const { result } = renderHook(() => useCityLink(true));
+    await waitFor(() => expect(result.current.link).not.toBeNull());
+    await act(async () => {
+      await result.current.restorePartner();
+    });
+    expect(result.current.error).toMatch(/continua valendo/);
+    expect(result.current.link).toEqual(PARTNER);
+    act(() => result.current.clearError());
+    expect(result.current.error).toBeNull();
+  });
 });

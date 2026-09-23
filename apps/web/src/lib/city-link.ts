@@ -10,6 +10,8 @@ export interface CityLinkState {
   /** true when the link was saved */
   setCustom(shortUrl: string): Promise<boolean>;
   restorePartner(): Promise<void>;
+  /** forget the last refusal (the form was opened again, or cancelled) */
+  clearError(): void;
 }
 
 /**
@@ -60,5 +62,7 @@ export function useCityLink(active: boolean): CityLinkState {
     await run(() => api.auth.clearCustomCityLink());
   }, [run]);
 
-  return { link, saving, error, setCustom, restorePartner };
+  const clearError = useCallback(() => setError(null), []);
+
+  return { link, saving, error, setCustom, restorePartner, clearError };
 }

@@ -39,6 +39,7 @@ const { cityLinkState } = vi.hoisted(() => ({
       error: null as string | null,
       setCustom: vi.fn(async (_url: string) => true),
       restorePartner: vi.fn(async () => {}),
+      clearError: vi.fn(),
     },
   },
 }));
@@ -122,6 +123,7 @@ beforeEach(() => {
   cityLinkState.current = { ...cityLinkState.current, link: null, saving: false, error: null };
   cityLinkState.current.setCustom.mockReset().mockResolvedValue(true);
   cityLinkState.current.restorePartner.mockReset().mockResolvedValue(undefined);
+  cityLinkState.current.clearError.mockReset();
 });
 
 afterEach(() => {
@@ -287,5 +289,32 @@ describe('MyCityView short link', () => {
     cityLinkState.current = { ...cityLinkState.current, link: { ...PARTNER, short_url: null, source: null, partner_url: null } };
     renderView();
     expect(within(section()).getByText(/o link curto ainda não foi criado/i)).toBeTruthy();
+  });
+
+  // Review fix 1: without a partner link, "back to the partnership" has nothing to go back to
+  it('offers no way back to the partner link when there is none', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: { ...PARTNER, short_url: 'https://77a.it/meu', source: 'custom', partner_url: null } };
+    renderView();
+    expect(within(section()).queryByRole('button', { name: 'Voltar ao link da parceria' })).toBeNull();
+  });
+
+  // Review fix 2: a failed restore happens outside the form, and must still be seen
+  it('shows a refusal outside the form too', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: { ...PARTNER, short_url: 'https://77a.it/meu', source: 'custom' }, error: 'Não foi possível criar o link da parceria agora.' };
+    renderView();
+    expect(within(section()).queryByLabelText('Seu link curto')).toBeNull();
+    expect(within(section()).getByRole('alert').textContent).toMatch(/link da parceria/);
+  });
+
+  it('starts the form clean, and cancelling drops what was typed and the error', () => {
+    cityLinkState.current = { ...cityLinkState.current, link: PARTNER };
+    renderView();
+    fireEvent.click(within(section()).getByRole('button', { name: 'Usar meu próprio link curto' }));
+    expect(cityLinkState.current.clearError).toHaveBeenCalledTimes(1);
+    fireEvent.change(within(section()).getByLabelText('Seu link curto'), { target: { value: 'https://77a.it/meu' } });
+    fireEvent.click(within(section()).getByRole('button', { name: 'Cancelar' }));
+    expect(cityLinkState.current.clearError).toHaveBeenCalledTimes(2);
+    fireEvent.click(within(section()).getByRole('button', { name: 'Usar meu próprio link curto' }));
+    expect((within(section()).getByLabelText('Seu link curto') as HTMLInputElement).value).toBe('');
   });
 });
