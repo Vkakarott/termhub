@@ -1,0 +1,187 @@
+import { useEffect, useRef, useState } from 'react';
+import type { CityModel } from '../../office/model';
+import type { PublicCity } from '../../lib/types';
+import { shareInfoFor, type ShareFormat } from './compose';
+import { CopyLinkButton } from './CopyLinkButton';
+import { canShareFile, downloadFile, shareOrDownload } from './deliver';
+import { captureStill, fileNameFor, type FrameSource } from './images';
+import { canRecordVideo, extensionFor, isWebm, recordStory, RecordingCancelled, STORY_VIDEO_MS, type Recording } from './record';
+
+/** What the panel needs from the scene: its frames, and a camera it can hold still. OfficeScene is one. */
+export interface ShareScene extends FrameSource {
+  lockCamera(locked: boolean): void;
+}
+
+type Phase =
+  | { kind: 'menu' }
+  | { kind: 'busy' }
+  | { kind: 'recording'; elapsedMs: number }
+  | { kind: 'done'; file: File; preview: string; video: boolean; webm: boolean }
+  | { kind: 'stopped'; reason: 'hidden' | 'failed'; video: boolean };
+
+const OPTION = 'w-full rounded-md border border-line bg-bg-3 px-3 py-2 text-left text-sm text-fg hover:bg-bg-4 disabled:cursor-not-allowed disabled:opacity-50';
+const ACTION = 'rounded-md border border-line px-3 py-1.5 text-sm text-fg hover:bg-bg-3';
+const PRIMARY = 'rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-hover';
+
+/**
+ * Compartilhar (spec 2026-09-23 §2.6): a story image, a post image, a 10-second story video with
+ * sound, and the link — all made here, in the visitor's browser, from the scene the page draws.
+ */
+export function SharePanel({ scene, city, model, cityUrl, copyUrl, onClose }: { scene: ShareScene; city: PublicCity; model: CityModel; cityUrl: string; copyUrl: string; onClose(): void }) {
+  const [phase, setPhase] = useState<Phase>({ kind: 'menu' });
+  const [videoOk] = useState(canRecordVideo);
+  const recording = useRef<Recording | null>(null);
+  /** the running recording was stopped because the page was hidden, not by the person */
+  const stoppedByHide = useRef(false);
+  // the counts and the sounds follow the city while it records, not the city when the button was pressed
+  const modelRef = useRef(model);
+  useEffect(() => {
+    modelRef.current = model;
+  }, [model]);
+  const info = () => shareInfoFor(city, modelRef.current, cityUrl);
+
+  useEffect(() => {
+    if (phase.kind !== 'done') return;
+    const url = phase.preview;
+    return () => URL.revokeObjectURL(url);
+  }, [phase]);
+
+  // a hidden tab stops drawing frames, so the video would freeze: stop and say so
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!document.hidden || !recording.current) return;
+      stoppedByHide.current = true;
+      recording.current.cancel();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  // closing the panel mid-recording stops it (and so unlocks the camera)
+  useEffect(() => () => recording.current?.cancel(), []);
+
+  const finish = (blob: Blob, name: string, video: boolean, webm: boolean) => {
+    const file = new File([blob], name, { type: blob.type });
+    setPhase({ kind: 'done', file, preview: URL.createObjectURL(file), video, webm });
+  };
+
+  const still = async (format: ShareFormat) => {
+    setPhase({ kind: 'busy' });
+    try {
+      finish(await captureStill(scene, format, info()), fileNameFor(city.nickname, format, 'png'), false, false);
+    } catch {
+      setPhase({ kind: 'stopped', reason: 'failed', video: false });
+    }
+  };
+
+  const video = async () => {
+    stoppedByHide.current = false;
+    setPhase({ kind: 'recording', elapsedMs: 0 });
+    scene.lockCamera(true);
+    const rec = recordStory({ source: scene, info, model: () => modelRef.current, durationMs: STORY_VIDEO_MS, onProgress: (elapsedMs) => setPhase({ kind: 'recording', elapsedMs }) });
+    recording.current = rec;
+    try {
+      const { blob, mimeType } = await rec.done;
+      finish(blob, fileNameFor(city.nickname, 'story', extensionFor(mimeType)), true, isWebm(mimeType));
+    } catch (err) {
+      if (stoppedByHide.current) setPhase({ kind: 'stopped', reason: 'hidden', video: true });
+      else if (err instanceof RecordingCancelled) setPhase({ kind: 'menu' });
+      else setPhase({ kind: 'stopped', reason: 'failed', video: true });
+    } finally {
+      recording.current = null;
+      scene.lockCamera(false);
+    }
+  };
+
+  const seconds = phase.kind === 'recording' ? Math.floor(phase.elapsedMs / 1000) : 0;
+  const total = STORY_VIDEO_MS / 1000;
+
+  return (
+    <div role="dialog" aria-label="Compartilhar a cidade" className="space-y-3 rounded-b-xl border border-line bg-bg-2 p-4 shadow-xl sm:rounded-lg">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-fg">Compartilhar</h2>
+        <button type="button" aria-label="Fechar" className="rounded px-2 text-fg-muted hover:text-fg" onClick={onClose}>
+          ×
+        </button>
+      </div>
+
+      {phase.kind === 'menu' && (
+        <div className="grid gap-2">
+          <button type="button" className={OPTION} onClick={() => void still('story')}>
+            Story (imagem)
+          </button>
+          <button type="button" className={OPTION} onClick={() => void still('post')}>
+            Post (imagem)
+          </button>
+          <button type="button" className={OPTION} disabled={!videoOk} onClick={() => void video()}>
+            Vídeo para story (10 s, com som)
+          </button>
+          {!videoOk && <p className="text-xs text-fg-dim">Seu navegador não grava vídeo; as imagens continuam disponíveis.</p>}
+          <CopyLinkButton url={copyUrl} className={OPTION} />
+        </div>
+      )}
+
+      {phase.kind === 'busy' && <p className="text-sm text-fg-muted">Preparando a imagem…</p>}
+
+      {phase.kind === 'recording' && (
+        <div className="space-y-2">
+          <p className="text-sm text-fg">{`Gravando… ${seconds} s`}</p>
+          <div role="progressbar" aria-label="Progresso da gravação" aria-valuemin={0} aria-valuemax={total} aria-valuenow={seconds} className="h-1.5 overflow-hidden rounded bg-bg-4">
+            <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.min(100, (phase.elapsedMs / STORY_VIDEO_MS) * 100)}%` }} />
+          </div>
+          <p className="text-xs text-fg-dim">A cidade continua ao vivo enquanto grava.</p>
+          <button type="button" className={ACTION} onClick={() => recording.current?.cancel()}>
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {phase.kind === 'done' && (
+        <div className="space-y-2">
+          {phase.video ? (
+            <video src={phase.preview} controls playsInline className="max-h-72 w-full rounded bg-black" />
+          ) : (
+            <img src={phase.preview} alt="Prévia da imagem" className="max-h-72 w-full rounded object-contain" />
+          )}
+          {phase.webm && <p className="text-xs text-warn">O Instagram pode não aceitar WebM. No celular, use o Safari ou o Chrome.</p>}
+          <div className="flex flex-wrap gap-2">
+            {canShareFile(phase.file) && (
+              <button type="button" className={PRIMARY} onClick={() => void shareOrDownload(phase.file)}>
+                Compartilhar
+              </button>
+            )}
+            <button type="button" className={ACTION} onClick={() => downloadFile(phase.file, phase.file.name)}>
+              Baixar
+            </button>
+            {phase.video ? (
+              <button type="button" className={ACTION} onClick={() => void video()}>
+                Gravar de novo
+              </button>
+            ) : (
+              <button type="button" className={ACTION} onClick={() => setPhase({ kind: 'menu' })}>
+                Voltar
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {phase.kind === 'stopped' && (
+        <div className="space-y-2">
+          <p className="text-sm text-fg-muted">
+            {phase.reason === 'hidden' ? 'A gravação parou porque a página saiu da tela: o navegador pausa a cidade em segundo plano.' : 'Não foi possível gerar o arquivo.'}
+          </p>
+          {phase.reason === 'hidden' || phase.video ? (
+            <button type="button" className={ACTION} onClick={() => void video()}>
+              Gravar de novo
+            </button>
+          ) : (
+            <button type="button" className={ACTION} onClick={() => setPhase({ kind: 'menu' })}>
+              Voltar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
