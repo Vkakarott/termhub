@@ -34,6 +34,10 @@ export interface User {
   avatar_url: string | null;
   /** the address of this person's public city (/city/@nickname); null = no city */
   nickname: string | null;
+  /** the short link termhub created for the city through TypeToAccess; null = none yet */
+  city_short_url_partner: string | null;
+  /** a short link the person pasted instead; the effective one is custom ?? partner */
+  city_short_url_custom: string | null;
   password_hash: string | null;
   google_id: string | null;
   /** DEPRECATED legacy flag; use role_id */
@@ -220,6 +224,8 @@ export const mapUser = (u: PrismaUser): User => ({
   name: u.name,
   avatar_url: u.avatarUrl,
   nickname: u.nickname,
+  city_short_url_partner: u.cityShortUrlPartner,
+  city_short_url_custom: u.cityShortUrlCustom,
   password_hash: u.passwordHash,
   google_id: u.googleId,
   role: u.role,

@@ -58,4 +58,24 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('UsersRepository (Postgres
       await db.user.deleteMany({ where: { id: a.id } });
     }
   });
+
+  // The partner link is written once (TypeToAccess cannot edit or delete a link, so a second one
+  // would be a wasted link, not a correction); the custom one comes and goes over it.
+  it('keeps the first partner short link and lets a custom one come and go over it', async () => {
+    const a = await repo.create({ email: `${newId()}@x.dev`, name: 'A', role_id: SYSTEM_ROLE_IDS.authenticated });
+    try {
+      expect(a.city_short_url_partner).toBeNull();
+      expect(a.city_short_url_custom).toBeNull();
+      expect(await repo.setCityShortUrlPartner(a.id, 'https://77a.it/pedro')).toBe(true);
+      expect(await repo.setCityShortUrlPartner(a.id, 'https://77a.it/x9k2')).toBe(false);
+      const custom = await repo.setCityShortUrlCustom(a.id, 'https://77a.it/meu-link');
+      expect(custom.city_short_url_custom).toBe('https://77a.it/meu-link');
+      expect(custom.city_short_url_partner).toBe('https://77a.it/pedro');
+      const cleared = await repo.setCityShortUrlCustom(a.id, null);
+      expect(cleared.city_short_url_custom).toBeNull();
+      expect((await repo.findById(a.id))?.city_short_url_partner).toBe('https://77a.it/pedro');
+    } finally {
+      await db.user.deleteMany({ where: { id: a.id } });
+    }
+  });
 });

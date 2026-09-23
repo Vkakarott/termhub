@@ -2411,6 +2411,8 @@ export const UserScalarFieldEnum = {
   name: 'name',
   avatarUrl: 'avatarUrl',
   nickname: 'nickname',
+  cityShortUrlPartner: 'cityShortUrlPartner',
+  cityShortUrlCustom: 'cityShortUrlCustom',
   passwordHash: 'passwordHash',
   googleId: 'googleId',
   role: 'role',
