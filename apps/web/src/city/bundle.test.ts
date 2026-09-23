@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const dist = new URL('../../dist-city/assets', import.meta.url).pathname;
@@ -23,5 +23,35 @@ describe.skipIf(!built && !process.env.CI)('the public bundle', () => {
     for (const marker of ['/api/machines', '/api/projects', '/ws/monitor', '/api/auth/me', '/api/auth/google', '/api/tabs/', 'termhub_csrf']) {
       expect(js).not.toContain(marker);
     }
+  });
+});
+
+const SRC = new URL('..', import.meta.url).pathname;
+
+function sources(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return sources(path);
+    return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+  });
+}
+
+/**
+ * The same rule, read from the source: runs everywhere (no build needed), and names the file and the
+ * import that broke it. The city may import the office, the public types, its own files and packages.
+ */
+describe('the public bundle source', () => {
+  it('imports nothing of the private app', () => {
+    const bad: string[] = [];
+    for (const file of sources(join(SRC, 'city'))) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/(?:from\s+|import\s*\(\s*|import\s+)['"]([^'"]+)['"]/g)) {
+        const spec = m[1];
+        if (!spec.startsWith('.')) continue;
+        const target = relative(SRC, resolve(dirname(file), spec));
+        if (target.startsWith('city/') || target.startsWith('office/') || target === 'lib/types' || target === 'lib/types.ts') continue;
+        bad.push(`${relative(SRC, file)} -> ${spec}`);
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });

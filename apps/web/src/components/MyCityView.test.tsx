@@ -176,6 +176,13 @@ describe('MyCityView link', () => {
     expect(screen.getByText('https://termhub.dev/city/@pedro')).toBeTruthy();
     expect(screen.getByText(/nenhum projeto publicado ainda/i)).toBeTruthy();
   });
+
+  it('leads to the public page to make images and the video there', () => {
+    renderView();
+    const open = screen.getByRole('link', { name: 'Abrir minha cidade para compartilhar' });
+    expect(open.getAttribute('href')).toBe('https://termhub.dev/city/@pedro');
+    expect(open.getAttribute('target')).toBe('_blank');
+  });
 });
 
 describe('MyCityView projects', () => {

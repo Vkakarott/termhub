@@ -17,7 +17,12 @@ const { FakeOfficeScene, socket } = vi.hoisted(() => {
       this.handlers = handlers;
       FakeOfficeScene.instances.push(this);
     }
-    async mount(): Promise<void> {}
+    static failMount = false;
+    onFrame = vi.fn(() => () => {});
+    lockCamera = vi.fn();
+    async mount(): Promise<void> {
+      if (FakeOfficeScene.failMount) throw new Error('no WebGL');
+    }
   }
   /**
    * The fake /ws/public channel: `emit` hands a parsed frame to the callback openCitySocket was
@@ -69,6 +74,7 @@ const desks = (city: unknown) => ({ machines: [expect.objectContaining({ floor: 
 
 beforeEach(() => {
   FakeOfficeScene.instances = [];
+  FakeOfficeScene.failMount = false;
   fetchMock.mockReset();
   socket.onRobot = null;
   socket.onClosed = null;
@@ -236,5 +242,62 @@ describe('CityPage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('CityPage sharing', () => {
+  const withLink = { ...CITY, short_url: 'https://77a.it/pedro' };
+  // these tests read the rest from the address bar, so each starts at the city itself
+  beforeEach(() => history.replaceState(null, '', '/city/@pedro'));
+  function stubClipboard() {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    return writeText;
+  }
+
+  it('keeps Compartilhar disabled until the city is drawn', async () => {
+    fetchMock.mockReturnValueOnce(new Promise(() => {}));
+    render(<CityPage nickname="pedro" />);
+    expect((screen.getByRole('button', { name: 'Compartilhar' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('opens the share panel, whose link is the short link at the city', async () => {
+    const writeText = stubClipboard();
+    fetchMock.mockResolvedValueOnce(json(withLink));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    fireEvent.click(screen.getByRole('button', { name: 'Compartilhar' }));
+    const panel = screen.getByRole('dialog', { name: 'Compartilhar a cidade' });
+    expect(panel).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copiar link' }));
+    });
+    expect(writeText).toHaveBeenCalledWith('https://77a.it/pedro');
+  });
+
+  it('copies the long link of a building: only the city has a short link', async () => {
+    const writeText = stubClipboard();
+    history.replaceState(null, '', '/city/@pedro/b1');
+    fetchMock.mockResolvedValueOnce(json(withLink));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    fireEvent.click(screen.getByRole('button', { name: 'Compartilhar' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copiar link' }));
+    });
+    expect(writeText).toHaveBeenCalledWith(`${location.origin}/city/@pedro/b1`);
+  });
+
+  it('hides Compartilhar when the scene cannot draw, and keeps Copiar link in the page', async () => {
+    const writeText = stubClipboard();
+    FakeOfficeScene.failMount = true;
+    fetchMock.mockResolvedValueOnce(json(withLink));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText('Seu navegador não conseguiu desenhar a cidade.');
+    expect(screen.queryByRole('button', { name: 'Compartilhar' })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copiar link' }));
+    });
+    expect(writeText).toHaveBeenCalledWith('https://77a.it/pedro');
   });
 });

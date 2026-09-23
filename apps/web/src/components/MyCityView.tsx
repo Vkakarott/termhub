@@ -69,6 +69,10 @@ export function MyCityView() {
         {link ? (
           <>
             <CityLink url={link} />
+            <a href={link} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-accent hover:underline">
+              Abrir minha cidade para compartilhar
+            </a>
+            <p className="text-xs text-fg-dim">Imagens para story e post e um vídeo de 10 s com som saem da própria página da cidade, no botão Compartilhar.</p>
             {!onStreet && <p className="mt-2 text-xs text-warn">Nenhum projeto publicado ainda: quem abrir o link encontra a cidade vazia. Publique um projeto abaixo.</p>}
           </>
         ) : (

@@ -4,6 +4,8 @@ import { OfficeScene } from '../office/scene/OfficeScene';
 import type { PublicCity } from '../lib/types';
 import { fetchCity, openCitySocket, toMachineEntries, type CityFrame } from './api';
 import { BetaCard, LANDING_URL, useBetaCard } from './BetaCard';
+import { CopyLinkButton } from './share/CopyLinkButton';
+import { SharePanel } from './share/SharePanel';
 import { cityPath, restFromUrl, type Rest } from './url';
 
 /** A snapshot that could not be read is tried again, backing off the same way the socket does. */
@@ -56,6 +58,7 @@ export function CityPage({ nickname }: { nickname: string }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [failed, setFailed] = useState(false);
   const [betaOpen, setBetaOpen] = useBetaCard();
+  const [shareOpen, setShareOpen] = useState(false);
   const sceneRef = useRef<OfficeScene | null>(null);
 
   const gone = useRef(false);
@@ -204,6 +207,14 @@ export function CityPage({ nickname }: { nickname: string }) {
     );
   }
 
+  // the city's own address: the media footers print it when there is no short link
+  const cityUrl = `${location.origin}${cityPath(nickname, { building: null, room: null })}`;
+  // "Copiar link": only the city has a short link; a building or a room keeps its long address
+  const restUrl = target.kind === 'city' ? null : `${location.origin}${cityPath(nickname, { building: target.machineId, room: target.kind === 'room' ? target.roomId : null })}`;
+  const copyUrl = restUrl ?? city?.short_url ?? cityUrl;
+  // media are made from the scene: nothing to share before it has a city to draw
+  const canShare = !!city && model.machines.length > 0;
+
   const here = rest.building ? (model.machines.find((m) => m.id === rest.building) ?? null) : null;
   const trail: Array<{ label: string; go?: () => void }> = [];
   if (rest.building) trail.push({ label: 'Cidade', go: () => go(null, null, true) });
@@ -217,6 +228,19 @@ export function CityPage({ nickname }: { nickname: string }) {
         <span className="text-sm font-semibold text-fg">Cidade de {city?.owner_name ?? '…'}</span>
         <Trail parts={trail} />
         <span className="ml-auto flex items-center gap-3">
+          {failed ? (
+            <CopyLinkButton url={copyUrl} className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" />
+          ) : (
+            <button
+              type="button"
+              disabled={!canShare}
+              aria-expanded={shareOpen}
+              onClick={() => setShareOpen((open) => !open)}
+              className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Compartilhar
+            </button>
+          )}
           <a className="hidden hover:text-fg sm:inline" href={LANDING_URL}>
             O que é o termhub?
           </a>
@@ -240,6 +264,12 @@ export function CityPage({ nickname }: { nickname: string }) {
           // pointer, so the rest of the scene stays as draggable and clickable as without it
           <div className="absolute inset-x-0 bottom-0 z-10 max-h-[75%] overflow-y-auto sm:bottom-4 sm:left-4 sm:right-auto sm:w-[22rem] sm:max-h-[calc(100%-2rem)]">
             <BetaCard ownerName={city?.owner_name ?? null} onCollapse={() => setBetaOpen(false)} className="rounded-t-xl border-t sm:rounded-lg sm:border" />
+          </div>
+        )}
+        {shareOpen && !failed && canShare && city && sceneRef.current && (
+          // full width under the bar on a phone, a card in the top-right corner from `sm` up
+          <div className="absolute inset-x-0 top-0 z-20 max-h-full overflow-y-auto sm:left-auto sm:right-4 sm:top-4 sm:w-[22rem]">
+            <SharePanel scene={sceneRef.current} city={city} model={model} cityUrl={cityUrl} copyUrl={copyUrl} onClose={() => setShareOpen(false)} />
           </div>
         )}
       </div>
