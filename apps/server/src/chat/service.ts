@@ -32,6 +32,8 @@ export interface RunnerInput {
   config_dir: string | null;
   model?: string | null;
   token: string;
+  /** Project chats only: the server-composed focus text (spec §4.3). Absent for the account-wide chat. */
+  append_system_prompt?: string | null;
 }
 export interface RunnerClient {
   run(input: RunnerInput): AsyncIterable<string>;

@@ -116,6 +116,7 @@ export function createClaudeManager(deps: ClaudeManagerDeps): ClaudeManager {
         resume: params.resume,
         mcp_config_path: mcpConfigPath,
         model: params.model ?? null,
+        append_system_prompt: params.append_system_prompt ?? null,
       });
 
       let child: ChildProcess;
