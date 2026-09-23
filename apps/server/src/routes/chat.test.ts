@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
-import { applyErrorHandler } from '../lib/errors.js';
+import { applyErrorHandler, HttpError } from '../lib/errors.js';
 import { chatBus, type ChatEvent } from '../chat/bus.js';
 import { chatRoutes } from './chat.js';
 
@@ -9,9 +9,11 @@ const pendingAction = { id: 'act1', conversation_id: 'c1', tool: 'send_input', a
 function build(opts: {
   send?: ReturnType<typeof vi.fn>;
   resumeAfterDecision?: ReturnType<typeof vi.fn>;
+  reset?: ReturnType<typeof vi.fn>;
   decide?: ReturnType<typeof vi.fn>;
   findByIdForUser?: ReturnType<typeof vi.fn>;
   listByConversation?: ReturnType<typeof vi.fn>;
+  conversationFor?: ReturnType<typeof vi.fn>;
   tabs?: { id: string; project_id: string; machine_id?: string; name: string }[];
   projects?: { id: string; owner_id: string; name: string }[];
   machines?: { id: string; name: string }[];
@@ -23,17 +25,22 @@ function build(opts: {
   /** The machines this user owns, as `findByIdsForOwner` answers them (a host must be an agent one). */
   hostMachines?: { id: string; name: string; type: string }[];
   aiAccounts?: { id: string; provider: string; machine_id: string; config_dir: string | null }[];
+  clearProjectSessions?: ReturnType<typeof vi.fn>;
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
+  const reset = opts.reset ?? vi.fn(async () => ({ id: 'c_new', project_id: 'p1' }));
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
   const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => undefined);
   const listByConversation = opts.listByConversation ?? vi.fn(async () => []);
+  const conversationFor = opts.conversationFor ?? vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null }));
   const service = {
-    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null })),
+    conversationFor,
     send,
     resumeAfterDecision,
+    reset,
     hostFor: opts.hostFor ?? vi.fn(async () => ({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null })),
+    projectStatuses: vi.fn(async () => [{ project_id: 'p1', busy: true, pending_confirmations: 1 }]),
   };
   const tabs = opts.tabs ?? [];
   const projects = opts.projects ?? [];
@@ -42,8 +49,9 @@ function build(opts: {
   const hostMachines = opts.hostMachines ?? [{ id: 'm1', name: 'jarvis', type: 'agent' }];
   const aiAccounts = opts.aiAccounts ?? [];
   const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ id, user_id: 'u1', cli_session_id: null, ...host }));
+  const clearProjectSessions = opts.clearProjectSessions ?? vi.fn(async () => undefined);
   const repos = {
-    chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]), setHost },
+    chat: { listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]), setHost, clearProjectSessions },
     chatActions: { decide, findByIdForUser, listByConversation },
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? tabs.filter((t) => ids.includes(t.id)) : [])) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === fixturesOwner ? projects.filter((p) => ids.includes(p.id)) : [])) },
@@ -67,7 +75,7 @@ function build(opts: {
     (req as unknown as { scope: unknown }).scope = { user: { id: 'u1' }, viewAs: { kind: 'self' }, ownerId: 'u1', createAs: 'u1' };
   });
   app.register((a) => chatRoutes(a, repos as never, { service: service as never }), { prefix: '/chat' });
-  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision, setHost };
+  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision, setHost, send, repos };
 }
 
 it('returns the conversation with its messages', async () => {
@@ -294,6 +302,54 @@ it('lets any other resumeAfterDecision failure through unchanged, not the busy 2
   const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
 
   expect(res.statusCode).toBe(500);
+});
+
+it('GET /?project= reads that project conversation and its host', async () => {
+  const { app, service } = build();
+  const res = await app.inject({ method: 'GET', url: '/chat?project=p1' });
+  expect(res.statusCode).toBe(200);
+  expect(service.conversationFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'p1');
+  expect(service.hostFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'p1');
+});
+
+it('POST /messages passes project_id through', async () => {
+  const { app, send } = build();
+  await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', project_id: 'p1' } });
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'oi', { projectId: 'p1' });
+});
+
+it('POST /reset archives the scope and answers the fresh conversation', async () => {
+  const { app, service } = build();
+  const res = await app.inject({ method: 'POST', url: '/chat/reset', payload: { project_id: 'p1' } });
+  expect(res.statusCode).toBe(200);
+  expect(res.json().conversation.id).toBe('c_new');
+  expect(service.reset).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'p1');
+});
+
+it('POST /reset without project_id resets the account-wide chat', async () => {
+  const { app, service } = build();
+  await app.inject({ method: 'POST', url: '/chat/reset', payload: {} });
+  expect(service.reset).toHaveBeenCalledWith(expect.anything(), null);
+});
+
+it('POST /reset is a 409 while busy', async () => {
+  const { app } = build({ reset: vi.fn(async () => { throw new HttpError(409, 'ocupado', 'CHAT_BUSY'); }) });
+  const res = await app.inject({ method: 'POST', url: '/chat/reset', payload: {} });
+  expect(res.statusCode).toBe(409);
+});
+
+it('GET /projects lists per-project status', async () => {
+  const { app } = build();
+  const res = await app.inject({ method: 'GET', url: '/chat/projects' });
+  expect(res.json()).toEqual({ projects: [{ project_id: 'p1', busy: true, pending_confirmations: 1 }] });
+});
+
+it('POST /host also drops the sessions of the project chats', async () => {
+  const { app, repos } = build({
+    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: 's-old' })),
+  });
+  await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
+  expect(repos.chat.clearProjectSessions).toHaveBeenCalledWith('u1');
 });
 
 it('a double click on the same decision still answers 409 the second time, having injected only once', async () => {
