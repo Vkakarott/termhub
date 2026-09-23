@@ -1,0 +1,202 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Machine, Project, User } from '../lib/types';
+
+// vi.mock factories are hoisted: everything they touch comes through vi.hoisted().
+const { patchMock, dataState, authState } = vi.hoisted(() => {
+  const patchMock = vi.fn(async (_id: string, input: Record<string, unknown>) => ({ ...input }));
+  const dataState = {
+    current: {
+      projects: [] as Project[],
+      machines: [] as Machine[],
+      hiddenLocal: [] as Machine[],
+      loading: false,
+      updateProject: (id: string, input: Record<string, unknown>) => patchMock(id, input),
+    },
+  };
+  const authState = {
+    current: {
+      user: null as User | null,
+      publicCityUrl: 'https://termhub.dev/city' as string | null,
+      can: (() => true) as (resource: string, action?: string) => boolean,
+      setNickname: vi.fn(async () => {}),
+    },
+  };
+  return { patchMock, dataState, authState };
+});
+
+vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
+vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
+
+import { MyCityView } from './MyCityView';
+
+function machine(id: string, name: string, owner_id: string | null = 'u1'): Machine {
+  return {
+    id,
+    name,
+    host: null,
+    ssh_user: null,
+    ssh_port: 22,
+    type: 'agent',
+    os: 'macos',
+    capabilities: [],
+    checked_at: null,
+    agent_version: null,
+    agent_last_seen_at: null,
+    agent_auto_update: false,
+    is_local: false,
+    owner_id,
+    owner_name: 'pedro',
+    created_at: '2026-01-01T00:00:00Z',
+    public_id: `pub-${id}`,
+  };
+}
+
+function project(over: Partial<Project> = {}): Project {
+  return {
+    id: 'p1',
+    owner_id: 'u1',
+    key: 'MEU',
+    next_task_number: 1,
+    name: 'meu-projeto',
+    status: 'active',
+    description: null,
+    last_terminal_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    machines: [{ machine_id: 'm1', cwd: '/home/pedro/meu-projeto', position: 0 }],
+    is_public: false,
+    ...over,
+  };
+}
+
+const baseUser: User = {
+  id: 'u1',
+  email: 'a@b.c',
+  name: 'Pedro',
+  avatar_url: null,
+  role: 'owner',
+  role_info: null,
+  permissions: [],
+  has_password: true,
+  has_google: false,
+  invited_at: null,
+  last_login_at: null,
+  nickname: 'pedro',
+};
+
+function renderView() {
+  return render(
+    <MemoryRouter>
+      <MyCityView />
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  patchMock.mockReset();
+  patchMock.mockImplementation(async (_id, input) => ({ ...input }));
+  dataState.current = { ...dataState.current, projects: [], machines: [machine('m1', 'jarvis')], hiddenLocal: [], loading: false };
+  authState.current = { ...authState.current, user: { ...baseUser }, publicCityUrl: 'https://termhub.dev/city', can: () => true };
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe('MyCityView nickname', () => {
+  it('shows a set nickname read-only, saying why it cannot change', () => {
+    renderView();
+    expect(screen.getByText('pedro')).toBeTruthy();
+    expect(screen.getByText(/não pode ser trocado/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /escolher apelido/i })).toBeNull();
+  });
+
+  it('offers to choose a nickname when there is none, through the nickname dialog', () => {
+    authState.current = { ...authState.current, user: { ...baseUser, nickname: null } };
+    renderView();
+    fireEvent.click(screen.getByRole('button', { name: /escolher apelido/i }));
+    expect(screen.getByLabelText(/apelido/i)).toBeTruthy();
+  });
+});
+
+describe('MyCityView link', () => {
+  it('builds the link from the instance base and the nickname, with copy and open', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    dataState.current = { ...dataState.current, projects: [project({ is_public: true })] };
+    renderView();
+
+    expect(screen.getByText('https://termhub.dev/city/@pedro')).toBeTruthy();
+    const open = screen.getByRole('link', { name: /^abrir$/i });
+    expect(open.getAttribute('href')).toBe('https://termhub.dev/city/@pedro');
+    expect(open.getAttribute('target')).toBe('_blank');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /copiar/i }));
+    });
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro');
+    expect(screen.getByRole('button', { name: /copiado/i })).toBeTruthy();
+  });
+
+  it('explains there is no link yet without a nickname', () => {
+    authState.current = { ...authState.current, user: { ...baseUser, nickname: null } };
+    renderView();
+    expect(screen.queryByRole('button', { name: /copiar/i })).toBeNull();
+    expect(screen.getByText(/escolha um apelido para ter o endereço/i)).toBeTruthy();
+  });
+
+  it('warns that the city is empty while nothing is published', () => {
+    dataState.current = { ...dataState.current, projects: [project({ is_public: false })] };
+    renderView();
+    expect(screen.getByText('https://termhub.dev/city/@pedro')).toBeTruthy();
+    expect(screen.getByText(/nenhum projeto publicado ainda/i)).toBeTruthy();
+  });
+});
+
+describe('MyCityView projects', () => {
+  it('lists only the projects the user owns, with the machines where each one shows and a link to it', () => {
+    dataState.current = {
+      ...dataState.current,
+      machines: [machine('m1', 'jarvis'), machine('m2', 'servidor-alheio', 'u2')],
+      projects: [
+        project({ machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }, { machine_id: 'm2', cwd: '/a', position: 1 }] }),
+        project({ id: 'p2', key: 'OUTRO', name: 'projeto-de-outro', owner_id: 'u2' }),
+      ],
+    };
+    renderView();
+
+    const row = screen.getByRole('listitem');
+    expect(within(row).getByText('meu-projeto')).toBeTruthy();
+    expect(within(row).getByText(/jarvis/)).toBeTruthy();
+    expect(within(row).queryByText(/servidor-alheio/)).toBeNull();
+    expect(within(row).getByRole('link', { name: /abrir projeto/i }).getAttribute('href')).toBe('/projects/p1');
+    expect(screen.queryByText('projeto-de-outro')).toBeNull();
+  });
+
+  it('publishes from the list through the same path as the project page', async () => {
+    dataState.current = { ...dataState.current, projects: [project()] };
+    renderView();
+
+    fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
+    expect(screen.getByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^publicar$/i }));
+    });
+    expect(patchMock).toHaveBeenCalledWith('p1', expect.objectContaining({ is_public: true }));
+  });
+
+  it('shows an empty state when the user owns no project', () => {
+    dataState.current = { ...dataState.current, projects: [project({ owner_id: 'u2' })] };
+    renderView();
+    expect(screen.getByText(/você ainda não tem projetos/i)).toBeTruthy();
+  });
+
+  it('shows the empty state for an account that cannot list projects, instead of loading forever', () => {
+    dataState.current = { ...dataState.current, loading: true };
+    authState.current = { ...authState.current, can: () => false };
+    renderView();
+    expect(screen.getByText(/você ainda não tem projetos/i)).toBeTruthy();
+  });
+});
