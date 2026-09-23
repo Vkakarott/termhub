@@ -50,4 +50,18 @@ describe('Camera.locked', () => {
     drag(canvas);
     expect(cam.target.x).toBe(before.x + 40);
   });
+
+  it('stops a drag already under way when the camera locks mid-gesture', () => {
+    const { cam, canvas } = camera();
+    const before = { ...cam.target };
+    canvas.dispatchEvent(new MouseEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    cam.locked = true;
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 40, clientY: 30 }));
+    expect(cam.target).toEqual(before);
+    // unlocked again, the old press does not resume: the picture does not jump
+    cam.locked = false;
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 80, clientY: 60 }));
+    expect(cam.target).toEqual(before);
+    window.dispatchEvent(new MouseEvent('pointerup'));
+  });
 });

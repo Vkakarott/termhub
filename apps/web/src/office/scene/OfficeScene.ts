@@ -8,6 +8,7 @@ import { generatedPack } from '../pack/generated';
 import type { PackManifest } from '../pack/manifest';
 import { Camera, sameBox, type Box } from './camera';
 import { signVisibility } from './detail';
+import { FrameListeners } from './frames';
 import { DeskOverlay, MachineSign, RoomSign } from './Overlay';
 import { DeskView, type Textures } from './PersonView';
 import { drawBlock, drawRoom, WALL_H } from './RoomView';
@@ -87,8 +88,8 @@ export class OfficeScene {
   private destroyed = false;
   private readonly reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   frameMs = 0;
-  /** called right after every render with the canvas just drawn: the only moment a WebGL canvas can be read */
-  private readonly frameListeners = new Set<(canvas: HTMLCanvasElement) => void>();
+  /** called right after every render to the screen with the canvas just drawn (see frames.ts) */
+  private readonly frameListeners = new FrameListeners();
   /** while a video is recorded: no wheel, no drag, no re-framing */
   private cameraLocked = false;
   /** a framing asked for while the camera was locked, applied once it unlocks */
@@ -144,16 +145,9 @@ export class OfficeScene {
     app.ticker.add(() => (this.frameMs = this.frameMs * 0.9 + (performance.now() - t0) * 0.1), undefined, UPDATE_PRIORITY.UTILITY);
     // Pixi's post-render runner fires inside render(), right after the draw calls — the frame is
     // still in the WebGL drawing buffer, so a 2D canvas can copy it (share images, the video)
+    // only a render to the screen: a future render into a texture would hand out a stale canvas
     const postrender = {
-      postrender: () => {
-        for (const cb of this.frameListeners) {
-          try {
-            cb(app.canvas);
-          } catch {
-            /* a failing share must never stop the city from drawing */
-          }
-        }
-      },
+      postrender: (options?: { target?: unknown }) => this.frameListeners.emit(app.canvas, options?.target === app.renderer.view.renderTarget),
     };
     app.renderer.runners.postrender.add(postrender);
     const onVisibility = () => (document.hidden ? app.ticker.stop() : app.ticker.start());
@@ -201,10 +195,7 @@ export class OfficeScene {
 
   /** Subscribes to every rendered frame (see `frameListeners`); returns the unsubscribe. */
   onFrame(cb: (canvas: HTMLCanvasElement) => void): () => void {
-    this.frameListeners.add(cb);
-    return () => {
-      this.frameListeners.delete(cb);
-    };
+    return this.frameListeners.add(cb);
   }
 
   /**

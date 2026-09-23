@@ -72,6 +72,11 @@ export class Camera {
     };
     const onMove = (e: PointerEvent) => {
       if (!last) return;
+      // locked mid-drag: the press ends here, so unlocking later does not make the picture jump
+      if (this.locked) {
+        last = null;
+        return;
+      }
       const dx = e.clientX - last.x;
       const dy = e.clientY - last.y;
       this.dragged += Math.abs(dx) + Math.abs(dy);
