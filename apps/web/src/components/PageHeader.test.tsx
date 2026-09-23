@@ -74,11 +74,41 @@ describe('PageHeader on a narrow window', () => {
       </MemoryRouter>,
     );
     const middle = screen.getByRole('navigation', { name: 'Seções de alpha' }).parentElement!;
-    expect(middle).toHaveClass('min-w-0', 'flex-1', 'overflow-x-auto');
+    expect(middle).toHaveClass('flex-1', 'overflow-x-auto');
     expect(middle).toContainElement(screen.getByLabelText('Trilha'));
     expect(screen.getByRole('button', { name: 'publicar' }).parentElement).toHaveClass('ml-auto', 'shrink-0');
     const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
     expect(header.className).not.toMatch(/overflow/);
+  });
+
+  it('gives way in order: subtitle first, then the title, the tabs last', () => {
+    render(
+      <MemoryRouter>
+        <PageHeader title="Loja Online da Maria com um nome bem comprido" subtitle="LOJA · desktop-linux-escritorio-principal" tabs={[{ to: '/a', label: 'Terminais' }]} />
+      </MemoryRouter>,
+    );
+    const title = screen.getByRole('heading', { level: 1 });
+    const subtitle = screen.getByText(/^LOJA/);
+    const middle = screen.getByRole('navigation', { name: /Seções de/ }).parentElement!;
+    // the tabs keep a usable width and shrink last
+    expect(middle.className).toMatch(/min-w-\[\d+rem\]/);
+    expect(middle).toHaveClass('basis-auto', 'shrink');
+    expect(middle).not.toHaveClass('min-w-0');
+    // the subtitle shrinks much faster, and hides on narrow windows
+    expect(subtitle).toHaveClass('min-w-0', 'truncate', 'shrink-[10]', 'hidden', 'lg:inline');
+    // the title truncates within a cap, shrinking after the subtitle
+    expect(title).toHaveClass('min-w-0', 'truncate', 'shrink-[2]');
+    expect(title.className).toMatch(/max-w-\[\d+rem\]/);
+  });
+
+  it('fades the scrolling edge so there is visibly more', () => {
+    render(
+      <MemoryRouter>
+        <PageHeader title="alpha" tabs={[{ to: '/a', label: 'Terminais' }]} />
+      </MemoryRouter>,
+    );
+    const middle = screen.getByRole('navigation', { name: 'Seções de alpha' }).parentElement!;
+    expect(middle).toHaveClass('header-scroll-fade');
   });
 
   it('can give the subtitle a longer tooltip than its text', () => {

@@ -1,3 +1,4 @@
+import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
@@ -323,11 +324,19 @@ function Trail({ parts }: { parts: Array<{ label: string; go?: () => void }> }) 
  * frozen picture that looks live. One machine's own trouble is only said at its rest — in the city
  * its block is dark and its sign carries the notice.
  */
+const TMUX_SILENT = 'sem resposta do tmux: estado pode estar desatualizado';
+
 function StatusNotices({ machine, connected }: { machine: MachineModel | null; connected: boolean }) {
   return (
     <>
       {machine?.notice === 'offline' && <span className="text-warn">máquina offline</span>}
-      {machine?.notice === 'silent' && <span className="text-warn">sem resposta do tmux: estado pode estar desatualizado</span>}
+      {machine?.notice === 'silent' && (
+        // compact: the header's actions must fit a narrow window; the whole sentence is on hover and for screen readers
+        <span className="flex items-center gap-1 whitespace-nowrap text-warn" role="status" aria-label={TMUX_SILENT} title={TMUX_SILENT}>
+          <TriangleAlert size={14} aria-hidden="true" />
+          tmux sem resposta
+        </span>
+      )}
       {!connected && <span className="text-warn">reconectando…</span>}
     </>
   );

@@ -204,6 +204,17 @@ describe('Sidebar agent rows', () => {
     expect(within(beta).queryByText(/mac/)).not.toBeInTheDocument();
   });
 
+  it('keeps the tab name readable next to a long machine name: the machine name gives way first', () => {
+    renderSidebar();
+    const row = within(agentsOf(section('Em execução'), 'alpha')!).getAllByRole('link')[0];
+    const name = within(row).getByText('Ana');
+    const machine = within(row).getByText(/jarvis/);
+    expect(name).toHaveClass('shrink-0', 'truncate');
+    expect(name.className).toMatch(/max-w-/);
+    expect(machine).toHaveClass('min-w-0', 'truncate');
+    expect(machine).not.toHaveClass('shrink-0');
+  });
+
   it('names each agent list after its section too, so a running project\'s two lists are told apart', () => {
     renderSidebar();
     const names = screen.getAllByRole('list', { name: /^Agentes de alpha/ }).map((l) => l.getAttribute('aria-label'));

@@ -491,7 +491,7 @@ describe('OfficePage status notices', () => {
     await act(async () => {});
     expect(screen.getByText('máquina offline')).toBeTruthy();
     // an offline machine already explains the silence; the tmux notice is for a machine that answers
-    expect(screen.queryByText(/sem resposta do tmux/)).toBeNull();
+    expect(screen.queryByText(/tmux sem resposta/)).toBeNull();
   });
 
   it('says so when a machine that answers cannot read its tmux', async () => {
@@ -500,7 +500,11 @@ describe('OfficePage status notices', () => {
     renderPage('/office/m1');
     await act(async () => {});
 
-    expect(screen.getByText('sem resposta do tmux: estado pode estar desatualizado')).toBeTruthy();
+    // compact in the header: a short label, the whole sentence for hover and screen readers
+    const notice = screen.getByLabelText('sem resposta do tmux: estado pode estar desatualizado');
+    expect(notice.textContent).toBe('tmux sem resposta');
+    expect(notice.getAttribute('title')).toBe('sem resposta do tmux: estado pode estar desatualizado');
+    expect(notice.querySelector('svg')).not.toBeNull();
   });
 
   it('says so at the machine rest when that machine\'s snapshot could not be read', async () => {

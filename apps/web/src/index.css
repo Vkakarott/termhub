@@ -63,3 +63,12 @@ body { @apply bg-bg text-fg antialiased; font-family: ui-sans-serif, system-ui, 
 @keyframes chrome-slide-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 .chrome-slide-in { animation: chrome-slide-in 150ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .chrome-slide-in { animation: none; } }
+
+/* The page header's tabs/trail strip scrolls sideways on a narrow window (components/PageHeader); its
+   right edge fades so a cut-off tab reads as "more this way". The padding lets the last tab scroll
+   clear of the fade. */
+.header-scroll-fade {
+  padding-right: 1.5rem;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+}

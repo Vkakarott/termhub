@@ -26,23 +26,24 @@ export interface PageHeaderProps {
 /**
  * The one header every page inside the sidebar layout uses (spec 2026-09-23 app chrome §6). The bar
  * itself never clips its overflow: popovers anchored in the actions (PublishControl) hang below it.
- * On a narrow window only the middle — tabs and extra — shrinks and scrolls sideways, so the actions
- * stay in view at the same height.
+ * On a narrow window things give way in order: the subtitle first (hidden below `lg`), then the title
+ * (truncated within a cap), and the middle — tabs and extra — last, never below a usable width,
+ * scrolling sideways with a faded edge. The actions never shrink.
  */
 export function PageHeader({ title, subtitle, subtitleTitle, tabs, extra, actions }: PageHeaderProps) {
   const hasTabs = !!tabs && tabs.length > 0;
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line bg-bg-2 px-4">
-      <h1 className="min-w-0 shrink truncate text-sm font-semibold" title={title}>
+      <h1 className="min-w-0 max-w-[16rem] shrink-[2] truncate text-sm font-semibold" title={title}>
         {title}
       </h1>
       {subtitle && (
-        <span className="min-w-0 truncate text-xs text-fg-muted" title={subtitleTitle ?? subtitle}>
+        <span className="hidden min-w-0 shrink-[10] truncate text-xs text-fg-muted lg:inline" title={subtitleTitle ?? subtitle}>
           {subtitle}
         </span>
       )}
       {(hasTabs || extra) && (
-        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="header-scroll-fade flex min-w-[10rem] flex-1 shrink basis-auto items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {hasTabs && (
             <nav aria-label={`Seções de ${title}`} className="flex shrink-0 items-center gap-1">
               {tabs!.map((t) => (
