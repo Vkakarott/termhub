@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
   list: vi.fn(), create: vi.fn(), rename: vi.fn(), remove: vi.fn(), reorder: vi.fn(), setMemberships: vi.fn(),
@@ -10,6 +10,9 @@ vi.mock('./api', async (orig) => ({ ...(await orig<typeof import('./api')>()), a
 // A mutable holder so a test can change viewAs (by value or by reference) between renders.
 const auth = vi.hoisted(() => ({ viewAs: { kind: 'self' } as unknown }));
 vi.mock('./auth', () => ({ useAuth: () => ({ viewAs: auth.viewAs }) }));
+// the projects the client knows about: outgoing member lists are limited to them
+const data = vi.hoisted(() => ({ projects: [] as { id: string }[], loading: false }));
+vi.mock('./data', () => ({ useData: () => data }));
 
 import { ProjectGroupsProvider, useProjectGroups } from './project-groups';
 
@@ -26,6 +29,10 @@ const mount = async () => {
   await screen.findByText('Favoritos:a|Clientes:');
 };
 
+beforeEach(() => {
+  data.projects = ['a', 'b', 'x', 'y'].map((id) => ({ id }));
+  data.loading = false;
+});
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -114,5 +121,39 @@ describe('ProjectGroupsProvider', () => {
     auth.viewAs = { kind: 'all' };
     rerender(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+  });
+  it('never sends the id of a project the client no longer knows (deleted, or out of the scope)', async () => {
+    api.list.mockResolvedValue({ groups: [{ ...fav, project_ids: ['a', 'dead'] }, { ...g1, project_ids: ['dead'] }] });
+    render(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await screen.findByText('Favoritos:a,dead|Clientes:dead');
+    api.setMemberships.mockResolvedValueOnce({ groups: [{ ...fav, project_ids: ['a', 'b'] }, g1] });
+    await act(async () => { await state.toggleFavorite('b'); });
+    expect(api.setMemberships).toHaveBeenLastCalledWith([{ id: 'fav', project_ids: ['a', 'b'] }]);
+    api.setMemberships.mockResolvedValueOnce({ groups: [fav, { ...g1, project_ids: ['a'] }] });
+    await act(async () => { await state.setMemberships([fav, { ...g1, project_ids: ['dead', 'a'] }], [{ id: 'g1', project_ids: ['dead', 'a'] }]); });
+    expect(api.setMemberships).toHaveBeenLastCalledWith([{ id: 'g1', project_ids: ['a'] }]);
+  });
+
+  it('after rolling back a failed write, re-syncs from the server', async () => {
+    await mount();
+    // meanwhile another browser created a group: the write fails (BAD_ORDER) and only a reload shows it
+    const g2 = { id: 'g2', name: 'Outro', kind: 'custom' as const, position: 2, project_ids: [] as string[] };
+    api.list.mockResolvedValue({ groups: [fav, g1, g2] });
+    api.reorder.mockRejectedValueOnce(new Error('BAD_ORDER'));
+    await act(async () => { await state.reorderGroups('g1', 0); });
+    await waitFor(() => expect(screen.getByTestId('out')).toHaveTextContent('Favoritos:a|Clientes:|Outro:'));
+    expect(api.list).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('out')).toHaveTextContent('!');
+  });
+
+  it('toggleFavorite without a Favoritos group (first load failed) reports it and reloads', async () => {
+    api.list.mockRejectedValueOnce(new Error('offline'));
+    render(<ProjectGroupsProvider><Probe /></ProjectGroupsProvider>);
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(1));
+    api.list.mockResolvedValue({ groups: [fav, g1] });
+    await act(async () => { await state.toggleFavorite('b'); });
+    expect(api.setMemberships).not.toHaveBeenCalled();
+    expect(screen.getByTestId('out')).toHaveTextContent('!');
+    await waitFor(() => expect(screen.getByTestId('out')).toHaveTextContent('Favoritos:a|Clientes:'));
   });
 });

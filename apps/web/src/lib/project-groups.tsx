@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './api';
 import { useAuth } from './auth';
+import { useData } from './data';
 import { moveGroup } from './project-groups-model';
 import type { ProjectGroup } from './types';
 
@@ -27,6 +28,13 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
   const [groups, setGroupsState] = useState<ProjectGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef(groups);
+  // Outgoing member lists only name projects the client knows: a project deleted here, or gone from
+  // the scope, may still sit in `groups` until the next reload, and the server refuses unknown ids
+  // (404 PROJECT_NOT_FOUND), which would fail every later write to that group.
+  const { projects, loading } = useData();
+  const known = useRef<Set<string> | null>(null);
+  known.current = loading ? null : new Set(projects.map((p) => p.id));
+  const prune = useCallback((ids: string[]) => (known.current ? ids.filter((id) => known.current!.has(id)) : ids), []);
   const setGroups = (g: ProjectGroup[]) => {
     ref.current = g;
     setGroupsState(g);
@@ -62,8 +70,10 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
       if (ref.current === next && fromServer) setGroups(fromServer);
       setError(null);
     } catch {
+      // the refusal may come from a change made elsewhere (a group created or deleted in another
+      // browser): restore at once, then re-sync so the next write starts from what the server has
       if (ref.current === next) setGroups(prev);
-      else void reload();
+      void reload();
       setError(FAILED);
     }
   }, [reload]);
@@ -99,17 +109,29 @@ export function ProjectGroupsProvider({ children }: { children: ReactNode }) {
         const next = moveGroup(ref.current, groupId, toIndex);
         return optimistic(next, async () => (await api.projectGroups.reorder(next.map((g) => g.id))).groups);
       },
-      setMemberships: (next, changes) => optimistic(next, async () => (await api.projectGroups.setMemberships(changes)).groups),
+      setMemberships: (next, changes) => {
+        const clean = changes.map((c) => ({ id: c.id, project_ids: prune(c.project_ids) }));
+        const shown = next.map((g) => {
+          const c = clean.find((x) => x.id === g.id);
+          return c ? { ...g, project_ids: c.project_ids } : g;
+        });
+        return optimistic(shown, async () => (await api.projectGroups.setMemberships(clean)).groups);
+      },
       isFavorite: (projectId) => !!favorites()?.project_ids.includes(projectId),
       toggleFavorite: (projectId) => {
         const fav = favorites();
-        if (!fav) return Promise.resolve();
-        const project_ids = fav.project_ids.includes(projectId) ? fav.project_ids.filter((id) => id !== projectId) : [...fav.project_ids, projectId];
+        if (!fav) {
+          // Favoritos always exists on the server: it is only missing here when the list failed to load
+          setError(FAILED);
+          return reload();
+        }
+        const current = prune(fav.project_ids);
+        const project_ids = current.includes(projectId) ? current.filter((id) => id !== projectId) : [...current, projectId];
         const next = ref.current.map((g) => (g.id === fav.id ? { ...g, project_ids } : g));
         return optimistic(next, async () => (await api.projectGroups.setMemberships([{ id: fav.id, project_ids }])).groups);
       },
     };
-  }, [groups, error, reload, optimistic]);
+  }, [groups, error, reload, optimistic, prune]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
