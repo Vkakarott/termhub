@@ -73,7 +73,8 @@ export type HostProblem = Exclude<HostChoice, { kind: 'ready' }>;
 /**
  * Resolves the host pair for this user's conversation — always the account-wide row's, which a project
  * chat shares (spec 2026-09-23 §3): `requires` is how a project chat asks for the one extra capability
- * it needs, on the same host. It reads and never writes: a stale choice is
+ * it needs, on the same host, and `runSessionId` is the session of the conversation that will run,
+ * which is what `sessionAtStake` is about (spec §4.2). It reads and never writes: a stale choice is
  * reported as "choose again", never silently rewritten, so two runs racing cannot disagree about
  * which machine answered.
  *
@@ -82,7 +83,7 @@ export type HostProblem = Exclude<HostChoice, { kind: 'ready' }>;
  * list is owner-scoped in SQL, so a chosen id that belongs to someone else is simply not in it. That
  * is what makes `ready` unreachable for a machine the user does not own.
  */
-export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string } = {}): Promise<HostChoice> {
+export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string; runSessionId?: string | null } = {}): Promise<HostChoice> {
   const [conversation, machines] = await Promise.all([ctx.repos.chat.getOrCreateForUser(user.id), ctx.repos.machines.list(user.id)]);
   const candidates = machines.filter((m) => m.type === 'agent');
   if (candidates.length === 0) return { kind: 'no_machine' };
@@ -92,7 +93,12 @@ export async function resolveHost(ctx: HostContext, user: User, opts: { requires
   // conversation ran, and the machine it names is not one it can run on now (unenrolled, handed over,
   // or — for a host a run pinned — nulled by the foreign key). Whatever happens next, the session that
   // holds the model's memory is not on the machine that will answer.
-  const sessionAtStake = chosen === undefined && conversation.cli_session_id !== null;
+  //
+  // The session is the *run* conversation's (spec §4.2): the account-wide row owns the host, but a
+  // project chat's memory is its own session, which the account-wide row's says nothing about. Absent
+  // (`undefined`), the run conversation is the account-wide one itself.
+  const runSessionId = opts.runSessionId !== undefined ? opts.runSessionId : conversation.cli_session_id;
+  const sessionAtStake = chosen === undefined && runSessionId !== null;
   // A chosen machine that is gone (deleted, or no longer this user's) behaves exactly as if nothing
   // had ever been chosen: with one machine there is nothing to ask, with several the user picks.
   const machine = chosen ?? (candidates.length === 1 ? candidates[0] : undefined);

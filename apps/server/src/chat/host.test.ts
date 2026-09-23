@@ -253,3 +253,13 @@ it('requires the extra capability when asked to', async () => {
   expect(await resolveHost(ctx, user, { requires: 'claude.system_prompt' })).toEqual({ kind: 'agent_too_old', machine: chosen, version: '0.5.0' });
   expect((await resolveHost(ctx, user)).kind).toBe('ready');
 });
+
+it('says whether the run conversation session is at stake, not the account-wide one', async () => {
+  // The account-wide row holds a session and names no machine; the project chat that is about to run has
+  // no session at all, so picking a machine for it throws nothing away (spec §4.2).
+  const { ctx } = build({ machines: [machine('m1', 'a'), machine('m2', 'b')], conversation: { machine_id: null, cli_session_id: 'sess-account' } });
+
+  expect(await resolveHost(ctx, user, { runSessionId: null })).toMatchObject({ kind: 'not_chosen', sessionAtStake: false });
+  expect(await resolveHost(ctx, user, { runSessionId: 'sess-project' })).toMatchObject({ kind: 'not_chosen', sessionAtStake: true });
+  expect(await resolveHost(ctx, user)).toMatchObject({ kind: 'not_chosen', sessionAtStake: true });
+});

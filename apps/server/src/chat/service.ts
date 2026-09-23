@@ -166,8 +166,19 @@ export class ChatService {
    *  One place decides it; nothing here re-derives any part of it. The host is always the account-wide
    *  conversation's (spec 2026-09-23 §3); a project chat additionally needs an agent that forwards its
    *  prompt, so the same machine can be ready for one scope and too old for the other. */
-  hostFor(user: User, projectId: string | null = null): Promise<HostChoice> {
-    return resolveHost({ repos: this.deps.repos, agents: this.deps.agents }, user, projectId === null ? {} : { requires: CAPABILITY_CLAUDE_SYSTEM_PROMPT });
+  async hostFor(user: User, projectId: string | null = null): Promise<HostChoice> {
+    if (projectId === null) return this.hostForConversation(user, null);
+    return this.hostForConversation(user, await this.conversationFor(user, projectId));
+  }
+
+  /** The host as seen by one run conversation: the account-wide row's machine and account, the extra
+   * capability a project chat needs, and whether *this* conversation's session is at stake (spec §4.2 —
+   * the conversation that owns the host is taken separately from the one being run). `null` is the
+   * account-wide conversation, whose session `resolveHost` reads itself. */
+  private hostForConversation(user: User, conversation: ChatConversation | null): Promise<HostChoice> {
+    const ctx = { repos: this.deps.repos, agents: this.deps.agents };
+    if (conversation === null || conversation.project_id === null) return resolveHost(ctx, user, conversation === null ? {} : { runSessionId: conversation.cli_session_id });
+    return resolveHost(ctx, user, { requires: CAPABILITY_CLAUDE_SYSTEM_PROMPT, runSessionId: conversation.cli_session_id });
   }
 
   /**
@@ -188,7 +199,14 @@ export class ChatService {
     } finally {
       this.running.delete(current.id);
     }
-    return this.conversationFor(user, projectId);
+    const fresh = await this.conversationFor(user, projectId);
+    // The account-wide row owns the host (spec §3): a new thread is not a new machine or account, and
+    // every project chat resolves its host from this row, so theirs must not move either. The pair is
+    // copied as it was, so nothing moved and no project session is cleared.
+    if (projectId === null && current.machine_id !== null) {
+      return this.deps.repos.chat.setHost(fresh.id, { machine_id: current.machine_id, ai_account_id: current.ai_account_id });
+    }
+    return fresh;
   }
 
   /** What the sidebar's 💬 shows per project: answering right now, and questions waiting on the user.
@@ -307,7 +325,9 @@ export class ChatService {
   private async promptFor(user: User, conversation: ChatConversation): Promise<string | null> {
     if (conversation.project_id === null) return null;
     const [project] = await this.deps.repos.projects.findByIdsForOwner([conversation.project_id], user.id);
-    if (!project) return null;
+    // Never a silent fallback to no prompt: a project chat that runs unfocused is the one failure the
+    // capability check exists to rule out.
+    if (!project) throw new HttpError(404, 'Projeto não encontrado', 'PROJECT_NOT_FOUND');
     const links = await this.deps.repos.projectMachines.listByProject(project.id);
     const machines = await this.deps.repos.machines.findByIdsForOwner(links.map((l) => l.machine_id), user.id);
     const nameOf = new Map(machines.map((m) => [m.id, m.name]));
@@ -325,7 +345,7 @@ export class ChatService {
     //
     // Resolved *before* the busy check, not between it and `running.add`: every await in between is a
     // window in which a second message passes the check and starts a second run on the same session.
-    const host = await this.hostFor(user, conversation.project_id);
+    const host = await this.hostForConversation(user, conversation);
     if (host.kind !== 'ready') throw hostFailure(host);
     // Read with the host, before the lock and before any row: a read that fails here is a message never
     // sent, not an empty assistant bubble left behind by an error thrown mid-run.
@@ -334,6 +354,13 @@ export class ChatService {
     const runner = this.deps.runnerFor(host.machine.id);
     this.running.add(conversation.id);
     try {
+      // Re-read under the lock: `conversation` was read before the host and prompt reads above, and a
+      // `reset` in that gap archived it and revoked its tokens. `reset` holds this same lock for its
+      // writes, so this read is authoritative — without it the run would write rows nobody sees and mint
+      // a fresh token bound to a conversation that is over, after its revocation.
+      const live = await this.deps.repos.chat.findByIdForUser(conversation.id, user.id);
+      if (!live || live.archived_at !== null) throw new HttpError(409, 'Esta conversa foi encerrada; envie de novo para começar a nova conversa', 'CHAT_ARCHIVED');
+
       // The host this run uses is the host this conversation has, and from here on it says so: a
       // conversation whose machine was auto-picked (one candidate, nothing stored) is otherwise
       // indistinguishable from one whose stored host was unenrolled out from under a live session, and
