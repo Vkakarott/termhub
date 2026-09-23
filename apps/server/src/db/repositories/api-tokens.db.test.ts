@@ -80,6 +80,34 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ApiTokensRepository (Post
     expect(await repo.countActive(userId)).toBe(before);
   });
 
+  it('revokeForConversation revokes only that conversation\'s live tokens', async () => {
+    // Two active conversations of the same user: `chat_conversations_one_active` is keyed on
+    // COALESCE(project_id, ''), so the second one needs a project of its own to coexist with the
+    // account-wide row (see chat.db.test.ts).
+    const projectId = newId();
+    await db.project.create({ data: { id: projectId, key: `K${projectId.slice(-5).toUpperCase()}`, name: 'proj', ownerId: userId } });
+    const x = await db.chatConversation.create({ data: { id: newId(), userId } });
+    const y = await db.chatConversation.create({ data: { id: newId(), userId, projectId } });
+    const x1 = await repo.create(userId, { name: 'concierge x1', scopes: ['read'], expiresAt: null, gated: true, chatConversationId: x.id }, `h_${newId()}`);
+    const x2 = await repo.create(userId, { name: 'concierge x2', scopes: ['read'], expiresAt: null, gated: true, chatConversationId: x.id }, `h_${newId()}`);
+    const yTok = await repo.create(userId, { name: 'concierge y', scopes: ['read'], expiresAt: null, gated: true, chatConversationId: y.id }, `h_${newId()}`);
+    const personal = await make(userId, { name: 'personal' });
+
+    expect(await repo.revokeForConversation(x.id)).toBe(2);
+
+    const byId = (id: string) => repo.listByUser(userId).then((rows) => rows.find((r) => r.id === id));
+    expect((await byId(x1.id))?.revoked_at).not.toBeNull();
+    expect((await byId(x2.id))?.revoked_at).not.toBeNull();
+    expect((await byId(yTok.id))?.revoked_at).toBeNull();
+    expect((await byId(personal.id))?.revoked_at).toBeNull();
+
+    // Idempotent, like `revoke`: a second call (e.g. a retried "Nova conversa") finds nothing left
+    // to revoke, not the same two rows again.
+    expect(await repo.revokeForConversation(x.id)).toBe(0);
+
+    await db.project.delete({ where: { id: projectId } }); // cascades y and its token
+  });
+
   it('finds an active token by hash, and never a revoked, expired or unknown one', async () => {
     const active = await make(userId, { hash: 'h-active' });
     await make(userId, { hash: 'h-expired', expiresAt: new Date(Date.now() - 1000) });
