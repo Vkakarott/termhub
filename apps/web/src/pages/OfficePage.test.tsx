@@ -727,3 +727,16 @@ describe('OfficePage share button', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 });
+
+describe('OfficePage header', () => {
+  it('is the shared page header: Escritório as the only title, the trail and the actions in it', async () => {
+    officeMock.mockReturnValue(new Promise(() => {}));
+    dataState.current = { ...dataState.current, loading: false };
+    renderPage('/office');
+    await act(async () => {});
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Escritório']);
+    const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
+    expect(header.contains(screen.getByLabelText('Trilha'))).toBe(true);
+    expect(header.contains(screen.getByText('modo foco'))).toBe(true);
+  });
+});

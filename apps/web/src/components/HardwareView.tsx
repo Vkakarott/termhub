@@ -132,7 +132,7 @@ export function HardwareView() {
     <div>
       <div className="mb-5 flex items-end gap-4">
         <div>
-          <h1 className="text-lg font-semibold">Hardware</h1>
+          <h2 className="text-lg font-semibold">Hardware</h2>
           <p className="text-sm text-fg-muted">
             {snap ? (
               <>

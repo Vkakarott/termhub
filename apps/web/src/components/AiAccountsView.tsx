@@ -281,7 +281,7 @@ export function AiAccountsView() {
     <div>
       <div className="mb-5 flex items-end gap-4">
         <div>
-          <h1 className="text-lg font-semibold">Contas de IA</h1>
+          <h2 className="text-lg font-semibold">Contas de IA</h2>
           <p className="text-sm text-fg-muted">Limites de uso das suas assinaturas, lidos do login dos CLIs nas máquinas. Atualiza a cada minuto.</p>
         </div>
         <span className="ml-auto flex gap-2">

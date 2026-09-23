@@ -187,7 +187,7 @@ export function WaitlistView() {
     <div>
       <div className="mb-5 flex items-end gap-4">
         <div>
-          <h1 className="text-lg font-semibold">Waitlist do Cloud</h1>
+          <h2 className="text-lg font-semibold">Waitlist do Cloud</h2>
           <p className="text-sm text-fg-muted">{entries ? `${entries.length} inscrito(s) pela landing page` : 'Carregando…'}</p>
         </div>
         <span className="ml-auto flex items-center gap-2">

@@ -7,6 +7,7 @@ import { agentVersionBadge, machineTitle } from '../lib/machine-labels';
 import { STATUS_DOT, STATUS_LABEL, TYPE_LABEL } from '../lib/machine-status';
 import { MachineForm } from '../components/MachineForm';
 import { ConfirmDialog } from '../components/Modal';
+import { PageFrame } from '../components/PageHeader';
 
 /** `/machines`: every machine in the scope, with the projects it's linked to and edit/delete actions. */
 export function MachinesPage() {
@@ -17,15 +18,16 @@ export function MachinesPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="mb-5 flex items-center gap-3">
-        <h1 className="text-lg font-semibold">Máquinas</h1>
-        {can('machines', 'create') && (
-          <button className="btn-primary ml-auto" onClick={() => setForm({ open: true, machine: null })}>
+    <PageFrame
+      title="Máquinas"
+      actions={
+        can('machines', 'create') && (
+          <button className="btn-primary text-xs" onClick={() => setForm({ open: true, machine: null })}>
             + máquina
           </button>
-        )}
-      </div>
+        )
+      }
+    >
 
       {machines.length === 0 && hiddenLocal.length === 0 && (
         <p className="text-sm text-fg-dim">Nenhuma máquina cadastrada. Cadastre uma pelo botão acima ou ao criar um projeto.</p>
@@ -153,6 +155,6 @@ export function MachinesPage() {
           }
         }}
       />
-    </div>
+    </PageFrame>
   );
 }
