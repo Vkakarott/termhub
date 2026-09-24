@@ -93,12 +93,14 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
     setUpdating(true);
     try {
       await api.machines.updateAgent(machine.id);
+      if (cancelledRef.current) return;
       setOutdatedMessage('Atualizando o agente… ele reinicia e reconecta em instantes.');
       timer.current = setTimeout(() => void load(), POLL_MS * 3);
     } catch (e) {
+      if (cancelledRef.current) return;
       setError(e instanceof ApiError ? e.message : 'Erro ao atualizar o agente');
     } finally {
-      setUpdating(false);
+      if (!cancelledRef.current) setUpdating(false);
     }
   };
 
