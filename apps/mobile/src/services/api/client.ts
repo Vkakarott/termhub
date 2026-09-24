@@ -54,8 +54,8 @@ export type CreateHttpMobileApiOptions = {
   /** The chat socket's reconnect backoff; defaults to `createChatSocket`'s own `{1s, 30s}`. */
   backoff?: { min: number; max: number };
   /** Reconnects the chat socket at once when the app comes to the foreground while disconnected
-   * (P§6.1). Wired to `AppState` from the view layer in Task 11 — `services/api` must not import
-   * `react-native` itself. */
+   * (P§6.1). The singleton passes `socketWake` (`wake.ts`), which `_layout.tsx` emits on AppState
+   * `active` — `services/api` must not import `react-native` itself. */
   foreground?: { subscribe(fn: () => void): () => void };
 };
 

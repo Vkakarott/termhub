@@ -10,6 +10,7 @@ import { createMockTransport, type MockControls } from './mock';
 import { FetchTransport } from './transport';
 import type { Transport } from './transport';
 import type { MobileApi } from './types';
+import { socketWake } from './wake';
 import { deviceKey } from '../key';
 
 const platform: AppPlatform = Device.osName === 'iOS' ? 'ios' : 'android';
@@ -45,4 +46,6 @@ export const api: MobileApi = createHttpMobileApi({
   key: deviceKey,
   onTokenExpired: () => renewer(),
   mode,
+  // `_layout.tsx` emits it on AppState `active`, the session store on entering `unlocked`.
+  foreground: { subscribe: socketWake.subscribe },
 });

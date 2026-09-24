@@ -1,6 +1,6 @@
 // The `/ws/m/chat?v=1` client (design spec §4.1, P§6.1): a small state machine around a
 // `Transport` socket. `socket.ts` never imports `react-native` — the foreground signal is
-// injected (`foreground`), wired to `AppState` from the view layer in a later task, so this
+// injected (`foreground`: `socketWake`, emitted on AppState `active` by the view layer), so this
 // module stays testable under plain Node.
 import { chatEventSchema, type TChatEvent } from './contract';
 import type { Transport, TransportSocket } from './transport';

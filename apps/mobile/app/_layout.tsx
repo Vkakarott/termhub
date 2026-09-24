@@ -7,6 +7,7 @@ import { AppState, Linking } from 'react-native';
 import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
 import { usePhaseRedirect } from '@/features/session/view/use-phase-redirect';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
+import { socketWake } from '@/services/api/wake';
 import { ThemeProvider, useSchemeName } from '@/ui/theme-provider';
 
 /** `'termhub://chat/<id>'` or `'https://termhub.dev/chat/<id>'` → the chat id, or `null`. */
@@ -37,7 +38,11 @@ function Navigator() {
     const sub = AppState.addEventListener('change', (next) => {
       const session = useSessionStore.getState();
       if (next === 'background' || next === 'inactive') session.background();
-      else if (next === 'active') session.foreground();
+      else if (next === 'active') {
+        session.foreground();
+        // A chat socket that backed off while the app was away reconnects now (P§6.1).
+        socketWake.emit();
+      }
     });
     return () => sub.remove();
   }, []);

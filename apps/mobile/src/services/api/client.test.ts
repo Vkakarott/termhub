@@ -4,6 +4,7 @@ import { SoftwareDeviceKey } from '../key/software';
 import type { VaultKey } from '../vault';
 import { createHttpMobileApi } from './client';
 import type { Transport } from './transport';
+import { socketWake } from './wake';
 
 function scripted(answers: Array<{ status: number; headers?: Record<string, string>; body?: unknown; text?: string }>) {
   const calls: Array<{ method: string; url: string; headers: Record<string, string>; body?: string }> = [];
@@ -337,6 +338,38 @@ describe('events()', () => {
       expect(onTokenExpired).toHaveBeenCalledTimes(1);
       expect(onClose).not.toHaveBeenCalledWith(expect.anything(), true);
       close();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('the foreground option reaches the socket: a socketWake while closed reconnects at once, without waiting out the backoff', async () => {
+    const { transport, connects, handlers } = connectableTransport();
+    const api = createHttpMobileApi({
+      transport,
+      baseUrl: 'https://termhub.dev',
+      app: 'ios/0.1.0+1',
+      key,
+      onTokenExpired: async () => null,
+      now: () => NOW * 1000,
+      backoff: { min: 60_000, max: 60_000 },
+      foreground: { subscribe: socketWake.subscribe },
+    });
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    try {
+      const close = api.events({ accessToken: 'tok' }, { onEvent: jest.fn(), onReconnect: jest.fn(), onClose: jest.fn() });
+      await waitFor(() => connects.length > 0);
+      handlers().onClose(1006);
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(connects).toHaveLength(1); // still backing off (60 s)
+
+      socketWake.emit();
+      await waitFor(() => connects.length > 1);
+      expect(connects).toHaveLength(2);
+      close();
+      socketWake.emit(); // closed: the subscription is gone
+      await tick();
+      expect(connects).toHaveLength(2);
     } finally {
       jest.useRealTimers();
     }
