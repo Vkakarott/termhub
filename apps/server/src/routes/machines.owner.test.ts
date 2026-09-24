@@ -7,7 +7,7 @@ import { publicBus, type PublicChange, type RoomsGone } from '../public/bus.js';
 import { monitorBus, type TabLifecycle } from '../monitor/bus.js';
 import { machineRoutes } from './machines.js';
 
-const machine = { id: 'm1', name: 'box', type: 'agent', owner_id: 'u1', public_id: 'x' } as Machine;
+const machine = { id: 'm1', name: 'box', type: 'agent', owner_id: 'u1' } as Machine;
 const TABS = [
   { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Ana', kind: 'terminal' },
   { id: 't2', project_id: 'p2', machine_id: 'm1', name: 'Bia', kind: 'terminal' },
