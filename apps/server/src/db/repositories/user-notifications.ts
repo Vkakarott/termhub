@@ -70,6 +70,11 @@ export class UserNotificationsRepository {
     return count > 0;
   }
 
+  /** Whether the notification exists and is the user's own, read or not (makes marking read idempotent). */
+  async existsForUser(id: string, userId: string): Promise<boolean> {
+    return (await this.db.userNotification.count({ where: { id, userId } })) > 0;
+  }
+
   async purgeBefore(cutoff: Date): Promise<number> {
     const r = await this.db.userNotification.deleteMany({ where: { createdAt: { lt: cutoff } } });
     return r.count;

@@ -27,7 +27,12 @@ export async function mobileNotificationRoutes(app: FastifyInstance, repos: Repo
   // Clearing one's own badge is part of reading the list, so it needs chat:read, not chat:create.
   app.post('/:id/read', { config: { action: 'read' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    if (!(await repos.userNotifications.markRead(id, request.scope.user.id, new Date()))) throw notFound('Notificação não encontrada');
+    const userId = request.scope.user.id;
+    // Idempotent: a double tap, or opening the push after the in-app tap, finds the row already read
+    // and still answers ok. 404 only when the caller has no such row at all.
+    if (!(await repos.userNotifications.markRead(id, userId, new Date())) && !(await repos.userNotifications.existsForUser(id, userId))) {
+      throw notFound('Notificação não encontrada');
+    }
     return { ok: true as const };
   });
 }

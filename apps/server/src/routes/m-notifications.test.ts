@@ -18,11 +18,12 @@ const row = (i: number): UserNotification => ({
   read_at: null,
 });
 
-function buildApp(rows: UserNotification[], markRead = true) {
+function buildApp(rows: UserNotification[], markRead = true, exists = markRead) {
   const userNotifications = {
     list: vi.fn(async () => rows),
     countUnread: vi.fn(async () => 7),
     markRead: vi.fn(async () => markRead),
+    existsForUser: vi.fn(async () => exists),
   };
   const repos = { userNotifications } as unknown as Repositories;
   const app = Fastify();
@@ -73,10 +74,19 @@ describe('POST /notifications/:id/read', () => {
     expect(userNotifications.markRead).toHaveBeenCalledWith('n1', 'u1', expect.any(Date));
   });
 
-  it('answers 404 when the row is not the caller’s (or already read)', async () => {
-    const { app } = buildApp([], false);
+  it('is idempotent: an already-read row of the caller answers 200 { ok: true }', async () => {
+    const { app, userNotifications } = buildApp([], false, true);
+    const r = await app.inject({ method: 'POST', url: '/notifications/n1/read' });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ ok: true });
+    expect(userNotifications.existsForUser).toHaveBeenCalledWith('n1', 'u1');
+  });
+
+  it('answers 404 when no such row exists for the caller (unknown or another user’s)', async () => {
+    const { app, userNotifications } = buildApp([], false, false);
     const r = await app.inject({ method: 'POST', url: '/notifications/n9/read' });
     expect(r.statusCode).toBe(404);
     expect(r.json()).toMatchObject({ error: 'Notificação não encontrada', code: 'NOT_FOUND' });
+    expect(userNotifications.existsForUser).toHaveBeenCalledWith('n9', 'u1');
   });
 });
