@@ -1,32 +1,18 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
+import { agents } from '../agent/registry.js';
 import type { Machine } from '../db/repositories/types.js';
 import { sshBaseArgs } from '../terminal/machine-exec.js';
+import { openAgentTunnel } from './agent-tunnel.js';
 import type { WdaPorts } from './ports.js';
+import { findFreePort, type Tunnel } from './tunnel-types.js';
 
-export interface Tunnel {
-  wdaPort: number;
-  mjpegPort: number;
-  close(): void;
-  onClose(cb: (err?: Error) => void): void;
-}
+export { findFreePort, type Tunnel } from './tunnel-types.js';
 
 /** Só para testes: troca o binário do ssh e o timeout de prontidão. */
 export interface OpenTunnelOptions {
   sshBin?: string;
   readyTimeoutMs?: number;
-}
-
-export function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => {
-      const addr = s.address();
-      const port = typeof addr === 'object' && addr ? addr.port : 0;
-      s.close(() => (port ? resolve(port) : reject(new Error('sem porta livre'))));
-    });
-  });
 }
 
 const READY_TIMEOUT_MS = 10_000;
@@ -65,6 +51,7 @@ export async function openTunnel(machine: Machine, remote: WdaPorts, opts: OpenT
   if (machine.type === 'local') {
     return { wdaPort: remote.wdaPort, mjpegPort: remote.mjpegPort, close() {}, onClose() {} };
   }
+  if (machine.type === 'agent') return openAgentTunnel(machine.id, remote, agents);
   const sshBin = opts.sshBin ?? 'ssh';
   const readyTimeoutMs = opts.readyTimeoutMs ?? READY_TIMEOUT_MS;
   const [lp, lm] = await Promise.all([findFreePort(), findFreePort()]);

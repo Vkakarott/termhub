@@ -23,6 +23,8 @@ export class WdaClient {
     private fetchFn: typeof fetch = fetch,
   ) {}
 
+  // `fetch` (undici) reuses its connection between calls by default (keep-alive, 4 s idle), so a burst
+  // of taps travels over one tcp channel on an agent machine instead of one channel per request.
   private async call<T = unknown>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<{ value: T; sessionId?: string }> {
     const res = await this.fetchFn(`${this.baseUrl}${path}`, {
       method,
