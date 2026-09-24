@@ -264,7 +264,7 @@ function Dashboard() {
 
       {error && <p className="text-sm text-danger">Não foi possível carregar o dashboard.</p>}
       {items && items.length === 0 && (
-        <p className="text-sm text-fg-dim">Nenhum projeto ativo. Clique em "+ projeto" na sidebar.</p>
+        <p className="text-sm text-fg-dim">Nenhum projeto ativo. Clique em "+ novo" no topo da sidebar.</p>
       )}
 
       {items && <ProjectCards items={items} statuses={statuses} />}
