@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { Link, MemoryRouter, useNavigate } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./Sidebar', async () => {
   const { Link } = await import('react-router-dom');
   return {
-    Sidebar: () => (
+    Sidebar: ({ onCollapse }: { onCollapse?: () => void }) => (
       <>
         <p>projects-sidebar</p>
+        <button onClick={onCollapse}>recolher</button>
         <Link to="/settings/profile" data-chrome-focus="profile">
           perfil
         </Link>
@@ -24,8 +25,11 @@ vi.mock('./SettingsSidebar', () => ({
   ),
 }));
 vi.mock('./SidebarRail', () => ({
-  SidebarRail: ({ mode, onBack }: { mode: string; onBack: () => void }) => (
-    <button onClick={onBack} data-chrome-focus={mode === 'settings' ? 'settings-back' : 'profile'}>{`rail-${mode}`}</button>
+  SidebarRail: ({ mode, onBack, onExpand }: { mode: string; onBack: () => void; onExpand: () => void }) => (
+    <>
+      <button onClick={onBack} data-chrome-focus={mode === 'settings' ? 'settings-back' : 'profile'}>{`rail-${mode}`}</button>
+      <button onClick={onExpand}>expandir</button>
+    </>
   ),
 }));
 vi.mock('./chat/ChatDrawer', () => ({ ChatDrawer: () => null }));
@@ -33,12 +37,12 @@ vi.mock('./chat/ChatDrawer', () => ({ ChatDrawer: () => null }));
 import { FocusProvider } from '../lib/focus';
 import { Chrome } from './Layout';
 
-function mount(path: string, collapsed = false) {
+function mount(path: string, collapsed = false, setCollapsed: (v: boolean) => void = () => {}) {
   const onLeaveSettings = vi.fn();
   render(
     <MemoryRouter initialEntries={[path]}>
       <FocusProvider>
-        <Chrome collapsed={collapsed} setCollapsed={() => {}} onLeaveSettings={onLeaveSettings} />
+        <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={onLeaveSettings} />
       </FocusProvider>
     </MemoryRouter>,
   );
@@ -139,5 +143,90 @@ describe('Chrome', () => {
     const leave = mount('/settings/users', true);
     fireEvent.click(screen.getByText('rail-settings'));
     expect(leave).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** A phone-sized window: only the md breakpoint query matches. */
+function narrowWindow(narrow: boolean) {
+  (window as unknown as { matchMedia: (q: string) => MediaQueryList }).matchMedia = (query: string) =>
+    ({ matches: narrow && query === '(max-width: 767px)', media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
+}
+
+describe('Chrome below the md breakpoint', () => {
+  beforeEach(() => narrowWindow(true));
+  afterEach(() => {
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it('shows the rail even when the stored preference is expanded', () => {
+    mount('/machines', false);
+    expect(screen.getByText('rail-main')).toBeTruthy();
+    expect(screen.queryByText('projects-sidebar')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
+  });
+
+  it('expands as an overlay above the content, with a backdrop, leaving the stored preference alone', () => {
+    const setCollapsed = vi.fn();
+    mount('/machines', true, setCollapsed);
+    fireEvent.click(screen.getByText('expandir'));
+    const overlay = screen.getByRole('dialog', { name: 'Menu' });
+    expect(within(overlay).getByText('projects-sidebar')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-backdrop')).toBeTruthy();
+    expect(setCollapsed).not.toHaveBeenCalled();
+  });
+
+  it('closes on the backdrop', () => {
+    mount('/machines');
+    fireEvent.click(screen.getByText('expandir'));
+    fireEvent.click(screen.getByTestId('sidebar-backdrop'));
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
+  });
+
+  it('closes on Escape', () => {
+    mount('/machines');
+    fireEvent.click(screen.getByText('expandir'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
+  });
+
+  it("closes from the sidebar's own collapse button", () => {
+    mount('/machines');
+    fireEvent.click(screen.getByText('expandir'));
+    fireEvent.click(screen.getByText('recolher'));
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
+  });
+
+  it('closes when the user navigates', () => {
+    mountNavigating('/machines');
+    fireEvent.click(screen.getByText('expandir'));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Menu' })).getByText('perfil'));
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
+  });
+});
+
+describe('Chrome on a wide window', () => {
+  afterEach(() => {
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it('keeps the sidebar in the page flow, as before', () => {
+    narrowWindow(false);
+    mount('/machines', false);
+    expect(screen.getByText('projects-sidebar')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
+  });
+
+  it('treats a browser without matchMedia as wide', () => {
+    mount('/machines', false);
+    expect(screen.getByText('projects-sidebar')).toBeTruthy();
+  });
+
+  it('expands in place from the rail through the stored preference', () => {
+    narrowWindow(false);
+    const setCollapsed = vi.fn();
+    mount('/machines', true, setCollapsed);
+    fireEvent.click(screen.getByText('expandir'));
+    expect(setCollapsed).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
   });
 });

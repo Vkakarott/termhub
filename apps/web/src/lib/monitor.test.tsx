@@ -113,3 +113,34 @@ describe('MonitorProvider open tabs vs a snapshot in flight', () => {
     expect(m().openTabs.map((t) => t.id)).toEqual(['t1', 't2']);
   });
 });
+
+describe('MonitorProvider openTabsLoaded', () => {
+  it('is false until the first open-tabs snapshot arrives, then true', async () => {
+    let resolve!: (v: { items: MonitorItem[] }) => void;
+    api.openTabs.mockReturnValue(new Promise((r) => (resolve = r)));
+    const m = mount();
+    expect(m().openTabsLoaded).toBe(false);
+    await act(async () => resolve({ items: [] }));
+    await waitFor(() => expect(m().openTabsLoaded).toBe(true));
+    expect(m().openTabsFailed).toBe(false);
+  });
+
+  it('stays false when the first snapshot fails, flagging the failure instead', async () => {
+    api.openTabs.mockRejectedValue(new Error('offline'));
+    const m = mount();
+    await waitFor(() => expect(m().openTabsFailed).toBe(true));
+    expect(m().openTabsLoaded).toBe(false);
+  });
+
+  it('a later successful read (resync, reconnect) marks the tabs loaded and clears the failure', async () => {
+    api.openTabs.mockRejectedValue(new Error('offline'));
+    const m = mount();
+    await waitFor(() => expect(m().openTabsFailed).toBe(true));
+    api.openTabs.mockResolvedValue({ items: [] });
+    await act(async () => {
+      await m().reload();
+    });
+    expect(m().openTabsLoaded).toBe(true);
+    expect(m().openTabsFailed).toBe(false);
+  });
+});
