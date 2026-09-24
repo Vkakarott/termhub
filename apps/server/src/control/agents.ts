@@ -127,7 +127,9 @@ export async function startAgent(
   if (task) {
     try {
       await ctx.repos.tasks.setTab(task.id, tab.tab_id);
-      if (task.status !== 'doing') await ctx.repos.tasks.update(task.id, { status: 'doing' });
+      // a top-level card goes to the project's agent column (else the first doing column) unless it is
+      // already in a doing column; a subtask is marked doing
+      await ctx.repos.tasks.startWork(task.id);
     } catch (e) {
       throw new ControlError('TASK_LINK_FAILED', `A aba ${tab.tab_id} foi aberta e o agente iniciado, mas a tarefa não foi vinculada: ${reason(e)}. ${keptTab}`);
     }

@@ -3,8 +3,7 @@ import type { CityModel, DeskModel } from '../../office/model';
 import { soundEvents } from './sound';
 
 const desk = (id: string, pose: DeskModel['pose'], marker: DeskModel['marker'] = null) => ({ id, pose, marker }) as DeskModel;
-const city = (...machines: Array<[string, DeskModel[]]>): CityModel =>
-  ({ needsYou: 0, machines: machines.map(([id, desks]) => ({ id, floor: { rooms: [{ id: `${id}-r`, desks }] } })) }) as unknown as CityModel;
+const city = (...buildings: Array<[string, DeskModel[]]>): CityModel => ({ needsYou: 0, buildings: buildings.map(([id, desks]) => ({ id, desks })) }) as unknown as CityModel;
 
 describe('soundEvents', () => {
   it('starts the clicks with the robots typing when the clip starts, and no dings', () => {
@@ -32,7 +31,7 @@ describe('soundEvents', () => {
     expect(soundEvents(before, city(['b1', [desk('a', 'shake', 'error'), desk('b', 'type')]]))).toEqual([{ kind: 'typing', typists: 1 }]);
   });
 
-  it('tells two machines’ desks with the same id apart', () => {
+  it('tells two buildings’ desks with the same id apart', () => {
     const before = city(['b1', [desk('a', 'raise', 'input')]], ['b2', [desk('a', 'sit')]]);
     const after = city(['b1', [desk('a', 'raise', 'input')]], ['b2', [desk('a', 'raise', 'input')]]);
     expect(soundEvents(before, after)).toEqual([{ kind: 'ding', desk: 'b2:a' }]);

@@ -43,4 +43,26 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MachinesRepository.findBy
       await db.user.deleteMany({ where: { id: { in: [ownerId, otherOwnerId] } } });
     }
   });
+
+  it('stores the subtitle on create, and sets, keeps and clears it on update', async () => {
+    const ownerId = newId();
+    await db.user.create({ data: { id: ownerId, email: `${ownerId}@test.local`, name: 'owner' } });
+    try {
+      const created = await repo.create({ name: 'mac', type: 'agent', owner_id: ownerId, subtitle: 'MacBook do escritório' });
+      expect(created.subtitle).toBe('MacBook do escritório');
+      expect((await repo.findById(created.id))?.subtitle).toBe('MacBook do escritório');
+      // an update that does not mention it keeps it
+      expect((await repo.update(created.id, { name: 'mac 2' }))?.subtitle).toBe('MacBook do escritório');
+      expect((await repo.update(created.id, { subtitle: 'servidor da sala' }))?.subtitle).toBe('servidor da sala');
+      expect((await repo.update(created.id, { subtitle: null }))?.subtitle).toBeNull();
+      const raw = await db.$queryRaw<{ subtitle: string | null }[]>`SELECT subtitle FROM machines WHERE id = ${created.id}`;
+      expect(raw).toEqual([{ subtitle: null }]);
+      // no subtitle given: null
+      const plain = await repo.create({ name: 'plain', type: 'agent', owner_id: ownerId });
+      expect(plain.subtitle).toBeNull();
+    } finally {
+      await db.machine.deleteMany({ where: { ownerId } });
+      await db.user.deleteMany({ where: { id: ownerId } });
+    }
+  });
 });

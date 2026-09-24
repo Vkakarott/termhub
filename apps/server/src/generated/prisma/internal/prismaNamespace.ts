@@ -410,6 +410,7 @@ export const ModelName = {
   TabEvent: 'TabEvent',
   MachineHook: 'MachineHook',
   Ticket: 'Ticket',
+  TaskColumn: 'TaskColumn',
   Task: 'Task',
   Note: 'Note',
   Integration: 'Integration',
@@ -446,7 +447,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAction" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAction" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1409,6 +1410,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.TicketCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.TicketCountAggregateOutputType> | number
+        }
+      }
+    }
+    TaskColumn: {
+      payload: Prisma.$TaskColumnPayload<ExtArgs>
+      fields: Prisma.TaskColumnFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TaskColumnFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TaskColumnFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>
+        }
+        findFirst: {
+          args: Prisma.TaskColumnFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TaskColumnFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>
+        }
+        findMany: {
+          args: Prisma.TaskColumnFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>[]
+        }
+        create: {
+          args: Prisma.TaskColumnCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>
+        }
+        createMany: {
+          args: Prisma.TaskColumnCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TaskColumnCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>[]
+        }
+        delete: {
+          args: Prisma.TaskColumnDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>
+        }
+        update: {
+          args: Prisma.TaskColumnUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>
+        }
+        deleteMany: {
+          args: Prisma.TaskColumnDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TaskColumnUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TaskColumnUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>[]
+        }
+        upsert: {
+          args: Prisma.TaskColumnUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskColumnPayload>
+        }
+        aggregate: {
+          args: Prisma.TaskColumnAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTaskColumn>
+        }
+        groupBy: {
+          args: Prisma.TaskColumnGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TaskColumnGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TaskColumnCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TaskColumnCountAggregateOutputType> | number
         }
       }
     }
@@ -3088,6 +3163,7 @@ export type LoginAttemptScalarFieldEnum = (typeof LoginAttemptScalarFieldEnum)[k
 export const MachineScalarFieldEnum = {
   id: 'id',
   name: 'name',
+  subtitle: 'subtitle',
   host: 'host',
   sshUser: 'sshUser',
   sshPort: 'sshPort',
@@ -3117,6 +3193,7 @@ export const ProjectScalarFieldEnum = {
   status: 'status',
   description: 'description',
   isPublic: 'isPublic',
+  agentColumnId: 'agentColumnId',
   lastTerminalAt: 'lastTerminalAt',
   createdAt: 'createdAt'
 } as const
@@ -3202,19 +3279,35 @@ export const TicketScalarFieldEnum = {
 export type TicketScalarFieldEnum = (typeof TicketScalarFieldEnum)[keyof typeof TicketScalarFieldEnum]
 
 
+export const TaskColumnScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  name: 'name',
+  category: 'category',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type TaskColumnScalarFieldEnum = (typeof TaskColumnScalarFieldEnum)[keyof typeof TaskColumnScalarFieldEnum]
+
+
 export const TaskScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
   title: 'title',
   description: 'description',
   status: 'status',
+  type: 'type',
+  number: 'number',
   position: 'position',
   externalRef: 'externalRef',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
   externalKey: 'externalKey',
   tabId: 'tabId',
-  parentId: 'parentId'
+  parentId: 'parentId',
+  epicId: 'epicId',
+  columnId: 'columnId'
 } as const
 
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]
@@ -3759,6 +3852,20 @@ export type ListEnumTaskStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$P
 
 
 /**
+ * Reference to a field of type 'TaskType'
+ */
+export type EnumTaskTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TaskType'>
+    
+
+
+/**
+ * Reference to a field of type 'TaskType[]'
+ */
+export type ListEnumTaskTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TaskType[]'>
+    
+
+
+/**
  * Reference to a field of type 'AiProvider'
  */
 export type EnumAiProviderFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'AiProvider'>
@@ -3949,6 +4056,7 @@ export type GlobalOmitConfig = {
   tabEvent?: Prisma.TabEventOmit
   machineHook?: Prisma.MachineHookOmit
   ticket?: Prisma.TicketOmit
+  taskColumn?: Prisma.TaskColumnOmit
   task?: Prisma.TaskOmit
   note?: Prisma.NoteOmit
   integration?: Prisma.IntegrationOmit

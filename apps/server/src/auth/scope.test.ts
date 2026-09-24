@@ -20,10 +20,10 @@ function fakeRepos(): Repositories {
     { id: 'm4', owner_id: 'alice' },
   ];
   const projects = [
-    { id: 'p1', owner_id: 'alice' },
+    { id: 'p1', owner_id: 'alice', key: 'ALI' },
     { id: 'p2', owner_id: 'alice' },
     { id: 'p3', owner_id: 'alice' },
-    { id: 'p9', owner_id: null },
+    { id: 'p9', owner_id: null, key: 'ORF' },
   ];
   const links = [
     { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/p1' },
@@ -32,7 +32,8 @@ function fakeRepos(): Repositories {
     { id: 'l4', project_id: 'p1', machine_id: 'm2', cwd: '/bobs' }, // a link to a machine alice does not own
   ];
   const tabs = [{ id: 't1', project_id: 'p1', machine_id: 'm1' }, { id: 't2', project_id: 'p1', machine_id: 'm2' }];
-  const tasks = [{ id: 'k1', project_id: 'p1' }];
+  const tasks = [{ id: 'k1', project_id: 'p1', number: 7 }];
+  const columns = [{ id: 'c1', project_id: 'p1' }];
   const integrations = [{ id: 'i1', owner_id: 'alice' }];
   const accounts = [{ id: 'a1', machine_id: 'm2' }];
   const find = <T extends { id: string }>(rows: T[]) => async (id: string) => rows.find((r) => r.id === id);
@@ -40,13 +41,14 @@ function fakeRepos(): Repositories {
     users: { findById: find(users) },
     roles: { findById: async (id: string) => (roles as Record<string, unknown>)[id], permissionsOf: async () => [] },
     machines: { findById: find(machines) },
-    projects: { findById: find(projects) },
+    projects: { findById: find(projects), findByKey: async (key: string) => projects.find((p) => p.key === key) },
     projectMachines: {
       find: async (p: string, m: string) => links.find((l) => l.project_id === p && l.machine_id === m),
       listByProject: async (p: string) => links.filter((l) => l.project_id === p),
     },
     tabs: { findById: find(tabs) },
-    tasks: { findById: find(tasks) },
+    tasks: { findById: find(tasks), findByRef: async (projectId: string, n: number) => tasks.find((t) => t.project_id === projectId && t.number === n) },
+    taskColumns: { findById: find(columns) },
     integrations: { findById: find(integrations) },
     aiAccounts: { findById: find(accounts) },
   } as unknown as Repositories;
@@ -129,5 +131,21 @@ describe('Scoped', () => {
     expect((await s.project('p9')).project.id).toBe('p9');
     expect((await s.tab('t2')).machine.id).toBe('m2');
     expect((await s.aiAccount('a1')).account.id).toBe('a1');
+  });
+
+  it('resolves a card by its ref, key case-insensitive, and a column through its project', async () => {
+    const s = as('alice');
+    expect((await s.taskByRef('ali-7')).task.id).toBe('k1');
+    expect((await s.taskByRef(' ALI-7 ')).project.id).toBe('p1');
+    expect((await s.column('c1')).project.id).toBe('p1');
+    expect((await as(null).taskByRef('ALI-7')).task.id).toBe('k1');
+  });
+
+  it('answers the same 404 for a malformed ref, an unknown key or number, and another owner\'s card or column', async () => {
+    const alice = as('alice');
+    const bob = as('bob');
+    for (const p of [alice.taskByRef('ALI-8'), alice.taskByRef('NOPE-1'), alice.taskByRef('ali'), bob.taskByRef('ALI-7'), bob.column('c1'), alice.column('nope')]) {
+      await expect(p).rejects.toMatchObject({ statusCode: 404 });
+    }
   });
 });

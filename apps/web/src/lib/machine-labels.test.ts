@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentVersionBadge, machineTitle } from './machine-labels';
+import { agentVersionBadge, machineLabel, machineTitle } from './machine-labels';
 import type { Machine } from './types';
 
 function agentMachine(overrides: Partial<Machine> = {}): Machine {
@@ -53,5 +53,13 @@ describe('agentVersionBadge', () => {
   it('is null without a reported version or for non-agent machines', () => {
     expect(agentVersionBadge(agentMachine({ agent_version: null }))).toBeNull();
     expect(agentVersionBadge(agentMachine({ type: 'ssh', host: 'h' }))).toBeNull();
+  });
+});
+
+describe('machineLabel', () => {
+  it('reads "nome — subtítulo" when the machine has a subtitle, and the name alone otherwise', () => {
+    expect(machineLabel({ name: 'mini', subtitle: 'MacBook do escritório' })).toBe('mini — MacBook do escritório');
+    expect(machineLabel({ name: 'mini', subtitle: null })).toBe('mini');
+    expect(machineLabel({ name: 'mini' })).toBe('mini');
   });
 });

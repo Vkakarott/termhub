@@ -29,7 +29,8 @@ vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
 // API calls — and none of it is this task's concern. Stubbed out so only the header and the publish
 // control, which this test is about, render for real.
 vi.mock('../components/TerminalsView', () => ({ TerminalsView: () => null }));
-vi.mock('../components/TasksBoard', () => ({ TasksBoard: () => null }));
+vi.mock('../components/TasksBoard', () => ({ TasksBoard: ({ openTaskId }: { openTaskId?: string }) => <div>board {openTaskId ?? ''}</div> }));
+vi.mock('../components/BacklogView', () => ({ BacklogView: () => null }));
 vi.mock('../components/TicketsView', () => ({ TicketsView: () => null }));
 vi.mock('../components/NotesEditor', () => ({ NotesEditor: () => null }));
 vi.mock('../components/ProjectSettings', () => ({ ProjectSettings: () => null }));
@@ -54,7 +55,6 @@ function machine(id: string, name: string): Machine {
     owner_id: 'u1',
     owner_name: 'pedro',
     created_at: '2026-01-01T00:00:00Z',
-    public_id: 'mpub1',
   };
 }
 
@@ -104,11 +104,11 @@ describe('ProjectPage publish switch', () => {
     renderPage(proj);
 
     fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
-    expect(screen.getByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeTruthy();
-    // merge ruling 2: somebody else's machine linked to the project never shows, and the panel says so
-    expect(screen.getByText(/máquinas de outras pessoas vinculadas ao projeto não aparecem/i)).toBeTruthy();
-    // spec §4: the owner's display name and nickname become public too
-    expect(screen.getByText(/seu nome e seu apelido/i)).toBeTruthy();
+    expect(screen.getByText(/o nome do projeto e cada agente \(aba\) dele que roda nas suas máquinas/i)).toBeTruthy();
+    // city-by-project §5: an agent on somebody else's machine never shows, and the panel says so
+    expect(screen.getByText(/agentes em máquinas de outras pessoas não aparecem/i)).toBeTruthy();
+    // the owner's display name and nickname become public too
+    expect(screen.getByText(/além do seu nome e apelido/i)).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /publicar/i }));
@@ -157,7 +157,7 @@ describe('ProjectPage publish switch', () => {
     });
 
     expect(patchMock).toHaveBeenCalledWith(proj.id, expect.objectContaining({ is_public: false }));
-    expect(screen.queryByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeNull();
+    expect(screen.queryByText(/o nome do projeto e cada agente \(aba\) dele que roda nas suas máquinas/i)).toBeNull();
   });
 
   it('says so when unpublishing fails, on the same path that bypasses the confirmation panel', async () => {
@@ -198,12 +198,28 @@ describe('ProjectPage header', () => {
     expect(within(tabs).getAllByRole('link').map((l) => l.getAttribute('href'))).toEqual([
       '/projects/p1',
       '/projects/p1/tasks',
+      '/projects/p1/backlog',
       '/projects/p1/tickets',
       '/projects/p1/notes',
       '/projects/p1/settings',
     ]);
-    expect(within(tabs).getByRole('link', { name: /Tarefas/ }).textContent).toBe('Tarefas3');
+    expect(within(tabs).getByRole('link', { name: /Board/ }).textContent).toBe('Board3');
     expect(within(tabs).getByRole('link', { name: 'Terminais' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('switch', { name: /publicar/i }).closest('header')).not.toBeNull();
+  });
+});
+
+describe('ProjectPage with a card', () => {
+  it('shows the Board with that card open, whatever the URL is', () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    render(
+      <MemoryRouter initialEntries={['/project/MEU-3']}>
+        <Routes>
+          <Route path="/project/:ref" element={<ProjectPage card={{ projectId: 'p1', taskId: 'k3' }} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('board k3')).toBeTruthy();
   });
 });

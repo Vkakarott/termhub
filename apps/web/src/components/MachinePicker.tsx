@@ -1,5 +1,6 @@
 import type { Machine, Project } from '../lib/types';
 import { readLastMachine } from '../lib/last-machine';
+import { machineLabel } from '../lib/machine-labels';
 import { Modal } from './Modal';
 
 interface Props {
@@ -22,7 +23,7 @@ export function MachinePicker({ open, project, machines, onPick, onClose }: Prop
               className={`btn w-full justify-start border ${readLastMachine(project.id) === m.id ? 'border-accent' : 'border-line'} hover:bg-bg-3`}
               onClick={() => onPick(m.id)}
             >
-              {m.name}
+              {machineLabel(m)}
               <span className="ml-2 font-mono text-[11px] text-fg-dim">{project.machines.find((l) => l.machine_id === m.id)?.cwd}</span>
             </button>
           </li>

@@ -50,6 +50,7 @@ function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:re
         projects.filter((p) => (f.owner == null || p.owner_id === f.owner) && (!f.machine_id || links.some((l) => l.project_id === p.id && l.machine_id === f.machine_id))),
       ),
       findById: vi.fn(async (id: string) => projects.find((p) => p.id === id)),
+      findByKey: vi.fn(async (key: string) => projects.find((p) => p.key === key)),
     },
     projectMachines: {
       listByProjects: vi.fn(async (ids: string[]) => links.filter((l) => ids.includes(l.project_id))),
@@ -62,7 +63,12 @@ function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:re
       findById: vi.fn(async (id: string) => tabs.find((t) => t.id === id)),
     },
     aiAccounts: { list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)) },
-    tasks: { listByProject: vi.fn(async (pid: string) => (pid === 'p1' ? [{ id: 'k1', title: 'XPTO', status: 'doing', tab_id: 't1', subtasks: [] }] : [])) },
+    tasks: {
+      listByProject: vi.fn(async (pid: string) => (pid === 'p1' ? [{ id: 'k1', title: 'XPTO', status: 'doing', tab_id: 't1', subtasks: [] }] : [])),
+      findByRef: vi.fn(async (pid: string, n: number) =>
+        pid === 'p1' && n === 12 ? { id: 'k12', project_id: 'p1', ref: 'P1-12', title: 'Checkout' } : pid === 'px' && n === 1 ? { id: 'kx1', project_id: 'px', ref: 'PX-1', title: 'Deles' } : undefined,
+      ),
+    },
   } as unknown as Repositories;
   const scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' } as const, ownerId: 'u1', createAs: 'u1' };
   return { repos, scope, scoped: new Scoped(repos, scope), can: async (r, a) => grants.includes(`${r}:${a}`) };
@@ -85,6 +91,13 @@ describe('listMachines', () => {
     expect(r.machines.map((m) => m.id)).toEqual(['m1', 'm2']);
     expect(r.machines[0]).toMatchObject({ id: 'm1', name: 'MacBook Pro M4', type: 'agent', online: true, os: 'macos', capabilities: ['tmux', 'claude'] });
     expect(r.machines[1]).toMatchObject({ id: 'm2', type: 'local', online: true });
+  });
+
+  it('carries the machine\'s subtitle, null when it has none', async () => {
+    const c = ctx();
+    vi.mocked(c.repos.machines.list).mockResolvedValue([machine({ id: 'm1', subtitle: 'MacBook do escritório' }), machine({ id: 'm2', subtitle: null })]);
+    const r = await listMachines(c);
+    expect(r.machines.map((m) => m.subtitle)).toEqual(['MacBook do escritório', null]);
   });
 
   it('reports an offline agent and an unchecked ssh machine', async () => {
@@ -178,5 +191,13 @@ describe('find', () => {
   it('skips kinds the token cannot read', async () => {
     const r = await find(ctx(['machines:read', 'projects:read']), { query: 'pedrogoiania' });
     expect(r.matches).toEqual([]);
+  });
+
+  it('finds a card by its exact ref, only in the owner\'s projects and with tasks:read', async () => {
+    const grants = ['machines:read', 'projects:read', 'ai_accounts:read', 'tasks:read'];
+    expect((await find(ctx(grants), { query: 'p1-12' })).matches).toEqual([{ kind: 'task', id: 'k12', name: 'P1-12 Checkout', machine_id: null, machine_name: null, score: 3 }]);
+    expect((await find(ctx(grants), { query: 'PX-1', kinds: ['task'] })).matches).toEqual([]); // another user's project
+    expect((await find(ctx(grants), { query: 'P1-99', kinds: ['task'] })).matches).toEqual([]);
+    expect((await find(ctx(), { query: 'P1-12', kinds: ['task'] })).matches).toEqual([]); // no tasks:read
   });
 });

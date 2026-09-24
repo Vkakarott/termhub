@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TEST_PUBLIC_ID_KEY } from '../../test/setup.js';
-import { PUBLIC_ID_KEY_NAME, generatePublicIdKey, loadPublicIdKey, publicId, publicRoomId, setPublicIdKey } from './public-id.js';
+import { PUBLIC_ID_KEY_NAME, generatePublicIdKey, loadPublicIdKey, publicId, setPublicIdKey } from './public-id.js';
 
 afterEach(() => setPublicIdKey(TEST_PUBLIC_ID_KEY));
 
@@ -15,8 +15,14 @@ describe('publicId', () => {
     expect(publicId('tab', 'p_0123456789abcdef')).toBe('4J0a4CEJL6iCFAZB_TXMTC');
   });
 
+  // city-by-project §2.3: a building is a project and a robot is a tab — nothing on the street is a
+  // machine or a room, so those are the only two kinds, and they never collide
+  it('gives a project and a tab of the same real id two different ids', () => {
+    expect(publicId('project', 'x')).not.toBe(publicId('tab', 'x'));
+  });
+
   it('keeps the shape the routes and the frontend expect: 22 base64url characters', () => {
-    expect(publicId('machine', 'm1')).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(publicId('tab', 'm1')).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
 
   // Spec §5: an HMAC with a server secret, not a bare hash — whoever holds a real id cannot compute
@@ -27,17 +33,6 @@ describe('publicId', () => {
     const a = publicId('project', 'p1');
     setPublicIdKey(Buffer.alloc(32, 1));
     expect(publicId('project', 'p1')).not.toBe(a);
-  });
-
-  // Ruling 3 of the merge with projects-decoupled: a project linked to two machines has two rooms,
-  // and each needs an id of its own — the project alone no longer names one.
-  it('gives a room an id per (project, machine) pair, in the same shape', () => {
-    const a = publicRoomId('p1', 'm1');
-    expect(a).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(a).toBe(publicRoomId('p1', 'm1'));
-    expect(publicRoomId('p1', 'm2')).not.toBe(a);
-    expect(publicRoomId('p2', 'm1')).not.toBe(a);
-    expect(a).not.toBe(publicId('project', 'p1'));
   });
 
   it('refuses to answer before a key was loaded, instead of minting ids nobody else agrees on', () => {

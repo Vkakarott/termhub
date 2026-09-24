@@ -1,11 +1,12 @@
-import { publicId, publicRoomId } from './public-id.js';
+import { publicId } from './public-id.js';
 import { publicSpinnerVerb } from './spinner-verbs.js';
-import type { Machine, OfficeTabProgress, Project, Tab, TabActivity, TabState } from '../db/repositories/types.js';
+import type { OfficeTabProgress, Project, Tab, TabActivity, TabState } from '../db/repositories/types.js';
 
 /**
  * The public face of the office, and the only thing that reaches a visitor. Every field here was
- * written on purpose: nothing is spread, so a column added to Tab, Project or Machine tomorrow
- * stays inside the instance until somebody adds it here too.
+ * written on purpose: nothing is spread, so a column added to Tab or Project tomorrow stays inside
+ * the instance until somebody adds it here too. A building is a published project; nothing about a
+ * machine — its id, its name, its subtitle — exists in this shape at all (city-by-project §2.3).
  */
 export interface PublicRobot {
   id: string;
@@ -20,12 +21,15 @@ export interface PublicRobot {
   progress: { done: number; total: number } | null;
 }
 
-/** A live change of one robot: `building`/`room` are the snapshot's own ids, so the page joins them. */
-export interface PublicRobotFrame { type: 'robot'; building: string; room: string; robot: PublicRobot }
-
-export interface PublicRoom { id: string; name: string; robots: PublicRobot[] }
-export interface PublicBuilding { id: string; name: string; rooms: PublicRoom[] }
+/** One published project on the street: its name and its agents on the owner's own machines. */
+export interface PublicBuilding { id: string; name: string; robots: PublicRobot[] }
 export interface PublicCity { nickname: string; owner_name: string; short_url: string | null; buildings: PublicBuilding[] }
+
+/** A live change of one robot: `building` is the snapshot's own building id, so the page joins them. */
+export interface PublicRobotFrame { type: 'robot'; building: string; robot: PublicRobot }
+
+/** A robot leaving its building (its tab was closed or deleted): public ids and nothing else. */
+export interface PublicRobotGone { type: 'robot_gone'; building: string; robot: string }
 
 export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: OfficeTabProgress | null }): PublicRobot {
   // what the robot is doing only means something while it works: never publish a leftover
@@ -43,27 +47,19 @@ export function toPublicRobot(tab: Tab, opts: { alive: boolean; progress: Office
   };
 }
 
-export function toPublicRobotFrame(input: { machineId: string; projectId: string; tab: Tab; alive: boolean; progress: OfficeTabProgress | null }): PublicRobotFrame {
-  return {
-    type: 'robot',
-    building: publicId('machine', input.machineId),
-    room: publicRoomId(input.projectId, input.machineId),
-    robot: toPublicRobot(input.tab, { alive: input.alive, progress: input.progress }),
-  };
+export function toPublicRobotFrame(input: { projectId: string; tab: Tab; alive: boolean; progress: OfficeTabProgress | null }): PublicRobotFrame {
+  return { type: 'robot', building: publicId('project', input.projectId), robot: toPublicRobot(input.tab, { alive: input.alive, progress: input.progress }) };
 }
 
-/** A robot leaving its room (its tab was closed or deleted): public ids and nothing else. */
-export interface PublicRobotGone { type: 'robot_gone'; building: string; room: string; robot: string }
-
-export function toPublicRobotGone(input: { machineId: string; projectId: string; tabId: string }): PublicRobotGone {
-  return { type: 'robot_gone', building: publicId('machine', input.machineId), room: publicRoomId(input.projectId, input.machineId), robot: publicId('tab', input.tabId) };
+export function toPublicRobotGone(input: { projectId: string; tabId: string }): PublicRobotGone {
+  return { type: 'robot_gone', building: publicId('project', input.projectId), robot: publicId('tab', input.tabId) };
 }
 
 export function toPublicCity(input: {
   nickname: string;
   ownerName: string;
   shortUrl: string | null;
-  buildings: { machine: Machine; rooms: { project: Project; tabs: { tab: Tab; alive: boolean; progress: OfficeTabProgress | null }[] }[] }[];
+  buildings: { project: Project; robots: { tab: Tab; alive: boolean; progress: OfficeTabProgress | null }[] }[];
 }): PublicCity {
   return {
     nickname: input.nickname,
@@ -71,14 +67,9 @@ export function toPublicCity(input: {
     // the owner's effective short link (custom ?? partner): printed on share images, public by nature
     short_url: input.shortUrl,
     buildings: input.buildings.map((b) => ({
-      id: publicId('machine', b.machine.id),
-      name: b.machine.name,
-      rooms: b.rooms.map((r) => ({
-        // one room per (project, building): a project linked to two machines has a room on each
-        id: publicRoomId(r.project.id, b.machine.id),
-        name: r.project.name,
-        robots: r.tabs.map((t) => toPublicRobot(t.tab, { alive: t.alive, progress: t.progress })),
-      })),
+      id: publicId('project', b.project.id),
+      name: b.project.name,
+      robots: b.robots.map((r) => toPublicRobot(r.tab, { alive: r.alive, progress: r.progress })),
     })),
   };
 }

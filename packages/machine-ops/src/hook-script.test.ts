@@ -78,8 +78,11 @@ beforeEach(() => {
   for (const f of ['termhub-hook', 'tmux', 'curl']) chmodSync(join(bin, f), 0o755);
 });
 afterEach(() => {
-  rmSync(home, { recursive: true, force: true });
-  rmSync(tmp, { recursive: true, force: true });
+  // The script posts in the background: a fake curl from the last run may still be appending to
+  // the log while the directory is removed (ENOTEMPTY on CI), so the removal retries briefly.
+  const opts = { recursive: true, force: true, maxRetries: 20, retryDelay: 25 } as const;
+  rmSync(home, opts);
+  rmSync(tmp, opts);
 });
 
 describe('termhub-hook script', () => {
