@@ -13,6 +13,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { sessionEnded } from '@/features/shared/signals';
 import { ApiError } from '@/services/api/errors';
+import { socketWake } from '@/services/api/wake';
 import { b64url, fromB64url } from '@/services/crypto/encoding';
 import { decisionProof, PIN_RE, pinProof } from '@/services/crypto/pin';
 import { mmkvStateStorage, resetPersistedStores } from '@/services/storage';
@@ -48,6 +49,7 @@ const initialData = (mockControls: SessionDeps['mockControls']): Data => ({
 const isApiError = (e: unknown, code: string): e is ApiError => e instanceof ApiError && e.code === code;
 
 type PinProof = { challenge: string; pin_proof: string };
+type Prompt = { perform(proof: PinProof): Promise<void>; resolve(): void; reject(e: unknown): void };
 
 export function createSessionStore(deps: SessionDeps) {
   const { api, key, vault, mockControls } = deps;
@@ -62,7 +64,7 @@ export function createSessionStore(deps: SessionDeps) {
   let wiping: Promise<void> = Promise.resolve();
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let renewing: Promise<string | null> | null = null;
-  let prompt: { resolve(v: PinProof): void; reject(e: Error): void } | null = null;
+  let prompt: Prompt | null = null;
 
   const store = create<SessionState>()(
     persist(
@@ -92,20 +94,25 @@ export function createSessionStore(deps: SessionDeps) {
           dropPrompt();
         };
 
-        /** `unlocked` → `locked` without touching the vault (spec §5.4). */
+        /** `unlocked` → `locked` without touching the vault (spec §5.4). A wrong PIN typed in the
+         * approval sheet must not follow the person to Desbloquear: `error` and `attemptsLeft` go too. */
         const relock = () => {
           forgetSession();
-          set({ phase: 'locked', busy: false });
+          set({ phase: 'locked', busy: false, error: null, attemptsLeft: null });
         };
 
-        /** A new session (activation or unlock): the token, `unlocked`, and one push-token
-         * registration — fire-and-forget, it must never block the flow (P§9). */
+        /** A new session (activation or unlock): the token, `unlocked`, a wake-up for a chat socket
+         * that backed off while locked, and — in mock mode only, the fake token means nothing to a
+         * real server — one push-token registration, fire-and-forget: it must never block the flow (P§9). */
         const startSession = (token: string, secret: Uint8Array) => {
           accessToken = token;
           pinSecret = secret;
           set({ phase: 'unlocked', lockedUntil: null, attemptsLeft: null, error: null, busy: false });
-          const deviceId = get().deviceId;
-          api.setPushToken({ accessToken: token }, `ExponentPushToken[mock-${deviceId}]`).catch(() => undefined);
+          socketWake.emit();
+          if (api.mode === 'mock') {
+            const deviceId = get().deviceId;
+            api.setPushToken({ accessToken: token }, `ExponentPushToken[mock-${deviceId}]`).catch(() => undefined);
+          }
         };
 
         /** The end of a failed action started at generation `gen`: ignored when a relock or wipe
@@ -236,7 +243,8 @@ export function createSessionStore(deps: SessionDeps) {
             try {
               const candidate = await unwrapWithPin(vault, pin, get().deviceId);
               if (gen !== generation) return;
-              if (!candidate) return get().wipe();
+              // The vault lost an item, or holds another device's: a half session only a wipe ends.
+              if (!candidate) return get().wipe(MSG.dataLost);
               await redeem(gen, candidate);
             } catch (e) {
               await fail(gen, e);
@@ -317,11 +325,11 @@ export function createSessionStore(deps: SessionDeps) {
             return { accessToken };
           },
 
-          requestPinProof(actionId) {
+          requestPinProof(actionId, perform) {
             dropPrompt();
-            return new Promise<PinProof>((resolve, reject) => {
-              prompt = { resolve, reject };
-              set({ pinPrompt: { actionId }, error: null });
+            return new Promise<void>((resolve, reject) => {
+              prompt = { perform, resolve, reject };
+              set({ pinPrompt: { actionId }, error: null, attemptsLeft: null });
             });
           },
 
@@ -335,18 +343,42 @@ export function createSessionStore(deps: SessionDeps) {
             // A newer `requestPinProof` replaced this prompt: this answer belongs to no one.
             const superseded = () => gen !== generation || prompt !== waiting;
             set({ busy: true, error: null });
+            let proof: PinProof;
             try {
               const secret = pin === 'biometrics' ? await readBiometricSecret(vault) : await unwrapWithPin(vault, pin, get().deviceId);
               if (superseded()) return patch({ busy: false });
               if (!secret) return patch({ busy: false, error: MSG.usePin });
               const { challenge } = await api.challenge({ device_id: get().deviceId!, purpose: 'decision', action_id: actionId });
               if (superseded()) return patch({ busy: false });
+              proof = { challenge, pin_proof: decisionProof(secret, challenge, actionId) };
+            } catch (e) {
+              return fail(gen, e);
+            }
+            // The server checks the proof while the sheet stays open and busy: a wrong PIN is
+            // answered inside it, and only an outcome that ends the prompt closes it.
+            try {
+              await waiting.perform(proof);
+            } catch (e) {
+              if (superseded()) return patch({ busy: false });
+              if (isApiError(e, 'PIN_INVALID')) {
+                get().handleApiError(e); // error + attempts left, the prompt stays for another try
+                return;
+              }
+              if (get().handleApiError(e)) return wiping; // 423 relocked / revoked wiped: prompt dropped
               prompt = null;
               set({ pinPrompt: null, busy: false });
-              waiting.resolve({ challenge, pin_proof: decisionProof(secret, challenge, actionId) });
-            } catch (e) {
-              await fail(gen, e);
+              waiting.reject(e); // the caller surfaces its own errors
+              return;
             }
+            if (superseded()) return patch({ busy: false });
+            prompt = null;
+            set({ pinPrompt: null, busy: false, error: null, attemptsLeft: null });
+            waiting.resolve();
+          },
+
+          lockExpired() {
+            if (!get().lockedUntil) return;
+            set({ lockedUntil: null, error: null, attemptsLeft: null });
           },
 
           cancelPinPrompt() {

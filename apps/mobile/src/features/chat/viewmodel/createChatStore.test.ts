@@ -157,6 +157,31 @@ it("decide(id, 'approve') asks requestPinProof(id) and, once resolved, the card 
   expect(chat.getState()).toMatchObject({ decidingId: null, error: null });
 });
 
+it("decide(id, 'approve') performs the decision inside the prompt: a wrong PIN leaves the sheet open with the error, the card pending; the right one approves", async () => {
+  const { chat, store, api } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const decide = jest.spyOn(api, 'decide');
+
+  let done = false;
+  const deciding = chat.getState().decide('a-termhub-1', 'approve').then(() => (done = true));
+  await store.getState().resolvePinPrompt('000000');
+  // the mock checked the (wrong) proof and answered PIN_INVALID, which stayed inside the prompt
+  expect(decide).toHaveBeenCalledTimes(1);
+  expect(decide).toHaveBeenLastCalledWith(expect.anything(), 'a-termhub-1', { decision: 'approve', challenge: expect.any(String), pin_proof: expect.any(String) });
+  await expect(decide.mock.results[0]!.value).rejects.toMatchObject({ code: 'PIN_INVALID' });
+  expect(store.getState()).toMatchObject({ pinPrompt: { actionId: 'a-termhub-1' }, error: 'PIN incorreto.', attemptsLeft: 2, busy: false });
+  expect(done).toBe(false);
+  expect(slot(chat, 'p-termhub').actions[0]!.status).toBe('pending');
+  expect(chat.getState()).toMatchObject({ decidingId: 'a-termhub-1', error: null });
+
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  expect(decide).toHaveBeenCalledTimes(2);
+  expect(store.getState()).toMatchObject({ pinPrompt: null, error: null, attemptsLeft: null });
+  expect(slot(chat, 'p-termhub').actions[0]!.status).toBe('approved');
+  expect(chat.getState()).toMatchObject({ decidingId: null, error: null });
+});
+
 it('decide never moves a card backwards: a re-read that already says executed wins over the late HTTP answer', async () => {
   const { chat, api } = await setup();
   await openAndConnect(chat, 'p-termhub');

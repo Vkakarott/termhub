@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => {
   const { createSessionStore } = require('@/features/session/viewmodel/createSessionStore');
@@ -52,6 +52,29 @@ describe('Desbloquear', () => {
     expect(screen.getByText(/^\d{2}:\d{2}$/)).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: '1' }));
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('re-enables the pad once the lock countdown reaches zero, and a PIN can be typed again', async () => {
+    jest.useFakeTimers();
+    try {
+      const spy = jest.spyOn(useSessionStore.getState(), 'unlock').mockResolvedValue(undefined);
+      useSessionStore.setState({ lockedUntil: new Date(Date.now() + 3_000).toISOString(), error: 'Aparelho bloqueado por tentativas de PIN.' });
+      await render(<UnlockScreen />);
+      expect(screen.getByRole('button', { name: '1' }).props.accessibilityState.disabled).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(3_000);
+      });
+      expect(useSessionStore.getState()).toMatchObject({ lockedUntil: null, error: null, attemptsLeft: null });
+      expect(screen.queryByText('Aparelho bloqueado')).toBeNull();
+      expect(screen.getByRole('button', { name: '1' }).props.accessibilityState.disabled).toBe(false);
+
+      await typePin('123456');
+      expect(spy).toHaveBeenCalledWith('123456');
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
   });
 
   it('hides the Biometria key when biometrics are disabled', async () => {

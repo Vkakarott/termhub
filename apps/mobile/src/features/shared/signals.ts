@@ -1,24 +1,6 @@
-type Listener = () => void;
+import { signal } from '@/services/signal';
 
-/**
- * A minimal pub/sub primitive with no payload: a feature that needs to react to an event without
- * importing the store that raises it subscribes here instead, keeping dependencies one-directional
- * (design spec §3).
- */
-export function signal() {
-  const listeners = new Set<Listener>();
-  return {
-    subscribe(listener: Listener): () => void {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    emit(): void {
-      listeners.forEach((listener) => listener());
-    },
-  };
-}
+export { signal };
 
 /**
  * Fired when a session ends — "Sair e remover este aparelho" or a `DEVICE_REVOKED` response

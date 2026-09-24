@@ -1,19 +1,13 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
-jest.mock('@/features/session/viewmodel/useSessionStore', () => {
-  const { createSessionStore } = require('@/features/session/viewmodel/createSessionStore');
-  const { createHttpMobileApi } = require('@/services/api/client');
-  const { createMockTransport } = require('@/services/api/mock');
-  const { SoftwareDeviceKey } = require('@/services/key/software');
-  const { vault } = require('@/services/vault');
-  const transport = createMockTransport({ latency: [0, 0] });
-  const key = new SoftwareDeviceKey();
-  const api = createHttpMobileApi({ transport, baseUrl: 'https://termhub.dev', app: 'ios/0.1.0+1', key, onTokenExpired: async () => null });
-  return { useSessionStore: createSessionStore({ api, key, vault, mockControls: transport.controls }) };
-});
+jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
+import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { PinPromptSheet } from './pin-prompt-sheet';
+
+/** The first proof of a file signs P-256 and derives the wrap key: slow while suites share the CPU. */
+const LOAD = { timeout: 5000 };
 
 async function typePin(pin: string) {
   for (const digit of pin) {
@@ -22,37 +16,55 @@ async function typePin(pin: string) {
   }
 }
 
+/** What the chat store's `decide('approve')` does: the approval performed with the proof, against
+ * the mock's own `decide`, which checks the proof (a wrong PIN answers PIN_INVALID). */
+function approve(actionId: string): Promise<void> {
+  return stores.store
+    .getState()
+    .requestPinProof(actionId, (proof) => stores.api.decide(stores.store.getState().auth(), actionId, { decision: 'approve', ...proof }));
+}
+
+beforeAll(async () => {
+  await enrolStores();
+});
+
+afterEach(async () => {
+  jest.restoreAllMocks();
+  // Still mounted here (the library's own cleanup runs after this hook): wrapped in act.
+  await act(async () => {
+    useSessionStore.getState().cancelPinPrompt();
+    useSessionStore.setState({ error: null, attemptsLeft: null, busy: false });
+  });
+});
+
 describe('PinPromptSheet', () => {
-  beforeEach(() => {
-    useSessionStore.setState({ pinPrompt: { actionId: 'a1' }, error: null, busy: false, biometricsEnabled: false });
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  it('clears the pad after a rejected PIN, shows the error, and allows a second attempt', async () => {
-    const spy = jest.spyOn(useSessionStore.getState(), 'resolvePinPrompt').mockImplementation(async (pin) => {
-      if (pin === 'biometrics') return;
-      // Mirrors the store's own PIN_INVALID handling: the prompt stays open (same actionId),
-      // only `error` changes.
-      useSessionStore.setState({ error: 'PIN incorreto.' });
-    });
+  it('a wrong PIN keeps the prompt open with "PIN incorreto." and the attempts left, clears the pad, and the right PIN then goes through', async () => {
+    const decide = jest.spyOn(stores.api, 'decide');
     await render(<PinPromptSheet />);
+    let approved = false;
+    await act(async () => {
+      void approve('a-termhub-1').then(
+        () => (approved = true),
+        () => undefined,
+      );
+    });
+    expect(screen.getByText('Autorizar esta ação')).toBeTruthy();
 
     await typePin('000000');
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith('000000');
-    expect(screen.getByText('PIN incorreto.')).toBeTruthy();
+    expect(await screen.findByText('PIN incorreto. 2 tentativas restantes.', undefined, LOAD)).toBeTruthy();
+    await expect(decide.mock.results[0]!.value).rejects.toMatchObject({ code: 'PIN_INVALID' });
+    expect(useSessionStore.getState().pinPrompt).toEqual({ actionId: 'a-termhub-1' });
+    expect(approved).toBe(false);
 
-    // The pad accepted a fresh six digits: it was not stuck at 6/6 after the rejection.
+    // The pad took a fresh six digits: it was cleared and re-enabled after the rejection.
     await typePin('123456');
-    expect(spy).toHaveBeenCalledTimes(2);
-    expect(spy).toHaveBeenLastCalledWith('123456');
-  });
+    await waitFor(() => expect(approved).toBe(true), LOAD);
+    expect(decide).toHaveBeenCalledTimes(2);
+    expect(useSessionStore.getState()).toMatchObject({ pinPrompt: null, error: null, attemptsLeft: null });
+  }, 20_000);
 
   it('disables the pad and Cancelar while busy', async () => {
-    useSessionStore.setState({ busy: true });
+    useSessionStore.setState({ pinPrompt: { actionId: 'a1' }, busy: true });
     await render(<PinPromptSheet />);
     expect(screen.getByRole('button', { name: '1' }).props.accessibilityState.disabled).toBe(true);
     expect(screen.getByRole('button', { name: 'Cancelar' }).props.accessibilityState.disabled).toBe(true);

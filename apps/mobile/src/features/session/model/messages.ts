@@ -9,5 +9,11 @@ export const MSG = {
   usePin: 'Use o PIN.',
   biometricsOff: 'Não foi possível ativar a biometria.',
   network: 'Não foi possível falar com o servidor. Tente de novo.',
+  dataLost: 'Os dados deste aparelho foram perdidos. Entre de novo.',
   storeFailed: 'Não foi possível guardar o PIN neste aparelho. Tente de novo.',
 } as const;
+
+/** " N tentativas restantes." after a wrong PIN (Desbloquear and the approval sheet). */
+export function attemptsSuffix(n: number): string {
+  return n === 1 ? ' 1 tentativa restante.' : ` ${n} tentativas restantes.`;
+}

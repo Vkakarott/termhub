@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { AppText, Button, PinDots, PinPad, Sheet } from '@/ui';
+import { attemptsSuffix } from '../model/messages';
 import { useSessionStore } from '../viewmodel/useSessionStore';
 
 const PIN_LENGTH = 6;
 
 /** Approving a pending action always asks for the PIN, even while unlocked (P§5.6, design spec
- * §5.5). Mounted once, globally, by `app/_layout.tsx`; `pinPrompt` opens it, `resolvePinPrompt`
- * and `cancelPinPrompt` close it. */
+ * §5.5). Mounted once, globally, by `app/_layout.tsx`; `pinPrompt` opens it. The sheet stays open
+ * (and busy) while `resolvePinPrompt` performs the decision: a wrong PIN shows here with the
+ * attempts left; success, a lock or `cancelPinPrompt` close it. */
 export function PinPromptSheet() {
   const pinPrompt = useSessionStore((s) => s.pinPrompt);
   const error = useSessionStore((s) => s.error);
+  const attemptsLeft = useSessionStore((s) => s.attemptsLeft);
   const busy = useSessionStore((s) => s.busy);
   const biometricsEnabled = useSessionStore((s) => s.biometricsEnabled);
   const resolvePinPrompt = useSessionStore((s) => s.resolvePinPrompt);
@@ -42,7 +45,12 @@ export function PinPromptSheet() {
     <Sheet open={pinPrompt !== null} onClose={cancelPinPrompt} title="Autorizar esta ação">
       <View className="gap-6">
         <PinDots filled={pin.length} error={Boolean(error)} />
-        {error ? <AppText className="text-app-danger">{error}</AppText> : null}
+        {error ? (
+          <AppText className="text-app-danger">
+            {error}
+            {attemptsLeft !== null ? attemptsSuffix(attemptsLeft) : ''}
+          </AppText>
+        ) : null}
         <PinPad
           onDigit={onDigit}
           onBackspace={onBackspace}

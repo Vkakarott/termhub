@@ -1,19 +1,17 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { AppText, Countdown, PinDots, PinPad, Screen } from '@/ui';
+import { attemptsSuffix } from '../model/messages';
 import { useSessionStore } from '../viewmodel/useSessionStore';
 
 const PIN_LENGTH = 6;
-
-function attemptsSuffix(n: number): string {
-  return n === 1 ? ' 1 tentativa restante.' : ` ${n} tentativas restantes.`;
-}
 
 /** Desbloquear (P§5.3–5.6, design spec §5.4): numeric pad, and the biometric shortcut when
  * enabled. "Sair e remover este aparelho" lives in Ajustes, not here. */
 export function UnlockScreen() {
   const unlock = useSessionStore((s) => s.unlock);
   const unlockWithBiometrics = useSessionStore((s) => s.unlockWithBiometrics);
+  const lockExpired = useSessionStore((s) => s.lockExpired);
   const error = useSessionStore((s) => s.error);
   const attemptsLeft = useSessionStore((s) => s.attemptsLeft);
   const lockedUntil = useSessionStore((s) => s.lockedUntil);
@@ -43,7 +41,7 @@ export function UnlockScreen() {
         {lockedUntil ? (
           <View className="gap-2">
             <AppText className="text-app-danger">Aparelho bloqueado</AppText>
-            <Countdown until={lockedUntil} />
+            <Countdown until={lockedUntil} onExpire={lockExpired} />
           </View>
         ) : error ? (
           <AppText className="text-app-danger">

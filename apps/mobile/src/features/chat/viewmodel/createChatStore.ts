@@ -276,9 +276,9 @@ export function createChatStore(deps: ChatDeps) {
               if (decision === 'deny') {
                 await api.decide(session().auth(), actionId, { decision: 'deny' });
               } else {
-                const { challenge, pin_proof } = await session().requestPinProof(actionId);
-                if (gen !== generation) return;
-                await api.decide(session().auth(), actionId, { decision: 'approve', challenge, pin_proof });
+                // The session store performs the call with the proof while its PIN sheet stays open:
+                // a wrong PIN is answered there, and this only resolves once the server accepted it.
+                await session().requestPinProof(actionId, (proof) => api.decide(session().auth(), actionId, { decision: 'approve', ...proof }));
               }
               if (gen !== generation) return;
               // The `decision` event confirms it; this only saves a flicker back to "pending". Only a
@@ -290,7 +290,6 @@ export function createChatStore(deps: ChatDeps) {
                 set({ error: CHAT_MSG.alreadyDecided });
                 void reread(key); // show how it was decided
               } else {
-                // `PIN_INVALID` lands on the session store's state; the card stays pending.
                 fail(gen, e);
               }
             } finally {

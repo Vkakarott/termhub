@@ -64,10 +64,16 @@ export interface SessionState {
   renewToken(): Promise<string | null>;
   /** Throws `Error('LOCKED')` when there is no token in memory. */
   auth(): Auth;
-  /** Opens the PIN sheet for an approval (P§5.6); resolved by `resolvePinPrompt`. */
-  requestPinProof(actionId: string): Promise<{ challenge: string; pin_proof: string }>;
+  /** Opens the PIN sheet for an approval (P§5.6). `resolvePinPrompt` computes the proof and
+   * awaits `perform(proof)` with the sheet still open: `PIN_INVALID` keeps it open with the error
+   * and the attempts left; `DEVICE_LOCKED` relocks (rejects `CANCELLED`); success resolves; any
+   * other error closes it and rejects with that error. A cancel rejects `CANCELLED`. */
+  requestPinProof(actionId: string, perform: (proof: { challenge: string; pin_proof: string }) => Promise<void>): Promise<void>;
   resolvePinPrompt(pin: string | 'biometrics'): Promise<void>;
   cancelPinPrompt(): void;
+  /** The lock's countdown reached zero: clears `lockedUntil`, `error` and `attemptsLeft` so the
+   * pad takes a PIN again. A no-op when not locked. */
+  lockExpired(): void;
   background(): void;
   foreground(): void;
   /** A deep link caught while not `unlocked` (design spec §8); followed once unlocked. */

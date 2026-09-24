@@ -3,6 +3,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { createChatStore } from '@/features/chat/viewmodel/createChatStore';
 import { sessionEnded } from '@/features/shared/signals';
+import { socketWake } from '@/services/api/wake';
 import { ApiError } from '@/services/api/errors';
 import { fromB64url } from '@/services/crypto/encoding';
 import { decisionProof } from '@/services/crypto/pin';
@@ -240,24 +241,146 @@ it('renewToken is single-flighted and returns null when locked', async () => {
   expect(challenge).toHaveBeenCalledTimes(2);
 });
 
-it('requestPinProof resolves when the prompt is answered with the right PIN and rejects on cancel', async () => {
+type Proof = { challenge: string; pin_proof: string };
+const noop = async () => undefined;
+
+it('requestPinProof performs the decision with the proof while the prompt stays open and busy, then closes; cancel rejects', async () => {
   const ctx = setup();
   const secret = fromB64url(await enrol(ctx));
   const { store } = ctx;
   const challenge = jest.spyOn(ctx.api, 'challenge');
+  const seen: Proof[] = [];
+  const perform = jest.fn(async (proof: Proof) => {
+    // the sheet is still up (and busy) while the server checks the proof
+    expect(store.getState()).toMatchObject({ pinPrompt: { actionId: 'act-1' }, busy: true });
+    seen.push(proof);
+  });
 
-  const pending = store.getState().requestPinProof('act-1');
+  const pending = store.getState().requestPinProof('act-1', perform);
   expect(store.getState().pinPrompt).toEqual({ actionId: 'act-1' });
   await store.getState().resolvePinPrompt(PIN);
-  const proof = await pending;
+  await pending;
   expect(challenge).toHaveBeenCalledWith({ device_id: store.getState().deviceId, purpose: 'decision', action_id: 'act-1' });
-  expect(proof.pin_proof).toBe(decisionProof(secret, proof.challenge, 'act-1'));
-  expect(store.getState().pinPrompt).toBeNull();
+  expect(perform).toHaveBeenCalledTimes(1);
+  expect(seen[0]!.pin_proof).toBe(decisionProof(secret, seen[0]!.challenge, 'act-1'));
+  expect(store.getState()).toMatchObject({ pinPrompt: null, busy: false, error: null });
 
-  const cancelled = store.getState().requestPinProof('act-2');
+  const other = jest.fn(noop);
+  const cancelled = store.getState().requestPinProof('act-2', other);
   store.getState().cancelPinPrompt();
   await expect(cancelled).rejects.toThrow('CANCELLED');
+  expect(other).not.toHaveBeenCalled();
   expect(store.getState().pinPrompt).toBeNull();
+});
+
+it('a PIN_INVALID from perform keeps the prompt open with the error and attempts left; the next PIN goes through', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  const { store } = ctx;
+  const perform = jest.fn(noop).mockRejectedValueOnce(new ApiError(401, 'PIN_INVALID', 'x', undefined, 2));
+  let settled = false;
+  const pending = store.getState().requestPinProof('act-1', perform);
+  void pending.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+
+  await store.getState().resolvePinPrompt('000000');
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  expect(store.getState()).toMatchObject({ phase: 'unlocked', pinPrompt: { actionId: 'act-1' }, busy: false, error: 'PIN incorreto.', attemptsLeft: 2 });
+
+  await store.getState().resolvePinPrompt(PIN);
+  await pending;
+  expect(perform).toHaveBeenCalledTimes(2);
+  expect(store.getState()).toMatchObject({ pinPrompt: null, busy: false, error: null, attemptsLeft: null });
+});
+
+it('a 423 from perform relocks and drops the prompt', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  const { store } = ctx;
+  const pending = store.getState().requestPinProof('act-1', async () => {
+    throw new ApiError(423, 'DEVICE_LOCKED', 'x', 900);
+  });
+  await store.getState().resolvePinPrompt(PIN);
+  await expect(pending).rejects.toThrow('CANCELLED');
+  expect(store.getState()).toMatchObject({
+    phase: 'locked',
+    pinPrompt: null,
+    busy: false,
+    lockedUntil: new Date(ctx.clock.value + 900_000).toISOString(),
+  });
+});
+
+it('any other error from perform closes the prompt and rejects with that error, leaving the session state clean', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  const { store } = ctx;
+  const conflict = new ApiError(409, 'ACTION_DECIDED', 'x');
+  const pending = store.getState().requestPinProof('act-1', async () => {
+    throw conflict;
+  });
+  await store.getState().resolvePinPrompt(PIN);
+  await expect(pending).rejects.toBe(conflict);
+  expect(store.getState()).toMatchObject({ phase: 'unlocked', pinPrompt: null, busy: false, error: null });
+});
+
+it('a relock clears error and attemptsLeft, so nothing stale reaches Desbloquear', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  const { store } = ctx;
+  store.getState().handleApiError(new ApiError(401, 'PIN_INVALID', 'x', undefined, 1));
+  expect(store.getState()).toMatchObject({ error: 'PIN incorreto.', attemptsLeft: 1 });
+  store.getState().background();
+  ctx.clock.value += 5 * 60_000;
+  store.getState().foreground();
+  expect(store.getState()).toMatchObject({ phase: 'locked', error: null, attemptsLeft: null });
+});
+
+it('lockExpired clears the lock, its error and the attempts; it is a no-op when not locked', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  const { store } = ctx;
+  store.getState().handleApiError(new ApiError(401, 'PIN_INVALID', 'x', undefined, 1));
+  store.getState().lockExpired();
+  expect(store.getState()).toMatchObject({ error: 'PIN incorreto.', attemptsLeft: 1 });
+
+  store.getState().handleApiError(new ApiError(423, 'DEVICE_LOCKED', 'x', 900));
+  expect(store.getState().lockedUntil).not.toBeNull();
+  store.getState().lockExpired();
+  expect(store.getState()).toMatchObject({ phase: 'locked', lockedUntil: null, error: null, attemptsLeft: null });
+});
+
+it('entering unlocked (activation, then every unlock) emits socketWake; a renewal does not', async () => {
+  const wake = jest.fn();
+  const unsubscribe = socketWake.subscribe(wake);
+  try {
+    const ctx = setup();
+    await enrol(ctx);
+    expect(wake).toHaveBeenCalledTimes(1);
+    await ctx.store.getState().renewToken();
+    expect(wake).toHaveBeenCalledTimes(1);
+    const store = ctx.make();
+    await store.getState().unlock(PIN);
+    expect(store.getState().phase).toBe('unlocked');
+    expect(wake).toHaveBeenCalledTimes(2);
+  } finally {
+    unsubscribe();
+  }
+});
+
+it.each([
+  ['a vault item is missing', () => vault.delete('pin.salt')],
+  ['the vault belongs to another device', () => vault.set('device.id', 'd-other')],
+])('unlock wipes with a reason when %s', async (_name, damage) => {
+  const ctx = setup();
+  await enrol(ctx);
+  await damage();
+  const store = ctx.make();
+  await store.getState().unlock(PIN);
+  expect(store.getState()).toMatchObject({ phase: 'new', deviceId: null, busy: false, notice: 'Os dados deste aparelho foram perdidos. Entre de novo.' });
+  expect(secureItems.size).toBe(0);
 });
 
 it('leave revokes and wipes: vault empty, phase new; a DEVICE_REVOKED from any call wipes too', async () => {
@@ -365,7 +488,15 @@ it('enableBiometrics stores the plain secret behind biometrics and unlockWithBio
   expect(await vault.get('pin.biometric')).toBeNull();
 });
 
-it('after activation and after every unlock, setPushToken is called once with a fake Expo token', async () => {
+it('outside mock mode, no fake Expo token is ever sent', async () => {
+  const ctx = setup(undefined, 'http');
+  const push = jest.spyOn(ctx.api, 'setPushToken');
+  await enrol(ctx);
+  await ctx.make().getState().unlock(PIN);
+  expect(push).not.toHaveBeenCalled();
+});
+
+it('in mock mode, after activation and after every unlock, setPushToken is called once with a fake Expo token', async () => {
   const ctx = setup();
   const push = jest.spyOn(ctx.api, 'setPushToken');
   await enrol(ctx);
@@ -425,23 +556,27 @@ describe('guards', () => {
     expect(() => store.getState().auth()).toThrow('LOCKED');
   });
 
-  it("a newer requestPinProof is not resolved by the previous prompt's answer", async () => {
+  it("a newer requestPinProof is not performed with the previous prompt's answer", async () => {
     const ctx = setup();
     const secret = fromB64url(await enrol(ctx));
     const { store } = ctx;
-    const a = store.getState().requestPinProof('act-A');
-    let b: Promise<{ challenge: string; pin_proof: string }> | null = null;
+    const performA = jest.fn(noop);
+    const performB = jest.fn(async (_proof: Proof) => undefined);
+    const a = store.getState().requestPinProof('act-A', performA);
+    let b: Promise<void> | null = null;
     const challenge = ctx.api.challenge.bind(ctx.api);
     jest.spyOn(ctx.api, 'challenge').mockImplementationOnce(async (body) => {
-      b = store.getState().requestPinProof('act-B');
+      b = store.getState().requestPinProof('act-B', performB);
       return challenge(body);
     });
     await store.getState().resolvePinPrompt(PIN);
     await expect(a).rejects.toThrow('CANCELLED');
+    expect(performA).not.toHaveBeenCalled();
     expect(store.getState()).toMatchObject({ pinPrompt: { actionId: 'act-B' }, busy: false });
 
     await store.getState().resolvePinPrompt(PIN);
-    const proof = await b!;
+    await b!;
+    const proof = performB.mock.calls[0]![0];
     expect(proof.pin_proof).toBe(decisionProof(secret, proof.challenge, 'act-B'));
     expect(store.getState().pinPrompt).toBeNull();
   });
@@ -450,7 +585,7 @@ describe('guards', () => {
     const ctx = setup();
     await enrol(ctx);
     const { store } = ctx;
-    const pending = store.getState().requestPinProof('act-1');
+    const pending = store.getState().requestPinProof('act-1', noop);
     jest.spyOn(ctx.api, 'challenge').mockRejectedValueOnce(new ApiError(423, 'DEVICE_LOCKED', 'x', 900));
     await store.getState().resolvePinPrompt(PIN);
     await expect(pending).rejects.toThrow('CANCELLED');
@@ -506,7 +641,7 @@ describe('guards', () => {
     const ctx = setup();
     await enrol(ctx);
     const { store } = ctx;
-    const pending = store.getState().requestPinProof('act-1');
+    const pending = store.getState().requestPinProof('act-1', noop);
 
     expect(store.getState().handleApiError(new ApiError(401, 'PIN_INVALID', 'x', undefined, 1))).toBe(true);
     expect(store.getState()).toMatchObject({ phase: 'unlocked', error: 'PIN incorreto.', attemptsLeft: 1 });
