@@ -60,7 +60,12 @@ export interface MobileApi {
   notifications(auth: Auth, before?: string): Promise<TNotificationsResponse>;
   markRead(auth: Auth, id: string): Promise<void>;
 
-  // the socket (P§6.1): server -> client events, filtered by user on the server. Wired to a real
-  // `ChatSocket` in Task 7; this task's `HttpMobileApi` stubs it.
-  events(auth: Auth, onEvent: (e: TChatEvent) => void, onClose: (code: number) => void): () => void;
+  // the socket (P§6.1): server -> client events, filtered by user on the server. `onReconnect`
+  // fires on every (re)open, before `hello` arrives, so the store re-reads `GET chat` (no
+  // replay, design spec §4.1); `onClose`'s `final` is true for the two terminal close codes
+  // (`4400`, `4401`) — the socket is not reopened. Returns the socket's `close`.
+  events(
+    auth: Auth,
+    handlers: { onEvent(e: TChatEvent): void; onReconnect(): void; onClose(code: number, final: boolean): void },
+  ): () => void;
 }

@@ -30,6 +30,7 @@ import {
 } from './contract';
 import { buildProof } from './dpop';
 import { ApiError } from './errors';
+import { createChatSocket } from './socket';
 import type { Transport } from './transport';
 import type { Auth, MobileApi } from './types';
 
@@ -50,6 +51,12 @@ export type CreateHttpMobileApiOptions = {
   /** Defaults to `'http'`: the singleton (`index.ts`) passes `'mock'` when it points this client
    * at a `MockTransport` (Task 8), so the UI can tell the two apart without touching `Transport`. */
   mode?: 'mock' | 'http';
+  /** The chat socket's reconnect backoff; defaults to `createChatSocket`'s own `{1s, 30s}`. */
+  backoff?: { min: number; max: number };
+  /** Reconnects the chat socket at once when the app comes to the foreground while disconnected
+   * (P§6.1). Wired to `AppState` from the view layer in Task 11 — `services/api` must not import
+   * `react-native` itself. */
+  foreground?: { subscribe(fn: () => void): () => void };
 };
 
 type CallOptions = {
@@ -75,12 +82,18 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
   const deviceNowS = () => Math.floor((o.now ?? Date.now)() / 1000);
   const nowS = () => deviceNowS() + skew;
 
-  const learn = (headers: Record<string, string>) => {
-    const raw = headers.date ?? headers.Date;
-    if (!raw) return;
+  // Shared by every response's `Date` header and by the socket's `hello.server_time` (design
+  // spec §4.1): whichever reading arrives last wins.
+  const learnFrom = (raw: string) => {
     const parsed = Date.parse(raw);
     if (Number.isNaN(parsed)) return;
     skew = Math.round(parsed / 1000) - deviceNowS();
+  };
+
+  const learn = (headers: Record<string, string>) => {
+    const raw = headers.date ?? headers.Date;
+    if (!raw) return;
+    learnFrom(raw);
   };
 
   const proofFor = async (htm: string, path: string, token: string | null, chal?: string) =>
@@ -91,6 +104,14 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
       ...(token ? { ath: b64url(sha256(utf8(token))) } : {}),
       ...(chal ? { chal } : {}),
     });
+
+  // `/ws/m/chat?v=1` (P§6.1). `canonicalHtu` drops the query, so the DPoP proof is signed over
+  // the bare path regardless of what `wsUrl` appends to it.
+  const wsUrl = (base: string) => `${base.replace(/^http/, 'ws')}/ws/m/chat?v=1`;
+  const socketHeaders = async (a: Auth): Promise<Record<string, string>> => ({
+    Authorization: `Bearer ${a.accessToken}`,
+    DPoP: await proofFor('GET', '/ws/m/chat', a.accessToken),
+  });
 
   // The single-flighted renewal only covers calls that fail *while it is in flight*: A gets a
   // 401, starts renewing, and B's 401 (sent with the same stale token) arrives before the
@@ -186,8 +207,19 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
       }),
     markRead: (a: Auth, id: string) => empty('POST', `/api/m/v1/notifications/${id}/read`, { token: a.accessToken }),
 
-    events: () => {
-      throw new Error('events: implemented in Task 7');
+    events: (a: Auth, handlers) => {
+      const socket = createChatSocket({
+        transport: o.transport,
+        url: wsUrl(o.baseUrl),
+        headers: () => socketHeaders(a),
+        onEvent: handlers.onEvent,
+        onReconnect: handlers.onReconnect,
+        onClose: handlers.onClose,
+        onServerTime: learnFrom,
+        backoff: o.backoff,
+        foreground: o.foreground,
+      });
+      return () => socket.close();
     },
   };
 

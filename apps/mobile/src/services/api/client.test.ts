@@ -197,3 +197,69 @@ it('activate and token carry no ath; token carries chal', async () => {
   expect(tokenPayload.chal).toBe('chal123');
   expect(calls[1]!.headers.Authorization).toBeUndefined();
 });
+
+describe('events()', () => {
+  function connectableTransport() {
+    const connects: Array<{ url: string; headers: Record<string, string> }> = [];
+    let handlers: import('./transport').TransportSocketHandlers | undefined;
+    const close = jest.fn();
+    const transport: Transport = {
+      fetch: () => {
+        throw new Error('not in this test');
+      },
+      connect: (url, headers, h) => {
+        connects.push({ url, headers });
+        handlers = h;
+        return { close };
+      },
+    };
+    return { transport, connects, close, handlers: () => handlers! };
+  }
+
+  const hello = (server_time: string) => JSON.stringify({ type: 'hello', protocol: 1, server_time });
+
+  it('connects to the ws url derived from baseUrl, with Authorization and a DPoP proof for GET /ws/m/chat carrying ath', async () => {
+    const { transport, connects } = connectableTransport();
+    const api = make(transport);
+    const close = api.events({ accessToken: 'tok' }, { onEvent: jest.fn(), onReconnect: jest.fn(), onClose: jest.fn() });
+    await waitFor(() => connects.length > 0);
+
+    expect(connects[0]!.url).toBe('wss://termhub.dev/ws/m/chat?v=1');
+    expect(connects[0]!.headers.Authorization).toBe('Bearer tok');
+    const payload = dpopPayload(connects[0]!.headers.DPoP!);
+    expect(payload).toMatchObject({ htm: 'GET', htu: 'https://termhub.dev/ws/m/chat', ath: b64url(sha256(utf8('tok'))) });
+    close();
+  });
+
+  it("feeds hello.server_time into the client's skew, delivers later frames, and passes onReconnect/onClose through", async () => {
+    const { transport, connects, handlers } = connectableTransport();
+    const api = make(transport);
+    const onEvent = jest.fn();
+    const onReconnect = jest.fn();
+    const onClose = jest.fn();
+    const close = api.events({ accessToken: 'tok' }, { onEvent, onReconnect, onClose });
+    await waitFor(() => connects.length > 0);
+
+    handlers().onOpen();
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+
+    handlers().onMessage(hello(new Date((NOW + 42) * 1000).toISOString()));
+    expect(api.skewSeconds).toBe(42);
+
+    handlers().onMessage(
+      JSON.stringify({
+        type: 'message',
+        user_id: 'u1',
+        conversation_id: 'c1',
+        message: { id: 'm1', conversation_id: 'c1', role: 'assistant', text: 'oi', usage: null, error_code: null, created_at: '2026-09-24T00:00:00.000Z' },
+      }),
+    );
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onEvent.mock.calls[0]![0]).toMatchObject({ type: 'message' });
+
+    handlers().onClose(4401);
+    expect(onClose).toHaveBeenCalledWith(4401, true);
+
+    close();
+  });
+});

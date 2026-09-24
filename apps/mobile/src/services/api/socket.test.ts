@@ -1,0 +1,263 @@
+import { createChatSocket } from './socket';
+import type { Transport, TransportSocketHandlers } from './transport';
+
+type Connection = { url: string; headers: Record<string, string>; handlers: TransportSocketHandlers; close: jest.Mock };
+
+/** Captures every `connect()` call instead of simulating a real socket: tests drive `onOpen`,
+ * `onMessage` and `onClose` by hand, exactly as the design brief's fake transport does. */
+function fakeTransport() {
+  const connections: Connection[] = [];
+  const transport: Transport = {
+    fetch: () => {
+      throw new Error('socket tests never call fetch');
+    },
+    connect: (url, headers, handlers) => {
+      const close = jest.fn();
+      connections.push({ url, headers, handlers, close });
+      return { close };
+    },
+  };
+  return { transport, connections };
+}
+
+const hello = (server_time: string) => JSON.stringify({ type: 'hello', protocol: 1, server_time });
+const messageEvent = (id: string) =>
+  JSON.stringify({
+    type: 'message',
+    user_id: 'u1',
+    conversation_id: 'c1',
+    message: { id, conversation_id: 'c1', role: 'assistant', text: 'oi', usage: null, error_code: null, created_at: '2026-09-24T00:00:00.000Z' },
+  });
+
+/** Flushes the microtask queue (`await o.headers()` inside `open()`) without advancing fake
+ * timers — timers only fake `setTimeout`/`setInterval`, never promise microtasks. */
+const flush = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+function harness(overrides: Partial<Parameters<typeof createChatSocket>[0]> = {}) {
+  const { transport, connections } = fakeTransport();
+  const headers = jest.fn(async () => ({ Authorization: 'Bearer tok', DPoP: 'proof' }));
+  const onEvent = jest.fn();
+  const onReconnect = jest.fn();
+  const onClose = jest.fn();
+  const onServerTime = jest.fn();
+  let foregroundListener: (() => void) | null = null;
+  const foreground = {
+    subscribe: jest.fn((fn: () => void) => {
+      foregroundListener = fn;
+      return () => {
+        foregroundListener = null;
+      };
+    }),
+  };
+
+  const socket = createChatSocket({
+    transport,
+    url: 'wss://termhub.dev/ws/m/chat?v=1',
+    headers,
+    onEvent,
+    onReconnect,
+    onClose,
+    onServerTime,
+    backoff: { min: 1000, max: 30000 },
+    foreground,
+    ...overrides,
+  });
+
+  return { socket, connections, headers, onEvent, onReconnect, onClose, onServerTime, emitForeground: () => foregroundListener?.() };
+}
+
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+
+afterEach(() => {
+  jest.clearAllTimers();
+  jest.useRealTimers();
+});
+
+it('feeds hello.server_time to onServerTime and does not treat it as a chat event', async () => {
+  const { connections, onServerTime, onEvent, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+  connections[0]!.handlers.onMessage(hello('2026-09-24T12:00:00.000Z'));
+
+  expect(onServerTime).toHaveBeenCalledWith('2026-09-24T12:00:00.000Z');
+  expect(onEvent).not.toHaveBeenCalled();
+  socket.close();
+});
+
+it('delivers every later frame parsed with chatEventSchema', async () => {
+  const { connections, onEvent, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+  connections[0]!.handlers.onMessage(hello('2026-09-24T12:00:00.000Z'));
+  connections[0]!.handlers.onMessage(messageEvent('m1'));
+
+  expect(onEvent).toHaveBeenCalledTimes(1);
+  expect(onEvent.mock.calls[0]![0]).toMatchObject({ type: 'message', message: { id: 'm1' } });
+  socket.close();
+});
+
+it('drops an unparsable frame silently instead of failing', async () => {
+  const { connections, onEvent, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+  connections[0]!.handlers.onMessage(hello('2026-09-24T12:00:00.000Z'));
+
+  expect(() => connections[0]!.handlers.onMessage('not json')).not.toThrow();
+  expect(() => connections[0]!.handlers.onMessage(JSON.stringify({ type: 'not-a-real-type' }))).not.toThrow();
+  expect(onEvent).not.toHaveBeenCalled();
+
+  // the connection survives: a good frame right after is still delivered
+  connections[0]!.handlers.onMessage(messageEvent('m1'));
+  expect(onEvent).toHaveBeenCalledTimes(1);
+  socket.close();
+});
+
+it('closes and reconnects when the first frame is not hello', async () => {
+  const { connections, onEvent, onServerTime, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+  connections[0]!.handlers.onMessage(messageEvent('m1'));
+
+  expect(connections[0]!.close).toHaveBeenCalledTimes(1);
+  expect(onEvent).not.toHaveBeenCalled();
+  expect(onServerTime).not.toHaveBeenCalled();
+
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(connections).toHaveLength(2);
+  socket.close();
+});
+
+it('fires onReconnect on every open', async () => {
+  const { connections, onReconnect, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+  expect(onReconnect).toHaveBeenCalledTimes(1);
+
+  connections[0]!.handlers.onClose(1006);
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(connections).toHaveLength(2);
+  connections[1]!.handlers.onOpen();
+  expect(onReconnect).toHaveBeenCalledTimes(2);
+  socket.close();
+});
+
+it('reconnects a 1006 close with doubling backoff, capped at max, reset after a successful open', async () => {
+  const { connections, headers, socket } = harness({ backoff: { min: 1000, max: 3000 } });
+  await flush();
+
+  // first connection never opens successfully
+  connections[0]!.handlers.onClose(1006);
+  await jest.advanceTimersByTimeAsync(999);
+  expect(connections).toHaveLength(1); // not yet
+  await jest.advanceTimersByTimeAsync(1);
+  expect(connections).toHaveLength(2); // after `min`
+
+  connections[1]!.handlers.onClose(1006);
+  await jest.advanceTimersByTimeAsync(1999);
+  expect(connections).toHaveLength(2); // not yet (min*2)
+  await jest.advanceTimersByTimeAsync(1);
+  expect(connections).toHaveLength(3); // after min*2
+
+  connections[2]!.handlers.onClose(1006);
+  await jest.advanceTimersByTimeAsync(3000); // would be min*4 = 4000 uncapped, but max is 3000
+  expect(connections).toHaveLength(4);
+
+  // a successful open resets the backoff
+  await flush();
+  connections[3]!.handlers.onOpen();
+  connections[3]!.handlers.onClose(1006);
+  await jest.advanceTimersByTimeAsync(999);
+  expect(connections).toHaveLength(4);
+  await jest.advanceTimersByTimeAsync(1);
+  expect(connections).toHaveLength(5); // back to `min`
+
+  expect(headers).toHaveBeenCalledTimes(5); // fresh headers (and so a fresh proof) every attempt
+  socket.close();
+});
+
+it('4400 closes with final=true and never reconnects', async () => {
+  const { connections, onClose, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onClose(4400);
+
+  expect(onClose).toHaveBeenCalledWith(4400, true);
+  await jest.advanceTimersByTimeAsync(60000);
+  expect(connections).toHaveLength(1);
+  socket.close();
+});
+
+it('4401 closes with final=true and never reconnects', async () => {
+  const { connections, onClose, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onClose(4401);
+
+  expect(onClose).toHaveBeenCalledWith(4401, true);
+  await jest.advanceTimersByTimeAsync(60000);
+  expect(connections).toHaveLength(1);
+  socket.close();
+});
+
+it('a non-terminal close reports onClose(code, false) before scheduling a reconnect', async () => {
+  const { connections, onClose, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onClose(1006);
+
+  expect(onClose).toHaveBeenCalledWith(1006, false);
+  socket.close();
+});
+
+it('reconnects at once on a foreground signal while closed', async () => {
+  const { connections, emitForeground, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onClose(1006);
+  expect(connections).toHaveLength(1);
+
+  emitForeground();
+  await flush();
+  expect(connections).toHaveLength(2); // no need to wait for the backoff timer
+
+  socket.close();
+});
+
+it('a foreground signal while already connected is a no-op', async () => {
+  const { connections, emitForeground, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+
+  emitForeground();
+  await flush();
+  expect(connections).toHaveLength(1);
+  socket.close();
+});
+
+it('close() stops everything: no reconnect timer survives it', async () => {
+  const { connections, socket } = harness();
+  await flush();
+  connections[0]!.handlers.onClose(1006);
+  expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+  socket.close();
+  expect(jest.getTimerCount()).toBe(0);
+  expect(connections[0]!.close).toHaveBeenCalledTimes(0); // already closed by the server
+
+  await jest.advanceTimersByTimeAsync(60000);
+  expect(connections).toHaveLength(1);
+});
+
+it('close() closes the live socket and unsubscribes from foreground', async () => {
+  const { connections, socket, emitForeground } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+
+  socket.close();
+  expect(connections[0]!.close).toHaveBeenCalledTimes(1);
+
+  emitForeground(); // the harness' listener ref was cleared by unsubscribe
+  await flush();
+  expect(connections).toHaveLength(1);
+});
