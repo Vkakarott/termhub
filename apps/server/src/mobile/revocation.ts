@@ -86,9 +86,12 @@ const failureLabel = (err: unknown): string => {
 
 /**
  * Revokes a device, in this order: flip its status (conditional, so a second call or a race returns
- * undefined and does nothing else), delete its access tokens, clear its push token, record
+ * undefined and does nothing else), clear its push token, record
  * `device_revoked`, close any live socket with 4401, and — only for a PIN brute-force, which the
  * owner did not ask for — mail the owner. A mail failure never undoes or fails the revoke.
+ * The device's access tokens are kept on purpose: `findValidToken` already refuses a token whose
+ * device is not active, and keeping the row lets the auth hook answer DEVICE_REVOKED (so the app
+ * wipes itself) instead of TOKEN_INVALID. The hourly purge removes them once they expire.
  */
 export async function revokeDevice(
   deps: { repos: Repositories; sockets: MobileSocketRegistry; mailer: Mailer; log?: FastifyBaseLogger; now?: () => Date },
@@ -99,7 +102,6 @@ export async function revokeDevice(
   const now = deps.now?.() ?? new Date();
   const device = await repos.devices.revoke(deviceId, input.reason, now);
   if (!device) return undefined;
-  await repos.deviceSessions.deleteTokensForDevice(deviceId);
   await repos.devices.setPushToken(deviceId, null);
   await repos.deviceEvents.record({ user_id: device.user_id, device_id: deviceId, kind: 'device_revoked', actor: input.actor, ip: input.ip ?? null, meta: { reason: input.reason } });
   deps.sockets.closeDevice(deviceId, 4401, 'device revoked');

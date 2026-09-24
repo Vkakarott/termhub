@@ -9,6 +9,7 @@ import { hashToken } from '../auth/tokens.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { buildMobileAuthHook } from './auth.js';
 import { JtiCache } from './dpop.js';
+import { MobileSocketRegistry, revokeDevice } from './revocation.js';
 import { createMobileServices, registerMobileApi, type MobileDeps } from './app.js';
 
 // registerMobileApi reads config.mobile, which is built from the env at import time.
@@ -161,6 +162,45 @@ describe('buildMobileAuthHook', () => {
     const u = await app.inject({ method: 'GET', url: '/api/m/v1/me', headers: { authorization: `Bearer ${unknown}`, dpop: await proofFor('/api/m/v1/me', 'GET', { ath: athOf(unknown) }) } });
     expect(u.statusCode).toBe(401);
     expect(u.json().code).toBe('TOKEN_INVALID');
+  });
+
+  it('a device revoked through revokeDevice answers DEVICE_REVOKED on its next call, not TOKEN_INVALID', async () => {
+    // A tiny in-memory store: findValidToken refuses an inactive device, findTokenAny still sees the row.
+    const dev = deviceRow(key.jwk);
+    const tokens = new Map([[hashToken(TOKEN), 'd1']]);
+    const store = {
+      users: { findById: vi.fn(async (id: string) => (id === user.id ? { ...user } : undefined)) },
+      deviceSessions: {
+        findValidToken: vi.fn(async (hash: string) => (tokens.get(hash) === dev.id && dev.status === 'active' ? { device: dev } : undefined)),
+        findTokenAny: vi.fn(async (hash: string) => (tokens.has(hash) ? { device_id: tokens.get(hash)! } : undefined)),
+        deleteTokensForDevice: vi.fn(async (id: string) => {
+          for (const [h, d] of tokens) if (d === id) tokens.delete(h);
+          return 1;
+        }),
+      },
+      devices: {
+        findById: vi.fn(async (id: string) => (id === dev.id ? dev : undefined)),
+        touchSeen: vi.fn(async () => undefined),
+        revoke: vi.fn(async () => {
+          if (dev.status !== 'active') return undefined;
+          dev.status = 'revoked';
+          return dev;
+        }),
+        setPushToken: vi.fn(async () => undefined),
+      },
+      deviceEvents: { record: vi.fn(async () => undefined) },
+    };
+    const a = await buildTestApp(store as unknown as ReturnType<typeof fakeRepos>);
+    const before = await a.inject({ method: 'GET', url: '/api/m/v1/me', headers: await deviceHeaders('/api/m/v1/me') });
+    expect(before.statusCode).toBe(200);
+
+    await revokeDevice({ repos: store as unknown as Repositories, sockets: new MobileSocketRegistry(), mailer: { send: vi.fn(async () => undefined) } }, 'd1', { reason: 'user', actor: 'user' });
+
+    const after = await a.inject({ method: 'GET', url: '/api/m/v1/me', headers: await deviceHeaders('/api/m/v1/me') });
+    expect(after.statusCode).toBe(401);
+    expect(after.json()).toEqual({ error: 'Este aparelho foi removido da conta', code: 'DEVICE_REVOKED' });
+    expect(store.deviceSessions.findValidToken).toHaveBeenCalled();
+    await a.close();
   });
 
   it("checks the route's resource grant", async () => {

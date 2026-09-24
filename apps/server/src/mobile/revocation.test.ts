@@ -135,7 +135,7 @@ function buildRevoke() {
       }),
       setPushToken: track('setPushToken', async (_id: string, _token: string | null) => undefined),
     },
-    deviceSessions: { deleteTokensForDevice: track('deleteTokens', async (_id: string) => 1) },
+    deviceSessions: { deleteTokensForDevice: vi.fn(async (_id: string) => 1) },
     deviceEvents: { record: track('event', async (_e: unknown) => undefined) },
     users: { findById: vi.fn(async (id: string) => (id === 'u1' ? { id: 'u1', email: 'ana@example.com' } : undefined)) },
   };
@@ -154,17 +154,17 @@ function buildRevoke() {
 }
 
 describe('revokeDevice', () => {
-  it('revokes, deletes tokens, clears the push token, records the event, closes sockets with 4401, in that order', async () => {
+  it('revokes, keeps the tokens, clears the push token, records the event, closes sockets with 4401, in that order', async () => {
     const t = buildRevoke();
     const r = await t.run({ reason: 'user', actor: 'user', ip: '1.2.3.4' });
     expect(r).toEqual(device);
     expect(t.repos.devices.revoke).toHaveBeenCalledWith('d1', 'user', T0);
-    expect(t.repos.deviceSessions.deleteTokensForDevice).toHaveBeenCalledWith('d1');
+    expect(t.repos.deviceSessions.deleteTokensForDevice).not.toHaveBeenCalled();
     expect(t.repos.devices.setPushToken).toHaveBeenCalledWith('d1', null);
     expect(t.repos.deviceEvents.record).toHaveBeenCalledWith({ user_id: 'u1', device_id: 'd1', kind: 'device_revoked', actor: 'user', ip: '1.2.3.4', meta: { reason: 'user' } });
     expect(t.ws.close).toHaveBeenCalledWith(4401, 'device revoked');
     expect(t.sockets.hasLive('d1')).toBe(false);
-    expect(t.calls).toEqual(['revoke', 'deleteTokens', 'setPushToken', 'event', 'close']);
+    expect(t.calls).toEqual(['revoke', 'setPushToken', 'event', 'close']);
     expect(t.mailer.send).not.toHaveBeenCalled();
   });
 
