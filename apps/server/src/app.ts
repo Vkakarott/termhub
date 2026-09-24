@@ -42,6 +42,7 @@ import { userRoutes } from './routes/users.js';
 import { uploadRoutes } from './routes/uploads.js';
 import { apiTokenRoutes } from './routes/api-tokens.js';
 import { mcpRoutes } from './mcp/route.js';
+import { createMobileServices, registerMobileApi } from './mobile/app.js';
 import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { startAgentUpdateScheduler } from './agent/latest-version.js';
@@ -74,7 +75,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       level: config.isProd ? 'info' : 'debug',
       transport: config.isProd ? undefined : { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' } },
       // Nunca logar cookies/authorization.
-      redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers["cf-access-jwt-assertion"]'],
+      redact: ['req.headers.cookie', 'req.headers.authorization', 'req.headers["cf-access-jwt-assertion"]', 'req.headers.dpop'],
     },
     trustProxy: true, // atrás do Cloudflare Tunnel / cloudflared em 127.0.0.1
     bodyLimit: 1024 * 1024,
@@ -137,6 +138,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   registerChatWs(upgrades, { log: fastify.log });
   registerPublicWs(upgrades, { repos, log: fastify.log });
 
+  // The conversation runs on a machine of the user's own, on their own Claude account (spec §3):
+  // `resolveHost` picks the pair per send, and `agentRunner` drives that machine's agent. No
+  // config dir is configured here anymore — it is the chosen `ai_account`'s, or the machine's own
+  // default — and the operator's container is no longer in this path at all. Shared by /api/chat
+  // and the mobile API.
+  const chat = new ChatService({ repos, agents, runnerFor: (machineId) => agentRunner(machineId) });
+  const mobileDeps = { repos, agents, chat, transcriptions, mailer, log: fastify.log, upgrades };
+  const mobile = config.mobile ? createMobileServices(mobileDeps) : null;
+
   // --- API (tudo autenticado, exceto rotas marcadas como public) ---
   await fastify.register(
     async (api) => {
@@ -182,11 +192,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
       await guarded('uploads', (a) => uploadRoutes(a, repos), '/uploads');
       await guarded('api_tokens', (a) => apiTokenRoutes(a, repos, { mcpUrl: config.mcpUrl }), '/api-tokens');
-      // The conversation runs on a machine of the user's own, on their own Claude account (spec §3):
-      // `resolveHost` picks the pair per send, and `agentRunner` drives that machine's agent. No
-      // config dir is configured here anymore — it is the chosen `ai_account`'s, or the machine's own
-      // default — and the operator's container is no longer in this path at all.
-      const chat = new ChatService({ repos, agents, runnerFor: (machineId) => agentRunner(machineId) });
       await guarded('chat', (a) => chatRoutes(a, repos, { service: chat }), '/chat');
       await api.register((a) => publicCityRoutes(a, repos), { prefix: '/public' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
@@ -197,6 +202,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
 
   // --- MCP endpoint for the global terminal (public route: a personal API token authenticates each call) ---
   await fastify.register((a) => mcpRoutes(a, { repos, version: SERVER_VERSION }));
+
+  // --- Mobile app API (/api/m/v1): outside /api, so only its device-token + DPoP hook runs on it ---
+  if (config.mobile && mobile) await registerMobileApi(fastify, mobile, mobileDeps);
 
   // --- Frontend buildado (produção) ---
   const dirs = { ...defaultFrontendDirs(ROOT_DIR), ...opts.frontend };
