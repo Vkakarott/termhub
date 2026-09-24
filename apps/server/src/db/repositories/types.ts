@@ -66,6 +66,8 @@ export interface Session {
 export interface Machine {
   id: string;
   name: string;
+  /** optional line under the name, trimmed, ≤ 80 chars; private: the public city never carries it */
+  subtitle: string | null;
   host: string | null;
   ssh_user: string | null;
   ssh_port: number;
@@ -276,6 +278,7 @@ export const mapSession = (s: PrismaSession): Session => ({
 export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null }): Machine => ({
   id: m.id,
   name: m.name,
+  subtitle: m.subtitle ?? null,
   host: m.host,
   ssh_user: m.sshUser,
   ssh_port: m.sshPort,

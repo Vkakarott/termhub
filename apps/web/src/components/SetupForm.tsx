@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useData } from '../lib/data';
+import { machineLabel } from '../lib/machine-labels';
 import {
   APPROVAL_LABEL,
   PROVIDER_LABEL,
@@ -223,7 +224,7 @@ export function SetupForm({ project }: Props) {
             <option value="">— a mesma do projeto —</option>
             {machines.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.name}
+                {machineLabel(m)}
                 {m.os ? ` (${m.os})` : ''}
               </option>
             ))}

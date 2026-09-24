@@ -15,6 +15,10 @@ interface MonitorState {
   needsYou: MonitorItem[];
   /** every open terminal tab in the scope, reported a state or not (the sidebar's agents); live */
   openTabs: Tab[];
+  /** false until one open-tabs snapshot was read: an empty list before then means "not known yet" */
+  openTabsLoaded: boolean;
+  /** a snapshot attempt failed and none has succeeded yet (the WS reconnect and the resync retry it) */
+  openTabsFailed: boolean;
   /** monitor state of one tab (live), or undefined when it never reported */
   tabState: (tabId: string) => Tab | undefined;
   /** types the text into the tab (Enter included) and marks it working */
@@ -40,6 +44,9 @@ const RESYNC_MS = 3 * 60_000;
 export function MonitorProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<MonitorItem[]>([]);
   const [openTabs, setOpenTabs] = useState<Tab[]>([]);
+  const [openTabsLoaded, setOpenTabsLoaded] = useState(false);
+  const [openTabsFailed, setOpenTabsFailed] = useState(false);
+  const openTabsRead = useRef(false);
   const [connected, setConnected] = useState(false);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -73,6 +80,12 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       if (open.status === 'fulfilled') {
         const later = f.log.filter((e) => e.seq > startedAt).map((e) => e.frame);
         setOpenTabs(later.reduce(applyOpenTabFrame, open.value.items.map((i) => i.tab)));
+        openTabsRead.current = true;
+        setOpenTabsLoaded(true);
+        setOpenTabsFailed(false);
+      } else if (!openTabsRead.current) {
+        // only "failed" while nothing was ever read: a later failure keeps the last good list
+        setOpenTabsFailed(true);
       }
     } finally {
       f.inFlight -= 1;
@@ -153,6 +166,8 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       items,
       needsYou: items.filter((i) => tabNeedsYou(i.tab)),
       openTabs,
+      openTabsLoaded,
+      openTabsFailed,
       tabState: (tabId) => itemsRef.current.find((i) => i.tab.id === tabId)?.tab,
       async reply(tabId, text) {
         const r = await api.tabs.input(tabId, text, true);
@@ -175,7 +190,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       connected,
       onNeedsYou,
     }),
-    [items, openTabs, reload, connected, onNeedsYou],
+    [items, openTabs, openTabsLoaded, openTabsFailed, reload, connected, onNeedsYou],
   );
 
   return <MonitorContext.Provider value={value}>{children}</MonitorContext.Provider>;

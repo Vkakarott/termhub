@@ -20,6 +20,7 @@ function makeMachine(overrides: Partial<Machine> & { type: MachineType }): Machi
   return {
     id: 'm1',
     name: 'box',
+    subtitle: null,
     host: overrides.type === 'ssh' ? 'example.com' : null,
     ssh_user: null,
     ssh_port: 22,
@@ -254,6 +255,75 @@ describe('PATCH /api/machines/:id (agent_auto_update)', () => {
     ({ app } = buildApp(store));
     const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { agent_auto_update: true } });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('subtitle (create and edit)', () => {
+  it('stores a trimmed subtitle on create', async () => {
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'POST', url: '/api/machines', payload: { name: 'mac', type: 'agent', subtitle: '  MacBook do escritório  ' } });
+    expect(res.statusCode).toBe(201);
+    expect(built.repos.create).toHaveBeenCalledWith(expect.objectContaining({ subtitle: 'MacBook do escritório' }));
+  });
+
+  it('turns an empty or blank subtitle into null on create, and accepts null or no subtitle', async () => {
+    const built = buildApp(store);
+    app = built.app;
+    for (const subtitle of ['', '   ', null]) {
+      const res = await app.inject({ method: 'POST', url: '/api/machines', payload: { name: 'mac', type: 'agent', subtitle } });
+      expect(res.statusCode).toBe(201);
+      expect(built.repos.create).toHaveBeenLastCalledWith(expect.objectContaining({ subtitle: null }));
+    }
+    const res = await app.inject({ method: 'POST', url: '/api/machines', payload: { name: 'mac', type: 'agent' } });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it('rejects a subtitle longer than 80 characters, or one that is not a string (400)', async () => {
+    const built = buildApp(store);
+    app = built.app;
+    for (const subtitle of ['x'.repeat(81), 42]) {
+      const res = await app.inject({ method: 'POST', url: '/api/machines', payload: { name: 'mac', type: 'agent', subtitle } });
+      expect(res.statusCode).toBe(400);
+    }
+    const ok = await app.inject({ method: 'POST', url: '/api/machines', payload: { name: 'mac', type: 'agent', subtitle: `  ${'x'.repeat(80)}  ` } });
+    expect(ok.statusCode).toBe(201);
+    expect(built.repos.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets, trims and clears the subtitle on edit', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    const built = buildApp(store);
+    app = built.app;
+    let res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { subtitle: ' servidor da sala ' } });
+    expect(res.statusCode).toBe(200);
+    expect(built.repos.update).toHaveBeenLastCalledWith('m1', expect.objectContaining({ subtitle: 'servidor da sala' }));
+    expect(res.json().machine.subtitle).toBe('servidor da sala');
+    res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { subtitle: '' } });
+    expect(res.statusCode).toBe(200);
+    expect(built.repos.update).toHaveBeenLastCalledWith('m1', expect.objectContaining({ subtitle: null }));
+    res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { subtitle: 'de volta' } });
+    res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { subtitle: null } });
+    expect(res.statusCode).toBe(200);
+    expect(built.repos.update).toHaveBeenLastCalledWith('m1', expect.objectContaining({ subtitle: null }));
+  });
+
+  it('keeps the subtitle when an edit does not mention it', async () => {
+    store.m1 = makeMachine({ type: 'agent', subtitle: 'MacBook do escritório' });
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { name: 'renamed' } });
+    expect(res.statusCode).toBe(200);
+    expect(built.repos.update).toHaveBeenLastCalledWith('m1', expect.objectContaining({ name: 'renamed', subtitle: 'MacBook do escritório' }));
+  });
+
+  it('rejects a subtitle longer than 80 characters on edit (400)', async () => {
+    store.m1 = makeMachine({ type: 'agent' });
+    const built = buildApp(store);
+    app = built.app;
+    const res = await app.inject({ method: 'PATCH', url: '/api/machines/m1', payload: { subtitle: 'x'.repeat(81) } });
+    expect(res.statusCode).toBe(400);
+    expect(built.repos.update).not.toHaveBeenCalled();
   });
 });
 

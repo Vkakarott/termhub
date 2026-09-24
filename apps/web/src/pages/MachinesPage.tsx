@@ -49,6 +49,11 @@ export function MachinesPage() {
                 <span className="truncate text-sm font-medium" title={machineTitle(m, status)}>
                   {m.name}
                 </span>
+                {m.subtitle && (
+                  <span className="truncate text-xs text-fg-muted" title={m.subtitle}>
+                    {m.subtitle}
+                  </span>
+                )}
                 <span className="text-[11px] text-fg-dim">{TYPE_LABEL[m.type]}</span>
                 {m.os && <span className="text-[11px] text-fg-dim">{m.os === 'macos' ? '' : m.os}</span>}
                 {badge &&

@@ -25,6 +25,15 @@ const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
 const mkdirBody = z.object({ parent: z.string().min(1).max(4096), name: z.string().trim().min(1).max(255) });
 
+/** Optional line under the name: trimmed, at most 80 chars, and an empty one is no subtitle at all. */
+const subtitleField = z
+  .string()
+  .trim()
+  .max(80)
+  .nullable()
+  .optional()
+  .transform((v) => (v === undefined ? undefined : v || null));
+
 /**
  * Shape of a stored machine, used to validate PATCHes. `local` and `ssh` are legacy transports:
  * existing rows keep working and can be edited, but new machines are agent-only (see POST).
@@ -33,6 +42,7 @@ const mkdirBody = z.object({ parent: z.string().min(1).max(4096), name: z.string
 const machineBody = z
   .object({
     name: z.string().trim().min(1).max(80),
+    subtitle: subtitleField,
     type: z.enum(['local', 'ssh', 'agent']),
     host: z.string().trim().min(1).max(253).optional().nullable(),
     ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
@@ -60,6 +70,7 @@ const ownerPatch = z.object({ owner_id: z.string().min(1).max(64).nullable().opt
 const createBody = z
   .object({
     name: z.string().trim().min(1).max(80),
+    subtitle: subtitleField,
     type: z.enum(['local', 'ssh', 'agent']),
     /** the user's own computer; see Machine.is_local */
     is_local: z.boolean().optional(),
@@ -102,7 +113,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const body = createBody.parse(request.body);
     if (body.type !== 'agent') throw badRequest('Novas máquinas usam o agente; SSH e local não podem mais ser adicionados');
     const { token, hash } = newAgentToken();
-    const machine = await repos.machines.create({ ...body, host: null, ssh_user: null, owner_id: request.scope.createAs });
+    const machine = await repos.machines.create({ ...body, subtitle: body.subtitle ?? null, host: null, ssh_user: null, owner_id: request.scope.createAs });
     await repos.machines.rotateAgentToken(machine.id, hash);
     return reply.code(201).send({ machine, agent_token: token });
   });

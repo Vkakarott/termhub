@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { NicknameDialog } from './NicknameDialog';
 
@@ -23,12 +24,15 @@ function rememberDismissed(userId: string): void {
 /**
  * Asks a signed-in account with no nickname for one, the first time (spec §4: the nickname is asked
  * at sign-up). Dismissible, and remembered per account in this browser once dismissed: publishing
- * asks again anyway (ProjectPage's publish switch), so declining here costs nothing later.
+ * asks again anyway (ProjectPage's publish switch), so declining here costs nothing later. Never
+ * opens over Início, which carries the same suggestion in its checklist.
  */
 export function NicknamePrompt() {
   const { user } = useAuth();
+  const { pathname } = useLocation();
   const [closedFor, setClosedFor] = useState<string | null>(null);
-  const open = !!user && !user.nickname && closedFor !== user.id && !wasDismissed(user.id);
+  // Início suggests the nickname itself, in its "Próximos passos" card: not over it too
+  const open = pathname !== '/' && !!user && !user.nickname && closedFor !== user.id && !wasDismissed(user.id);
   if (!user || !open) return null;
   return (
     <NicknameDialog

@@ -63,7 +63,7 @@ afterEach(cleanup);
 
 describe('isSettingsPath', () => {
   it('covers /settings, its sections and the old /integrations address', () => {
-    expect(['/settings', '/settings/users', '/integrations'].map(isSettingsPath)).toEqual([true, true, true]);
+    expect(['/settings', '/settings/users', '/integrations', '/waitlist', '/ai', '/hardware'].map(isSettingsPath)).toEqual([true, true, true, true, true, true]);
     expect(['/', '/machines', '/settingsx', '/projects/p1/settings'].map(isSettingsPath)).toEqual([false, false, false, false]);
   });
 });

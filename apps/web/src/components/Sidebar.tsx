@@ -368,7 +368,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             {groupsError}
           </p>
         )}
-        {!loading && visibleProjects.length === 0 && (
+        {!loading && visibleProjects.length === 0 && can('projects', 'create') && (
           <button className="px-3 py-1 text-xs text-fg-dim hover:text-fg" onClick={() => setProjectFormOpen(true)}>
             + novo projeto
           </button>

@@ -14,12 +14,12 @@ const state = vi.hoisted(() => ({
   items: [] as MonitorItem[],
 }));
 
-const auth = vi.hoisted(() => ({ canChat: true }));
+const auth = vi.hoisted(() => ({ canChat: true, canCreateProjects: true }));
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
     user: { id: 'u1', name: 'Pedro', avatar_url: null, email: 'pedro@example.com' },
     logout: vi.fn(),
-    can: (resource: string) => resource !== 'chat' || auth.canChat,
+    can: (resource: string, action?: string) => (resource === 'chat' ? auth.canChat : resource === 'projects' && action === 'create' ? auth.canCreateProjects : true),
     viewAs: 'self',
   }),
 }));
@@ -112,6 +112,7 @@ afterEach(() => {
   groupsState.groups = [];
   groupsState.error = null;
   auth.canChat = true;
+  auth.canCreateProjects = true;
   chat.openProjectId = null;
   vi.clearAllMocks();
   chat.status.mockImplementation(() => ({ busy: false, pending: 0 }));
@@ -149,6 +150,15 @@ describe('Sidebar sections', () => {
     expect(screen.queryByRole('region', { name: 'Em execução' })).not.toBeInTheDocument();
     expect(within(section('Outros')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
     expect(screen.getByText('Projetos')).toBeInTheDocument();
+  });
+
+  it('offers no "+ novo projeto" to a user who cannot create projects', () => {
+    state.projects = [];
+    state.openTabs = [];
+    auth.canCreateProjects = false;
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: '+ novo projeto' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ novo' })).toBeNull();
   });
 
   it('shows the empty state when there are no projects', () => {

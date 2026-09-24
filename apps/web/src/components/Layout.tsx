@@ -14,6 +14,7 @@ import { SettingsSidebar } from './SettingsSidebar';
 import { SidebarRail } from './SidebarRail';
 import { Sidebar } from './Sidebar';
 import { NicknamePrompt } from './NicknamePrompt';
+import { useEscapeLayer } from './Modal';
 
 const SIDEBAR_KEY = 'termhub:sidebar-collapsed';
 
@@ -67,17 +68,62 @@ export function Layout() {
   );
 }
 
+/** Below Tailwind's `md` breakpoint a 16rem sidebar leaves too little room for the page. */
+const NARROW_QUERY = '(max-width: 767px)';
+
+function narrowNow(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia(NARROW_QUERY).matches;
+}
+
+/** Whether the window is phone-sized, following resizes; false where matchMedia is missing (jsdom). */
+function useNarrowWindow(): boolean {
+  const [narrow, setNarrow] = useState(narrowNow);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(NARROW_QUERY);
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addEventListener?.('change', update);
+    return () => mq.removeEventListener?.('change', update);
+  }, []);
+  return narrow;
+}
+
 /**
  * The sidebar slot: Configurações' own sidebar under /settings, the projects sidebar elsewhere, the
  * rail when collapsed. Hidden entirely while the page is in focus mode — only `/office` has one (lib/focus).
+ * On a narrow window the rail is always what sits in the page, whatever the stored preference, and
+ * expanding it opens the sidebar as an overlay above the content (backdrop, Esc and navigating close
+ * it) instead of pushing the content aside; the stored preference is left for wide windows.
  */
 export function Chrome({ collapsed, setCollapsed, onLeaveSettings }: { collapsed: boolean; setCollapsed: (v: boolean) => void; onLeaveSettings: () => void }) {
   const { focus } = useFocusMode();
   const { pathname } = useLocation();
   const settings = isSettingsPath(pathname);
+  const narrow = useNarrowWindow();
+  const [overlay, setOverlay] = useState(false);
+  const closeOverlay = () => setOverlay(false);
+  useEffect(() => setOverlay(false), [pathname, narrow]);
+  useEscapeLayer(narrow && overlay, closeOverlay);
   useSwapFocus(settings);
   if (focus) return null;
-  if (collapsed) return <SidebarRail mode={settings ? 'settings' : 'main'} onExpand={() => setCollapsed(false)} onBack={onLeaveSettings} />;
+  const mode = settings ? 'settings' : 'main';
+  if (narrow) {
+    return (
+      <>
+        <SidebarRail mode={mode} onExpand={() => setOverlay(true)} onBack={onLeaveSettings} />
+        {overlay && (
+          <>
+            <div data-testid="sidebar-backdrop" aria-hidden="true" className="fixed inset-0 z-40 bg-black/50" onClick={closeOverlay} />
+            <div role="dialog" aria-modal="true" aria-label="Menu" className="fixed inset-y-0 left-0 z-50 flex max-w-[85vw] shadow-2xl">
+              {settings ? <SettingsSidebar onBack={onLeaveSettings} onCollapse={closeOverlay} /> : <Sidebar onCollapse={closeOverlay} />}
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
+  if (collapsed) return <SidebarRail mode={mode} onExpand={() => setCollapsed(false)} onBack={onLeaveSettings} />;
   if (settings) return <SettingsSidebar onBack={onLeaveSettings} onCollapse={() => setCollapsed(true)} />;
   return <Sidebar onCollapse={() => setCollapsed(true)} />;
 }

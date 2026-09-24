@@ -98,4 +98,19 @@ describe('the public payload', () => {
     expect(withLink.short_url).toBe('https://77a.it/pedro');
     expect(toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: null, buildings: [] }).short_url).toBeNull();
   });
+
+  // The machine's subtitle is the owner's own note about it: named nowhere above, so it never travels.
+  it('carries no machine subtitle, in the snapshot or in any frame', () => {
+    const secret = 'MacBook do escritório secreto';
+    const m = machine({ subtitle: secret });
+    const city = toPublicCity({ nickname: 'pedro', ownerName: 'Pedro', shortUrl: null, buildings: [{ machine: m, rooms: [{ project: project(), tabs: [{ tab: tab(), alive: true, progress: null }] }] }] });
+    const frame = toPublicRobotFrame({ machineId: m.id, projectId: 'p1', tab: tab(), alive: true, progress: null });
+    const gone = toPublicRobotGone({ machineId: m.id, projectId: 'p1', tabId: 't1' });
+    for (const payload of [city, frame, gone]) {
+      const body = JSON.stringify(payload);
+      expect(body).not.toContain('subtitle');
+      expect(body).not.toContain(secret);
+    }
+    expect('subtitle' in city.buildings[0]).toBe(false);
+  });
 });
