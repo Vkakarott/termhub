@@ -17,7 +17,8 @@ function setup(opts: { devices?: Device[]; live?: string[] } = {}) {
     projects: { findByIdsForOwner: vi.fn(async () => [{ id: 'p1', name: 'termhub' }]) },
     tabs: { findByIdsForOwner: vi.fn(async () => [{ id: 't1', name: 'api' }]) },
     machines: { findByIdsForOwner: vi.fn(async () => [{ id: 'm1', name: 'jarvis' }]) },
-    chat: { findByIdForUser: vi.fn(async (id: string) => ({ id, user_id: 'u1', project_id: id === 'c9' ? 'p1' : null })) },
+    // cp / c9: conversations of project p1; cx: unknown to this user; anything else: the account-wide chat.
+    chat: { findByIdForUser: vi.fn(async (id: string) => (id === 'cx' ? undefined : { id, user_id: 'u1', project_id: id === 'cp' || id === 'c9' ? 'p1' : null })) },
   };
   const sent: PushMessage[][] = [];
   const sender: PushSender & { send: ReturnType<typeof vi.fn> } = {
@@ -38,13 +39,14 @@ const flush = () => new Promise((r) => setTimeout(r, 10));
 const confirmation: ChatEvent = {
   type: 'confirmation',
   user_id: 'u1',
-  conversation_id: 'c1',
+  conversation_id: 'cp',
   action_id: 'a1',
   tool: 'send_input',
   args: { text: 'rm -rf segredo' },
   class: 'write' as never,
   machine_id: 'm1',
-  project_id: 'p1',
+  // The gate fills this from the tool call's args (the action's target), not from the conversation.
+  project_id: null,
   tab_id: 't1',
   summary: 'Digitar rm -rf segredo na aba api',
   created_at: '2026-09-24T00:00:00.000Z',
@@ -59,11 +61,12 @@ afterEach(() => {
 });
 
 describe('MobilePushService', () => {
-  it('turns a confirmation into one history row and a push to devices without a live socket, naming only ids-resolved names', async () => {
+  it('turns a confirmation into one history row and a push to devices without a live socket, naming the conversation’s project', async () => {
     const t = setup({ live: ['d2'] });
     stop = t.service.start();
     chatBus.publish(confirmation);
     await flush();
+    expect(t.repos.chat.findByIdForUser).toHaveBeenCalledWith('cp', 'u1');
     expect(t.repos.projects.findByIdsForOwner).toHaveBeenCalledWith(['p1'], 'u1');
     expect(t.repos.tabs.findByIdsForOwner).toHaveBeenCalledWith(['t1'], 'u1');
     expect(t.repos.machines.findByIdsForOwner).toHaveBeenCalledWith(['m1'], 'u1');
@@ -73,11 +76,17 @@ describe('MobilePushService', () => {
       kind: 'confirmation',
       title: 'termhub precisa de você',
       body: 'O chat do projeto termhub pediu confirmação para agir na aba api (jarvis).',
-      data: { kind: 'confirmation', conversation_id: 'c1', project_id: 'p1', action_id: 'a1' },
+      data: { kind: 'confirmation', conversation_id: 'cp', project_id: 'p1', action_id: 'a1' },
     });
     expect(t.sent).toHaveLength(1);
     const messages = t.sent[0];
-    expect(messages.map((m) => m.to)).toEqual(['ExponentPushToken[a]']);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toEqual({
+      to: 'ExponentPushToken[a]',
+      title: 'termhub precisa de você',
+      body: 'O chat do projeto termhub pediu confirmação para agir na aba api (jarvis).',
+      data: { kind: 'confirmation', conversation_id: 'cp', project_id: 'p1', action_id: 'a1' },
+    });
     for (const m of messages) {
       expect(m.data).not.toHaveProperty('summary');
       expect(m.data).not.toHaveProperty('args');
@@ -87,6 +96,33 @@ describe('MobilePushService', () => {
     expect(json).not.toContain(confirmation.summary);
     expect(json).not.toContain('rm -rf');
     expect(json).not.toContain('send_input');
+  });
+
+  it('labels an account-wide conversation as the general chat even when the action targets a (foreign) project', async () => {
+    const t = setup();
+    stop = t.service.start();
+    chatBus.publish({ ...confirmation, conversation_id: 'c1', project_id: 'p-foreign' } as ChatEvent);
+    await flush();
+    expect(t.repos.projects.findByIdsForOwner).not.toHaveBeenCalled();
+    expect(t.sent[0][0]).toEqual({
+      to: 'ExponentPushToken[a]',
+      title: 'termhub precisa de você',
+      body: 'O chat geral pediu confirmação para agir na aba api (jarvis).',
+      data: { kind: 'confirmation', conversation_id: 'c1', project_id: null, action_id: 'a1' },
+    });
+    expect(JSON.stringify(t.repos.userNotifications.create.mock.calls)).not.toContain('p-foreign');
+    expect(JSON.stringify(t.sent)).not.toContain('p-foreign');
+  });
+
+  it('falls back to the general chat wording when the conversation is not the user’s', async () => {
+    const t = setup();
+    stop = t.service.start();
+    chatBus.publish({ ...confirmation, conversation_id: 'cx', project_id: 'p1' } as ChatEvent);
+    await flush();
+    expect(t.repos.userNotifications.create.mock.calls[0][0]).toMatchObject({
+      body: 'O chat geral pediu confirmação para agir na aba api (jarvis).',
+      data: { kind: 'confirmation', conversation_id: 'cx', project_id: null, action_id: 'a1' },
+    });
   });
 
   it('pushes a finished reply once per conversation per minute, collapsed, and ignores failed runs', async () => {
@@ -133,6 +169,12 @@ describe('MobilePushService', () => {
       data: { kind: 'device_request' },
     });
     expect(t.sent[0].map((m) => m.to)).toEqual(['ExponentPushToken[a]', 'ExponentPushToken[b]']);
+    expect(t.sent[0][0]).toEqual({
+      to: 'ExponentPushToken[a]',
+      title: 'Novo aparelho pede acesso',
+      body: 'iPhone 15 (São Paulo) pediu acesso à sua conta. Confira o código e aprove ou recuse na web.',
+      data: { kind: 'device_request' },
+    });
   });
 
   it('clears the token of a device Expo reports as not registered', async () => {
@@ -172,6 +214,17 @@ describe('MobilePushService', () => {
     await flush();
     expect(t.repos.userNotifications.create).toHaveBeenCalledTimes(1);
     expect(t.sender.send).not.toHaveBeenCalled();
+  });
+
+  it('start() is idempotent: a second call does not subscribe again', async () => {
+    const t = setup({ devices: [] });
+    const first = t.service.start();
+    const second = t.service.start();
+    expect(second).toBe(first);
+    stop = first;
+    chatBus.publish(confirmation);
+    await flush();
+    expect(t.repos.userNotifications.create).toHaveBeenCalledTimes(1);
   });
 
   it('start() returns a working unsubscribe', async () => {

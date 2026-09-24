@@ -82,15 +82,25 @@ export class MobilePushService {
   /** "Resposta pronta" at most once per conversation per minute. */
   private readonly replies = new SlidingWindow(60_000, 1);
 
+  /** The live subscription's unsubscribe, so a second `start()` never subscribes twice. */
+  private stop: (() => void) | null = null;
+
   constructor(private readonly deps: MobilePushDeps) {}
 
-  /** Subscribes to the chat bus; returns the unsubscribe. */
+  /** Subscribes to the chat bus once; returns the unsubscribe (the same one on every call while subscribed). */
   start(): () => void {
-    return chatBus.subscribe((event) => {
+    if (this.stop) return this.stop;
+    const unsubscribe = chatBus.subscribe((event) => {
       void this.handle(event).catch((err) =>
         this.deps.log.warn({ err: failureLabel(err), userId: event.user_id, conversationId: event.conversation_id, event: event.type }, 'mobile push failed'),
       );
     });
+    const stop = () => {
+      unsubscribe();
+      if (this.stop === stop) this.stop = null;
+    };
+    this.stop = stop;
+    return stop;
   }
 
   /** Called by the enrolment service for a real request: goes to every device, live or not. */
@@ -106,17 +116,24 @@ export class MobilePushService {
 
   private async handle(event: ChatEvent): Promise<void> {
     if (event.type === 'confirmation') {
-      const ctx = await this.names(event.user_id, event.project_id, event.tab_id, event.machine_id);
-      const data = { kind: 'confirmation', conversation_id: event.conversation_id, project_id: event.project_id, action_id: event.action_id };
+      // The event's project_id is the action's target (from the tool call's args), not the chat the
+      // question belongs to: the wording and data.project_id come from the conversation itself.
+      const projectId = await this.conversationProject(event.conversation_id, event.user_id);
+      const ctx = await this.names(event.user_id, projectId, event.tab_id, event.machine_id);
+      const data = { kind: 'confirmation', conversation_id: event.conversation_id, project_id: projectId, action_id: event.action_id };
       await this.deliver(event.user_id, 'confirmation', confirmationText(ctx), data, await this.offline(event.user_id));
     } else if (event.type === 'run_finished' && event.ok) {
-      const conversation = await this.deps.repos.chat.findByIdForUser(event.conversation_id, event.user_id);
-      const projectId = conversation?.project_id ?? null;
+      const projectId = await this.conversationProject(event.conversation_id, event.user_id);
       const ctx = await this.names(event.user_id, projectId, null, null);
       const data = { kind: 'reply', conversation_id: event.conversation_id, project_id: projectId };
       const send = this.replies.take(event.conversation_id);
       await this.deliver(event.user_id, 'reply', replyText(ctx), data, send ? await this.offline(event.user_id) : [], `reply:${event.conversation_id}`);
     }
+  }
+
+  /** The project of the user's own conversation; null for the account-wide chat or one not found. */
+  private async conversationProject(conversationId: string, userId: string): Promise<string | null> {
+    return (await this.deps.repos.chat.findByIdForUser(conversationId, userId))?.project_id ?? null;
   }
 
   /** Devices with a push token and no live /ws/m/chat socket: whoever has the app open already saw it. */
