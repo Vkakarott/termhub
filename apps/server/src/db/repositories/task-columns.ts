@@ -40,8 +40,11 @@ export class TaskColumnsRepository {
   }
 
   async rename(id: string, name: string): Promise<TaskColumn | undefined> {
-    const r = await this.db.taskColumn.updateMany({ where: { id }, data: { name } });
-    return r.count ? this.findById(id) : undefined;
+    return this.db.$transaction(async (tx) => {
+      const col = await this.locked(tx, id);
+      if (!col) return undefined;
+      return mapTaskColumn(await tx.taskColumn.update({ where: { id }, data: { name } }));
+    });
   }
 
   /** The column's cards take the new category as their status in the same transaction. */
@@ -99,6 +102,9 @@ export class TaskColumnsRepository {
   /** null = automatic (the first `doing` column). A set column must be one of the project's `doing` columns. */
   async setAgentColumn(projectId: string, columnId: string | null): Promise<void> {
     await this.db.$transaction(async (tx) => {
+      // Locked before the category check so it cannot race a concurrent setCategory that moves
+      // this same column out of `doing` (both serialize on the project row).
+      await lockProject(tx, projectId);
       if (columnId) {
         const col = await tx.taskColumn.findFirst({ where: { id: columnId, projectId }, select: { category: true } });
         if (!col) throw new TaskRuleError('COLUMN_NOT_FOUND');

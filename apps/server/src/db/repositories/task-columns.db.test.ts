@@ -121,6 +121,25 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TaskColumnsRepository (Po
     await repo.setAgentColumn(projectId, null);
   });
 
+  it('racing setCategory and setAgentColumn on the same column never leaves a non-doing agent column', async () => {
+    await repo.ensureDefaults(projectId);
+    const qa = await repo.create(projectId, { name: 'QA', category: 'doing' });
+    for (let i = 0; i < 8; i++) {
+      await repo.setAgentColumn(projectId, qa.id);
+      // Both fire in the same tick, so which transaction's lock wins varies run to run; the
+      // invariant below must hold regardless of who wins.
+      await Promise.allSettled([repo.setCategory(qa.id, 'done'), repo.setAgentColumn(projectId, qa.id)]);
+      const project = await db.project.findUniqueOrThrow({ where: { id: projectId } });
+      if (project.agentColumnId) {
+        expect((await repo.findById(project.agentColumnId))?.category).toBe('doing');
+      } else {
+        expect(project.agentColumnId).toBeNull();
+      }
+      // "Fazendo" (the default) stays `doing` throughout, so this is always allowed.
+      await repo.setCategory(qa.id, 'doing');
+    }
+  });
+
   it('deleting a project whose agent column is set removes it cleanly', async () => {
     await repo.ensureDefaults(projectId);
     const [, doing] = await repo.list(projectId);
