@@ -10,6 +10,7 @@ describe('settings sections', () => {
       'account:city',
       'account:integrations',
       'account:api-tokens',
+      'account:devices',
       'account:ai',
       'account:hardware',
       'admin:users',

@@ -9,6 +9,7 @@ import { ProjectGroupsProvider } from '../lib/project-groups';
 import { isSettingsPath, useSettingsExit } from '../lib/settings-nav';
 import { ToastProvider, Toaster } from '../lib/toast';
 import { ChatDrawer } from './chat/ChatDrawer';
+import { DeviceRequestBanner } from './DeviceRequestBanner';
 import { NeedsYouToasts } from './NeedsYouToasts';
 import { SettingsSidebar } from './SettingsSidebar';
 import { SidebarRail } from './SidebarRail';
@@ -59,6 +60,7 @@ export function Layout() {
         <div className="flex h-full">
           <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={leaveSettings} />
           <main className="relative min-w-0 flex-1">
+            <DeviceRequestBanner />
             <Outlet />
           </main>
         </div>

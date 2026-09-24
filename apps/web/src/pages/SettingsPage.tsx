@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS_SECTION, visibleSettingsSections } from '../lib/settin
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { UploadsView } from '../components/UploadsView';
 import { ApiTokensView } from '../components/ApiTokensView';
+import { DevicesView } from '../components/DevicesView';
 import { MyCityView } from '../components/MyCityView';
 import { ProfileView } from '../components/ProfileView';
 import { IntegrationsView } from '../components/IntegrationsView';
@@ -74,6 +75,12 @@ export function SettingsPage() {
       return (
         <PageFrame title={current.label}>
           <ApiTokensView />
+        </PageFrame>
+      );
+    case 'devices':
+      return (
+        <PageFrame title={current.label}>
+          <DevicesView />
         </PageFrame>
       );
     case 'city':

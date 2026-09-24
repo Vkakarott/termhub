@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, Device, DeviceEventView, DeviceRequestView, DevicesSummary, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -281,6 +281,18 @@ export const api = {
   waitlist: {
     list: () => request<{ entries: WaitlistEntry[] }>('GET', '/waitlist'),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/waitlist/${id}`),
+  },
+  /** Settings → Aparelhos: the signed-in user's own phones, never a "viewing as" scope. */
+  devices: {
+    requests: () => request<{ requests: DeviceRequestView[] }>('GET', '/devices/requests'),
+    /** 409 DEVICE_LIMIT ("Revogue um aparelho antes") once 5 devices are already active */
+    approve: (id: string) => request<{ request: DeviceRequestView }>('POST', `/devices/requests/${id}/approve`, {}),
+    deny: (id: string) => request<{ request: DeviceRequestView }>('POST', `/devices/requests/${id}/deny`, {}),
+    list: () => request<{ devices: Device[] }>('GET', '/devices'),
+    rename: (id: string, name: string) => request<{ device: Device }>('PATCH', `/devices/${id}`, { name }),
+    revoke: (id: string) => request<{ device: Device }>('DELETE', `/devices/${id}`),
+    events: () => request<{ events: DeviceEventView[] }>('GET', '/devices/events'),
+    summary: () => request<DevicesSummary>('GET', '/devices/summary'),
   },
   tabs: {
     rename: (id: string, name: string) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, { name }),
