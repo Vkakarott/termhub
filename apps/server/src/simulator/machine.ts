@@ -1,9 +1,19 @@
+import {
+  SIMCTL_BOOT_SCRIPT,
+  SIMCTL_LIST_SCRIPT,
+  WDA_RUNNER_ALIVE_SCRIPT,
+  WDA_RUNNER_START_SCRIPT,
+  WDA_RUNNER_TAIL_SCRIPT,
+  assertUdid,
+  runnerSessionName,
+  withVars,
+} from '@termhub/machine-ops';
 import type { Machine } from '../db/repositories/types.js';
 import { conflict } from '../lib/errors.js';
-import { killTmuxSession, runOnMachine, shellQuote, type ExecResult } from '../terminal/machine-exec.js';
-import { runnerSessionName, type WdaPorts } from './ports.js';
+import { killTmuxSession, runOnMachine, type ExecResult } from '../terminal/machine-exec.js';
+import type { WdaPorts } from './ports.js';
 
-export const WDA_DIR = '$HOME/.termhub/WebDriverAgent';
+export { WDA_DIR } from '@termhub/machine-ops';
 
 export interface Simulator {
   udid: string;
@@ -14,7 +24,7 @@ export interface Simulator {
 
 const PATH_PREFIX = 'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ';
 
-/** Roda um script sh na máquina (local ou ssh) com o PATH de login. */
+/** Runs a sh script on a local/ssh machine with the login PATH. */
 export function runScript(machine: Machine, script: string, timeoutMs = 15_000): Promise<ExecResult> {
   const full = PATH_PREFIX + script;
   return runOnMachine(machine, { file: '/bin/sh', args: ['-lc', full] }, full, timeoutMs);
@@ -42,18 +52,6 @@ export function parseSimctlList(json: string): Simulator[] {
   return out.sort((a, b) => rank(a.state) - rank(b.state) || a.name.localeCompare(b.name));
 }
 
-const UDID_RE = /^[A-Fa-f0-9-]{8,64}$/;
-function assertUdid(udid: string): void {
-  if (!UDID_RE.test(udid)) throw new Error(`UDID inválido: ${udid}`);
-}
-
-export async function listSimulators(machine: Machine): Promise<Simulator[]> {
-  if (machine.type === 'agent') throw conflict('Simulador indisponível em máquinas com agente');
-  const r = await runScript(machine, 'xcrun simctl list devices -j');
-  if (r.code !== 0) throw new Error(r.stderr.trim() || 'falha ao listar simuladores');
-  return parseSimctlList(r.stdout);
-}
-
 /** `xcrun simctl boot` já bootado devolve "current state: Booted" (sucesso); trata como falha só os demais casos. */
 export function isBootFailure(output: string): boolean {
   const out = output.toLowerCase();
@@ -61,27 +59,30 @@ export function isBootFailure(output: string): boolean {
   return out.includes('unable to boot') || out.includes('invalid device') || out.includes('invalid device state');
 }
 
+export async function listSimulators(machine: Machine): Promise<Simulator[]> {
+  if (machine.type === 'agent') throw conflict('Simulador indisponível em máquinas com agente');
+  const r = await runScript(machine, SIMCTL_LIST_SCRIPT);
+  if (r.code !== 0) throw new Error(r.stderr.trim() || 'falha ao listar simuladores');
+  return parseSimctlList(r.stdout);
+}
+
 export async function bootSimulator(machine: Machine, udid: string): Promise<void> {
   assertUdid(udid);
-  const r = await runScript(machine, `xcrun simctl boot ${udid} 2>&1 || true`, 60_000);
+  const r = await runScript(machine, withVars({ UDID: udid }, SIMCTL_BOOT_SCRIPT), 60_000);
   const out = r.stdout + r.stderr;
   if (isBootFailure(out)) throw new Error(`simctl boot falhou: ${out.trim()}`);
 }
 
 export async function runnerAlive(machine: Machine, udid: string): Promise<boolean> {
   assertUdid(udid);
-  const name = runnerSessionName(udid);
-  const r = await runScript(machine, `tmux has-session -t '=${name}' 2>/dev/null && echo yes || echo no`);
+  const r = await runScript(machine, withVars({ SESSION: runnerSessionName(udid) }, WDA_RUNNER_ALIVE_SCRIPT));
   return r.stdout.includes('yes');
 }
 
 export async function startRunner(machine: Machine, udid: string, ports: WdaPorts): Promise<void> {
   assertUdid(udid);
-  const name = runnerSessionName(udid);
-  const cmd =
-    `cd ${WDA_DIR} && xcodebuild test-without-building -project WebDriverAgent.xcodeproj -scheme WebDriverAgentRunner ` +
-    `-destination id=${udid} -derivedDataPath DerivedData USE_PORT=${ports.wdaPort} MJPEG_SERVER_PORT=${ports.mjpegPort}`;
-  const r = await runScript(machine, `tmux new-session -d -s ${name} ${shellQuote(cmd)}`);
+  const vars = { SESSION: runnerSessionName(udid), UDID: udid, WDA_PORT: String(ports.wdaPort), MJPEG_PORT: String(ports.mjpegPort) };
+  const r = await runScript(machine, withVars(vars, WDA_RUNNER_START_SCRIPT));
   if (r.code !== 0 && !r.stderr.includes('duplicate session')) throw new Error(r.stderr.trim() || 'falha ao iniciar o runner do WDA');
 }
 
@@ -92,7 +93,6 @@ export async function stopRunner(machine: Machine, udid: string): Promise<void> 
 
 export async function runnerTail(machine: Machine, udid: string, lines = 30): Promise<string[]> {
   assertUdid(udid);
-  const name = runnerSessionName(udid);
-  const r = await runScript(machine, `tmux capture-pane -p -t '=${name}' 2>/dev/null | grep -v '^$' | tail -n ${lines}`);
+  const r = await runScript(machine, withVars({ SESSION: runnerSessionName(udid), LINES: String(lines) }, WDA_RUNNER_TAIL_SCRIPT));
   return r.stdout.split('\n').filter((l) => l.trim());
 }

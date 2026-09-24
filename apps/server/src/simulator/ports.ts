@@ -19,7 +19,4 @@ export function wdaPorts(udid: string): WdaPorts {
   return { wdaPort: 8100 + h, mjpegPort: 9100 + h };
 }
 
-/** Sessão tmux onde o runner do WDA roda na máquina. */
-export function runnerSessionName(udid: string): string {
-  return `termhub-wda-${udid.slice(0, 8).toLowerCase()}`;
-}
+export { runnerSessionName } from '@termhub/machine-ops';
