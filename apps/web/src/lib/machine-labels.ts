@@ -12,6 +12,11 @@ export function machineTitle(m: Machine, status: MachineStatus): string {
   return title;
 }
 
+/** A machine as a one-line choice (selects, pickers): "nome — subtítulo", or the name alone. */
+export function machineLabel(m: Pick<Machine, 'name'> & { subtitle?: string | null }): string {
+  return m.subtitle ? `${m.name} — ${m.subtitle}` : m.name;
+}
+
 /** The small "vX.Y.Z" next to an agent machine; `outdated` turns it into the update hint (the card in the machine form does the update). */
 export function agentVersionBadge(m: Machine): { text: string; title: string; outdated: boolean } | null {
   if (m.type !== 'agent' || !m.agent_version) return null;

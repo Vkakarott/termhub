@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useData } from '../lib/data';
+import { machineLabel } from '../lib/machine-labels';
 import { ApiError } from '../lib/api';
 import type { Project, ProjectMachineLink } from '../lib/types';
 import { ConfirmDialog } from './Modal';
@@ -154,7 +155,7 @@ export function ProjectMachines({ project }: { project: Project }) {
             <select id="link-machine" className="input" value={machineId} onChange={(e) => setMachineId(e.target.value)} required>
               <option value="">Escolha…</option>
               {available.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+                <option key={m.id} value={m.id}>{machineLabel(m)}</option>
               ))}
             </select>
           </div>
