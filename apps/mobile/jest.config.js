@@ -1,9 +1,19 @@
+const expoPreset = require('jest-expo/jest-preset');
+
 const moduleNameMapper = {
   '^@/(.*)$': '<rootDir>/src/$1',
   // babel-preset-expo rewrites `process.env.EXPO_PUBLIC_*` to `expo/virtual/env` (ESM); the plain
   // Node `logic` project cannot load that module, so it gets a stub.
   '^expo/virtual/env$': '<rootDir>/test/expo-env-stub.js',
 };
+
+// The `ui` project renders NativeWind-styled components: nativewind and react-native-css-interop
+// ship untransformed ESM, so jest-expo's own ignore list is extended to transform them too.
+const [expoIgnore, ...restIgnore] = expoPreset.transformIgnorePatterns;
+const uiTransformIgnore = [
+  expoIgnore.replace('))', '|nativewind|react-native-css-interop|react-native-markdown-display))'),
+  ...restIgnore,
+];
 
 /**
  * Two projects keep the pure logic apart from the screens (spec §14):
@@ -27,9 +37,8 @@ module.exports = {
       preset: 'jest-expo',
       testMatch: ['<rootDir>/(app|src)/**/*.test.tsx'],
       setupFiles: ['<rootDir>/test/ui-setup.js'],
-      // jest-expo's own transformIgnorePatterns already cover react-native, expo and the
-      // navigation packages; a native library that ships untransformed ESM is added here when needed.
-      moduleNameMapper,
+      transformIgnorePatterns: uiTransformIgnore,
+      moduleNameMapper: { ...moduleNameMapper, '\\.css$': '<rootDir>/test/css-stub.js' },
     },
   ],
 };

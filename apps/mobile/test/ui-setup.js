@@ -16,3 +16,6 @@ jest.mock('react-native-safe-area-context', () => {
     SafeAreaView: View,
   };
 });
+
+// No native MMKV binding under jest; the in-memory fake backs zustand's persisted stores.
+jest.mock('react-native-mmkv', () => require('./fakes/mmkv'));

@@ -1,7 +1,9 @@
-import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import type { ReactNode } from 'react';
+import { View } from 'react-native';
+import { Screen } from './screen';
+import { AppText } from './text';
 
-type Props = { title: string; hint: string; children?: React.ReactNode };
+type Props = { title: string; hint: string; children?: ReactNode };
 
 /**
  * Stand-in for a screen the app plan has not implemented yet: the pt-BR title the final screen will
@@ -9,19 +11,12 @@ type Props = { title: string; hint: string; children?: React.ReactNode };
  */
 export function Placeholder({ title, hint, children }: Props) {
   return (
-    <SafeAreaView style={styles.root}>
-      <View style={styles.body}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.hint}>{hint}</Text>
+    <Screen>
+      <View className="flex-1 justify-center gap-3">
+        <AppText variant="title">{title}</AppText>
+        <AppText variant="muted">{hint}</AppText>
         {children}
       </View>
-    </SafeAreaView>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0B0F19' },
-  body: { flex: 1, justifyContent: 'center', padding: 24, gap: 12 },
-  title: { color: '#F3F4F6', fontSize: 24, fontWeight: '600' },
-  hint: { color: '#9CA3AF', fontSize: 15, lineHeight: 22 },
-});
