@@ -19,3 +19,17 @@ jest.mock('react-native-safe-area-context', () => {
 
 // No native MMKV binding under jest; the in-memory fake backs zustand's persisted stores.
 jest.mock('react-native-mmkv', () => require('./fakes/mmkv'));
+
+// The same in-memory fakes the `logic` project uses for these native modules (test/logic-setup.js),
+// minus the react-native/expo-router guard: screens under the `ui` project render React Native.
+jest.mock('expo-secure-store', () => require('./fakes/secure-store'));
+jest.mock('expo-device', () => require('./fakes/expo-device'));
+jest.mock('expo-application', () => ({ nativeApplicationVersion: '0.1.0', nativeBuildVersion: '1' }));
+jest.mock('expo-local-authentication', () => require('./fakes/local-auth'));
+jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { scheme: 'termhub' } } }));
+jest.mock('@pagopa/io-react-native-crypto', () => ({
+  generate: jest.fn(),
+  sign: jest.fn(),
+  getPublicKeyFixed: jest.fn(),
+  deleteKey: jest.fn(),
+}));

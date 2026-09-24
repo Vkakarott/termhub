@@ -12,3 +12,11 @@ export const mmkvStateStorage: StateStorage = {
     mmkv.delete(name);
   },
 };
+
+/**
+ * Clears every persisted zustand store (design spec §5.5: `wipe()` on "Sair e remover este
+ * aparelho" or a `DEVICE_REVOKED` response resets every store that persists to MMKV).
+ */
+export function resetPersistedStores(): void {
+  mmkv.clearAll();
+}

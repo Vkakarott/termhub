@@ -31,6 +31,7 @@ module.exports = {
       testMatch: ['<rootDir>/src/**/*.test.ts'],
       transform: { '\\.[jt]sx?$': 'babel-jest' },
       moduleNameMapper,
+      setupFiles: ['<rootDir>/test/logic-setup.js'],
     },
     {
       displayName: 'ui',
