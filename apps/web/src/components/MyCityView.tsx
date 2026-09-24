@@ -15,8 +15,10 @@ type CopyStatus = 'idle' | 'copied' | 'failed';
  * Settings → Minha cidade: the signed-in user's own public city, for every account (no resource
  * grant). The nickname (set once, never changed), the city's address, and the projects this user
  * owns with the same publish switch as the project page. A published project is a building on the
- * street (city-by-project §2.4), and its agents there are its open terminals on the machines this
- * person owns — so each row says whether it is published and how many of those agents it has now.
+ * street (city-by-project §2.4) unless it is archived, and its robots there are its tabs on the
+ * machines this person owns. The app only knows the open terminals live (not the simulator tabs the
+ * street also draws), so each row says whether it is published and how many of those terminals it
+ * has now — terminals, not agents, so it never claims a count it cannot see.
  */
 export function MyCityView() {
   const { user, publicCityUrl, can } = useAuth();
@@ -32,10 +34,10 @@ export function MyCityView() {
   const canListProjects = can('projects', 'read');
 
   // Hidden local machines (someone's own computer added from another browser) are still the
-  // person's, so their agents count here too.
+  // person's, so their terminals count here too.
   const ownMachines = useMemo(() => new Set([...machines, ...hiddenLocal].filter((m) => user && m.owner_id === user.id).map((m) => m.id)), [machines, hiddenLocal, user]);
-  /** the project's agents on the street right now: its open terminals on the machines this person owns */
-  const agentsOf = (p: Project) => openTabs.filter((t) => t.project_id === p.id && ownMachines.has(t.machine_id)).length;
+  /** the project's open terminals on the machines this person owns: what of it the street shows that the app can count */
+  const terminalsOf = (p: Project) => openTabs.filter((t) => t.project_id === p.id && ownMachines.has(t.machine_id)).length;
 
   const mine = canListProjects && user ? projects.filter((p) => p.owner_id === user.id) : [];
   const onStreet = mine.some((p) => p.is_public && p.status !== 'archived');
@@ -96,7 +98,7 @@ export function MyCityView() {
                     <span className="truncate font-medium">{p.name}</span>
                     <span className="font-mono text-xs text-fg-dim">{p.key}</span>
                   </div>
-                  <p className="truncate text-xs text-fg-dim">{p.is_public ? publishedLine(agentsOf(p)) : 'não publicado'}</p>
+                  <p className="truncate text-xs text-fg-dim">{rowLine(p, terminalsOf(p))}</p>
                 </div>
                 <Link to={`/projects/${p.id}`} className="shrink-0 text-xs text-accent hover:underline" aria-label={`Abrir projeto ${p.name}`}>
                   abrir →
@@ -113,8 +115,15 @@ export function MyCityView() {
   );
 }
 
-/** A published project always has its building on the street, even with nobody in it right now. */
-const publishedLine = (agents: number) => `publicado · ${agents} ${agents === 1 ? 'agente' : 'agentes'} agora`;
+/**
+ * What a row says about the street. A published project always has its building there, even with
+ * nobody in it right now — unless it is archived, which the street never shows, whatever its switch.
+ */
+function rowLine(p: Project, terminals: number): string {
+  if (p.status === 'archived') return 'arquivado (não aparece na cidade)';
+  if (!p.is_public) return 'não publicado';
+  return `publicado · ${terminals} ${terminals === 1 ? 'terminal' : 'terminais'} agora`;
+}
 
 /** Copy-to-clipboard with the button's own feedback, shared by the city link and the short link. */
 function useCopy(): [CopyStatus, (text: string) => Promise<void>] {

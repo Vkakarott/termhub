@@ -197,7 +197,7 @@ describe('MyCityView link', () => {
 });
 
 describe('MyCityView projects', () => {
-  it('lists only the projects the user owns, each saying whether it is published and how many of its agents are on the street now', () => {
+  it('lists only the projects the user owns, each saying whether it is published and how many of its terminals are on the street now', () => {
     dataState.current = {
       ...dataState.current,
       machines: [machine('m1', 'jarvis'), machine('m2', 'servidor-alheio', 'u2')],
@@ -218,7 +218,7 @@ describe('MyCityView projects', () => {
     renderView();
     const [published, priv] = screen.getAllByRole('listitem');
     expect(within(published).getByText('meu-projeto')).toBeTruthy();
-    expect(within(published).getByText('publicado · 2 agentes agora')).toBeTruthy();
+    expect(within(published).getByText('publicado · 2 terminais agora')).toBeTruthy();
     expect(within(priv).getByText('não publicado')).toBeTruthy();
     // the machines are no longer part of what a city shows
     expect(within(published).queryByText(/jarvis|servidor-alheio|Aparece em/)).toBeNull();
@@ -226,12 +226,25 @@ describe('MyCityView projects', () => {
     expect(screen.queryByText('projeto-de-outro')).toBeNull();
   });
 
-  it('says one agent in the singular, and none for a published project with nobody in it', () => {
+  // the data layer only knows the open terminals (not the simulator tabs the street also draws), so the row says terminals
+  it('says one terminal in the singular, and none for a published project with nobody in it', () => {
     dataState.current = { ...dataState.current, projects: [project({ is_public: true }), project({ id: 'p4', key: 'VAZIO', name: 'vazio', is_public: true })] };
     monitorState.current = { openTabs: [{ id: 't1', project_id: 'p1', machine_id: 'm1' }] };
     renderView();
-    expect(screen.getByText('publicado · 1 agente agora')).toBeTruthy();
-    expect(screen.getByText('publicado · 0 agentes agora')).toBeTruthy();
+    expect(screen.getByText('publicado · 1 terminal agora')).toBeTruthy();
+    expect(screen.getByText('publicado · 0 terminais agora')).toBeTruthy();
+  });
+
+  // review fix: an archived project is never a building, published or not, so its row must not say it is on the street
+  it('says an archived project does not show on the city, whatever its switch says', () => {
+    dataState.current = {
+      ...dataState.current,
+      projects: [project({ is_public: true, status: 'archived' }), project({ id: 'p5', key: 'ARQ', name: 'arquivado-privado', status: 'archived' })],
+    };
+    monitorState.current = { openTabs: [{ id: 't1', project_id: 'p1', machine_id: 'm1' }] };
+    renderView();
+    expect(screen.queryByText(/publicado ·/)).toBeNull();
+    expect(screen.getAllByText('arquivado (não aparece na cidade)')).toHaveLength(2);
   });
 
   it('publishes from the list through the same path as the project page', async () => {
