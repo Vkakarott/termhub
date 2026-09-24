@@ -148,4 +148,17 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('DevicesRepository / Devic
     expect((await requests.findById(staleApproved.id))?.status).toBe('expired');
     expect((await requests.findById(freshApproved.id))?.status).toBe('approved');
   });
+
+  it('markActivated flips an approved row once; a pending row or a second call is a no-op', async () => {
+    const pending = await makeRequest(userId);
+    expect(await requests.markActivated(pending.id)).toBe(false);
+    expect((await requests.findById(pending.id))?.status).toBe('pending');
+
+    const approved = await makeRequest(userId, { status: 'approved', activateUntil: new Date(Date.now() + HOUR) });
+    expect(await requests.markActivated(approved.id)).toBe(true);
+    expect((await requests.findById(approved.id))?.status).toBe('activated');
+
+    expect(await requests.markActivated(approved.id)).toBe(false);
+    expect((await requests.findById(approved.id))?.status).toBe('activated');
+  });
 });

@@ -141,8 +141,12 @@ export class DeviceRequestsRepository {
     return r ? mapDeviceRequest(r) : undefined;
   }
 
-  async markActivated(id: string): Promise<void> {
-    await this.db.deviceRequest.updateMany({ where: { id }, data: { status: 'activated' } });
+  /** Conditional on the row still being approved — the only legal predecessor — so a second call,
+   * a pending/denied row, or a row `expireOlderThan` already flipped to expired is a no-op instead
+   * of a silent overwrite. `true` when this call is the one that flipped it. */
+  async markActivated(id: string): Promise<boolean> {
+    const { count } = await this.db.deviceRequest.updateMany({ where: { id, status: 'approved' }, data: { status: 'activated' } });
+    return count === 1;
   }
 
   /** Pending rows past `expires_at` and approved rows past `activate_until` both become expired. */
