@@ -26,6 +26,10 @@ export interface User {
   last_login_at: string | null;
   /** the address of this user's public city (`/city/@<nickname>`); null until claimed */
   nickname: string | null;
+  /** store-review mode: while in the future, this account's mobile device requests auto-approve */
+  review_enabled_until: string | null;
+  /** the admin who last set review_enabled_until */
+  review_enabled_by: string | null;
 }
 
 /** Side effects of an invite (the user row is created regardless). */

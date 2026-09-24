@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories, WaitlistEntry } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import type { Role } from '../db/repositories/roles.js';
+import type { Device } from '../db/repositories/devices.js';
+import type { DeviceEvent } from '../db/repositories/device-events.js';
 import type { Mail } from '../email/mailer.js';
 import { applyErrorHandler } from '../lib/errors.js';
+import { invalidatePermissionCache } from '../auth/permissions.js';
 import { publicBus } from '../public/bus.js';
 import { userRoutes } from './users.js';
 
 const role: Role = { id: 'r-auth', name: 'AUTHENTICATED', label: 'Autenticado', description: null, is_system: true, is_admin: false, created_at: '' };
+const adminRole: Role = { id: 'r-admin', name: 'ADMIN', label: 'Admin', description: null, is_system: true, is_admin: true, created_at: '' };
 
 function entry(overrides: Partial<WaitlistEntry>): WaitlistEntry {
   return {
@@ -20,7 +24,22 @@ function entry(overrides: Partial<WaitlistEntry>): WaitlistEntry {
 function user(overrides: Partial<User>): User {
   return {
     id: 'u-existing', email: 'ana@gmail.com', name: 'Ana', avatar_url: null, password_hash: null, google_id: null, role: 'member', role_id: role.id,
-    invited_at: null, last_login_at: null, created_at: '', ...overrides,
+    invited_at: null, last_login_at: null, review_enabled_until: null, review_enabled_by: null, created_at: '', ...overrides,
+  };
+}
+
+function device(overrides: Partial<Device> & { id: string }): Device {
+  return {
+    user_id: 'u-existing', name: 'iPhone de Ana', platform: 'ios', model: 'iPhone 15', os_version: '18.1', app_version: '1.0.0+1',
+    public_key: '{}', key_thumbprint: 't', pin_failures: 0, pin_locked_until: null, status: 'active', revoked_at: null, revoked_reason: null,
+    push_token: null, last_seen_at: null, last_ip: null, request_id: null, created_at: '2026-09-19T00:00:00.000Z', ...overrides,
+  };
+}
+
+function deviceEvent(overrides: Partial<DeviceEvent> & { id: string; kind: DeviceEvent['kind'] }): DeviceEvent {
+  return {
+    user_id: 'u-existing', device_id: null, request_id: null, actor: 'user', ip: null, country: null, city: null, meta: {},
+    created_at: '2026-09-19T00:00:00.000Z', ...overrides,
   };
 }
 
@@ -60,7 +79,7 @@ function buildApp(opts: { entries: WaitlistEntry[]; users?: User[]; sendError?: 
     }),
   };
   const access = { add: vi.fn(), remove: vi.fn(), status: vi.fn() };
-  app.register((instance) => userRoutes(instance, repos, { mailer, access: access as never }), { prefix: '/api/users' });
+  app.register((instance) => userRoutes(instance, repos, { mailer, access: access as never, revoke: null }), { prefix: '/api/users' });
   return { app, created, marked, sent };
 }
 
@@ -141,7 +160,7 @@ describe('DELETE /api/users/:id', () => {
       roles: { findById: async (id: string) => (id === role.id ? role : undefined) },
     } as unknown as Repositories;
     const access = { add: vi.fn(), remove: vi.fn(), status: vi.fn() };
-    app.register((instance) => userRoutes(instance, repos, { mailer: { send: vi.fn() }, access: access as never }), { prefix: '/api/users' });
+    app.register((instance) => userRoutes(instance, repos, { mailer: { send: vi.fn() }, access: access as never, revoke: null }), { prefix: '/api/users' });
     const gone: unknown[] = [];
     const off = publicBus.subscribeOwnerGone((g) => gone.push(g));
     try {
@@ -152,5 +171,165 @@ describe('DELETE /api/users/:id', () => {
     } finally {
       off();
     }
+  });
+});
+
+// ── Store-review switch (Task 17): POST/GET/DELETE .../review, .../devices ────────────────────
+
+interface ReviewAppOpts {
+  users?: User[];
+  devices?: Device[];
+  events?: DeviceEvent[];
+  /** null simulates config.mobile unset (app.ts passes `revoke: null` in that case). */
+  revoke?: ReturnType<typeof vi.fn> | null;
+}
+
+function buildReviewApp(opts: ReviewAppOpts = {}) {
+  const app = Fastify();
+  applyErrorHandler(app);
+  app.addHook('preHandler', async (request) => {
+    request.user = user({ id: 'admin', name: 'Pedro', email: 'pedro@gmail.com', role_id: adminRole.id });
+  });
+  const users = opts.users ?? [user({ id: 'u-target' })];
+  const devices = opts.devices ?? [];
+  const events = opts.events ?? [];
+  const setReview = vi.fn(async (id: string, until: Date | null, by: string | null) => {
+    const idx = users.findIndex((u) => u.id === id);
+    const updated = { ...users[idx]!, review_enabled_until: until ? until.toISOString() : null, review_enabled_by: by };
+    users[idx] = updated;
+    return updated;
+  });
+  const recordEvent = vi.fn(async () => {});
+  const revoke =
+    opts.revoke === null
+      ? null
+      : (opts.revoke ??
+        vi.fn(async (id: string) => {
+          const d = devices.find((x) => x.id === id);
+          return d ? { ...d, status: 'revoked' as const, revoked_reason: 'review' } : undefined;
+        }));
+  const repos = {
+    users: {
+      findById: async (id: string) => users.find((u) => u.id === id),
+      setReview,
+    },
+    roles: {
+      findById: async (id: string) => (id === role.id ? role : id === adminRole.id ? adminRole : undefined),
+      permissionsOf: async () => [],
+    },
+    devices: {
+      listByUser: async (userId: string) => devices.filter((d) => d.user_id === userId),
+      findById: async (id: string) => devices.find((d) => d.id === id),
+    },
+    deviceEvents: {
+      record: recordEvent,
+      listForUser: async (userId: string) => events.filter((e) => e.user_id === userId),
+    },
+  } as unknown as Repositories;
+  const mailer = { send: vi.fn() };
+  const access = { add: vi.fn(), remove: vi.fn(), status: vi.fn() };
+  app.register((instance) => userRoutes(instance, repos, { mailer, access: access as never, revoke: revoke as never }), { prefix: '/api/users' });
+  return { app, users, devices, events, setReview, recordEvent, revoke };
+}
+
+describe('POST /api/users/:id/review', () => {
+  beforeEach(() => {
+    invalidatePermissionCache();
+  });
+
+  it('turns review on for the chosen number of days, recording review_changed and answering review_enabled_until as now + days', async () => {
+    const { app, setReview, recordEvent } = buildReviewApp();
+    const before = Date.now();
+    const res = await app.inject({ method: 'POST', url: '/api/users/u-target/review', payload: { days: 3, revoke_devices: false } });
+    const after = Date.now();
+    expect(res.statusCode).toBe(200);
+    const returned = res.json().user.review_enabled_until as string;
+    const untilMs = new Date(returned).getTime();
+    // The route computes `now` itself (no injectable clock), so pin it to a window around the call
+    // instead of a single instant: still tight enough to catch a wrong offset (hours, days, sign).
+    expect(untilMs).toBeGreaterThanOrEqual(before + 3 * 24 * 60 * 60 * 1000);
+    expect(untilMs).toBeLessThanOrEqual(after + 3 * 24 * 60 * 60 * 1000);
+    expect(setReview).toHaveBeenCalledWith('u-target', new Date(returned), 'admin');
+    expect(recordEvent).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'u-target', kind: 'review_changed', actor: 'admin:admin', meta: { until: returned } }));
+  });
+
+  it('days: null turns review off', async () => {
+    const { app, setReview } = buildReviewApp({ users: [user({ id: 'u-target', review_enabled_until: '2026-10-01T00:00:00.000Z', review_enabled_by: 'admin:someone' })] });
+    const res = await app.inject({ method: 'POST', url: '/api/users/u-target/review', payload: { days: null } });
+    expect(res.statusCode).toBe(200);
+    expect(setReview).toHaveBeenCalledWith('u-target', null, 'admin');
+    expect(res.json().user.review_enabled_until).toBeNull();
+  });
+
+  it('refuses an admin target with 400 REVIEW_ADMIN before writing anything', async () => {
+    const { app, setReview, recordEvent } = buildReviewApp({ users: [user({ id: 'u-admin', role_id: adminRole.id })] });
+    const res = await app.inject({ method: 'POST', url: '/api/users/u-admin/review', payload: { days: 3 } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'A conta de revisão não pode ser admin.', code: 'REVIEW_ADMIN' });
+    expect(setReview).not.toHaveBeenCalled();
+    expect(recordEvent).not.toHaveBeenCalled();
+  });
+
+  it('with revoke_devices, revokes every active device of the target with reason review', async () => {
+    const devices = [
+      device({ id: 'd1', user_id: 'u-target', status: 'active' }),
+      device({ id: 'd2', user_id: 'u-target', status: 'revoked' }),
+      device({ id: 'd3', user_id: 'someone-else', status: 'active' }),
+    ];
+    const { app, revoke } = buildReviewApp({ devices });
+    const res = await app.inject({ method: 'POST', url: '/api/users/u-target/review', payload: { days: 7, revoke_devices: true } });
+    expect(res.statusCode).toBe(200);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith('d1', { reason: 'review', actor: 'admin:admin' });
+  });
+
+  it('answers 404 for an unknown user', async () => {
+    const { app } = buildReviewApp({ users: [] });
+    const res = await app.inject({ method: 'POST', url: '/api/users/nope/review', payload: { days: 1 } });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('GET /api/users/:id/devices', () => {
+  it("answers the target's devices and events, each event carrying its pt-BR text", async () => {
+    const devices = [device({ id: 'd1', user_id: 'u-target' })];
+    const events = [deviceEvent({ id: 'e1', user_id: 'u-target', kind: 'request_approved', meta: { model: 'iPhone 15' } })];
+    const { app } = buildReviewApp({ devices, events });
+    const res = await app.inject({ method: 'GET', url: '/api/users/u-target/devices' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.devices).toEqual([expect.objectContaining({ id: 'd1' })]);
+    expect(body.events).toEqual([expect.objectContaining({ id: 'e1', text: 'Pedido aprovado de iPhone 15' })]);
+  });
+
+  it('answers 503 MOBILE_DISABLED when the server has no revoke closure (mobile not configured)', async () => {
+    const { app } = buildReviewApp({ revoke: null });
+    const res = await app.inject({ method: 'GET', url: '/api/users/u-target/devices' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().code).toBe('MOBILE_DISABLED');
+  });
+});
+
+describe('DELETE /api/users/:id/devices/:deviceId', () => {
+  it("revokes the target's device with reason admin", async () => {
+    const devices = [device({ id: 'd1', user_id: 'u-target' })];
+    const { app, revoke } = buildReviewApp({ devices });
+    const res = await app.inject({ method: 'DELETE', url: '/api/users/u-target/devices/d1' });
+    expect(res.statusCode).toBe(200);
+    expect(revoke).toHaveBeenCalledWith('d1', { reason: 'admin', actor: 'admin:admin' });
+  });
+
+  it('404s unless the device belongs to :id', async () => {
+    const devices = [device({ id: 'd1', user_id: 'someone-else' })];
+    const { app, revoke } = buildReviewApp({ devices });
+    const res = await app.inject({ method: 'DELETE', url: '/api/users/u-target/devices/d1' });
+    expect(res.statusCode).toBe(404);
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 MOBILE_DISABLED when the server has no revoke closure', async () => {
+    const { app } = buildReviewApp({ revoke: null });
+    const res = await app.inject({ method: 'DELETE', url: '/api/users/u-target/devices/d1' });
+    expect(res.statusCode).toBe(503);
   });
 });

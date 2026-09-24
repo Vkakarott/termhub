@@ -8,6 +8,7 @@ import { ConfirmDialog, Modal } from '../components/Modal';
 import { UploadsView } from '../components/UploadsView';
 import { ApiTokensView } from '../components/ApiTokensView';
 import { DevicesView } from '../components/DevicesView';
+import { ReviewAccountPanel } from '../components/ReviewAccountPanel';
 import { MyCityView } from '../components/MyCityView';
 import { ProfileView } from '../components/ProfileView';
 import { IntegrationsView } from '../components/IntegrationsView';
@@ -184,6 +185,7 @@ function UsersSection() {
   const [inviting, setInviting] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
+  const [reviewing, setReviewing] = useState<User | null>(null);
 
   const loadAccess = useCallback(async () => {
     try {
@@ -328,6 +330,11 @@ function UsersSection() {
                     )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
+                    {me?.role_info?.is_admin && (
+                      <button className="mr-1 rounded px-1.5 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Modo revisão (store review)" onClick={() => setReviewing(u)}>
+                        Revisão
+                      </button>
+                    )}
                     {can('users', 'update') && u.id !== me?.id && (
                       <button
                         className="mr-1 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg disabled:opacity-50"
@@ -374,6 +381,17 @@ function UsersSection() {
           setDeleting(null);
         }}
       />
+      {reviewing && (
+        <Modal title={`Revisão — ${reviewing.name}`} open onClose={() => setReviewing(null)}>
+          <ReviewAccountPanel
+            user={users?.find((x) => x.id === reviewing.id) ?? reviewing}
+            onChange={(u) => {
+              setUsers((l) => (l ?? []).map((x) => (x.id === u.id ? u : x)));
+              setReviewing(u);
+            }}
+          />
+        </Modal>
+      )}
     </div>
     </PageFrame>
   );

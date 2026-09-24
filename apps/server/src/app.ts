@@ -191,7 +191,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       await guarded('ai_accounts', (a) => aiAccountRoutes(a, repos), '/ai-accounts');
       await guarded('waitlist', (a) => waitlistRoutes(a, repos), '/waitlist');
       await guarded('roles', (a) => roleRoutes(a, repos), '/roles');
-      await guarded('users', (a) => userRoutes(a, repos, { mailer, access }), '/users');
+      await guarded('users', (a) => userRoutes(a, repos, { mailer, access, revoke: mobile ? (id, input) => revokeDevice({ repos, sockets: mobile.sockets, mailer, log: fastify.log }, id, input) : null }), '/users');
       await guarded('uploads', (a) => uploadRoutes(a, repos), '/uploads');
       await guarded('api_tokens', (a) => apiTokenRoutes(a, repos, { mcpUrl: config.mcpUrl }), '/api-tokens');
       await guarded('chat', (a) => chatRoutes(a, repos, { service: chat }), '/chat');
