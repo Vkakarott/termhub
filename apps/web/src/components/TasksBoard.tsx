@@ -147,7 +147,7 @@ export function TasksBoard({ projectId }: Props) {
       ...target.map((t, i) => ({ ...t, position: i })),
     ]);
     try {
-      await api.tasks.move(id, status, pos);
+      await api.tasks.move(id, { status }, pos);
     } catch (e) {
       fail(e, 'Erro ao mover task');
     }
