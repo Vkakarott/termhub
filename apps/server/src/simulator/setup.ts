@@ -1,5 +1,6 @@
 import { WDA_SETUP_SESSION, WDA_SETUP_SH, WDA_SETUP_START_SCRIPT, WDA_SETUP_STATE_SCRIPT } from '@termhub/machine-ops';
 import type { Machine } from '../db/repositories/types.js';
+import { agentRpc } from '../agent/errors.js';
 import { conflict } from '../lib/errors.js';
 import { runScript } from './machine.js';
 
@@ -41,6 +42,7 @@ export function parseSetupOutput(stdout: string): WdaSetupState {
 }
 
 export async function wdaSetupState(machine: Machine): Promise<WdaSetupState> {
+  if (machine.type === 'agent') return parseSetupOutput((await agentRpc(machine, 'wda.setup.state', {})).stdout);
   const r = await runScript(machine, WDA_SETUP_STATE_SCRIPT);
   if (r.code !== 0 && !r.stdout) throw new Error(r.stderr.trim() || 'máquina inacessível');
   return parseSetupOutput(r.stdout);
@@ -49,6 +51,11 @@ export async function wdaSetupState(machine: Machine): Promise<WdaSetupState> {
 export async function startWdaSetup(machine: Machine): Promise<void> {
   const current = await wdaSetupState(machine);
   if (current.state === 'running') throw conflict('Preparação do WDA já está em andamento');
+  if (machine.type === 'agent') {
+    const { started } = await agentRpc(machine, 'wda.setup.start', {});
+    if (!started) throw conflict('Preparação do WDA já está em andamento');
+    return;
+  }
   // One script: writes ~/.termhub/wda-setup.sh and starts it in tmux so it survives an ssh/server drop.
   const r = await runScript(machine, WDA_SETUP_START_SCRIPT);
   if (r.code !== 0 || !r.stdout.includes('STARTED:')) throw new Error(r.stderr.trim() || 'falha ao iniciar o setup no tmux');

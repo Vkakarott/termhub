@@ -1,4 +1,4 @@
-import type { RpcMethod, RpcParams, RpcResult } from '@termhub/agent-protocol';
+import { CAPABILITY_SIM, type RpcMethod, type RpcParams, type RpcResult } from '@termhub/agent-protocol';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { AgentClosedError, AgentRpcError, AgentTimeoutError } from './connection.js';
@@ -56,6 +56,23 @@ export function requireAgentVersion(machine: Machine, min: string): void {
   const info = agents.info(machine.id);
   if (info && !versionAtLeast(info.agent_version, min)) {
     throw new HttpError(409, `Atualize o agente desta máquina (npm i -g @termhub/agent, versão ${min} ou mais nova)`, 'AGENT_OUTDATED');
+  }
+}
+
+/** First agent release that advertises `sim` (simulator rpcs + tcp channels). */
+export const SIM_MIN_AGENT_VERSION = '0.5.0';
+
+/**
+ * The iOS simulator on an agent machine needs the agent online and claiming `sim`. Non-agent machines
+ * (ssh/local) pass through: their checks live in the ssh code path. An offline agent is 503 like every
+ * other agent call; a connected one without the capability is told, in one sentence, to update.
+ */
+export function requireSimCapable(machine: Machine): void {
+  if (machine.type !== 'agent') return;
+  if (!agents.isOnline(machine.id)) throw new HttpError(503, 'Agente desconectado', 'AGENT_OFFLINE');
+  const capabilities = agents.capabilities(machine.id) ?? [];
+  if (!capabilities.includes(CAPABILITY_SIM)) {
+    throw new HttpError(409, `Atualize o agente desta máquina (npm i -g @termhub/agent, versão ${SIM_MIN_AGENT_VERSION} ou mais nova) para usar o simulador`, 'AGENT_OUTDATED');
   }
 }
 

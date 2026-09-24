@@ -348,18 +348,28 @@ export class SimulatorSessionManager {
     this.log('túnel/stream caiu, tentando recuperar: ' + (cause?.message ?? ''), meta);
     this.broadcast(s, (v) => v.onStatus({ state: 'starting', message: 'Reconectando ao simulador…' }));
     const sessionId = s.client?.sessionId ?? null;
+    // Última rejeição de runnerAlive (ex.: "Agente desconectado" enquanto um agente está
+    // reconectando) — guardada para a mensagem final poder mostrá-la ao viewer em vez do
+    // "Conexão com o simulador perdida" genérico (ver task-6-addendum: um deploy ou uma
+    // instabilidade de wifi não pode matar a sessão na primeira tentativa).
+    let lastUnreachableMessage: string | undefined;
     for (let i = 1; i <= RECOVER_ATTEMPTS; i++) {
       if (s.disposed) return;
       // O runner pode ter morrido de vez na máquina (ex.: sessão tmux matada) — sem ele não adianta
       // reabrir túnel algum; desiste na hora em vez de gastar até recoverReadyTimeoutMs por tentativa.
-      // Uma rejeição aqui (máquina inacessível, etc.) conta como "não vivo": sem o try/catch ela
-      // escaparia de doRecover como unhandled rejection (chamado via "void this.recover(...)") e
-      // deixaria a sessão presa no mapa, com os viewers travados em "Reconectando…" para sempre.
+      // Uma rejeição aqui é diferente: significa que a própria máquina está inalcançável agora (ssh
+      // caiu, ou o agente está no meio de uma reconexão) — não é prova de que o runner morreu, então
+      // tenta de novo em vez de descartar a sessão na primeira tentativa.
       let alive: boolean;
       try {
         alive = await this.backend.runnerAlive(s.machine, s.udid);
-      } catch {
-        alive = false;
+      } catch (err) {
+        lastUnreachableMessage = err instanceof Error ? err.message : String(err);
+        this.log(`recuperação ${i}/${RECOVER_ATTEMPTS}: máquina inacessível (${lastUnreachableMessage})`, meta);
+        if (s.disposed) return;
+        await sleep(RECOVER_DELAY_MS);
+        if (s.disposed) return;
+        continue;
       }
       if (!alive) {
         if (s.disposed) return;
@@ -415,7 +425,7 @@ export class SimulatorSessionManager {
     // Esgotou as tentativas: fecha o que sobrou (a última tentativa pode ter deixado um túnel aberto
     // sem nunca ter ficado pronto) e apaga a sessão remota de fato, restaurando o sessionId salvo.
     this.closeTunnel(s);
-    this.broadcast(s, (v) => v.onStatus({ state: 'error', message: 'Conexão com o simulador perdida' }));
+    this.broadcast(s, (v) => v.onStatus({ state: 'error', message: lastUnreachableMessage ?? 'Conexão com o simulador perdida' }));
     if (s.client) s.client.sessionId = sessionId;
     await this.dispose(s, { stopRunner: false });
   }

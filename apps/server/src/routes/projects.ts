@@ -7,6 +7,7 @@ import { badRequest, HttpError } from '../lib/errors.js';
 import { PROJECT_KEY_RE } from '../lib/project-key.js';
 import { nextTerminalName } from '../lib/tab-names.js';
 import { scoped } from '../auth/scope.js';
+import { requireSimCapable } from '../agent/errors.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { ensureDirectory } from '../terminal/machine-fs.js';
@@ -255,6 +256,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     const body = tabBody.parse(request.body ?? {});
     const { machine } = await scoped(repos, request).projectMachineFor(id, body.machine_id);
     const kind = body.kind ?? 'terminal';
+    if (kind === 'simulator') requireSimCapable(machine);
     const existing = await repos.tabs.listByProject(id);
     const count = existing.filter((t) => t.kind === kind).length + 1;
     const name = body.name ?? (kind === 'simulator' ? `Simulador ${count}` : nextTerminalName(existing.map((t) => t.name)));

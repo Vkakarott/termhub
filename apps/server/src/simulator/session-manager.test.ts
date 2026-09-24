@@ -269,29 +269,62 @@ describe('SimulatorSessionManager', () => {
     expect(b.backend.startRunner).toHaveBeenCalledTimes(2);
   });
 
-  it('runnerAlive rejeitando na recuperação conta como runner morto (sem unhandled rejection)', async () => {
+  it('runnerAlive rejeitando em toda tentativa de recuperação: tenta RECOVER_ATTEMPTS vezes e descarta com a mensagem da rejeição (sem unhandled rejection)', async () => {
     // 1ª chamada (start inicial): resolve false, manda iniciar o runner normalmente.
-    // Da 2ª chamada em diante (checagem da recuperação): rejeita, simulando a máquina inacessível.
+    // Da 2ª chamada em diante (checagem da recuperação): rejeita sempre, simulando a máquina
+    // inacessível (ex.: um agente reconectando) — não é prova de que o runner morreu, então cada
+    // rejeição soma uma tentativa em vez de descartar a sessão na primeira.
     let calls = 0;
-    const b = makeBackend({
-      runnerAlive: vi.fn(async () => {
-        calls++;
-        if (calls === 1) return false;
-        throw new Error('máquina inacessível');
-      }),
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return false;
+      throw new Error('Agente desconectado');
     });
+    const b = makeBackend({ runnerAlive });
     const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
     const v = makeViewer();
     await mgr.acquire(machine, UDID, v);
     const openTunnelCallsBefore = (b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBeforeRecover = runnerAlive.mock.calls.length;
     b.dropTunnel(new Error('túnel caiu'));
     await vi.runAllTimersAsync();
+    // exatamente RECOVER_ATTEMPTS chamadas de runnerAlive durante a recuperação (todas rejeitadas)
+    expect(runnerAlive.mock.calls.length - callsBeforeRecover).toBe(3);
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
     expect(v.statuses.at(-1)).toBe('error');
-    expect(v.fullStatuses.at(-1)?.message).toBe('Runner do WDA encerrou na máquina');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Agente desconectado');
+    // uma máquina inalcançável não é prova de runner morto: nunca tenta reabrir o túnel
     expect((b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(openTunnelCallsBefore);
     expect(mgr.isReady('m1', UDID)).toBe(false);
     // se a rejeição escapasse de doRecover (chamado via "void this.recover(...)"), o vitest reportaria
     // um unhandled rejection e este teste (ou a suíte) falharia sozinho.
+  });
+
+  it('runnerAlive rejeita uma vez e depois resolve true: recupera normalmente reabrindo o túnel', async () => {
+    // 1ª chamada (start inicial): resolve true (runner já vivo, não inicia de novo).
+    // 2ª chamada (1ª tentativa de recuperação): rejeita, simulando uma reconexão do agente em curso.
+    // Da 3ª em diante: resolve true — a máquina voltou a responder.
+    let calls = 0;
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 2) throw new Error('Agente desconectado');
+      return true;
+    });
+    const b = makeBackend({ runnerAlive });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    expect(b.backend.startRunner).not.toHaveBeenCalled();
+    const startRunnerCallsBefore = (b.backend.startRunner as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    const bootCallsBefore = (b.backend.boot as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.statuses.at(-1)).toBe('ready');
+    expect(mgr.isReady('m1', UDID)).toBe(true);
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(2);
+    // nem o boot nem o startRunner rodam de novo: a sessão WDA continua a mesma de antes
+    expect((b.backend.boot as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(bootCallsBefore);
+    expect((b.backend.startRunner as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(startRunnerCallsBefore);
   });
 
   it('recuperação com runner vivo mas /status nunca pronto usa recoverReadyTimeoutMs, não readyTimeoutMs', async () => {

@@ -13,7 +13,7 @@ import { collectHardware } from '../system/hardware.js';
 import { newAgentToken } from '../agent/token.js';
 import { agents } from '../agent/registry.js';
 import { isOutdated, latestAgentVersion, MIN_SELF_UPDATE_VERSION, runAgentUpdate } from '../agent/latest-version.js';
-import { requireAgentVersion } from '../agent/errors.js';
+import { agentRpc, requireAgentVersion, requireSimCapable } from '../agent/errors.js';
 import { config } from '../config.js';
 import { installHooks, uninstallHooks } from '../monitor/install.js';
 import { newHookToken } from '../monitor/token.js';
@@ -205,7 +205,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/:id/simulators', async (request) => {
     const { id } = idParam.parse(request.params);
     const machine = await scoped(repos, request).machine(id);
-    if (machine.type === 'agent') throw conflict('Simulador indisponível em máquinas com agente');
+    requireSimCapable(machine);
     requireMac(machine);
     return { simulators: await listSimulators(machine) };
   });
@@ -213,11 +213,17 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/:id/simulator/setup', async (request) => {
     const { id } = idParam.parse(request.params);
     const machine = await scoped(repos, request).machine(id);
-    if (machine.type === 'agent') throw conflict('Simulador indisponível em máquinas com agente');
+    requireSimCapable(machine);
     const state = await wdaSetupState(machine);
     if (state.state === 'ok' && !machine.capabilities.includes('wda')) {
-      const status = await machineStatus(machine);
-      if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
+      if (machine.type === 'agent') {
+        // The agent reported its tools at hello time, before WDA existed: ask again and store the answer.
+        const det = await agentRpc(machine, 'tools.detect', {});
+        await repos.machines.setDetected(id, det.os, det.tools);
+      } else {
+        const status = await machineStatus(machine);
+        if (status.online) await repos.machines.setDetected(id, status.os, status.capabilities);
+      }
     }
     return state;
   });
@@ -225,7 +231,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
   app.post('/:id/simulator/setup', async (request, reply) => {
     const { id } = idParam.parse(request.params);
     const machine = await scoped(repos, request).machine(id);
-    if (machine.type === 'agent') throw conflict('Simulador indisponível em máquinas com agente');
+    requireSimCapable(machine);
     requireMac(machine);
     await startWdaSetup(machine);
     return reply.code(202).send({ ok: true });
