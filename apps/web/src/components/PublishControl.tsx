@@ -6,14 +6,14 @@ import type { Project } from '../lib/types';
 import { NicknameDialog } from './NicknameDialog';
 
 /**
- * Publishes the project's rooms to the owner's public city — one room per machine the owner owns
- * that the project is linked to (a machine somebody else owns never shows). Publishing is a one-way
- * disclosure — it makes readable, to anyone with the link, the project's name, the names of those
- * machines and every tab of the project on them with what each one is doing, and the owner's display
- * name and nickname — so turning it ON asks for a separate confirmation, spelling that out; turning
- * it back OFF does not, since there is nothing new to warn about. The server is the only source of
- * truth for whether this is allowed (project owner, nickname claimed): this component reacts to its
- * 403/409 codes and never re-implements those rules.
+ * Publishes the project on its owner's public city: one building, whose robots are the project's
+ * agents (tabs) on the machines the owner owns — an agent on somebody else's machine never shows,
+ * and no machine is named at all (city-by-project §2.4). Publishing is a one-way disclosure — it
+ * makes readable, to anyone with the link, the project's name, each of those agents with what it is
+ * doing, and the owner's display name and nickname — so turning it ON asks for a separate
+ * confirmation, spelling that out; turning it back OFF does not, since there is nothing new to warn
+ * about. The server is the only source of truth for whether this is allowed (project owner,
+ * nickname claimed): this component reacts to its 403/409 codes and never re-implements those rules.
  */
 export function PublishControl({ project }: { project: Project }) {
   const { user } = useAuth();
@@ -76,10 +76,9 @@ export function PublishControl({ project }: { project: Project }) {
       {confirming && (
         <div className="absolute right-0 top-full z-10 mt-2 w-72 rounded-lg border border-line bg-bg-2 p-3 text-xs shadow-lg">
           <p className="text-fg-muted">
-            Publicar deixa visível, para quem tiver o link, o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas dele nessas máquinas, com o que cada uma está fazendo.
+            Publicar deixa visível, para quem tiver o link, o nome do projeto e cada agente (aba) dele que roda nas suas máquinas, com o que cada um está fazendo, além do seu nome e apelido.
           </p>
-          <p className="mt-2 text-fg-muted">Máquinas de outras pessoas vinculadas ao projeto não aparecem.</p>
-          <p className="mt-2 text-fg-muted">Seu nome e seu apelido também ficam públicos, como dono da cidade.</p>
+          <p className="mt-2 text-fg-muted">Agentes em máquinas de outras pessoas não aparecem.</p>
           {error && <p className="mt-2 text-danger">{error}</p>}
           <div className="mt-3 flex justify-end gap-2">
             <button type="button" className="btn-ghost" onClick={() => setConfirming(false)}>

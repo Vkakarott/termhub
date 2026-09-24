@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useCityLink, type CityLinkState } from '../lib/city-link';
 import { useData } from '../lib/data';
+import { useMonitor } from '../lib/monitor';
 import { cityLinkFor, displayLink } from '../lib/public-city';
-import type { Machine, Project } from '../lib/types';
+import type { Project } from '../lib/types';
 import { NicknameDialog } from './NicknameDialog';
 import { PublishControl } from './PublishControl';
 
@@ -13,12 +14,14 @@ type CopyStatus = 'idle' | 'copied' | 'failed';
 /**
  * Settings → Minha cidade: the signed-in user's own public city, for every account (no resource
  * grant). The nickname (set once, never changed), the city's address, and the projects this user
- * owns with the same publish switch as the project page. A project shows publicly only on the
- * machines its owner owns, so each row lists those and nothing else.
+ * owns with the same publish switch as the project page. A published project is a building on the
+ * street (city-by-project §2.4), and its agents there are its open terminals on the machines this
+ * person owns — so each row says whether it is published and how many of those agents it has now.
  */
 export function MyCityView() {
   const { user, publicCityUrl, can } = useAuth();
   const { projects, machines, hiddenLocal, loading } = useData();
+  const { openTabs } = useMonitor();
   const [choosingNickname, setChoosingNickname] = useState(false);
 
   const nickname = user?.nickname ?? null;
@@ -28,21 +31,18 @@ export function MyCityView() {
   // there is nothing to wait for.
   const canListProjects = can('projects', 'read');
 
-  // Hidden local machines (someone's own computer added from another browser) still show publicly,
-  // so they count here too.
-  const ownMachines = useMemo(() => {
-    const byId = new Map<string, Machine>();
-    for (const m of [...machines, ...hiddenLocal]) if (user && m.owner_id === user.id) byId.set(m.id, m);
-    return byId;
-  }, [machines, hiddenLocal, user]);
-  const publicMachinesOf = (p: Project) => p.machines.map((l) => ownMachines.get(l.machine_id)).filter((m): m is Machine => !!m);
+  // Hidden local machines (someone's own computer added from another browser) are still the
+  // person's, so their agents count here too.
+  const ownMachines = useMemo(() => new Set([...machines, ...hiddenLocal].filter((m) => user && m.owner_id === user.id).map((m) => m.id)), [machines, hiddenLocal, user]);
+  /** the project's agents on the street right now: its open terminals on the machines this person owns */
+  const agentsOf = (p: Project) => openTabs.filter((t) => t.project_id === p.id && ownMachines.has(t.machine_id)).length;
 
   const mine = canListProjects && user ? projects.filter((p) => p.owner_id === user.id) : [];
-  const onStreet = mine.some((p) => p.is_public && publicMachinesOf(p).length > 0);
+  const onStreet = mine.some((p) => p.is_public && p.status !== 'archived');
 
   return (
     <div className="max-w-4xl space-y-6">
-      <p className="text-sm text-fg-muted">Sua cidade pública mostra, para quem tiver o link, os projetos que você publicar, nas máquinas que são suas.</p>
+      <p className="text-sm text-fg-muted">Sua cidade pública mostra, para quem tiver o link, cada projeto que você publicar e os agentes dele que rodam nas suas máquinas.</p>
 
       <section className="rounded-lg border border-line bg-bg-2 p-4">
         <h2 className="text-sm font-semibold">Apelido</h2>
@@ -89,26 +89,21 @@ export function MyCityView() {
           <p className="rounded-lg border border-line bg-bg-2 p-4 text-sm text-fg-muted">Você ainda não tem projetos. Os projetos que você criar aparecem aqui para publicar na sua cidade.</p>
         ) : (
           <ul className="divide-y divide-line rounded-lg border border-line bg-bg-2">
-            {mine.map((p) => {
-              const shown = publicMachinesOf(p);
-              return (
-                <li key={p.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="truncate font-medium">{p.name}</span>
-                      <span className="font-mono text-xs text-fg-dim">{p.key}</span>
-                    </div>
-                    <p className="truncate text-xs text-fg-dim">
-                      {shown.length === 0 ? 'Sem máquina sua vinculada: não aparece na cidade.' : `${p.is_public ? 'Aparece em' : 'Apareceria em'}: ${shown.map((m) => m.name).join(', ')}`}
-                    </p>
+            {mine.map((p) => (
+              <li key={p.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="truncate font-medium">{p.name}</span>
+                    <span className="font-mono text-xs text-fg-dim">{p.key}</span>
                   </div>
-                  <Link to={`/projects/${p.id}`} className="shrink-0 text-xs text-accent hover:underline" aria-label={`Abrir projeto ${p.name}`}>
-                    abrir →
-                  </Link>
-                  <PublishControl project={p} />
-                </li>
-              );
-            })}
+                  <p className="truncate text-xs text-fg-dim">{p.is_public ? publishedLine(agentsOf(p)) : 'não publicado'}</p>
+                </div>
+                <Link to={`/projects/${p.id}`} className="shrink-0 text-xs text-accent hover:underline" aria-label={`Abrir projeto ${p.name}`}>
+                  abrir →
+                </Link>
+                <PublishControl project={p} />
+              </li>
+            ))}
           </ul>
         )}
       </section>
@@ -117,6 +112,9 @@ export function MyCityView() {
     </div>
   );
 }
+
+/** A published project always has its building on the street, even with nobody in it right now. */
+const publishedLine = (agents: number) => `publicado · ${agents} ${agents === 1 ? 'agente' : 'agentes'} agora`;
 
 /** Copy-to-clipboard with the button's own feedback, shared by the city link and the short link. */
 function useCopy(): [CopyStatus, (text: string) => Promise<void>] {
