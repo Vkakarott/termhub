@@ -3,7 +3,7 @@
  * heading each sits under (spec 2026-09-23 app chrome §4). `resource: null` is a section every
  * signed-in user sees; Perfil is one, so `/settings` always has somewhere to land.
  */
-export type SettingsSection = 'profile' | 'city' | 'integrations' | 'api-tokens' | 'users' | 'roles' | 'permissions' | 'uploads';
+export type SettingsSection = 'profile' | 'city' | 'integrations' | 'api-tokens' | 'ai' | 'hardware' | 'users' | 'waitlist' | 'roles' | 'permissions' | 'uploads';
 export type SettingsGroupId = 'account' | 'admin';
 
 export interface SettingsSectionInfo {
@@ -18,7 +18,10 @@ export const SETTINGS_SECTIONS: SettingsSectionInfo[] = [
   { key: 'city', label: 'Minha cidade', resource: null, group: 'account' },
   { key: 'integrations', label: 'Integrações', resource: 'integrations', group: 'account' },
   { key: 'api-tokens', label: 'Tokens de API', resource: 'api_tokens', group: 'account' },
+  { key: 'ai', label: 'Contas de IA', resource: 'ai_accounts', group: 'account' },
+  { key: 'hardware', label: 'Hardware', resource: 'hardware', group: 'account' },
   { key: 'users', label: 'Usuários', resource: 'users', group: 'admin' },
+  { key: 'waitlist', label: 'Waitlist', resource: 'waitlist', group: 'admin' },
   { key: 'roles', label: 'Roles', resource: 'roles', group: 'admin' },
   { key: 'permissions', label: 'Permissões', resource: 'roles', group: 'admin' },
   { key: 'uploads', label: 'Arquivos', resource: 'uploads', group: 'admin' },

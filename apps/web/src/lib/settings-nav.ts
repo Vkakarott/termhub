@@ -2,13 +2,16 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEscapeLayer } from '../components/Modal';
 
+/** Addresses that used to be pages or Início tabs and now redirect into Configurações. */
+const OLD_SETTINGS_PATHS = new Set(['/integrations', '/ai', '/hardware', '/waitlist']);
+
 /**
  * Where the sidebar slot shows Configurações' own sidebar. `/integrations` counts too: it is the old
  * address of a settings section and only redirects there, so it must never be remembered as "the page
  * before settings" — going back to it would bounce straight into settings again.
  */
 export function isSettingsPath(pathname: string): boolean {
-  return pathname === '/settings' || pathname.startsWith('/settings/') || pathname === '/integrations';
+  return pathname === '/settings' || pathname.startsWith('/settings/') || OLD_SETTINGS_PATHS.has(pathname);
 }
 
 /** Inputs that take typing (and so may use Esc themselves); a checkbox, radio, button or range does not. */
