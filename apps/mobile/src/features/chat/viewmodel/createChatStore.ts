@@ -16,7 +16,7 @@ import type { SessionState } from '@/features/session/model/session.types';
 import { sessionEnded } from '@/features/shared/signals';
 import type { TChatProjectItem, THostOptionsResponse } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
-import type { Auth, MobileApi } from '@/services/api/types';
+import type { MobileApi } from '@/services/api/types';
 import { mmkvStateStorage } from '@/services/storage';
 import { applyEvent, withStatus } from '../model/events';
 import { belongsTo } from '../model/filter';
@@ -110,15 +110,6 @@ export function createChatStore(deps: ChatDeps) {
   /** Per conversation, the latest `GET chat` in flight: an older answer never overwrites a newer. */
   const readSeq = new Map<string, number>();
 
-  // The socket reads the token at every (re)connect, so a reconnect after a renewal never presents
-  // the token the socket was first opened with. A locked session makes `headers()` throw, which
-  // the socket client treats as a dropped connection and retries.
-  const liveAuth: Auth = {
-    get accessToken() {
-      return session().auth().accessToken;
-    },
-  };
-
   const store = create<ChatState>()(
     persist(
       (set, get) => {
@@ -172,7 +163,9 @@ export function createChatStore(deps: ChatDeps) {
         const ensureSocket = (): void => {
           if (closeSocket) return;
           const gen = generation;
-          closeSocket = api.events(liveAuth, {
+          // A factory: the socket reads the current token at every (re)connect. Locked, it throws,
+          // which the socket client treats as a dropped connection and retries.
+          closeSocket = api.events(() => session().auth(), {
             onEvent: (e) => {
               if (gen === generation) onEvent(e);
             },

@@ -67,9 +67,11 @@ export interface MobileApi {
   // the socket (P§6.1): server -> client events, filtered by user on the server. `onReconnect`
   // fires on every (re)open, before `hello` arrives, so the store re-reads `GET chat` (no
   // replay, design spec §4.1); `onClose`'s `final` is true for the two terminal close codes
-  // (`4400`, `4401`) — the socket is not reopened. Returns the socket's `close`.
+  // (`4400`, `4401`) — the socket is not reopened. `auth` may be a factory, read on every
+  // (re)connect so a reconnect presents the current token; a `1008` close (expired token, bad
+  // proof) renews the token before the next attempt. Returns the socket's `close`.
   events(
-    auth: Auth,
+    auth: Auth | (() => Auth),
     handlers: { onEvent(e: TChatEvent): void; onReconnect(): void; onClose(code: number, final: boolean): void },
   ): () => void;
 }

@@ -211,14 +211,32 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
       }),
     markRead: (a: Auth, id: string) => empty('POST', `/api/m/v1/notifications/${id}/read`, { token: a.accessToken }),
 
-    events: (a: Auth, handlers) => {
+    events: (a, handlers) => {
+      const current = typeof a === 'function' ? a : () => a;
+      // A `1008` close is the server refusing the token (expired) or the proof: the next attempt
+      // first runs the same single-flighted renewal as an HTTP `TOKEN_EXPIRED`. When it yields
+      // nothing (locked), the attempt goes on with whatever `current()` gives — or throws, which
+      // the socket treats as a dropped connection — and keeps backing off; never final.
+      let renewBeforeNext = false;
+      const headers = async () => {
+        let fresh: string | null = null;
+        if (renewBeforeNext) {
+          renewBeforeNext = false;
+          fresh = await renewOnce();
+          if (fresh) latestToken = fresh;
+        }
+        return socketHeaders(fresh ? { accessToken: fresh } : current());
+      };
       const socket = createChatSocket({
         transport: o.transport,
         url: wsUrl(o.baseUrl),
-        headers: () => socketHeaders(a),
+        headers,
         onEvent: handlers.onEvent,
         onReconnect: handlers.onReconnect,
-        onClose: handlers.onClose,
+        onClose: (code, final) => {
+          if (code === 1008) renewBeforeNext = true;
+          handlers.onClose(code, final);
+        },
         onServerTime: learnFrom,
         backoff: o.backoff,
         foreground: o.foreground,

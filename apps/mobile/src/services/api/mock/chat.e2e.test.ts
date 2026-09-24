@@ -319,3 +319,21 @@ it('controls.dropSocket closes with 1006 and is not final; controls.revokeNow cl
 
   collected.close();
 });
+
+it('an upgrade with an expired token closes 1008 (not final); a revoked device closes 4401 (final)', async () => {
+  const clock = { value: START };
+  const { api, auth, transport } = await enrol(clock);
+
+  clock.value += 15 * 60_000 + 1; // past the access token's lifetime
+  const expired = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  expect(expired.closes).toEqual([{ code: 1008, final: false }]);
+  expired.close();
+
+  clock.value = START; // the token is live again: only the device's status can refuse it now
+  transport.controls.revokeNow();
+  const revoked = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  expect(revoked.closes).toEqual([{ code: 4401, final: true }]);
+  revoked.close();
+});

@@ -17,7 +17,8 @@ export interface CreateChatSocketOptions {
    * on every (re)connect (design spec §4.1 — no replay). */
   onReconnect(): void;
   /** `final` is true for the two terminal close codes (`4400`, `4401`): the socket is not
-   * reopened. Any other code reconnects with backoff. */
+   * reopened. Any other code — `1008` included, an expired token or a bad proof — reconnects
+   * with backoff, building fresh `headers()` for the attempt. */
   onClose(code: number, final: boolean): void;
   /** `hello.server_time` (ISO), fed into the client's clock-skew correction exactly like a
    * `Date` response header — the latest reading wins. */

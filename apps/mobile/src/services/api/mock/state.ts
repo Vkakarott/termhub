@@ -225,14 +225,13 @@ export function verifyAuth(state: MockState, ctx: { headers: Record<string, stri
   return { device, token: bearer };
 }
 
-/** Revokes one device: deletes its tokens and closes its (and only its) sockets with `4401`
- * (P§5.5, P§5.7). Shared by the brute-force lockout path and `controls.revokeNow`. */
+/** Revokes one device and closes its (and only its) sockets with `4401` (P§5.5, P§5.7). Its
+ * token rows stay, as on the server until the hourly purge: `verifyAuth` refuses them by the
+ * device's status, so the next call — or socket upgrade — answers `DEVICE_REVOKED` rather than
+ * an expired token. Shared by the brute-force lockout path and `controls.revokeNow`. */
 export function revokeDevice(state: MockState, device: MockDevice, reason: string): void {
   device.status = 'revoked';
   device.revokedReason = reason;
-  for (const [token, row] of state.tokens) {
-    if (row.deviceId === device.id) state.tokens.delete(token);
-  }
   for (const socket of state.sockets) {
     if (socket.deviceId === device.id) socket.close(4401);
   }

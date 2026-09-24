@@ -4,7 +4,7 @@
 // `handlers/chat.ts`'s `broadcast`, `revokeDevice` and `controls.dropSocket` can all reach it.
 import { canonicalHtu } from '../contract';
 import type { Transport, TransportSocket, TransportSocketHandlers } from '../transport';
-import { type MockSocket, type MockState, verifyAuth } from './state';
+import { type MockSocket, type MockState, verifyAuth, WireError } from './state';
 
 function lowerCaseHeaders(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -38,8 +38,10 @@ export function createFakeSocketConnect(state: MockState, now: () => number): Tr
           htu: canonicalHtu(httpOrigin(url), '/ws/m/chat'),
           now: now(),
         });
-      } catch {
-        handlers.onClose(4401);
+      } catch (e) {
+        // `4401` means revoked and nothing else (the app wipes on it); an expired or unknown token
+        // or a bad proof is a policy violation the client recovers from by renewing its token.
+        handlers.onClose(e instanceof WireError && e.code === 'DEVICE_REVOKED' ? 4401 : 1008);
         return;
       }
 

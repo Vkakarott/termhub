@@ -279,6 +279,15 @@ it('a 4400 close asks to update the app', async () => {
   expect(chat.getState()).toMatchObject({ connected: false, error: 'Atualize o app para continuar.' });
 });
 
+it('a 1008 close only marks the socket disconnected: the session is not wiped', async () => {
+  const { chat, store, handlers } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  handlers().onClose(1008, false);
+  await flush();
+  expect(chat.getState()).toMatchObject({ connected: false, error: null, activeProject: 'p-termhub' });
+  expect(store.getState().phase).toBe('unlocked');
+});
+
 it('a 4401 close wipes the session, and sessionEnded resets the store and closes the socket', async () => {
   const { chat, store, controls } = await setup();
   await chat.getState().loadProjects();

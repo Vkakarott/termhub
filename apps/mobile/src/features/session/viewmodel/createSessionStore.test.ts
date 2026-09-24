@@ -276,8 +276,13 @@ it('leave revokes and wipes: vault empty, phase new; a DEVICE_REVOKED from any c
     const ctx2 = setup();
     await enrol(ctx2);
     ctx2.controls.revokeNow();
-    // the token is gone: the client renews, and the renewal meets DEVICE_REVOKED
-    await expect(ctx2.api.me(ctx2.store.getState().auth())).rejects.toBeInstanceOf(ApiError);
+    // the token row stays (P§5.7): the call itself answers DEVICE_REVOKED, and the store that made
+    // it routes the error through handleApiError, which wipes
+    const err = await ctx2.api.me(ctx2.store.getState().auth()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ code: 'DEVICE_REVOKED' });
+    expect(ctx2.store.getState().handleApiError(err)).toBe(true);
+    await flush();
     expect(secureItems.size).toBe(0);
     expect(ctx2.store.getState()).toMatchObject({ phase: 'new', notice: 'Este aparelho foi removido da sua conta.' });
     expect(ended).toHaveBeenCalledTimes(2);

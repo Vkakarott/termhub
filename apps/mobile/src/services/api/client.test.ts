@@ -278,4 +278,67 @@ describe('events()', () => {
 
     close();
   });
+
+  it('reads the current token from an auth factory on every connect', async () => {
+    const { transport, connects, handlers } = connectableTransport();
+    const api = make(transport);
+    let token = 'tok-1';
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    try {
+      const close = api.events(() => ({ accessToken: token }), { onEvent: jest.fn(), onReconnect: jest.fn(), onClose: jest.fn() });
+      await waitFor(() => connects.length > 0);
+      expect(connects[0]!.headers.Authorization).toBe('Bearer tok-1');
+
+      token = 'tok-2';
+      handlers().onClose(1006);
+      await jest.advanceTimersByTimeAsync(1000);
+      await waitFor(() => connects.length > 1);
+      expect(connects[1]!.headers.Authorization).toBe('Bearer tok-2');
+      close();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a 1008 close renews the token once before the next attempt, which carries the new bearer', async () => {
+    const { transport, connects, handlers } = connectableTransport();
+    const onTokenExpired = jest.fn(async () => 'fresh' as string | null);
+    const api = make(transport, onTokenExpired);
+    const onClose = jest.fn();
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    try {
+      const close = api.events({ accessToken: 'stale' }, { onEvent: jest.fn(), onReconnect: jest.fn(), onClose });
+      await waitFor(() => connects.length > 0);
+
+      handlers().onClose(1008);
+      expect(onClose).toHaveBeenCalledWith(1008, false);
+      await jest.advanceTimersByTimeAsync(1000);
+      await waitFor(() => connects.length > 1);
+      expect(onTokenExpired).toHaveBeenCalledTimes(1);
+      expect(connects[1]!.headers.Authorization).toBe('Bearer fresh');
+      close();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a 1008 close with no renewal (locked) keeps backing off and never reports a final close', async () => {
+    const { transport, connects, handlers } = connectableTransport();
+    const onTokenExpired = jest.fn(async () => null as string | null);
+    const api = make(transport, onTokenExpired);
+    const onClose = jest.fn();
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    try {
+      const close = api.events({ accessToken: 'stale' }, { onEvent: jest.fn(), onReconnect: jest.fn(), onClose });
+      await waitFor(() => connects.length > 0);
+      handlers().onClose(1008);
+      await jest.advanceTimersByTimeAsync(1000);
+      await waitFor(() => connects.length > 1);
+      expect(onTokenExpired).toHaveBeenCalledTimes(1);
+      expect(onClose).not.toHaveBeenCalledWith(expect.anything(), true);
+      close();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

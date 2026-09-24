@@ -208,6 +208,21 @@ it('4401 closes with final=true and never reconnects', async () => {
   socket.close();
 });
 
+it('a 1008 close (expired token or bad proof) is not final: the next attempt builds fresh headers', async () => {
+  let n = 0;
+  const headers = jest.fn(async () => ({ Authorization: `Bearer tok-${++n}`, DPoP: `proof-${n}` }));
+  const { connections, onClose, socket } = harness({ headers });
+  await flush();
+  connections[0]!.handlers.onClose(1008);
+
+  expect(onClose).toHaveBeenCalledWith(1008, false);
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(headers).toHaveBeenCalledTimes(2);
+  expect(connections).toHaveLength(2);
+  expect(connections[1]!.headers).toEqual({ Authorization: 'Bearer tok-2', DPoP: 'proof-2' });
+  socket.close();
+});
+
 it('a non-terminal close reports onClose(code, false) before scheduling a reconnect', async () => {
   const { connections, onClose, socket } = harness();
   await flush();
