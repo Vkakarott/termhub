@@ -154,7 +154,7 @@ In SecureStore (`vault`): `key.private` (software key only), `pin.wrapped`, `pin
 
 ### 5.3 PIN and activation (P§4.5, P§5.4)
 
-`createPin(pin, confirm)`: six digits, equal twice, no other rule (a PIN is a server-counted secret, not a password). Then `activate`: a DPoP proof with no `ath` over `POST /devices/activate`, the API returns `pin_secret`; the store derives `salt = random(16)`, `k = scrypt(pin, salt, { N: 2**15, r: 8, p: 1, dkLen: 32 })`, stores `wrapped = pin_secret XOR k` and `salt` in the vault, keeps `pin_secret` in memory, stores the access token in memory, and moves to `unlocked`. Abandoning the PIN screen keeps `pin_setup` in memory only; the request expires on the server side by itself.
+`createPin(pin, confirm)`: six digits, equal twice, no other rule (a PIN is a server-counted secret, not a password). Then `activate`: a DPoP proof with no `ath` over `POST /devices/activate`, the API returns `pin_secret`; the store derives `salt = random(16)`, `k = scrypt(pin, salt, { N: 2**14, r: 8, p: 1, dkLen: 32 })` (async; 2**14 keeps the JS thread free for well under a second on a phone — the strength is on the server, P§5.4), stores `wrapped = pin_secret XOR k` and `salt` in the vault, keeps `pin_secret` in memory, stores the access token in memory, and moves to `unlocked`. Abandoning the PIN screen keeps `pin_setup` in memory only; the request expires on the server side by itself.
 
 ### 5.4 Unlock and renewal (P§5.3, P§5.5)
 
