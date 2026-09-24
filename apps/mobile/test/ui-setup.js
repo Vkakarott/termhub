@@ -33,3 +33,7 @@ jest.mock('@pagopa/io-react-native-crypto', () => ({
   getPublicKeyFixed: jest.fn(),
   deleteKey: jest.fn(),
 }));
+
+// The real renderer is ESM-heavy (markdown-it and friends); under jest its children are rendered
+// as plain text, tagged so a test can tell a markdown bubble from a plain one.
+jest.mock('react-native-markdown-display', () => require('./fakes/markdown'));
