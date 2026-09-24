@@ -44,6 +44,7 @@ export function OfficePage() {
       machines.map((m) => ({
         id: m.id,
         name: m.name,
+        subtitle: m.subtitle,
         // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with
         // an `online` field: only an explicit 'offline' darkens a block and shows the banner.
         online: statuses[m.id] !== 'offline',

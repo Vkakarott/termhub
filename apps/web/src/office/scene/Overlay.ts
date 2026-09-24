@@ -181,6 +181,11 @@ class Sign {
     this.detail.x = x;
   }
 
+  /** Top of the detail line: 0 right under the name, lower when a subclass puts a line in between. */
+  protected set detailY(y: number) {
+    this.detail.y = y;
+  }
+
   /** Hidden once its anchor leaves the viewport, or half a sign stays glued to the screen edge. */
   place(view: View, screen: { width: number; height: number }): void {
     const x = view.x + this.world.x * view.scale;
@@ -228,16 +233,24 @@ const MACHINE_LIFT = 32;
 const MIN_SIGN_SCALE = 0.72;
 /** Room between the notice and the counter when the sign carries both. */
 const DETAIL_GAP = 4;
+/** Room between the subtitle line and the detail line under it. */
+const SUBTITLE_GAP = 1;
 
-/** The sign over a block's front corner: the machine's name, its notice and how many need you. */
+/**
+ * The sign over a block's front corner: the machine's name, its subtitle (the owner's own line,
+ * office only — the public city's model never has one) and, under them, its notice and how many
+ * need you.
+ */
 export class MachineSign extends Sign {
   /** its own text: the counter is the one thing an offline machine must NOT say quietly */
   private readonly count = new Text({ text: '', style: text(11, ATTENTION) });
+  private readonly subtitle = new Text({ text: '', style: text(12, 0xc3c8d4) });
 
   constructor(world: { x: number; y: number }, model: MachineModel) {
     super(world, 16, MACHINE_LIFT);
     this.count.anchor.set(0.5, 0);
-    this.root.addChild(this.count);
+    this.subtitle.anchor.set(0.5, 0);
+    this.root.addChild(this.subtitle, this.count);
     this.root.zIndex = SIGN_Z.machine;
     this.apply(model);
   }
@@ -246,6 +259,12 @@ export class MachineSign extends Sign {
     const counter = model.needsYou > 0 ? needsYouText(model.needsYou) : '';
     const notice = model.notice ? NOTICE[model.notice] : '';
     this.count.text = counter;
+    this.subtitle.text = model.subtitle ?? '';
+    this.subtitle.alpha = model.lit ? 1 : 0.6;
+    // notice and counter go under the subtitle when there is one
+    const lineY = model.subtitle ? this.subtitle.height + SUBTITLE_GAP : 0;
+    this.detailY = lineY;
+    this.count.y = lineY;
     // the separator belongs to the notice, so it dims with it
     this.write(model.label, notice ? [counter ? `${notice} ·` : notice] : [], false, model.lit);
     // notice and counter are two texts on one line: centre the pair, not each half
