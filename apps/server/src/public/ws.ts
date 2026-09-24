@@ -200,7 +200,7 @@ export function registerPublicWs(
         // same memo (never probing), so a visitor never sees the two public surfaces disagree.
         const probe = change.tab.kind === 'terminal' ? cachedTmuxProbe(change.machine_id) : undefined;
         const alive = publicAlive(change.tab, probe);
-        ws.send(JSON.stringify(toPublicRobotFrame({ machineId: change.machine_id, projectId: change.project_id, tab: change.tab, alive, progress: null })));
+        ws.send(JSON.stringify(toPublicRobotFrame({ projectId: change.project_id, tab: change.tab, alive, progress: null })));
       });
       /** Drops the rooms a change touches and hangs up if there were any: the page re-reads the snapshot. */
       const live = (change: PublicRoomsChange) => {
@@ -218,7 +218,7 @@ export function registerPublicWs(
       for (const change of early) live(change);
       const offGone = publicBus.subscribeTabRemoved((removed) => {
         if (!rooms.has(roomKey(removed.project_id, removed.machine_id)) || ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify(toPublicRobotGone({ machineId: removed.machine_id, projectId: removed.project_id, tabId: removed.tab_id })));
+        ws.send(JSON.stringify(toPublicRobotGone({ projectId: removed.project_id, tabId: removed.tab_id })));
       });
       const teardown = () => {
         offTab();

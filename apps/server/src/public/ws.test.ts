@@ -9,7 +9,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Project, Tab, User } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
-import { publicId, publicRoomId } from './public-id.js';
+import { publicId } from './public-id.js';
 
 // The tmux memo both public surfaces read (never probe). Cold by default, like a fresh process.
 const { memo } = vi.hoisted(() => ({ memo: { current: undefined as { reachable: boolean; sessions: Set<string> } | undefined } }));
@@ -124,7 +124,7 @@ describe('registerPublicWs', () => {
     });
   }
 
-  function nextMessage(client: WebSocket, opts: { timeoutMs?: number } = {}): Promise<{ type: string; building: string; room: string; robot: Record<string, unknown> }> {
+  function nextMessage(client: WebSocket, opts: { timeoutMs?: number } = {}): Promise<{ type: string; building: string; robot: Record<string, unknown> }> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('timeout waiting for message')), opts.timeoutMs ?? 500);
       client.once('message', (data) => {
@@ -164,13 +164,15 @@ describe('registerPublicWs', () => {
     if (server) await shutdown(server);
   });
 
-  it('sends a change on a published room', async () => {
+  it('sends a change of a published building', async () => {
     const client = await connect('/ws/public/pedro');
     monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const frame = await nextMessage(client);
     expect(frame.type).toBe('robot');
     expect(frame.robot.activity).toBe('reading');
     expect(frame.robot.id).toBe(publicId('tab', 't1'));
+    expect(frame.building).toBe(publicId('project', 'p1'));
+    expect(Object.keys(frame).sort()).toEqual(['building', 'robot', 'type']);
     expect(JSON.stringify(frame)).not.toContain('th-t1');
     client.terminate();
   });
@@ -182,9 +184,9 @@ describe('registerPublicWs', () => {
     expect(JSON.stringify(frame)).not.toContain('subtitle');
     expect(JSON.stringify(frame)).not.toContain('MacBook do escritório secreto');
     client.terminate();
-    const snapRepos = { ...repos, tabs: { listByProjectsOnMachine: async () => [tab()] } } as unknown as Repositories;
+    const snapRepos = { ...repos, tabs: { listByProjects: async () => [tab()] } } as unknown as Repositories;
     const city = (await readPublicCity(snapRepos, 'pedro'))!;
-    expect(city.buildings.map((b) => b.id)).toContain(publicId('machine', 'm1'));
+    expect(city.buildings.map((b) => b.id)).toContain(publicId('project', 'p1'));
     expect(JSON.stringify(city)).not.toContain('subtitle');
     expect(JSON.stringify(city)).not.toContain('MacBook do escritório secreto');
   });
@@ -202,17 +204,16 @@ describe('registerPublicWs', () => {
     await expect(closed(client)).resolves.toBe(true);
   });
 
-  // Merge ruling 2: a room is (published project, machine the owner owns); the robots of one
-  // project on two machines are two rooms, each frame naming its own.
-  it('splits one project\'s robots per (project, machine) room', async () => {
+  // city-by-project §1: a project's robots on each of the owner's machines are one building
+  it("sends a project's robots from each of the owner's machines under its one building", async () => {
     const client = await connect('/ws/public/pedro');
     monitorBus.publish({ tab: tab({ id: 't1', machine_id: 'm1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const onM1 = await nextMessage(client);
     monitorBus.publish({ tab: tab({ id: 't7', machine_id: 'm3' }), project_id: 'p1', machine_id: 'm3', owner_id: 'u1' });
     const onM3 = await nextMessage(client);
-    expect(onM1).toMatchObject({ building: publicId('machine', 'm1'), room: publicRoomId('p1', 'm1') });
-    expect(onM3).toMatchObject({ building: publicId('machine', 'm3'), room: publicRoomId('p1', 'm3') });
-    expect(onM1.room).not.toBe(onM3.room);
+    expect(onM1.building).toBe(publicId('project', 'p1'));
+    expect(onM3.building).toBe(onM1.building);
+    expect(onM3.robot.id).toBe(publicId('tab', 't7'));
     client.terminate();
   });
 
@@ -324,7 +325,7 @@ describe('registerPublicWs', () => {
     monitorBus.publish({ tab: tab({ id: 't3', project_id: 'p3' }), project_id: 'p3', machine_id: 'm1', owner_id: 'u1' });
     monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const frame = await nextMessage(client);
-    expect(frame.room).toBe(publicRoomId('p1', 'm1'));
+    expect(frame.building).toBe(publicId('project', 'p1'));
     expect(frame.robot.id).toBe(publicId('tab', 't1'));
     await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
     client.terminate();
@@ -349,10 +350,9 @@ describe('registerPublicWs', () => {
         users: { findByNickname: async () => pedro },
         machines: { list: async () => [{ id: 'm1', name: 'M', owner_id: 'u1' }] },
         projects: { list: async () => [p1] },
-        projectMachines: { listByProjects: async () => [{ project_id: 'p1', machine_id: 'm1' }] },
-        tabs: { listByProjectsOnMachine: async () => [t] },
+        tabs: { listByProjects: async () => [t] },
       } as unknown as Repositories;
-      return (await readPublicCity(snapRepos, 'pedro'))!.buildings[0]!.rooms[0]!.robots[0]!.alive;
+      return (await readPublicCity(snapRepos, 'pedro'))!.buildings[0]!.robots[0]!.alive;
     };
     const client = await connect('/ws/public/pedro');
     const cases: [typeof memo.current, Tab][] = [
@@ -434,12 +434,12 @@ describe('registerPublicWs', () => {
     a.terminate();
   });
 
-  it('tells the visitor a tab of a published room is gone, by its public id only', async () => {
+  it('tells the visitor a tab of a published building is gone, by its public id only', async () => {
     const client = await connect('/ws/public/pedro');
     publicBus.publishTabRemoved({ tab_id: 't9', project_id: 'p2', machine_id: 'm1' }); // a private room: nothing
     publicBus.publishTabRemoved({ tab_id: 't1', project_id: 'p1', machine_id: 'm1' });
     const frame = await nextMessage(client);
-    expect(frame).toEqual({ type: 'robot_gone', building: publicId('machine', 'm1'), room: publicRoomId('p1', 'm1'), robot: publicId('tab', 't1') });
+    expect(frame).toEqual({ type: 'robot_gone', building: publicId('project', 'p1'), robot: publicId('tab', 't1') });
     await expect(nextMessage(client, { timeoutMs: 200 })).rejects.toThrow(/timeout/);
     client.terminate();
   });

@@ -6,14 +6,15 @@ import { publicBus } from './bus.js';
 import { effectiveShortUrl } from './short-link.js';
 
 /**
- * The one read behind both public surfaces: a nickname, the machines its owner has, and only the
- * projects that are published (see `resolvePublicRooms`). This never initiates an ssh round-trip: it only ever *reads* the
- * tmux memo the office already warms (`cachedTmuxProbe`), and never calls the probing function that
- * would refresh it. When the memo is warm, a terminal tab's `alive` is real tmux session membership.
- * When it is cold — nobody with the office open recently, or the memo expired — the tab's own last
- * reported state stands in for it instead (a tab that never reported one reads as not alive):
- * an anonymous visitor must not be able to make this server dial an unreachable machine and wait out
- * its timeout, and a cold city showing every desk empty would be a worse answer than a stale one.
+ * The one read behind both public surfaces: a nickname, and only the projects its owner published
+ * (see `resolvePublicCity`), each one a building. This never initiates an ssh round-trip: it only
+ * ever *reads* the tmux memo the office already warms (`cachedTmuxProbe`), and never calls the
+ * probing function that would refresh it. When the memo is warm, a terminal tab's `alive` is real
+ * tmux session membership. When it is cold — nobody with the office open recently, or the memo
+ * expired — the tab's own last reported state stands in for it instead (a tab that never reported
+ * one reads as not alive): an anonymous visitor must not be able to make this server dial an
+ * unreachable machine and wait out its timeout, and a cold city showing every desk empty would be a
+ * worse answer than a stale one.
  */
 /**
  * Whether a robot sits at its desk, by the one rule both public surfaces use — the snapshot here and
@@ -22,6 +23,26 @@ import { effectiveShortUrl } from './short-link.js';
  */
 export function publicAlive(tab: Pick<Tab, 'kind' | 'state' | 'tmux_session'>, probe: TmuxProbe | undefined): boolean {
   return probe ? probe.reachable && !!tab.tmux_session && probe.sessions.has(tab.tmux_session) : tab.kind === 'terminal' && tab.state !== null;
+}
+
+/**
+ * What a person's city is made of (city-by-project §2.4): their published, non-archived projects
+ * (by name) — each one a building, even with no agent at all — and the machines THEY own, the only
+ * ones whose tabs may be shown. A tab of a published project on a machine somebody else owns is
+ * never a robot: its name is not the owner's to publish. Both lists are empty when nothing is
+ * published, and the machines are not even read then.
+ */
+export async function resolvePublicCity(repos: Pick<Repositories, 'machines' | 'projects'>, ownerId: string): Promise<{ projects: Project[]; machines: Machine[] }> {
+  // An empty id must never reach `projects.list`, where a falsy owner could read as "no filter".
+  if (!ownerId) return { projects: [], machines: [] };
+  // `projects.list({ owner })` already filters by owner; checked again here because this is the line
+  // that decides whose work goes on the street.
+  const projects = (await repos.projects.list({ owner: ownerId })).filter((p) => p.owner_id === ownerId && p.is_public && p.status !== 'archived');
+  if (projects.length === 0) return { projects: [], machines: [] };
+  // machines.list(ownerId) already filters by owner; checked again because this is the one line
+  // standing between a published project and somebody else's machine
+  const machines = (await repos.machines.list(ownerId)).filter((m) => m.owner_id === ownerId);
+  return { projects, machines };
 }
 
 /**
@@ -60,26 +81,22 @@ export const roomKey = (projectId: string, machineId: string): string => `${proj
 export async function readPublicCity(repos: Repositories, nickname: string): Promise<PublicCity | undefined> {
   const owner = await repos.users.findByNickname(nickname);
   if (!owner) return undefined;
-  const resolved = await resolvePublicRooms(repos, owner.id);
-  if (resolved.length === 0) return undefined;
-  const buildings = [];
-  for (const { machine, projects } of resolved) {
-    // only the tabs that run on this machine: the same project's tabs on another machine are
-    // another room (or, on a machine this person does not own, no room at all)
-    const tabs = await repos.tabs.listByProjectsOnMachine(projects.map((p) => p.id), machine.id);
-    const probe = tabs.some((t) => t.kind === 'terminal') ? cachedTmuxProbe(machine) : undefined;
-    buildings.push({
-      machine,
-      rooms: projects.map((project) => ({
-        project,
-        tabs: tabs.filter((t) => t.project_id === project.id).map((tab) => ({
-          tab,
-          alive: publicAlive(tab, probe),
-          progress: null,
-        })),
-      })),
-    });
-  }
+  const { projects, machines } = await resolvePublicCity(repos, owner.id);
+  if (projects.length === 0) return undefined;
+  const owned = new Set(machines.map((m) => m.id));
+  // one read for every building, then only what runs on a machine the owner owns
+  const tabs = (await repos.tabs.listByProjects(projects.map((p) => p.id))).filter((t) => owned.has(t.machine_id));
+  const probes = new Map<string, TmuxProbe | undefined>();
+  const probeOf = (machineId: string): TmuxProbe | undefined => {
+    if (!probes.has(machineId)) probes.set(machineId, cachedTmuxProbe(machineId));
+    return probes.get(machineId);
+  };
+  const buildings = projects.map((project) => ({
+    project,
+    robots: tabs
+      .filter((t) => t.project_id === project.id)
+      .map((tab) => ({ tab, alive: publicAlive(tab, tab.kind === 'terminal' ? probeOf(tab.machine_id) : undefined), progress: null })),
+  }));
   // A saved link keeps showing even if the key is removed later: it still works; the key gates creation and editing only.
   return toPublicCity({ nickname, ownerName: owner.name, shortUrl: effectiveShortUrl(owner), buildings });
 }
@@ -110,7 +127,7 @@ export function clearPublicCityMemo(): void {
  * `readPublicCity` behind a short in-process memo, keyed by the normalized nickname: what every
  * anonymous surface calls (the snapshot, the `/city/*` document and the link-preview card). A link
  * click costs the document plus the snapshot, and an unfurl the document plus the card — without
- * this, each of those was a full read (2 + 2N queries for N machines), with nothing in front of it.
+ * this, each of those was a full read (four queries), with nothing in front of it.
  * Concurrent callers share one in-flight read; a failed read is never kept.
  */
 export function readPublicCityCached(repos: Repositories, nickname: string, opts: { now?: () => number } = {}): Promise<PublicCity | undefined> {
