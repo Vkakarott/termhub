@@ -96,6 +96,12 @@ export function createDispatcher(deps: DispatcherDeps): (msg: ServerMessage, soc
         // The kind is the only thing this dispatcher knows about either channel. Errors are
         // reported to the server by the manager itself (open_error / closed); this catch only
         // guards against an unexpected rejection leaking as an unhandled promise.
+        if (msg.kind === 'tcp') {
+          // Temporary until Task 3 adds the tcp channel manager (protocol-only in this task):
+          // refuse cleanly rather than route tcp-shaped params into the pty manager.
+          socket.sendControl({ type: 'open_error', ch: msg.ch, error: { code: 'internal', message: 'tcp channels not implemented yet' } });
+          break;
+        }
         const opened = msg.kind === 'claude' ? deps.claude.open(msg.ch, msg.params, socket) : deps.pty.open(msg.ch, msg.params, socket);
         opened.catch((err) => {
           deps.log(`${msg.kind}.open rejected unexpectedly`, { ch: msg.ch, error: err instanceof Error ? err.message : String(err) });

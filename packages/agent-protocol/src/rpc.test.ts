@@ -1,9 +1,45 @@
 import { describe, expect, it } from 'vitest';
-import { RPC, RPC_METHODS, rpcErrorSchema } from './rpc.js';
+import { RPC, RPC_METHODS, isWdaPort, rpcErrorSchema } from './rpc.js';
 
 describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
-    expect([...RPC_METHODS].sort()).toEqual(['agent.update', 'ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect']);
+    expect([...RPC_METHODS].sort()).toEqual([
+      'agent.update', 'ai.credential', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe',
+      'sim.boot', 'sim.list', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect',
+      'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail', 'wda.setup.start', 'wda.setup.state',
+    ]);
+  });
+  it('validates udids and the WDA port ranges for the simulator rpcs', () => {
+    const good = 'BAE07EB5-8CA8-4C6E-819A-A0240342FF00';
+    expect(RPC['sim.boot'].params.safeParse({ udid: good }).success).toBe(true);
+    expect(RPC['sim.boot'].params.safeParse({ udid: 'x; rm -rf /' }).success).toBe(false);
+    expect(RPC['sim.boot'].timeoutMs).toBe(60_000);
+    expect(RPC['sim.list'].timeoutMs).toBe(15_000);
+    expect(RPC['wda.runner.start'].params.safeParse({ udid: good, wda_port: 8137, mjpeg_port: 9137 }).success).toBe(true);
+    expect(RPC['wda.runner.start'].params.safeParse({ udid: good, wda_port: 8200, mjpeg_port: 9137 }).success).toBe(false);
+    expect(RPC['wda.runner.start'].params.safeParse({ udid: good, wda_port: 8137, mjpeg_port: 22 }).success).toBe(false);
+    expect(RPC['wda.runner.tail'].params.safeParse({ udid: good, lines: 30 }).success).toBe(true);
+    expect(RPC['wda.runner.tail'].params.safeParse({ udid: good, lines: 0 }).success).toBe(false);
+    expect(RPC['wda.runner.tail'].params.safeParse({ udid: good, lines: 201 }).success).toBe(false);
+    expect(RPC['wda.setup.start'].params.safeParse({}).success).toBe(true);
+    expect(RPC['wda.setup.state'].result.safeParse({ stdout: 'STATE:idle\n' }).success).toBe(true);
+    expect(RPC['wda.runner.alive'].result.safeParse({ alive: true }).success).toBe(true);
+    expect(RPC['wda.runner.tail'].result.safeParse({ lines: ['a', 'b'] }).success).toBe(true);
+    expect(RPC['wda.runner.start'].result.safeParse({ started: false }).success).toBe(true);
+  });
+  it('knows the WDA port ranges', () => {
+    expect(isWdaPort(8100)).toBe(true);
+    expect(isWdaPort(8199)).toBe(true);
+    expect(isWdaPort(9100)).toBe(true);
+    expect(isWdaPort(9199)).toBe(true);
+    expect(isWdaPort(8099)).toBe(false);
+    expect(isWdaPort(8200)).toBe(false);
+    expect(isWdaPort(9200)).toBe(false);
+    expect(isWdaPort(80)).toBe(false);
+    expect(isWdaPort(8100.5)).toBe(false);
+  });
+  it('accepts refused as an rpc error code', () => {
+    expect(rpcErrorSchema.safeParse({ code: 'refused', message: 'nothing listening' }).success).toBe(true);
   });
   it('validates agent.update versions', () => {
     expect(RPC['agent.update'].params.safeParse({ version: '0.2.1' }).success).toBe(true);

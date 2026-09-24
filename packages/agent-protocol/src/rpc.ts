@@ -8,6 +8,18 @@ export const machinePath = z.string().min(1).max(4096).refine((p) => (p === '~' 
 export const pasteName = z.string().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/);
 export const aiProvider = z.enum(['claude', 'chatgpt', 'gemini', 'antigravity']);
 
+/** Simulator UDID as `xcrun simctl` prints it. The same regex lives in `@termhub/machine-ops`
+ *  (`simulator.ts`), which cannot depend on this package; the server's tests assert they match. */
+export const UDID_RE = /^[A-Fa-f0-9-]{8,64}$/;
+export const udid = z.string().regex(UDID_RE);
+
+/** The only ports a `tcp` channel may reach on the machine: the WDA runner's HTTP (8100–8199) and MJPEG
+ *  (9100–9199) ports, derived from the UDID in `apps/server/src/simulator/ports.ts`. Loopback only. */
+export function isWdaPort(port: number): boolean {
+  return Number.isInteger(port) && ((port >= 8100 && port <= 8199) || (port >= 9100 && port <= 9199));
+}
+export const wdaPort = z.number().int().refine(isWdaPort, 'port outside the WDA ranges');
+
 /** The only keys a terminal tool may press (spec §4.2): no arbitrary key names reach tmux. */
 export const TMUX_KEYS = ['Enter', 'Escape', 'C-c', 'Up', 'Down', 'Tab', 'y', 'n', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
 export const tmuxKey = z.enum(TMUX_KEYS);
@@ -16,8 +28,9 @@ export type TmuxKey = (typeof TMUX_KEYS)[number];
 export const TEXT_MAX_CHARS = 4000;
 
 export const rpcErrorSchema = z.object({
-  /** `failed`: the operation ran on the machine and `message` says why it failed, in words meant for the user. */
-  code: z.enum(['eperm', 'notfound', 'no_tmux', 'timeout', 'invalid', 'internal', 'failed']),
+  /** `failed`: the operation ran on the machine and `message` says why it failed, in words meant for the user.
+   *  `refused`: a `tcp` open found nothing listening on the port (ECONNREFUSED). */
+  code: z.enum(['eperm', 'notfound', 'no_tmux', 'timeout', 'invalid', 'internal', 'failed', 'refused']),
   message: z.string().max(2000),
   path: z.string().max(4096).optional(),
 });
@@ -78,6 +91,18 @@ export const RPC = {
     z.object({ installed_version: z.string(), restart: z.enum(['service', 'manual']) }),
     180_000,
   ),
+  /** iOS simulator over the agent (spec 2026-09-24): raw `xcrun simctl list devices -j`; the server parses it. */
+  'sim.list': def(z.object({}), z.object({ stdout: z.string() }), 15_000),
+  /** `xcrun simctl boot`; combined output, "already booted" included — the server decides what is a failure. */
+  'sim.boot': def(z.object({ udid }), z.object({ stdout: z.string() }), 60_000),
+  /** Starts the WDA runner in its tmux session; `started: false` when the session already existed. */
+  'wda.runner.start': def(z.object({ udid, wda_port: wdaPort, mjpeg_port: wdaPort }), z.object({ started: z.boolean() }), 10_000),
+  'wda.runner.alive': def(z.object({ udid }), z.object({ alive: z.boolean() })),
+  'wda.runner.tail': def(z.object({ udid, lines: z.number().int().min(1).max(200) }), z.object({ lines: z.array(z.string()) })),
+  /** Writes ~/.termhub/wda-setup.sh and runs it in tmux `termhub-wda-setup`; `started: false` when already running. */
+  'wda.setup.start': def(z.object({}), z.object({ started: z.boolean() }), 10_000),
+  /** Raw `STATE:/VERSION:/TAIL:` text; `parseSetupOutput` on the server reads it. */
+  'wda.setup.state': def(z.object({}), z.object({ stdout: z.string() })),
 } as const;
 
 export type RpcMethod = keyof typeof RPC;

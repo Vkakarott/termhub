@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentMessage, claudeOpenParams, helloMessage, ptyOpenParams, serverMessage, PROTOCOL_VERSION } from './messages.js';
+import { agentMessage, CAPABILITY_SIM, claudeOpenParams, helloMessage, ptyOpenParams, serverMessage, tcpOpenParams, PROTOCOL_VERSION } from './messages.js';
 
 const hello = { type: 'hello', protocol: PROTOCOL_VERSION, agent_version: '0.1.0', os: 'macos', arch: 'arm64', hostname: 'mini', tmux: true, tools: ['claude', 'gh'] };
 
@@ -73,5 +73,31 @@ describe('control messages', () => {
       expect(agentMessage.parse({ type: 'closed', ch: 3, code: 1, reason: 'cli_rejected' })).toMatchObject({ reason: 'cli_rejected' }));
     it('rejects closed with an unknown reason', () =>
       expect(agentMessage.safeParse({ type: 'closed', ch: 3, code: 1, reason: 'oops' }).success).toBe(false));
+  });
+
+  describe('the tcp channel kind', () => {
+    it('parses an open with kind: tcp and a port inside the WDA ranges', () => {
+      const msg = serverMessage.parse({ type: 'open', ch: 2, kind: 'tcp', params: { port: 8137 } });
+      if (msg.type !== 'open' || msg.kind !== 'tcp') throw new Error('expected an open/tcp message');
+      expect(tcpOpenParams.parse(msg.params)).toEqual({ port: 8137 });
+      expect(serverMessage.safeParse({ type: 'open', ch: 2, kind: 'tcp', params: { port: 9199 } }).success).toBe(true);
+    });
+    it('rejects ports outside 8100-8199 / 9100-9199, a host field, and non-integers', () => {
+      for (const port of [22, 80, 8099, 8200, 9099, 9200, 65535, 8137.5]) {
+        expect(serverMessage.safeParse({ type: 'open', ch: 2, kind: 'tcp', params: { port } }).success).toBe(false);
+      }
+      expect(tcpOpenParams.safeParse({ port: 8137, host: '10.0.0.1' }).success).toBe(false);
+      expect(tcpOpenParams.safeParse({}).success).toBe(false);
+    });
+    it('rejects kind: tcp paired with pty-shaped params', () => {
+      expect(serverMessage.safeParse({ type: 'open', ch: 2, kind: 'tcp', params: { session: 'a', cwd: '/tmp', cols: 80, rows: 24 } }).success).toBe(false);
+    });
+    it('accepts reset as a closed reason', () => {
+      expect(agentMessage.safeParse({ type: 'closed', ch: 2, code: null, reason: 'reset' }).success).toBe(true);
+    });
+    it('names the sim capability', () => {
+      expect(CAPABILITY_SIM).toBe('sim');
+      expect(helloMessage.parse({ ...hello, capabilities: ['claude', 'sim'] }).capabilities).toContain('sim');
+    });
   });
 });

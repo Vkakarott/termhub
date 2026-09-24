@@ -7,12 +7,19 @@ import * as paste from './paste.js';
 import * as tmux from './tmux.js';
 import * as tools from './tools.js';
 import * as update from './update.js';
+import { RpcFailure } from '../exec.js';
 
 // Re-exported so callers of this module (dispatch.ts) don't need to know RpcFailure actually
 // lives in exec.ts — from the RPC layer's point of view it belongs here.
 export { RpcFailure } from '../exec.js';
 
 export type Handlers = { [M in RpcMethod]: (params: RpcParams<M>) => Promise<RpcResult<M>> };
+
+// Placeholder for the sim/wda handlers until Task 4 (`apps/agent/src/rpc/sim.ts`, `wda.ts`)
+// implements them: keeps `handlers` a total map over `RpcMethod` in the meantime.
+const notYet = async (): Promise<never> => {
+  throw new RpcFailure('internal', 'not implemented');
+};
 
 export const handlers: Handlers = {
   'tmux.list': tmux.list,
@@ -30,4 +37,11 @@ export const handlers: Handlers = {
   'hooks.install': hooks.install,
   'hooks.uninstall': hooks.uninstall,
   'agent.update': update.update,
+  'sim.list': notYet,
+  'sim.boot': notYet,
+  'wda.runner.start': notYet,
+  'wda.runner.alive': notYet,
+  'wda.runner.tail': notYet,
+  'wda.setup.start': notYet,
+  'wda.setup.state': notYet,
 };
