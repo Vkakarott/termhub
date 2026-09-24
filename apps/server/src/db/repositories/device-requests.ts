@@ -69,6 +69,13 @@ const mapDeviceRequest = (r: PrismaDeviceRequest): DeviceRequest => ({
   activate_until: r.activateUntil?.toISOString() ?? null,
 });
 
+const expirableWhere = (now: Date) => ({
+  OR: [
+    { status: 'pending', expiresAt: { lte: now } },
+    { status: 'approved', activateUntil: { lte: now } },
+  ],
+});
+
 export class DeviceRequestsRepository {
   constructor(private db: PrismaClient) {}
 
@@ -149,17 +156,15 @@ export class DeviceRequestsRepository {
     return count === 1;
   }
 
+  /** The rows `expireOlderThan(now)` is about to flip, so the caller can write their trail first. */
+  async listExpirable(now: Date): Promise<DeviceRequest[]> {
+    const rows = await this.db.deviceRequest.findMany({ where: expirableWhere(now) });
+    return rows.map(mapDeviceRequest);
+  }
+
   /** Pending rows past `expires_at` and approved rows past `activate_until` both become expired. */
   async expireOlderThan(now: Date): Promise<number> {
-    const { count } = await this.db.deviceRequest.updateMany({
-      where: {
-        OR: [
-          { status: 'pending', expiresAt: { lte: now } },
-          { status: 'approved', activateUntil: { lte: now } },
-        ],
-      },
-      data: { status: 'expired' },
-    });
+    const { count } = await this.db.deviceRequest.updateMany({ where: expirableWhere(now), data: { status: 'expired' } });
     return count;
   }
 

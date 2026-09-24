@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alphaInviteMail } from './templates.js';
+import { alphaInviteMail, deviceRequestMail } from './templates.js';
 
 const opts = { appUrl: 'https://app.termhub.dev', communityUrl: 'https://77a.it/comunidadetermhub', firstName: 'Ana' };
 
@@ -39,5 +39,24 @@ describe('alphaInviteMail', () => {
     const mail = alphaInviteMail('ana@gmail.com', { ...opts, locale: 'pt', firstName: '<b>Ana</b>' });
     expect(mail.html).not.toContain('<b>Ana</b>');
     expect(mail.html).toContain('&lt;b&gt;Ana&lt;/b&gt;');
+  });
+});
+
+describe('deviceRequestMail', () => {
+  it('carries the formatted code, the place, the link and escapes the device label', () => {
+    const appUrl = 'https://app.termhub.dev';
+    const mail = deviceRequestMail('a@b.c', { deviceLabel: 'iPhone 15 (iOS 18.1)', code: 'K7F2QD', place: 'São Paulo, BR', ip: '1.2.3.4', appUrl });
+    expect(mail.to).toBe('a@b.c');
+    expect(mail.subject).toBe('Um aparelho pede acesso à sua conta');
+    expect(mail.text).toContain('K7F-2QD');
+    expect(mail.html).toContain('K7F-2QD');
+    expect(mail.text).toContain('São Paulo, BR');
+    expect(mail.text).toContain('1.2.3.4');
+    expect(mail.text).toContain('iPhone 15 (iOS 18.1)');
+    expect(mail.text).toContain(`${appUrl}/settings/devices`);
+    expect(mail.html).toContain(`href="${appUrl}/settings/devices"`);
+    const evil = deviceRequestMail('a@b.c', { deviceLabel: '<script>x</script>', code: 'K7F2QD', place: 'X', ip: '1.2.3.4', appUrl });
+    expect(evil.html).not.toContain('<script>');
+    expect(evil.html).toContain('&lt;script&gt;');
   });
 });

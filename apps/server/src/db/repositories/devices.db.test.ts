@@ -141,6 +141,10 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('DevicesRepository / Devic
     const staleApproved = await makeRequest(userId, { status: 'approved', activateUntil: new Date(now.getTime() - 1000) });
     const freshApproved = await makeRequest(userId, { status: 'approved', activateUntil: new Date(now.getTime() + HOUR) });
 
+    const listed = (await requests.listExpirable(now)).map((r) => r.id);
+    expect(listed).toEqual(expect.arrayContaining([stalePending.id, staleApproved.id]));
+    expect(listed).not.toContain(freshApproved.id);
+
     const count = await requests.expireOlderThan(now);
     expect(count).toBe(2);
 

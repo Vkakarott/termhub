@@ -47,6 +47,10 @@ export interface User {
   invited_at: string | null;
   /** last successful sign-in; null = never signed in */
   last_login_at: string | null;
+  /** store-review mode: while in the future, this account's device requests are auto-approved */
+  review_enabled_until: string | null;
+  /** the admin who last set review_enabled_until */
+  review_enabled_by: string | null;
   created_at: string;
 }
 
@@ -234,6 +238,8 @@ export const mapUser = (u: PrismaUser): User => ({
   role_id: u.roleId,
   invited_at: u.invitedAt?.toISOString() ?? null,
   last_login_at: u.lastLoginAt?.toISOString() ?? null,
+  review_enabled_until: u.reviewEnabledUntil?.toISOString() ?? null,
+  review_enabled_by: u.reviewEnabledBy,
   created_at: u.createdAt.toISOString(),
 });
 
