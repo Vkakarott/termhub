@@ -173,6 +173,11 @@ export function missingTabIds(snapshot: ModelSnapshot | null, monitorTabIds: str
 export interface MachineEntry {
   id: string;
   name: string;
+  /**
+   * The owner's own line under the name, office only: the public city's adapter (city/api.ts) never
+   * sets it, since the public payload does not carry one.
+   */
+  subtitle?: string | null;
   /** false only when the status check said so; "still checking" counts as online */
   online: boolean;
   snapshot: ModelSnapshot | null;
@@ -186,6 +191,8 @@ export interface MachineModel {
   id: string;
   name: string;
   label: string;
+  /** the sign's second line, cut to fit; null when the machine has none */
+  subtitle: string | null;
   /** false for an offline machine: its block is drawn dark */
   lit: boolean;
   notice: MachineNotice;
@@ -199,6 +206,7 @@ export interface CityModel {
 }
 
 const MACHINE_LABEL_MAX = 28;
+const MACHINE_SUBTITLE_MAX = 32;
 const EMPTY_FLOOR: FloorModel = { rooms: [], needsYou: 0 };
 
 /**
@@ -213,7 +221,8 @@ export function buildCityModel(entries: MachineEntry[], liveTab: (tabId: string)
       if (!snapshot && !e.failed) return null;
       const floor = snapshot ? buildModel(snapshot, liveTab) : EMPTY_FLOOR;
       const notice: MachineNotice = !snapshot ? 'error' : !e.online ? 'offline' : !snapshot.reachable ? 'silent' : null;
-      return { id: e.id, name: e.name, label: truncateLabel(e.name, MACHINE_LABEL_MAX), lit: e.online, notice, needsYou: floor.needsYou, floor };
+      const subtitle = e.subtitle?.trim() ? truncateLabel(e.subtitle, MACHINE_SUBTITLE_MAX) : null;
+      return { id: e.id, name: e.name, label: truncateLabel(e.name, MACHINE_LABEL_MAX), subtitle, lit: e.online, notice, needsYou: floor.needsYou, floor };
     })
     .filter((m): m is MachineModel => m !== null)
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));

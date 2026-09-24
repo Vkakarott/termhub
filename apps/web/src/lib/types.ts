@@ -64,6 +64,8 @@ export interface ResourcePermissions {
 export interface Machine {
   id: string;
   name: string;
+  /** optional line under the name ("MacBook do escritório"); private: the public city never carries it */
+  subtitle: string | null;
   host: string | null;
   ssh_user: string | null;
   ssh_port: number;

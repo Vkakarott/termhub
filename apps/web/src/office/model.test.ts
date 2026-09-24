@@ -213,6 +213,13 @@ describe('missingTabIds', () => {
 describe('buildCityModel', () => {
   const entry = (id: string, over: Partial<MachineEntry> = {}): MachineEntry => ({ id, name: id, online: true, snapshot: snap([room(`${id}-p`, [tab(`${id}-t`)])], id), failed: false, ...over });
 
+  it('carries a machine\'s subtitle for the second line of its sign, cut to fit, and null without one', () => {
+    const city = buildCityModel([entry('a', { subtitle: 'MacBook do escritório' }), entry('b'), entry('c', { subtitle: 'um subtítulo comprido demais para caber na placa do prédio' })], none);
+    expect(city.machines.map((m) => m.subtitle)).toEqual(['MacBook do escritório', null, truncateLabel('um subtítulo comprido demais para caber na placa do prédio', 32)]);
+    expect(city.machines[2].subtitle!.endsWith('…')).toBe(true);
+    expect(buildCityModel([entry('d', { subtitle: '   ' })], none).machines[0].subtitle).toBeNull();
+  });
+
   it('orders machines by name and leaves out the ones still loading', () => {
     const city = buildCityModel([entry('zeta'), entry('alpha'), entry('mid', { snapshot: null })], none);
     expect(city.machines.map((m) => m.id)).toEqual(['alpha', 'zeta']);

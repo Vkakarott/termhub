@@ -6,6 +6,7 @@ import { MachineForm } from './MachineForm';
 import { STATUS_DOT } from '../lib/machine-status';
 import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
+import { machineLabel } from '../lib/machine-labels';
 import type { ProjectInput } from '../lib/types';
 import { api, ApiError } from '../lib/api';
 import { isValidProjectKey, suggestProjectKey } from '../lib/project-key';
@@ -178,7 +179,7 @@ export function ProjectForm({ open, onClose, machineId }: Props) {
                     <label className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-sm hover:bg-bg-3">
                       <input type="radio" name="project-machine" checked={machine === m.id} onChange={() => pickMachine(m.id)} />
                       <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[status]}`} />
-                      <span className="truncate">{m.name}</span>
+                      <span className="truncate">{machineLabel(m)}</span>
                     </label>
                   </li>
                 );

@@ -41,6 +41,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
   const [owners, setOwners] = useState<User[] | null>(null);
   const [ownerId, setOwnerId] = useState<string>(machine?.owner_id ?? '');
   const [name, setName] = useState(machine?.name ?? '');
+  const [subtitle, setSubtitle] = useState(machine?.subtitle ?? '');
   const type = machine?.type ?? 'agent';
   const [host, setHost] = useState(machine?.host ?? '');
   const [sshUser, setSshUser] = useState(machine?.ssh_user ?? '');
@@ -69,7 +70,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
       if (!machine) {
         // Bypass the data context here: we need the one-time `agent_token` from the raw
         // response, not just the created Machine it returns.
-        const res = await api.machines.create({ name, type: 'agent', is_local: isLocal });
+        const res = await api.machines.create({ name, subtitle: subtitle.trim() || null, type: 'agent', is_local: isLocal });
         if (res.machine.is_local) claimLocal(res.machine.id);
         await refresh();
         if (res.agent_token) setEnrollment({ machine: res.machine, token: res.agent_token });
@@ -78,6 +79,7 @@ export function MachineForm({ open, onClose, machine }: Props) {
       }
       const input: Partial<Machine> = {
         name,
+        subtitle: subtitle.trim() || null,
         type,
         host: type === 'ssh' ? host : null,
         ssh_user: type === 'ssh' ? sshUser || null : null,
@@ -133,8 +135,20 @@ export function MachineForm({ open, onClose, machine }: Props) {
     <Modal title={machine ? 'Editar máquina' : 'Nova máquina'} open={open} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="label">Nome</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="ex.: meu notebook" />
+          <label className="label" htmlFor="machine-name">Nome</label>
+          <input id="machine-name" className="input" value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="ex.: meu notebook" />
+        </div>
+        <div>
+          <label className="label" htmlFor="machine-subtitle">Subtítulo</label>
+          <input
+            id="machine-subtitle"
+            className="input"
+            value={subtitle}
+            onChange={(e) => setSubtitle(e.target.value)}
+            maxLength={80}
+            placeholder="ex.: MacBook do escritório"
+          />
+          <p className="mt-1 text-[11px] text-fg-dim">Opcional. Aparece só para você, nunca na cidade pública.</p>
         </div>
         {machine && type !== 'agent' && (
           <p className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">

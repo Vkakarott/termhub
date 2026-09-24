@@ -37,6 +37,7 @@ export type MachineSumAggregateOutputType = {
 export type MachineMinAggregateOutputType = {
   id: string | null
   name: string | null
+  subtitle: string | null
   host: string | null
   sshUser: string | null
   sshPort: number | null
@@ -56,6 +57,7 @@ export type MachineMinAggregateOutputType = {
 export type MachineMaxAggregateOutputType = {
   id: string | null
   name: string | null
+  subtitle: string | null
   host: string | null
   sshUser: string | null
   sshPort: number | null
@@ -75,6 +77,7 @@ export type MachineMaxAggregateOutputType = {
 export type MachineCountAggregateOutputType = {
   id: number
   name: number
+  subtitle: number
   host: number
   sshUser: number
   sshPort: number
@@ -105,6 +108,7 @@ export type MachineSumAggregateInputType = {
 export type MachineMinAggregateInputType = {
   id?: true
   name?: true
+  subtitle?: true
   host?: true
   sshUser?: true
   sshPort?: true
@@ -124,6 +128,7 @@ export type MachineMinAggregateInputType = {
 export type MachineMaxAggregateInputType = {
   id?: true
   name?: true
+  subtitle?: true
   host?: true
   sshUser?: true
   sshPort?: true
@@ -143,6 +148,7 @@ export type MachineMaxAggregateInputType = {
 export type MachineCountAggregateInputType = {
   id?: true
   name?: true
+  subtitle?: true
   host?: true
   sshUser?: true
   sshPort?: true
@@ -250,6 +256,7 @@ export type MachineGroupByArgs<ExtArgs extends runtime.Types.Extensions.Internal
 export type MachineGroupByOutputType = {
   id: string
   name: string
+  subtitle: string | null
   host: string | null
   sshUser: string | null
   sshPort: number
@@ -293,6 +300,7 @@ export type MachineWhereInput = {
   NOT?: Prisma.MachineWhereInput | Prisma.MachineWhereInput[]
   id?: Prisma.StringFilter<"Machine"> | string
   name?: Prisma.StringFilter<"Machine"> | string
+  subtitle?: Prisma.StringNullableFilter<"Machine"> | string | null
   host?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshUser?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshPort?: Prisma.IntFilter<"Machine"> | number
@@ -320,6 +328,7 @@ export type MachineWhereInput = {
 export type MachineOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  subtitle?: Prisma.SortOrderInput | Prisma.SortOrder
   host?: Prisma.SortOrderInput | Prisma.SortOrder
   sshUser?: Prisma.SortOrderInput | Prisma.SortOrder
   sshPort?: Prisma.SortOrder
@@ -351,6 +360,7 @@ export type MachineWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.MachineWhereInput[]
   NOT?: Prisma.MachineWhereInput | Prisma.MachineWhereInput[]
   name?: Prisma.StringFilter<"Machine"> | string
+  subtitle?: Prisma.StringNullableFilter<"Machine"> | string | null
   host?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshUser?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshPort?: Prisma.IntFilter<"Machine"> | number
@@ -377,6 +387,7 @@ export type MachineWhereUniqueInput = Prisma.AtLeast<{
 export type MachineOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  subtitle?: Prisma.SortOrderInput | Prisma.SortOrder
   host?: Prisma.SortOrderInput | Prisma.SortOrder
   sshUser?: Prisma.SortOrderInput | Prisma.SortOrder
   sshPort?: Prisma.SortOrder
@@ -405,6 +416,7 @@ export type MachineScalarWhereWithAggregatesInput = {
   NOT?: Prisma.MachineScalarWhereWithAggregatesInput | Prisma.MachineScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"Machine"> | string
   name?: Prisma.StringWithAggregatesFilter<"Machine"> | string
+  subtitle?: Prisma.StringNullableWithAggregatesFilter<"Machine"> | string | null
   host?: Prisma.StringNullableWithAggregatesFilter<"Machine"> | string | null
   sshUser?: Prisma.StringNullableWithAggregatesFilter<"Machine"> | string | null
   sshPort?: Prisma.IntWithAggregatesFilter<"Machine"> | number
@@ -425,6 +437,7 @@ export type MachineScalarWhereWithAggregatesInput = {
 export type MachineCreateInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -451,6 +464,7 @@ export type MachineCreateInput = {
 export type MachineUncheckedCreateInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -477,6 +491,7 @@ export type MachineUncheckedCreateInput = {
 export type MachineUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -503,6 +518,7 @@ export type MachineUpdateInput = {
 export type MachineUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -529,6 +545,7 @@ export type MachineUncheckedUpdateInput = {
 export type MachineCreateManyInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -549,6 +566,7 @@ export type MachineCreateManyInput = {
 export type MachineUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -568,6 +586,7 @@ export type MachineUpdateManyMutationInput = {
 export type MachineUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -598,6 +617,7 @@ export type MachineOrderByRelationAggregateInput = {
 export type MachineCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  subtitle?: Prisma.SortOrder
   host?: Prisma.SortOrder
   sshUser?: Prisma.SortOrder
   sshPort?: Prisma.SortOrder
@@ -622,6 +642,7 @@ export type MachineAvgOrderByAggregateInput = {
 export type MachineMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  subtitle?: Prisma.SortOrder
   host?: Prisma.SortOrder
   sshUser?: Prisma.SortOrder
   sshPort?: Prisma.SortOrder
@@ -641,6 +662,7 @@ export type MachineMaxOrderByAggregateInput = {
 export type MachineMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
+  subtitle?: Prisma.SortOrder
   host?: Prisma.SortOrder
   sshUser?: Prisma.SortOrder
   sshPort?: Prisma.SortOrder
@@ -806,6 +828,7 @@ export type MachineUpdateOneWithoutChatConversationsNestedInput = {
 export type MachineCreateWithoutOwnerInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -831,6 +854,7 @@ export type MachineCreateWithoutOwnerInput = {
 export type MachineUncheckedCreateWithoutOwnerInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -885,6 +909,7 @@ export type MachineScalarWhereInput = {
   NOT?: Prisma.MachineScalarWhereInput | Prisma.MachineScalarWhereInput[]
   id?: Prisma.StringFilter<"Machine"> | string
   name?: Prisma.StringFilter<"Machine"> | string
+  subtitle?: Prisma.StringNullableFilter<"Machine"> | string | null
   host?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshUser?: Prisma.StringNullableFilter<"Machine"> | string | null
   sshPort?: Prisma.IntFilter<"Machine"> | number
@@ -905,6 +930,7 @@ export type MachineScalarWhereInput = {
 export type MachineCreateWithoutProjectLinksInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -930,6 +956,7 @@ export type MachineCreateWithoutProjectLinksInput = {
 export type MachineUncheckedCreateWithoutProjectLinksInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -971,6 +998,7 @@ export type MachineUpdateToOneWithWhereWithoutProjectLinksInput = {
 export type MachineUpdateWithoutProjectLinksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -996,6 +1024,7 @@ export type MachineUpdateWithoutProjectLinksInput = {
 export type MachineUncheckedUpdateWithoutProjectLinksInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1021,6 +1050,7 @@ export type MachineUncheckedUpdateWithoutProjectLinksInput = {
 export type MachineCreateWithoutTabsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1046,6 +1076,7 @@ export type MachineCreateWithoutTabsInput = {
 export type MachineUncheckedCreateWithoutTabsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1087,6 +1118,7 @@ export type MachineUpdateToOneWithWhereWithoutTabsInput = {
 export type MachineUpdateWithoutTabsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1112,6 +1144,7 @@ export type MachineUpdateWithoutTabsInput = {
 export type MachineUncheckedUpdateWithoutTabsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1137,6 +1170,7 @@ export type MachineUncheckedUpdateWithoutTabsInput = {
 export type MachineCreateWithoutHookInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1162,6 +1196,7 @@ export type MachineCreateWithoutHookInput = {
 export type MachineUncheckedCreateWithoutHookInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1203,6 +1238,7 @@ export type MachineUpdateToOneWithWhereWithoutHookInput = {
 export type MachineUpdateWithoutHookInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1228,6 +1264,7 @@ export type MachineUpdateWithoutHookInput = {
 export type MachineUncheckedUpdateWithoutHookInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1253,6 +1290,7 @@ export type MachineUncheckedUpdateWithoutHookInput = {
 export type MachineCreateWithoutAiAccountsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1278,6 +1316,7 @@ export type MachineCreateWithoutAiAccountsInput = {
 export type MachineUncheckedCreateWithoutAiAccountsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1319,6 +1358,7 @@ export type MachineUpdateToOneWithWhereWithoutAiAccountsInput = {
 export type MachineUpdateWithoutAiAccountsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1344,6 +1384,7 @@ export type MachineUpdateWithoutAiAccountsInput = {
 export type MachineUncheckedUpdateWithoutAiAccountsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1369,6 +1410,7 @@ export type MachineUncheckedUpdateWithoutAiAccountsInput = {
 export type MachineCreateWithoutUploadsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1394,6 +1436,7 @@ export type MachineCreateWithoutUploadsInput = {
 export type MachineUncheckedCreateWithoutUploadsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1435,6 +1478,7 @@ export type MachineUpdateToOneWithWhereWithoutUploadsInput = {
 export type MachineUpdateWithoutUploadsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1460,6 +1504,7 @@ export type MachineUpdateWithoutUploadsInput = {
 export type MachineUncheckedUpdateWithoutUploadsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1485,6 +1530,7 @@ export type MachineUncheckedUpdateWithoutUploadsInput = {
 export type MachineCreateWithoutChatConversationsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1510,6 +1556,7 @@ export type MachineCreateWithoutChatConversationsInput = {
 export type MachineUncheckedCreateWithoutChatConversationsInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1551,6 +1598,7 @@ export type MachineUpdateToOneWithWhereWithoutChatConversationsInput = {
 export type MachineUpdateWithoutChatConversationsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1576,6 +1624,7 @@ export type MachineUpdateWithoutChatConversationsInput = {
 export type MachineUncheckedUpdateWithoutChatConversationsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1601,6 +1650,7 @@ export type MachineUncheckedUpdateWithoutChatConversationsInput = {
 export type MachineCreateManyOwnerInput = {
   id: string
   name: string
+  subtitle?: string | null
   host?: string | null
   sshUser?: string | null
   sshPort?: number
@@ -1620,6 +1670,7 @@ export type MachineCreateManyOwnerInput = {
 export type MachineUpdateWithoutOwnerInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1645,6 +1696,7 @@ export type MachineUpdateWithoutOwnerInput = {
 export type MachineUncheckedUpdateWithoutOwnerInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1670,6 +1722,7 @@ export type MachineUncheckedUpdateWithoutOwnerInput = {
 export type MachineUncheckedUpdateManyWithoutOwnerInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
+  subtitle?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   host?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshUser?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sshPort?: Prisma.IntFieldUpdateOperationsInput | number
@@ -1756,6 +1809,7 @@ export type MachineCountOutputTypeCountChatConversationsArgs<ExtArgs extends run
 export type MachineSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   name?: boolean
+  subtitle?: boolean
   host?: boolean
   sshUser?: boolean
   sshPort?: boolean
@@ -1784,6 +1838,7 @@ export type MachineSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
 export type MachineSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   name?: boolean
+  subtitle?: boolean
   host?: boolean
   sshUser?: boolean
   sshPort?: boolean
@@ -1805,6 +1860,7 @@ export type MachineSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exten
 export type MachineSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   name?: boolean
+  subtitle?: boolean
   host?: boolean
   sshUser?: boolean
   sshPort?: boolean
@@ -1826,6 +1882,7 @@ export type MachineSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exten
 export type MachineSelectScalar = {
   id?: boolean
   name?: boolean
+  subtitle?: boolean
   host?: boolean
   sshUser?: boolean
   sshPort?: boolean
@@ -1843,7 +1900,7 @@ export type MachineSelectScalar = {
   createdAt?: boolean
 }
 
-export type MachineOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "host" | "sshUser" | "sshPort" | "type" | "os" | "capabilities" | "checkedAt" | "agentTokenHash" | "agentTokenCreatedAt" | "agentVersion" | "agentLastSeenAt" | "agentAutoUpdate" | "isLocal" | "ownerId" | "createdAt", ExtArgs["result"]["machine"]>
+export type MachineOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "subtitle" | "host" | "sshUser" | "sshPort" | "type" | "os" | "capabilities" | "checkedAt" | "agentTokenHash" | "agentTokenCreatedAt" | "agentVersion" | "agentLastSeenAt" | "agentAutoUpdate" | "isLocal" | "ownerId" | "createdAt", ExtArgs["result"]["machine"]>
 export type MachineInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   owner?: boolean | Prisma.Machine$ownerArgs<ExtArgs>
   projectLinks?: boolean | Prisma.Machine$projectLinksArgs<ExtArgs>
@@ -1878,6 +1935,10 @@ export type $MachinePayload<ExtArgs extends runtime.Types.Extensions.InternalArg
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     name: string
+    /**
+     * Optional line under the name ("MacBook do escritório"); private: the public city never carries it
+     */
+    subtitle: string | null
     host: string | null
     sshUser: string | null
     sshPort: number
@@ -2341,6 +2402,7 @@ export interface Prisma__MachineClient<T, Null = never, ExtArgs extends runtime.
 export interface MachineFieldRefs {
   readonly id: Prisma.FieldRef<"Machine", 'String'>
   readonly name: Prisma.FieldRef<"Machine", 'String'>
+  readonly subtitle: Prisma.FieldRef<"Machine", 'String'>
   readonly host: Prisma.FieldRef<"Machine", 'String'>
   readonly sshUser: Prisma.FieldRef<"Machine", 'String'>
   readonly sshPort: Prisma.FieldRef<"Machine", 'Int'>
