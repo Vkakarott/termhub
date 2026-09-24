@@ -37,7 +37,9 @@ function seedConversation(state: MockState, now: number, conversationId: string,
     id: conversationId,
     title: null,
     project_id: projectId,
-    machine_id: projectId ? 'm-jarvis' : null,
+    // Every conversation, including the account-wide chat, starts on `m-jarvis` — the only
+    // machine `setHost` can actually reach (`handlers/chat.ts`'s `hostFor`).
+    machine_id: 'm-jarvis',
     ai_account_id: null,
     archived_at: null,
     last_message_at: messages[messages.length - 1]?.created_at ?? null,

@@ -240,6 +240,35 @@ it('reset archives the conversation: chat() afterwards has no messages and a new
   expect(after.messages).toHaveLength(0);
 });
 
+it('setHost switches the account-wide chat between machines and accounts', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+
+  // Starts on the fixture default: m-jarvis, no account chosen.
+  const initial = await api.chat(auth, null);
+  expect(initial.host).toMatchObject({ kind: 'ready', machine: { id: 'm-jarvis', name: 'jarvis' }, account: { kind: 'default' } });
+
+  await api.setHost(auth, { machine_id: 'm-hulk' });
+  const offline = await api.chat(auth, null);
+  expect(offline.host).toEqual({ kind: 'offline', machine: { id: 'm-hulk', name: 'hulk' } });
+
+  await api.setHost(auth, { machine_id: 'm-jarvis', ai_account_id: 'acc-1' });
+  const ready = await api.chat(auth, null);
+  expect(ready.host).toEqual({
+    kind: 'ready',
+    machine: { id: 'm-jarvis', name: 'jarvis' },
+    configDir: null,
+    account: { kind: 'chosen', id: 'acc-1', label: 'Claude Pedro' },
+    sessionAtStake: false,
+  });
+
+  // A project's conversation is never touched by setHost: it keeps its own fixed m-jarvis.
+  const project = await api.chat(auth, 'p-termhub');
+  expect(project.host).toMatchObject({ kind: 'ready', machine: { id: 'm-jarvis', name: 'jarvis' } });
+
+  await expect(api.setHost(auth, { machine_id: 'm-does-not-exist' })).rejects.toMatchObject({ status: 404, code: 'MACHINE_NOT_FOUND' });
+});
+
 it('notifications list confirmations and finished runs newest first, with unread and markRead', async () => {
   const clock = { value: START };
   const { api, auth } = await enrol(clock);

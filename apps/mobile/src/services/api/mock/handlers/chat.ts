@@ -9,15 +9,33 @@ import { pushConfirmationNotification, pushReplyNotification } from './notificat
 
 const USER_ID = 'u1';
 
-/** `GET chat`'s `host` is always this (ruling 2): the mock has exactly one online, fully set-up
- * machine. */
-const READY_HOST: TChatHostState = {
-  kind: 'ready',
-  machine: { id: 'm-jarvis', name: 'jarvis' },
-  configDir: null,
-  account: { kind: 'default' },
-  sessionAtStake: false,
-};
+/** The fixed roster `GET chat/host/options` lists and `POST chat/host` validates against
+ * (design spec §4.2 "Chat": "hostOptions lists two machines"). `m-hulk` has no accounts because
+ * it is offline — the web/app never let you pick an account on a machine you cannot reach. */
+const HOST_MACHINES = [
+  { id: 'm-jarvis', name: 'jarvis', online: true, agentVersion: '0.4.4', accounts: [{ id: 'acc-1', label: 'Claude Pedro', configDir: null as string | null }] },
+  { id: 'm-hulk', name: 'hulk', online: false, agentVersion: '0.4.3', accounts: [] as Array<{ id: string; label: string; configDir: string | null }> },
+];
+
+/** Derives `GET chat`/`POST chat/host`'s `host` from the conversation's own stored
+ * `machine_id`/`ai_account_id` — defaulting to `m-jarvis`/no account when neither was ever set
+ * (fixtures seed exactly that). An offline machine (`m-hulk`) answers `offline`; a chosen account
+ * that no longer exists on the machine quietly falls back to `default`, same as never choosing
+ * one — there is no wire error for that case in P§6. */
+function hostFor(conversation: MockConversation): TChatHostState {
+  const machineId = conversation.machine_id ?? 'm-jarvis';
+  const machine = HOST_MACHINES.find((m) => m.id === machineId) ?? HOST_MACHINES[0]!;
+  if (!machine.online) return { kind: 'offline', machine: { id: machine.id, name: machine.name } };
+
+  const chosen = conversation.ai_account_id ? machine.accounts.find((a) => a.id === conversation.ai_account_id) : undefined;
+  return {
+    kind: 'ready',
+    machine: { id: machine.id, name: machine.name },
+    configDir: chosen?.configDir ?? null,
+    account: chosen ? { kind: 'chosen', id: chosen.id, label: chosen.label } : { kind: 'default' },
+    sessionAtStake: false,
+  };
+}
 
 function conversationFor(state: MockState, projectId: string | null): MockConversation {
   const id = state.activeConversation.get(projectId);
@@ -217,7 +235,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
         conversation,
         messages: state.messages.get(conversation.id) ?? [],
         actions: actionsFor(state, conversation.id),
-        host: READY_HOST,
+        host: hostFor(conversation),
       },
     };
   });
@@ -227,23 +245,32 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     return {
       status: 200,
       body: {
-        machines: [
-          { id: 'm-jarvis', name: 'jarvis', online: true, agent_version: '0.4.4', accounts: [{ id: 'acc-1', label: 'Claude Pedro', config_dir: null }] },
-          { id: 'm-hulk', name: 'hulk', online: false, agent_version: '0.4.3', accounts: [] },
-        ],
+        machines: HOST_MACHINES.map((m) => ({
+          id: m.id,
+          name: m.name,
+          online: m.online,
+          agent_version: m.agentVersion,
+          accounts: m.accounts.map((a) => ({ id: a.id, label: a.label, config_dir: a.configDir })),
+        })),
       },
     };
   });
 
   router.route('POST', '/api/m/v1/chat/host', (ctx) => {
     verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
-    setHostBody.parse(ctx.body);
-    const projectId = ctx.query.project ?? null;
-    const conversation = conversationFor(state, projectId);
-    // The mock's only online, fully set-up machine is `m-jarvis` — switching hosts here would
-    // have nowhere real to go, so the route just re-serves the same ready state the web's shape
-    // promises (`{ conversation, host }`); the client discards the body (ruling 2).
-    return { status: 200, body: { conversation, host: READY_HOST } };
+    const body = setHostBody.parse(ctx.body);
+    const machine = HOST_MACHINES.find((m) => m.id === body.machine_id);
+    if (!machine) throw new WireError(404, 'MACHINE_NOT_FOUND', 'Máquina não encontrada.');
+
+    // `client.ts`'s `setHost` carries no project targeting (no query, no `project_id` in the
+    // body) — it always applies to the account-wide chat, the only conversation the app lets you
+    // pick a host for (design spec §6: `HostSheet` is "for the account-wide chat"); every
+    // project's conversation keeps the fixed `m-jarvis` fixtures give it.
+    const conversation = conversationFor(state, null);
+    conversation.machine_id = machine.id;
+    conversation.ai_account_id = body.ai_account_id ?? null;
+
+    return { status: 200, body: { conversation, host: hostFor(conversation) } };
   });
 
   router.route('POST', '/api/m/v1/chat/messages', (ctx) => {
@@ -281,7 +308,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       id: randomId(10),
       title: null,
       project_id: projectId,
-      machine_id: projectId ? 'm-jarvis' : null,
+      machine_id: 'm-jarvis',
       ai_account_id: null,
       archived_at: null,
       last_message_at: null,
