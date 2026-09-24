@@ -14,6 +14,7 @@ COPY apps/agent/package.json apps/agent/
 COPY apps/concierge/package.json apps/concierge/
 COPY packages/agent-protocol/package.json packages/agent-protocol/
 COPY packages/machine-ops/package.json packages/machine-ops/
+COPY packages/mobile-api/package.json packages/mobile-api/
 COPY scripts/postinstall.mjs scripts/
 RUN npm ci
 
@@ -72,6 +73,8 @@ COPY --from=build --chown=app:app /app/packages/agent-protocol/package.json ./pa
 COPY --from=build --chown=app:app /app/packages/agent-protocol/dist ./packages/agent-protocol/dist
 COPY --from=build --chown=app:app /app/packages/machine-ops/package.json ./packages/machine-ops/
 COPY --from=build --chown=app:app /app/packages/machine-ops/dist ./packages/machine-ops/dist
+COPY --from=build --chown=app:app /app/packages/mobile-api/package.json ./packages/mobile-api/
+COPY --from=build --chown=app:app /app/packages/mobile-api/dist ./packages/mobile-api/dist
 COPY --chown=app:app docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod +x /app/docker/entrypoint.sh
 USER app

@@ -60,6 +60,8 @@ jobs:
         run: npm test -w @termhub/machine-ops
       - name: Testes claude-cli
         run: npm test -w @termhub/claude-cli
+      - name: Testes mobile-api
+        run: npm test -w @termhub/mobile-api
       - name: Typecheck server
         run: npm run typecheck -w @termhub/server
       - name: Typecheck + build web
