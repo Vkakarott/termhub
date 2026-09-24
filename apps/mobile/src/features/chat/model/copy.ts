@@ -36,6 +36,32 @@ export function errorSentence(code: ChatErrorCode): string {
   return FAILURE_LINE[code] ?? GENERIC_FAILURE;
 }
 
+/** Every `ChatErrorCode`, keyed so the compiler flags a code added to the union but not here. */
+const KNOWN_CODES: Record<ChatErrorCode, true> = {
+  RUNNER_FAILED: true,
+  TOKEN_FAILED: true,
+  CLI_MISSING: true,
+  CLI_REJECTED: true,
+  MISSING_SESSION: true,
+  RUN_FAILED: true,
+  KILLED: true,
+  HOST_GONE: true,
+  AGENT_TOO_OLD: true,
+  HOST_BUSY: true,
+};
+
+/** Narrows the contract's `error_code: string` (a newer server may send a code this bundle does
+ * not know) to the union `errorSentence` takes. */
+export function isChatErrorCode(code: string): code is ChatErrorCode {
+  return Object.prototype.hasOwnProperty.call(KNOWN_CODES, code);
+}
+
+/** The sentence under a stopped answer for whatever `error_code` the wire carried — the generic
+ * line for an unknown code, or for an answer left empty with no code at all. */
+export function failureSentence(code: string | null): string {
+  return code !== null && isChatErrorCode(code) ? errorSentence(code) : GENERIC_FAILURE;
+}
+
 /** Which login runs the conversation, in the clause `hostLine`'s `ready` sentence ends with
  * (`ChatHost.tsx`'s `accountClause`). `lost` reads as the default login too, same as the web: the
  * chosen account no longer applies to this machine, and the default is what is actually running —

@@ -1,0 +1,370 @@
+// The chat store (design spec §6): the projects list, one slot per conversation (keyed by project
+// id, `''` for the account-wide chat), the live buffer of the answer being written, sending,
+// decisions, reset and the host. A factory over injected services so tests drive it against the
+// mock transport and a real session store; `useChatStore.ts` builds the app's one instance.
+//
+// One socket for the whole app, opened by the first `open` and closed by `close()` or the end of
+// the session. The thread only ever grows through its events — `send` never appends locally — and
+// every `message` event re-reads the thread, the web's rule (no replay: a reconnect re-reads too).
+//
+// Every async action captures `generation` before its first `await` and drops its result when
+// `close()` (or the end of the session) bumped it meanwhile, so a late answer never repopulates a
+// store that was just reset.
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import type { SessionState } from '@/features/session/model/session.types';
+import { sessionEnded } from '@/features/shared/signals';
+import type { TChatProjectItem, THostOptionsResponse } from '@/services/api/contract';
+import { ApiError } from '@/services/api/errors';
+import type { Auth, MobileApi } from '@/services/api/types';
+import { mmkvStateStorage } from '@/services/storage';
+import { applyEvent, withStatus } from '../model/events';
+import { belongsTo } from '../model/filter';
+import { CHAT_MSG } from '../model/messages';
+import type { ChatAction, ChatConversation, ChatEvent, ChatHostState, ChatMessage } from '../model/types';
+
+export type ChatDecision = 'approve' | 'deny';
+
+/** What the chat store needs from the session store (read through a getter, so tests can inject
+ * a session store built over the same mock transport). */
+export type SessionApi = Pick<SessionState, 'auth' | 'handleApiError' | 'requestPinProof' | 'phase'>;
+
+export interface ChatDeps {
+  api: MobileApi;
+  session: () => SessionApi;
+}
+
+export interface ConversationSlot {
+  conversation: ChatConversation | null;
+  messages: ChatMessage[];
+  actions: ChatAction[];
+  host: ChatHostState | null;
+  /** A `GET chat` answered since this store started (a persisted slot is shown, but not loaded). */
+  loaded: boolean;
+  /** Why the last `GET chat` of this conversation failed. */
+  error: string | null;
+}
+
+export interface ChatState {
+  projects: TChatProjectItem[];
+  loadingProjects: boolean;
+  conversations: Record<string /* project id, or '' for the account-wide chat */, ConversationSlot>;
+  /** The open conversation's project: `null` is the account-wide chat, `undefined` is none. */
+  activeProject: string | null | undefined;
+  /** Events of the open conversation's answer being written, folded by `foldLive`. */
+  live: ChatEvent[];
+  connected: boolean;
+  sending: boolean;
+  decidingId: string | null;
+  hostOptions: THostOptionsResponse | null;
+  /** The last failed action of the screen on show, in pt-BR. */
+  error: string | null;
+
+  loadProjects(): Promise<void>;
+  open(projectId: string | null): Promise<void>;
+  /** The `app/chat/[id]` param: a conversation id (deep links), a project id, or `general`. */
+  openByRoute(id: string): Promise<void>;
+  close(): void;
+  /** Resolves `true` once the server accepted the message (`202`). */
+  send(text: string): Promise<boolean>;
+  decide(actionId: string, decision: ChatDecision): Promise<void>;
+  reset(): Promise<void>;
+  loadHostOptions(): Promise<void>;
+  setHost(machineId: string, aiAccountId?: string): Promise<void>;
+  /** The project of a conversation this store holds: `null` for the account-wide chat,
+   * `undefined` when the id is unknown here. */
+  conversationIdToProject(id: string): string | null | undefined;
+}
+
+type Data = Omit<ChatState, { [K in keyof ChatState]: ChatState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatState]>;
+
+type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'host'>;
+type Persisted = { projects: TChatProjectItem[]; conversations: Record<string, PersistedSlot> };
+
+const initialData = (): Data => ({
+  projects: [],
+  loadingProjects: false,
+  conversations: {},
+  activeProject: undefined,
+  live: [],
+  connected: false,
+  sending: false,
+  decidingId: null,
+  hostOptions: null,
+  error: null,
+});
+
+const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], host: null, loaded: false, error: null });
+const keyOf = (projectId: string | null): string => projectId ?? '';
+const projectOf = (key: string): string | null => (key === '' ? null : key);
+
+const isApiError = (e: unknown, code?: string): e is ApiError => e instanceof ApiError && (code === undefined || e.code === code);
+const isLocked = (e: unknown) => e instanceof Error && e.message === 'LOCKED';
+const isCancelled = (e: unknown) => e instanceof Error && e.message === 'CANCELLED';
+
+export function createChatStore(deps: ChatDeps) {
+  const { api, session } = deps;
+
+  let generation = 0;
+  let closeSocket: (() => void) | null = null;
+  /** Per conversation, the latest `GET chat` in flight: an older answer never overwrites a newer. */
+  const readSeq = new Map<string, number>();
+
+  // The socket reads the token at every (re)connect, so a reconnect after a renewal never presents
+  // the token the socket was first opened with. A locked session makes `headers()` throw, which
+  // the socket client treats as a dropped connection and retries.
+  const liveAuth: Auth = {
+    get accessToken() {
+      return session().auth().accessToken;
+    },
+  };
+
+  const store = create<ChatState>()(
+    persist(
+      (set, get) => {
+        const patchSlot = (key: string, patch: (slot: ConversationSlot) => Partial<ConversationSlot>) =>
+          set((s) => {
+            const current = s.conversations[key] ?? emptySlot();
+            return { conversations: { ...s.conversations, [key]: { ...current, ...patch(current) } } };
+          });
+
+        const activeKey = (): string | null => {
+          const projectId = get().activeProject;
+          return projectId === undefined ? null : keyOf(projectId);
+        };
+
+        /** A failed action: session-ending errors go to the session store; a locked session says
+         * nothing (the router is already showing the unlock screen); anything else shows its text. */
+        const fail = (gen: number, e: unknown): void => {
+          if (gen !== generation || isLocked(e)) return;
+          if (session().handleApiError(e)) return;
+          set({ error: isApiError(e) ? e.message : CHAT_MSG.network });
+        };
+
+        const reread = async (key: string): Promise<void> => {
+          const gen = generation;
+          const seq = (readSeq.get(key) ?? 0) + 1;
+          readSeq.set(key, seq);
+          const stale = () => gen !== generation || readSeq.get(key) !== seq;
+          try {
+            const res = await api.chat(session().auth(), projectOf(key));
+            if (stale()) return;
+            patchSlot(key, () => ({ conversation: res.conversation, messages: res.messages, actions: res.actions, host: res.host, loaded: true, error: null }));
+          } catch (e) {
+            if (stale() || isLocked(e) || session().handleApiError(e)) return;
+            patchSlot(key, () => ({ error: isApiError(e) ? e.message : CHAT_MSG.network }));
+          }
+        };
+
+        const onEvent = (e: ChatEvent): void => {
+          const key = activeKey();
+          if (key === null) return;
+          const current = get().conversations[key] ?? emptySlot();
+          if (!belongsTo(current.conversation?.id ?? null)(e)) return;
+          const before = { messages: current.messages, actions: current.actions, live: get().live };
+          const { slice, reread: mustReread } = applyEvent(before, e);
+          if (slice === before) return;
+          patchSlot(key, () => ({ messages: slice.messages, actions: slice.actions }));
+          set({ live: slice.live });
+          if (mustReread) void reread(key);
+        };
+
+        const ensureSocket = (): void => {
+          if (closeSocket) return;
+          const gen = generation;
+          closeSocket = api.events(liveAuth, {
+            onEvent: (e) => {
+              if (gen === generation) onEvent(e);
+            },
+            onReconnect: () => {
+              if (gen !== generation) return;
+              set({ connected: true, live: [] });
+              const key = activeKey();
+              if (key !== null) void reread(key);
+            },
+            onClose: (code, final) => {
+              if (gen !== generation) return;
+              set({ connected: false });
+              if (!final) return;
+              if (code === 4401) session().handleApiError(new ApiError(401, 'DEVICE_REVOKED', ''));
+              else if (code === 4400) set({ error: CHAT_MSG.updateApp });
+            },
+          });
+        };
+
+        return {
+          ...initialData(),
+
+          async loadProjects() {
+            const gen = generation;
+            set({ loadingProjects: true, error: null });
+            try {
+              const { projects } = await api.chatProjects(session().auth());
+              if (gen !== generation) return;
+              set({ projects, loadingProjects: false });
+            } catch (e) {
+              if (gen === generation) set({ loadingProjects: false });
+              fail(gen, e);
+            }
+          },
+
+          async open(projectId) {
+            const key = keyOf(projectId);
+            set((s) => ({
+              activeProject: projectId,
+              error: null,
+              // Another conversation's half-written answer has nothing to do with this one.
+              live: s.activeProject === projectId ? s.live : [],
+              conversations: s.conversations[key] ? s.conversations : { ...s.conversations, [key]: emptySlot() },
+            }));
+            // Locked: the persisted thread is all there is until the PIN.
+            if (session().phase !== 'unlocked') return;
+            ensureSocket();
+            await reread(key);
+          },
+
+          async openByRoute(id) {
+            const { conversationIdToProject, projects, open } = get();
+            const fromConversation = conversationIdToProject(id);
+            if (fromConversation !== undefined) return open(fromConversation);
+            if (projects.some((p) => p.id === id)) return open(id);
+            if (id === 'general') return open(null);
+            await open(null);
+            set({ error: CHAT_MSG.notFound });
+          },
+
+          close() {
+            generation++;
+            closeSocket?.();
+            closeSocket = null;
+            readSeq.clear();
+            set({ connected: false, live: [], activeProject: undefined, sending: false, decidingId: null });
+          },
+
+          async send(text) {
+            const body = text.trim();
+            const projectId = get().activeProject;
+            if (!body || projectId === undefined || get().sending) return false;
+            const gen = generation;
+            set({ sending: true, error: null });
+            try {
+              await api.sendMessage(session().auth(), { text: body, project_id: projectId });
+              if (gen === generation) set({ sending: false });
+              return true;
+            } catch (e) {
+              if (gen !== generation) return false;
+              set({ sending: false });
+              if (isApiError(e, 'CHAT_BUSY')) set({ error: CHAT_MSG.busy });
+              else fail(gen, e);
+              return false;
+            }
+          },
+
+          async decide(actionId, decision) {
+            const projectId = get().activeProject;
+            if (projectId === undefined || get().decidingId !== null) return;
+            const key = keyOf(projectId);
+            const gen = generation;
+            set({ decidingId: actionId, error: null });
+            try {
+              if (decision === 'deny') {
+                await api.decide(session().auth(), actionId, { decision: 'deny' });
+              } else {
+                const { challenge, pin_proof } = await session().requestPinProof(actionId);
+                if (gen !== generation) return;
+                await api.decide(session().auth(), actionId, { decision: 'approve', challenge, pin_proof });
+              }
+              if (gen !== generation) return;
+              // The `decision` event confirms it; this only saves a flicker back to "pending".
+              patchSlot(key, (slot) => ({ actions: withStatus(slot.actions, actionId, decision === 'approve' ? 'approved' : 'denied') }));
+            } catch (e) {
+              if (gen !== generation || isCancelled(e)) return;
+              if (isApiError(e) && e.status === 409) {
+                set({ error: CHAT_MSG.alreadyDecided });
+                void reread(key); // show how it was decided
+              } else {
+                // `PIN_INVALID` lands on the session store's state; the card stays pending.
+                fail(gen, e);
+              }
+            } finally {
+              if (gen === generation) set({ decidingId: null });
+            }
+          },
+
+          async reset() {
+            const projectId = get().activeProject;
+            if (projectId === undefined) return;
+            const key = keyOf(projectId);
+            const gen = generation;
+            set({ error: null });
+            try {
+              await api.reset(session().auth(), projectId);
+              if (gen !== generation) return;
+              set({ live: [] });
+              patchSlot(key, () => ({ messages: [], actions: [] }));
+              await reread(key);
+            } catch (e) {
+              fail(gen, e);
+            }
+          },
+
+          async loadHostOptions() {
+            const gen = generation;
+            try {
+              const hostOptions = await api.hostOptions(session().auth());
+              if (gen === generation) set({ hostOptions });
+            } catch (e) {
+              fail(gen, e);
+            }
+          },
+
+          async setHost(machineId, aiAccountId) {
+            const gen = generation;
+            set({ error: null });
+            try {
+              await api.setHost(session().auth(), { machine_id: machineId, ai_account_id: aiAccountId ?? null });
+              if (gen !== generation) return;
+              // The host is only ever chosen for the account-wide chat.
+              await reread(keyOf(null));
+            } catch (e) {
+              fail(gen, e);
+            }
+          },
+
+          conversationIdToProject(id) {
+            for (const [key, slot] of Object.entries(get().conversations)) {
+              if (slot.conversation?.id === id) return projectOf(key);
+            }
+            return undefined;
+          },
+        };
+      },
+      {
+        name: 'chat',
+        storage: createJSONStorage(() => mmkvStateStorage),
+        partialize: (s): Persisted => ({
+          projects: s.projects,
+          conversations: Object.fromEntries(
+            Object.entries(s.conversations).map(([key, c]) => [key, { conversation: c.conversation, messages: c.messages, actions: c.actions, host: c.host }]),
+          ),
+        }),
+        merge: (persisted, current) => {
+          const p = (persisted ?? {}) as Partial<Persisted>;
+          return {
+            ...current,
+            projects: p.projects ?? current.projects,
+            conversations: Object.fromEntries(Object.entries(p.conversations ?? {}).map(([key, c]) => [key, { ...emptySlot(), ...c }])),
+          };
+        },
+      },
+    ),
+  );
+
+  // Design spec §5.5: the end of a session resets every store and closes the event stream.
+  sessionEnded.subscribe(() => {
+    store.getState().close();
+    store.setState(initialData());
+  });
+
+  return store;
+}

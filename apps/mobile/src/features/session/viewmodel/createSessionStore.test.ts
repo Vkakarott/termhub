@@ -2,65 +2,17 @@
 // `MockTransport`, with the SecureStore / MMKV fakes of the `logic` project underneath.
 import * as SecureStore from 'expo-secure-store';
 import { sessionEnded } from '@/features/shared/signals';
-import { createHttpMobileApi } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
-import { createMockTransport } from '@/services/api/mock';
 import { fromB64url } from '@/services/crypto/encoding';
 import { decisionProof } from '@/services/crypto/pin';
-import { SoftwareDeviceKey } from '@/services/key/software';
 import { mmkv } from '@/services/storage';
 import { vault } from '@/services/vault';
-import { createSessionStore } from './createSessionStore';
+import { enrol, PIN, setupSession as setup } from '../../../../test/helpers/enrolled-session';
 
-const START = Date.parse('2026-09-24T12:00:00Z');
-const PIN = '123456';
 // Captured before any test installs fake timers: drains every pending microtask (a `void`-started wipe).
 const realSetImmediate = setImmediate;
 const flush = () => new Promise<void>((resolve) => realSetImmediate(() => resolve()));
 const secureItems = (SecureStore as unknown as { __items: Map<string, string> }).__items;
-
-type Store = ReturnType<typeof createSessionStore>;
-
-function setup() {
-  const clock = { value: START };
-  const now = () => clock.value;
-  const transport = createMockTransport({ latency: [0, 0], now });
-  const key = new SoftwareDeviceKey();
-  let store: Store | null = null;
-  const api = createHttpMobileApi({
-    transport,
-    baseUrl: 'https://termhub.dev',
-    app: 'ios/0.1.0+1',
-    key,
-    onTokenExpired: () => store!.getState().renewToken(),
-    now,
-  });
-  const localAuth = { available: jest.fn(async () => true), authenticate: jest.fn(async () => true) };
-  const make = () => createSessionStore({ api, key, vault, now, mockControls: transport.controls, localAuth });
-  store = make();
-  return { clock, transport, controls: transport.controls, api, key, localAuth, store, make };
-}
-
-/** requestDevice → approve → one poll → createPin: leaves the store `unlocked`, and returns the
- * `pin_secret` the mock handed out (captured from `activate`) so a test can check where it went. */
-async function enrol(ctx: ReturnType<typeof setup>, pin = PIN): Promise<string> {
-  let pinSecret = '';
-  const activate = ctx.api.activate.bind(ctx.api);
-  const spy = jest.spyOn(ctx.api, 'activate').mockImplementation(async (body) => {
-    const res = await activate(body);
-    pinSecret = res.pin_secret;
-    return res;
-  });
-  await ctx.store.getState().requestDevice('pedro@x.com');
-  const [id] = ctx.controls.pendingRequestIds();
-  ctx.controls.approve(id!);
-  await jest.advanceTimersByTimeAsync(2000);
-  expect(ctx.store.getState().phase).toBe('pin_setup');
-  await ctx.store.getState().createPin(pin, pin);
-  expect(ctx.store.getState().phase).toBe('unlocked');
-  spy.mockRestore();
-  return pinSecret;
-}
 
 function mmkvValues(): string[] {
   return mmkv.getAllKeys().map((k) => mmkv.getString(k) ?? '');

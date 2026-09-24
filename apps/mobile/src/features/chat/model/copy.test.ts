@@ -1,5 +1,5 @@
 import type { ChatErrorCode, ChatHostState } from './types';
-import { errorSentence, hostLine } from './copy';
+import { errorSentence, failureSentence, hostLine, isChatErrorCode } from './copy';
 
 const KNOWN_CODES: ChatErrorCode[] = ['RUNNER_FAILED', 'TOKEN_FAILED', 'CLI_MISSING', 'CLI_REJECTED', 'MISSING_SESSION', 'RUN_FAILED', 'KILLED', 'HOST_GONE', 'AGENT_TOO_OLD', 'HOST_BUSY'];
 
@@ -69,5 +69,19 @@ describe('hostLine', () => {
   it('says the agent needs updating, with a warn tone', () => {
     const host: ChatHostState = { kind: 'agent_too_old', machine: { id: 'm1', name: 'jarvis' }, version: '0.4.9' };
     expect(hostLine(host)).toEqual({ text: 'O agente da máquina jarvis ainda não sabe rodar o chat. Atualize o agente dessa máquina para conversar por aqui.', tone: 'warn' });
+  });
+});
+
+describe('isChatErrorCode / failureSentence', () => {
+  it('accepts every known code and refuses anything else', () => {
+    for (const code of KNOWN_CODES) expect(isChatErrorCode(code)).toBe(true);
+    expect(isChatErrorCode('SOMETHING_NEW')).toBe(false);
+    expect(isChatErrorCode('')).toBe(false);
+  });
+
+  it("narrows the contract's error_code before picking the sentence, falling back to the generic one", () => {
+    expect(failureSentence('HOST_GONE')).toBe('A máquina do chat saiu do ar no meio da resposta. Ligue-a e mande a mensagem de novo.');
+    expect(failureSentence('SOMETHING_NEW')).toBe('A resposta não terminou — tente de novo.');
+    expect(failureSentence(null)).toBe('A resposta não terminou — tente de novo.');
   });
 });
