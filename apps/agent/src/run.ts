@@ -1,6 +1,6 @@
 import os from 'node:os';
 import type { HelloMessage } from '@termhub/agent-protocol';
-import { CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT, CLOSE } from '@termhub/agent-protocol';
+import { CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT, CAPABILITY_SIM, CLOSE } from '@termhub/agent-protocol';
 import { connectOnce, runForever, RevokedError, ProtocolMismatchError, UpgradeRejectedError } from './client.js';
 import { heal } from './rpc/hooks.js';
 import type { AgentConfig } from './config.js';
@@ -31,6 +31,12 @@ export type HelloFields = Omit<HelloMessage, 'type' | 'protocol'>;
  */
 export const CAPABILITIES = [CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT];
 
+/** What this agent understands beyond a terminal. The simulator (`sim`) needs Xcode's simctl and the WDA
+ *  runner, which only exist on macOS, so a Linux agent never claims it. */
+export function capabilitiesFor(osName: SupportedOs): string[] {
+  return osName === 'macos' ? [...CAPABILITIES, CAPABILITY_SIM] : [...CAPABILITIES];
+}
+
 /** Builds the `hello` fields, probing `tools.detect` for the tool list (empty on failure). */
 export async function buildHello(osName: SupportedOs): Promise<HelloFields> {
   let tools: string[] = [];
@@ -47,7 +53,7 @@ export async function buildHello(osName: SupportedOs): Promise<HelloFields> {
     hostname: os.hostname(),
     tmux: tools.includes('tmux'),
     tools,
-    capabilities: CAPABILITIES,
+    capabilities: capabilitiesFor(osName),
   };
 }
 
@@ -76,7 +82,7 @@ export async function checkServerConnection(
       {
         url: config.url,
         token: config.token,
-        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [], capabilities: CAPABILITIES, probe: true },
+        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [], capabilities: capabilitiesFor(osName), probe: true },
         onServerMessage: () => {},
         onStream: () => {},
         log: () => {},
