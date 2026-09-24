@@ -1,0 +1,27 @@
+import { usePathname, useRouter, useSegments, type Href } from 'expo-router';
+import { useEffect } from 'react';
+import { redirectFor } from '../model/redirect';
+import { useSessionStore } from '../viewmodel/useSessionStore';
+
+/**
+ * Keeps the visible route in step with the session phase (design spec §8): each phase's screens
+ * are reachable only while it is current, and once `unlocked` a stored `pendingRoute` is followed
+ * — then cleared once the pathname shows it was reached (see `redirectFor`). The decision itself is
+ * `redirectFor` (`../model/redirect.ts`); this hook only supplies the router and the store.
+ */
+export function usePhaseRedirect(): void {
+  const router = useRouter();
+  const segments = useSegments();
+  const pathname = usePathname();
+  const hydrated = useSessionStore((s) => s.hydrated);
+  const phase = useSessionStore((s) => s.phase);
+  const pendingRoute = useSessionStore((s) => s.pendingRoute);
+  const clearPendingRoute = useSessionStore((s) => s.clearPendingRoute);
+
+  useEffect(() => {
+    if (!hydrated) return; // waiting for MMKV: redirecting before hydration would bounce a locked session to `new`.
+    const { target, shouldClear } = redirectFor(phase, segments, pendingRoute, pathname);
+    if (target) router.replace(target as Href);
+    if (shouldClear) clearPendingRoute();
+  }, [hydrated, phase, pendingRoute, segments, pathname, router, clearPendingRoute]);
+}

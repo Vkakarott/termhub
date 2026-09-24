@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "termhub",
+    "slug": "termhub",
+    "owner": "pedrogoiania",
+    "scheme": "termhub",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0B0F19",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "dev.termhub.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "O microfone é usado para ditar mensagens no chat. O áudio é transcrito e nunca é guardado.",
+        "NSFaceIDUsageDescription": "O Face ID é um atalho para o seu PIN ao desbloquear o app e ao autorizar uma ação."
+      }
+    },
+    "android": {
+      "package": "dev.termhub.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0F19",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "permissions": [
+        "RECORD_AUDIO",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0B0F19",
+          "imageWidth": 160
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "O Face ID é um atalho para o seu PIN ao desbloquear o app e ao autorizar uma ação."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "O microfone é usado para ditar mensagens no chat. O áudio é transcrito e nunca é guardado."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0B0F19"
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

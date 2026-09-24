@@ -1,0 +1,339 @@
+// End-to-end: `HttpMobileApi` (Task 6) over `MockTransport`'s chat routes, the fake socket and
+// notifications (this task) — chat, streaming, decisions and their notifications, exactly as
+// design spec §4.2's "Chat"/"Events"/"Controls" bullets describe them.
+import { fromB64url } from '../../crypto/encoding';
+import { decisionProof } from '../../crypto/pin';
+import { SoftwareDeviceKey } from '../../key/software';
+import { createHttpMobileApi } from '../client';
+import type { TChatEvent } from '../contract';
+import { createMockTransport } from './transport';
+
+const START = Date.parse('2026-09-24T12:00:00Z');
+const APP = 'ios/0.1.0+1';
+const APP_VERSION = '0.1.0+1';
+const DEVICE = { platform: 'ios' as const, model: 'iPhone15,2', os_version: '18.1', name: 'iPhone de teste' };
+
+function makeApi(clock: { value: number }) {
+  const transport = createMockTransport({ latency: [0, 0], now: () => clock.value });
+  const key = new SoftwareDeviceKey();
+  const api = createHttpMobileApi({
+    transport,
+    baseUrl: 'https://termhub.dev',
+    app: APP,
+    key,
+    onTokenExpired: async () => null,
+    now: () => clock.value,
+  });
+  return { transport, api, key };
+}
+
+async function enrol(clock: { value: number }) {
+  const { transport, api, key } = makeApi(clock);
+  const jwk = await key.create();
+  const req = await api.requestDevice({ email: 'chat@x.com', public_key: jwk, device: DEVICE, app_version: APP_VERSION });
+  transport.controls.approve(req.request_id);
+  const act = await api.activate({ request_id: req.request_id, request_secret: req.request_secret });
+  const secret = fromB64url(act.pin_secret);
+  return { transport, api, auth: { accessToken: act.access_token }, deviceId: act.device_id, secret };
+}
+
+/** Collects every event `api.events` delivers, plus the socket's own lifecycle, into arrays the
+ * test can assert on synchronously after advancing the fake timers. */
+function collectEvents(api: ReturnType<typeof createHttpMobileApi>, auth: { accessToken: string }) {
+  const events: TChatEvent[] = [];
+  const closes: Array<{ code: number; final: boolean }> = [];
+  let reconnects = 0;
+  const close = api.events(auth, {
+    onEvent: (e) => events.push(e),
+    onReconnect: () => {
+      reconnects += 1;
+    },
+    onClose: (code, final) => closes.push({ code, final }),
+  });
+  return { events, closes, reconnectCount: () => reconnects, close };
+}
+
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+
+afterEach(() => {
+  jest.clearAllTimers();
+  jest.useRealTimers();
+});
+
+it('lists projects with the fixed pending confirmation on termhub', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+
+  const { projects } = await api.chatProjects(auth);
+  expect(projects.map((p) => p.id).sort()).toEqual(['p-opapingou', 'p-reactivando', 'p-termhub']);
+  const termhub = projects.find((p) => p.id === 'p-termhub')!;
+  expect(termhub.pending_confirmations).toBe(1);
+  expect(termhub.busy).toBe(false);
+});
+
+it('GET chat answers the conversation, one pending action and a ready host', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.conversation.project_id).toBe('p-termhub');
+  expect(chat.messages.length).toBeGreaterThanOrEqual(3);
+  expect(chat.actions).toHaveLength(1);
+  expect(chat.actions[0]).toMatchObject({ id: 'a-termhub-1', status: 'pending', class: 'write' });
+  expect(chat.host).toEqual({
+    kind: 'ready',
+    machine: { id: 'm-jarvis', name: 'jarvis' },
+    configDir: null,
+    account: { kind: 'default' },
+    sessionAtStake: false,
+  });
+});
+
+it('streams a busy window, deltas and the final message for a normal reply', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+
+  // The socket's connect tick: `hello` is consumed by `createChatSocket` itself (it feeds the
+  // clock-skew correction, `onReconnect` is the app-visible signal) and never reaches `onEvent`.
+  await jest.advanceTimersByTimeAsync(0);
+  expect(collected.events).toHaveLength(0);
+  expect(collected.reconnectCount()).toBe(1);
+
+  const accepted = await api.sendMessage(auth, { text: 'roda o teste', project_id: 'p-termhub' });
+  expect(accepted).toMatchObject({ conversation_id: expect.any(String), user_message_id: expect.any(String), assistant_message_id: expect.any(String) });
+
+  const { projects } = await api.chatProjects(auth);
+  expect(projects.find((p) => p.id === 'p-termhub')!.busy).toBe(true);
+
+  await jest.advanceTimersByTimeAsync(5000);
+
+  const own = collected.events.filter((e) => e.type !== 'hello');
+  const messages = own.filter((e): e is Extract<TChatEvent, { type: 'message' }> => e.type === 'message');
+  const deltas = own.filter((e): e is Extract<TChatEvent, { type: 'delta' }> => e.type === 'delta');
+  expect(messages).toHaveLength(3); // user row, empty assistant row, final assistant row
+  expect(messages[0]!.message.role).toBe('user');
+  expect(messages[0]!.message.text).toBe('roda o teste');
+  expect(messages[1]!.message.role).toBe('assistant');
+  expect(messages[1]!.message.text).toBe('');
+  expect(deltas.length).toBeGreaterThanOrEqual(3);
+  const finalMessage = messages[2]!.message;
+  expect(finalMessage.text).toBe('Rodei `npm test` no jarvis: 1066 testes passaram, 137 pulados. Nada quebrou.');
+  expect(finalMessage.error_code).toBeNull();
+  // Every event carries user_id and its conversation_id (ruling 4).
+  for (const e of own) {
+    expect(e.user_id).toBe('u1');
+    expect(e.conversation_id).toBe(accepted.conversation_id);
+  }
+
+  const busyAfter = await api.chatProjects(auth);
+  expect(busyAfter.projects.find((p) => p.id === 'p-termhub')!.busy).toBe(false);
+
+  collected.close();
+});
+
+it('a message containing erro ends with HOST_GONE and empty text', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+
+  await api.sendMessage(auth, { text: 'isso vai dar erro', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+
+  const messages = collected.events.filter((e): e is Extract<TChatEvent, { type: 'message' }> => e.type === 'message');
+  const finalMessage = messages[messages.length - 1]!.message;
+  expect(finalMessage.role).toBe('assistant');
+  expect(finalMessage.text).toBe('');
+  expect(finalMessage.error_code).toBe('HOST_GONE');
+
+  collected.close();
+});
+
+it('a message containing confirma raises a confirmation event and a pending action', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+
+  await api.sendMessage(auth, { text: 'preciso que você confirma isso', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+
+  const confirmation = collected.events.find((e): e is Extract<TChatEvent, { type: 'confirmation' }> => e.type === 'confirmation');
+  expect(confirmation).toBeDefined();
+  expect(confirmation!.class).toBe('write');
+
+  const chat = await api.chat(auth, 'p-termhub');
+  const created = chat.actions.find((a) => a.id === confirmation!.action_id);
+  expect(created).toMatchObject({ status: 'pending', class: 'write' });
+
+  collected.close();
+});
+
+it('decides an action: approve resolves and emits decision, repeating it is 409, bad proofs are 401', async () => {
+  const clock = { value: START };
+  const { api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+
+  // --- negative paths on the fixture's pending action, which must stay pending throughout ---
+  const wrongPurpose = await api.challenge({ device_id: deviceId, purpose: 'refresh' });
+  await expect(
+    api.decide(auth, 'a-termhub-1', {
+      decision: 'approve',
+      challenge: wrongPurpose.challenge,
+      pin_proof: decisionProof(secret, wrongPurpose.challenge, 'a-termhub-1'),
+    }),
+  ).rejects.toMatchObject({ status: 401, code: 'PIN_INVALID' });
+
+  const boundChallenge = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-1' });
+  await expect(
+    api.decide(auth, 'a-termhub-1', {
+      decision: 'approve',
+      challenge: boundChallenge.challenge,
+      pin_proof: decisionProof(secret, boundChallenge.challenge, 'some-other-action'),
+    }),
+  ).rejects.toMatchObject({ status: 401, code: 'PIN_INVALID' });
+
+  const stillPending = await api.chat(auth, 'p-termhub');
+  expect(stillPending.actions.find((a) => a.id === 'a-termhub-1')!.status).toBe('pending');
+
+  // deny needs nothing beyond the normal auth
+  await api.decide(auth, 'a-termhub-1', { decision: 'deny' });
+  const denyEvent = collected.events.find((e): e is Extract<TChatEvent, { type: 'decision' }> => e.type === 'decision' && e.action_id === 'a-termhub-1');
+  expect(denyEvent?.status).toBe('denied');
+
+  // --- positive path on a freshly-raised confirmation ---
+  await api.sendMessage(auth, { text: 'confirma essa ação', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+  const confirmation = collected.events.find((e): e is Extract<TChatEvent, { type: 'confirmation' }> => e.type === 'confirmation')!;
+  const actionId = confirmation.action_id;
+
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: actionId });
+  const proof = decisionProof(secret, chal.challenge, actionId);
+  await api.decide(auth, actionId, { decision: 'approve', challenge: chal.challenge, pin_proof: proof });
+
+  const approveEvent = collected.events.find((e): e is Extract<TChatEvent, { type: 'decision' }> => e.type === 'decision' && e.action_id === actionId);
+  expect(approveEvent?.status).toBe('approved');
+
+  await expect(api.decide(auth, actionId, { decision: 'approve', challenge: chal.challenge, pin_proof: proof })).rejects.toMatchObject({
+    status: 409,
+    code: 'ALREADY_DECIDED',
+  });
+
+  collected.close();
+});
+
+it('reset archives the conversation: chat() afterwards has no messages and a new conversation id', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+
+  const before = await api.chat(auth, 'p-termhub');
+  expect(before.messages.length).toBeGreaterThan(0);
+
+  await api.reset(auth, 'p-termhub');
+
+  const after = await api.chat(auth, 'p-termhub');
+  expect(after.conversation.id).not.toBe(before.conversation.id);
+  expect(after.messages).toHaveLength(0);
+});
+
+it('setHost switches the account-wide chat between machines and accounts', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+
+  // Starts on the fixture default: m-jarvis, no account chosen.
+  const initial = await api.chat(auth, null);
+  expect(initial.host).toMatchObject({ kind: 'ready', machine: { id: 'm-jarvis', name: 'jarvis' }, account: { kind: 'default' } });
+
+  await api.setHost(auth, { machine_id: 'm-hulk' });
+  const offline = await api.chat(auth, null);
+  expect(offline.host).toEqual({ kind: 'offline', machine: { id: 'm-hulk', name: 'hulk' } });
+
+  await api.setHost(auth, { machine_id: 'm-jarvis', ai_account_id: 'acc-1' });
+  const ready = await api.chat(auth, null);
+  expect(ready.host).toEqual({
+    kind: 'ready',
+    machine: { id: 'm-jarvis', name: 'jarvis' },
+    configDir: null,
+    account: { kind: 'chosen', id: 'acc-1', label: 'Claude Pedro' },
+    sessionAtStake: false,
+  });
+
+  // A project's conversation is never touched by setHost: it keeps its own fixed m-jarvis.
+  const project = await api.chat(auth, 'p-termhub');
+  expect(project.host).toMatchObject({ kind: 'ready', machine: { id: 'm-jarvis', name: 'jarvis' } });
+
+  await expect(api.setHost(auth, { machine_id: 'm-does-not-exist' })).rejects.toMatchObject({ status: 404, code: 'MACHINE_NOT_FOUND' });
+});
+
+it('notifications list confirmations and finished runs newest first, with unread and markRead', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+
+  const initial = await api.notifications(auth);
+  const initialUnread = initial.unread;
+  expect(initial.notifications.some((n) => n.kind === 'confirmation')).toBe(true);
+
+  await api.sendMessage(auth, { text: 'roda o teste', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+  await api.sendMessage(auth, { text: 'confirma de novo', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+
+  const after = await api.notifications(auth);
+  expect(after.notifications.length).toBeGreaterThanOrEqual(initial.notifications.length + 3); // 2 replies + 1 confirmation
+  expect(after.unread).toBe(initialUnread + 3);
+  // newest first
+  const times = after.notifications.map((n) => Date.parse(n.created_at));
+  expect([...times]).toEqual([...times].sort((a, b) => b - a));
+
+  const firstUnread = after.notifications.find((n) => n.read_at === null)!;
+  await api.markRead(auth, firstUnread.id);
+  const afterRead = await api.notifications(auth);
+  expect(afterRead.unread).toBe(after.unread - 1);
+
+  collected.close();
+});
+
+it('controls.dropSocket closes with 1006 and is not final; controls.revokeNow closes with 4401 and is final', async () => {
+  const clock = { value: START };
+  const { transport, api, auth } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  expect(collected.reconnectCount()).toBe(1);
+
+  transport.controls.dropSocket();
+  expect(collected.closes).toContainEqual({ code: 1006, final: false });
+
+  // Non-terminal: the socket client schedules a reconnect, which will itself open again on the
+  // backoff timer — flush it so no timer is left running for the next assertion.
+  await jest.advanceTimersByTimeAsync(2000);
+
+  transport.controls.revokeNow();
+  await jest.advanceTimersByTimeAsync(0);
+  expect(collected.closes.some((c) => c.code === 4401 && c.final)).toBe(true);
+
+  collected.close();
+});
+
+it('an upgrade with an expired token closes 1008 (not final); a revoked device closes 4401 (final)', async () => {
+  const clock = { value: START };
+  const { api, auth, transport } = await enrol(clock);
+
+  clock.value += 15 * 60_000 + 1; // past the access token's lifetime
+  const expired = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  expect(expired.closes).toEqual([{ code: 1008, final: false }]);
+  expired.close();
+
+  clock.value = START; // the token is live again: only the device's status can refuse it now
+  transport.controls.revokeNow();
+  const revoked = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  expect(revoked.closes).toEqual([{ code: 4401, final: true }]);
+  revoked.close();
+});
