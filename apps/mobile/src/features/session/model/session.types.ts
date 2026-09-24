@@ -70,6 +70,9 @@ export interface SessionState {
   cancelPinPrompt(): void;
   background(): void;
   foreground(): void;
+  /** A deep link caught while not `unlocked` (design spec §8); followed once unlocked. */
+  setPendingRoute(route: string): void;
+  clearPendingRoute(): void;
   leave(): Promise<void>;
   wipe(reason?: string): Promise<void>;
 }

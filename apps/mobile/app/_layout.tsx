@@ -2,19 +2,64 @@ import 'react-native-get-random-values';
 import '../global.css';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import { AppState, Linking } from 'react-native';
+import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
+import { usePhaseRedirect } from '@/features/session/view/use-phase-redirect';
+import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
 import { ThemeProvider, useSchemeName } from '@/ui/theme-provider';
+
+/** `'termhub://chat/<id>'` or `'https://termhub.dev/chat/<id>'` → the chat id, or `null`. */
+function chatIdFromUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const parts = `${parsed.host}${parsed.pathname}`.split('/').filter(Boolean);
+  const i = parts.indexOf('chat');
+  return i >= 0 ? (parts[i + 1] ?? null) : null;
+}
 
 /**
  * Route groups follow the flow of spec §11.2: enrolment (Início → Aguardando aprovação → Criar PIN),
- * Desbloquear, then the tabs. Which group is shown is decided by the session state once the app
- * plan lands; today every route is reachable so each screen can be built and tested alone.
+ * Desbloquear, then the tabs. `usePhaseRedirect` (design spec §8) keeps the visible route in step
+ * with the session phase; a deep link caught while not `unlocked` is stashed as `pendingRoute` and
+ * followed once the session unlocks (P§9).
  */
 function Navigator() {
   const scheme = useSchemeName();
+  usePhaseRedirect();
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      const session = useSessionStore.getState();
+      if (next === 'background' || next === 'inactive') session.background();
+      else if (next === 'active') session.foreground();
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const handle = (url: string) => {
+      const id = chatIdFromUrl(url);
+      if (id && useSessionStore.getState().phase !== 'unlocked') useSessionStore.getState().setPendingRoute(`/chat/${id}`);
+    };
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) handle(url);
+      })
+      .catch(() => undefined);
+    const sub = Linking.addEventListener('url', ({ url }) => handle(url));
+    return () => sub.remove();
+  }, []);
+
   return (
     <>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }} />
+      <PinPromptSheet />
     </>
   );
 }

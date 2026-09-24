@@ -363,6 +363,14 @@ export function createSessionStore(deps: SessionDeps) {
             if (get().phase === 'unlocked' && since !== null && now() - since >= RELOCK_AFTER_MS) relock();
           },
 
+          setPendingRoute(route) {
+            patch({ pendingRoute: route });
+          },
+
+          clearPendingRoute() {
+            patch({ pendingRoute: null });
+          },
+
           async leave() {
             set({ busy: true });
             if (accessToken) await api.revokeSelf({ accessToken }).catch(() => undefined);
