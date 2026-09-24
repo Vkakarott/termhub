@@ -47,7 +47,7 @@ export function parseArgs(tool: ToolDef, args: unknown): { ok: true; value: Reco
 export const TOOLS: ToolDef[] = [
   {
     name: 'list_machines',
-    description: 'List your machines: id, name, type (agent/local/ssh), OS, whether it is online now, and installed tools (claude, codex, tmux, …).',
+    description: 'List your machines: id, name, subtitle (your own note about the machine, e.g. "MacBook do escritório"; null if none), type (agent/local/ssh), OS, whether it is online now, and installed tools (claude, codex, tmux, …).',
     scope: 'read', resource: 'machines', action: 'read', input: {},
     run: (ctx) => listMachines(ctx),
   },
