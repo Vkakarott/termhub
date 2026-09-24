@@ -356,6 +356,94 @@ describe('SimulatorSessionManager', () => {
     expect(mgr.isReady('m1', UDID)).toBe(false);
   });
 
+  it('túnel fechando durante o start (sem canais livres) falha na hora com a mensagem do túnel, sem recuperação concorrente', async () => {
+    // /status nunca pronto: sem o fail-fast o start ficaria pollando a porta morta até readyTimeoutMs
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ value: { ready: false } }))) as unknown as typeof fetch;
+    const b = makeBackend({ createClient: (baseUrl) => new WdaClient(baseUrl, fetchFn) });
+    const mgr = new SimulatorSessionManager(b.backend, { readyTimeoutMs: 90_000, pollMs: 1000 });
+    const v = makeViewer();
+    const p = mgr.acquire(machine, UDID, v);
+    const rejected = expect(p).rejects.toThrow('Máquina sem canais livres');
+    await vi.advanceTimersByTimeAsync(2000);
+    const start = Date.now();
+    b.dropTunnel(new Error('Máquina sem canais livres'));
+    await vi.advanceTimersByTimeAsync(1500);
+    await rejected;
+    expect(Date.now() - start).toBeLessThan(5000);
+    expect(v.statuses.at(-1)).toBe('error');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Máquina sem canais livres');
+    // nenhuma recuperação correu em paralelo: um único túnel aberto, nenhum "Reconectando…"
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(1);
+    expect(v.fullStatuses.some((st) => st.message === 'Reconectando ao simulador…')).toBe(false);
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
+    expect(b.tunnelCloses[0]).toHaveBeenCalled();
+    expect(mgr.isReady('m1', UDID)).toBe(false);
+  });
+
+  it('agente cai depois de pronto e todo túnel da recuperação morre igual → error "Agente desconectado"', async () => {
+    const b = makeBackend();
+    let tunnels = 0;
+    // o túnel do start fica de pé; cada túnel reaberto na recuperação morre assim que alguém escuta o onClose
+    b.backend.openTunnel = vi.fn(async () => {
+      const n = tunnels++;
+      const close = vi.fn();
+      b.tunnelCloses.push(close);
+      return {
+        wdaPort: 20000 + n,
+        mjpegPort: 21000 + n,
+        close,
+        onClose(cb: (err?: Error) => void) {
+          if (n === 0) first = cb;
+          else cb(new Error('Agente desconectado'));
+        },
+      };
+    });
+    let first: ((err?: Error) => void) | null = null;
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    first!(new Error('Agente desconectado'));
+    await vi.runAllTimersAsync();
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(4);
+    expect(v.statuses.at(-1)).toBe('error');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Agente desconectado');
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
+    expect(mgr.isReady('m1', UDID)).toBe(false);
+  });
+
+  it('recuperação que falha com mensagem não destinada ao usuário (inglês, do agente) mostra a mensagem genérica', async () => {
+    let calls = 0;
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return false;
+      throw new Error('connect failed: internal');
+    });
+    const b = makeBackend({ runnerAlive });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.fullStatuses.at(-1)).toMatchObject({ state: 'error', message: 'Conexão com o simulador perdida' });
+  });
+
+  it('rejeição antiga de runnerAlive não vira a mensagem final quando a máquina voltou a responder', async () => {
+    let calls = 0;
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 2) throw new Error('Agente desconectado');
+      return true;
+    });
+    const b = makeBackend({ runnerAlive });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    b.failTunnelsFrom(1);
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.fullStatuses.at(-1)).toMatchObject({ state: 'error', message: 'Conexão com o simulador perdida' });
+  });
+
   it('acquire durante recover espera a recuperação e devolve client apontando para o túnel novo', async () => {
     const b = makeBackend();
     const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });

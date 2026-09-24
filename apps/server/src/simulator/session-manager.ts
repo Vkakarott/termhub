@@ -1,4 +1,6 @@
 import type { Machine } from '../db/repositories/types.js';
+import { HttpError } from '../lib/errors.js';
+import { AGENT_OFFLINE_MESSAGE, NO_CHANNELS_MESSAGE } from './agent-tunnel.js';
 import { wdaPorts, type WdaPorts } from './ports.js';
 import type { Tunnel } from './tunnel.js';
 import { WdaClient, type Orientation } from './wda-client.js';
@@ -50,6 +52,19 @@ const DEFAULT_SETTINGS = { mjpegServerFramerate: 30, mjpegScalingFactor: 50, mjp
 const RECOVER_ATTEMPTS = 3;
 const RECOVER_DELAY_MS = 2000;
 const DISPOSED_ERROR = 'sessão encerrada';
+const CONNECTION_LOST_MESSAGE = 'Conexão com o simulador perdida';
+
+/**
+ * The message a failed recovery shows the viewer. Only messages written for the user pass through:
+ * the agent tunnel's pt-BR ones and `HttpError`s from `agentRpc`. Anything else (an agent-side
+ * "internal"/"connect failed", a timeout, an ssh stderr) falls back to the generic sentence.
+ */
+function recoveryMessage(err: Error | undefined): string {
+  if (!err) return CONNECTION_LOST_MESSAGE;
+  if (err instanceof HttpError) return err.message;
+  if (err.message === AGENT_OFFLINE_MESSAGE || err.message === NO_CHANNELS_MESSAGE) return err.message;
+  return CONNECTION_LOST_MESSAGE;
+}
 
 interface Session {
   key: string;
@@ -64,6 +79,8 @@ interface Session {
   ready: boolean;
   client: WdaClient | null;
   tunnel: Tunnel | null;
+  /** Why the current `tunnel` closed on its own (null while it is up); cleared when a new one opens. */
+  tunnelError: Error | null;
   closeMjpeg: (() => void) | null;
   screen: Screen;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -128,6 +145,7 @@ export class SimulatorSessionManager {
         ready: false,
         client: null,
         tunnel: null,
+        tunnelError: null,
         closeMjpeg: null,
         screen: { width: 0, height: 0, orientation: 'portrait' },
         idleTimer: null,
@@ -261,11 +279,11 @@ export class SimulatorSessionManager {
       await this.connect(s, this.readyTimeoutMs);
       const client = s.client!;
       await client.createSession();
-      if (s.disposed) throw new Error(DISPOSED_ERROR);
+      this.checkAlive(s);
       await client.setSettings(DEFAULT_SETTINGS);
-      if (s.disposed) throw new Error(DISPOSED_ERROR);
+      this.checkAlive(s);
       const [size, orientation] = await Promise.all([client.windowSize(), client.orientation()]);
-      if (s.disposed) throw new Error(DISPOSED_ERROR);
+      this.checkAlive(s);
       s.screen = { ...size, orientation };
       if (s.activeViewers.size > 0) this.openStream(s);
       s.ready = true;
@@ -289,6 +307,12 @@ export class SimulatorSessionManager {
     }
   }
 
+  /** Throws when the session was disposed or its current tunnel closed on its own (start/connect fail fast). */
+  private checkAlive(s: Session) {
+    if (s.disposed) throw new Error(DISPOSED_ERROR);
+    if (s.tunnelError) throw s.tunnelError;
+  }
+
   /** Abre o túnel e espera o /status do WDA ficar pronto; some com o que criou se a sessão for descartada no meio. */
   private async connect(s: Session, readyTimeoutMs: number): Promise<void> {
     const tunnel = await this.backend.openTunnel(s.machine, s.ports);
@@ -297,24 +321,32 @@ export class SimulatorSessionManager {
       throw new Error(DISPOSED_ERROR);
     }
     s.tunnel = tunnel;
+    s.tunnelError = null;
     tunnel.onClose((err) => {
       if (s.tunnel !== tunnel || s.disposed) return;
-      void this.recover(s, err);
+      s.tunnelError = err ?? new Error(CONNECTION_LOST_MESSAGE);
+      // While the session is starting, `connect()`/`start()` see `tunnelError` and fail on their own
+      // (the viewer gets the tunnel's message); a concurrent recovery would only race them. During a
+      // recovery, `recover()` returns the one already running, whose `connect()` fails fast the same way.
+      if (s.starting && !s.ready) return;
+      void this.recover(s, s.tunnelError);
     });
     s.client = this.backend.createClient(`http://127.0.0.1:${tunnel.wdaPort}`);
     const deadline = Date.now() + readyTimeoutMs;
     for (;;) {
+      // A dead tunnel will never answer: fail now instead of polling a closed local port until the deadline.
+      this.checkAlive(s);
       let ready = false;
       try {
         ready = (await s.client.status()).ready;
       } catch {
         /* ainda subindo */
       }
-      if (s.disposed) throw new Error(DISPOSED_ERROR);
+      this.checkAlive(s);
       if (ready) return;
       if (Date.now() >= deadline) throw new Error('WDA não ficou pronto a tempo');
       await sleep(this.pollMs);
-      if (s.disposed) throw new Error(DISPOSED_ERROR);
+      this.checkAlive(s);
     }
   }
 
@@ -348,11 +380,12 @@ export class SimulatorSessionManager {
     this.log('túnel/stream caiu, tentando recuperar: ' + (cause?.message ?? ''), meta);
     this.broadcast(s, (v) => v.onStatus({ state: 'starting', message: 'Reconectando ao simulador…' }));
     const sessionId = s.client?.sessionId ?? null;
-    // Última rejeição de runnerAlive (ex.: "Agente desconectado" enquanto um agente está
-    // reconectando) — guardada para a mensagem final poder mostrá-la ao viewer em vez do
-    // "Conexão com o simulador perdida" genérico (ver task-6-addendum: um deploy ou uma
-    // instabilidade de wifi não pode matar a sessão na primeira tentativa).
-    let lastUnreachableMessage: string | undefined;
+    // Why the last attempt failed — a runnerAlive rejection (e.g. "Agente desconectado" while an
+    // agent reconnects) or the reopened tunnel dying ("Máquina sem canais livres") — so the final
+    // message can say it instead of the generic "Conexão com o simulador perdida" (see
+    // task-6-addendum: a deploy or a wifi hiccup must not kill the session on the first attempt).
+    // `recoveryMessage` keeps anything not written for the user out of the viewer.
+    let lastError: Error | undefined;
     for (let i = 1; i <= RECOVER_ATTEMPTS; i++) {
       if (s.disposed) return;
       // O runner pode ter morrido de vez na máquina (ex.: sessão tmux matada) — sem ele não adianta
@@ -364,13 +397,15 @@ export class SimulatorSessionManager {
       try {
         alive = await this.backend.runnerAlive(s.machine, s.udid);
       } catch (err) {
-        lastUnreachableMessage = err instanceof Error ? err.message : String(err);
-        this.log(`recuperação ${i}/${RECOVER_ATTEMPTS}: máquina inacessível (${lastUnreachableMessage})`, meta);
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.log(`recuperação ${i}/${RECOVER_ATTEMPTS}: máquina inacessível (${lastError.message})`, meta);
         if (s.disposed) return;
         await sleep(RECOVER_DELAY_MS);
         if (s.disposed) return;
         continue;
       }
+      // The machine answered: an earlier "unreachable" no longer explains anything.
+      lastError = undefined;
       if (!alive) {
         if (s.disposed) return;
         let tail: string[] | undefined;
@@ -414,7 +449,8 @@ export class SimulatorSessionManager {
           this.closeTunnel(s);
           return;
         }
-        this.log(`recuperação ${i}/${RECOVER_ATTEMPTS} falhou: ${err instanceof Error ? err.message : err}`, meta);
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.log(`recuperação ${i}/${RECOVER_ATTEMPTS} falhou: ${lastError.message}`, meta);
         await sleep(RECOVER_DELAY_MS);
         if (s.disposed) {
           this.closeTunnel(s);
@@ -425,7 +461,8 @@ export class SimulatorSessionManager {
     // Esgotou as tentativas: fecha o que sobrou (a última tentativa pode ter deixado um túnel aberto
     // sem nunca ter ficado pronto) e apaga a sessão remota de fato, restaurando o sessionId salvo.
     this.closeTunnel(s);
-    this.broadcast(s, (v) => v.onStatus({ state: 'error', message: lastUnreachableMessage ?? 'Conexão com o simulador perdida' }));
+    const message = recoveryMessage(lastError);
+    this.broadcast(s, (v) => v.onStatus({ state: 'error', message }));
     if (s.client) s.client.sessionId = sessionId;
     await this.dispose(s, { stopRunner: false });
   }
