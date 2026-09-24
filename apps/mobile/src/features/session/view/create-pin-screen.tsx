@@ -38,7 +38,14 @@ export function CreatePinScreen() {
       setStep(1);
       return;
     }
-    void createPin(firstPin, next);
+    // Unconditional, right after submitting: a server-side failure (the store's own `error`
+    // covers it) must not leave step 2 with a full, stuck pad.
+    const confirmed = next;
+    const first = firstPin;
+    setFirstPin('');
+    setPin('');
+    setStep(1);
+    void createPin(first, confirmed);
   };
 
   const onBackspace = () => setPin((p) => p.slice(0, -1));

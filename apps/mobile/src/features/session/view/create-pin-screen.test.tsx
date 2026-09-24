@@ -24,7 +24,7 @@ async function typePin(pin: string) {
 
 describe('Criar PIN', () => {
   beforeEach(() => {
-    useSessionStore.setState({ phase: 'pin_setup' });
+    useSessionStore.setState({ phase: 'pin_setup', error: null });
   });
 
   afterEach(() => {
@@ -47,5 +47,26 @@ describe('Criar PIN', () => {
     expect(screen.getByText('Os PINs não são iguais')).toBeTruthy();
     expect(screen.getByText('Crie um PIN de 6 dígitos')).toBeTruthy();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('returns to step 1 with an empty pad after a server failure, and a fresh attempt is possible', async () => {
+    // Simulates the store's own reaction to a rejected `activate` (a generic failure sets `error`
+    // and leaves `phase` at `pin_setup` — see createSessionStore.ts's `fail`), without redoing the
+    // store's own activation-failure tests here (createSessionStore.test.ts already covers those).
+    const spy = jest.spyOn(useSessionStore.getState(), 'createPin').mockImplementation(async () => {
+      useSessionStore.setState({ error: 'Não foi possível falar com o servidor. Tente de novo.' });
+    });
+    await render(<CreatePinScreen />);
+    await typePin('123456');
+    await typePin('123456');
+    expect(spy).toHaveBeenCalledWith('123456', '123456');
+    expect(screen.getByText('Crie um PIN de 6 dígitos')).toBeTruthy();
+    expect(screen.getByText('Não foi possível falar com o servidor. Tente de novo.')).toBeTruthy();
+
+    // The pad is empty, not stuck at step 2: a fresh, independent attempt is possible.
+    await typePin('654321');
+    await typePin('654321');
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenLastCalledWith('654321', '654321');
   });
 });

@@ -11,13 +11,17 @@ const PIN_LENGTH = 6;
 export function PinPromptSheet() {
   const pinPrompt = useSessionStore((s) => s.pinPrompt);
   const error = useSessionStore((s) => s.error);
+  const busy = useSessionStore((s) => s.busy);
   const biometricsEnabled = useSessionStore((s) => s.biometricsEnabled);
   const resolvePinPrompt = useSessionStore((s) => s.resolvePinPrompt);
   const cancelPinPrompt = useSessionStore((s) => s.cancelPinPrompt);
 
   const [pin, setPin] = useState('');
 
-  // A fresh prompt (new action id, or none at all) starts from an empty pad.
+  // A fresh prompt (new action id, or none at all — e.g. a cancel with a partial entry) starts
+  // from an empty pad. A *rejected* PIN keeps the same prompt open (only `error` changes), so
+  // `onDigit` below clears the pad unconditionally on every submission — this effect alone would
+  // leave a wrong PIN's six digits stuck on screen.
   useEffect(() => {
     setPin('');
   }, [pinPrompt?.actionId]);
@@ -26,7 +30,10 @@ export function PinPromptSheet() {
     if (pin.length >= PIN_LENGTH) return;
     const next = pin + digit;
     setPin(next);
-    if (next.length === PIN_LENGTH) void resolvePinPrompt(next);
+    if (next.length === PIN_LENGTH) {
+      setPin('');
+      void resolvePinPrompt(next);
+    }
   };
 
   const onBackspace = () => setPin((p) => p.slice(0, -1));
@@ -40,8 +47,9 @@ export function PinPromptSheet() {
           onDigit={onDigit}
           onBackspace={onBackspace}
           onBiometrics={biometricsEnabled ? () => void resolvePinPrompt('biometrics') : undefined}
+          disabled={busy}
         />
-        <Button label="Cancelar" variant="ghost" onPress={cancelPinPrompt} />
+        <Button label="Cancelar" variant="ghost" onPress={cancelPinPrompt} disabled={busy} />
       </View>
     </Sheet>
   );

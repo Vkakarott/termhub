@@ -1,6 +1,6 @@
 import 'react-native-get-random-values';
 import '../global.css';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { AppState, Linking } from 'react-native';
@@ -30,6 +30,7 @@ function chatIdFromUrl(url: string): string | null {
  */
 function Navigator() {
   const scheme = useSchemeName();
+  const router = useRouter();
   usePhaseRedirect();
 
   useEffect(() => {
@@ -44,7 +45,10 @@ function Navigator() {
   useEffect(() => {
     const handle = (url: string) => {
       const id = chatIdFromUrl(url);
-      if (id && useSessionStore.getState().phase !== 'unlocked') useSessionStore.getState().setPendingRoute(`/chat/${id}`);
+      if (!id) return;
+      // Already unlocked: navigate at once, no need to stash and wait for `usePhaseRedirect`.
+      if (useSessionStore.getState().phase === 'unlocked') router.push(`/chat/${id}` as Href);
+      else useSessionStore.getState().setPendingRoute(`/chat/${id}`);
     };
     Linking.getInitialURL()
       .then((url) => {
@@ -53,7 +57,7 @@ function Navigator() {
       .catch(() => undefined);
     const sub = Linking.addEventListener('url', ({ url }) => handle(url));
     return () => sub.remove();
-  }, []);
+  }, [router]);
 
   return (
     <>
