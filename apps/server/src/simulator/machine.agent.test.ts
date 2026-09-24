@@ -58,3 +58,14 @@ describe('simulator operations on an agent machine go through named rpcs, never 
     await expect(startWdaSetup(machine)).rejects.toMatchObject({ statusCode: 409 });
   });
 });
+
+describe('startWdaSetup over ssh', () => {
+  const ssh: Machine = { ...machine, type: 'ssh', host: 'mac.local', ssh_user: 'u' };
+  it('STARTED:no (a setup already runs in tmux) answers 409, STARTED:yes succeeds', async () => {
+    runOnMachine.mockResolvedValueOnce({ code: 0, stdout: 'STATE:idle\nVERSION:\nTAIL:\n', stderr: '' }).mockResolvedValueOnce({ code: 0, stdout: 'STARTED:no\n', stderr: '' });
+    await expect(startWdaSetup(ssh)).rejects.toMatchObject({ statusCode: 409, message: 'Preparação do WDA já está em andamento' });
+    runOnMachine.mockResolvedValueOnce({ code: 0, stdout: 'STATE:idle\nVERSION:\nTAIL:\n', stderr: '' }).mockResolvedValueOnce({ code: 0, stdout: 'STARTED:yes\n', stderr: '' });
+    await expect(startWdaSetup(ssh)).resolves.toBeUndefined();
+    expect(agentRpc).not.toHaveBeenCalled();
+  });
+});

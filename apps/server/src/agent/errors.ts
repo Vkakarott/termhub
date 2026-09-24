@@ -65,11 +65,14 @@ export const SIM_MIN_AGENT_VERSION = '0.5.0';
 /**
  * The iOS simulator on an agent machine needs the agent online and claiming `sim`. Non-agent machines
  * (ssh/local) pass through: their checks live in the ssh code path. An offline agent is 503 like every
- * other agent call; a connected one without the capability is told, in one sentence, to update.
+ * other agent call; a connected non-Mac is 400 NOT_MAC; a connected Mac without the capability is
+ * told, in one sentence, to update.
  */
 export function requireSimCapable(machine: Machine): void {
   if (machine.type !== 'agent') return;
   if (!agents.isOnline(machine.id)) throw new HttpError(503, 'Agente desconectado', 'AGENT_OFFLINE');
+  // Updating the agent can never give a Linux/Windows machine a simulator: say what is wrong instead.
+  if ((agents.info(machine.id)?.os ?? machine.os) !== 'macos') throw new HttpError(400, 'Esta máquina não é um Mac com Xcode', 'NOT_MAC');
   const capabilities = agents.capabilities(machine.id) ?? [];
   if (!capabilities.includes(CAPABILITY_SIM)) {
     throw new HttpError(409, `Atualize o agente desta máquina (npm i -g @termhub/agent, versão ${SIM_MIN_AGENT_VERSION} ou mais nova) para usar o simulador`, 'AGENT_OUTDATED');

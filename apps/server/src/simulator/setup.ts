@@ -59,4 +59,6 @@ export async function startWdaSetup(machine: Machine): Promise<void> {
   // One script: writes ~/.termhub/wda-setup.sh and starts it in tmux so it survives an ssh/server drop.
   const r = await runScript(machine, WDA_SETUP_START_SCRIPT);
   if (r.code !== 0 || !r.stdout.includes('STARTED:')) throw new Error(r.stderr.trim() || 'falha ao iniciar o setup no tmux');
+  // STARTED:no: the tmux session already existed (a setup began between the state check and here).
+  if (r.stdout.includes('STARTED:no')) throw conflict('Preparação do WDA já está em andamento');
 }

@@ -35,11 +35,11 @@ describe('toHttpError codes', () => {
   });
 });
 
-function attachFake(machineId: string, hello: { agent_version: string; capabilities: string[] }): void {
+function attachFake(machineId: string, hello: { agent_version: string; capabilities: string[]; os?: string }): void {
   const listeners: Record<string, ((...a: unknown[]) => void)[]> = {};
   const conn = {
     machineId,
-    hello: { agent_version: hello.agent_version, os: 'macos', tools: ['tmux', 'xcodebuild'], capabilities: hello.capabilities },
+    hello: { agent_version: hello.agent_version, os: hello.os ?? 'macos', tools: ['tmux', 'xcodebuild'], capabilities: hello.capabilities },
     connectedAt: Date.now(),
     close: vi.fn(function (code: number, reason?: string) {
       (listeners.close ?? []).forEach((l) => l(code, reason));
@@ -68,6 +68,12 @@ describe('requireSimCapable', () => {
   it('answers 409 AGENT_OUTDATED when the connected agent lacks the sim capability', () => {
     attachFake('m-sim', { agent_version: '0.4.4', capabilities: [] });
     expect(() => requireSimCapable({ ...base, type: 'agent' })).toThrow(expect.objectContaining({ statusCode: 409, code: 'AGENT_OUTDATED' }));
+  });
+  it('answers 400 NOT_MAC for a connected non-Mac agent instead of asking for an update', () => {
+    attachFake('m-sim', { agent_version: '0.5.0', capabilities: [], os: 'linux' });
+    expect(() => requireSimCapable({ ...base, type: 'agent' })).toThrow(
+      expect.objectContaining({ statusCode: 400, code: 'NOT_MAC', message: 'Esta máquina não é um Mac com Xcode' }),
+    );
   });
   it('passes when the agent claims sim', () => {
     attachFake('m-sim', { agent_version: '0.5.0', capabilities: ['sim'] });
