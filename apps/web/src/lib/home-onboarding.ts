@@ -15,9 +15,13 @@ export function homeStep(input: {
   machinesFailed?: boolean;
   projectsFailed?: boolean;
   openTabsFailed?: boolean;
+  /** the role cannot read the list: the step it decides does not apply (no machines → no step 1, no projects → no steps 2 and 3) */
+  machinesUnreadable?: boolean;
+  projectsUnreadable?: boolean;
 }): HomeStep {
   if (input.loading) return 'loading';
-  if (input.machines.length === 0) return input.machinesFailed ? 'dashboard' : 1;
+  if (!input.machinesUnreadable && input.machines.length === 0) return input.machinesFailed ? 'dashboard' : 1;
+  if (input.projectsUnreadable) return 'dashboard';
   if (input.projects.length === 0) return input.projectsFailed ? 'dashboard' : 2;
   if (input.openTabs.length === 0) return input.openTabsFailed ? 'dashboard' : 3;
   return 'dashboard';

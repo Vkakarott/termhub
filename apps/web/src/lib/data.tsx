@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api } from './api';
+import { api, ApiError } from './api';
+import { useAuth } from './auth';
 import type { Machine, Project, ProjectInput } from './types';
 import { forgetLocalMachine, localMachineIds, rememberLocalMachine } from './local-machines';
 
@@ -18,10 +19,14 @@ interface DataState {
   /** máquinas online sem tmux instalado */
   missingTmux: Record<string, boolean>;
   loading: boolean;
-  /** the last read of the machine list failed (e.g. a role without machines:read); `machines` keeps the previous value */
+  /** the last read of the machine list failed (network, 5xx); `machines` keeps the previous value */
   machinesError: boolean;
-  /** the last read of the project list failed; `projects` keeps the previous value */
+  /** the last read of the project list failed (network, 5xx); `projects` keeps the previous value */
   projectsError: boolean;
+  /** false when the role cannot read machines (no machines:read, or the server answered 403): not an error, the list does not apply */
+  machinesReadable: boolean;
+  /** false when the role cannot read projects (no projects:read, or the server answered 403) */
+  projectsReadable: boolean;
   /** re-reads both lists; never rejects (a failed list sets its error flag instead) */
   refresh: () => Promise<void>;
   checkStatus: (machineId: string) => Promise<void>;
@@ -45,7 +50,25 @@ const DataContext = createContext<DataState | null>(null);
 
 const STATUS_INTERVAL_MS = 30_000;
 
+type ListRead<T> = { kind: 'ok'; value: T } | { kind: 'unreadable' } | { kind: 'failed' };
+
+/** Reads a list the role may not be allowed to read: skipped without the grant, and a 403 means the same. */
+async function readList<T>(allowed: boolean, read: () => Promise<T>): Promise<ListRead<T>> {
+  if (!allowed) return { kind: 'unreadable' };
+  try {
+    return { kind: 'ok', value: await read() };
+  } catch (e) {
+    return e instanceof ApiError && e.status === 403 ? { kind: 'unreadable' } : { kind: 'failed' };
+  }
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { can } = useAuth();
+  // read through a ref: `refresh` stays stable (callers keep it in effect deps) even if `can` is
+  // rebuilt on a render; a change in the read grants themselves re-reads through `grants` below
+  const canRef = useRef(can);
+  canRef.current = can;
+  const grants = `${can('machines', 'read')}:${can('projects', 'read')}`;
   const [allMachines, setMachines] = useState<Machine[]>([]);
   const [allProjects, setProjects] = useState<Project[]>([]);
   const [localIds, setLocalIds] = useState(() => localMachineIds());
@@ -66,6 +89,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [machinesError, setMachinesError] = useState(false);
   const [projectsError, setProjectsError] = useState(false);
+  const [machinesReadable, setMachinesReadable] = useState(true);
+  const [projectsReadable, setProjectsReadable] = useState(true);
   const machinesRef = useRef(machines);
   machinesRef.current = machines;
 
@@ -104,22 +129,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    // each list on its own: one refused (403) or failed read must not leave the other unread, nor
-    // the app stuck loading; a failed list keeps its last value and says so through its flag
-    const [m, p] = await Promise.allSettled([api.machines.list(), api.projects.list()]);
-    if (m.status === 'fulfilled') setMachines(m.value.machines);
-    setMachinesError(m.status === 'rejected');
-    if (p.status === 'fulfilled') setProjects(p.value.projects);
-    setProjectsError(p.status === 'rejected');
+    // each list on its own: one failed read must not leave the other unread, nor the app stuck
+    // loading. A failed list keeps its last value and says so through its error flag; a list the
+    // role cannot read is not requested (or answered 403) and is simply not applicable.
+    const [m, p] = await Promise.all([
+      readList(canRef.current('machines', 'read'), () => api.machines.list()),
+      readList(canRef.current('projects', 'read'), () => api.projects.list()),
+    ]);
+    if (m.kind === 'ok') setMachines(m.value.machines);
+    else if (m.kind === 'unreadable') setMachines([]);
+    setMachinesError(m.kind === 'failed');
+    setMachinesReadable(m.kind !== 'unreadable');
+    if (p.kind === 'ok') setProjects(p.value.projects);
+    else if (p.kind === 'unreadable') setProjects([]);
+    setProjectsError(p.kind === 'failed');
+    setProjectsReadable(p.kind !== 'unreadable');
     setLoading(false);
-    if (m.status !== 'fulfilled') return;
+    if (m.kind !== 'ok') return;
     const mine = localMachineIds();
     void Promise.all(m.value.machines.filter((x) => !x.is_local || mine.has(x.id)).map((x) => checkStatus(x.id)));
   }, [checkStatus]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, grants]);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -139,6 +172,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       loading,
       machinesError,
       projectsError,
+      machinesReadable,
+      projectsReadable,
       refresh,
       checkStatus,
       async createMachine(input) {
@@ -195,7 +230,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return project.machines.map((l) => machines.find((m) => m.id === l.machine_id)).filter((m): m is Machine => !!m);
       },
     }),
-    [machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, machinesError, projectsError, refresh, checkStatus, setOpenTasks],
+    [machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, machinesError, projectsError, machinesReadable, projectsReadable, refresh, checkStatus, setOpenTasks],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

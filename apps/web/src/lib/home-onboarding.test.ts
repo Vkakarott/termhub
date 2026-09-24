@@ -32,6 +32,19 @@ describe('homeStep', () => {
   });
 });
 
+describe('homeStep for lists the role cannot read', () => {
+  it('skips step 1 without machines:read', () => {
+    expect(homeStep({ ...base, machines: [], projects: [], openTabs: [], machinesUnreadable: true })).toBe(2);
+    expect(homeStep({ ...base, machines: [], openTabs: [], machinesUnreadable: true })).toBe(3);
+  });
+
+  it('never shows steps 2 and 3 without projects:read', () => {
+    expect(homeStep({ ...base, projects: [], openTabs: [], projectsUnreadable: true })).toBe('dashboard');
+    expect(homeStep({ ...base, openTabs: [], projectsUnreadable: true })).toBe('dashboard');
+    expect(homeStep({ ...base, machines: [], projects: [], projectsUnreadable: true })).toBe(1);
+  });
+});
+
 describe('starterProjects', () => {
   it('keeps the first three projects that are not archived', () => {
     const ps = [project('a', { status: 'archived' }), project('b'), project('c', { status: 'paused' }), project('d'), project('e')];

@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   openTabsFailed: false,
   machinesError: false,
   projectsError: false,
+  machinesReadable: true,
+  projectsReadable: true,
   reloadMonitor: vi.fn(async () => {}),
   groups: [] as ProjectGroup[],
   user: { id: 'u1', nickname: null as string | null },
@@ -36,6 +38,8 @@ vi.mock('../lib/data', () => ({
     refresh: state.refresh,
     machinesError: state.machinesError,
     projectsError: state.projectsError,
+    machinesReadable: state.machinesReadable,
+    projectsReadable: state.projectsReadable,
   }),
 }));
 vi.mock('../lib/monitor', () => ({
@@ -100,6 +104,8 @@ beforeEach(() => {
   state.openTabsFailed = false;
   state.machinesError = false;
   state.projectsError = false;
+  state.machinesReadable = true;
+  state.projectsReadable = true;
   state.reloadMonitor.mockClear();
   state.groups = [favorites()];
   state.user = { id: 'u1', nickname: null };
@@ -384,5 +390,42 @@ describe('HomePage next-step links', () => {
     const link = within(screen.getByRole('region', { name: 'Próximos passos' })).getByRole('link', { name: /apelido/ });
     expect(link).toHaveTextContent('→');
     expect(link.className).toMatch(/text-accent/);
+  });
+});
+
+describe('HomePage for a role that cannot read a list', () => {
+  const notice = () => screen.queryByRole('status', { name: 'Aviso de carregamento' });
+
+  it('without machines:read, skips step 1 and shows no failure notice', () => {
+    state.machinesReadable = false;
+    mount();
+    expect(screen.queryByText('Passo 1 de 3')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Crie seu primeiro projeto' })).toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
+  });
+
+  it('without machines:read, still guides to the first terminal', () => {
+    state.machinesReadable = false;
+    state.projects = [project('p1')];
+    mount();
+    expect(screen.getByText('Passo 3 de 3')).toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
+  });
+
+  it('without projects:read, shows the dashboard with no step and no failure notice', () => {
+    state.machines = [machine('m1')];
+    state.projectsReadable = false;
+    mount();
+    expect(screen.queryByText(/Passo \d de 3/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'O que estou fazendo' })).toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
+  });
+
+  it('with neither list readable, shows the dashboard and no notice', () => {
+    state.machinesReadable = false;
+    state.projectsReadable = false;
+    mount();
+    expect(screen.queryByText(/Passo \d de 3/)).not.toBeInTheDocument();
+    expect(notice()).not.toBeInTheDocument();
   });
 });

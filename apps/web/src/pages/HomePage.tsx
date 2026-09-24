@@ -24,7 +24,7 @@ const WAIT_MS = 15_000;
  */
 export function HomePage() {
   const { user, can } = useAuth();
-  const { machines, projects, loading, refresh, machinesError, projectsError } = useData();
+  const { machines, projects, loading, refresh, machinesError, projectsError, machinesReadable, projectsReadable } = useData();
   const { openTabs, openTabsLoaded, openTabsFailed, reload: reloadTabs } = useMonitor();
   const { groups } = useProjectGroups();
   // Both forms live here, outside the step being shown: creating a machine refreshes the data and
@@ -40,7 +40,10 @@ export function HomePage() {
     machinesFailed: machinesError,
     projectsFailed: projectsError,
     openTabsFailed,
+    machinesUnreadable: !machinesReadable,
+    projectsUnreadable: !projectsReadable,
   });
+  // real failures only (network, 5xx): a list the role cannot read is not an error
   const readFailed = machinesError || projectsError || openTabsFailed;
 
   useEffect(() => {
