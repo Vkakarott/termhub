@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Repo: `/home/pedrogoiania/termhub-wt-board` (a git worktree), branch `docs/board-hierarchy` (already holds the spec commit). Do not push; do not open a PR.
-- Commit messages in English, `Area: imperative subject` ≤ 72 chars (CLAUDE.md), each ending with the trailer line `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` (pass it as a second `-m`). UI copy stays pt-BR. Code, comments and identifiers in English.
+- Commit messages in English, `Area: imperative subject` ≤ 72 chars (CLAUDE.md), each ending with the trailer line `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` (pass it as a second `-m`). UI copy stays pt-BR. Code, comments and identifiers in English.
 - Routes never import Prisma; go through `apps/server/src/db/repositories`. Every request input validated with zod. In handlers, load projects/tasks/columns through `scoped(repos, request).<kind>()`, never `repos.*.findById`.
 - The migration is **additive and backward compatible** (spec §2, §11; CLAUDE.md): the previous release keeps reading and writing `status`, `position`, `parent_id` with their old meaning during the blue/green switch. No column is dropped or re-purposed.
 - CI runs `prisma migrate deploy` then `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code`, so the migration SQL must produce exactly the Prisma schema. Triggers, functions and `CHECK` constraints are invisible to Prisma's diff (not modelled, not dropped); Task 1 Step 5 proves it on a real database.
@@ -408,7 +408,7 @@ Expected: PASS (existing behaviour unchanged; the trigger numbers rows silently)
 
 ```bash
 git add apps/server/prisma/schema.prisma apps/server/prisma/migrations/20260924000000_board_hierarchy apps/server/src/generated/prisma
-git commit -m "Prisma: card types, numbers, epics and per-project board columns" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Prisma: card types, numbers, epics and per-project board columns" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -618,7 +618,7 @@ Expected: PASS (4 describe blocks), typecheck clean.
 
 ```bash
 git add apps/server/src/db/repositories/task-rules.ts apps/server/src/db/repositories/task-rules.test.ts apps/server/src/db/repositories/types.ts
-git commit -m "Tasks: pure board rules, messages and ref parsing" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Tasks: pure board rules, messages and ref parsing" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1757,7 +1757,7 @@ Expected: PASS.
 
 ```bash
 git add apps/server/src/db/repositories/types.ts apps/server/src/db/repositories/task-board.ts apps/server/src/db/repositories/tasks.ts apps/server/src/db/repositories/tasks.db.test.ts apps/server/src/routes/tasks.ts apps/server/src/control/tasks.ts apps/server/src/control/tasks.test.ts
-git commit -m "Tasks: types, mandatory epics, numbers, per-column positions" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Tasks: types, mandatory epics, numbers, per-column positions" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2122,7 +2122,7 @@ Expected: PASS, typecheck clean.
 
 ```bash
 git add apps/server/src/db/repositories/task-columns.ts apps/server/src/db/repositories/task-columns.db.test.ts apps/server/src/db/repositories/projects.ts apps/server/src/db/repositories/index.ts
-git commit -m "Tasks: per-project board columns repository and default columns" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Tasks: per-project board columns repository and default columns" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2325,7 +2325,7 @@ Expected: PASS.
 
 ```bash
 git add apps/server/src/db/repositories/tasks.ts apps/server/src/db/repositories/tasks.db.test.ts
-git commit -m "Tasks: heal legacy rows on read; count only work types" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Tasks: heal legacy rows on read; count only work types" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3029,7 +3029,7 @@ Expected: PASS (`tickets/import` needs no change: `createFromTicket` already lan
 
 ```bash
 git add apps/server/src/auth/scope.ts apps/server/src/auth/scope.test.ts apps/server/src/routes/tasks.ts apps/server/src/routes/tasks.test.ts apps/server/src/routes/columns.ts apps/server/src/routes/columns.test.ts apps/server/src/app.ts
-git commit -m "API: card types and refs, move by column, board column routes" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "API: card types and refs, move by column, board column routes" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3544,7 +3544,7 @@ Expected: PASS.
 
 ```bash
 git add apps/server/src/control apps/server/src/mcp/tools.ts apps/server/src/mcp/route.test.ts apps/server/src/db/repositories/chat-actions-view.ts apps/server/src/db/repositories/chat-actions-view.test.ts
-git commit -m "MCP: card types, refs and urls; move by column; agent column; find by ref" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "MCP: card types, refs and urls; move by column; agent column; find by ref" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4015,7 +4015,7 @@ Expected: PASS; typecheck clean; the web suite green (component tests mock the A
 
 ```bash
 git add apps/web/src/lib/types.ts apps/web/src/lib/api.ts apps/web/src/lib/board.ts apps/web/src/lib/board.test.ts apps/web/src/components/TasksBoard.tsx
-git commit -m "Web: card types, refs and columns in the model; board helpers" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Web: card types, refs and columns in the model; board helpers" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4394,7 +4394,7 @@ Expected: PASS (7 tests), typecheck clean.
 
 ```bash
 git add apps/web/src/components/TypeBadge.tsx apps/web/src/components/TaskEditor.tsx apps/web/src/components/TaskEditor.test.tsx
-git commit -m "Web: card editor with type, epic, column and copy link" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Web: card editor with type, epic, column and copy link" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5106,7 +5106,7 @@ Expected: PASS (9 board tests), typecheck clean, suite green.
 
 ```bash
 git add apps/web/src/components/TasksBoard.tsx apps/web/src/components/TasksBoard.test.tsx
-git commit -m "Web: board with the project's columns, type and epic filter" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Web: board with the project's columns, type and epic filter" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5413,7 +5413,7 @@ Expected: PASS, typecheck clean, suite green.
 
 ```bash
 git add apps/web/src/pages/CardPage.tsx apps/web/src/pages/CardPage.test.tsx apps/web/src/pages/ProjectPage.tsx apps/web/src/pages/ProjectPage.test.tsx apps/web/src/App.tsx apps/web/src/components/TasksBoard.tsx apps/web/src/components/TasksBoard.test.tsx
-git commit -m "Web: card URLs at /project/KEY-N open the editor" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Web: card URLs at /project/KEY-N open the editor" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5791,7 +5791,7 @@ Expected: PASS, typecheck clean, suite green.
 
 ```bash
 git add apps/web/src/components/BacklogView.tsx apps/web/src/components/BacklogView.test.tsx apps/web/src/pages/ProjectPage.tsx apps/web/src/pages/ProjectPage.test.tsx
-git commit -m "Web: backlog grouped by epic; Board and Backlog sections" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Web: backlog grouped by epic; Board and Backlog sections" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5806,7 +5806,7 @@ git commit -m "Web: backlog grouped by epic; Board and Backlog sections" -m "Co-
 
 **Interfaces:**
 - Consumes: Task 8 `api.tasks.list`, `api.columns.create/update/move/remove/setAgent`, `COLUMN_CATEGORY_LABEL`, `TaskColumn`, `ColumnCategory`; existing `ConfirmDialog`.
-- Produces: `BoardColumnsSettings({ project })` — a section "Colunas do board": one row per column in order with a name input (`aria-label="Nome da coluna <name>"`, saved on blur/Enter), a category select (`"Tipo da coluna <name>"`: "A fazer", "Fazendo", "Feito"), "Subir"/"Descer"/"Excluir <name>" buttons (category and delete disabled for the last column of a category); a delete confirmation that says how many cards move and to which column; "+ coluna" with name and category (disabled at 12); "Coluna do agente" select with "Automática (primeira Fazendo)" and every column. Server refusals are shown as they come.
+- Produces: `BoardColumnsSettings({ project })` — a section "Colunas do board": one row per column in order with a name input (`aria-label="Nome da coluna <name>"`, saved on blur/Enter), a category select (`"Tipo da coluna <name>"`: "A fazer", "Fazendo", "Feito"), "Subir"/"Descer"/"Excluir <name>" buttons (category and delete disabled for the last column of a category); a delete confirmation that says how many cards move and to which column; "+ coluna" with name and category (disabled at 12); "Coluna do agente" select with "Automática (primeira Fazendo)" and the `doing` columns only. Server refusals are shown as they come.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6162,7 +6162,7 @@ Expected: PASS (5 tests), typecheck clean, suite green.
 
 ```bash
 git add apps/web/src/components/BoardColumnsSettings.tsx apps/web/src/components/BoardColumnsSettings.test.tsx apps/web/src/components/ProjectSettings.tsx apps/web/src/components/SetupForm.tsx
-git commit -m "Web: board columns and agent column in project settings" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Web: board columns and agent column in project settings" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
@@ -6220,7 +6220,7 @@ The acceptance checks of spec §11 — every project has three columns, `next_ta
 
 ```bash
 git add README.md CLAUDE.md
-git commit -m "Docs: board hierarchy, backlog, custom columns and card URLs" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "Docs: board hierarchy, backlog, custom columns and card URLs" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 git log --oneline -16
 ```
 
