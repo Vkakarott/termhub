@@ -22,7 +22,12 @@ export type ChatEvent =
   | { type: 'confirmation'; user_id: string; conversation_id: string; action_id: string; tool: string; args: unknown; class: ChatActionClass; machine_id: string | null; project_id: string | null; tab_id: string | null; summary: string; created_at: string }
   /** The user answered a pending action. Every open tab gets this, not only the one that clicked —
    * the confirmation card in each of them must update the same way. */
-  | { type: 'decision'; user_id: string; conversation_id: string; action_id: string; status: 'approved' | 'denied' };
+  | { type: 'decision'; user_id: string; conversation_id: string; action_id: string; status: 'approved' | 'denied' }
+  /** A run ended, whichever way: after the final `message` event of its answer, or — for a run that
+   * could not even be attempted (the concierge refused it) — with no message at all, its empty
+   * assistant row already deleted. `error_code` is the stored answer's code, or `SETUP_FAILED`.
+   * Metadata only: never the answer's text. Browsers ignore it; the push service listens for it. */
+  | { type: 'run_finished'; user_id: string; conversation_id: string; message_id: string | null; ok: boolean; error_code: string | null };
 
 class ChatBus {
   private emitter = new EventEmitter();

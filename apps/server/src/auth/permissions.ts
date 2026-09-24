@@ -18,6 +18,7 @@ export const RESOURCES = [
   { key: 'users', label: 'Usuários' },
   { key: 'roles', label: 'Roles e permissões' },
   { key: 'chat', label: 'Chat' },
+  { key: 'devices', label: 'Aparelhos' },
 ] as const;
 export type Resource = (typeof RESOURCES)[number]['key'];
 // 'write' is used only by the `terminals` resource, for the MCP write tools (open_tab, send_input, send_key,

@@ -134,6 +134,34 @@ Because `terminals:write` cannot yet be granted to a non-admin role — the sett
 
 The token minted for each run carries `read`, `tasks` and `terminals` — the concierge can read anything its owner can see and can also act — but it is always minted `gated: true`, and `gated` is what a person's own MCP token (the one Settings hands out) never is: nobody has to confirm their own keystrokes. On a gated token, a read (`list_machines`, `read_screen`, `list_tasks`, …) still runs immediately; a write or an irreversible call (`send_input`, `run_command`, `create_task`, `close_tab`, `delete_task`, …) is recorded as a pending action instead of run, and the chat shows a card asking the user to confirm or deny it. Confirming re-issues the exact call for real execution; denying tells the model so, and the model does not retry it. A question the user never answers expires after 24h, and so does an approval no run ever came back to use — the hourly timer that also purges expired sessions (`app.ts`) marks both `expired` rather than leaving them open forever, and the same proposal can be asked again after that; the gate applies the same 24h itself, so a "yes" nobody consumed can never authorise a write days later. The durable action trail (the cards that survive a reload, `GET /api/chat`) holds the **writes the concierge proposed** — what it asked to do and what became of it — not the reads it performed: a read runs immediately and is only shown live, while the run that made it is streaming, so it leaves no row behind.
 
+### Mobile API
+
+The phone app talks to `/api/m/v1` (REST) and `/ws/m/chat?v=1` (the chat stream) on the public host, `termhub.dev` — never on `app.termhub.dev`, which sits behind Cloudflare Access. The prefix lives outside `/api`: cookies and the Access JWT are ignored there, and every call carries a device token plus a DPoP proof signed by the phone's own key (`docs/superpowers/specs/2026-09-24-mobile-chat-app-design.md`). A phone enrols by asking for access with an e-mail, showing a verification code that the owner approves in Configurações → **Aparelhos**, and creating a PIN; the PIN unlocks the secret that renews the 15-minute token and confirms every action the chat proposes. The whole prefix is off until `MOBILE_PUBLIC_URL` is set:
+
+- `MOBILE_PUBLIC_URL` — the public base the phone calls, and the base every proof's `htu` is checked against (`https://termhub.dev` on jarvis). It has no fallback to `PUBLIC_URL` on purpose.
+- `MOBILE_MIN_APP_VERSION` — optional `x.y.z`; an app reporting an older `X-Termhub-App` version gets `426 APP_TOO_OLD`.
+- `EXPO_PUSH_ACCESS_TOKEN` — optional Expo access token sent with every push (needed only when the Expo project enforces enhanced push security).
+
+The hourly purge in `app.ts` (`mobile/purge.ts`) expires stale enrolment requests, drops expired device sessions, and removes requests after a day, the device trail after 90 days and the push history after 30 days.
+
+**nginx.** The `termhub.dev` server of `deploy/nginx/termhub.dev.conf.tmpl` forwards the mobile paths, each keyed per client on `$http_cf_connecting_ip` and each through the `$upstream_app` variable: `location /api/m/v1/devices/requests` and `location /api/m/v1/session/` in a tight zone (2 r/s, burst 5, 64k bodies, 30s); `location = /api/m/v1/transcriptions`, POST only, unbuffered, 32m bodies, 120s; `location /api/m/` for the rest (10 r/s, burst 20, 64k bodies, 60s); `location /ws/m/` with the upgrade headers, 4 connections per client and a 3600s read timeout. `CF-IPCountry` and `CF-IPCity` are passed through for the approval card. nginx must forward `/api/m/v1/...` without rewriting the path: every proof signs the exact URL, so a rewrite fails every call with `401`.
+
+**Cloudflare.**
+
+- **Access: nothing changes.** `termhub.dev` has no Access; these paths live there.
+- WAF: a rate-limiting rule on `/api/m/v1/devices/requests` (10 per minute per IP) as a second layer. **Bot Fight Mode and managed challenges must not fire on `/api/m/*`** — a native app cannot solve a challenge — so a WAF rule that skips challenges on that path is part of the setup.
+- Location headers: `CF-IPCountry` arrives by default; enabling the "Add visitor location headers" managed transform gives `cf-ipcity` and is optional.
+
+**A command-line phone.** `apps/server/src/cli/mobile-client.ts` plays the app against a running server, to try the API before any app exists:
+
+```bash
+npm run mobile-client -w @termhub/server -- --server http://localhost:3000 --email you@example.com
+# behind a proxy, sign against the server's MOBILE_PUBLIC_URL:
+npm run mobile-client -w @termhub/server -- --server https://termhub.dev --public-url https://termhub.dev --email you@example.com
+```
+
+It generates a P-256 key, asks for access, prints the verification code, waits for the approval on the web, asks for a PIN and activates, keeping `{ device_id, key, salt, wrapped secret }` in `~/.cache/termhub/mobile-client.json` (mode 0600). Its prompt then takes `chat`, `projects`, `send <text>`, `refresh`, `approve <action_id>`, `deny <action_id>`, `ws`, `notifications`, `revoke` and `quit`. It prints ids and statuses only — never the token, the secret or a proof — and deletes its state file when the server answers `DEVICE_REVOKED`.
+
 ### Cloudflare Tunnel
 
 On jarvis, the app is published at **https://app.termhub.dev** and the landing page at **https://termhub.dev** through the existing proxy (`/mnt/hd2tb/proxy`: nginx + `cloudflared`, tunnel "jarvis"). The `docker-compose.proxy.yml` overlay puts `app-blue`/`app-green` on the external `proxy` docker network; deploys are blue-green (see `deploy/blue-green.sh`): the `nginx/conf.d/termhub.dev.conf` vhost, rendered from `deploy/nginx/termhub.dev.conf.tmpl`, does `set $upstream_app termhub-app-<active color>` and proxies through that variable with WebSocket upgrade, and the script switches it to the newly healthy color before retiring the old one, so there is no 502 window. The public hostnames are managed in the Zero Trust dashboard → Tunnels → jarvis (`app.termhub.dev` and `termhub.dev` → HTTP → `proxy-nginx:80`; the vhost template `deploy/nginx/termhub.dev.conf.tmpl` sends `termhub.dev` to the `termhub-landing` container and `app.termhub.dev` to the active app color; the tunnel is dashboard-managed, so `cloudflared tunnel route dns` alone is not enough: it only creates the DNS record, and it uses the zone `~/.cloudflared/cert.pem` was logged into). To run compose by hand on jarvis, export `ENV_FILE=/mnt/hd2tb/projetos/termhub/.env` **and pass that same file as `--env-file`**: `ENV_FILE` only feeds the services' `env_file:` (the variables the containers see at runtime), while `--env-file` feeds compose's own interpolation (`${VAR}` in the compose file, including `build.args`).
@@ -291,6 +319,9 @@ See [.env.example](.env.example). Main ones:
 | `VITE_FIREBASE_*` | Firebase Analytics for the landing page and the app (same Firebase web app); build args of both images, empty = no analytics |
 | `WHISPER_URL` | speech-to-text service for dictation (`http://whisper:8000` in compose); unset hides the microphone |
 | `WHISPER_MODEL`/`WHISPER_LANGUAGE`/`WHISPER_THREADS`/`WHISPER_BEAM_SIZE`/`WHISPER_INITIAL_PROMPT` | (compose, `whisper` service) model `medium` (default: ~3x realtime on 6 cores, best pt-BR punctuation and names — `large-v3`/`turbo` measured worse in Portuguese) or `small` (~10x realtime, rougher); language hint (`auto` detects); threads (0 = physical cores); beam size; style prompt whose punctuation/casing whisper mimics (a pt/en default is built in) |
+| `MOBILE_PUBLIC_URL` | public base of the mobile API (`https://termhub.dev`), the URL every device proof is signed against; unset = `/api/m/v1` and `/ws/m/chat` are off (see [Mobile API](#mobile-api)) |
+| `MOBILE_MIN_APP_VERSION` | oldest app version (`x.y.z`) still served; older apps get `426 APP_TOO_OLD`; unset = any version |
+| `EXPO_PUSH_ACCESS_TOKEN` | Expo access token sent with the phones' push notifications; needed only with Expo's enhanced push security |
 | `TMUX_PATH` | path to tmux (useful as a service, minimal PATH) |
 | `LOCAL_SHELL` | shell inside local tmux (default `$SHELL`) |
 

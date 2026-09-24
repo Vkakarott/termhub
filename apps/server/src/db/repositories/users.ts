@@ -135,4 +135,10 @@ export class UsersRepository {
   async setCityShortUrlCustom(userId: string, url: string | null): Promise<User> {
     return mapUser(await this.db.user.update({ where: { id: userId }, data: { cityShortUrlCustom: url } }));
   }
+
+  /** Store-review switch (Settings → Usuários → Revisão): `until` null turns it off. `by` is the
+   *  admin's id, kept alongside the expiry for "ligado até … por …" on the panel. */
+  async setReview(userId: string, until: Date | null, by: string | null): Promise<User> {
+    return mapUser(await this.db.user.update({ where: { id: userId }, data: { reviewEnabledUntil: until, reviewEnabledBy: by } }));
+  }
 }

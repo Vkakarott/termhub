@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -279,6 +279,16 @@ export const api = {
     inviteFromWaitlist: (input: { ids: string[]; role_id: string }) => request<{ results: WaitlistInviteResult[] }>('POST', '/users/invite-from-waitlist', input),
     setRole: (id: string, role_id: string) => request<{ user: User }>('PATCH', `/users/${id}`, { role_id }),
     remove: (id: string) => request<{ ok: true; access_removed: boolean }>('DELETE', `/users/${id}`),
+    /** Store-review switch (Settings → Usuários → Revisão). `days: null` turns it off. 400 REVIEW_ADMIN
+     *  ("A conta de revisão não pode ser admin.") when the target is an admin. `revoked_devices` is how
+     *  many of the target's active devices were actually revoked (a failing one is skipped, not fatal). */
+    setReview: (id: string, input: { days: 1 | 3 | 7 | null; revoke_devices?: boolean }) => request<{ user: User; revoked_devices: number }>('POST', `/users/${id}/review`, input),
+    /** The target user's own devices and device trail, for the review panel. `can_enrol` is the
+     *  server's own read of the target's role grants (`devices:create`) — the BETA-role note follows
+     *  it instead of guessing from a role name or a permissions list this endpoint never sent. 503
+     *  MOBILE_DISABLED when this server has no mobile app configured. */
+    devices: (id: string) => request<{ devices: Device[]; events: DeviceEventView[]; can_enrol: boolean }>('GET', `/users/${id}/devices`),
+    revokeDevice: (id: string, deviceId: string) => request<{ device: Device }>('DELETE', `/users/${id}/devices/${deviceId}`),
   },
   apiTokens: {
     list: () => request<{ tokens: ApiToken[] }>('GET', '/api-tokens'),
@@ -288,6 +298,18 @@ export const api = {
   waitlist: {
     list: () => request<{ entries: WaitlistEntry[] }>('GET', '/waitlist'),
     remove: (id: string) => request<{ ok: true }>('DELETE', `/waitlist/${id}`),
+  },
+  /** Settings → Aparelhos: the signed-in user's own phones, never a "viewing as" scope. */
+  devices: {
+    requests: () => request<{ requests: DeviceRequestView[] }>('GET', '/devices/requests'),
+    /** 409 DEVICE_LIMIT ("Revogue um aparelho antes") once 5 devices are already active */
+    approve: (id: string) => request<{ request: DeviceRequestView }>('POST', `/devices/requests/${id}/approve`, {}),
+    deny: (id: string) => request<{ request: DeviceRequestView }>('POST', `/devices/requests/${id}/deny`, {}),
+    list: () => request<{ devices: Device[] }>('GET', '/devices'),
+    rename: (id: string, name: string) => request<{ device: Device }>('PATCH', `/devices/${id}`, { name }),
+    revoke: (id: string) => request<{ device: Device }>('DELETE', `/devices/${id}`),
+    events: () => request<{ events: DeviceEventView[] }>('GET', '/devices/events'),
+    summary: () => request<DevicesSummary>('GET', '/devices/summary'),
   },
   tabs: {
     rename: (id: string, name: string) => request<{ tab: Tab }>('PATCH', `/tabs/${id}`, { name }),

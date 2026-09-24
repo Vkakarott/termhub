@@ -65,6 +65,17 @@ const envSchema = z.object({
    */
   MCP_URL: z.string().url().optional(),
 
+  /**
+   * Public base of the mobile API (https://termhub.dev in production): the app calls
+   * `${MOBILE_PUBLIC_URL}/api/m/v1` and signs every DPoP proof's `htu` against it. Unset = the
+   * /api/m/v1 prefix is not registered at all.
+   */
+  MOBILE_PUBLIC_URL: z.string().url().optional(),
+  /** oldest app version (x.y.z) still served; older apps get 426 APP_TOO_OLD. Unset = no floor */
+  MOBILE_MIN_APP_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).optional(),
+  /** Expo push service access token (optional: Expo accepts unauthenticated sends when the project allows it) */
+  EXPO_PUSH_ACCESS_TOKEN: z.string().optional(),
+
   /** WhatsApp group the alpha-tester invite (Waitlist tab → Convidar) links to */
   ALPHA_COMMUNITY_URL: z.string().url().default('https://77a.it/comunidadetermhub'),
 
@@ -207,6 +218,21 @@ export const config = {
     env.CONCIERGE_URL && env.CONCIERGE_SECRET && env.MCP_URL
       ? { url: env.CONCIERGE_URL, secret: env.CONCIERGE_SECRET, mcpUrl: env.MCP_URL }
       : undefined,
+  /**
+   * The mobile app's API (/api/m/v1), or null when MOBILE_PUBLIC_URL is unset (the prefix is off).
+   *
+   * MOBILE_PUBLIC_URL has no fallback on purpose — PUBLIC_URL is the app host (app.termhub.dev),
+   * which sits behind Cloudflare Access, and a phone cannot pass Access: the mobile prefix is exposed
+   * outside Access only on the landing host, like /mcp. The base is that landing host, never
+   * PUBLIC_URL, and every proof's `htu` is checked against it.
+   */
+  mobile: env.MOBILE_PUBLIC_URL
+    ? {
+        publicUrl: env.MOBILE_PUBLIC_URL.replace(/\/$/, ''),
+        minAppVersion: env.MOBILE_MIN_APP_VERSION ?? null,
+        expoPushToken: env.EXPO_PUSH_ACCESS_TOKEN ?? null,
+      }
+    : null,
   terminal: {
     localShell: env.LOCAL_SHELL || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/sh'),
     tmuxPath: env.TMUX_PATH,

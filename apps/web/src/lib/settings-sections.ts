@@ -3,7 +3,7 @@
  * heading each sits under (spec 2026-09-23 app chrome §4). `resource: null` is a section every
  * signed-in user sees; Perfil is one, so `/settings` always has somewhere to land.
  */
-export type SettingsSection = 'profile' | 'city' | 'integrations' | 'api-tokens' | 'ai' | 'hardware' | 'users' | 'waitlist' | 'roles' | 'permissions' | 'uploads';
+export type SettingsSection = 'profile' | 'city' | 'integrations' | 'api-tokens' | 'devices' | 'ai' | 'hardware' | 'users' | 'waitlist' | 'roles' | 'permissions' | 'uploads';
 export type SettingsGroupId = 'account' | 'admin';
 
 export interface SettingsSectionInfo {
@@ -18,6 +18,7 @@ export const SETTINGS_SECTIONS: SettingsSectionInfo[] = [
   { key: 'city', label: 'Minha cidade', resource: null, group: 'account' },
   { key: 'integrations', label: 'Integrações', resource: 'integrations', group: 'account' },
   { key: 'api-tokens', label: 'Tokens de API', resource: 'api_tokens', group: 'account' },
+  { key: 'devices', label: 'Aparelhos', resource: 'devices', group: 'account' },
   { key: 'ai', label: 'Contas de IA', resource: 'ai_accounts', group: 'account' },
   { key: 'hardware', label: 'Hardware', resource: 'hardware', group: 'account' },
   { key: 'users', label: 'Usuários', resource: 'users', group: 'admin' },

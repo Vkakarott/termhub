@@ -865,3 +865,130 @@ describe('purgeExpiredActions', () => {
     expect(before - cutoff.getTime()).toBeLessThan(24 * 60 * 60 * 1000 + 5000);
   });
 });
+
+describe('start', () => {
+  it('resolves as soon as both messages are stored, before the runner has yielded a frame', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let yielded = false;
+    const { service, messages } = build(() => (async function* () { await gate; yielded = true; yield delta('ok'); yield done(); })());
+
+    const started = await service.start(user, 'oi');
+    let settledDone = false;
+    void started.done.then(() => (settledDone = true), () => (settledDone = true));
+    await settled();
+
+    expect(yielded).toBe(false);
+    expect(settledDone).toBe(false);
+    expect(messages.map((m) => [m.role, m.text])).toEqual([
+      ['user', 'oi'],
+      ['assistant', ''],
+    ]);
+    release();
+    const answer = await started.done;
+    expect(answer.text).toBe('ok');
+  });
+
+  it('hands back the ids of the two published messages, and done resolves to the final answer', async () => {
+    const { service } = build([delta('Nada '), delta('rodando.'), done()]);
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      const started = await service.start(user, 'o que está rodando?');
+      const answer = await started.done;
+      const published = events.filter((e): e is Extract<ChatEvent, { type: 'message' }> => e.type === 'message');
+      expect(started.conversation_id).toBe('c1');
+      expect(published[0].message).toMatchObject({ id: started.user_message_id, role: 'user' });
+      expect(published[1].message).toMatchObject({ id: started.assistant_message_id, role: 'assistant' });
+      expect(answer).toMatchObject({ id: started.assistant_message_id, text: 'Nada rodando.', error_code: null });
+    } finally {
+      off();
+    }
+  });
+
+  it('rejects start itself, storing nothing, when there is no machine to run on', async () => {
+    const { service, messages } = build([delta('ok'), done()], { host: { machines: [] } });
+    await expect(service.start(user, 'oi')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_NO_MACHINE' });
+    expect(messages).toEqual([]);
+  });
+
+  it('rejects start itself when a run is already in flight', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { service, messages } = build(() => (async function* () { await gate; yield delta('ok'); yield done(); })());
+    const first = await service.start(user, 'primeira');
+    await expect(service.start(user, 'segunda')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+    expect(messages).toHaveLength(2);
+    release();
+    await first.done;
+  });
+
+  it('rejects start itself when the conversation was archived before the lock, and releases the lock', async () => {
+    const { service, repos, conversation } = build([delta('ok'), done()]);
+    vi.mocked(repos.chat.findByIdForUser).mockImplementationOnce(async () => ({ ...conversation, archived_at: '2026-09-24T00:00:00.000Z' }) as never);
+    await expect(service.start(user, 'oi')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_ARCHIVED' });
+    expect(repos.chat.addMessage).not.toHaveBeenCalled();
+    const answer = await (await service.start(user, 'de novo')).done;
+    expect(answer.text).toBe('ok');
+  });
+
+  it('publishes run_finished with ok true and the assistant message after a successful run', async () => {
+    const { service } = build([delta('ok'), done()]);
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      const started = await service.start(user, 'oi');
+      await started.done;
+      const finished = events.filter((e) => e.type === 'run_finished');
+      expect(finished).toEqual([{ type: 'run_finished', user_id: 'u1', conversation_id: 'c1', message_id: started.assistant_message_id, ok: true, error_code: null }]);
+      // Right after the final message event, never before it.
+      expect(events.at(-2)).toMatchObject({ type: 'message', message: { id: started.assistant_message_id, text: 'ok' } });
+      expect(events.at(-1)?.type).toBe('run_finished');
+    } finally {
+      off();
+    }
+  });
+
+  it('publishes run_finished with ok false and the stored code after a runner error frame', async () => {
+    const { service } = build([delta('comecei'), errorFrame('run_failed')]);
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      const started = await service.start(user, 'oi');
+      const answer = await started.done;
+      expect(answer.error_code).toBe('RUN_FAILED');
+      expect(events.filter((e) => e.type === 'run_finished')).toEqual([
+        { type: 'run_finished', user_id: 'u1', conversation_id: 'c1', message_id: started.assistant_message_id, ok: false, error_code: 'RUN_FAILED' },
+      ]);
+    } finally {
+      off();
+    }
+  });
+
+  it('publishes run_finished with no message after a setup failure, and done rejects with the original error', async () => {
+    const { service, runner, messages } = build([]);
+    vi.mocked(runner.run).mockImplementationOnce(() => (async function* () {
+      throw new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED');
+    })());
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      const started = await service.start(user, 'oi');
+      await expect(started.done).rejects.toMatchObject({ statusCode: 502, code: 'CONCIERGE_FAILED' });
+      expect(messages.map((m) => m.role)).toEqual(['user']);
+      expect(events.filter((e) => e.type === 'run_finished')).toEqual([
+        { type: 'run_finished', user_id: 'u1', conversation_id: 'c1', message_id: null, ok: false, error_code: 'SETUP_FAILED' },
+      ]);
+    } finally {
+      off();
+    }
+  });
+
+  it('releases the lock once a run nobody awaits finishes', async () => {
+    const { service } = build([delta('ok'), done()]);
+    const first = await service.start(user, 'um');
+    await first.done;
+    const second = await service.start(user, 'dois');
+    expect((await second.done).text).toBe('ok');
+  });
+});
