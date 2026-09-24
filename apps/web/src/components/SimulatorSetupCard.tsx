@@ -4,6 +4,9 @@ import { useData } from '../lib/data';
 import type { Machine, WdaSetupState } from '../lib/types';
 
 const POLL_MS = 3000;
+/** How long to keep polling for the updated agent after "Atualizar agente" (mirrors AgentUpdateCard). */
+const UPDATE_POLL_MAX_MS = 90_000;
+const UPDATING_MESSAGE = 'Atualizando o agente… ele reinicia e reconecta em instantes.';
 
 export function SimulatorSetupCard({ machine }: { machine: Machine }) {
   const { machines, checkStatus } = useData();
@@ -20,6 +23,9 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
   const hasWdaRef = useRef(false);
+  // When the user asked for an agent update: keeps `load` polling while the agent is still the old
+  // one (it restarts and reconnects), until it claims `sim` or UPDATE_POLL_MAX_MS runs out.
+  const updateRequestedAt = useRef<number | null>(null);
 
   const isMac = live.os === 'macos' && live.capabilities.includes('xcodebuild');
   const hasWda = live.capabilities.includes('wda');
@@ -36,6 +42,7 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
     try {
       const s = await api.machines.wdaSetup(machine.id);
       if (cancelledRef.current) return;
+      updateRequestedAt.current = null;
       setAgentBlock(null);
       setSetup(s);
       setError(null);
@@ -54,8 +61,18 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
       }
       if (e instanceof ApiError && e.code === 'AGENT_OUTDATED') {
         setAgentBlock('outdated');
-        setOutdatedMessage(e.message);
         setError(null);
+        const requestedAt = updateRequestedAt.current;
+        if (requestedAt === null) {
+          setOutdatedMessage(e.message);
+        } else if (Date.now() - requestedAt > UPDATE_POLL_MAX_MS) {
+          updateRequestedAt.current = null;
+          setOutdatedMessage('Ainda reconectando… verifique o agente na máquina.');
+        } else {
+          // still the old agent (not restarted yet): keep the "updating" sentence and look again
+          setOutdatedMessage(UPDATING_MESSAGE);
+          timer.current = setTimeout(() => void load(), POLL_MS);
+        }
         return;
       }
       setError(e instanceof ApiError ? e.message : 'Erro ao consultar o setup');
@@ -94,7 +111,9 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
     try {
       await api.machines.updateAgent(machine.id);
       if (cancelledRef.current) return;
-      setOutdatedMessage('Atualizando o agente… ele reinicia e reconecta em instantes.');
+      updateRequestedAt.current = Date.now();
+      setOutdatedMessage(UPDATING_MESSAGE);
+      if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => void load(), POLL_MS * 3);
     } catch (e) {
       if (cancelledRef.current) return;
