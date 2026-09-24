@@ -55,7 +55,6 @@ export async function openAgentTunnel(machineId: string, remote: WdaPorts, regis
   const onOffline = (id: string) => {
     if (id === machineId) fail(new Error(AGENT_OFFLINE_MESSAGE));
   };
-  registry.on('offline', onOffline);
 
   const forward = async (remotePort: number): Promise<number> => {
     const port = await findFreePort();
@@ -115,6 +114,17 @@ export async function openAgentTunnel(machineId: string, remote: WdaPorts, regis
     closed = true;
     teardown();
     throw err;
+  }
+
+  // Only from here is there a live tunnel for `onOffline` to end through `onClose` — register it
+  // now, then re-check: `findFreePort()`/`listen()` awaited above, so the agent may have gone
+  // offline while both listeners were coming up, with nothing yet registered to hear it. Without
+  // this check that race would hand back a tunnel nothing will ever tear down.
+  registry.on('offline', onOffline);
+  if (!registry.isOnline(machineId)) {
+    closed = true;
+    teardown();
+    throw new Error(AGENT_OFFLINE_MESSAGE);
   }
   log('túnel do agente aberto', { machineId, wdaPort, mjpegPort, remote });
 

@@ -122,6 +122,19 @@ describe('openAgentTunnel', () => {
     await expect(openAgentTunnel('m1', { wdaPort: 8137, mjpegPort: 9137 }, registry)).rejects.toThrow(AGENT_OFFLINE_MESSAGE);
   });
 
+  it('going offline between listen and return fails the setup with the offline message and leaves no listener registered', async () => {
+    const { registry, emitter } = fakeRegistry();
+    let calls = 0;
+    // First call is the up-front check before any listener is up; second is the re-check made
+    // right after both local listeners started — that is the window the fix closes.
+    registry.isOnline = vi.fn(() => {
+      calls++;
+      return calls === 1;
+    });
+    await expect(openAgentTunnel('m1', { wdaPort: 8137, mjpegPort: 9137 }, registry)).rejects.toThrow(AGENT_OFFLINE_MESSAGE);
+    expect(emitter.listenerCount('offline')).toBe(0);
+  });
+
   it('an offline event for this machine fires onClose exactly once, destroys local sockets and stops listening', async () => {
     const { registry, opened, emitter } = fakeRegistry();
     const onClose = vi.fn();
