@@ -195,14 +195,6 @@ describe('TasksBoard — card URLs', () => {
     expect(screen.getByTestId('location').textContent).toBe('/project/P1-t1|/projects/p1/tasks');
   });
 
-  it('double-clicking the title shows the rename input instead of opening the card', async () => {
-    mount();
-    await screen.findByText('t1');
-    fireEvent.doubleClick(screen.getByText('t1'));
-    expect(screen.getByDisplayValue('t1')).toBeInTheDocument();
-    expect(screen.getByTestId('location').textContent).toBe('/projects/p1/tasks|');
-  });
-
   it('the "Abrir card" button is reachable by keyboard and opens the card', async () => {
     mount();
     await screen.findByText('t1');
@@ -220,6 +212,15 @@ describe('TasksBoard — card URLs', () => {
     card.focus();
     fireEvent.keyDown(card, { key: 'Enter' });
     expect(screen.getByTestId('location').textContent).toBe('/project/P1-t1|/projects/p1/tasks');
+  });
+
+  it('Enter on a nested control (the move button) does not also open the card', async () => {
+    mount();
+    await screen.findByText('t1');
+    const moveButton = screen.getByRole('button', { name: 'Mover para Em revisão' });
+    moveButton.focus();
+    fireEvent.keyDown(moveButton, { key: 'Enter' });
+    expect(screen.getByTestId('location').textContent).toBe('/projects/p1/tasks|');
   });
 
   it('a drag does not also open the card once it is dropped', async () => {

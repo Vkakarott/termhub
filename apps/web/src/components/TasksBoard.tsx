@@ -259,7 +259,6 @@ export function TasksBoard({ projectId, openTaskId }: Props) {
                       onDragStart={(e) => onDragStart(e, task)}
                       onDragEnd={() => setDrag(null)}
                       onOpen={() => openCard(task)}
-                      onRename={(title) => void update(task.id, { title })}
                       next={next}
                       onMoveNext={next ? () => void move(task.id, next.id, 0) : undefined}
                       terminalHref={task.tab_id ? `/projects/${projectId}?tab=${task.tab_id}` : null}
@@ -380,7 +379,6 @@ interface CardProps {
   onDragStart: (e: DragEvent) => void;
   onDragEnd: () => void;
   onOpen: () => void;
-  onRename: (title: string) => void;
   next?: TaskColumn;
   onMoveNext?: () => void;
   terminalHref: string | null;
@@ -389,37 +387,18 @@ interface CardProps {
 /** Visible on hover, on keyboard focus (anywhere in the card) and always on touch (no hover). */
 const CARD_ACTION = 'invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible group-focus-within:visible focus:visible [@media(hover:none)]:visible';
 
-function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, onRename, next, onMoveNext, terminalHref }: CardProps) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(task.title);
-  const inputRef = useRef<HTMLInputElement>(null);
+/** Renaming happens in the card editor's "Título" field; the board card only opens it (spec §7). */
+function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, next, onMoveNext, terminalHref }: CardProps) {
   // A native drag can still leave a trailing click on the source element once it is dropped; this
   // flag outlives the drag by one tick so that stray click does not also open the card.
   const draggedRef = useRef(false);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.select();
-  }, [editing]);
-
-  const commit = () => {
-    setEditing(false);
-    const v = draft.trim();
-    if (v && v !== task.title) onRename(v);
-    else setDraft(task.title);
-  };
-
-  const startEditing = (e: { stopPropagation: () => void }) => {
-    e.stopPropagation();
-    setDraft(task.title);
-    setEditing(true);
-  };
 
   const done = task.subtasks?.filter((s) => s.status === 'done').length ?? 0;
   const total = task.subtasks?.length ?? 0;
 
   return (
     <div
-      draggable={!editing}
+      draggable
       onDragStart={(e) => {
         draggedRef.current = true;
         onDragStart(e);
@@ -430,15 +409,16 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, o
           draggedRef.current = false;
         }, 0);
       }}
-      role={editing ? undefined : 'button'}
-      tabIndex={editing ? undefined : 0}
-      aria-label={editing ? undefined : `${task.ref} ${task.title}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${task.ref} ${task.title}`}
       onClick={() => {
-        if (editing || draggedRef.current) return;
+        if (draggedRef.current) return;
         onOpen();
       }}
       onKeyDown={(e) => {
-        if (editing) return;
+        // only the card itself, not a nested control (the → button, the terminal link…) bubbling up
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onOpen();
@@ -448,88 +428,70 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, o
         dragging ? 'opacity-40' : ''
       } ${task.status === 'done' ? 'text-fg-muted line-through decoration-fg-dim' : ''}`}
     >
-      {editing ? (
-        <input
-          ref={inputRef}
-          className="w-full bg-transparent outline-none"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commit();
-            if (e.key === 'Escape') {
-              setDraft(task.title);
-              setEditing(false);
-            }
-          }}
-          onClick={(e) => e.stopPropagation()}
-        />
-      ) : (
-        <div className="flex items-start gap-1.5">
-          <TypeBadge type={task.type} />
-          <span className="flex-1 break-words" onDoubleClick={startEditing}>
-            <span className="mr-1.5 font-mono text-[10px] text-fg-dim">{task.ref}</span>
-            {task.external_ref && (
-              <a
-                href={task.external_ref.url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="mr-1.5 rounded bg-accent/15 px-1 font-mono text-[10px] text-accent hover:bg-accent/25"
-                title={`${task.external_ref.provider}: ${task.external_ref.state}`}
-              >
-                {task.external_ref.identifier}
-              </a>
-            )}
-            {task.external_ref ? task.title.replace(task.external_ref.identifier, '').trim() : task.title}
+      <div className="flex items-start gap-1.5">
+        <TypeBadge type={task.type} />
+        <span className="flex-1 break-words">
+          <span className="mr-1.5 font-mono text-[10px] text-fg-dim">{task.ref}</span>
+          {task.external_ref && (
+            <a
+              href={task.external_ref.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="mr-1.5 rounded bg-accent/15 px-1 font-mono text-[10px] text-accent hover:bg-accent/25"
+              title={`${task.external_ref.provider}: ${task.external_ref.state}`}
+            >
+              {task.external_ref.identifier}
+            </a>
+          )}
+          {task.external_ref ? task.title.replace(task.external_ref.identifier, '').trim() : task.title}
+        </span>
+        {total > 0 && (
+          <span className="shrink-0 rounded bg-bg-4 px-1 text-[10px] tabular-nums text-fg-muted" title={`${done} de ${total} subtarefas concluídas`}>
+            ✓ {done}/{total}
           </span>
-          {total > 0 && (
-            <span className="shrink-0 rounded bg-bg-4 px-1 text-[10px] tabular-nums text-fg-muted" title={`${done} de ${total} subtarefas concluídas`}>
-              ✓ {done}/{total}
-            </span>
-          )}
-          {terminalHref && (
-            <Link to={terminalHref} onClick={(e) => e.stopPropagation()} className="shrink-0 rounded px-1 font-mono text-[11px] text-ok hover:bg-bg-4" title="Terminal deste card (ir para a tab)">
-              ▮_
-            </Link>
-          )}
+        )}
+        {terminalHref && (
+          <Link to={terminalHref} onClick={(e) => e.stopPropagation()} className="shrink-0 rounded px-1 font-mono text-[11px] text-ok hover:bg-bg-4" title="Terminal deste card (ir para a tab)">
+            ▮_
+          </Link>
+        )}
+        <button
+          className={CARD_ACTION}
+          title="Abrir card"
+          aria-label={`Abrir card ${task.ref}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+        >
+          ⋯
+        </button>
+        {onMoveNext && next && (
           <button
             className={CARD_ACTION}
-            title="Abrir card"
-            aria-label={`Abrir card ${task.ref}`}
+            title={`Mover para ${next.name}`}
+            aria-label={`Mover para ${next.name}`}
             onClick={(e) => {
               e.stopPropagation();
-              onOpen();
+              onMoveNext();
             }}
           >
-            ⋯
+            →
           </button>
-          {onMoveNext && next && (
-            <button
-              className={CARD_ACTION}
-              title={`Mover para ${next.name}`}
-              aria-label={`Mover para ${next.name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onMoveNext();
-              }}
-            >
-              →
-            </button>
-          )}
-        </div>
-      )}
-      {epicTitle && !editing && (
+        )}
+      </div>
+      {epicTitle && (
         <p className="mt-0.5 truncate text-[10px] text-fg-dim" title={`Épico: ${epicTitle}`}>
           {epicTitle}
         </p>
       )}
-      {task.external_ref && !editing && task.external_ref.status !== task.status && (
+      {task.external_ref && task.external_ref.status !== task.status && (
         <p className="mt-1 text-[10px] text-warn" title="Estado no provedor difere da coluna; abra o card → Atualizar para sincronizar">
           {PROVIDER_LABEL[task.external_ref.provider]}: {task.external_ref.state}
         </p>
       )}
-      {task.description && !editing && (
+      {task.description && (
         <p
           className="mt-1 line-clamp-2 cursor-pointer text-xs text-fg-dim hover:text-fg-muted"
           onClick={(e) => {
