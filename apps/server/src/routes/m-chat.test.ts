@@ -51,7 +51,10 @@ function build(opts: {
   hostMachines?: { id: string; name: string; type: string }[];
   aiAccounts?: { id: string; provider: string; machine_id: string; config_dir: string | null; label?: string }[];
   setHost?: ReturnType<typeof vi.fn>;
+  extraProjects?: { id: string; name: string; key: string; status: string }[];
+  projectStatuses?: { project_id: string; busy: boolean; pending_confirmations: number }[];
 } = {}) {
+  const extraProjects = opts.extraProjects ?? [];
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
   const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => ({ ...pendingAction, status: 'pending' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
@@ -64,7 +67,7 @@ function build(opts: {
     resumeAfterDecision,
     reset: opts.reset ?? vi.fn(async () => ({ id: 'c_new', project_id: 'p1' })),
     hostFor: vi.fn(async () => ({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null })),
-    projectStatuses: vi.fn(async () => [{ project_id: 'p1', busy: true, pending_confirmations: 2 }]),
+    projectStatuses: vi.fn(async () => opts.projectStatuses ?? [{ project_id: 'p1', busy: true, pending_confirmations: 2 }]),
   };
   const session = {
     checkPin: opts.checkPin ?? vi.fn(async () => ({ ok: true })),
@@ -93,8 +96,9 @@ function build(opts: {
       list: vi.fn(async (f: { owner?: string }) =>
         f.owner === 'u1'
           ? [
-              { id: 'p1', name: 'reactivando', key: 'REA' },
-              { id: 'p2', name: 'termhub', key: 'TH' },
+              { id: 'p1', name: 'reactivando', key: 'REA', status: 'active' },
+              { id: 'p2', name: 'termhub', key: 'TH', status: 'paused' },
+              ...extraProjects,
             ]
           : []
       ),
@@ -173,6 +177,30 @@ describe('GET /chat/projects', () => {
         { id: 'p2', name: 'termhub', key: 'TH', busy: false, pending_confirmations: 0, last_message_at: null },
       ],
     });
+  });
+});
+
+describe('GET /chat/projects, archived projects', () => {
+  it('hides an archived project, but keeps one whose chat is busy or waiting on a confirmation', async () => {
+    const { app } = build({
+      extraProjects: [
+        { id: 'p3', name: 'antigo', key: 'ANT', status: 'archived' },
+        { id: 'p4', name: 'arquivado-pendente', key: 'ARP', status: 'archived' },
+        { id: 'p5', name: 'arquivado-ocupado', key: 'ARO', status: 'archived' },
+      ],
+      projectStatuses: [
+        { project_id: 'p1', busy: true, pending_confirmations: 2 },
+        { project_id: 'p3', busy: false, pending_confirmations: 0 },
+        { project_id: 'p4', busy: false, pending_confirmations: 1 },
+        { project_id: 'p5', busy: true, pending_confirmations: 0 },
+      ],
+    });
+    const res = await app.inject({ method: 'GET', url: '/chat/projects' });
+    expect(res.statusCode).toBe(200);
+    const ids = res.json().projects.map((p: { id: string }) => p.id);
+    // p2 is paused: paused projects stay listed.
+    expect(ids).toEqual(['p1', 'p2', 'p4', 'p5']);
+    expect(res.json().projects.find((p: { id: string }) => p.id === 'p4')).toMatchObject({ pending_confirmations: 1, busy: false });
   });
 });
 
@@ -343,7 +371,7 @@ describe('POST /chat/actions/:id/decision', () => {
     const { app, session, decide } = build({ consumeDecisionChallenge: vi.fn(async () => false) });
     const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ code: 'CHALLENGE_INVALID', error: 'Desafio inválido ou vencido' });
+    expect(res.json()).toMatchObject({ code: 'CHALLENGE_INVALID', error: 'Desafio inválido ou expirado' });
     expect(session.consumeDecisionChallenge).toHaveBeenCalledWith(device, 'chal-1', 'act1');
     expect(session.checkPin).not.toHaveBeenCalled();
     expect(decide).not.toHaveBeenCalled();
@@ -377,7 +405,7 @@ describe('POST /chat/actions/:id/decision', () => {
   });
 
   it('approve: with a good proof decides, publishes the event and resumes', async () => {
-    const { app, decide, resumeAfterDecision } = build();
+    const { app, decide, resumeAfterDecision, session } = build();
     const events: ChatEvent[] = [];
     const unsubscribe = chatBus.subscribe((e) => events.push(e));
     let res;
@@ -388,6 +416,12 @@ describe('POST /chat/actions/:id/decision', () => {
     }
     expect(res.statusCode).toBe(200);
     expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+    // challenge, then PIN, then the decision itself
+    const [consumed] = session.consumeDecisionChallenge.mock.invocationCallOrder;
+    const [checked] = session.checkPin.mock.invocationCallOrder;
+    const [decided] = decide.mock.invocationCallOrder;
+    expect(consumed).toBeLessThan(checked);
+    expect(checked).toBeLessThan(decided);
     expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'approved' });
     expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'approved' });
     expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'approved' }, message: { id: 'm3' } });

@@ -58,7 +58,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     return { conversation, messages, actions, host };
   });
 
-  /** Every project of the user's, with its chat's status; a project with no conversation yet is idle. */
+  /** The user's projects, with their chat's status; a project with no conversation yet is idle. */
   app.get('/projects', async (request) => {
     const user = request.scope.user;
     const [projects, statuses, conversations] = await Promise.all([
@@ -68,8 +68,16 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     ]);
     const statusOf = new Map(statuses.map((s) => [s.project_id, s]));
     const lastOf = new Map(conversations.map((c) => [c.project_id, c.last_message_at]));
+    // Archived projects are hidden, as on the web's sidebar and dashboard (the phone has no "show
+    // archived" toggle) — unless their chat is answering or waiting on a question, which must never
+    // be hidden. Paused projects stay.
+    const visible = projects.filter((p) => {
+      if (p.status !== 'archived') return true;
+      const s = statusOf.get(p.id);
+      return !!s && (s.busy || s.pending_confirmations > 0);
+    });
     return chatProjectsResponse.parse({
-      projects: projects.map((p) => ({
+      projects: visible.map((p) => ({
         id: p.id,
         name: p.name,
         key: p.key,
@@ -155,7 +163,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       if (!existing) throw notFound('Ação não encontrada');
       if (existing.status !== 'pending') throw conflict('Esta ação já foi decidida');
 
-      if (!(await deps.session.consumeDecisionChallenge(device, body.challenge, id))) throw new HttpError(400, 'Desafio inválido ou vencido', 'CHALLENGE_INVALID');
+      if (!(await deps.session.consumeDecisionChallenge(device, body.challenge, id))) throw new HttpError(400, 'Desafio inválido ou expirado', 'CHALLENGE_INVALID');
 
       const pin = await deps.session.checkPin(device, decisionProofMessage(body.challenge, id, 'approve'), body.pin_proof, { ip: request.ip });
       // Mapped exactly as `POST /session/token` maps it; the action stays pending on every failure.
