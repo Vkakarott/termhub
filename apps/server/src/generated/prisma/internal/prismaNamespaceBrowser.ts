@@ -178,6 +178,7 @@ export type LoginAttemptScalarFieldEnum = (typeof LoginAttemptScalarFieldEnum)[k
 export const MachineScalarFieldEnum = {
   id: 'id',
   name: 'name',
+  subtitle: 'subtitle',
   host: 'host',
   sshUser: 'sshUser',
   sshPort: 'sshPort',

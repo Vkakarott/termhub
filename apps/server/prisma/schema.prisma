@@ -136,6 +136,8 @@ model LoginAttempt {
 model Machine {
   id        String      @id
   name      String
+  /// Optional line under the name ("MacBook do escritório"); private: the public city never carries it
+  subtitle  String?
   host      String?
   sshUser   String?     @map("ssh_user")
   sshPort   Int         @default(22) @map("ssh_port")
