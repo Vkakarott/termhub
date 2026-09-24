@@ -352,3 +352,20 @@ it('subscribeEvents delivers every raw event, of any conversation, ahead of the 
   handlers().onEvent(decision('c-opapingou', 'a-y', 'denied'));
   expect(seen).toHaveLength(1); // no more events after unsubscribing
 });
+
+it('refresh(projectId) re-reads that slot without switching activeProject, touching live, or opening a socket', async () => {
+  const { chat, api, events } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const liveBefore = chat.getState().live;
+  const socketCallsBefore = events.mock.calls.length;
+  const read = jest.spyOn(api, 'chat');
+
+  await chat.getState().refresh(null);
+
+  expect(read).toHaveBeenCalledWith(expect.anything(), null);
+  expect(chat.getState().activeProject).toBe('p-termhub'); // untouched
+  expect(chat.getState().live).toBe(liveBefore); // untouched
+  expect(events.mock.calls).toHaveLength(socketCallsBefore); // no new socket connection
+  expect(slot(chat, null)).toMatchObject({ loaded: true, error: null, conversation: { id: 'c-general' } });
+  expect(slot(chat, null).host).toMatchObject({ kind: 'ready', machine: { name: 'jarvis' } });
+});

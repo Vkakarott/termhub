@@ -71,6 +71,10 @@ export interface ChatState {
   reset(): Promise<void>;
   loadHostOptions(): Promise<void>;
   setHost(machineId: string, aiAccountId?: string): Promise<void>;
+  /** Re-reads one conversation's slot (`GET chat`) in place, updating `conversations[key]` only —
+   * never `activeProject`, `live` or the socket. For a screen that wants a slot's current data
+   * (e.g. Ajustes showing the general chat's host) without switching what is actually open. */
+  refresh(projectId: string | null): Promise<void>;
   /** The project of a conversation this store holds: `null` for the account-wide chat,
    * `undefined` when the id is unknown here. */
   conversationIdToProject(id: string): string | null | undefined;
@@ -332,6 +336,10 @@ export function createChatStore(deps: ChatDeps) {
             } catch (e) {
               fail(gen, e);
             }
+          },
+
+          async refresh(projectId) {
+            await reread(keyOf(projectId));
           },
 
           conversationIdToProject(id) {

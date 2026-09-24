@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: require('../../../../test/helpers/ui-stores').stores.chat }));
@@ -18,7 +18,6 @@ const realSessionActions = { ...stores.store.getState() };
 
 beforeAll(async () => {
   await enrolStores();
-  await stores.chat.getState().open(null);
 });
 
 afterEach(() => {
@@ -31,6 +30,7 @@ afterEach(() => {
     biometricsEnabled: false,
   });
   useThemeStore.setState({ theme: 'system' });
+  useChatStore.setState({ activeProject: undefined, live: [] });
 });
 
 describe('Ajustes', () => {
@@ -74,12 +74,18 @@ describe('Ajustes', () => {
     expect(leave).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the general chat host line and the mock server mode', async () => {
+  it('shows the general chat host line and the mock server mode, without switching what is actually open', async () => {
+    // A project's conversation is the one really open (e.g. behind a pushed chat screen) — Ajustes
+    // must refresh the general chat's slot for its host line without stealing `activeProject`.
+    useChatStore.setState({ activeProject: 'p-termhub' });
+
     await render(<SettingsScreen />);
+    await waitFor(() => expect(useChatStore.getState().conversations['']?.host).not.toBeNull(), LOAD);
     const host = useChatStore.getState().conversations['']?.host;
     if (!host) throw new Error('expected the general chat host to be loaded');
     expect(screen.getByText(new RegExp(host.kind === 'ready' ? host.machine.name : ''))).toBeTruthy();
     expect(screen.getByText(stores.api.mode === 'http' ? 'Servidor: termhub.dev' : 'Servidor: mock')).toBeTruthy();
+    expect(useChatStore.getState().activeProject).toBe('p-termhub');
   });
 
   it('runs the key diagnostic and shows every step ok', async () => {

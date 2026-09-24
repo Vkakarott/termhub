@@ -40,7 +40,7 @@ export function SettingsScreen() {
   const disableBiometrics = useSessionStore((s) => s.disableBiometrics);
   const leave = useSessionStore((s) => s.leave);
   const host = useChatStore((s) => s.conversations['']?.host ?? null);
-  const openGeneralChat = useChatStore((s) => s.open);
+  const refreshGeneralChat = useChatStore((s) => s.refresh);
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
@@ -51,10 +51,12 @@ export function SettingsScreen() {
 
   useEffect(() => {
     void loadDevice();
-    // The general chat's current machine, so this screen can show it — safe to open here: it can
-    // only run while Ajustes itself is the focused screen, never behind an open conversation.
-    void openGeneralChat(null);
-  }, [loadDevice, openGeneralChat]);
+    // Re-reads the general chat's slot for its current machine, without switching what is
+    // actually open (`refresh` never touches `activeProject`, `live` or the socket) — unlike
+    // `open(null)`, this is safe even while a project's conversation is genuinely the one on
+    // screen underneath the tabs.
+    void refreshGeneralChat(null);
+  }, [loadDevice, refreshGeneralChat]);
 
   const runDiagnostic = () => {
     setDiagnosticResult(null);
