@@ -66,17 +66,31 @@ export async function openAgentTunnel(machineId: string, remote: WdaPorts, regis
       sockets.add(sock);
       sock.pause();
       let channel: AgentChannel | null = null;
+      // Byte counts only (spec §7: "bytes per direction"), logged once when the local socket closes.
+      // `up` is local → machine, `down` is machine → local. Payload content is never logged.
+      let bytesUp = 0;
+      let bytesDown = 0;
+      let exitReason: string | undefined;
       sock.on('close', () => {
         sockets.delete(sock);
         channel?.close();
+        if (channel) log('canal tcp do túnel fechado', { machineId, remotePort, channel: channel.ch, bytesUp, bytesDown, reason: exitReason ?? null });
       });
       sock.on('error', () => sock.destroy());
       registry
         .openTcp(machineId, { port: remotePort }, {
           onData: (data) => {
+            bytesDown += data.length;
             if (!sock.destroyed) sock.write(data);
           },
-          onExit: () => sock.destroy(),
+          onExit: (_code, reason) => {
+            exitReason = reason;
+            // A clean close (WDA answered and closed) must not drop bytes still queued to the local
+            // socket — a large screenshot body, the tail of an HTTP response — so end() flushes them
+            // first. A reset or error has nothing worth flushing: destroy.
+            if (reason === undefined) sock.end();
+            else sock.destroy();
+          },
         })
         .then((ch) => {
           if (sock.destroyed) {
@@ -84,7 +98,10 @@ export async function openAgentTunnel(machineId: string, remote: WdaPorts, regis
             return;
           }
           channel = ch;
-          sock.on('data', (d: Buffer) => ch.write(d));
+          sock.on('data', (d: Buffer) => {
+            bytesUp += d.length;
+            ch.write(d);
+          });
           sock.resume();
         })
         .catch((err: unknown) => {

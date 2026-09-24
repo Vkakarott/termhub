@@ -73,7 +73,7 @@ describe('openAgentTunnel', () => {
     t.close();
   });
 
-  it('closing the local socket closes the channel, and channel exit destroys the local socket', async () => {
+  it('closing the local socket closes the channel, and a reset channel exit destroys the local socket', async () => {
     const { registry, opened } = fakeRegistry();
     const t = await openAgentTunnel('m1', { wdaPort: 8137, mjpegPort: 9137 }, registry);
     const a = await connect(t.wdaPort);
@@ -84,8 +84,45 @@ describe('openAgentTunnel', () => {
     const b = await connect(t.wdaPort);
     await waitFor(() => opened.length === 2);
     const ended = new Promise<void>((r) => b.once('close', () => r()));
-    opened[1].handlers.onExit(null);
+    opened[1].handlers.onExit(null, 'reset');
     await ended;
+    t.close();
+  });
+
+  it('a clean channel exit flushes everything already written to the local socket, then ends it', async () => {
+    const { registry, opened } = fakeRegistry();
+    const t = await openAgentTunnel('m1', { wdaPort: 8137, mjpegPort: 9137 }, registry);
+    const sock = await connect(t.wdaPort);
+    await waitFor(() => opened.length === 1);
+    const received: Buffer[] = [];
+    sock.on('data', (d) => received.push(d));
+    const ended = new Promise<void>((r) => sock.once('end', () => r()));
+    // a big body (a screenshot) queued faster than the socket drains, then the agent reports a clean close
+    const chunk = Buffer.alloc(256 * 1024, 7);
+    for (let i = 0; i < 16; i++) opened[0].handlers.onData(chunk);
+    opened[0].handlers.onExit(null);
+    await ended;
+    expect(Buffer.concat(received).length).toBe(16 * chunk.length);
+    sock.destroy();
+    t.close();
+  });
+
+  it('logs bytes per direction (never content) when a channel closes', async () => {
+    const { registry, opened } = fakeRegistry();
+    const log = vi.fn();
+    const t = await openAgentTunnel('m1', { wdaPort: 8137, mjpegPort: 9137 }, registry, { log });
+    const sock = await connect(t.wdaPort);
+    await waitFor(() => opened.length === 1);
+    sock.resume(); // consume the answer so the local side sees the end and closes
+    sock.write('GET /status HTTP/1.1\r\n\r\n');
+    await waitFor(() => (opened[0].channel.write as ReturnType<typeof vi.fn>).mock.calls.length > 0);
+    opened[0].handlers.onData(Buffer.from('HTTP/1.1 200 OK\r\n\r\n'));
+    opened[0].handlers.onExit(null);
+    await waitFor(() => log.mock.calls.some((c) => c[0] === 'canal tcp do túnel fechado'));
+    const meta = log.mock.calls.find((c) => c[0] === 'canal tcp do túnel fechado')![1];
+    expect(meta).toEqual({ machineId: 'm1', remotePort: 8137, channel: opened[0].channel.ch, bytesUp: 24, bytesDown: 19, reason: null });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('HTTP/1.1');
+    sock.destroy();
     t.close();
   });
 
