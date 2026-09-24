@@ -3,12 +3,16 @@
 // gone the moment the app process restarts (no state survives on purpose — see `state.ts`).
 import { z } from 'zod';
 import { canonicalHtu, parseAppHeader } from '../contract';
-import type { Transport, TransportFetchInput, TransportFetchResult, TransportSocket, TransportSocketHandlers } from '../transport';
+import type { Transport, TransportFetchInput, TransportFetchResult } from '../transport';
 import { createMockControls, type MockControls } from './controls';
+import { seedFixtures } from './fixtures';
+import { registerChatRoutes } from './handlers/chat';
 import { registerDeviceRoutes } from './handlers/devices';
 import { registerMeRoutes } from './handlers/me';
+import { registerNotificationRoutes } from './handlers/notifications';
 import { registerSessionRoutes } from './handlers/session';
 import { createRouter } from './router';
+import { createFakeSocketConnect } from './socket';
 import { createMockState, WireError } from './state';
 
 export interface CreateMockTransportOptions {
@@ -30,11 +34,14 @@ export function createMockTransport(opts: CreateMockTransportOptions = {}): Tran
   const state = createMockState();
   const now = opts.now ?? Date.now;
   const [minLatency, maxLatency] = opts.latency ?? [150, 400];
+  seedFixtures(state, now());
 
   const router = createRouter();
   registerDeviceRoutes(router, state);
   registerSessionRoutes(router, state);
   registerMeRoutes(router, state);
+  registerChatRoutes(router, state, { maxLatency });
+  registerNotificationRoutes(router, state);
 
   const waitForLatency = (): Promise<void> => {
     const ms = minLatency + Math.random() * (maxLatency - minLatency);
@@ -99,17 +106,9 @@ export function createMockTransport(opts: CreateMockTransportOptions = {}): Tran
     }
   };
 
-  const connectImpl = (_url: string, _headers: Record<string, string>, handlers: TransportSocketHandlers): TransportSocket => {
-    // Stub for this task: the real fake socket (upgrade check, `hello`, chat/notification
-    // frames) is Task 9's. Closing with `4401` on the next tick lets the client's "revoked"
-    // handling be exercised even before that socket exists (ruling 1).
-    const timer = setTimeout(() => handlers.onClose(4401), 0);
-    return { close: () => clearTimeout(timer) };
-  };
-
   return {
     fetch: fetchImpl,
-    connect: connectImpl,
+    connect: createFakeSocketConnect(state, now),
     controls: createMockControls(state, now),
   };
 }

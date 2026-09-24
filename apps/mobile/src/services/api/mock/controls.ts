@@ -1,7 +1,7 @@
 // `MockControls` — the "Aguardando aprovação" screen's simulation buttons and the test-only
 // escape hatches for expiry, lock and revoke (design spec §4.2).
 import { ACTIVATE_TTL_MS } from './handlers/devices';
-import { revokeDevice, requestStatus, type MockState } from './state';
+import { PIN_LOCK_MS, revokeDevice, requestStatus, type MockState } from './state';
 
 export interface MockControls {
   approve(requestId: string): void;
@@ -12,8 +12,6 @@ export interface MockControls {
   dropSocket(): void;
   pendingRequestIds(): string[];
 }
-
-const LOCK_MS = 15 * 60_000;
 
 export function createMockControls(state: MockState, now: () => number): MockControls {
   return {
@@ -38,7 +36,7 @@ export function createMockControls(state: MockState, now: () => number): MockCon
 
     lockNow() {
       for (const device of state.devices.values()) {
-        device.lockedUntil = now() + LOCK_MS;
+        device.lockedUntil = now() + PIN_LOCK_MS;
       }
     },
 
@@ -48,11 +46,11 @@ export function createMockControls(state: MockState, now: () => number): MockCon
       }
     },
 
-    // Simulates the connection dropping so the app's reconnect logic can be watched — a normal
-    // closure, not the terminal `4401`/`4400` codes. Task 9 gives `connect()` a real fake socket
-    // that populates `state.sockets`; until then this is a no-op over an empty set (ruling 1).
+    // Simulates the connection dropping so the app's reconnect logic can be watched — a normal,
+    // non-terminal closure (unlike `4400`/`4401`), so the socket client schedules a reconnect
+    // instead of wiping (design spec §4.2 "Controls").
     dropSocket() {
-      for (const socket of state.sockets) socket.close(1000);
+      for (const socket of state.sockets) socket.close(1006);
     },
 
     pendingRequestIds() {

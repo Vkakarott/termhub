@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../../crypto/encoding';
 import type { P256Jwk } from '../../key/types';
 import { verifyProof } from '../dpop';
-import type { TDeviceInfo } from '../contract';
+import type { TChatAction, TChatConversation, TChatMessage, TDeviceInfo, TNotificationRow } from '../contract';
 
 /** Every non-2xx answer the mock throws (design spec ruling): mapped to the wire shape by
  * `transport.ts`. `error` is pt-BR text; `extra` carries `attempts_left` / `retry_after`, spread
@@ -72,12 +72,40 @@ export interface MockChallenge {
   used: boolean;
 }
 
-/** A stand-in for Task 9's fake socket — this task only needs the type to exist so `sockets` and
- * `controls.dropSocket()` typecheck; nothing ever populates the set yet (ruling 1). */
+/** The fake socket (`mock/socket.ts`): registered in `state.sockets` for the lifetime of one
+ * upgraded connection, so `broadcast`, `revokeDevice` and `controls.dropSocket` can all reach it
+ * without knowing anything about the transport underneath. */
 export interface MockSocket {
   deviceId: string;
+  send(event: unknown): void;
   close(code: number): void;
 }
+
+/** `chat/projects`' rows minus the derived fields (`busy`, `pending_confirmations`,
+ * `last_message_at`) — those are computed from `conversations`/`actions`/`busyProjects` at
+ * request time rather than kept in sync by hand. */
+export interface MockProject {
+  id: string;
+  name: string;
+  key: string;
+}
+
+/** Field-for-field the wire shape of `ChatConversation` (contract `local.ts`) — the mock never
+ * needs anything the app itself does not see. */
+export type MockConversation = TChatConversation;
+
+/** Field-for-field the wire shape of `ChatMessage` (contract `events.ts`). */
+export type MockMessage = TChatMessage;
+
+/** The wire shape of `ChatAction` (contract `local.ts`) plus `conversation_id`, which the app
+ * never needs (actions arrive already scoped to one conversation) but the mock does, to route
+ * `decision` events and to filter `GET chat`'s `actions` array. */
+export interface MockAction extends TChatAction {
+  conversation_id: string;
+}
+
+/** Field-for-field the wire shape of a notification row (contract `notifications.ts`). */
+export type MockNotification = TNotificationRow;
 
 export interface MockState {
   requests: Map<string, MockDeviceRequest>;
@@ -88,6 +116,19 @@ export interface MockState {
    * (seconds) the jti was first seen at, used to prune entries older than the window. */
   jtis: Map<string, Map<string, number>>;
   sockets: Set<MockSocket>;
+
+  projects: Map<string, MockProject>;
+  conversations: Map<string, MockConversation>;
+  /** Conversation id -> its messages, oldest first. */
+  messages: Map<string, MockMessage[]>;
+  actions: Map<string, MockAction>;
+  /** Oldest first (push order); routes read it newest-first by reversing. */
+  notifications: MockNotification[];
+  /** The conversation currently "live" for a project (or, keyed by `null`, the account-wide
+   * chat) — what `reset` swaps and every chat route reads to find "the" conversation. */
+  activeConversation: Map<string | null, string>;
+  /** Projects (or `null` for the account-wide chat) with a streaming reply in flight. */
+  busyProjects: Set<string | null>;
 }
 
 export function createMockState(): MockState {
@@ -98,7 +139,20 @@ export function createMockState(): MockState {
     challenges: new Map(),
     jtis: new Map(),
     sockets: new Set(),
+    projects: new Map(),
+    conversations: new Map(),
+    messages: new Map(),
+    actions: new Map(),
+    notifications: [],
+    activeConversation: new Map(),
+    busyProjects: new Set(),
   };
+}
+
+/** Sends `event` to every open socket — there is only one mock user, so no per-user filtering is
+ * needed (design spec §4.2 "Events"). */
+export function broadcast(state: MockState, event: unknown): void {
+  for (const socket of state.sockets) socket.send(event);
 }
 
 const toHex = (bytes: Uint8Array): string => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -182,4 +236,30 @@ export function revokeDevice(state: MockState, device: MockDevice, reason: strin
   for (const socket of state.sockets) {
     if (socket.deviceId === device.id) socket.close(4401);
   }
+}
+
+export const PIN_LOCK_MS = 15 * 60_000;
+const PIN_LOCK_AT = 3;
+const PIN_REVOKE_AT = 6;
+
+/** `max(0, 3 - failures)` for the first three failures, then the same shape again for the second
+ * window (4, 5) once the lock has expired — i.e. 0 exactly on the failure that (re)triggers a
+ * lock or a revoke, never a stray 3. */
+export function pinAttemptsLeft(failures: number): number {
+  const remainder = failures % PIN_LOCK_AT;
+  return remainder === 0 ? 0 : PIN_LOCK_AT - remainder;
+}
+
+/** Counts one wrong PIN proof against `device`: locks at 3 failures for 15 min, revokes at 6
+ * (P§5.5). Shared by `session/token` and `chat/actions/:id/decision`'s approve path — both are
+ * places a PIN guess can be submitted, so both must burn the same budget. Returns the
+ * `attempts_left` to report on the `401`. */
+export function countPinFailure(state: MockState, device: MockDevice, now: number): number {
+  device.pinFailures += 1;
+  if (device.pinFailures >= PIN_REVOKE_AT) {
+    revokeDevice(state, device, 'pin_bruteforce');
+  } else if (device.pinFailures === PIN_LOCK_AT) {
+    device.lockedUntil = now + PIN_LOCK_MS;
+  }
+  return pinAttemptsLeft(device.pinFailures);
 }

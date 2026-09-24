@@ -7,21 +7,10 @@ import { randomId } from '../../../crypto/random';
 import { challengeBody, tokenBody } from '../../contract';
 import { verifyProof } from '../../dpop';
 import type { MockRouter } from '../router';
-import { claimJti, revokeDevice, WireError, type MockState } from '../state';
+import { claimJti, countPinFailure, WireError, type MockState } from '../state';
 
 const CHALLENGE_TTL_MS = 60_000;
 const ACCESS_TOKEN_TTL_MS = 15 * 60_000;
-const LOCK_MS = 15 * 60_000;
-const LOCK_AT = 3;
-const REVOKE_AT = 6;
-
-/** `max(0, 3 - failures)` for the first three failures, then the same shape again for the second
- * window (4, 5) once the lock has expired — i.e. 0 exactly on the failure that (re)triggers a
- * lock or a revoke, never a stray 3. */
-function attemptsLeft(failures: number): number {
-  const remainder = failures % LOCK_AT;
-  return remainder === 0 ? 0 : LOCK_AT - remainder;
-}
 
 export function registerSessionRoutes(router: MockRouter, state: MockState): void {
   router.route('POST', '/api/m/v1/session/challenge', (ctx) => {
@@ -80,15 +69,10 @@ export function registerSessionRoutes(router: MockRouter, state: MockState): voi
     // 6. The PIN proof itself.
     const expected = pinProof(device.pinSecret, body.challenge);
     if (body.pin_proof !== expected) {
-      device.pinFailures += 1;
-      if (device.pinFailures >= REVOKE_AT) {
-        revokeDevice(state, device, 'pin_bruteforce');
-      } else if (device.pinFailures === LOCK_AT) {
-        device.lockedUntil = now + LOCK_MS;
-      }
       // The failure that (re)triggers a lock or the revoke still answers PIN_INVALID itself —
       // the next call is the one that sees 423 / DEVICE_REVOKED.
-      throw new WireError(401, 'PIN_INVALID', 'PIN incorreto.', { attempts_left: attemptsLeft(device.pinFailures) });
+      const attemptsLeft = countPinFailure(state, device, now);
+      throw new WireError(401, 'PIN_INVALID', 'PIN incorreto.', { attempts_left: attemptsLeft });
     }
 
     device.pinFailures = 0;
