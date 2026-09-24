@@ -154,7 +154,7 @@ export function SetupForm({ project }: Props) {
         )}
       </Card>
 
-      <Card title="Tickets" hint="Fonte das tarefas: sincroniza para a coluna correspondente do kanban.">
+      <Card title="Tickets" hint="Fonte das tarefas: os tickets que você escolher em Tickets entram no backlog do épico padrão.">
         <Row label="Fonte">
           <select
             className="input"
