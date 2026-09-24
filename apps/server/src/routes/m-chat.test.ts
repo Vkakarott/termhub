@@ -328,7 +328,8 @@ describe('POST /chat/actions/:id/decision', () => {
     expect(decide).toHaveBeenCalledWith('act1', 'u1', 'denied');
     expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'denied' });
     expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'denied' });
-    expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'denied' }, message: { id: 'm3' } });
+    expect(res.json()).toEqual({ action: expect.objectContaining({ id: 'act1', status: 'denied' }), queued: true, note: 'A decisão foi registrada; a resposta chega pelo chat.' });
+    expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
     expect(session.checkPin).not.toHaveBeenCalled();
     expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
   });
@@ -424,7 +425,8 @@ describe('POST /chat/actions/:id/decision', () => {
     expect(checked).toBeLessThan(decided);
     expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'approved' });
     expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'approved' });
-    expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'approved' }, message: { id: 'm3' } });
+    expect(res.json()).toEqual({ action: expect.objectContaining({ id: 'act1', status: 'approved' }), queued: true, note: 'A decisão foi registrada; a resposta chega pelo chat.' });
+    expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
   });
 
   it('approve: a race lost to the web after the proof ends in the same 409', async () => {
@@ -438,12 +440,38 @@ describe('POST /chat/actions/:id/decision', () => {
     expect(resumeAfterDecision).not.toHaveBeenCalled();
   });
 
-  it('approve: a busy run answers 200 queued with the note', async () => {
-    const { app } = build({ resumeAfterDecision: vi.fn(async () => { throw new HttpError(409, 'ocupado', 'CHAT_BUSY'); }) });
+  it('answers at once, without waiting for the resumed run', async () => {
+    let finish!: () => void;
+    const resumeAfterDecision = vi.fn(() => new Promise((resolve) => { finish = () => resolve({ id: 'm3' }); }));
+    const { app } = build({ resumeAfterDecision });
     const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'approved' }, queued: true });
-    expect(res.json().note).toMatch(/registrada/i);
+    expect(res.json()).toMatchObject({ queued: true, note: 'A decisão foi registrada; a resposta chega pelo chat.' });
+    expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+    finish();
+  });
+
+  it.each([
+    ['CHAT_BUSY', new HttpError(409, 'ocupado', 'CHAT_BUSY')],
+    ['any other failure', new Error('boom')],
+  ])('a resume that rejects (%s) never fails the request nor leaks an unhandled rejection', async (_label, failure) => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const resumeAfterDecision = vi.fn(async () => { throw failure; });
+      const { app } = build({ resumeAfterDecision });
+      for (const payload of [approve, { decision: 'deny' }]) {
+        const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload });
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toMatchObject({ queued: true, note: 'A decisão foi registrada; a resposta chega pelo chat.' });
+      }
+      await new Promise((r) => setTimeout(r, 20));
+      expect(resumeAfterDecision).toHaveBeenCalledTimes(2);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 });
 

@@ -3,8 +3,6 @@ import { z } from 'zod';
 import { chatProjectsResponse, decisionProofMessage, deviceSelf, hostOptionsResponse, mobileDecisionBody, mobileMessageBody, sendAccepted } from '@termhub/mobile-api';
 import type { Device } from '../db/repositories/devices.js';
 import type { Repositories } from '../db/repositories/index.js';
-import type { User } from '../db/repositories/types.js';
-import type { ChatAction } from '../db/repositories/chat-actions.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { permissionsOf } from '../auth/permissions.js';
 import type { HostAgents } from '../chat/host.js';
@@ -18,8 +16,11 @@ const resetBody = z.object({ project_id: z.string().min(1).max(64).nullish() });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
 const hostBody = z.object({ machine_id: z.string().min(1).max(64), ai_account_id: z.string().min(1).max(64).nullish() });
 
-/** Same note as the web's: the decision is recorded, a busy run will pick it up when it finishes. */
-const QUEUED_NOTE = 'A decisão foi registrada e será aplicada assim que a resposta atual do concierge terminar.';
+/**
+ * The phone never waits for the run a decision resumes: the route answers at once with this note and
+ * the run's text, actions and `run_finished` arrive over /ws/m/chat (spec §6, Ruling 18).
+ */
+const DECISION_NOTE = 'A decisão foi registrada; a resposta chega pelo chat.';
 
 export interface MobileChatDeps {
   chat: ChatService;
@@ -150,7 +151,9 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
    * (404 / 409 before any challenge or PIN work, so a stale card never burns a challenge or a PIN
    * attempt), then consumes the decision challenge bound to this action, then checks the PIN proof
    * over it. Only a good proof reaches `decide`, which stays conditional in SQL: a race with the web
-   * ends in the same 409.
+   * ends in the same 409. Once decided, the resumed run goes to the background: the answer is
+   * `{ action, queued: true, note }` for both approve and deny, and the run reaches the phone over
+   * the socket. A CHAT_BUSY there is normal — the drain injects the decision when the current run ends.
    */
   app.post('/actions/:id/decision', { config: { action: 'create' } }, async (request, reply) => {
     const { id } = actionIdParam.parse(request.params);
@@ -188,18 +191,12 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     }
 
     chatBus.publish({ type: 'decision', user_id: user.id, conversation_id: action.conversation_id, action_id: action.id, status });
-    return decisionAnswer(deps, user, action);
+    const actionId = action.id;
+    void Promise.resolve()
+      .then(() => deps.chat.resumeAfterDecision(user, action))
+      .catch((err) => request.log.warn({ code: failureLabel(err), actionId }, 'mobile decision resume failed'));
+    return { action, queued: true, note: DECISION_NOTE };
   });
-}
-
-async function decisionAnswer(deps: MobileChatDeps, user: User, action: ChatAction) {
-  try {
-    const message = await deps.chat.resumeAfterDecision(user, action);
-    return { action, message };
-  } catch (err) {
-    if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { action, queued: true, note: QUEUED_NOTE };
-    throw err;
-  }
 }
 
 /** `GET /me`, mounted at the mobile API's root: who is signed in, what they may do, this device. */

@@ -299,8 +299,8 @@ async function decide(s: State, actionId: string, decision: 'approve' | 'deny'):
     const { challenge } = await call<{ challenge: string }>('POST', '/session/challenge', { auth: 'none', body: { device_id: s.device_id, purpose: 'decision', action_id: actionId } });
     body = { decision, challenge, pin_proof: pinProofFor(secret, decisionProofMessage(challenge, actionId, 'approve')) };
   }
-  const res = await call<{ action: { id: string; status: string }; queued?: boolean; message?: { id: string } }>('POST', `/chat/actions/${actionId}/decision`, { body });
-  console.log(`Ação ${res.action.id}: ${res.action.status}${res.queued ? ' (na fila)' : ''}${res.message ? `, mensagem ${res.message.id}` : ''}`);
+  const res = await call<{ action: { id: string; status: string }; queued: boolean; note: string }>('POST', `/chat/actions/${actionId}/decision`, { body });
+  console.log(`Ação ${res.action.id}: ${res.action.status}. ${res.note}`);
 }
 
 async function streamWs(): Promise<void> {
