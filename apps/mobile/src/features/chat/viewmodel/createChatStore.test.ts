@@ -157,6 +157,24 @@ it("decide(id, 'approve') asks requestPinProof(id) and, once resolved, the card 
   expect(chat.getState()).toMatchObject({ decidingId: null, error: null });
 });
 
+it('decide never moves a card backwards: a re-read that already says executed wins over the late HTTP answer', async () => {
+  const { chat, api } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const realDecide = api.decide.bind(api);
+  jest.spyOn(api, 'decide').mockImplementation(async (auth, id, body) => {
+    await realDecide(auth, id, body);
+    // A re-read lands before the slow HTTP answer: the action already ran.
+    const state = chat.getState();
+    const slotNow = state.conversations['p-termhub']!;
+    chat.setState({
+      conversations: { ...state.conversations, 'p-termhub': { ...slotNow, actions: slotNow.actions.map((a) => ({ ...a, status: 'executed' as const })) } },
+    });
+  });
+
+  await chat.getState().decide('a-termhub-1', 'deny');
+  expect(slot(chat, 'p-termhub').actions[0]!.status).toBe('executed');
+});
+
 it('a cancelled PIN prompt leaves the card pending and shows nothing', async () => {
   const { chat, store, api } = await setup();
   await openAndConnect(chat, 'p-termhub');

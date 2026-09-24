@@ -43,6 +43,9 @@ function stubAction<K extends 'decide' | 'reset' | 'setHost'>(name: K) {
   return fn;
 }
 
+/** The first load of a file signs its first P-256 proof, slow while other suites share the CPU. */
+const LOAD = { timeout: 5000 };
+
 beforeAll(async () => {
   await enrolStores();
   await stores.chat.getState().loadProjects();
@@ -62,7 +65,7 @@ afterEach(() => {
 describe('Conversa', () => {
   it('renders the thread: the person in plain text, the assistant as markdown, the title and the host line', async () => {
     await render(<ConversationScreen />);
-    expect(await screen.findByText(SEEDED_USER)).toBeTruthy();
+    expect(await screen.findByText(SEEDED_USER, undefined, LOAD)).toBeTruthy();
     const markdown = screen.getAllByTestId('markdown').map((node) => node.props.children);
     expect(markdown).toContain(SEEDED_ASSISTANT);
     expect(markdown).not.toContain(SEEDED_USER);
@@ -74,7 +77,7 @@ describe('Conversa', () => {
 
   it('shows a streaming bubble with the folded deltas, "pensando…" for a started empty row, and a failure sentence', async () => {
     await render(<ConversationScreen />);
-    await screen.findByText(SEEDED_USER);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
 
     const thinking = assistantRow('m-think');
     await act(() =>
@@ -89,10 +92,22 @@ describe('Conversa', () => {
     expect(screen.getByText('A máquina do chat saiu do ar no meio da resposta. Ligue-a e mande a mensagem de novo.')).toBeTruthy();
   });
 
+  it('a new delta re-renders only the streaming bubble, not the rest of the thread', async () => {
+    const { renders } = jest.requireMock('react-native-markdown-display') as { renders: unknown[] };
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    await act(() => addRows([assistantRow('m-stream')], [delta('m-stream', 'Rodei')]));
+
+    renders.length = 0;
+    await act(() => useChatStore.setState({ live: [delta('m-stream', 'Rodei'), delta('m-stream', ' os testes')] }));
+    expect(screen.getByText('Rodei os testes')).toBeTruthy();
+    expect(renders).toEqual(['Rodei os testes']);
+  });
+
   it('renders the pending action card; Autorizar calls decide(id, approve)', async () => {
     const decide = stubAction('decide');
     await render(<ConversationScreen />);
-    expect(await screen.findByText('digitar `npm test` na aba api do projeto termhub, no jarvis')).toBeTruthy();
+    expect(await screen.findByText('digitar `npm test` na aba api do projeto termhub, no jarvis', undefined, LOAD)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Recusar' })).toBeTruthy();
 
     await fireEvent.press(screen.getByRole('button', { name: 'Autorizar' }));
@@ -101,7 +116,7 @@ describe('Conversa', () => {
 
   it('Autorizar opens the PIN sheet', async () => {
     await render(<ConversationScreen />);
-    await fireEvent.press(await screen.findByRole('button', { name: 'Autorizar' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Autorizar' }, LOAD));
     expect(useSessionStore.getState().pinPrompt).toEqual({ actionId: 'a-termhub-1' });
     await act(() => useSessionStore.getState().cancelPinPrompt());
     expect(useChatStore.getState().decidingId).toBeNull();
@@ -110,7 +125,7 @@ describe('Conversa', () => {
   it('the composer sends on the button and clears; the mic is disabled with "em breve"', async () => {
     const sent = jest.spyOn(stores.api, 'sendMessage').mockResolvedValue({ conversation_id: 'c-termhub', user_message_id: 'u', assistant_message_id: 'a' });
     await render(<ConversationScreen />);
-    await screen.findByText(SEEDED_USER);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
 
     const send = screen.getByRole('button', { name: 'Enviar' });
     expect(send.props.accessibilityState.disabled).toBe(true);
@@ -127,7 +142,7 @@ describe('Conversa', () => {
   it('Nova conversa asks first, then resets', async () => {
     const reset = stubAction('reset');
     await render(<ConversationScreen />);
-    await fireEvent.press(await screen.findByRole('button', { name: 'Nova conversa' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Nova conversa' }, LOAD));
     expect(reset).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByRole('button', { name: 'Começar nova conversa' }));
     expect(reset).toHaveBeenCalledTimes(1);
@@ -137,10 +152,10 @@ describe('Conversa', () => {
     mockId = 'general';
     const setHost = stubAction('setHost');
     await render(<ConversationScreen />);
-    expect(await screen.findByText('Chat geral')).toBeTruthy();
+    expect(await screen.findByText('Chat geral', undefined, LOAD)).toBeTruthy();
 
-    await fireEvent.press(await screen.findByRole('button', { name: 'Trocar máquina ou conta' }));
-    expect(await screen.findByText('hulk')).toBeTruthy();
+    await fireEvent.press(await screen.findByRole('button', { name: 'Trocar máquina ou conta' }, LOAD));
+    expect(await screen.findByText('hulk', undefined, LOAD)).toBeTruthy();
     expect(screen.getByText('offline')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Claude Pedro (jarvis)' }));
     expect(setHost).toHaveBeenCalledWith('m-jarvis', 'acc-1');
@@ -149,7 +164,7 @@ describe('Conversa', () => {
   it('an unknown route opens the account-wide chat and says the conversation was not found', async () => {
     mockId = 'c-nowhere';
     await render(<ConversationScreen />);
-    expect(await screen.findByText('Conversa não encontrada.')).toBeTruthy();
+    expect(await screen.findByText('Conversa não encontrada.', undefined, LOAD)).toBeTruthy();
     expect(screen.getByText('Chat geral')).toBeTruthy();
   });
 });

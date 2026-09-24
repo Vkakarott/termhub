@@ -1,5 +1,5 @@
-import { useRouter, type Href } from 'expo-router';
-import { useEffect } from 'react';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { useCallback } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 import { relativeTime } from '@/features/shared/relative-time';
 import { AppText, Banner, Screen } from '@/ui';
@@ -36,9 +36,13 @@ export function ChatsScreen() {
   const error = useChatStore((s) => s.error);
   const loadProjects = useChatStore((s) => s.loadProjects);
 
-  useEffect(() => {
-    void loadProjects();
-  }, [loadProjects]);
+  // On every focus, not only on mount: the tabs stay mounted under a pushed conversation, so a
+  // decision or a finished answer there would otherwise leave this list stale.
+  useFocusEffect(
+    useCallback(() => {
+      void loadProjects();
+    }, [loadProjects]),
+  );
 
   const rows: Row[] = [
     { route: 'general', name: 'Chat geral', busy: false, pending: 0, lastMessageAt: null },

@@ -18,7 +18,7 @@ import type { TChatProjectItem, THostOptionsResponse } from '@/services/api/cont
 import { ApiError } from '@/services/api/errors';
 import type { MobileApi } from '@/services/api/types';
 import { mmkvStateStorage } from '@/services/storage';
-import { applyEvent, withStatus } from '../model/events';
+import { applyEvent, settlePending } from '../model/events';
 import { belongsTo } from '../model/filter';
 import { CHAT_MSG } from '../model/messages';
 import type { ChatAction, ChatConversation, ChatEvent, ChatHostState, ChatMessage } from '../model/types';
@@ -268,8 +268,9 @@ export function createChatStore(deps: ChatDeps) {
                 await api.decide(session().auth(), actionId, { decision: 'approve', challenge, pin_proof });
               }
               if (gen !== generation) return;
-              // The `decision` event confirms it; this only saves a flicker back to "pending".
-              patchSlot(key, (slot) => ({ actions: withStatus(slot.actions, actionId, decision === 'approve' ? 'approved' : 'denied') }));
+              // The `decision` event confirms it; this only saves a flicker back to "pending". Only a
+              // card still pending moves: a re-read may already have it executed, failed or expired.
+              patchSlot(key, (slot) => ({ actions: settlePending(slot.actions, actionId, decision === 'approve' ? 'approved' : 'denied') }));
             } catch (e) {
               if (gen !== generation || isCancelled(e)) return;
               if (isApiError(e) && e.status === 409) {

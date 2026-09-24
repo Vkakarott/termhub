@@ -1,9 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { AppText, Banner, Button, EmptyState, Screen, Sheet } from '@/ui';
 import { foldLive } from '../model/live';
 import { chatTimeline, type ChatEntry } from '../model/timeline';
+import type { ChatDecision } from '../viewmodel/createChatStore';
 import { useChatStore } from '../viewmodel/useChatStore';
 import { ActionCard } from './action-card';
 import { Composer } from './composer';
@@ -35,6 +36,8 @@ export function ConversationScreen() {
   }, [id, openByRoute]);
 
   const fold = useMemo(() => foldLive(live), [live]);
+  const extra = useMemo(() => ({ fold, decidingId }), [fold, decidingId]);
+  const onDecide = useCallback((actionId: string, decision: ChatDecision) => void decide(actionId, decision), [decide]);
   const messages = slot?.messages;
   const actions = slot?.actions;
   // Newest first, for the inverted list that keeps the thread pinned to its end.
@@ -78,11 +81,14 @@ export function ConversationScreen() {
             data={entries}
             keyExtractor={entryKey}
             contentContainerClassName="gap-3 px-4 py-4"
+            // The rows read `fold` and `decidingId` besides `entries`: a change there re-runs
+            // `renderItem`, and the memoised rows re-render only where their own props changed.
+            extraData={extra}
             renderItem={({ item }) =>
               item.kind === 'message' ? (
-                <MessageBubble message={item.message} fold={fold} />
+                <MessageBubble message={item.message} streamed={fold.deltas.get(item.message.id)} started={fold.started.has(item.message.id)} />
               ) : (
-                <ActionCard action={item.action} busy={decidingId !== null} onDecide={(decision) => void decide(item.action.id, decision)} />
+                <ActionCard action={item.action} busy={decidingId !== null} onDecide={onDecide} />
               )
             }
           />

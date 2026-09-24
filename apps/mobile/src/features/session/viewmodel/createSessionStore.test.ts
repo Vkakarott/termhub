@@ -1,6 +1,7 @@
 // The session store (design spec §5) driven over the real `HttpMobileApi` and the in-memory
 // `MockTransport`, with the SecureStore / MMKV fakes of the `logic` project underneath.
 import * as SecureStore from 'expo-secure-store';
+import { createChatStore } from '@/features/chat/viewmodel/createChatStore';
 import { sessionEnded } from '@/features/shared/signals';
 import { ApiError } from '@/services/api/errors';
 import { fromB64url } from '@/services/crypto/encoding';
@@ -289,6 +290,36 @@ it('leave revokes and wipes: vault empty, phase new; a DEVICE_REVOKED from any c
   } finally {
     unsubscribe();
   }
+});
+
+it('after a revocation, a feature call with the still-valid token answers DEVICE_REVOKED and the session wipes on its own', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  // The chat store stands in for any feature store: it calls through auth() and hands every error
+  // to handleApiError — the automatic path, nothing routed by hand.
+  const chat = createChatStore({ api: ctx.api, session: () => ctx.store.getState() });
+  const me = jest.spyOn(ctx.api, 'chatProjects');
+  ctx.controls.revokeNow();
+
+  await chat.getState().loadProjects();
+  await expect(me.mock.results[0]!.value).rejects.toMatchObject({ code: 'DEVICE_REVOKED' });
+  await flush();
+  expect(secureItems.size).toBe(0);
+  expect(ctx.store.getState()).toMatchObject({ phase: 'new', notice: 'Este aparelho foi removido da sua conta.' });
+});
+
+it('after a revocation, a call past the token lifetime renews, the renewal meets DEVICE_REVOKED and the session wipes', async () => {
+  const ctx = setup();
+  await enrol(ctx);
+  ctx.controls.revokeNow();
+  ctx.clock.value += 15 * 60_000 + 1; // the access token has expired: the client renews first
+  const token = jest.spyOn(ctx.api, 'token');
+
+  await expect(ctx.api.me(ctx.store.getState().auth())).rejects.toBeInstanceOf(ApiError);
+  await expect(token.mock.results[0]!.value).rejects.toMatchObject({ code: 'DEVICE_REVOKED' });
+  await flush();
+  expect(secureItems.size).toBe(0);
+  expect(ctx.store.getState()).toMatchObject({ phase: 'new', notice: 'Este aparelho foi removido da sua conta.' });
 });
 
 it('a DEVICE_REVOKED during unlock wipes', async () => {

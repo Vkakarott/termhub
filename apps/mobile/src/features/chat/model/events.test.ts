@@ -45,3 +45,8 @@ it('leaves the slice untouched for events that change nothing here', () => {
   expect(applyEvent(empty, { type: 'hello', protocol: 1, server_time: at }).slice).toBe(empty);
   expect(applyEvent(empty, { type: 'action_result', ...base, message_id: 'm1', tool_use_id: 'x', ok: true }).slice).toBe(empty);
 });
+
+it('a decision only settles a pending card: a card that already ran is never moved back', () => {
+  const ran: EventSlice = { ...empty, actions: [action('a1', 'executed')] };
+  expect(applyEvent(ran, { type: 'decision', ...base, action_id: 'a1', status: 'approved' }).slice.actions).toBe(ran.actions);
+});

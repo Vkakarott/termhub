@@ -27,9 +27,11 @@ function upsertMessage(messages: ChatMessage[], message: ChatMessage): ChatMessa
   return messages.map((m, j) => (j === i ? message : m));
 }
 
-/** The action `id` with `status`; the same array when nothing changes (idempotent). */
-export function withStatus(actions: ChatAction[], id: string, status: ChatAction['status']): ChatAction[] {
-  if (!actions.some((a) => a.id === id && a.status !== status)) return actions;
+/** Settles the pending action `id` as approved or denied. A card that has moved on already — a
+ * re-read that says it ran, failed or expired — is never moved back; the same array when nothing
+ * changes (idempotent). */
+export function settlePending(actions: ChatAction[], id: string, status: 'approved' | 'denied'): ChatAction[] {
+  if (!actions.some((a) => a.id === id && a.status === 'pending')) return actions;
   return actions.map((a) => (a.id === id ? { ...a, status } : a));
 }
 
@@ -67,7 +69,7 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): { slice: EventSlice
       if (slice.actions.some((a) => a.id === e.action_id)) return { slice, reread: false };
       return { slice: { ...slice, actions: [...slice.actions, actionFromConfirmation(e)] }, reread: false };
     case 'decision':
-      return { slice: { ...slice, actions: withStatus(slice.actions, e.action_id, e.status) }, reread: false };
+      return { slice: { ...slice, actions: settlePending(slice.actions, e.action_id, e.status) }, reread: false };
     case 'delta':
     case 'action':
     case 'reset':
