@@ -114,8 +114,9 @@ describe('BacklogView', () => {
     mount();
     await screen.findByText('first');
     const [firstRow, secondRow] = within(screen.getByRole('region', { name: 'Geral' })).getAllByRole('listitem');
-    const dataTransfer = { effectAllowed: '', setData: () => {} };
+    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
     fireEvent.dragStart(secondRow, { dataTransfer });
+    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', 'second');
     fireEvent.drop(firstRow, { dataTransfer });
     await waitFor(() => expect(moveMock).toHaveBeenCalledWith('second', { status: 'backlog' }, 0));
   });

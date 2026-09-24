@@ -108,6 +108,15 @@ describe('TasksBoard — columns, cards and filter', () => {
     expect(screen.getByText('b')).toBeInTheDocument();
   });
 
+  it('resets a remembered epic filter that no longer exists, instead of hiding every card', async () => {
+    localStorage.setItem('termhub:board-filter:p1', JSON.stringify({ types: ['story', 'task', 'bug', 'spike'], epicId: 'gone' }));
+    listMock.mockResolvedValue(board([epic('e1', 'Geral', 1), task({ id: 'a' })]));
+    mount();
+    await screen.findByText('a');
+    expect(screen.getByLabelText('Filtrar por épico')).toHaveValue('');
+    expect(JSON.parse(localStorage.getItem('termhub:board-filter:p1')!).epicId).toBeNull();
+  });
+
   it('quick add creates a card in that column', async () => {
     createMock.mockResolvedValue({ task: task({ id: 'nova', column_id: 'c2', status: 'doing' }) });
     mount();
@@ -126,6 +135,16 @@ describe('TasksBoard — columns, cards and filter', () => {
     fireEvent.click(screen.getByTitle('Mover para Em revisão'));
     await waitFor(() => expect(moveMock).toHaveBeenCalledWith('t1', { column_id: 'c2' }, 0));
     expect(within(screen.getByRole('region', { name: 'Em revisão' })).getByText('t1')).toBeInTheDocument();
+  });
+});
+
+describe('TasksBoard — drag and drop', () => {
+  it('ignores a foreign drop (no matching drag state) without calling the API', async () => {
+    mount();
+    await screen.findByText('t1');
+    const region = screen.getByRole('region', { name: 'A fazer' });
+    fireEvent.drop(region, { dataTransfer: { getData: () => 'not-a-task' } });
+    expect(moveMock).not.toHaveBeenCalled();
   });
 });
 
@@ -169,11 +188,48 @@ describe('TasksBoard — choosing a machine to open a task terminal', () => {
 });
 
 describe('TasksBoard — card URLs', () => {
-  it('opening a card goes to /project/<ref>, remembering the section', async () => {
+  it('clicking a card\'s title navigates to /project/<ref>, remembering the section', async () => {
     mount();
     await screen.findByText('t1');
-    fireEvent.click(screen.getByTitle('Abrir card'));
+    fireEvent.click(screen.getByText('t1'));
     expect(screen.getByTestId('location').textContent).toBe('/project/P1-t1|/projects/p1/tasks');
+  });
+
+  it('double-clicking the title shows the rename input instead of opening the card', async () => {
+    mount();
+    await screen.findByText('t1');
+    fireEvent.doubleClick(screen.getByText('t1'));
+    expect(screen.getByDisplayValue('t1')).toBeInTheDocument();
+    expect(screen.getByTestId('location').textContent).toBe('/projects/p1/tasks|');
+  });
+
+  it('the "Abrir card" button is reachable by keyboard and opens the card', async () => {
+    mount();
+    await screen.findByText('t1');
+    const openButton = screen.getByRole('button', { name: /Abrir card P1-t1/ });
+    openButton.focus();
+    expect(openButton).toHaveFocus();
+    fireEvent.click(openButton);
+    expect(screen.getByTestId('location').textContent).toBe('/project/P1-t1|/projects/p1/tasks');
+  });
+
+  it('pressing Enter on the focused card navigates to its route', async () => {
+    mount();
+    await screen.findByText('t1');
+    const card = screen.getByRole('button', { name: 'P1-t1 t1' });
+    card.focus();
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(screen.getByTestId('location').textContent).toBe('/project/P1-t1|/projects/p1/tasks');
+  });
+
+  it('a drag does not also open the card once it is dropped', async () => {
+    mount();
+    await screen.findByText('t1');
+    const card = screen.getByRole('button', { name: 'P1-t1 t1' });
+    fireEvent.dragStart(card, { dataTransfer: { effectAllowed: '', setData: () => {} } });
+    fireEvent.dragEnd(card);
+    fireEvent.click(card);
+    expect(screen.getByTestId('location').textContent).toBe('/projects/p1/tasks|');
   });
 
   it('shows the editor of the card in the URL; closing goes back to the section it came from', async () => {

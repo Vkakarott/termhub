@@ -42,6 +42,13 @@ export function TasksBoard({ projectId, openTaskId }: Props) {
       const r = await api.tasks.list(projectId);
       setTasks(r.tasks);
       setColumns([...r.columns].sort((a, b) => a.position - b.position));
+      // a remembered epic that no longer exists would otherwise filter every card out with no visible cause
+      setFilter((f) => {
+        if (!f.epicId || epicsOf(r.tasks).some((e) => e.id === f.epicId)) return f;
+        const next = { ...f, epicId: null };
+        writeBoardFilter(projectId, next);
+        return next;
+      });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Erro ao carregar o board');
     }
@@ -185,9 +192,11 @@ export function TasksBoard({ projectId, openTaskId }: Props) {
   };
   const onDrop = (e: DragEvent, column: TaskColumn, index: number) => {
     e.preventDefault();
-    const id = e.dataTransfer.getData('text/plain') || drag?.taskId;
+    // our own drag state first; `dataTransfer` is only a fallback, and only for an id we actually have
+    // (a foreign drop — another app, a stale/lost drag — must not reach the API).
+    const id = drag?.taskId ?? e.dataTransfer.getData('text/plain');
     setDrag(null);
-    if (!id || !tasks) return;
+    if (!id || !tasks || !tasks.some((t) => t.id === id)) return;
     const all = cardsIn(tasks, column.id);
     void move(id, column.id, dropPosition(all, visible(all, filter), index, id));
   };
@@ -377,10 +386,16 @@ interface CardProps {
   terminalHref: string | null;
 }
 
+/** Visible on hover, on keyboard focus (anywhere in the card) and always on touch (no hover). */
+const CARD_ACTION = 'invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible group-focus-within:visible focus:visible [@media(hover:none)]:visible';
+
 function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, onRename, next, onMoveNext, terminalHref }: CardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
+  // A native drag can still leave a trailing click on the source element once it is dropped; this
+  // flag outlives the drag by one tick so that stray click does not also open the card.
+  const draggedRef = useRef(false);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -393,20 +408,43 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, o
     else setDraft(task.title);
   };
 
+  const startEditing = (e: { stopPropagation: () => void }) => {
+    e.stopPropagation();
+    setDraft(task.title);
+    setEditing(true);
+  };
+
   const done = task.subtasks?.filter((s) => s.status === 'done').length ?? 0;
   const total = task.subtasks?.length ?? 0;
 
   return (
     <div
       draggable={!editing}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={() => {
-        if (editing) return;
-        setDraft(task.title);
-        setEditing(true);
+      onDragStart={(e) => {
+        draggedRef.current = true;
+        onDragStart(e);
       }}
-      className={`group cursor-grab rounded-md border border-line bg-bg-3 px-2.5 py-2 text-sm hover:border-fg-dim active:cursor-grabbing ${
+      onDragEnd={() => {
+        onDragEnd();
+        setTimeout(() => {
+          draggedRef.current = false;
+        }, 0);
+      }}
+      role={editing ? undefined : 'button'}
+      tabIndex={editing ? undefined : 0}
+      aria-label={editing ? undefined : `${task.ref} ${task.title}`}
+      onClick={() => {
+        if (editing || draggedRef.current) return;
+        onOpen();
+      }}
+      onKeyDown={(e) => {
+        if (editing) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className={`group cursor-grab rounded-md border border-line bg-bg-3 px-2.5 py-2 text-sm hover:border-fg-dim focus:outline-none focus-visible:ring-1 focus-visible:ring-accent active:cursor-grabbing ${
         dragging ? 'opacity-40' : ''
       } ${task.status === 'done' ? 'text-fg-muted line-through decoration-fg-dim' : ''}`}
     >
@@ -429,7 +467,7 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, o
       ) : (
         <div className="flex items-start gap-1.5">
           <TypeBadge type={task.type} />
-          <span className="flex-1 break-words">
+          <span className="flex-1 break-words" onDoubleClick={startEditing}>
             <span className="mr-1.5 font-mono text-[10px] text-fg-dim">{task.ref}</span>
             {task.external_ref && (
               <a
@@ -456,8 +494,9 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, o
             </Link>
           )}
           <button
-            className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
+            className={CARD_ACTION}
             title="Abrir card"
+            aria-label={`Abrir card ${task.ref}`}
             onClick={(e) => {
               e.stopPropagation();
               onOpen();
@@ -467,8 +506,9 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, o
           </button>
           {onMoveNext && next && (
             <button
-              className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
+              className={CARD_ACTION}
               title={`Mover para ${next.name}`}
+              aria-label={`Mover para ${next.name}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onMoveNext();

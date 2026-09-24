@@ -123,6 +123,7 @@ export function BacklogView({ projectId }: { projectId: string }) {
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', t.id); // Firefox does not start a drag without this
                     setDragId(t.id);
                   }}
                   onDragEnd={() => setDragId(null)}
