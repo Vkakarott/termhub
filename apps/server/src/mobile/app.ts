@@ -7,14 +7,19 @@ import type { TranscriptionService } from '../terminal/transcription.js';
 import type { Mailer } from '../email/mailer.js';
 import type { createUpgradeRouter } from '../ws/router.js';
 import { actionForMethod, type Resource } from '../auth/permissions.js';
+import { mobileDeviceRoutes, mobilePushTokenRoutes } from '../routes/m-devices.js';
 import { buildMobileAuthHook, type MobileAuthMode } from './auth.js';
 import { JtiCache } from './dpop.js';
+import { EnrolmentService } from './enrolment.js';
+import { MobileSocketRegistry, revokeDevice } from './revocation.js';
 
 export const MOBILE_PREFIX = '/api/m/v1';
 
-/** Long-lived state of the mobile API, created once per server (later tasks add enrolment, session, revoke, sockets, push). */
+/** Long-lived state of the mobile API, created once per server (later tasks add session, push). */
 export interface MobileServices {
   jtis: JtiCache;
+  enrolment: EnrolmentService;
+  sockets: MobileSocketRegistry;
 }
 
 export interface MobileDeps {
@@ -34,8 +39,13 @@ export interface MobileDeps {
  */
 export type GuardedMobile = (resource: Resource, plugin: (a: FastifyInstance) => Promise<void>, prefix: string) => Promise<void>;
 
-export function createMobileServices(_deps: MobileDeps): MobileServices {
-  return { jtis: new JtiCache() };
+export function createMobileServices(deps: MobileDeps): MobileServices {
+  return {
+    jtis: new JtiCache(),
+    // `hooks` stays undefined until Task 16 wires push notifications into enrolment.
+    enrolment: new EnrolmentService({ repos: deps.repos, mailer: deps.mailer, log: deps.log, appUrl: config.publicUrl }),
+    sockets: new MobileSocketRegistry(),
+  };
 }
 
 /**
@@ -73,7 +83,22 @@ export async function registerMobileApi(
         );
       };
 
-      // Routes are added by later tasks through `routes`.
+      // The mobile API's own routes: enrolment, self-management and push-token, all under `devices`.
+      async function mobileRoutes(guarded: GuardedMobile): Promise<void> {
+        await guarded(
+          'devices',
+          (a) =>
+            mobileDeviceRoutes(a, deps.repos, {
+              enrolment: services.enrolment,
+              revoke: (id, input) => revokeDevice({ repos: deps.repos, sockets: services.sockets, mailer: deps.mailer }, id, input),
+            }),
+          '/devices',
+        );
+        await guarded('devices', (a) => mobilePushTokenRoutes(a, deps.repos), '');
+      }
+
+      await mobileRoutes(guardedMobile);
+      // `routes` stays for tests that want to register extra routes alongside the real ones.
       if (routes) await routes(guardedMobile, m);
       m.get('/health', { config: { mobileAuth: 'none' } }, async () => ({ ok: true }));
       m.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
