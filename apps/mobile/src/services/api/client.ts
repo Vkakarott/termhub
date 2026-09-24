@@ -1,0 +1,174 @@
+// The one `MobileApi` implementation that talks to a `Transport` (design spec §4.1, P§5.2, P§6).
+// The device owns the key: every call signs its own DPoP proof, corrected for the clock skew
+// learned from the server's `Date` header, and a single `401 TOKEN_EXPIRED` triggers one
+// single-flighted renewal plus one retry — never for any other error code.
+import type { z } from 'zod';
+import { b64url, utf8 } from '../crypto/encoding';
+import type { DeviceKey } from '../key/types';
+import {
+  canonicalHtu,
+  challengeResponse,
+  chatProjectsResponse,
+  chatResponse,
+  deviceActivateResponse,
+  devicePollResponse,
+  deviceRequestResponse,
+  deviceSelf as deviceSelfSchema,
+  emptyResponse,
+  hostOptionsResponse,
+  meResponse,
+  notificationsResponse,
+  sendAccepted,
+  tokenResponse,
+  type TChallengeBody,
+  type TDeviceActivateBody,
+  type TDeviceRequestBody,
+  type TMobileDecisionBody,
+  type TMobileMessageBody,
+  type TSetHostBody,
+  type TTokenBody,
+} from './contract';
+import { buildProof } from './dpop';
+import { ApiError } from './errors';
+import type { Transport } from './transport';
+import type { Auth, MobileApi } from './types';
+
+// sha2.js, not the package root — the root re-exports every hash family, which pulls code this
+// module never uses.
+import { sha256 } from '@noble/hashes/sha2.js';
+
+export type CreateHttpMobileApiOptions = {
+  transport: Transport;
+  baseUrl: string;
+  /** `X-Termhub-App` value, already formatted (e.g. `ios/1.2.0+34`) — see `app-header.ts`. */
+  app: string;
+  key: DeviceKey;
+  /** The session store's single-flighted `challenge` + `token`; `null` means renewal failed. */
+  onTokenExpired: () => Promise<string | null>;
+  /** Milliseconds; defaults to `Date.now`. A test clock, so proofs are deterministic. */
+  now?: () => number;
+  /** Defaults to `'http'`: the singleton (`index.ts`) passes `'mock'` when it points this client
+   * at a `MockTransport` (Task 8), so the UI can tell the two apart without touching `Transport`. */
+  mode?: 'mock' | 'http';
+};
+
+type CallOptions = {
+  /** A bearer token (access token, or the enrolment request secret for `pollRequest`). */
+  token?: string | null;
+  body?: unknown;
+  /** `session/token`'s DPoP `chal`, bound to the challenge it is redeeming. */
+  chal?: string;
+  /** `false` skips the `DPoP` header entirely (`devices/requests`, `session/challenge`). */
+  proof?: boolean;
+  /** `false` skips the single-retry-on-renewal dance (already a retry, or a call that has no
+   * access token to renew in the first place). */
+  retry?: boolean;
+};
+
+export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & { readonly skewSeconds: number } {
+  // Server seconds minus device seconds. Kept as the largest-magnitude estimate observed: once a
+  // real skew is learned, a later response that happens to imply zero skew (jitter, a proxy that
+  // does not forward the origin's clock, ...) must not silently discard it.
+  let skew = 0;
+  const deviceNowS = () => Math.floor((o.now ?? Date.now)() / 1000);
+  const nowS = () => deviceNowS() + skew;
+
+  const learn = (headers: Record<string, string>) => {
+    const raw = headers.date ?? headers.Date;
+    if (!raw) return;
+    const parsed = Date.parse(raw);
+    if (Number.isNaN(parsed)) return;
+    const candidate = Math.round(parsed / 1000) - deviceNowS();
+    if (Math.abs(candidate) > Math.abs(skew)) skew = candidate;
+  };
+
+  const proofFor = async (htm: string, path: string, token: string | null, chal?: string) =>
+    buildProof(o.key, {
+      htm,
+      htu: canonicalHtu(o.baseUrl, path),
+      iat: nowS(),
+      ...(token ? { ath: b64url(sha256(utf8(token))) } : {}),
+      ...(chal ? { chal } : {}),
+    });
+
+  let renewing: Promise<string | null> | null = null;
+  const renewOnce = (): Promise<string | null> => {
+    renewing ??= o.onTokenExpired().finally(() => {
+      renewing = null;
+    });
+    return renewing;
+  };
+
+  async function call<T>(htm: string, path: string, schema: z.ZodType<T>, opts: CallOptions = {}): Promise<T> {
+    const headers: Record<string, string> = { 'X-Termhub-App': o.app, Accept: 'application/json' };
+    if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+    if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
+    if (opts.proof !== false) headers.DPoP = await proofFor(htm, path, opts.token ?? null, opts.chal);
+
+    const res = await o.transport.fetch({
+      method: htm,
+      url: o.baseUrl + path,
+      headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    });
+    learn(res.headers);
+
+    if (res.status >= 200 && res.status < 300) {
+      const parsed = schema.safeParse(res.text ? JSON.parse(res.text) : {});
+      if (!parsed.success) throw new ApiError(502, 'BAD_RESPONSE', 'Resposta inesperada do servidor');
+      return parsed.data;
+    }
+
+    const err = ApiError.fromBody(res.status, res.headers, res.text);
+    if (err.status === 401 && err.code === 'TOKEN_EXPIRED' && opts.token && opts.retry !== false) {
+      const fresh = await renewOnce();
+      if (fresh) return call(htm, path, schema, { ...opts, token: fresh, retry: false });
+    }
+    throw err;
+  }
+
+  const empty = (htm: string, path: string, opts: CallOptions = {}): Promise<void> =>
+    call(htm, path, emptyResponse, opts).then(() => undefined);
+
+  const api: MobileApi = {
+    mode: o.mode ?? 'http',
+
+    requestDevice: (body: TDeviceRequestBody) => call('POST', '/api/m/v1/devices/requests', deviceRequestResponse, { body, proof: false }),
+    pollRequest: (requestId, requestSecret) =>
+      call('GET', `/api/m/v1/devices/requests/${requestId}`, devicePollResponse, { token: requestSecret, proof: false, retry: false }),
+    activate: (body: TDeviceActivateBody) => call('POST', '/api/m/v1/devices/activate', deviceActivateResponse, { body }),
+
+    challenge: (body: TChallengeBody) => call('POST', '/api/m/v1/session/challenge', challengeResponse, { body, proof: false }),
+    token: (body: TTokenBody) => call('POST', '/api/m/v1/session/token', tokenResponse, { body, chal: body.challenge, retry: false }),
+    me: (a: Auth) => call('GET', '/api/m/v1/me', meResponse, { token: a.accessToken }),
+    deviceSelf: (a: Auth) => call('GET', '/api/m/v1/devices/self', deviceSelfSchema, { token: a.accessToken }),
+    revokeSelf: (a: Auth) => empty('POST', '/api/m/v1/devices/self/revoke', { token: a.accessToken }),
+    setPushToken: (a: Auth, token: string) => empty('PUT', '/api/m/v1/push-token', { token: a.accessToken, body: { token } }),
+
+    chatProjects: (a: Auth) => call('GET', '/api/m/v1/chat/projects', chatProjectsResponse, { token: a.accessToken }),
+    chat: (a: Auth, projectId: string | null) =>
+      call('GET', `/api/m/v1/chat${projectId ? `?project=${encodeURIComponent(projectId)}` : ''}`, chatResponse, { token: a.accessToken }),
+    hostOptions: (a: Auth) => call('GET', '/api/m/v1/chat/host/options', hostOptionsResponse, { token: a.accessToken }),
+    setHost: (a: Auth, body: TSetHostBody) => empty('POST', '/api/m/v1/chat/host', { token: a.accessToken, body }),
+    sendMessage: (a: Auth, body: TMobileMessageBody) => call('POST', '/api/m/v1/chat/messages', sendAccepted, { token: a.accessToken, body }),
+    reset: (a: Auth, projectId: string | null) => empty('POST', '/api/m/v1/chat/reset', { token: a.accessToken, body: { project_id: projectId } }),
+    decide: (a: Auth, actionId: string, body: TMobileDecisionBody) =>
+      empty('POST', `/api/m/v1/chat/actions/${actionId}/decision`, { token: a.accessToken, body }),
+
+    notifications: (a: Auth, before?: string) =>
+      call('GET', `/api/m/v1/notifications${before ? `?before=${encodeURIComponent(before)}` : ''}`, notificationsResponse, {
+        token: a.accessToken,
+      }),
+    markRead: (a: Auth, id: string) => empty('POST', `/api/m/v1/notifications/${id}/read`, { token: a.accessToken }),
+
+    events: () => {
+      throw new Error('events: implemented in Task 7');
+    },
+  };
+
+  // Not `Object.assign(api, { get skewSeconds() {...} })`: `Object.assign` reads the getter once
+  // and copies the resulting *value*, which would freeze `skewSeconds` at construction time
+  // instead of tracking `skew` live. `defineProperty` installs a real accessor.
+  Object.defineProperty(api, 'skewSeconds', { get: () => skew, enumerable: true });
+  return api as MobileApi & { readonly skewSeconds: number };
+}
