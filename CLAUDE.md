@@ -10,7 +10,7 @@
 
 ## Layout
 
-npm workspaces: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), `apps/landing` (`@termhub/landing`, static site for termhub.dev). Always address workspaces by package name (`-w @termhub/server`), never by path.
+npm workspaces: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), `apps/landing` (`@termhub/landing`, static site for termhub.dev), `apps/mobile` (`@termhub/mobile`, the Expo phone app — React Native, never part of the server image: the `Dockerfile` installs an explicit `-w` list of workspaces, so a workspace the server needs must be added there). Every workspace uses the same React version (root `overrides` pin it). Always address workspaces by package name (`-w @termhub/server`), never by path.
 
 ## Verifying before pushing
 
