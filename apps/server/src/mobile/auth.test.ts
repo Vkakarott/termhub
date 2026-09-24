@@ -22,6 +22,8 @@ const TOKEN = 'thb_mob_' + 'A'.repeat(43);
 const user = { id: 'u1', email: 'u@example.com', name: 'U' };
 const nowSec = () => Math.floor(Date.now() / 1000);
 const athOf = (token: string) => createHash('sha256').update(token).digest('base64url');
+// registerMobileApi mounts /ws/m/chat on `upgrades` and gives it a child logger.
+const log = { child: () => log, info: () => {}, warn: () => {} } as never;
 
 async function keypair() {
   const { privateKey, publicKey } = await generateKeyPair('ES256');
@@ -197,7 +199,7 @@ describe('registerMobileApi', () => {
   it('serves /health unauthenticated, guards guardedMobile routes with the device hook, and 404s in its own shape', async () => {
     const key = await keypair();
     const repos = fakeRepos(deviceRow(key.jwk));
-    const deps = { repos: repos as unknown as Repositories } as MobileDeps;
+    const deps = { repos: repos as unknown as Repositories, upgrades: { addPublic: vi.fn() } as never, log } as MobileDeps;
     const app = Fastify();
     applyErrorHandler(app);
     app.decorateRequest('user', null);
@@ -230,7 +232,7 @@ describe('registerMobileApi', () => {
     const device = deviceRow(key.jwk);
     const repos = fakeRepos(device);
     const findActiveById = vi.fn(async (id: string) => (id === device.id ? device : undefined));
-    const deps = { repos: { ...repos, devices: { ...repos.devices, findActiveById } } as unknown as Repositories } as MobileDeps;
+    const deps = { repos: { ...repos, devices: { ...repos.devices, findActiveById } } as unknown as Repositories, upgrades: { addPublic: vi.fn() } as never, log } as MobileDeps;
     const app = Fastify();
     applyErrorHandler(app);
     app.decorateRequest('user', null);

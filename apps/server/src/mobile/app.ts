@@ -15,6 +15,7 @@ import { JtiCache } from './dpop.js';
 import { EnrolmentService } from './enrolment.js';
 import { MobileSocketRegistry, revokeDevice } from './revocation.js';
 import { SessionService } from './session.js';
+import { registerMobileChatWs } from './ws.js';
 
 export const MOBILE_PREFIX = '/api/m/v1';
 
@@ -70,6 +71,11 @@ export async function registerMobileApi(
   const mobile = config.mobile;
   if (!mobile) throw new Error('registerMobileApi requires config.mobile (MOBILE_PUBLIC_URL)');
   const publicUrl = mobile.publicUrl;
+  // The phone's chat stream, /ws/m/chat: authenticated like this prefix (device token + proof).
+  const chatWs = registerMobileChatWs(deps.upgrades, { repos: deps.repos, jtis: services.jtis, publicUrl, sockets: services.sockets, log: deps.log });
+  fastify.addHook('onClose', async () => {
+    chatWs.close();
+  });
   await fastify.register(
     async (m) => {
       m.addHook('preHandler', buildMobileAuthHook({ repos: deps.repos, publicUrl: mobile.publicUrl, minAppVersion: mobile.minAppVersion, jtis: services.jtis }));
