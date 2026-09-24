@@ -18,6 +18,11 @@ interface DataState {
   /** máquinas online sem tmux instalado */
   missingTmux: Record<string, boolean>;
   loading: boolean;
+  /** the last read of the machine list failed (e.g. a role without machines:read); `machines` keeps the previous value */
+  machinesError: boolean;
+  /** the last read of the project list failed; `projects` keeps the previous value */
+  projectsError: boolean;
+  /** re-reads both lists; never rejects (a failed list sets its error flag instead) */
   refresh: () => Promise<void>;
   checkStatus: (machineId: string) => Promise<void>;
   createMachine: (input: Partial<Machine>) => Promise<Machine>;
@@ -59,6 +64,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [statuses, setStatuses] = useState<Record<string, MachineStatus>>({});
   const [missingTmux, setMissingTmux] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [machinesError, setMachinesError] = useState(false);
+  const [projectsError, setProjectsError] = useState(false);
   const machinesRef = useRef(machines);
   machinesRef.current = machines;
 
@@ -97,12 +104,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [m, p] = await Promise.all([api.machines.list(), api.projects.list()]);
-    setMachines(m.machines);
-    setProjects(p.projects);
+    // each list on its own: one refused (403) or failed read must not leave the other unread, nor
+    // the app stuck loading; a failed list keeps its last value and says so through its flag
+    const [m, p] = await Promise.allSettled([api.machines.list(), api.projects.list()]);
+    if (m.status === 'fulfilled') setMachines(m.value.machines);
+    setMachinesError(m.status === 'rejected');
+    if (p.status === 'fulfilled') setProjects(p.value.projects);
+    setProjectsError(p.status === 'rejected');
     setLoading(false);
+    if (m.status !== 'fulfilled') return;
     const mine = localMachineIds();
-    void Promise.all(m.machines.filter((x) => !x.is_local || mine.has(x.id)).map((x) => checkStatus(x.id)));
+    void Promise.all(m.value.machines.filter((x) => !x.is_local || mine.has(x.id)).map((x) => checkStatus(x.id)));
   }, [checkStatus]);
 
   useEffect(() => {
@@ -125,6 +137,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       statuses,
       missingTmux,
       loading,
+      machinesError,
+      projectsError,
       refresh,
       checkStatus,
       async createMachine(input) {
@@ -181,7 +195,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return project.machines.map((l) => machines.find((m) => m.id === l.machine_id)).filter((m): m is Machine => !!m);
       },
     }),
-    [machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, refresh, checkStatus, setOpenTasks],
+    [machines, projects, hiddenLocal, claimLocal, statuses, missingTmux, loading, machinesError, projectsError, refresh, checkStatus, setOpenTasks],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
