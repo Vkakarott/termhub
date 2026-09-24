@@ -15,7 +15,13 @@ export function Countdown({ until, onExpire }: { until: string; onExpire?(): voi
   onExpireRef.current = onExpire;
 
   useEffect(() => {
-    setRemainingMs(Math.max(0, target - Date.now()));
+    const initial = Math.max(0, target - Date.now());
+    setRemainingMs(initial);
+    if (initial === 0) {
+      // Already expired by the time this mounted: fire once here, no interval needed.
+      onExpireRef.current?.();
+      return;
+    }
     const id = setInterval(() => {
       const next = Math.max(0, target - Date.now());
       setRemainingMs(next);
