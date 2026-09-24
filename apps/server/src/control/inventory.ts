@@ -6,6 +6,8 @@ import { ControlError, type ControlContext } from './context.js';
 export interface MachineSummary {
   id: string;
   name: string;
+  /** the owner's own note about the machine ("MacBook do escritório"); null when there is none */
+  subtitle: string | null;
   type: MachineType;
   os: string | null;
   /** agent: connected now; local: always; ssh: null = not checked (probing is slow) */
@@ -19,7 +21,7 @@ function online(m: Machine): boolean | null {
   return null;
 }
 
-const summary = (m: Machine): MachineSummary => ({ id: m.id, name: m.name, type: m.type, os: m.os, online: online(m), capabilities: m.capabilities });
+const summary = (m: Machine): MachineSummary => ({ id: m.id, name: m.name, subtitle: m.subtitle, type: m.type, os: m.os, online: online(m), capabilities: m.capabilities });
 
 export async function listMachines(ctx: ControlContext): Promise<{ machines: MachineSummary[] }> {
   const machines = await ctx.repos.machines.list(ctx.scope.ownerId);

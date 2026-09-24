@@ -87,6 +87,13 @@ describe('listMachines', () => {
     expect(r.machines[1]).toMatchObject({ id: 'm2', type: 'local', online: true });
   });
 
+  it('carries the machine\'s subtitle, null when it has none', async () => {
+    const c = ctx();
+    vi.mocked(c.repos.machines.list).mockResolvedValue([machine({ id: 'm1', subtitle: 'MacBook do escritório' }), machine({ id: 'm2', subtitle: null })]);
+    const r = await listMachines(c);
+    expect(r.machines.map((m) => m.subtitle)).toEqual(['MacBook do escritório', null]);
+  });
+
   it('reports an offline agent and an unchecked ssh machine', async () => {
     vi.mocked(agents.isOnline).mockReturnValue(false);
     const c = ctx();
