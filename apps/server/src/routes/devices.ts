@@ -68,13 +68,15 @@ export async function deviceRoutes(app: FastifyInstance, repos: Repositories, de
     return { requests: requests.map(toRequestView) };
   });
 
-  app.post('/requests/:id/approve', async (request) => {
+  // Both decide an existing request, not create one — `config.action` overrides `guarded()`'s
+  // default (POST → `create`), same as chat.ts's `/host` and `/reset`.
+  app.post('/requests/:id/approve', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const decided = await deps.enrolment.approve(id, request.user!, clientLocation(request));
     return { request: toRequestView(decided) };
   });
 
-  app.post('/requests/:id/deny', async (request) => {
+  app.post('/requests/:id/deny', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
     const decided = await deps.enrolment.deny(id, request.user!, clientLocation(request));
     return { request: toRequestView(decided) };

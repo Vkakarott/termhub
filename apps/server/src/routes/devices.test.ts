@@ -64,10 +64,23 @@ const deviceEvent = (over: Partial<DeviceEvent> & { id: string; kind: DeviceEven
   ...over,
 });
 
+interface RegisteredRoute {
+  method: string;
+  url: string;
+  config?: { action?: string };
+}
+
 /** Routes over stubbed repos and mobile services. `viewAs` simulates an admin viewing as another user. */
 function buildApp(opts: { viewAs?: string } = {}) {
   const app = Fastify();
   applyErrorHandler(app);
+  // Captured for the `config.action` assertions below: this app never goes through app.ts's
+  // `guarded()` (which would derive `action` from the HTTP method), so a route only carries an
+  // `action` here when the route itself sets one — exactly what we want to prove.
+  const routes: RegisteredRoute[] = [];
+  app.addHook('onRoute', (route) => {
+    routes.push({ method: String(route.method), url: route.url, config: route.config as { action?: string } | undefined });
+  });
   app.addHook('preHandler', async (request) => {
     const owner = opts.viewAs ?? 'u1';
     request.user = { id: 'u1' } as never;
@@ -103,7 +116,7 @@ function buildApp(opts: { viewAs?: string } = {}) {
       }),
     { prefix: '/devices' },
   );
-  return { app, deviceRequests, devices, deviceEvents, enrolment, revoke };
+  return { app, routes, deviceRequests, devices, deviceEvents, enrolment, revoke };
 }
 
 describe('device routes', () => {
@@ -153,6 +166,15 @@ describe('device routes', () => {
     expect(body).not.toHaveProperty('key_thumbprint');
     expect(body).not.toHaveProperty('email_hash');
     expect(body).not.toHaveProperty('status');
+  });
+
+  it('registers approve and deny as an update, not the create that guarded() would derive from POST', async () => {
+    const { app, routes } = buildApp();
+    await app.ready();
+    const approve = routes.find((r) => r.method === 'POST' && r.url === '/devices/requests/:id/approve');
+    const deny = routes.find((r) => r.method === 'POST' && r.url === '/devices/requests/:id/deny');
+    expect(approve?.config).toMatchObject({ action: 'update' });
+    expect(deny?.config).toMatchObject({ action: 'update' });
   });
 
   it('passes a DEVICE_LIMIT 409 from the enrolment service through with its pt-BR message', async () => {
