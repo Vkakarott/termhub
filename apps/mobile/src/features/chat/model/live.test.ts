@@ -126,3 +126,11 @@ describe('foldLive', () => {
     expect(result.started.size).toBe(0);
   });
 });
+
+it('ignores run_finished: nothing streamed is dropped or marked started', () => {
+  const finished: ChatEvent = { type: 'run_finished', user_id: USER_ID, conversation_id: CONVERSATION_ID, message_id: 'm1', ok: true, error_code: null };
+  const folded = foldLive([delta('m1', 'oi'), finished]);
+  expect(folded.deltas.get('m1')).toBe('oi');
+  expect([...folded.started]).toEqual(['m1']);
+  expect(foldLive([finished])).toEqual({ deltas: new Map(), actions: new Map(), started: new Set() });
+});

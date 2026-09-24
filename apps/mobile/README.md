@@ -30,7 +30,8 @@ src/features/
 
 src/services/
   api/        MobileApi = HttpMobileApi over a Transport (FetchTransport for `http`, MockTransport
-              for `mock`); api/contract/ is the zod contract copied from packages/mobile-api;
+              for `mock`); api/contract/ re-exports `@termhub/mobile-api` (the zod contract the
+              server validates against) plus the app's own `local.ts` schemas;
               api/mock/ is the whole in-memory server (router, state, fixtures, DPoP verification)
   key/        the DeviceKey port — SoftwareDeviceKey (P-256, @noble/curves, SecureStore-backed;
               backs the device key in mock mode and every Jest run) and HardwareDeviceKey

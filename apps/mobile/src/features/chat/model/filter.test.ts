@@ -32,6 +32,13 @@ describe('belongsTo', () => {
     expect(belongsTo(null)(hello)).toBe(false);
   });
 
+  it('treats run_finished like any tagged event', () => {
+    const finished = (conversationId: string): ChatEvent => ({ type: 'run_finished', user_id: 'u1', conversation_id: conversationId, message_id: null, ok: true, error_code: null });
+    expect(belongsTo('c1')(finished('c1'))).toBe(true);
+    expect(belongsTo('c1')(finished('c2'))).toBe(false);
+    expect(belongsTo(null)(finished('c1'))).toBe(false);
+  });
+
   it('returns a reusable predicate, usable directly with Array#filter', () => {
     const mine = belongsTo('c1');
     const events = [messageEvent('c1'), messageEvent('c2'), messageEvent('c1')];

@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import { formatVerificationCode } from '@/services/api/contract/enrolment';
+import { formatVerificationCode } from '@/services/api/contract';
 import { AppText, Button, Countdown, Screen } from '@/ui';
 import { useSessionStore } from '../viewmodel/useSessionStore';
 

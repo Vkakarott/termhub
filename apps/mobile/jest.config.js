@@ -5,18 +5,19 @@ const moduleNameMapper = {
   // babel-preset-expo rewrites `process.env.EXPO_PUBLIC_*` to `expo/virtual/env` (ESM); the plain
   // Node `logic` project cannot load that module, so it gets a stub.
   '^expo/virtual/env$': '<rootDir>/test/expo-env-stub.js',
-  // The contract copied from `packages/mobile-api` (TS project, `moduleResolution: bundler`) imports
-  // its siblings with an explicit `.js` extension, as ESM requires; Jest's resolver looks for a
-  // literal `.js` file, so it is stripped here to fall back to the `.ts` source.
+  // `@termhub/mobile-api`'s built ESM (and any TS source written for `moduleResolution: bundler`)
+  // imports its siblings with an explicit `.js` extension; stripping it lets Jest's resolver try
+  // every extension, so the `.js` file in `dist/` (or a `.ts` source) is still found.
   '^(\\.{1,2}/.*)\\.js$': '$1',
 };
 
 // The `ui` project renders NativeWind-styled components: nativewind and react-native-css-interop
 // ship untransformed ESM, so jest-expo's own ignore list is extended to transform them too.
-// @noble is added the same way, for a screen that imports a store that signs DPoP proofs.
+// @noble is added the same way, for a screen that imports a store that signs DPoP proofs, and
+// @termhub for the contract package (`@termhub/mobile-api` ships ESM in `dist/`).
 const [expoIgnore, ...restIgnore] = expoPreset.transformIgnorePatterns;
 const uiTransformIgnore = [
-  expoIgnore.replace('))', '|nativewind|react-native-css-interop|react-native-markdown-display|@noble))'),
+  expoIgnore.replace('))', '|nativewind|react-native-css-interop|react-native-markdown-display|@noble|@termhub))'),
   ...restIgnore,
 ];
 
@@ -42,8 +43,9 @@ module.exports = {
       testEnvironment: 'node',
       testMatch: ['<rootDir>/src/**/*.test.ts'],
       transform: { '\\.[jt]sx?$': 'babel-jest' },
-      // @noble/hashes ships ESM-only (`"type": "module"`); transform it too so plain `require` doesn't choke on `import`.
-      transformIgnorePatterns: ['/node_modules/(?!(@noble)/)'],
+      // @noble/hashes and @termhub/mobile-api ship ESM-only (`"type": "module"`); transform them too so
+      // plain `require` doesn't choke on `import`.
+      transformIgnorePatterns: ['/node_modules/(?!(@noble|@termhub)/)'],
       moduleNameMapper,
       setupFiles: ['<rootDir>/test/logic-setup.js'],
     },

@@ -5,6 +5,13 @@
 // the server serialises for both clients.
 import { z } from 'zod';
 import {
+  challengeBody,
+  challengeResponse,
+  chatActionClass,
+  chatEventSchema,
+  chatMessage,
+  chatProjectItem,
+  chatProjectsResponse,
   deviceActivateBody,
   deviceActivateResponse,
   deviceInfo,
@@ -12,13 +19,18 @@ import {
   deviceRequestResponse,
   devicePollResponse,
   deviceSelf,
+  hostOptionsResponse,
+  mobileDecisionBody,
+  mobileMessageBody,
+  notificationRow,
+  notificationsResponse,
   p256Jwk,
+  pushTokenBody,
+  sendAccepted,
+  tokenBody,
+  tokenResponse,
   verificationCodeSchema,
-} from './enrolment';
-import { challengeBody, challengeResponse, pushTokenBody, tokenBody, tokenResponse } from './session';
-import { chatProjectItem, chatProjectsResponse, hostOptionsResponse, mobileDecisionBody, mobileMessageBody, sendAccepted } from './chat';
-import { chatActionClass, chatEventSchema, chatMessage } from './events';
-import { notificationRow, notificationsResponse } from './notifications';
+} from '@termhub/mobile-api';
 
 /** Mirrors `ChatMessage` (web types.ts ~626): the same schema as events' `chatMessage`, re-exported
  * under the app's `*Schema` naming so every schema in this file follows one convention. */
@@ -111,8 +123,8 @@ export const errorBody = z.object({
 /** Routes that answer `{}` / `204` (`revokeSelf`, `setPushToken`, `decide`, `markRead`). */
 export const emptyResponse = z.object({}).passthrough();
 
-// `z.infer` companions for every schema of the contract, prefixed `T` — including the modules
-// copied from `packages/mobile-api`, since those files are not touched beyond their header comment.
+// `z.infer` companions for every schema of the contract, prefixed `T` — including the ones of
+// `@termhub/mobile-api`, which exports its schemas but not these app-side type names.
 export type TVerificationCode = z.infer<typeof verificationCodeSchema>;
 export type TP256Jwk = z.infer<typeof p256Jwk>;
 export type TDeviceInfo = z.infer<typeof deviceInfo>;
