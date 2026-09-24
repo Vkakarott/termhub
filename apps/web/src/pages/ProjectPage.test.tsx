@@ -54,7 +54,6 @@ function machine(id: string, name: string): Machine {
     owner_id: 'u1',
     owner_name: 'pedro',
     created_at: '2026-01-01T00:00:00Z',
-    public_id: 'mpub1',
   };
 }
 
