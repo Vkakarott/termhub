@@ -9,23 +9,27 @@ import type { createUpgradeRouter } from '../ws/router.js';
 import { actionForMethod, type Resource } from '../auth/permissions.js';
 import { mobileChatRoutes, mobileMeRoutes } from '../routes/m-chat.js';
 import { mobileDeviceRoutes, mobilePushTokenRoutes } from '../routes/m-devices.js';
+import { mobileNotificationRoutes } from '../routes/m-notifications.js';
 import { mobileSessionRoutes } from '../routes/m-session.js';
 import { mobileTranscriptionRoutes } from '../routes/m-transcriptions.js';
 import { buildMobileAuthHook, type MobileAuthMode } from './auth.js';
 import { JtiCache } from './dpop.js';
 import { EnrolmentService } from './enrolment.js';
+import { ExpoPushSender, MobilePushService } from './push.js';
 import { MobileSocketRegistry, revokeDevice } from './revocation.js';
 import { SessionService } from './session.js';
 import { registerMobileChatWs } from './ws.js';
 
 export const MOBILE_PREFIX = '/api/m/v1';
 
-/** Long-lived state of the mobile API, created once per server (later tasks add push). */
+/** Long-lived state of the mobile API, created once per server. */
 export interface MobileServices {
   jtis: JtiCache;
   enrolment: EnrolmentService;
   sockets: MobileSocketRegistry;
   session: SessionService;
+  /** Push notifications and their history; `registerMobileApi` starts it and stops it on close. */
+  push: MobilePushService;
 }
 
 export interface MobileDeps {
@@ -48,11 +52,13 @@ export type GuardedMobile = (resource: Resource, plugin: (a: FastifyInstance) =>
 export function createMobileServices(deps: MobileDeps): MobileServices {
   const sockets = new MobileSocketRegistry();
   const { repos, mailer, log } = deps;
+  const push = new MobilePushService({ repos, sender: new ExpoPushSender(config.mobile?.expoPushToken ?? null), sockets, log });
   return {
     jtis: new JtiCache(),
-    // `hooks` stays undefined until Task 16 wires push notifications into enrolment.
-    enrolment: new EnrolmentService({ repos, mailer, log, appUrl: config.publicUrl }),
+    // A real device request also pushes to the owner's phones (the decoy path never calls the hook).
+    enrolment: new EnrolmentService({ repos, mailer, log, appUrl: config.publicUrl, hooks: { onRequestCreated: (u, r) => push.deviceRequest(u, r) } }),
     sockets,
+    push,
     // Six wrong PIN proofs revoke the device through the same path as every other revoke.
     session: new SessionService({ repos, revoke: (id, input) => revokeDevice({ repos, sockets, mailer, log }, id, input) }),
   };
@@ -74,7 +80,10 @@ export async function registerMobileApi(
   const publicUrl = mobile.publicUrl;
   // The phone's chat stream, /ws/m/chat: authenticated like this prefix (device token + proof).
   const chatWs = registerMobileChatWs(deps.upgrades, { repos: deps.repos, jtis: services.jtis, publicUrl, sockets: services.sockets, log: deps.log });
+  // Pending actions and finished answers become push notifications while the server runs.
+  const stopPush = services.push.start();
   fastify.addHook('onClose', async () => {
+    stopPush();
     chatWs.close();
   });
   await fastify.register(
@@ -116,6 +125,8 @@ export async function registerMobileApi(
         // The chat, over the same ChatService as the web; `GET /me` reads under `chat` too (spec §6).
         await guarded('chat', (a) => mobileChatRoutes(a, deps.repos, { chat: deps.chat, agents: deps.agents, session: services.session }), '/chat');
         await guarded('chat', (a) => mobileMeRoutes(a, deps.repos), '');
+        // The Notificações tab: the caller's own push history.
+        await guarded('chat', (a) => mobileNotificationRoutes(a, deps.repos), '/notifications');
         // Voice dictation, over the same TranscriptionService as the web (`routes/transcriptions.ts`).
         await guarded('terminals', (a) => mobileTranscriptionRoutes(a, { transcriptions: deps.transcriptions }), '/transcriptions');
       }
