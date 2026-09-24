@@ -17,9 +17,9 @@
 - Branch: `feat/ios-simulator-agent` (created from `origin/main`; the spec is already committed there). Commit after every task; commit messages in English, imperative subject ≤ 72 chars, and end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - The host (jarvis) has no Node. Every `npm` command in this plan is written as `TH_NODE <command>`, which means:
   ```bash
-  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/w" -w /w node:20 sh -c '<command>'; rm -rf .npm
+  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e DATABASE_URL=postgresql://unused:unused@127.0.0.1:5432/unused -v "$PWD:/w" -w /w node:20 sh -c '<command>'; rm -rf .npm
   ```
-  Run it from the repo root. Example: `TH_NODE npm test -w @termhub/agent-protocol` ⇒ `docker run … sh -c 'npm test -w @termhub/agent-protocol'; rm -rf .npm`.
+  Run it from the repo root. `DATABASE_URL` is required by the server's config loader (without it every server test file dies with `process.exit(1)`); the repository tests that need a real Postgres are skipped unless `TERMHUB_DB_TESTS=1`, which CI sets and this host does not. Example: `TH_NODE npm test -w @termhub/agent-protocol` ⇒ `docker run … sh -c 'npm test -w @termhub/agent-protocol'; rm -rf .npm`.
 - `apps/server` and `apps/agent` consume the workspace packages through their `dist/` (package `main`). **After any change under `packages/`, run `TH_NODE npm run build:packages` before testing or typechecking the server or the agent**, or the old build is what gets tested.
 - Never touch production containers (see CLAUDE.md). No `docker compose` here; only the throwaway `node:20` run above.
 - The agent never receives shell text from the server: every machine operation is a named RPC with a constant script from `@termhub/machine-ops`; values reach a script only as shell variables assigned with `shellQuote` (server) or as `env` (agent).
