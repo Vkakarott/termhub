@@ -30,6 +30,8 @@ module.exports = {
       testEnvironment: 'node',
       testMatch: ['<rootDir>/src/**/*.test.ts'],
       transform: { '\\.[jt]sx?$': 'babel-jest' },
+      // @noble/hashes ships ESM-only (`"type": "module"`); transform it too so plain `require` doesn't choke on `import`.
+      transformIgnorePatterns: ['/node_modules/(?!(@noble)/)'],
       moduleNameMapper,
       setupFiles: ['<rootDir>/test/logic-setup.js'],
     },
