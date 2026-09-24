@@ -61,7 +61,7 @@ const row = (overrides: Partial<Row> = {}): Row => ({
   ...overrides,
 });
 
-function build(opts: { users?: User[]; pending?: number; active?: number; rows?: Row[]; markActivated?: boolean; mailFails?: boolean } = {}) {
+function build(opts: { users?: User[]; pending?: number; active?: number; rows?: Row[]; markActivated?: boolean; mailFails?: boolean; hookFails?: boolean; eventFails?: boolean } = {}) {
   const users = opts.users ?? [];
   const rows = new Map<string, Row>((opts.rows ?? []).map((r) => [r.id, r]));
   let n = 0;
@@ -113,7 +113,11 @@ function build(opts: { users?: User[]; pending?: number; active?: number; rows?:
       countActive: vi.fn(async () => opts.active ?? 0),
     },
     deviceSessions: { createToken: vi.fn(async () => undefined) },
-    deviceEvents: { record: vi.fn(async () => undefined) },
+    deviceEvents: {
+      record: vi.fn(async () => {
+        if (opts.eventFails) throw Object.assign(new Error('db down'), { code: 'P1001' });
+      }),
+    },
   };
   const mails: Mail[] = [];
   const mailer: Mailer = {
@@ -123,9 +127,14 @@ function build(opts: { users?: User[]; pending?: number; active?: number; rows?:
     }),
   };
   const log = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as FastifyBaseLogger;
-  const service = new EnrolmentService({ repos: repos as unknown as Repositories, mailer, appUrl: 'https://app.termhub.dev', log, now: () => new Date() });
-  return { service, repos, mails, mailer, log, rows };
+  const onRequestCreated = vi.fn(async () => {
+    if (opts.hookFails) throw new Error('push down');
+  });
+  const service = new EnrolmentService({ repos: repos as unknown as Repositories, mailer, appUrl: 'https://app.termhub.dev', log, hooks: { onRequestCreated }, now: () => new Date() });
+  return { service, repos, mails, mailer, log, rows, onRequestCreated };
 }
+
+const flush = () => new Promise((r) => setImmediate(r));
 
 const reject = async (p: Promise<unknown>) => {
   try {
@@ -157,6 +166,7 @@ describe('EnrolmentService.request — neutral response', () => {
     for (const email of cases) {
       const b = build({ users: [allowed, noGrant] });
       const res = await b.service.request(body(email), ctx);
+      await flush();
       results.push({ res, b, email });
     }
     const keys = results.map(({ res }) => Object.keys(res).sort().join(','));
@@ -186,6 +196,36 @@ describe('EnrolmentService.request — neutral response', () => {
     expect(ungranted.b.repos.deviceEvents.record).not.toHaveBeenCalled();
   });
 
+  it('answers the same first poll for a known, an unknown and an ungranted e-mail', async () => {
+    const statuses = [];
+    for (const email of ['pedro@x.com', 'ninguem@x.com', 'maria@x.com']) {
+      const b = build({ users: [allowed, noGrant] });
+      const res = await b.service.request(body(email), ctx);
+      statuses.push((await b.service.poll(res.request_id, res.request_secret)).status);
+    }
+    expect(statuses).toEqual(['pending', 'pending', 'pending']);
+  });
+
+  it('calls the request hook for the real account only, in the background', async () => {
+    for (const [email, calls] of [['pedro@x.com', 1], ['ninguem@x.com', 0], ['maria@x.com', 0]] as const) {
+      const b = build({ users: [allowed, noGrant] });
+      const res = await b.service.request(body(email), ctx);
+      await flush();
+      expect(b.onRequestCreated).toHaveBeenCalledTimes(calls);
+      if (calls) expect(b.onRequestCreated).toHaveBeenCalledWith(allowed, expect.objectContaining({ id: res.request_id }));
+    }
+  });
+
+  it('answers normally when the hook, the events and the mail all fail, logging ids only', async () => {
+    const b = build({ users: [allowed], hookFails: true, eventFails: true, mailFails: true });
+    const res = await b.service.request(body('pedro@x.com'), ctx);
+    expect(Object.keys(res).sort()).toEqual(['expires_at', 'poll_after', 'request_id', 'request_secret', 'verification_code']);
+    await flush();
+    expect(b.log.warn).toHaveBeenCalledTimes(3);
+    for (const [obj] of vi.mocked(b.log.warn).mock.calls) expect(obj).toEqual({ err: expect.any(String), requestId: res.request_id });
+    expect(JSON.stringify(vi.mocked(b.log.warn).mock.calls)).not.toContain('pedro@x.com');
+  });
+
   it('normalises the e-mail before the lookup and the limiter', async () => {
     const b = build({ users: [allowed] });
     await b.service.request(body('  Pedro@X.com '), ctx);
@@ -201,6 +241,7 @@ describe('EnrolmentService.request — neutral response', () => {
     const b = build({ users: [allowed], mailFails: true });
     const res = await b.service.request(body('pedro@x.com'), ctx);
     expect(res.request_id).toBeTruthy();
+    await flush();
     expect(b.log.warn).toHaveBeenCalled();
     expect(JSON.stringify(vi.mocked(b.log.warn).mock.calls)).not.toContain('pedro@x.com');
   });
@@ -232,6 +273,7 @@ describe('EnrolmentService.request — limits', () => {
   it('turns the 4th pending request of an account into a decoy with no mail', async () => {
     const b = build({ users: [allowed], pending: 3 });
     await b.service.request(body('pedro@x.com'), ctx);
+    await flush();
     expect((b.repos.deviceRequests.create.mock.calls[0][0] as { user_id: string | null }).user_id).toBeNull();
     expect(b.mails).toHaveLength(0);
     expect(b.repos.deviceEvents.record).not.toHaveBeenCalled();
@@ -243,6 +285,7 @@ describe('EnrolmentService.request — limits', () => {
       if (i === 3) vi.setSystemTime(new Date(T0.getTime() + 11 * MIN)); // past the per-e-mail window
       await b.service.request(body('pedro@x.com'), { ...ctx, ip: `10.0.0.${i}` });
     }
+    await flush();
     expect(b.repos.deviceRequests.create).toHaveBeenCalledTimes(6);
     for (const [arg] of b.repos.deviceRequests.create.mock.calls) expect((arg as { user_id: string }).user_id).toBe('u1');
     expect(b.mails).toHaveLength(5);
@@ -254,6 +297,7 @@ describe('EnrolmentService.request — review account', () => {
     const reviewer = mkUser('u1', 'review@x.com', { review_enabled_until: new Date(T0.getTime() + 60 * MIN).toISOString() });
     const b = build({ users: [reviewer] });
     const res = await b.service.request(body('review@x.com'), ctx);
+    await flush();
     const arg = b.repos.deviceRequests.create.mock.calls[0][0] as Record<string, unknown>;
     expect(arg.status).toBe('approved');
     expect(arg.activate_until).toEqual(new Date(T0.getTime() + 10 * MIN));
@@ -304,7 +348,8 @@ describe('EnrolmentService.poll', () => {
     ['denied', row({ status: 'denied' }), 'closed'],
     ['expired', row({ status: 'expired' }), 'closed'],
     ['activated', row({ status: 'activated' }), 'closed'],
-    ['decoy', row({ user_id: null }), 'closed'],
+    ['decoy before expiry', row({ user_id: null }), 'pending'],
+    ['decoy past expiry', row({ user_id: null, expires_at: past }), 'closed'],
   ] as const)('%s → %s', async (_label, r, expected) => {
     const b = build({ rows: [r as Row] });
     expect(await b.service.poll('r1', secret)).toEqual({ status: expected });

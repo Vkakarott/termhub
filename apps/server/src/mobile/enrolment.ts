@@ -117,9 +117,14 @@ export class EnrolmentService {
     });
 
     if (real) {
+      // Everything the real branch does beyond the row runs in the background: the response is
+      // built at the same point, with the same latency, in every branch — and a failing mail,
+      // event write or hook never turns into an error only real accounts can see.
       const owner = user!;
-      await repos.deviceEvents.record({ user_id: owner.id, request_id: row.id, kind: 'request_created', actor: 'user', ...ctx, meta: { model: row.model, platform: row.platform } });
-      if (review) await repos.deviceEvents.record({ user_id: owner.id, request_id: row.id, kind: 'review_auto_approved', actor: 'system', ...ctx });
+      const background = (p: Promise<unknown>, what: string) =>
+        void p.catch((err) => this.deps.log.warn({ err: failureLabel(err), requestId: row.id }, what));
+      background(repos.deviceEvents.record({ user_id: owner.id, request_id: row.id, kind: 'request_created', actor: 'user', ...ctx, meta: { model: row.model, platform: row.platform } }), 'device request event failed');
+      if (review) background(repos.deviceEvents.record({ user_id: owner.id, request_id: row.id, kind: 'review_auto_approved', actor: 'system', ...ctx }), 'review auto-approval event failed');
       if (this.mailPerUser.take(owner.id)) {
         const mail = deviceRequestMail(owner.email, {
           deviceLabel: `${row.model} (${row.platform === 'ios' ? 'iOS' : 'Android'} ${row.os_version})`,
@@ -128,21 +133,25 @@ export class EnrolmentService {
           ip: row.ip,
           appUrl: this.deps.appUrl,
         });
-        await this.deps.mailer.send(mail).catch((err) => this.deps.log.warn({ err: failureLabel(err), requestId: row.id }, 'device request mail failed'));
+        background(Promise.resolve().then(() => this.deps.mailer.send(mail)), 'device request mail failed');
       }
-      await this.deps.hooks?.onRequestCreated?.(owner, row);
+      const hook = this.deps.hooks?.onRequestCreated;
+      if (hook) background(Promise.resolve().then(() => hook(owner, row)), 'device request hook failed');
     }
 
     return { request_id: row.id, request_secret: secret, verification_code: code, expires_at: row.expires_at, poll_after: POLL_AFTER_MS };
   }
 
-  /** Denied, expired, activated, decoy, unknown and wrong-secret all look the same: `closed`. */
+  /**
+   * Unknown ids and wrong secrets are `closed`. A decoy answers exactly like a real request nobody
+   * approved — `pending` until `expires_at`, then `closed` — so polling reveals nothing either;
+   * it can never become `approved`, since `decide` never matches a null `user_id`.
+   */
   async poll(id: string, secret: string): Promise<{ status: 'pending' | 'approved' | 'closed' }> {
     const now = this.now();
     const found = await this.deps.repos.deviceRequests.findByIdWithSecretHash(id);
     if (!found || !safeEqual(hashToken(secret), found.request_secret_hash)) return { status: 'closed' };
     const r = found.request;
-    if (r.user_id === null) return { status: 'closed' };
     switch (r.status) {
       case 'pending':
         return { status: new Date(r.expires_at) > now ? 'pending' : 'closed' };
