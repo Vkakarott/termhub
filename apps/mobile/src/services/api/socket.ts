@@ -62,20 +62,43 @@ export function createChatSocket(o: CreateChatSocketOptions): { close(): void } 
     let headers: Record<string, string>;
     try {
       headers = await o.headers();
-    } finally {
+    } catch {
+      // Never surfaced as an unhandled rejection and never logged (it may carry key material):
+      // treated exactly like a dropped connection, retried with the same backoff.
       connecting = false;
+      if (!stopped) scheduleReconnect();
+      return;
     }
+    connecting = false;
     // `close()` may have run while `headers()` was in flight.
     if (stopped) return;
 
     let helloSeen = false;
+    // Own to this one connection attempt, independent of `stopped`/`socket`: a real WebSocket's
+    // `.close()` always fires that same socket's `onclose` again, later — including when *this*
+    // module is the one calling `.close()` (the hello-violation branch below). Without this guard
+    // that stale callback would land in the very same closure and re-report a close to the
+    // consumer, run `scheduleReconnect()` a second time, or null out a newer connection that has
+    // since replaced this one in `socket`.
+    let abandoned = false;
+
+    const abandonAndCloseTransport = () => {
+      if (abandoned) return;
+      abandoned = true;
+      const dead = socket;
+      socket = null;
+      dead?.close();
+    };
+
     socket = o.transport.connect(o.url, headers, {
       onOpen: () => {
+        if (abandoned || stopped) return;
         // A successful open resets the backoff, whether or not `hello` follows.
         attempt = 0;
         o.onReconnect();
       },
       onMessage: (text) => {
+        if (abandoned || stopped) return;
         let json: unknown;
         try {
           json = JSON.parse(text);
@@ -93,9 +116,7 @@ export function createChatSocket(o: CreateChatSocketOptions): { close(): void } 
           // P§6.1: the server always sends `hello` first. Anything else there is a broken
           // connection — closed and retried like any other drop, never surfaced as a close code
           // since the server never actually asked to close.
-          const dead = socket;
-          socket = null;
-          dead?.close();
+          abandonAndCloseTransport();
           scheduleReconnect();
           return;
         }
@@ -106,6 +127,8 @@ export function createChatSocket(o: CreateChatSocketOptions): { close(): void } 
         o.onEvent(result.data);
       },
       onClose: (code) => {
+        if (abandoned) return;
+        abandoned = true;
         socket = null;
         if (stopped) return;
         if (code === 4400 || code === 4401) {

@@ -4,7 +4,11 @@ import type { Transport, TransportSocketHandlers } from './transport';
 type Connection = { url: string; headers: Record<string, string>; handlers: TransportSocketHandlers; close: jest.Mock };
 
 /** Captures every `connect()` call instead of simulating a real socket: tests drive `onOpen`,
- * `onMessage` and `onClose` by hand, exactly as the design brief's fake transport does. */
+ * `onMessage` and `onClose` by hand, exactly as the design brief's fake transport does.
+ *
+ * `close()` mirrors a real `WebSocket`: it always fires that same connection's own `onclose`
+ * again, later and asynchronously — even when the app itself initiated the close — so tests can
+ * verify `socket.ts` ignores that stale echo instead of acting on it a second time. */
 function fakeTransport() {
   const connections: Connection[] = [];
   const transport: Transport = {
@@ -12,7 +16,9 @@ function fakeTransport() {
       throw new Error('socket tests never call fetch');
     },
     connect: (url, headers, handlers) => {
-      const close = jest.fn();
+      const close = jest.fn(() => {
+        setTimeout(() => handlers.onClose(1005), 0);
+      });
       connections.push({ url, headers, handlers, close });
       return { close };
     },
@@ -260,4 +266,70 @@ it('close() closes the live socket and unsubscribes from foreground', async () =
   emitForeground(); // the harness' listener ref was cleared by unsubscribe
   await flush();
   expect(connections).toHaveLength(1);
+});
+
+it('a stale close from a connection it abandoned itself never reaches the consumer, never double-reconnects, and never clobbers the connection that replaced it', async () => {
+  const { connections, onClose, socket, emitForeground } = harness();
+  await flush();
+  connections[0]!.handlers.onOpen();
+  // not hello: socket.ts abandons this connection itself (calls its `close()`, which — per
+  // `fakeTransport` above — schedules a stale `onClose(1005)` on the very same handlers).
+  connections[0]!.handlers.onMessage(messageEvent('m1'));
+  expect(connections[0]!.close).toHaveBeenCalledTimes(1);
+
+  // advancing past both the stale onClose(1005) (scheduled at 0ms) and the reconnect (at `min`)
+  await jest.advanceTimersByTimeAsync(1000);
+
+  expect(onClose).not.toHaveBeenCalled(); // the stale close never reaches the consumer
+  expect(connections).toHaveLength(2); // exactly one reconnect, not two
+
+  // the new connection is now live; the stale close from the abandoned one must not have nulled
+  // it out — a foreground signal must find a live socket and stay a no-op (no third connection).
+  connections[1]!.handlers.onOpen();
+  emitForeground();
+  await flush();
+  expect(connections).toHaveLength(2);
+
+  socket.close();
+});
+
+it('a headers() rejection schedules a reconnect instead of leaking an unhandled rejection', async () => {
+  const { transport, connections } = fakeTransport();
+  const onEvent = jest.fn();
+  const onReconnect = jest.fn();
+  const onClose = jest.fn();
+  const onServerTime = jest.fn();
+  let attempts = 0;
+  const headers = jest.fn(async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('key unavailable');
+    return { Authorization: 'Bearer tok', DPoP: 'proof' };
+  });
+
+  const rejections: unknown[] = [];
+  const onUnhandledRejection = (reason: unknown) => rejections.push(reason);
+  process.on('unhandledRejection', onUnhandledRejection);
+
+  const socket = createChatSocket({
+    transport,
+    url: 'wss://termhub.dev/ws/m/chat?v=1',
+    headers,
+    onEvent,
+    onReconnect,
+    onClose,
+    onServerTime,
+    backoff: { min: 1000, max: 30000 },
+  });
+
+  await flush();
+  expect(connections).toHaveLength(0); // the first attempt's headers() rejected before connect()
+
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(connections).toHaveLength(1); // the retried attempt connects
+
+  await flush();
+  process.off('unhandledRejection', onUnhandledRejection);
+  expect(rejections).toEqual([]);
+
+  socket.close();
 });
