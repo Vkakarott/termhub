@@ -11,7 +11,7 @@ import { ApiError } from '@/services/api/errors';
 import type { Auth, MobileApi } from '@/services/api/types';
 import { mmkvStateStorage } from '@/services/storage';
 import { NOTIF_MSG } from '../model/messages';
-import { syntheticConfirmationRow } from '../model/synthetic-row';
+import { isLocalRowId, syntheticConfirmationRow } from '../model/synthetic-row';
 
 /** What this store needs from the session store: `auth()` for every call, `handleApiError` for
  * the session-ending answers (`DEVICE_REVOKED`, `DEVICE_LOCKED`) — the same contract the chat
@@ -104,10 +104,13 @@ export function createNotificationsStore(deps: NotificationsDeps) {
           async markRead(id) {
             const row = get().items.find((r) => r.id === id);
             if (!row || row.read_at !== null) return;
-            try {
-              await api.markRead(session().auth(), id);
-            } catch (e) {
-              return fail(generation, e);
+            // A synthetic `local:` row exists only here: the server has no such id to mark.
+            if (!isLocalRowId(id)) {
+              try {
+                await api.markRead(session().auth(), id);
+              } catch (e) {
+                return fail(generation, e);
+              }
             }
             set((s) => ({
               items: s.items.map((r) => (r.id === id ? { ...r, read_at: new Date(now()).toISOString() } : r)),

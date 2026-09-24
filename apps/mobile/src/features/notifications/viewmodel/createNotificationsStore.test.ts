@@ -113,6 +113,19 @@ it('markRead marks the row read, calls the API and decrements unread, never belo
   expect(store.getState().unread).toBe(0);
 });
 
+it('markRead on a synthetic local: row only marks it read here, with no API call', async () => {
+  const { store, events, api } = await setup();
+  await store.getState().load();
+  events.emit(confirmation('a-new', 'p-termhub'));
+  expect(store.getState().unread).toBe(2);
+  const markRead = jest.spyOn(api, 'markRead');
+
+  await store.getState().markRead(localRowId('a-new'));
+  expect(markRead).not.toHaveBeenCalled();
+  expect(store.getState().items.find((r) => r.id === localRowId('a-new'))!.read_at).not.toBeNull();
+  expect(store.getState()).toMatchObject({ unread: 1, error: null });
+});
+
 it('loadMore fetches the next page with next_before and appends it', async () => {
   const { store, api } = await setup();
   const first = { id: 'n1', kind: 'reply' as const, title: 't1', body: 'b1', data: {}, created_at: new Date().toISOString(), read_at: null };

@@ -9,6 +9,9 @@ type ConfirmationEvent = Extract<TChatEvent, { type: 'confirmation' }>;
  * for one `action_id` without keeping its own map. */
 export const localRowId = (actionId: string): string => `local:${actionId}`;
 
+/** Whether `id` is a placeholder's (`localRowId`) — the server has never heard of it. */
+export const isLocalRowId = (id: string): boolean => id.startsWith('local:');
+
 /**
  * Builds the placeholder row for a `confirmation` event: the fixed title of P§9's first trigger,
  * and a body naming the project when the caller already knows it (the chat store's `projects`

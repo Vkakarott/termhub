@@ -4,8 +4,9 @@ jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionSto
 jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: require('../../../../test/helpers/ui-stores').stores.chat }));
 
 let mockId = 'p-termhub';
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: jest.fn(() => true) };
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useRouter: () => mockRouter,
   useLocalSearchParams: () => ({ id: mockId }),
   Link: ({ children }: { children: unknown }) => children,
 }));
@@ -53,6 +54,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   mockId = 'p-termhub';
+  for (const fn of Object.values(mockRouter)) fn.mockClear();
+  mockRouter.canGoBack.mockReturnValue(true);
   // The screens are under test here, not the socket (the store's own tests cover it): no events.
   jest.spyOn(stores.api, 'events').mockReturnValue(() => undefined);
 });
@@ -166,5 +169,20 @@ describe('Conversa', () => {
     await render(<ConversationScreen />);
     expect(await screen.findByText('Conversa não encontrada.', undefined, LOAD)).toBeTruthy();
     expect(screen.getByText('Chat geral')).toBeTruthy();
+  });
+
+  it('"Voltar" goes back when there is a screen behind, and to the tabs when the conversation is the only one (a deep link followed after unlock)', async () => {
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+
+    mockRouter.canGoBack.mockReturnValue(true);
+    await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
+    expect(mockRouter.back).toHaveBeenCalledTimes(1);
+    expect(mockRouter.replace).not.toHaveBeenCalled();
+
+    mockRouter.canGoBack.mockReturnValue(false);
+    await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
+    expect(mockRouter.back).toHaveBeenCalledTimes(1);
+    expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)');
   });
 });

@@ -11,6 +11,9 @@ export function StartScreen() {
   const requestDevice = useSessionStore((s) => s.requestDevice);
   const busy = useSessionStore((s) => s.busy);
   const notice = useSessionStore((s) => s.notice);
+  // A failed request (network, key store, the server's refusal) — the local `error` below is the
+  // e-mail's own validation.
+  const storeError = useSessionStore((s) => s.error);
 
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +34,7 @@ export function StartScreen() {
         <AppText variant="title">termhub</AppText>
         <AppText variant="muted">Entre com o e-mail da sua conta para pedir acesso a este aparelho.</AppText>
         {notice ? <Banner tone="info" text={notice} /> : null}
+        {storeError ? <Banner tone="danger" text={storeError} /> : null}
         <Field
           label="E-mail"
           value={email}

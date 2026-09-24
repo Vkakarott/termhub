@@ -37,6 +37,8 @@ export function ConversationScreen() {
 
   const fold = useMemo(() => foldLive(live), [live]);
   const extra = useMemo(() => ({ fold, decidingId }), [fold, decidingId]);
+  // A deep link followed after unlock replaces `/unlock` with this screen: nothing behind it.
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
   const onDecide = useCallback((actionId: string, decision: ChatDecision) => void decide(actionId, decision), [decide]);
   const messages = slot?.messages;
   const actions = slot?.actions;
@@ -55,7 +57,7 @@ export function ConversationScreen() {
     <Screen padded={false}>
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View className="flex-row items-center gap-2 border-b border-app-border px-2 py-2">
-          <Button label="Voltar" variant="ghost" onPress={() => router.back()} />
+          <Button label="Voltar" variant="ghost" onPress={goBack} />
           <AppText variant="title" className="flex-1 text-xl" numberOfLines={1}>
             {title}
           </AppText>

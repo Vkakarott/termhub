@@ -37,17 +37,22 @@ export interface RedirectDecision {
   shouldClear: boolean;
 }
 
+const normalise = (path: string) => `/${path.split('/').filter(Boolean).join('/')}`;
+
 /**
  * `null`/`false` when the current route already matches `phase`. A set `pendingRoute` while
  * `unlocked` (a deep link caught while locked, P§9) always wins over the phase's own home — but
- * it is only *cleared* once `segments` shows it was actually reached: clearing in the same pass
- * that issues the `replace` would let a stale `segments` value (still the old route, one render
- * behind) fall through to `HOME.unlocked` and override the deep link with a second redirect.
+ * it is only *cleared* once the route shows it was actually reached: clearing in the same pass
+ * that issues the `replace` would let a stale route (still the old one, one render behind) fall
+ * through to `HOME.unlocked` and override the deep link with a second redirect.
+ *
+ * "Reached" compares the full `pathname` (`usePathname()`, e.g. `/chat/c1`), not `segments`:
+ * expo-router's segments hold the file names (`['chat', '[id]']`), so they cannot tell one
+ * conversation from another — `/chat/c2` must not count as arriving at `/chat/c1`.
  */
-export function redirectFor(phase: Phase, segments: string[], pendingRoute: string | null): RedirectDecision {
+export function redirectFor(phase: Phase, segments: string[], pendingRoute: string | null, pathname: string): RedirectDecision {
   if (phase === 'unlocked' && pendingRoute) {
-    const pendingFirstSegment = pendingRoute.split('/').filter(Boolean)[0] ?? null;
-    const arrived = segments[0] === pendingFirstSegment;
+    const arrived = normalise(pathname) === normalise(pendingRoute);
     return arrived ? { target: null, shouldClear: true } : { target: pendingRoute, shouldClear: false };
   }
   if (onPhaseHome(phase, segments)) return { target: null, shouldClear: false };
