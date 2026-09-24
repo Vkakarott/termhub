@@ -3,6 +3,7 @@ import { useData } from '../lib/data';
 import { PROJECT_STATUS_LABEL } from '../lib/types';
 import { TerminalsView } from '../components/TerminalsView';
 import { TasksBoard } from '../components/TasksBoard';
+import { BacklogView } from '../components/BacklogView';
 import { NotesEditor } from '../components/NotesEditor';
 import { TicketsView } from '../components/TicketsView';
 import { ProjectSettings } from '../components/ProjectSettings';
@@ -10,11 +11,12 @@ import { PublishControl } from '../components/PublishControl';
 import { FullScreenMessage } from '../components/Layout';
 import { PageHeader } from '../components/PageHeader';
 
-export type ProjectSection = 'terminals' | 'tasks' | 'tickets' | 'notes' | 'settings';
+export type ProjectSection = 'terminals' | 'tasks' | 'backlog' | 'tickets' | 'notes' | 'settings';
 
 const SECTIONS: { key: ProjectSection; label: string; path: string }[] = [
   { key: 'terminals', label: 'Terminais', path: '' },
-  { key: 'tasks', label: 'Tarefas', path: 'tasks' },
+  { key: 'tasks', label: 'Board', path: 'tasks' },
+  { key: 'backlog', label: 'Backlog', path: 'backlog' },
   { key: 'tickets', label: 'Tickets', path: 'tickets' },
   { key: 'notes', label: 'Notas', path: 'notes' },
   { key: 'settings', label: 'Setup', path: 'settings' },
@@ -75,6 +77,7 @@ export function ProjectPage({ card }: Props = {}) {
         {/* Terminais ficam montados mesmo em outras seções: trocar de aba não reconecta. */}
         <TerminalsView key={`terminals-${project.id}`} project={project} visible={current === 'terminals'} />
         {current === 'tasks' && <TasksBoard key={`tasks-${project.id}`} projectId={project.id} openTaskId={card?.taskId} />}
+        {current === 'backlog' && <BacklogView key={`backlog-${project.id}`} projectId={project.id} />}
         {current === 'tickets' && <TicketsView key={`tickets-${project.id}`} project={project} />}
         {current === 'notes' && <NotesEditor key={`notes-${project.id}`} projectId={project.id} />}
         {current === 'settings' && (

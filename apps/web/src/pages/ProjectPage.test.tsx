@@ -30,6 +30,7 @@ vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
 // control, which this test is about, render for real.
 vi.mock('../components/TerminalsView', () => ({ TerminalsView: () => null }));
 vi.mock('../components/TasksBoard', () => ({ TasksBoard: ({ openTaskId }: { openTaskId?: string }) => <div>board {openTaskId ?? ''}</div> }));
+vi.mock('../components/BacklogView', () => ({ BacklogView: () => null }));
 vi.mock('../components/TicketsView', () => ({ TicketsView: () => null }));
 vi.mock('../components/NotesEditor', () => ({ NotesEditor: () => null }));
 vi.mock('../components/ProjectSettings', () => ({ ProjectSettings: () => null }));
@@ -198,11 +199,12 @@ describe('ProjectPage header', () => {
     expect(within(tabs).getAllByRole('link').map((l) => l.getAttribute('href'))).toEqual([
       '/projects/p1',
       '/projects/p1/tasks',
+      '/projects/p1/backlog',
       '/projects/p1/tickets',
       '/projects/p1/notes',
       '/projects/p1/settings',
     ]);
-    expect(within(tabs).getByRole('link', { name: /Tarefas/ }).textContent).toBe('Tarefas3');
+    expect(within(tabs).getByRole('link', { name: /Board/ }).textContent).toBe('Board3');
     expect(within(tabs).getByRole('link', { name: 'Terminais' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('switch', { name: /publicar/i }).closest('header')).not.toBeNull();
   });
