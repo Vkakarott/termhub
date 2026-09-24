@@ -1,8 +1,8 @@
 import type { PrismaClient } from '../prisma.js';
 import type { Task as PrismaTask } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
-import { closeGap, defaultEpicId, endOf, ensureDefaultColumns, lockProject, openSlot, placementFor, placementOf, requireEpic, type Tx } from './task-board.js';
-import { checkSubtaskParent, checkTypeChange, MAX_SUBTASKS_PER_CALL, PARENT_TYPES, TaskRuleError } from './task-rules.js';
+import { closeGap, defaultEpicId, endOf, ensureDefaultColumns, firstColumnId, lockProject, openSlot, placementFor, placementOf, requireEpic, type Tx } from './task-board.js';
+import { checkSubtaskParent, checkTypeChange, MAX_SUBTASKS_PER_CALL, PARENT_TYPES, TaskRuleError, WORK_TYPES } from './task-rules.js';
 import { nestTasks } from './task-tree.js';
 import { mapTask, type OfficeProgress, type Task, type TaskStatus, type TaskType, type TaskWithSubtasks } from './types.js';
 
@@ -11,6 +11,9 @@ export { MAX_SUBTASKS_PER_CALL, TaskRuleError, type TaskRuleCode } from './task-
 /** Every query that maps a task loads its project's key, for `ref`. */
 const KEY = { project: { select: { key: true } } } as const;
 const toTask = (t: PrismaTask & { project: { key: string } }): Task => mapTask(t, t.project.key);
+
+/** The work the counters count: top-level stories, tasks, bugs and spikes (epics group, subtasks are checklist items). */
+const WORK = { parentId: null, type: { in: WORK_TYPES } };
 
 export interface TaskInput {
   title: string;
@@ -48,12 +51,51 @@ export type MoveTarget = { column_id: string } | { status: TaskStatus };
 export class TasksRepository {
   constructor(private db: PrismaClient) {}
 
-  /** Every card of the project, subtasks nested under their parent (epics included: the backlog needs them). */
+  /** Every card of the project, subtasks nested under their parent (epics included: the backlog needs them). Heals legacy rows first. */
   async listByProject(projectId: string): Promise<TaskWithSubtasks[]> {
+    await this.normalize(projectId);
     const project = await this.db.project.findUnique({ where: { id: projectId }, select: { key: true } });
     if (!project) return [];
     const rows = await this.db.task.findMany({ where: { projectId }, orderBy: [{ status: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }] });
     return nestTasks(rows.map((t) => mapTask(t, project.key)));
+  }
+
+  /**
+   * Heals what the previous release writes during a blue/green switch (spec §3): a project without
+   * columns gets the defaults; a row with a parent becomes a subtask; a top-level non-epic card with
+   * no epic joins the default epic (appended to its backlog when it is in the backlog); a non-backlog
+   * top-level card with no column is appended to the first column of its category. Four cheap counts
+   * decide; a healthy board is not written to.
+   */
+  async normalize(projectId: string): Promise<void> {
+    const legacySubtasks = { projectId, parentId: { not: null }, type: { not: 'subtask' as const } };
+    const orphans = { projectId, parentId: null, epicId: null, type: { notIn: ['epic' as const, 'subtask' as const] } };
+    const homeless = { projectId, parentId: null, columnId: null, status: { not: 'backlog' as const } };
+    const [columns, subs, noEpic, noColumn] = await Promise.all([
+      this.db.taskColumn.count({ where: { projectId } }),
+      this.db.task.count({ where: legacySubtasks }),
+      this.db.task.count({ where: orphans }),
+      this.db.task.count({ where: homeless }),
+    ]);
+    if (columns > 0 && subs + noEpic + noColumn === 0) return;
+    await this.db.$transaction(async (tx) => {
+      await lockProject(tx, projectId);
+      await ensureDefaultColumns(tx, projectId);
+      await tx.task.updateMany({ where: legacySubtasks, data: { type: 'subtask', epicId: null, columnId: null } });
+      const noEpicRows = await tx.task.findMany({ where: orphans, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+      if (noEpicRows.length > 0) {
+        const epicId = await defaultEpicId(tx, projectId);
+        let next = await endOf(tx, projectId, { status: 'backlog', columnId: null, epicId, type: 'task' });
+        for (const t of noEpicRows) await tx.task.update({ where: { id: t.id }, data: { epicId, ...(t.status === 'backlog' ? { position: next++ } : {}) } });
+      }
+      for (const category of ['todo', 'doing', 'done'] as const) {
+        const rows = await tx.task.findMany({ where: { ...homeless, status: category }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+        if (rows.length === 0) continue;
+        const columnId = await firstColumnId(tx, projectId, category);
+        let next = await endOf(tx, projectId, { status: category, columnId, epicId: null, type: 'task' });
+        for (const t of rows) await tx.task.update({ where: { id: t.id }, data: { columnId, position: next++ } });
+      }
+    });
   }
 
   async findById(id: string): Promise<Task | undefined> {
@@ -313,16 +355,16 @@ export class TasksRepository {
     return toTask(t);
   }
 
-  /** Contagem de tasks abertas (todo + doing) por projeto. */
+  /** Open work (todo + doing) per project: stories, tasks, bugs and spikes. */
   async openCountByProject(): Promise<Record<string, number>> {
-    const rows = await this.db.task.groupBy({ by: ['projectId'], where: { status: { in: ['todo', 'doing'] }, parentId: null }, _count: { _all: true } });
+    const rows = await this.db.task.groupBy({ by: ['projectId'], where: { status: { in: ['todo', 'doing'] }, ...WORK }, _count: { _all: true } });
     return Object.fromEntries(rows.map((r) => [r.projectId, r._count._all]));
   }
 
-  /** `owner`: only tasks of that user's projects (null = all). */
+  /** `owner`: only tasks of that user's projects (null = all). Work types only. */
   async listDoing(owner: string | null = null): Promise<Task[]> {
     const rows = await this.db.task.findMany({
-      where: { status: 'doing', parentId: null, ...(owner ? { project: { ownerId: owner } } : {}) },
+      where: { status: 'doing', ...WORK, ...(owner ? { project: { ownerId: owner } } : {}) },
       orderBy: [{ projectId: 'asc' }, { position: 'asc' }],
       include: KEY,
     });
@@ -339,11 +381,11 @@ export class TasksRepository {
     const [groups, bound] = await Promise.all([
       this.db.task.groupBy({
         by: ['projectId', 'status'],
-        where: { projectId: { in: projectIds }, parentId: null, status: { in: ['todo', 'doing', 'done'] } },
+        where: { projectId: { in: projectIds }, ...WORK, status: { in: ['todo', 'doing', 'done'] } },
         _count: { _all: true },
       }),
       this.db.task.findMany({
-        where: { projectId: { in: projectIds }, parentId: null, status: 'doing', tabId: { not: null } },
+        where: { projectId: { in: projectIds }, ...WORK, status: 'doing', tabId: { not: null } },
         orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
         select: { id: true, title: true, tabId: true, subtasks: { select: { status: true } } },
       }),

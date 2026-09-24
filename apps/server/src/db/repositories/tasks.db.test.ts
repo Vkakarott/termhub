@@ -453,4 +453,54 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
       expect(await repo.officeProgress([])).toEqual({ counts: {}, byTab: {} });
     });
   });
+
+  describe('normalize (rows written by the previous release)', () => {
+    it('heals a board the old container wrote: columns, the default epic, board columns and subtask types', async () => {
+      // shaped like the previous release's inserts: no type/epic/column, and a project without columns
+      const todo = await db.task.create({ data: { id: newId(), projectId, title: 'old todo', status: 'todo', position: 0 } });
+      const back = await db.task.create({ data: { id: newId(), projectId, title: 'old backlog', status: 'backlog', position: 0 } });
+      const sub = await db.task.create({ data: { id: newId(), projectId, parentId: todo.id, title: 'old sub', status: 'todo', position: 0 } });
+
+      const list = await repo.listByProject(projectId);
+
+      const [epic] = await epics();
+      expect(epic.title).toBe('Geral');
+      expect((await db.taskColumn.findMany({ where: { projectId }, orderBy: { position: 'asc' } })).map((c) => c.name)).toEqual(['A fazer', 'Fazendo', 'Feito']);
+      expect(await db.task.findUniqueOrThrow({ where: { id: todo.id } })).toMatchObject({ epicId: epic.id, columnId: (await column('todo')).id, status: 'todo' });
+      expect(await db.task.findUniqueOrThrow({ where: { id: back.id } })).toMatchObject({ epicId: epic.id, columnId: null, status: 'backlog' });
+      expect(await db.task.findUniqueOrThrow({ where: { id: sub.id } })).toMatchObject({ type: 'subtask', epicId: null, columnId: null });
+      expect(list.find((t) => t.id === todo.id)?.subtasks.map((s) => s.id)).toEqual([sub.id]);
+      expect(list.find((t) => t.id === todo.id)?.ref).toBe(`${key}-${todo.number}`);
+    });
+
+    it('appends a card that lost its column to the end of the first column of its category', async () => {
+      await repo.create(projectId, { title: 'a', status: 'doing' });
+      const qa = await addColumn('QA', 'doing', 3);
+      await repo.create(projectId, { title: 'b', column_id: qa.id });
+      await db.taskColumn.delete({ where: { id: qa.id } }); // a raw delete leaves b with column_id NULL (FK SET NULL)
+      await repo.listByProject(projectId);
+      expect(await inColumn((await column('doing')).id)).toEqual(['a', 'b']);
+    });
+
+    it('writes nothing when the board is healthy', async () => {
+      const t = await repo.create(projectId, { title: 't' });
+      const before = await db.task.findUniqueOrThrow({ where: { id: t.id } });
+      await repo.listByProject(projectId);
+      expect((await db.task.findUniqueOrThrow({ where: { id: t.id } })).updatedAt).toEqual(before.updatedAt);
+      expect(await db.taskColumn.count({ where: { projectId } })).toBe(3);
+    });
+  });
+
+  describe('counts', () => {
+    it('count only stories, tasks, bugs and spikes — never epics or subtasks', async () => {
+      const t = await repo.create(projectId, { title: 't', status: 'todo' });
+      await repo.create(projectId, { title: 'bug', type: 'bug', status: 'doing' });
+      await repo.create(projectId, { title: 'epic on the board', type: 'epic', status: 'doing' });
+      const [s] = await repo.createSubtasks(t.id, [{ title: 's' }]);
+      await repo.update(s.id, { status: 'doing' });
+      expect((await repo.openCountByProject())[projectId]).toBe(2);
+      expect(titles((await repo.listDoing()).filter((x) => x.project_id === projectId))).toEqual(['bug']);
+      expect((await repo.officeProgress([projectId])).counts[projectId]).toEqual({ todo: 1, doing: 1, done: 0 });
+    });
+  });
 });
