@@ -60,6 +60,13 @@ function isRunning(pid: number): boolean {
   }
 }
 
+describe('openTunnel agent', () => {
+  it('máquina de agente offline falha com a mensagem do agente, sem abrir ssh', async () => {
+    const machine = { ...sshMachine(), type: 'agent' as const, host: null, ssh_user: null };
+    await expect(openTunnel(machine, { wdaPort: 8101, mjpegPort: 9101 }, { sshBin: '/nonexistent/ssh' })).rejects.toThrow('Agente desconectado');
+  });
+});
+
 describe('openTunnel ssh (stub)', () => {
   let dir: string;
 

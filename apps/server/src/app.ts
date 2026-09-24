@@ -57,7 +57,7 @@ import { TranscriptionService } from './terminal/transcription.js';
 import { createUpgradeRouter } from './ws/router.js';
 import { registerSimulatorWs } from './simulator/ws.js';
 import { SimulatorSessionManager } from './simulator/session-manager.js';
-import { realBackend } from './simulator/backend.js';
+import { createRealBackend } from './simulator/backend.js';
 import { seed } from './seed.js';
 
 const SERVER_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'apps', 'server', 'package.json'), 'utf8')).version as string;
@@ -128,7 +128,11 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
 
   applyErrorHandler(fastify);
 
-  const simulators = new SimulatorSessionManager(realBackend, { log: (msg, meta) => fastify.log.info(meta ?? {}, msg) });
+  const simTunnelLog = fastify.log.child({ mod: 'sim-tunnel' });
+  const simulators = new SimulatorSessionManager(
+    createRealBackend((msg, meta) => simTunnelLog.info(meta ?? {}, msg)),
+    { log: (msg, meta) => fastify.log.info(meta ?? {}, msg) },
+  );
   const transcriptions = new TranscriptionService({ log: (meta, msg) => fastify.log.info(meta, msg) });
   if (config.transcription) fastify.log.info({ url: config.transcription.url, language: config.transcription.language }, 'voice transcription enabled');
 

@@ -19,7 +19,7 @@ vi.mock('./service/launchd.js', async (importOriginal) => {
 });
 
 import { ProtocolMismatchError, RevokedError } from './client.js';
-import { checkServerConnection, runAgent } from './run.js';
+import { capabilitiesFor, checkServerConnection, runAgent } from './run.js';
 
 const TOKEN = 'thb_ag_' + 'a'.repeat(43);
 
@@ -71,6 +71,14 @@ function startServer(reply: Reply): Promise<TestServer> {
     });
   });
 }
+
+describe('capabilitiesFor', () => {
+  it('claims sim on macOS only', () => {
+    expect(capabilitiesFor('macos')).toEqual(expect.arrayContaining(['claude', 'claude.system_prompt', 'sim']));
+    expect(capabilitiesFor('linux')).not.toContain('sim');
+    expect(capabilitiesFor('linux')).toEqual(expect.arrayContaining(['claude', 'claude.system_prompt']));
+  });
+});
 
 describe('checkServerConnection', () => {
   let srv: TestServer | undefined;

@@ -1,8 +1,8 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
-import { CLOSE, CONTROL_CHANNEL, PROTOCOL_VERSION, decodeFrame, encodeFrame, helloMessage } from '@termhub/agent-protocol';
+import { CLOSE, CONTROL_CHANNEL, HEADER_BYTES, MAX_FRAME, PROTOCOL_VERSION, decodeFrame, encodeFrame, helloMessage } from '@termhub/agent-protocol';
 import {
   connectOnce,
   nextBackoff,
@@ -48,11 +48,14 @@ function startServer(opts: {
   capture?: AuthCapture;
   onConnection?: (ws: WebSocket) => void;
   onVerify?: () => void;
+  /** Passed through to the underlying `WebSocketServer`; the slicing test needs frames up to MAX_FRAME accepted. */
+  maxPayload?: number;
 }): Promise<TestServer> {
   return new Promise((resolve) => {
     const server = http.createServer();
     const wss = new WebSocketServer({
       server,
+      maxPayload: opts.maxPayload,
       verifyClient: (info, done) => {
         opts.onVerify?.();
         if (opts.capture) opts.capture.value = info.req.headers.authorization;
@@ -203,6 +206,34 @@ describe('connectOnce', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(serverMessages).toEqual([{ type: 'rpc', id: 'r1', method: 'tmux.list', params: {} }]);
     expect(streamChunks).toEqual([{ ch: 3, data: Buffer.from('hello pty') }]);
+  });
+
+  it('sendStream slices a payload larger than MAX_FRAME into frames the server accepts', async () => {
+    const frames: number[] = [];
+    let closedWith = 0;
+    const srv = await startServer({
+      acceptAll: true,
+      maxPayload: MAX_FRAME,
+      onConnection: (ws) => {
+        ws.on('message', (data) => {
+          const f = decodeFrame(asBuffer(data));
+          if (f.ch === 7) frames.push(f.payload.length);
+        });
+        ws.on('close', (code) => (closedWith = code));
+      },
+    });
+    try {
+      const { socket, closed } = await connectOnce({ url: `http://127.0.0.1:${srv.port}`, token: TOKEN, hello: baseHello, onServerMessage: () => {}, onStream: () => {}, log: noopLog() });
+      const big = Buffer.alloc(MAX_FRAME * 2 + 1000, 7);
+      socket.sendStream(7, big);
+      await vi.waitFor(() => expect(frames.reduce((a, b) => a + b, 0)).toBe(big.length), { timeout: 5000 });
+      expect(Math.max(...frames)).toBeLessThanOrEqual(MAX_FRAME - HEADER_BYTES);
+      expect(frames.length).toBe(3);
+      expect(closedWith).toBe(0);
+      void closed;
+    } finally {
+      await srv.stop();
+    }
   });
 });
 

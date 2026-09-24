@@ -16,6 +16,7 @@ import {
   type RpcResult,
   type PtyOpenParams,
   type ServerMessage,
+  type TcpOpenParams,
 } from '@termhub/agent-protocol';
 
 export interface SocketLike extends EventEmitter {
@@ -193,6 +194,12 @@ export class AgentConnection extends EventEmitter {
    *  handshake as a terminal, and the prompt goes in as channel data once it is open. */
   openClaude(params: ClaudeOpenParams, handlers: ChannelHandlers): Promise<AgentChannel> {
     return this.openChannel(handlers, (ch) => ({ type: 'open', ch, kind: 'claude', params }));
+  }
+
+  /** A raw TCP pipe to a loopback WDA port on the machine (`apps/agent/src/tcp.ts`). Same handshake as
+   *  the other kinds; bytes flow both ways once it is open. */
+  openTcp(params: TcpOpenParams, handlers: ChannelHandlers): Promise<AgentChannel> {
+    return this.openChannel(handlers, (ch) => ({ type: 'open', ch, kind: 'tcp', params }));
   }
 
   /** The open handshake every channel kind shares — the reserved number, the local timeout and its

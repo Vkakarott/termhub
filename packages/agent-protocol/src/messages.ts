@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { rpcErrorSchema, rpcMethod, sessionName, machinePath } from './rpc.js';
+import { rpcErrorSchema, rpcMethod, sessionName, machinePath, wdaPort } from './rpc.js';
 
 export const PROTOCOL_VERSION = 1;
 export const CLOSE = { UNAUTHORIZED: 4401, CONFLICT: 4409, VIOLATION: 1008 } as const;
@@ -26,7 +26,8 @@ const rpcId = z.string().min(1).max(64);
 // with an instruction attached ("update claude on that machine"). Missing from this set, the agent
 // could only report it as `run_failed`, and the sentence that says what to do would sit one layer
 // above, unreachable, while the person retried for ever.
-export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed', 'missing_session', 'cli_rejected']);
+// `reset`: a tcp channel's local socket reset or errored after it had connected.
+export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed', 'missing_session', 'cli_rejected', 'reset']);
 
 /**
  * What an agent advertises in `hello.capabilities` beyond the baseline `pty` channel, written once for
@@ -40,6 +41,10 @@ export const CAPABILITY_CLAUDE = 'claude';
 /** The agent forwards `append_system_prompt` from a `claude` open into the CLI's argv. An agent without
  * it would silently drop the field, so the server requires it before running a project chat. */
 export const CAPABILITY_CLAUDE_SYSTEM_PROMPT = 'claude.system_prompt';
+
+/** The agent runs the iOS simulator operations (`sim.*` / `wda.*` RPCs) and opens `tcp` channels to the WDA
+ *  ports (spec 2026-09-24). Advertised on macOS only; the server requires it before any of those. */
+export const CAPABILITY_SIM = 'sim';
 
 export const helloMessage = z.object({
   type: z.literal('hello'),
@@ -94,8 +99,13 @@ export const claudeOpenParams = z.object({
   append_system_prompt: z.string().max(4000).nullable().optional(),
 });
 
+/** A raw TCP pipe to `127.0.0.1:<port>` on the machine. No host on purpose: loopback only, and only the
+ *  WDA port ranges — the agent re-checks before connecting. `strict` so a future `host` cannot sneak in. */
+export const tcpOpenParams = z.object({ port: wdaPort }).strict();
+
 const openPty = z.object({ type: z.literal('open'), ch: channel, kind: z.literal('pty'), params: ptyOpenParams });
 const openClaude = z.object({ type: z.literal('open'), ch: channel, kind: z.literal('claude'), params: claudeOpenParams });
+const openTcp = z.object({ type: z.literal('open'), ch: channel, kind: z.literal('tcp'), params: tcpOpenParams });
 
 // zod's discriminatedUnion on 'type' can't hold two 'open' members with different 'kind'
 // literals (see the rpc_result note above), so `open` is two full members tried in a plain
@@ -106,6 +116,7 @@ export const serverMessage = z.union([
   z.object({ type: z.literal('rpc'), id: rpcId, method: rpcMethod, params: z.unknown() }),
   openPty,
   openClaude,
+  openTcp,
   z.object({ type: z.literal('resize'), ch: channel, cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(200) }),
   z.object({ type: z.literal('close'), ch: channel }),
 ]);
@@ -115,3 +126,4 @@ export type AgentMessage = z.infer<typeof agentMessage>;
 export type ServerMessage = z.infer<typeof serverMessage>;
 export type PtyOpenParams = z.infer<typeof ptyOpenParams>;
 export type ClaudeOpenParams = z.infer<typeof claudeOpenParams>;
+export type TcpOpenParams = z.infer<typeof tcpOpenParams>;

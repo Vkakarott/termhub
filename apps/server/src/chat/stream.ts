@@ -21,7 +21,10 @@ export type ChatFrame =
  * takes the trouble to name is never dropped one layer above it; an unknown one still is, rather than
  * being guessed at.
  */
-const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old', 'host_busy'] as const;
+// `reset` (a tcp channel's local socket reset) is included only to keep this list covering the
+// protocol's whole `closedReason` set per PROTOCOL_REASONS_COVERED below — a chat run's pty/claude
+// channel never actually reports it.
+const REASONS = ['missing_session', 'cli_rejected', 'run_failed', 'cli_missing', 'killed', 'host_gone', 'agent_too_old', 'host_busy', 'reset'] as const;
 
 /** Written exactly once: the type and the runtime check below are both derived from `REASONS`, so a
  *  label added to the list cannot be accepted by one and dropped by the other — the silent drift this

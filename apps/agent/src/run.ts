@@ -1,12 +1,13 @@
 import os from 'node:os';
 import type { HelloMessage } from '@termhub/agent-protocol';
-import { CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT, CLOSE } from '@termhub/agent-protocol';
+import { CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT, CAPABILITY_SIM, CLOSE } from '@termhub/agent-protocol';
 import { connectOnce, runForever, RevokedError, ProtocolMismatchError, UpgradeRejectedError } from './client.js';
 import { heal } from './rpc/hooks.js';
 import type { AgentConfig } from './config.js';
 import { createClaudeManager } from './claude/run.js';
 import { createDispatcher } from './dispatch.js';
 import { createPtyManager } from './pty.js';
+import { createTcpManager } from './tcp.js';
 import { ensureSpawnHelperExecutable } from './pty-health.js';
 import { handlers } from './rpc/index.js';
 import { stopRestartLoop } from './service/launchd.js';
@@ -30,6 +31,12 @@ export type HelloFields = Omit<HelloMessage, 'type' | 'protocol'>;
  */
 export const CAPABILITIES = [CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT];
 
+/** What this agent understands beyond a terminal. The simulator (`sim`) needs Xcode's simctl and the WDA
+ *  runner, which only exist on macOS, so a Linux agent never claims it. */
+export function capabilitiesFor(osName: SupportedOs): string[] {
+  return osName === 'macos' ? [...CAPABILITIES, CAPABILITY_SIM] : [...CAPABILITIES];
+}
+
 /** Builds the `hello` fields, probing `tools.detect` for the tool list (empty on failure). */
 export async function buildHello(osName: SupportedOs): Promise<HelloFields> {
   let tools: string[] = [];
@@ -46,7 +53,7 @@ export async function buildHello(osName: SupportedOs): Promise<HelloFields> {
     hostname: os.hostname(),
     tmux: tools.includes('tmux'),
     tools,
-    capabilities: CAPABILITIES,
+    capabilities: capabilitiesFor(osName),
   };
 }
 
@@ -75,7 +82,7 @@ export async function checkServerConnection(
       {
         url: config.url,
         token: config.token,
-        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [], capabilities: CAPABILITIES, probe: true },
+        hello: { agent_version: AGENT_VERSION, os: osName, arch: process.arch, hostname: os.hostname(), tmux: false, tools: [], capabilities: capabilitiesFor(osName), probe: true },
         onServerMessage: () => {},
         onStream: () => {},
         log: () => {},
@@ -138,7 +145,8 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
   else if (!helper.executable) opts.log('spawn-helper is not executable and could not be fixed', { path: helper.path, error: helper.error });
   const pty = createPtyManager({ log: opts.log });
   const claude = createClaudeManager({ log: opts.log });
-  const dispatch = createDispatcher({ handlers, pty, claude, log: opts.log });
+  const tcp = createTcpManager({ log: opts.log });
+  const dispatch = createDispatcher({ handlers, pty, claude, tcp, log: opts.log });
 
   /**
    * Config dirs come and go on a machine (a new account, a new CLAUDE_CONFIG_DIR alias), and a dir
@@ -165,12 +173,13 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
         // A frame belongs to whichever manager holds that channel: the claude one says so, and
         // anything it does not own is a terminal's.
         onStream: (ch, data) => {
-          if (!claude.write(ch, data)) pty.write(ch, data);
+          if (!claude.write(ch, data) && !tcp.write(ch, data)) pty.write(ch, data);
         },
         onConnect: healHooks,
         onDisconnect: () => {
           pty.closeAll();
           claude.closeAll();
+          tcp.closeAll();
         },
         log: opts.log,
       },

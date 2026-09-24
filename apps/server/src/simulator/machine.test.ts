@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { UDID_RE as PROTOCOL_UDID_RE } from '@termhub/agent-protocol';
+import { UDID_RE as OPS_UDID_RE } from '@termhub/machine-ops';
 import { isBootFailure, parseSimctlList } from './machine.js';
 
 const sample = JSON.stringify({
@@ -40,5 +42,12 @@ describe('isBootFailure', () => {
 
   it('"Invalid device" é falha', () => {
     expect(isBootFailure('Invalid device: XYZ')).toBe(true);
+  });
+});
+
+describe('udid regex parity', () => {
+  it('agent-protocol and machine-ops validate udids the same way', () => {
+    expect(PROTOCOL_UDID_RE.source).toBe(OPS_UDID_RE.source);
+    expect(PROTOCOL_UDID_RE.flags).toBe(OPS_UDID_RE.flags);
   });
 });

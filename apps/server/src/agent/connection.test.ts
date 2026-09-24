@@ -296,3 +296,14 @@ describe('AgentConnection — the claude channel', () => {
     expect(onExit).toHaveBeenCalledWith(0);
   });
 });
+
+describe('AgentConnection — the tcp channel', () => {
+  it('openTcp sends open kind: tcp with the port and resolves on opened', async () => {
+    const { s, c } = connected();
+    const p = c.openTcp({ port: 8137 }, { onData: vi.fn(), onExit: vi.fn() });
+    const sent = s.control().at(-1);
+    expect(sent).toEqual({ type: 'open', ch: 1, kind: 'tcp', params: { port: 8137 } });
+    s.recvControl({ type: 'opened', ch: 1 });
+    await expect(p).resolves.toMatchObject({ ch: 1 });
+  });
+});
