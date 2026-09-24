@@ -1,8 +1,9 @@
 import type { FastifyRequest } from 'fastify';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Integration } from '../db/repositories/integrations.js';
-import type { AiAccount, Machine, Project, ProjectMachine, Tab, Task, User } from '../db/repositories/types.js';
+import type { AiAccount, Machine, Project, ProjectMachine, Tab, Task, TaskColumn, User } from '../db/repositories/types.js';
 import { HttpError, notFound } from '../lib/errors.js';
+import { parseRef } from '../db/repositories/task-rules.js';
 import { isAdmin } from './permissions.js';
 
 /**
@@ -120,6 +121,29 @@ export class Scoped {
       throw notFound('Tarefa não encontrada');
     });
     return { task, project };
+  }
+
+  /**
+   * A card by its ref ("TER-12", key case-insensitive). A malformed ref, an unknown key or number
+   * and another owner's project all answer the same 404 — the ref never confirms a foreign project.
+   */
+  async taskByRef(ref: string): Promise<{ task: Task; project: Project }> {
+    const parsed = parseRef(ref);
+    const project = parsed ? await this.repos.projects.findByKey(parsed.key) : undefined;
+    if (!parsed || !project || !this.owns(project.owner_id)) throw notFound('Card não encontrado');
+    const task = await this.repos.tasks.findByRef(project.id, parsed.number);
+    if (!task) throw notFound('Card não encontrado');
+    return { task, project };
+  }
+
+  /** A board column and its project; the project must be in scope. */
+  async column(id: string): Promise<{ column: TaskColumn; project: Project }> {
+    const column = await this.repos.taskColumns.findById(id);
+    if (!column) throw notFound('Coluna não encontrada');
+    const { project } = await this.project(column.project_id).catch(() => {
+      throw notFound('Coluna não encontrada');
+    });
+    return { column, project };
   }
 
   async integration(id: string): Promise<Integration> {

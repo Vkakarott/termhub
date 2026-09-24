@@ -57,7 +57,12 @@ function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
       findById: vi.fn(async (id: string) => accounts.find((a) => a.id === id)),
       list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)),
     },
-    tasks: { findById: vi.fn(async (id: string) => [k1, kdoing, ksub, klong, k9].find((t) => t.id === id)), setTab: vi.fn(async () => undefined), update: vi.fn(async () => undefined) },
+    tasks: {
+      findById: vi.fn(async (id: string) => [k1, kdoing, ksub, klong, k9].find((t) => t.id === id)),
+      setTab: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      startWork: vi.fn(async () => undefined),
+    },
   };
   const scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' } as const, ownerId: 'u1', createAs: 'u1' };
   const c: ControlContext = {
@@ -166,7 +171,7 @@ describe('startAgent', () => {
     const { c, repos } = ctx();
     const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', task_id: 's1' });
     expect(repos.tasks.setTab).toHaveBeenCalledWith('s1', 't9');
-    expect(repos.tasks.update).toHaveBeenCalledWith('s1', { status: 'doing' });
+    expect(repos.tasks.startWork).toHaveBeenCalledWith('s1');
     expect(r).toMatchObject({ task_id: 's1', previous_tab_id: 't-old' });
   });
 
@@ -184,18 +189,19 @@ describe('startAgent', () => {
     expect(openTab).not.toHaveBeenCalled();
   });
 
-  it('links the task to the tab and moves it to doing', async () => {
+  it('links the task to the tab and hands it to startWork (agent column)', async () => {
     const { c, repos } = ctx();
     const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', task_id: 'k1' });
     expect(repos.tasks.setTab).toHaveBeenCalledWith('k1', 't9');
-    expect(repos.tasks.update).toHaveBeenCalledWith('k1', { status: 'doing' });
+    expect(repos.tasks.startWork).toHaveBeenCalledWith('k1');
     expect(r.task_id).toBe('k1');
   });
 
-  it('leaves a task already in doing where it is', async () => {
+  it('leaves the "already in doing" decision to the repository', async () => {
     const { c, repos } = ctx();
     await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p', task_id: 'k2' });
     expect(repos.tasks.setTab).toHaveBeenCalledWith('k2', 't9');
+    expect(repos.tasks.startWork).toHaveBeenCalledWith('k2');
     expect(repos.tasks.update).not.toHaveBeenCalled();
   });
 

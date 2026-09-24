@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, TaskStatus, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -207,12 +207,12 @@ export const api = {
     openTabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/open-tabs'),
   },
   tasks: {
-    list: (projectId: string) => request<{ tasks: Task[] }>('GET', `/projects/${projectId}/tasks`),
-    create: (projectId: string, input: { title: string; description?: string | null; status?: TaskStatus; parent_id?: string | null }) =>
-      request<{ task: Task }>('POST', `/projects/${projectId}/tasks`, input),
-    update: (id: string, input: { title?: string; description?: string | null; status?: TaskStatus }) =>
-      request<{ task: Task }>('PATCH', `/tasks/${id}`, input),
-    move: (id: string, status: TaskStatus, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/move`, { status, position }),
+    list: (projectId: string) => request<BoardData>('GET', `/projects/${projectId}/tasks`),
+    create: (projectId: string, input: TaskCreateInput) => request<{ task: Task }>('POST', `/projects/${projectId}/tasks`, input),
+    update: (id: string, input: TaskPatchInput) => request<{ task: Task }>('PATCH', `/tasks/${id}`, input),
+    move: (id: string, target: MoveTarget, position: number) => request<{ task: Task }>('POST', `/tasks/${id}/move`, { ...target, position }),
+    /** `KEY-N`, key case-insensitive; 404 outside the scope */
+    byRef: (ref: string) => request<{ task: Task; project_id: string }>('GET', `/tasks/by-ref/${encodeURIComponent(ref)}`),
     remove: (id: string) => request<{ ok: true; deleted_subtasks: number }>('DELETE', `/tasks/${id}`),
     addSubtasks: (id: string, items: { title: string; description?: string | null }[]) =>
       request<{ subtasks: Task[] }>('POST', `/tasks/${id}/subtasks`, { items }),
@@ -221,6 +221,13 @@ export const api = {
     openTerminal: (id: string, machineId?: string) =>
       request<{ task: Task; tab: Tab; created: boolean }>('POST', `/tasks/${id}/terminal`, machineId ? { machine_id: machineId } : {}),
     detachTerminal: (id: string) => request<{ task: Task }>('DELETE', `/tasks/${id}/terminal`),
+  },
+  columns: {
+    create: (projectId: string, input: { name: string; category: ColumnCategory }) => request<{ column: TaskColumn }>('POST', `/projects/${projectId}/columns`, input),
+    update: (id: string, input: { name?: string; category?: ColumnCategory }) => request<{ column: TaskColumn }>('PATCH', `/columns/${id}`, input),
+    move: (id: string, position: number) => request<{ columns: TaskColumn[] }>('POST', `/columns/${id}/move`, { position }),
+    remove: (id: string) => request<{ ok: true; moved_tasks: number }>('DELETE', `/columns/${id}`),
+    setAgent: (projectId: string, columnId: string | null) => request<{ agent_column_id: string | null }>('PUT', `/projects/${projectId}/agent-column`, { column_id: columnId }),
   },
   tickets: {
     list: (projectId: string) => request<{ tickets: Ticket[] }>('GET', `/projects/${projectId}/tickets`),

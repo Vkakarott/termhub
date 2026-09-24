@@ -144,6 +144,8 @@ export interface Project {
   is_public: boolean;
   /** this project's building id on its owner's public city (one-way, from the server): the share link is built from it */
   public_id: string;
+  /** column a card moves to when an agent starts on it; null = automatic (first "Fazendo"). The board reads it from the tasks list. */
+  agent_column_id?: string | null;
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
@@ -171,24 +173,78 @@ export interface ProjectInput {
 
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
+/** Kind of card: epics group the work; stories, tasks, bugs and spikes are the work; subtasks are a checklist inside a story or task. */
+export type TaskType = 'epic' | 'story' | 'task' | 'subtask' | 'bug' | 'spike';
+
+/** What a board column means to the system (the backlog is not a column). */
+export type ColumnCategory = 'todo' | 'doing' | 'done';
+
 export interface Task {
   id: string;
   project_id: string;
+  type: TaskType;
+  /** sequential per project */
+  number: number;
+  /** "TER-12"; the card opens at /project/<ref> */
+  ref: string;
   title: string;
   description: string | null;
+  /** backlog, or the category of its column */
   status: TaskStatus;
   position: number;
   external_ref: ExternalRef | null;
   external_key: string | null;
   tab_id: string | null;
-  /** Parent task for a subtask; null for a board task. */
+  /** Parent story/task for a subtask; null for every other card. */
   parent_id: string | null;
-  /** Only on board tasks from the list endpoint. Absent on responses from a server without subtasks. */
+  /** the epic of a story/task/bug/spike; null on epics and subtasks */
+  epic_id: string | null;
+  /** board column; null in the backlog and on subtasks */
+  column_id: string | null;
+  /** Only on top-level cards from the list endpoint. */
   subtasks?: Task[];
   subtask_counts?: { done: number; total: number };
   created_at: string;
   updated_at: string;
 }
+
+/** A board column of a project: the user's name, the system's category. */
+export interface TaskColumn {
+  id: string;
+  project_id: string;
+  name: string;
+  category: ColumnCategory;
+  position: number;
+  created_at: string;
+}
+
+/** GET /projects/:id/tasks */
+export interface BoardData {
+  tasks: Task[];
+  columns: TaskColumn[];
+  agent_column_id: string | null;
+}
+
+export interface TaskCreateInput {
+  title: string;
+  description?: string | null;
+  status?: TaskStatus;
+  type?: TaskType;
+  epic_id?: string | null;
+  column_id?: string | null;
+  parent_id?: string | null;
+}
+
+export interface TaskPatchInput {
+  title?: string;
+  description?: string | null;
+  status?: TaskStatus;
+  type?: TaskType;
+  epic_id?: string | null;
+}
+
+/** Where a move sends a card: a column, or a status (backlog, or the first column of a category). */
+export type MoveTarget = { column_id: string } | { status: TaskStatus };
 
 export interface Ticket {
   id: string;
@@ -300,6 +356,21 @@ export interface DashboardItem {
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',
+  todo: 'A fazer',
+  doing: 'Fazendo',
+  done: 'Feito',
+};
+
+export const TASK_TYPE_LABEL: Record<TaskType, string> = {
+  epic: 'Épico',
+  story: 'História',
+  task: 'Tarefa',
+  subtask: 'Subtarefa',
+  bug: 'Bug',
+  spike: 'Spike',
+};
+
+export const COLUMN_CATEGORY_LABEL: Record<ColumnCategory, string> = {
   todo: 'A fazer',
   doing: 'Fazendo',
   done: 'Feito',

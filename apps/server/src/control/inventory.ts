@@ -1,6 +1,8 @@
 import { agents } from '../agent/registry.js';
 import type { Machine, MachineType, Tab, TabKind, TabState } from '../db/repositories/types.js';
 import { listTmuxSessions } from '../terminal/machine-exec.js';
+import { parseRef } from '../db/repositories/task-rules.js';
+import { HttpError } from '../lib/errors.js';
 import { ControlError, type ControlContext } from './context.js';
 
 export interface MachineSummary {
@@ -124,7 +126,7 @@ function score(name: string, query: string): number {
   return words.every((w) => n.includes(w)) ? 1 : 0;
 }
 
-export type FindKind = 'machine' | 'project' | 'ai_account';
+export type FindKind = 'machine' | 'project' | 'ai_account' | 'task';
 export interface FindMatch {
   kind: FindKind;
   id: string;
@@ -136,12 +138,17 @@ export interface FindMatch {
 
 const FIND_LIMIT = 10;
 
-/** Resolves names ("MacBook Pro M4", "Hub Community", "pedrogoiania") to ids in one call, within the owner's data. */
+/** Resolves names ("MacBook Pro M4", "Hub Community", "pedrogoiania") and card refs ("TER-12") to ids in one call, within the owner's data. */
 export async function find(ctx: ControlContext, input: { query: string; kinds?: FindKind[] }): Promise<{ matches: FindMatch[] }> {
   const query = normalizeName(input.query);
   if (!query) throw new ControlError('BAD_REQUEST', 'Informe o que procurar');
-  const kinds = new Set<FindKind>(input.kinds?.length ? input.kinds : ['machine', 'project', 'ai_account']);
-  const [canMachines, canProjects, canAccounts] = await Promise.all([ctx.can('machines', 'read'), ctx.can('projects', 'read'), ctx.can('ai_accounts', 'read')]);
+  const kinds = new Set<FindKind>(input.kinds?.length ? input.kinds : ['machine', 'project', 'ai_account', 'task']);
+  const [canMachines, canProjects, canAccounts, canTasks] = await Promise.all([
+    ctx.can('machines', 'read'),
+    ctx.can('projects', 'read'),
+    ctx.can('ai_accounts', 'read'),
+    ctx.can('tasks', 'read'),
+  ]);
   const machines = await ctx.repos.machines.list(ctx.scope.ownerId);
   const names = new Map(machines.map((m) => [m.id, m.name]));
   const matches: FindMatch[] = [];
@@ -152,6 +159,15 @@ export async function find(ctx: ControlContext, input: { query: string; kinds?: 
   if (kinds.has('machine') && canMachines) for (const m of machines) add('machine', m.id, m.name, null);
   if (kinds.has('project') && canProjects) for (const p of await ctx.repos.projects.list({ owner: ctx.scope.ownerId })) add('project', p.id, p.name, null, p.key);
   if (kinds.has('ai_account') && canAccounts) for (const a of await ctx.repos.aiAccounts.list(ctx.scope.ownerId)) add('ai_account', a.id, a.label, a.machine_id);
+  // A card only by its exact ref ("TER-12"): titles are not names. Another owner's card is simply no match.
+  if (kinds.has('task') && canTasks && parseRef(input.query)) {
+    try {
+      const { task } = await ctx.scoped.taskByRef(input.query);
+      matches.push({ kind: 'task', id: task.id, name: `${task.ref} ${task.title}`, machine_id: null, machine_name: null, score: 3 });
+    } catch (e) {
+      if (!(e instanceof HttpError && e.statusCode === 404)) throw e;
+    }
+  }
   matches.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   return { matches: matches.slice(0, FIND_LIMIT) };
 }

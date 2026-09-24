@@ -64,6 +64,7 @@ export const ModelName = {
   TabEvent: 'TabEvent',
   MachineHook: 'MachineHook',
   Ticket: 'Ticket',
+  TaskColumn: 'TaskColumn',
   Task: 'Task',
   Note: 'Note',
   Integration: 'Integration',
@@ -208,6 +209,7 @@ export const ProjectScalarFieldEnum = {
   status: 'status',
   description: 'description',
   isPublic: 'isPublic',
+  agentColumnId: 'agentColumnId',
   lastTerminalAt: 'lastTerminalAt',
   createdAt: 'createdAt'
 } as const
@@ -293,19 +295,35 @@ export const TicketScalarFieldEnum = {
 export type TicketScalarFieldEnum = (typeof TicketScalarFieldEnum)[keyof typeof TicketScalarFieldEnum]
 
 
+export const TaskColumnScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  name: 'name',
+  category: 'category',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type TaskColumnScalarFieldEnum = (typeof TaskColumnScalarFieldEnum)[keyof typeof TaskColumnScalarFieldEnum]
+
+
 export const TaskScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
   title: 'title',
   description: 'description',
   status: 'status',
+  type: 'type',
+  number: 'number',
   position: 'position',
   externalRef: 'externalRef',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
   externalKey: 'externalKey',
   tabId: 'tabId',
-  parentId: 'parentId'
+  parentId: 'parentId',
+  epicId: 'epicId',
+  columnId: 'columnId'
 } as const
 
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]
