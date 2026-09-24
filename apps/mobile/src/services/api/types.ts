@@ -34,6 +34,10 @@ export type Auth = { accessToken: string };
 export interface MobileApi {
   readonly mode: 'mock' | 'http';
 
+  /** Drops the token the last renewal produced, so a relock or wipe can never have a later
+   * `TOKEN_EXPIRED` quietly reuse it (the session store calls this). */
+  forgetTokens(): void;
+
   // enrolment (P§4)
   requestDevice(body: TDeviceRequestBody): Promise<TDeviceRequestResponse>;
   pollRequest(requestId: string, requestSecret: string): Promise<TDevicePollResponse>;

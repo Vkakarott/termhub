@@ -49,6 +49,10 @@ export interface SessionState {
   mockControls: MockControls | null;
   pinPrompt: { actionId: string } | null;
 
+  /** Routes an API error that ends or locks the session (chat and notification stores call it
+   * too): `DEVICE_REVOKED` wipes, `DEVICE_LOCKED` locks with the countdown, `PIN_INVALID` shows
+   * the attempts left. Returns false when the error is none of these (the caller handles it). */
+  handleApiError(err: unknown): boolean;
   requestDevice(email: string): Promise<void>;
   cancelRequest(): void;
   createPin(pin: string, confirm: string): Promise<void>;

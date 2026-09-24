@@ -14,6 +14,9 @@ import { createSessionStore } from './createSessionStore';
 
 const START = Date.parse('2026-09-24T12:00:00Z');
 const PIN = '123456';
+// Captured before any test installs fake timers: drains every pending microtask (a `void`-started wipe).
+const realSetImmediate = setImmediate;
+const flush = () => new Promise<void>((resolve) => realSetImmediate(() => resolve()));
 const secureItems = (SecureStore as unknown as { __items: Map<string, string> }).__items;
 
 type Store = ReturnType<typeof createSessionStore>;
@@ -398,4 +401,157 @@ it('after activation and after every unlock, setPushToken is called once with a 
   await third.getState().unlock(PIN);
   expect(third.getState().phase).toBe('unlocked');
   expect(push).toHaveBeenCalledTimes(3);
+});
+
+describe('guards', () => {
+  it('a relock during an in-flight renewal does not bring the token back', async () => {
+    const ctx = setup();
+    await enrol(ctx);
+    const { store } = ctx;
+    const challenge = ctx.api.challenge.bind(ctx.api);
+    jest.spyOn(ctx.api, 'challenge').mockImplementation(async (body) => {
+      // the app comes back after 5 min while the renewal is waiting on the server
+      store.getState().background();
+      ctx.clock.value += 5 * 60_000;
+      store.getState().foreground();
+      return challenge(body);
+    });
+    expect(await store.getState().renewToken()).toBeNull();
+    expect(store.getState().phase).toBe('locked');
+    expect(() => store.getState().auth()).toThrow('LOCKED');
+  });
+
+  it('a wipe during unlock does not unlock a wiped session', async () => {
+    const ctx = setup();
+    await enrol(ctx);
+    const store = ctx.make();
+    const token = ctx.api.token.bind(ctx.api);
+    jest.spyOn(ctx.api, 'token').mockImplementation(async (body) => {
+      // the server accepted the PIN, but the session was wiped before the answer landed
+      const res = await token(body);
+      await store.getState().wipe();
+      return res;
+    });
+    await store.getState().unlock(PIN);
+    expect(store.getState()).toMatchObject({ phase: 'new', deviceId: null, busy: false });
+    expect(() => store.getState().auth()).toThrow('LOCKED');
+  });
+
+  it("a newer requestPinProof is not resolved by the previous prompt's answer", async () => {
+    const ctx = setup();
+    const secret = fromB64url(await enrol(ctx));
+    const { store } = ctx;
+    const a = store.getState().requestPinProof('act-A');
+    let b: Promise<{ challenge: string; pin_proof: string }> | null = null;
+    const challenge = ctx.api.challenge.bind(ctx.api);
+    jest.spyOn(ctx.api, 'challenge').mockImplementationOnce(async (body) => {
+      b = store.getState().requestPinProof('act-B');
+      return challenge(body);
+    });
+    await store.getState().resolvePinPrompt(PIN);
+    await expect(a).rejects.toThrow('CANCELLED');
+    expect(store.getState()).toMatchObject({ pinPrompt: { actionId: 'act-B' }, busy: false });
+
+    await store.getState().resolvePinPrompt(PIN);
+    const proof = await b!;
+    expect(proof.pin_proof).toBe(decisionProof(secret, proof.challenge, 'act-B'));
+    expect(store.getState().pinPrompt).toBeNull();
+  });
+
+  it('a 423 during resolvePinPrompt rejects the pending promise and clears pinPrompt', async () => {
+    const ctx = setup();
+    await enrol(ctx);
+    const { store } = ctx;
+    const pending = store.getState().requestPinProof('act-1');
+    jest.spyOn(ctx.api, 'challenge').mockRejectedValueOnce(new ApiError(423, 'DEVICE_LOCKED', 'x', 900));
+    await store.getState().resolvePinPrompt(PIN);
+    await expect(pending).rejects.toThrow('CANCELLED');
+    expect(store.getState()).toMatchObject({
+      pinPrompt: null,
+      phase: 'locked',
+      busy: false,
+      error: 'Aparelho bloqueado por tentativas de PIN.',
+      lockedUntil: new Date(ctx.clock.value + 900_000).toISOString(),
+    });
+  });
+
+  it('a double tap on unlock spends one attempt', async () => {
+    const ctx = setup();
+    await enrol(ctx);
+    const store = ctx.make();
+    const token = jest.spyOn(ctx.api, 'token');
+    await Promise.all([store.getState().unlock('000000'), store.getState().unlock('000000')]);
+    expect(token).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({ error: 'PIN incorreto.', attemptsLeft: 2, busy: false });
+  });
+
+  it('a double tap on createPin activates once and stays enrolled', async () => {
+    const ctx = setup();
+    await ctx.store.getState().requestDevice('pedro@x.com');
+    ctx.controls.approve(ctx.controls.pendingRequestIds()[0]!);
+    await jest.advanceTimersByTimeAsync(2000);
+    const activate = jest.spyOn(ctx.api, 'activate');
+    await Promise.all([ctx.store.getState().createPin(PIN, PIN), ctx.store.getState().createPin(PIN, PIN)]);
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(ctx.store.getState()).toMatchObject({ phase: 'unlocked', notice: null });
+  });
+
+  it('a local failure after activation revokes the new device and wipes', async () => {
+    const ctx = setup();
+    await ctx.store.getState().requestDevice('pedro@x.com');
+    ctx.controls.approve(ctx.controls.pendingRequestIds()[0]!);
+    await jest.advanceTimersByTimeAsync(2000);
+    const revoke = jest.spyOn(ctx.api, 'revokeSelf');
+    jest.spyOn(vault, 'set').mockRejectedValueOnce(new Error('keychain'));
+    await ctx.store.getState().createPin(PIN, PIN);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(ctx.store.getState()).toMatchObject({
+      phase: 'new',
+      deviceId: null,
+      busy: false,
+      notice: 'Não foi possível guardar o PIN neste aparelho. Tente de novo.',
+    });
+    expect(secureItems.size).toBe(0);
+  });
+
+  it('handleApiError consumes DEVICE_REVOKED, DEVICE_LOCKED and PIN_INVALID, and nothing else', async () => {
+    const ctx = setup();
+    await enrol(ctx);
+    const { store } = ctx;
+    const pending = store.getState().requestPinProof('act-1');
+
+    expect(store.getState().handleApiError(new ApiError(401, 'PIN_INVALID', 'x', undefined, 1))).toBe(true);
+    expect(store.getState()).toMatchObject({ phase: 'unlocked', error: 'PIN incorreto.', attemptsLeft: 1 });
+
+    expect(store.getState().handleApiError(new ApiError(423, 'DEVICE_LOCKED', 'x', 60))).toBe(true);
+    expect(store.getState()).toMatchObject({
+      phase: 'locked',
+      pinPrompt: null,
+      error: 'Aparelho bloqueado por tentativas de PIN.',
+      lockedUntil: new Date(ctx.clock.value + 60_000).toISOString(),
+    });
+    expect(() => store.getState().auth()).toThrow('LOCKED');
+    await expect(pending).rejects.toThrow('CANCELLED');
+
+    expect(store.getState().handleApiError(new ApiError(500, 'HTTP_500', 'x'))).toBe(false);
+    expect(store.getState().handleApiError(new Error('offline'))).toBe(false);
+    expect(store.getState().phase).toBe('locked');
+
+    expect(store.getState().handleApiError(new ApiError(401, 'DEVICE_REVOKED', 'x'))).toBe(true);
+    await flush();
+    expect(store.getState()).toMatchObject({ phase: 'new', deviceId: null, notice: 'Este aparelho foi removido da sua conta.' });
+    expect(secureItems.size).toBe(0);
+  });
+
+  it('relock and wipe make the client forget its renewed token', async () => {
+    const ctx = setup();
+    await enrol(ctx);
+    const forget = jest.spyOn(ctx.api, 'forgetTokens');
+    ctx.store.getState().background();
+    ctx.clock.value += 5 * 60_000;
+    ctx.store.getState().foreground();
+    expect(forget).toHaveBeenCalledTimes(1);
+    await ctx.store.getState().wipe();
+    expect(forget).toHaveBeenCalledTimes(2);
+  });
 });

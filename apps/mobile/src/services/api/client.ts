@@ -179,6 +179,10 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
   const api: MobileApi = {
     mode: o.mode ?? 'http',
 
+    forgetTokens: () => {
+      latestToken = null;
+    },
+
     requestDevice: (body: TDeviceRequestBody) => call('POST', '/api/m/v1/devices/requests', deviceRequestResponse, { body, proof: false }),
     pollRequest: (requestId, requestSecret) =>
       call('GET', `/api/m/v1/devices/requests/${requestId}`, devicePollResponse, { token: requestSecret, proof: false, retry: false }),

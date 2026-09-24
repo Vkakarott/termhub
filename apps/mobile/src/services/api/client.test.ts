@@ -178,6 +178,22 @@ it('two parallel calls that both fail with TOKEN_EXPIRED renew only once, even w
   expect(calls[3]!.headers.Authorization).toBe('Bearer tok2');
 });
 
+it('forgetTokens drops the renewed token: a later TOKEN_EXPIRED renews again instead of reusing it', async () => {
+  const { transport, calls } = scripted([
+    { status: 401, body: { error: 'x', code: 'TOKEN_EXPIRED' } },
+    { status: 200, body: { projects: [] } },
+    { status: 401, body: { error: 'x', code: 'TOKEN_EXPIRED' } },
+    { status: 200, body: { projects: [] } },
+  ]);
+  const renew = jest.fn<Promise<string | null>, []>().mockResolvedValueOnce('tok2').mockResolvedValueOnce('tok3');
+  const api = make(transport, renew);
+  await api.chatProjects({ accessToken: 'tok' });
+  api.forgetTokens();
+  await api.chatProjects({ accessToken: 'tok' });
+  expect(renew).toHaveBeenCalledTimes(2);
+  expect(calls[3]!.headers.Authorization).toBe('Bearer tok3');
+});
+
 it('activate and token carry no ath; token carries chal', async () => {
   const { transport, calls } = scripted([
     { status: 200, body: { device_id: 'd1', pin_secret: 'ps', access_token: 'at1', expires_in: 900 } },

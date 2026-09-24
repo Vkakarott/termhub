@@ -5,31 +5,24 @@
 // Secrets never enter the zustand state: the access token, the unwrapped `pin_secret` and the
 // enrolment `request_secret` live in this closure only, so neither `persist` nor a devtools dump
 // can ever see them (spec §5.1).
+//
+// Every async action captures the session `generation` before its first `await` and drops its
+// result when a relock or wipe bumped it meanwhile, so a late answer can never bring a token back
+// behind the lock screen or revive a wiped session.
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { sessionEnded } from '@/features/shared/signals';
 import { ApiError } from '@/services/api/errors';
 import { b64url, fromB64url } from '@/services/crypto/encoding';
-import { decisionProof, deriveWrapKey, PIN_RE, pinProof, unwrapSecret, wrapSecret } from '@/services/crypto/pin';
-import { randomBytes } from '@/services/crypto/random';
+import { decisionProof, PIN_RE, pinProof } from '@/services/crypto/pin';
 import { mmkvStateStorage, resetPersistedStores } from '@/services/storage';
 import { readDeviceInfo } from '../model/device-info';
+import { MSG } from '../model/messages';
+import { readBiometricSecret, storeWrappedSecret, unwrapWithPin } from '../model/pin-vault';
 import { persistablePhase, type SessionDeps, type SessionState } from '../model/session.types';
 
 /** Relock after this long in the background (P§5.6). */
 export const RELOCK_AFTER_MS = 5 * 60_000;
-
-const MSG = {
-  closed: 'O pedido expirou ou foi recusado. Tente de novo.',
-  revoked: 'Este aparelho foi removido da sua conta.',
-  locked: 'Aparelho bloqueado por tentativas de PIN.',
-  pinInvalid: 'PIN incorreto.',
-  pinFormat: 'O PIN tem 6 dígitos.',
-  pinMismatch: 'Os dois PINs não são iguais.',
-  usePin: 'Use o PIN.',
-  biometricsOff: 'Não foi possível ativar a biometria.',
-  network: 'Não foi possível falar com o servidor. Tente de novo.',
-} as const;
 
 type Data = Omit<SessionState, { [K in keyof SessionState]: SessionState[K] extends (...args: never[]) => unknown ? K : never }[keyof SessionState]>;
 
@@ -54,6 +47,8 @@ const initialData = (mockControls: SessionDeps['mockControls']): Data => ({
 
 const isApiError = (e: unknown, code: string): e is ApiError => e instanceof ApiError && e.code === code;
 
+type PinProof = { challenge: string; pin_proof: string };
+
 export function createSessionStore(deps: SessionDeps) {
   const { api, key, vault, mockControls } = deps;
   const now = deps.now ?? Date.now;
@@ -63,9 +58,11 @@ export function createSessionStore(deps: SessionDeps) {
   let pinSecret: Uint8Array | null = null;
   let requestSecret: string | null = null;
 
+  let generation = 0;
+  let wiping: Promise<void> = Promise.resolve();
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let renewing: Promise<string | null> | null = null;
-  let prompt: { resolve(v: { challenge: string; pin_proof: string }): void; reject(e: Error): void } | null = null;
+  let prompt: { resolve(v: PinProof): void; reject(e: Error): void } | null = null;
 
   const store = create<SessionState>()(
     persist(
@@ -86,12 +83,19 @@ export function createSessionStore(deps: SessionDeps) {
           set({ pinPrompt: null });
         };
 
-        /** `unlocked` → `locked` without touching the vault (spec §5.4). */
-        const relock = () => {
+        /** Forgets every in-memory credential and invalidates the actions in flight. */
+        const forgetSession = () => {
+          generation++;
           accessToken = null;
           pinSecret = null;
+          api.forgetTokens();
           dropPrompt();
-          set({ phase: 'locked' });
+        };
+
+        /** `unlocked` → `locked` without touching the vault (spec §5.4). */
+        const relock = () => {
+          forgetSession();
+          set({ phase: 'locked', busy: false });
         };
 
         /** A new session (activation or unlock): the token, `unlocked`, and one push-token
@@ -104,50 +108,21 @@ export function createSessionStore(deps: SessionDeps) {
           api.setPushToken({ accessToken: token }, `ExponentPushToken[mock-${deviceId}]`).catch(() => undefined);
         };
 
-        /** The shared reaction to a failed action (ruling 8). */
-        const fail = async (e: unknown) => {
-          if (isApiError(e, 'DEVICE_REVOKED')) return get().wipe(MSG.revoked);
-          if (isApiError(e, 'DEVICE_LOCKED')) {
-            accessToken = null;
-            pinSecret = null;
-            set({
-              phase: 'locked',
-              lockedUntil: new Date(now() + (e.retryAfter ?? 0) * 1000).toISOString(),
-              attemptsLeft: null,
-              error: MSG.locked,
-              busy: false,
-            });
-            return;
-          }
-          if (isApiError(e, 'PIN_INVALID')) {
-            set({ error: MSG.pinInvalid, attemptsLeft: e.attemptsLeft ?? null, busy: false });
-            return;
-          }
+        /** The end of a failed action started at generation `gen`: ignored when a relock or wipe
+         * superseded it; otherwise `handleApiError`, or the error's own (pt-BR) text. */
+        const fail = async (gen: number, e: unknown): Promise<void> => {
+          if (gen !== generation) return;
+          if (get().handleApiError(e)) return wiping;
           set({ error: e instanceof ApiError ? e.message : MSG.network, busy: false });
         };
 
-        /** The PIN never gets compared here: any PIN unwraps to 32 plausible bytes (P§5.4). A vault
-         * missing its items is a half session, which only a wipe can end. */
-        const unwrapWithPin = async (pin: string): Promise<Uint8Array | null> => {
-          const [wrapped, salt, deviceId] = await Promise.all([vault.get('pin.wrapped'), vault.get('pin.salt'), vault.get('device.id')]);
-          if (!wrapped || !salt || !deviceId || deviceId !== get().deviceId) return null;
-          return unwrapSecret(fromB64url(wrapped), await deriveWrapKey(pin, fromB64url(salt)));
-        };
-
-        const readBiometricSecret = async (): Promise<Uint8Array | null> => {
-          try {
-            const s = await vault.get('pin.biometric', true);
-            return s ? fromB64url(s) : null;
-          } catch {
-            return null;
-          }
-        };
-
         /** `challenge` + `token` for a candidate secret, kept only once the server accepts it. */
-        const redeem = async (candidate: Uint8Array) => {
+        const redeem = async (gen: number, candidate: Uint8Array) => {
           const deviceId = get().deviceId!;
           const { challenge } = await api.challenge({ device_id: deviceId, purpose: 'refresh' });
+          if (gen !== generation) return;
           const res = await api.token({ device_id: deviceId, challenge, pin_proof: pinProof(candidate, challenge) });
+          if (gen !== generation) return;
           startSession(res.access_token, candidate);
         };
 
@@ -173,13 +148,32 @@ export function createSessionStore(deps: SessionDeps) {
         return {
           ...initialData(mockControls),
 
+          handleApiError(e) {
+            if (isApiError(e, 'DEVICE_REVOKED')) {
+              void get().wipe(MSG.revoked);
+              return true;
+            }
+            if (isApiError(e, 'DEVICE_LOCKED')) {
+              relock();
+              set({ lockedUntil: new Date(now() + (e.retryAfter ?? 0) * 1000).toISOString(), attemptsLeft: null, error: MSG.locked });
+              return true;
+            }
+            if (isApiError(e, 'PIN_INVALID')) {
+              set({ error: MSG.pinInvalid, attemptsLeft: e.attemptsLeft ?? null, busy: false });
+              return true;
+            }
+            return false;
+          },
+
           async requestDevice(email) {
             stopPolling();
+            const gen = generation;
             set({ busy: true, error: null, notice: null });
             try {
               const publicKey = await key.create();
               const info = readDeviceInfo();
               const res = await api.requestDevice({ email, public_key: publicKey, ...info });
+              if (gen !== generation) return;
               requestSecret = res.request_secret;
               set({
                 phase: 'waiting',
@@ -190,7 +184,7 @@ export function createSessionStore(deps: SessionDeps) {
               });
               schedulePoll(res.request_id, res.poll_after);
             } catch (e) {
-              await fail(e);
+              await fail(gen, e);
             }
           },
 
@@ -201,53 +195,66 @@ export function createSessionStore(deps: SessionDeps) {
           },
 
           async createPin(pin, confirm) {
+            if (get().busy) return;
             if (!PIN_RE.test(pin)) return patch({ error: MSG.pinFormat });
             if (pin !== confirm) return patch({ error: MSG.pinMismatch });
             const request = get().request;
             if (get().phase !== 'pin_setup' || !request || !requestSecret) return;
+            const gen = generation;
             set({ busy: true, error: null });
+            let res;
             try {
-              const res = await api.activate({ request_id: request.id, request_secret: requestSecret });
-              const secret = fromB64url(res.pin_secret);
-              const salt = randomBytes(16);
-              const wrapped = wrapSecret(secret, await deriveWrapKey(pin, salt));
-              await vault.set('pin.wrapped', b64url(wrapped));
-              await vault.set('pin.salt', b64url(salt));
-              await vault.set('device.id', res.device_id);
-              requestSecret = null;
-              set({ deviceId: res.device_id, request: null });
-              startSession(res.access_token, secret);
+              res = await api.activate({ request_id: request.id, request_secret: requestSecret });
             } catch (e) {
-              if (isApiError(e, 'REQUEST_INVALID')) {
+              if (gen === generation && isApiError(e, 'REQUEST_INVALID')) {
                 requestSecret = null;
-                set({ phase: 'new', request: null, busy: false, notice: MSG.closed });
-                return;
+                return patch({ phase: 'new', request: null, busy: false, notice: MSG.closed });
               }
-              await fail(e);
+              return fail(gen, e);
             }
+            if (gen !== generation) return;
+            const secret = fromB64url(res.pin_secret);
+            try {
+              await storeWrappedSecret(vault, pin, secret, res.device_id);
+            } catch {
+              // The device now exists on the server with no usable local secret: remove it and
+              // start over rather than leave a half-enrolled phone behind.
+              await api.revokeSelf({ accessToken: res.access_token }).catch(() => undefined);
+              return get().wipe(MSG.storeFailed);
+            }
+            if (gen !== generation) return;
+            requestSecret = null;
+            set({ deviceId: res.device_id, request: null });
+            startSession(res.access_token, secret);
           },
 
           async unlock(pin) {
+            if (get().busy) return;
             if (!PIN_RE.test(pin)) return patch({ error: MSG.pinFormat });
+            const gen = generation;
             set({ busy: true, error: null });
             try {
-              const candidate = await unwrapWithPin(pin);
+              const candidate = await unwrapWithPin(vault, pin, get().deviceId);
+              if (gen !== generation) return;
               if (!candidate) return get().wipe();
-              await redeem(candidate);
+              await redeem(gen, candidate);
             } catch (e) {
-              await fail(e);
+              await fail(gen, e);
             }
           },
 
           async unlockWithBiometrics() {
+            if (get().busy) return;
+            const gen = generation;
             set({ busy: true, error: null });
-            const secret = await readBiometricSecret();
+            const secret = await readBiometricSecret(vault);
+            if (gen !== generation) return;
             if (!secret) return patch({ busy: false, error: MSG.usePin });
             try {
-              await redeem(secret);
+              await redeem(gen, secret);
             } catch (e) {
-              if (isApiError(e, 'DEVICE_REVOKED') || isApiError(e, 'DEVICE_LOCKED')) return fail(e);
-              set({ busy: false, error: MSG.usePin });
+              if (isApiError(e, 'DEVICE_REVOKED') || isApiError(e, 'DEVICE_LOCKED')) return fail(gen, e);
+              if (gen === generation) set({ busy: false, error: MSG.usePin });
             }
           },
 
@@ -281,15 +288,22 @@ export function createSessionStore(deps: SessionDeps) {
               if (get().phase === 'unlocked') relock();
               return Promise.resolve(null);
             }
+            const gen = generation;
             renewing = (async () => {
               try {
                 const { challenge } = await api.challenge({ device_id: deviceId, purpose: 'refresh' });
+                if (gen !== generation) return null;
                 const res = await api.token({ device_id: deviceId, challenge, pin_proof: pinProof(secret, challenge) });
+                if (gen !== generation) return null;
                 accessToken = res.access_token;
                 return accessToken;
               } catch (e) {
-                if (isApiError(e, 'DEVICE_REVOKED') || isApiError(e, 'DEVICE_LOCKED')) await fail(e);
-                else if (isApiError(e, 'PIN_INVALID')) relock();
+                // Silent: only the session-ending answers surface (a wrong proof means the secret
+                // in memory is no good any more — ask for the PIN).
+                if (gen === generation) {
+                  if (isApiError(e, 'PIN_INVALID')) relock();
+                  else if (get().handleApiError(e)) await wiping;
+                }
                 return null;
               } finally {
                 renewing = null;
@@ -305,28 +319,33 @@ export function createSessionStore(deps: SessionDeps) {
 
           requestPinProof(actionId) {
             dropPrompt();
-            return new Promise((resolve, reject) => {
+            return new Promise<PinProof>((resolve, reject) => {
               prompt = { resolve, reject };
               set({ pinPrompt: { actionId }, error: null });
             });
           },
 
           async resolvePinPrompt(pin) {
+            if (get().busy) return;
+            const waiting = prompt;
             const actionId = get().pinPrompt?.actionId;
-            if (!prompt || !actionId) return;
+            if (!waiting || !actionId) return;
             if (pin !== 'biometrics' && !PIN_RE.test(pin)) return patch({ error: MSG.pinFormat });
+            const gen = generation;
+            // A newer `requestPinProof` replaced this prompt: this answer belongs to no one.
+            const superseded = () => gen !== generation || prompt !== waiting;
             set({ busy: true, error: null });
             try {
-              const secret = pin === 'biometrics' ? await readBiometricSecret() : await unwrapWithPin(pin);
+              const secret = pin === 'biometrics' ? await readBiometricSecret(vault) : await unwrapWithPin(vault, pin, get().deviceId);
+              if (superseded()) return patch({ busy: false });
               if (!secret) return patch({ busy: false, error: MSG.usePin });
               const { challenge } = await api.challenge({ device_id: get().deviceId!, purpose: 'decision', action_id: actionId });
-              const answer = { challenge, pin_proof: decisionProof(secret, challenge, actionId) };
-              const waiting = prompt;
+              if (superseded()) return patch({ busy: false });
               prompt = null;
               set({ pinPrompt: null, busy: false });
-              waiting?.resolve(answer);
+              waiting.resolve({ challenge, pin_proof: decisionProof(secret, challenge, actionId) });
             } catch (e) {
-              await fail(e);
+              await fail(gen, e);
             }
           },
 
@@ -350,17 +369,18 @@ export function createSessionStore(deps: SessionDeps) {
             await get().wipe();
           },
 
-          async wipe(reason) {
+          wipe(reason) {
             stopPolling();
-            dropPrompt();
-            accessToken = null;
-            pinSecret = null;
+            forgetSession();
             requestSecret = null;
-            await vault.clear().catch(() => undefined);
-            await key.destroy().catch(() => undefined);
-            resetPersistedStores();
-            sessionEnded.emit();
-            set({ ...initialData(mockControls), hydrated: true, notice: reason ?? null });
+            wiping = (async () => {
+              await vault.clear().catch(() => undefined);
+              await key.destroy().catch(() => undefined);
+              resetPersistedStores();
+              sessionEnded.emit();
+              set({ ...initialData(mockControls), hydrated: true, notice: reason ?? null });
+            })();
+            return wiping;
           },
         };
       },
