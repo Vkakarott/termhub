@@ -1,6 +1,7 @@
 // P-256 JWK helpers: point <-> JWK conversion, RFC 7638 thumbprints and DER -> raw ECDSA
 // signature conversion (needed for the hardware key, which returns DER; @noble/curves works
 // in raw r‖s).
+import { p256 } from '@noble/curves/nist.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, fromB64url, utf8 } from '../crypto/encoding';
 import type { P256Jwk } from './types';
@@ -53,5 +54,37 @@ export const derToRaw = (der: Uint8Array): Uint8Array => {
   const out = new Uint8Array(64);
   out.set(derIntTo32(r), 0);
   out.set(derIntTo32(s), 32);
+  return out;
+};
+
+const CURVE_N = p256.Point.CURVE().n;
+const HALF_CURVE_N = CURVE_N / 2n;
+
+const bytesToBigInt = (b: Uint8Array): bigint => b.reduce((acc, byte) => (acc << 8n) | BigInt(byte), 0n);
+
+const bigIntTo32Bytes = (n: bigint): Uint8Array => {
+  const out = new Uint8Array(32);
+  let v = n;
+  for (let i = 31; i >= 0; i--) {
+    out[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return out;
+};
+
+/**
+ * Normalises a raw ECDSA signature (`r‖s`, 64 bytes) to low-S form (`s <= n/2`), flipping
+ * `s` to `n - s` when it is not. `@noble/curves`' `verify` rejects high-S signatures by
+ * default (`lowS: true`); `SoftwareDeviceKey` always produces low-S, but the platform
+ * keystore/Secure Enclave behind `HardwareDeviceKey` does not normalise, so its signatures
+ * need this before they can be verified.
+ */
+export const normaliseLowS = (raw: Uint8Array): Uint8Array => {
+  if (raw.length !== 64) throw new Error('INVALID_SIGNATURE_LENGTH');
+  const s = bytesToBigInt(raw.slice(32));
+  if (s <= HALF_CURVE_N) return raw;
+  const out = new Uint8Array(64);
+  out.set(raw.slice(0, 32), 0);
+  out.set(bigIntTo32Bytes(CURVE_N - s), 32);
   return out;
 };

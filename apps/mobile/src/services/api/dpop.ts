@@ -34,6 +34,9 @@ type VerifyResult =
 type ParsedHeader = { typ?: unknown; alg?: unknown; jwk?: { x?: unknown; y?: unknown } };
 type ParsedPayload = { htm?: unknown; htu?: unknown; iat?: unknown; jti?: unknown; ath?: unknown; chal?: unknown };
 
+/** `typeof x === 'object'` is true for `null` too, so a JSON `null` needs its own check. */
+const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null;
+
 /**
  * Verifies a compact DPoP JWS against the caller-supplied `jwk` — never the one in the JWS
  * header, which is untrusted input (P§5.2): the header's `jwk` is only compared for equality
@@ -47,14 +50,21 @@ export const verifyProof = (jws: string, expected: VerifyExpected): VerifyResult
     return { ok: false, reason: 'MALFORMED' };
   }
 
-  let header: ParsedHeader;
-  let payload: ParsedPayload;
+  let parsedHeader: unknown;
+  let parsedPayload: unknown;
   try {
-    header = JSON.parse(fromUtf8(fromB64url(headerPart)));
-    payload = JSON.parse(fromUtf8(fromB64url(payloadPart)));
+    parsedHeader = JSON.parse(fromUtf8(fromB64url(headerPart)));
+    parsedPayload = JSON.parse(fromUtf8(fromB64url(payloadPart)));
   } catch {
     return { ok: false, reason: 'MALFORMED' };
   }
+  // `JSON.parse` accepts non-object top-level values (`null`, `42`, `"x"`, ...); reject those
+  // before touching `.typ`/`.htm`/etc, which would otherwise throw on `null`.
+  if (!isRecord(parsedHeader) || !isRecord(parsedPayload)) {
+    return { ok: false, reason: 'MALFORMED' };
+  }
+  const header = parsedHeader as ParsedHeader;
+  const payload = parsedPayload as ParsedPayload;
 
   if (
     header.typ !== 'dpop+jwt' ||
@@ -90,12 +100,13 @@ export const verifyProof = (jws: string, expected: VerifyExpected): VerifyResult
     return { ok: false, reason: 'SIGNATURE' };
   }
 
-  let sig: Uint8Array;
-  try {
-    sig = fromB64url(sigPart);
-  } catch {
-    return { ok: false, reason: 'MALFORMED' };
-  }
+  // `fromB64url` never throws (it silently drops characters outside its alphabet), so a
+  // malformed, truncated or DER-shaped signature must be caught by an explicit length check —
+  // otherwise `p256.verify` throws instead of failing gracefully (it validates the compact
+  // format's length itself, outside of a try/catch here).
+  const sig = fromB64url(sigPart);
+  if (sig.length !== 64) return { ok: false, reason: 'SIGNATURE' };
+
   const signingInput = utf8(`${headerPart}.${payloadPart}`);
   const valid = p256.verify(sig, signingInput, jwkToUncompressed(expected.jwk), { prehash: true });
   if (!valid) return { ok: false, reason: 'SIGNATURE' };

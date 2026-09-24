@@ -1,6 +1,7 @@
+import { p256 } from '@noble/curves/nist.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../crypto/encoding';
-import { derToRaw, jwkFromUncompressed, jwkThumbprint, jwkToUncompressed } from './jwk';
+import { derToRaw, jwkFromUncompressed, jwkThumbprint, jwkToUncompressed, normaliseLowS } from './jwk';
 
 describe('jwkFromUncompressed / jwkToUncompressed', () => {
   it('splits a 65-byte uncompressed point (0x04‖X‖Y) into x/y and back', () => {
@@ -50,5 +51,37 @@ describe('derToRaw', () => {
     const raw = derToRaw(der);
     expect(raw).toHaveLength(64);
     expect(raw).toEqual(new Uint8Array([...r, ...s]));
+  });
+});
+
+describe('normaliseLowS', () => {
+  const CURVE_N = p256.Point.CURVE().n;
+
+  const toBytes32 = (n: bigint): Uint8Array => {
+    const out = new Uint8Array(32);
+    let v = n;
+    for (let i = 31; i >= 0; i--) {
+      out[i] = Number(v & 0xffn);
+      v >>= 8n;
+    }
+    return out;
+  };
+
+  it('leaves a low-S signature (s <= n/2) unchanged', () => {
+    const r = new Uint8Array(32).fill(0x11);
+    const s = toBytes32(CURVE_N / 2n - 1n);
+    const raw = new Uint8Array([...r, ...s]);
+
+    expect(normaliseLowS(raw)).toEqual(raw);
+  });
+
+  it('flips a high-S signature (s > n/2) to n - s, keeping r unchanged', () => {
+    const r = new Uint8Array(32).fill(0x11);
+    const highS = CURVE_N / 2n + 10n;
+    const raw = new Uint8Array([...r, ...toBytes32(highS)]);
+
+    const normalised = normaliseLowS(raw);
+    expect(normalised.slice(0, 32)).toEqual(r);
+    expect(normalised.slice(32)).toEqual(toBytes32(CURVE_N - highS));
   });
 });
