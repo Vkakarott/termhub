@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Device, DeviceEventView, DeviceRequestView } from '../lib/types';
 
@@ -103,8 +103,10 @@ describe('DevicesView', () => {
     render(<DevicesView />);
 
     expect(await screen.findByText('K7F-2QD')).toBeTruthy();
-    expect(screen.getByText(/iPhone 15/)).toBeTruthy();
-    expect(screen.getByText(/São Paulo, BR/)).toBeTruthy();
+    expect(screen.getByText('iPhone de Ana')).toBeTruthy();
+    expect(screen.getByText('iPhone 15 · iOS 17.4')).toBeTruthy();
+    expect(screen.getByText('São Paulo, BR · IP 200.1.2.3')).toBeTruthy();
+    expect(screen.getByText(/^Pedido em 24\/09\/2026 às \d{2}:00 · /)).toBeTruthy();
     expect(screen.getByText('Se você não pediu isso, recuse.')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Aprovar' }));
@@ -124,6 +126,24 @@ describe('DevicesView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Recusar' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(denyMock).toHaveBeenCalledWith('r2'));
+  });
+
+  it('shows the IP even with no known place, and counts down "expira em" every minute', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-09-24T12:03:00.000Z'));
+    requestsMock.mockResolvedValue({ requests: [req({ id: 'r1', city: null, country: null })] });
+    const { unmount } = render(<DevicesView />);
+    expect(await screen.findByText('IP 200.1.2.3')).toBeTruthy();
+    expect(screen.getByText(/expira em 7 min$/)).toBeTruthy();
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText(/expira em 6 min$/)).toBeTruthy();
+
+    const clear = vi.spyOn(globalThis, 'clearInterval');
+    unmount();
+    expect(clear).toHaveBeenCalled();
   });
 
   it('disables Aprovar and warns once 5 devices are already active', async () => {

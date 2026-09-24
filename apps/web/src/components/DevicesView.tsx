@@ -14,8 +14,18 @@ const DEVICES_CHANGED_EVENT = 'termhub:devices-changed';
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('pt-BR');
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
+/** City and country as Cloudflare saw them; empty when neither is known (the IP is always shown apart). */
 function placeOf(r: DeviceRequestView): string {
-  return [r.city, r.country].filter(Boolean).join(', ') || r.ip;
+  return [r.city, r.country].filter(Boolean).join(', ');
+}
+
+const PLATFORM_LABELS: Record<string, string> = { ios: 'iOS', android: 'Android' };
+const osOf = (r: DeviceRequestView) => `${PLATFORM_LABELS[r.platform] ?? r.platform} ${r.os_version}`.trim();
+
+/** "expira em X min", rounded up so a request with seconds left still reads 1 min. */
+function expiresLabel(expiresAt: string, now: number): string {
+  const minutes = Math.ceil((new Date(expiresAt).getTime() - now) / 60_000);
+  return minutes > 0 ? `expira em ${minutes} min` : 'expirado';
 }
 
 function situationLabel(d: Device, now = new Date()): string {
@@ -45,6 +55,12 @@ export function DevicesView() {
   const [revoking, setRevoking] = useState<Device | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  // Ticks once a minute so each pending card's "expira em X min" stays true without a reload.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -146,8 +162,15 @@ export function DevicesView() {
               <ul className="space-y-3">
                 {requests.map((r) => (
                   <li key={r.id} className="rounded-lg border border-line bg-bg-2 p-4">
+                    <p className="text-sm font-medium">{r.device_name}</p>
                     <p className="text-xs text-fg-dim">
-                      {r.model} · {placeOf(r)}
+                      {r.model} · {osOf(r)}
+                    </p>
+                    <p className="text-xs text-fg-dim">
+                      {placeOf(r) && `${placeOf(r)} · `}IP {r.ip}
+                    </p>
+                    <p className="mb-1 text-xs text-fg-dim">
+                      Pedido em {fmtDate(r.created_at)} às {fmtTime(r.created_at)} · {expiresLabel(r.expires_at, now)}
                     </p>
                     <code className="font-mono text-2xl tracking-widest">{r.verification_code}</code>
                     <p className="mt-1 text-sm text-fg-muted">Se você não pediu isso, recuse.</p>
