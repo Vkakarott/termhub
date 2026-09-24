@@ -1,36 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import type { FocusTarget } from '../model';
-import { ROOM_SIGN_SCALE, signVisibility } from './detail';
+import type { BuildingModel, FocusTarget } from '../model';
+import { buildingSignText, deskLabelsVisible, LABEL_SCALE } from './detail';
 
 const city: FocusTarget = { kind: 'city' };
-const machine: FocusTarget = { kind: 'machine', machineId: 'm1' };
-const room: FocusTarget = { kind: 'room', machineId: 'm1', roomId: 'p1' };
-const far = ROOM_SIGN_SCALE / 2;
-const near = ROOM_SIGN_SCALE;
+const inside: FocusTarget = { kind: 'building', projectId: 'p1' };
+const far = LABEL_SCALE / 4;
 
-describe('signVisibility', () => {
-  it('shows only machine signs across a city zoomed out', () => {
-    expect(signVisibility(city, far, 'm1')).toEqual({ roomSigns: false, machineSign: true });
-    expect(signVisibility(city, far, 'm2')).toEqual({ roomSigns: false, machineSign: true });
+describe('deskLabelsVisible', () => {
+  it('shows every desk label only once the zoom makes them readable', () => {
+    expect(deskLabelsVisible(city, far, 'p1')).toBe(false);
+    expect(deskLabelsVisible(city, LABEL_SCALE, 'p1')).toBe(true);
   });
-
-  it('shows both once the city is zoomed in far enough to read a room sign', () => {
-    expect(signVisibility(city, near, 'm1')).toEqual({ roomSigns: true, machineSign: true });
+  it('always labels the desks of the building the person stands in, and only those', () => {
+    expect(deskLabelsVisible(inside, far, 'p1')).toBe(true);
+    expect(deskLabelsVisible(inside, far, 'p2')).toBe(false);
   });
+});
 
-  it('names the rooms of the focused machine and drops its own now-redundant sign', () => {
-    expect(signVisibility(machine, near, 'm1')).toEqual({ roomSigns: true, machineSign: false });
-    expect(signVisibility(room, near, 'm1')).toEqual({ roomSigns: true, machineSign: false });
+// city-by-project §3.2: the building sign merges the old machine and room signs
+describe('buildingSignText', () => {
+  const b = (over: Partial<BuildingModel> = {}) => ({ label: 'termhub', notice: null, progress: null, needsYou: 0, desks: [{}], ...over }) as BuildingModel;
+  it('is the name alone for a quiet building', () => {
+    expect(buildingSignText(b())).toEqual({ name: 'termhub', detail: '', count: '' });
   });
-
-  // zoomed out under a machine's own focus: the room signs are unreadable and the block is about to
-  // be one building among many again, so its name comes back before `onGoUp` fires
-  it('gives the focused machine its sign back once the view is wider than it', () => {
-    expect(signVisibility(machine, far, 'm1')).toEqual({ roomSigns: true, machineSign: true });
+  it('says the board and who is waiting', () => {
+    expect(buildingSignText(b({ progress: { done: 2, total: 5 }, needsYou: 1 }))).toEqual({ name: 'termhub', detail: '2/5 tarefas ·', count: '1 precisa de você' });
+    expect(buildingSignText(b({ needsYou: 3 }))).toEqual({ name: 'termhub', detail: '', count: '3 precisam de você' });
   });
-
-  it('keeps the signs of the OTHER machines, so the neighbours stay identifiable', () => {
-    expect(signVisibility(machine, far, 'm2')).toEqual({ roomSigns: false, machineSign: true });
-    expect(signVisibility(machine, near, 'm2')).toEqual({ roomSigns: true, machineSign: true });
+  it('puts the notice first, in pt-BR', () => {
+    expect(buildingSignText(b({ notice: 'offline', progress: { done: 1, total: 2 } })).detail).toBe('offline · 1/2 tarefas');
+    expect(buildingSignText(b({ notice: 'silent' })).detail).toBe('sem resposta');
+  });
+  // §2.4: a published project with nobody in it is still a building — and says so
+  it('says so when a building has no agent right now', () => {
+    expect(buildingSignText(b({ desks: [] })).detail).toBe('sem agentes agora');
   });
 });

@@ -1,29 +1,30 @@
-/** Where each machine's floor sits in the city. Pure; the scene only draws the result. */
-import { layoutFloor, placedRoomBounds, type FloorLayout, type PlacedRoom, type RoomInput } from './floor';
+/** Where each building's block sits in the city. Pure; the scene only draws the result. */
+import { layoutFloor, type FloorLayout, type PlacedFloor } from './floor';
 import { toScreen, type Cell } from './iso';
 import { packShelves } from './shelves';
 
-/** Tiles between two blocks: wider than a floor's corridor, so where a machine ends reads by itself. */
+/** Tiles between two blocks: wide enough that where a building ends reads by itself. */
 export const STREET = 4;
 /**
- * Tiles of bare ground around a block's rooms: the pavement that says where one machine ends. It is
- * part of the block — `drawBlock` paints it and `blockBounds` frames it — so it lives here, with the
- * geometry, rather than with the drawing: framed without it, both side vertices fell off the canvas.
+ * Tiles of bare ground around a block's floor: the pavement that says where one building ends. It
+ * is part of the block — `drawBlock` paints it and `blockBounds` frames it — so it lives here, with
+ * the geometry, rather than with the drawing: framed without it, both side vertices fell off the canvas.
  */
 export const BLOCK_MARGIN = 1;
-/** A machine with no projects still gets ground for its sign. */
+/** A building with no desk still gets ground for its sign. */
 const MIN_BLOCK = { width: 5, height: 3 };
 
 export interface BlockInput {
   id: string;
-  rooms: RoomInput[];
+  /** how many desks the building's one floor holds */
+  desks: number;
 }
 
 export interface PlacedBlock {
   id: string;
   /** the block's (0,0) tile on the city grid */
   origin: Cell;
-  /** the machine's floor, in block-local coordinates */
+  /** the building's floor, in block-local coordinates */
   floor: FloorLayout;
   width: number;
   height: number;
@@ -37,16 +38,16 @@ export interface CityLayout {
 
 export function layoutCity(blocks: BlockInput[], targetWidth?: number): CityLayout {
   const items = blocks.map((b) => {
-    const floor = layoutFloor(b.rooms);
+    const floor = layoutFloor(b.desks);
     return { id: b.id, floor, width: Math.max(floor.width, MIN_BLOCK.width), height: Math.max(floor.height, MIN_BLOCK.height) };
   });
   const packed = packShelves(items, STREET, STREET, targetWidth);
   return { blocks: packed.placed.map(({ item, origin }) => ({ ...item, origin })), width: packed.width, height: packed.height };
 }
 
-/** A block-local room in city coordinates. */
-export function roomOnCity(block: PlacedBlock, room: PlacedRoom): PlacedRoom {
-  return { ...room, origin: { gx: block.origin.gx + room.origin.gx, gy: block.origin.gy + room.origin.gy } };
+/** A block's floor in city coordinates: it sits at the block's own origin. */
+export function floorOnCity(block: PlacedBlock): PlacedFloor {
+  return { origin: block.origin, layout: block.floor };
 }
 
 /** Screen-space box of a block's ground, pavement and `wallH` pixels of walls included. */
@@ -71,4 +72,3 @@ export function cityBounds(city: CityLayout, wallH: number): { x: number; y: num
   return { x, y, w: Math.max(...boxes.map((b) => b.x + b.w)) - x, h: Math.max(...boxes.map((b) => b.y + b.h)) - y };
 }
 
-export { placedRoomBounds };
