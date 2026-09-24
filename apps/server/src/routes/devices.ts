@@ -39,9 +39,20 @@ const toRequestView = (r: DeviceRequest) => ({
  */
 export function describeDeviceEvent(e: DeviceEvent): string {
   const meta = e.meta ?? {};
+  const model = typeof meta.model === 'string' && meta.model.length > 0 ? meta.model : null;
   switch (e.kind) {
+    case 'request_created':
+      return model ? `Pedido de acesso de ${model}` : 'Pedido de acesso';
     case 'request_approved':
-      return `Pedido aprovado de ${meta.model ?? ''}`;
+      return model ? `Pedido aprovado de ${model}` : 'Pedido aprovado';
+    case 'request_denied':
+      return 'Pedido recusado';
+    case 'request_expired':
+      return 'Pedido expirou sem resposta';
+    case 'device_activated':
+      return 'Aparelho ativado';
+    case 'pin_failed':
+      return typeof meta.failures === 'number' ? `PIN errado (${meta.failures}ª tentativa)` : 'PIN errado';
     case 'pin_locked':
       return 'PIN errado 3 vezes, aparelho bloqueado por 15 min';
     case 'device_revoked':
@@ -49,7 +60,9 @@ export function describeDeviceEvent(e: DeviceEvent): string {
       if (meta.reason === 'user') return 'Aparelho revogado por você';
       if (meta.reason === 'admin') return 'Aparelho revogado por um administrador';
       if (meta.reason === 'review') return 'Aparelho revogado ao desligar o modo revisão';
-      return e.kind;
+      return 'Aparelho revogado';
+    case 'push_token_set':
+      return 'Notificações ativadas neste aparelho';
     case 'review_auto_approved':
       return 'Aprovado automaticamente (conta de revisão)';
     case 'review_changed':

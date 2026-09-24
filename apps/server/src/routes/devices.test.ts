@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { DeviceRequest } from '../db/repositories/device-requests.js';
 import type { Device } from '../db/repositories/devices.js';
-import type { DeviceEvent } from '../db/repositories/device-events.js';
+import { DEVICE_EVENT_KINDS, type DeviceEvent } from '../db/repositories/device-events.js';
 import { applyErrorHandler, HttpError } from '../lib/errors.js';
 import { deviceRoutes, describeDeviceEvent } from './devices.js';
 
@@ -233,7 +233,17 @@ describe('device routes', () => {
   });
 
   it.each([
+    ['request_created', { model: 'iPhone 15', platform: 'ios' }, 'Pedido de acesso de iPhone 15'],
+    ['request_created', {}, 'Pedido de acesso'],
     ['request_approved', { model: 'iPhone 15' }, 'Pedido aprovado de iPhone 15'],
+    ['request_approved', {}, 'Pedido aprovado'],
+    ['request_denied', {}, 'Pedido recusado'],
+    ['request_expired', {}, 'Pedido expirou sem resposta'],
+    ['device_activated', {}, 'Aparelho ativado'],
+    ['pin_failed', { failures: 2 }, 'PIN errado (2ª tentativa)'],
+    ['pin_failed', {}, 'PIN errado'],
+    ['device_revoked', {}, 'Aparelho revogado'],
+    ['push_token_set', {}, 'Notificações ativadas neste aparelho'],
     ['pin_locked', {}, 'PIN errado 3 vezes, aparelho bloqueado por 15 min'],
     ['device_revoked', { reason: 'pin_bruteforce' }, 'Aparelho revogado por tentativas de PIN'],
     ['device_revoked', { reason: 'user' }, 'Aparelho revogado por você'],
@@ -247,8 +257,10 @@ describe('device routes', () => {
     expect(describeDeviceEvent(deviceEvent({ id: 'e1', kind, meta }))).toBe(text);
   });
 
-  it('falls back to the kind itself for an unmapped kind', () => {
-    expect(describeDeviceEvent(deviceEvent({ id: 'e1', kind: 'push_token_set' }))).toBe('push_token_set');
+  it.each(DEVICE_EVENT_KINDS)('has a pt-BR sentence for %s, never the raw kind', (kind) => {
+    const text = describeDeviceEvent(deviceEvent({ id: 'e1', kind, meta: {} }));
+    expect(text).not.toBe(kind);
+    expect(text).not.toMatch(/_/);
   });
 
   it('lists the last events with a pt-BR text', async () => {

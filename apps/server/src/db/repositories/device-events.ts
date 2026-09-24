@@ -2,19 +2,23 @@ import type { PrismaClient } from '../prisma.js';
 import type { DeviceEvent as PrismaDeviceEvent } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 
-export type DeviceEventKind =
-  | 'request_created'
-  | 'request_approved'
-  | 'request_denied'
-  | 'request_expired'
-  | 'device_activated'
-  | 'token_refreshed'
-  | 'pin_failed'
-  | 'pin_locked'
-  | 'device_revoked'
-  | 'push_token_set'
-  | 'review_auto_approved'
-  | 'review_changed';
+/** Every kind of entry in the device trail; the web's pt-BR sentences cover each one. */
+export const DEVICE_EVENT_KINDS = [
+  'request_created',
+  'request_approved',
+  'request_denied',
+  'request_expired',
+  'device_activated',
+  'token_refreshed',
+  'pin_failed',
+  'pin_locked',
+  'device_revoked',
+  'push_token_set',
+  'review_auto_approved',
+  'review_changed',
+] as const;
+
+export type DeviceEventKind = (typeof DEVICE_EVENT_KINDS)[number];
 
 export interface DeviceEventInput {
   user_id?: string | null;
