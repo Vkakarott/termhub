@@ -14,7 +14,7 @@ describe('runKeyDiagnostic', () => {
     const result = await runKeyDiagnostic(key);
 
     expect(result.ok).toBe(true);
-    expect(result.steps.map((s) => s.name)).toEqual(['create', 'exists', 'publicJwk', 'sign+verify', 'destroy']);
+    expect(result.steps.map((s) => s.name)).toEqual(['create', 'exists', 'publicJwk', 'thumbprint', 'sign+verify', 'destroy']);
     expect(result.steps.every((s) => s.ok)).toBe(true);
     expect(result.steps.every((s) => s.detail === undefined)).toBe(true);
   });
@@ -75,5 +75,21 @@ describe('runKeyDiagnostic', () => {
 
     expect(result.ok).toBe(false);
     expect(result.steps.find((s) => s.name === 'destroy')).toMatchObject({ ok: false, detail: 'DESTROY_FAILED' });
+  });
+
+  it('fails the thumbprint step when the public key cannot be read', async () => {
+    const key: DeviceKey = {
+      create: async () => ({ kty: 'EC', crv: 'P-256', x: 'x', y: 'y' }),
+      exists: async () => true,
+      publicJwk: async () => {
+        throw new Error('NO_PUBLIC_KEY');
+      },
+      sign: async () => new Uint8Array(64),
+      destroy: async () => undefined,
+    };
+
+    const result = await runKeyDiagnostic(key);
+
+    expect(result.steps.find((s) => s.name === 'thumbprint')).toMatchObject({ ok: false, detail: 'NO_PUBLIC_KEY' });
   });
 });

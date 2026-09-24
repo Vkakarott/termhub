@@ -47,8 +47,9 @@ export function registerMeRoutes(router: MockRouter, state: MockState): void {
 
   router.route('POST', '/api/m/v1/devices/self/revoke', (ctx) => {
     const { device } = verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
-    // Same path as the brute-force lockout and `controls.revokeNow` (P§5.7): tokens deleted,
-    // sockets closed with `4401` — not just a status flip.
+    // Same path as the brute-force lockout and `controls.revokeNow` (P§5.7): the device is marked
+    // revoked and its sockets close with `4401`; its token rows stay, so a later call with one
+    // answers `DEVICE_REVOKED` rather than an expired token.
     revokeDevice(state, device, 'user');
     return { status: 200, body: {} };
   });

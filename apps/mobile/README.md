@@ -33,8 +33,9 @@ src/services/
               for `mock`); api/contract/ is the zod contract copied from packages/mobile-api;
               api/mock/ is the whole in-memory server (router, state, fixtures, DPoP verification)
   key/        the DeviceKey port — SoftwareDeviceKey (P-256, @noble/curves, SecureStore-backed;
-              backs mock mode and every Jest run) and HardwareDeviceKey (@pagopa/io-react-native-crypto,
-              Secure Enclave / Keystore; backs http mode on a real device)
+              backs the device key in mock mode and every Jest run) and HardwareDeviceKey
+              (@pagopa/io-react-native-crypto, Secure Enclave / Keystore; backs the device key in
+              http mode, and the key diagnostic in every mode outside Jest)
   vault.ts    the SecureStore wrapper for the app's few secrets (a closed set of `VaultKey`s)
   storage.ts  the MMKV instance and the zustand StateStorage every persisted store uses
 
@@ -49,7 +50,7 @@ test/         jest setup, fakes for MMKV/SecureStore/expo-device/expo-local-auth
 
 `EXPO_PUBLIC_API_MODE=mock` (the default — see `.env.example`) makes `src/services/api/index.ts` build the app's one `MobileApi` over `MockTransport` instead of `FetchTransport`: an in-memory implementation of the exact same contract (`src/services/api/contract/`), answering the same URLs with the same status codes, bodies and socket frames a real server would. Nothing else in the app knows the difference — the same `HttpMobileApi` client builds DPoP proofs, retries once on a renewed token and so on, whether the transport underneath is real or not. This is how the app runs on the simulator, on a phone with no server, and in every Jest test.
 
-Two things exist only under `mock`: the *Aguardando aprovação* screen's "Simular aprovação na web" / "Simular recusa" buttons (`mockControls`, `null` in `http` mode — nothing approves a request by itself otherwise), and `src/features/settings/model/key-diagnostic.ts` using `SoftwareDeviceKey` instead of `HardwareDeviceKey` for the "Diagnóstico da chave" row (a dedicated vault key/tag, `key.diagnostic` / `dev.termhub.diagnostic`, never the enrolled device key either way).
+Two things exist only under `mock`: the *Aguardando aprovação* screen's "Simular aprovação na web" / "Simular recusa" buttons (`mockControls`, `null` in `http` mode — nothing approves a request by itself otherwise), and the fake `ExponentPushToken[mock-…]` registered after each unlock. The "Diagnóstico da chave" row in Ajustes (`src/features/settings/model/key-diagnostic.ts`) is *not* mode-dependent: on any build it always runs on `HardwareDeviceKey`, under its own tag `dev.termhub.diagnostic` (never the enrolled device key), so it exercises the Secure Enclave / Keystore even in mock mode, with no server; only Jest swaps in `SoftwareDeviceKey` (vault key `key.diagnostic`).
 
 ### How the flow works
 
@@ -57,7 +58,7 @@ Enrolment (P§4): `requestDevice(email)` generates the device key, shows the ver
 
 ### Env vars
 
-See `.env.example`. `EXPO_PUBLIC_API_MODE` (`mock` | `http`, default `mock`) and `EXPO_PUBLIC_TERMHUB_URL` (only read in `http` mode, e.g. from `expo start`; a production build bakes `https://termhub.dev` in through `eas.json` instead — there is no server picker in the app, spec §11.1).
+See `.env.example`. `EXPO_PUBLIC_API_MODE` (`mock` | `http`, default `mock`) and `EXPO_PUBLIC_TERMHUB_URL` (the server `http` mode talks to, and the host Ajustes shows as "Servidor", e.g. from `expo start`). `eas.json` sets both per build profile: `production` bakes in `EXPO_PUBLIC_API_MODE=http` and `https://termhub.dev`; `development` pins `mock` — there is no server picker in the app, spec §11.1.
 
 ### Switching to a real server
 
@@ -81,7 +82,7 @@ npx eas build --profile development --platform ios      # or android; installs o
 npm start                         # Metro; the development build connects to it
 ```
 
-Copy `.env.example` to `.env` to set `EXPO_PUBLIC_API_MODE` / `EXPO_PUBLIC_TERMHUB_URL` for `expo start`; with no `.env` at all the app runs in mock mode by default, with no server needed. Production builds bake `https://termhub.dev` and `http` mode in through `eas.json`.
+Copy `.env.example` to `.env` to set `EXPO_PUBLIC_API_MODE` / `EXPO_PUBLIC_TERMHUB_URL` for `expo start`; with no `.env` at all the app runs in mock mode by default, with no server needed. Production builds bake `http` mode and `https://termhub.dev` in through the `production` profile of `eas.json`; development builds are pinned to `mock` by the `development` profile.
 
 Before a production build: APNs key and FCM v1 service account in EAS credentials (`npx eas credentials`), store listings, and the reviewer notes of spec §12.3.
 
@@ -99,7 +100,7 @@ Everything below is automated except this: run it by hand, on a development buil
    7. Lock the device with three wrong PINs in a row.
    8. Turn biometrics on, then off, in Ajustes.
    9. "Sair e remover este aparelho" in Ajustes, and confirm the app returns to Início.
-2. **The key diagnostic** — `Ajustes → Diagnóstico da chave → "Testar a chave do aparelho"`, on both a real iOS device and a real Android device (P§11.1's first on-device check: this is what actually exercises `HardwareDeviceKey` against the Secure Enclave / Keystore — Jest always runs the software key instead). Every step (`create`, `exists`, `publicJwk`, `sign+verify`, `destroy`) should say "ok".
+2. **The key diagnostic** — `Ajustes → Diagnóstico da chave → "Testar a chave do aparelho"`, on both a real iOS device and a real Android device (P§11.1's first on-device check). It always uses `HardwareDeviceKey` (tag `dev.termhub.diagnostic`, never the enrolled key), in mock mode as well as http, so a development build with no server is enough to exercise the Secure Enclave / Keystore — only Jest runs the software key instead. Every step (`create`, `exists`, `publicJwk`, `thumbprint`, `sign+verify`, `destroy`) should say "ok".
 
 ## Conventions
 

@@ -5,8 +5,10 @@
 import { create } from 'zustand';
 import { sessionEnded } from '@/features/shared/signals';
 import type { TDeviceSelf } from '@/services/api/contract';
+import { TERMHUB_URL } from '@/services/api/config';
 import { ApiError } from '@/services/api/errors';
 import type { Auth, MobileApi } from '@/services/api/types';
+import { serverLabel } from '../model/server-label';
 
 export interface SessionApi {
   auth(): Auth;
@@ -16,12 +18,16 @@ export interface SessionApi {
 export interface SettingsDeps {
   api: MobileApi;
   session: () => SessionApi;
+  /** The server's base URL; defaults to `TERMHUB_URL`. */
+  baseUrl?: string;
 }
 
 export interface SettingsState {
   /** The api singleton's own mode (design spec §2): `Ajustes`'s "Versão" section reads this,
    * not the global `api` module, so a screen test can inject a mock instance and see it. */
   mode: 'mock' | 'http';
+  /** "Servidor: mock" or "Servidor: <host of TERMHUB_URL>", from `mode` above. */
+  server: string;
   device: TDeviceSelf | null;
   loadingDevice: boolean;
   error: string | null;
@@ -36,6 +42,7 @@ export function createSettingsStore(deps: SettingsDeps) {
 
   const store = create<SettingsState>()((set) => ({
     mode: api.mode,
+    server: serverLabel(api.mode, deps.baseUrl ?? TERMHUB_URL),
     device: null,
     loadingDevice: false,
     error: null,

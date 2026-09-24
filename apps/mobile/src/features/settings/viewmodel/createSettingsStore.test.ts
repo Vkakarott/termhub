@@ -22,6 +22,13 @@ afterEach(() => {
 it('carries the api mode, for the Versão section', async () => {
   const { store, api } = await setup();
   expect(store.getState().mode).toBe(api.mode);
+  expect(store.getState().server).toBe('Servidor: mock');
+
+  // http mode names the configured server's host (TERMHUB_URL by default, injected here)
+  const http = setupSession(undefined, 'http');
+  const httpStore = createSettingsStore({ api: http.api, session: () => http.store.getState(), baseUrl: 'https://staging.termhub.dev' });
+  expect(httpStore.getState()).toMatchObject({ mode: 'http', server: 'Servidor: staging.termhub.dev' });
+  expect(createSettingsStore({ api: http.api, session: () => http.store.getState() }).getState().server).toBe('Servidor: termhub.dev');
 });
 
 it('loadDevice() fills the device from the API', async () => {

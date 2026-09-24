@@ -34,7 +34,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export function SettingsScreen() {
   const device = useSettingsStore((s) => s.device);
   const loadDevice = useSettingsStore((s) => s.loadDevice);
-  const mode = useSettingsStore((s) => s.mode);
+  const server = useSettingsStore((s) => s.server);
   const biometricsEnabled = useSessionStore((s) => s.biometricsEnabled);
   const enableBiometrics = useSessionStore((s) => s.enableBiometrics);
   const disableBiometrics = useSessionStore((s) => s.disableBiometrics);
@@ -112,7 +112,7 @@ export function SettingsScreen() {
           <AppText variant="muted">
             {Application.nativeApplicationVersion} ({Application.nativeBuildVersion})
           </AppText>
-          <AppText variant="muted">{mode === 'http' ? 'Servidor: termhub.dev' : 'Servidor: mock'}</AppText>
+          <AppText variant="muted">{server}</AppText>
         </Section>
 
         <Button label="Sair e remover este aparelho" variant="danger" onPress={() => setConfirmingLeave(true)} />

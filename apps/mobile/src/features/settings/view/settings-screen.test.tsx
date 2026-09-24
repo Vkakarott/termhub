@@ -84,7 +84,7 @@ describe('Ajustes', () => {
     const host = useChatStore.getState().conversations['']?.host;
     if (!host) throw new Error('expected the general chat host to be loaded');
     expect(screen.getByText(new RegExp(host.kind === 'ready' ? host.machine.name : ''))).toBeTruthy();
-    expect(screen.getByText(stores.api.mode === 'http' ? 'Servidor: termhub.dev' : 'Servidor: mock')).toBeTruthy();
+    expect(screen.getByText('Servidor: mock')).toBeTruthy();
     expect(useChatStore.getState().activeProject).toBe('p-termhub');
   });
 
