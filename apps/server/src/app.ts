@@ -45,6 +45,7 @@ import { deviceRoutes } from './routes/devices.js';
 import { mcpRoutes } from './mcp/route.js';
 import { createMobileServices, registerMobileApi } from './mobile/app.js';
 import { revokeDevice } from './mobile/revocation.js';
+import { purgeMobile } from './mobile/purge.js';
 import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
 import { startAgentUpdateScheduler } from './agent/latest-version.js';
@@ -225,6 +226,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   const purge = setInterval(() => {
     void authService.purgeExpired().catch(() => {});
     void purgeExpiredActions(repos).catch(() => {});
+    // Mobile: stale enrolment requests expire, then device sessions, requests, trail and push history age out
+    if (mobile) void purgeMobile(repos, mobile.enrolment).catch(() => {});
   }, 60 * 60 * 1000);
   const stopSync = startTicketSyncScheduler(repos, fastify.log);
   const stopAgentUpdates = startAgentUpdateScheduler(repos, fastify.log);
