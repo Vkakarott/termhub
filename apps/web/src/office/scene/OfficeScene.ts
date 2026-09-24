@@ -14,6 +14,7 @@ import { DeskOverlay, MachineSign, RoomSign } from './Overlay';
 import { DeskView, type Textures } from './PersonView';
 import { MachinePlaque, machinePlaqueArtKey } from './MachinePlaque';
 import { RoomLamp } from './RoomLamp';
+import { RoomRacks } from './RoomRacks';
 import { drawBlock, drawRoom, WALL_H } from './RoomView';
 import { RoomWallPlaque } from './wallPlaque';
 
@@ -45,6 +46,8 @@ interface DrawnRoom {
   plaque: RoomWallPlaque;
   /** corner lamp: on = warm wash, off = same furniture, dark fixture */
   lamp: RoomLamp;
+  /** shelves, cabinets and the server rack against the back walls */
+  racks: RoomRacks;
 }
 
 /** One machine as drawn. `rooms` and `signs` are in model order, which the shape check pins. */
@@ -281,6 +284,7 @@ export class OfficeScene {
         drawn.signs[i]?.apply(room, lit);
         drawnRoom?.plaque.apply(drawnRoom.placed, { label: room.label, lit });
         drawnRoom?.lamp.apply(lit);
+        drawnRoom?.racks.apply(lit);
         for (const d of room.desks) {
           const desk = this.desks.get(deskKey(machine.id, d.id));
           desk?.view.apply(d);
@@ -384,7 +388,10 @@ export class OfficeScene {
         this.things.addChild(plaque.root);
         const lamp = new RoomLamp(placed, lit);
         this.things.addChild(lamp.root);
-        drawn.rooms.push({ ground: roomGround, placed, lit, plaque, lamp });
+        // just above the lamp, so its wash lands on the wall behind the furniture, not on it
+        const racks = new RoomRacks(placed, room.desks.length, this.art, lit, lamp.root.zIndex + 0.01);
+        for (const sprite of racks.sprites) this.things.addChild(sprite);
+        drawn.rooms.push({ ground: roomGround, placed, lit, plaque, lamp, racks });
         const corner = toScreen(placed.origin.gx, placed.origin.gy);
         const roomSign = new RoomSign({ x: corner.x, y: corner.y - WALL_H - 6 }, room, lit);
         roomSign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickSign(room.id)));
