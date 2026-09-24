@@ -1,6 +1,6 @@
 # City by project — design
 
-Date: 2026-09-24. Status: **approved design, not implemented.** Supersedes the "what a city is"
+Date: 2026-09-24. Status: **implemented on `feat/city-by-project`, pending review and merge.** Supersedes the "what a city is"
 amendment of `2026-09-22-public-city-design.md` and §4 (levels) of `2026-09-21-office-world-design.md`.
 
 ## 1. Goal

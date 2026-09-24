@@ -45,7 +45,7 @@ const { FakeOfficeScene, socket } = vi.hoisted(() => {
 });
 
 vi.mock('../office/scene/OfficeScene', () => ({ OfficeScene: FakeOfficeScene }));
-// only the socket is faked: fetchCity and toMachineEntries are the real ones, over a stubbed fetch
+// only the socket is faked: fetchCity and toBuildingEntries are the real ones, over a stubbed fetch
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./api')>()),
   openCitySocket: (_nickname: string, handlers: { onRobot: (frame: unknown) => void; onClosed: () => void }) => {
