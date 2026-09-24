@@ -118,4 +118,18 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('readPublicCity (Postgres)
     const city = (await readPublicCity(repos, nick))!;
     expect(city.buildings[0]!.rooms.map((r) => r.name)).toEqual(['Publico']);
   });
+
+  // The subtitle is the owner's own note about the machine ("MacBook do escritório"): it stays in
+  // the office, whatever the machine or the published project look like.
+  it('never publishes a machine\'s subtitle', async () => {
+    await repos.machines.update(mine, { subtitle: 'MacBook do escritório secreto' });
+    const project = await publishedOn([mine]);
+    await repos.tabs.create(project.id, mine, 'uma tab');
+    const city = (await readPublicCity(repos, nick))!;
+    expect(city.buildings.map((b) => b.name)).toEqual(['Jarvis']);
+    expect(Object.keys(city.buildings[0]!).sort()).toEqual(['id', 'name', 'rooms']);
+    const body = JSON.stringify(city);
+    expect(body).not.toContain('subtitle');
+    expect(body).not.toContain('MacBook do escritório secreto');
+  });
 });

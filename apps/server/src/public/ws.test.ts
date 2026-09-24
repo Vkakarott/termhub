@@ -29,8 +29,9 @@ const p3 = { id: 'p3', owner_id: 'u1', is_public: true, status: 'archived' } as 
 // Pedro owns m1 and m3; mB is somebody else's machine that p1 happens to be linked to (merge
 // ruling 2: it must never show). p1 runs on all three, so it has a room on m1 and one on m3.
 const machinesOfPedro = [
-  { id: 'm1', name: 'M1', owner_id: 'u1' },
-  { id: 'm3', name: 'M3', owner_id: 'u1' },
+  // m1 carries a subtitle: the owner's own note about the machine, never on the street
+  { id: 'm1', name: 'M1', subtitle: 'MacBook do escritório secreto', owner_id: 'u1' },
+  { id: 'm3', name: 'M3', subtitle: null, owner_id: 'u1' },
 ];
 const links = [
   { project_id: 'p1', machine_id: 'm1' },
@@ -172,6 +173,20 @@ describe('registerPublicWs', () => {
     expect(frame.robot.id).toBe(publicId('tab', 't1'));
     expect(JSON.stringify(frame)).not.toContain('th-t1');
     client.terminate();
+  });
+
+  it('never carries the machine\'s subtitle, in a frame or in the snapshot', async () => {
+    const client = await connect('/ws/public/pedro');
+    monitorBus.publish({ tab: tab(), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    const frame = await nextMessage(client);
+    expect(JSON.stringify(frame)).not.toContain('subtitle');
+    expect(JSON.stringify(frame)).not.toContain('MacBook do escritório secreto');
+    client.terminate();
+    const snapRepos = { ...repos, tabs: { listByProjectsOnMachine: async () => [tab()] } } as unknown as Repositories;
+    const city = (await readPublicCity(snapRepos, 'pedro'))!;
+    expect(city.buildings.map((b) => b.id)).toContain(publicId('machine', 'm1'));
+    expect(JSON.stringify(city)).not.toContain('subtitle');
+    expect(JSON.stringify(city)).not.toContain('MacBook do escritório secreto');
   });
 
   it('never sends a change on a private room of the same machine', async () => {
