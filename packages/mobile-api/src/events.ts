@@ -39,4 +39,12 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     created_at: z.string(),
   }),
   z.object({ type: z.literal('decision'), user_id: z.string(), conversation_id: z.string(), action_id: z.string(), status: z.enum(['approved', 'denied']) }),
+  z.object({
+    type: z.literal('run_finished'),
+    user_id: z.string(),
+    conversation_id: z.string(),
+    message_id: z.string().nullable(),
+    ok: z.boolean(),
+    error_code: z.string().nullable(),
+  }),
 ]);

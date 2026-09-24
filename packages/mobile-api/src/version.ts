@@ -2,7 +2,7 @@ export const MOBILE_API_VERSION = 1;
 
 const HEADER_RE = /^(ios|android)\/(\d+\.\d+\.\d+)\+(\d+)$/;
 
-/** Parses the phone app's `X-App-Version` header, e.g. `ios/1.2.0+34`. Returns null for anything
+/** Parses the phone app's `X-Termhub-App` header, e.g. `ios/1.2.0+34`. Returns null for anything
  * that does not match, including a missing header. */
 export function parseAppHeader(v: string | undefined): { platform: 'ios' | 'android'; version: string; build: number } | null {
   const m = v?.match(HEADER_RE);
