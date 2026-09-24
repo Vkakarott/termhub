@@ -10,6 +10,7 @@ import { actionForMethod, type Resource } from '../auth/permissions.js';
 import { mobileChatRoutes, mobileMeRoutes } from '../routes/m-chat.js';
 import { mobileDeviceRoutes, mobilePushTokenRoutes } from '../routes/m-devices.js';
 import { mobileSessionRoutes } from '../routes/m-session.js';
+import { mobileTranscriptionRoutes } from '../routes/m-transcriptions.js';
 import { buildMobileAuthHook, type MobileAuthMode } from './auth.js';
 import { JtiCache } from './dpop.js';
 import { EnrolmentService } from './enrolment.js';
@@ -115,6 +116,8 @@ export async function registerMobileApi(
         // The chat, over the same ChatService as the web; `GET /me` reads under `chat` too (spec §6).
         await guarded('chat', (a) => mobileChatRoutes(a, deps.repos, { chat: deps.chat, agents: deps.agents, session: services.session }), '/chat');
         await guarded('chat', (a) => mobileMeRoutes(a, deps.repos), '');
+        // Voice dictation, over the same TranscriptionService as the web (`routes/transcriptions.ts`).
+        await guarded('terminals', (a) => mobileTranscriptionRoutes(a, { transcriptions: deps.transcriptions }), '/transcriptions');
       }
 
       await mobileRoutes(guardedMobile);

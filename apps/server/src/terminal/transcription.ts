@@ -29,6 +29,8 @@ export interface TranscriptionJob {
   audio_seconds: number | null;
   /** user-facing failure message (error) */
   error?: string;
+  /** machine-readable failure reason (error only), e.g. 'TOO_LONG' */
+  code?: string;
   created_at: number;
   finished_at?: number;
 }
@@ -39,10 +41,17 @@ export interface TranscriptionView {
   text?: string;
   duration?: number;
   error?: string;
+  code?: string;
   /** pending only: estimated seconds until the text is ready (0 when overdue) */
   eta_seconds?: number;
   /** pending only: 0..1 share of the estimated time already elapsed (capped below 1) */
   progress?: number;
+}
+
+/** Extra rules a caller (the mobile route) can layer on top of the base upload contract. */
+export interface StartOptions {
+  /** whisper's measured duration past this many seconds ends the job as TOO_LONG, regardless of the client's own estimate */
+  maxSeconds?: number;
 }
 
 export const isTranscriptionEnabled = () => config.transcription !== null;
@@ -64,7 +73,7 @@ export class TranscriptionService {
   }
 
   view(job: TranscriptionJob, now = Date.now()): TranscriptionView {
-    const v: TranscriptionView = { id: job.id, status: job.status, text: job.text, duration: job.duration, error: job.error };
+    const v: TranscriptionView = { id: job.id, status: job.status, text: job.text, duration: job.duration, error: job.error, code: job.code };
     if (job.status === 'pending' && job.audio_seconds !== null) {
       const expected = this.estimateSeconds(job.audio_seconds);
       const elapsed = (now - job.created_at) / 1000;
@@ -80,7 +89,7 @@ export class TranscriptionService {
   }
 
   /** Enqueues a clip; the whisper call runs in the background. */
-  start(userId: string, audio: Buffer, mime: string, audioSeconds: number | null = null): TranscriptionJob {
+  start(userId: string, audio: Buffer, mime: string, audioSeconds: number | null = null, opts: StartOptions = {}): TranscriptionJob {
     if (!config.transcription) throw new HttpError(503, 'Transcrição de voz não está configurada', 'TRANSCRIPTION_OFF');
     this.purge();
     let pending = 0;
@@ -90,7 +99,7 @@ export class TranscriptionService {
     const job: TranscriptionJob = { id: randomUUID(), user_id: userId, status: 'pending', audio_seconds: audioSeconds, created_at: Date.now() };
     this.jobs.set(job.id, job);
     this.log({ jobId: job.id, bytes: audio.length, mime, audioSeconds, etaSeconds: audioSeconds === null ? null : Math.ceil(this.estimateSeconds(audioSeconds)) }, 'transcription started');
-    void this.run(job, audio, mime);
+    void this.run(job, audio, mime, opts);
     return job;
   }
 
@@ -102,10 +111,17 @@ export class TranscriptionService {
     return job;
   }
 
-  private async run(job: TranscriptionJob, audio: Buffer, mime: string): Promise<void> {
+  private async run(job: TranscriptionJob, audio: Buffer, mime: string, opts: StartOptions): Promise<void> {
     const t0 = Date.now();
     try {
       const result = await transcribeWithWhisper(audio, mime);
+      if (opts.maxSeconds !== undefined && result.duration > opts.maxSeconds) {
+        job.status = 'error';
+        job.error = 'Áudio longo demais';
+        job.code = 'TOO_LONG';
+        this.log({ jobId: job.id, audioSeconds: result.duration, maxSeconds: opts.maxSeconds }, 'transcription too long');
+        return;
+      }
       job.text = result.text;
       job.duration = result.duration;
       job.status = 'done';
