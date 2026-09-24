@@ -359,8 +359,8 @@ export function SimulatorView({ tab, machineId, active, focused, floating, onDet
             />
             {!ready && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-sm text-fg-muted">
-                <p>{STATE_LABEL[state]}</p>
-                {message && <p className="text-xs text-danger">{message}</p>}
+                <p>{state === 'error' && message === 'Agente desconectado' ? 'Agente desconectado' : STATE_LABEL[state]}</p>
+                {message && message !== 'Agente desconectado' && <p className="text-xs text-danger">{message}</p>}
                 {tail && tail.length > 0 && (
                   <pre className="max-h-48 max-w-[90%] overflow-auto rounded bg-bg-2 p-2 text-[10px] text-fg-dim">{tail.join('\n')}</pre>
                 )}

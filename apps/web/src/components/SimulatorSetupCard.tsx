@@ -14,6 +14,9 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
   const [setup, setSetup] = useState<WdaSetupState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [agentBlock, setAgentBlock] = useState<'offline' | 'outdated' | null>(null);
+  const [outdatedMessage, setOutdatedMessage] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
   const hasWdaRef = useRef(false);
@@ -33,6 +36,7 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
     try {
       const s = await api.machines.wdaSetup(machine.id);
       if (cancelledRef.current) return;
+      setAgentBlock(null);
       setSetup(s);
       setError(null);
       if (s.state === 'running') {
@@ -41,7 +45,20 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
         void checkStatus(machine.id);
       }
     } catch (e) {
-      if (!cancelledRef.current) setError(e instanceof ApiError ? e.message : 'Erro ao consultar o setup');
+      if (cancelledRef.current) return;
+      if (e instanceof ApiError && e.code === 'AGENT_OFFLINE') {
+        setAgentBlock('offline');
+        setError(null);
+        timer.current = setTimeout(() => void load(), POLL_MS); // the agent may come back
+        return;
+      }
+      if (e instanceof ApiError && e.code === 'AGENT_OUTDATED') {
+        setAgentBlock('outdated');
+        setOutdatedMessage(e.message);
+        setError(null);
+        return;
+      }
+      setError(e instanceof ApiError ? e.message : 'Erro ao consultar o setup');
     }
   }, [machine.id, checkStatus]);
 
@@ -72,10 +89,38 @@ export function SimulatorSetupCard({ machine }: { machine: Machine }) {
     }
   };
 
-  if (machine.type === 'agent') {
+  const updateAgent = async () => {
+    setUpdating(true);
+    try {
+      await api.machines.updateAgent(machine.id);
+      setOutdatedMessage('Atualizando o agente… ele reinicia e reconecta em instantes.');
+      timer.current = setTimeout(() => void load(), POLL_MS * 3);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Erro ao atualizar o agente');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  if (agentBlock === 'offline') {
     return (
       <div className="rounded-md border border-line bg-bg p-2 text-xs text-fg-dim">
-        <p className="font-medium text-fg-muted">Simulador iOS: disponível em breve para agentes</p>
+        <p className="mb-0.5 font-medium text-fg-muted">Simulador iOS</p>
+        <p>Conecte o agente para preparar o simulador.</p>
+      </div>
+    );
+  }
+  if (agentBlock === 'outdated') {
+    return (
+      <div className="rounded-md border border-line bg-bg p-2 text-xs">
+        <div className="flex items-center gap-2">
+          <p className="font-medium text-fg-muted">Simulador iOS</p>
+          <button type="button" className="btn-ghost ml-auto px-2 py-0.5" onClick={() => void updateAgent()} disabled={updating}>
+            {updating ? '…' : 'Atualizar agente'}
+          </button>
+        </div>
+        <p className="mt-1 text-fg-dim">{outdatedMessage}</p>
+        {error && <p className="mt-1 text-danger">{error}</p>}
       </div>
     );
   }
