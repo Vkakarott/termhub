@@ -7,6 +7,7 @@ import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
 import { truncateLabel, workingLabel, type DeskModel, type MachineModel, type MachineNotice, type Marker, type RoomModel } from '../model';
 import type { View } from './camera';
 import { ROOM_SIGN_SCALE } from './detail';
+import { ID } from './identity';
 
 /** Hover is where a name cut to 18 characters and a task title become readable: room for both. */
 const HOVER_MAX = 48;
@@ -136,15 +137,15 @@ const ATTENTION = 0xf0883e;
 const SIGN_Z = { room: 0, machine: 0.5 };
 
 /**
- * A sign hanging over a world point: a bold name, a muted detail line under it, no plate.
+ * A sign hanging over a world point: a bold name and a muted detail line under it.
  * `lift` is extra height in SCREEN pixels. The world anchor shrinks with the zoom while markers,
  * labels and the signs themselves keep their screen size, so a sign that clears what is under it
  * at close range lands right on top of it once the camera pulls back.
  */
 class Sign {
   readonly root = new Container();
-  private readonly name: Text;
-  private readonly detail: Text;
+  protected readonly name: Text;
+  protected readonly detail: Text;
 
   constructor(
     readonly world: { x: number; y: number },
@@ -190,19 +191,60 @@ class Sign {
   }
 }
 
-/** The sign over a room's back corner: name, board progress, how many need you. */
+/** Compact minimal room card — name first; orange border when someone needs you. */
 export class RoomSign extends Sign {
-  constructor(world: { x: number; y: number }, model: RoomModel) {
+  private readonly plate = new Graphics();
+  /** false for paused / unlit offices — the card stays off so inactive rooms stay quiet */
+  active = true;
+
+  constructor(world: { x: number; y: number }, model: RoomModel, active = model.lit) {
     super(world, 13);
+    this.root.addChildAt(this.plate, 0);
     this.root.zIndex = SIGN_Z.room;
-    this.apply(model);
+    this.name.style.fontFamily = ID.font;
+    this.name.style.fontWeight = '600';
+    this.name.style.letterSpacing = 0.15;
+    this.name.style.stroke = { width: 0 };
+    this.detail.style.fontFamily = ID.font;
+    this.detail.style.fontSize = 10;
+    this.detail.style.fontWeight = '500';
+    this.detail.style.stroke = { width: 0 };
+    this.apply(model, active);
   }
 
-  apply(model: RoomModel): void {
-    const parts: string[] = [];
-    if (model.progress) parts.push(`${model.progress.done}/${model.progress.total} tarefas`);
-    if (model.needsYou > 0) parts.push(needsYouText(model.needsYou));
-    this.write(model.label, parts, model.needsYou > 0, model.lit);
+  apply(model: RoomModel, active = model.lit): void {
+    this.active = active;
+    this.name.text = model.label;
+    this.name.style.fill = ID.fg;
+    const urgent = model.needsYou > 0;
+    const bits: string[] = [];
+    if (model.progress) bits.push(`${model.progress.done}/${model.progress.total}`);
+    if (urgent) bits.push(needsYouText(model.needsYou));
+    this.detail.text = bits.join(' · ');
+    this.detail.style.fill = urgent ? ATTENTION : ID.muted;
+    this.name.alpha = 1;
+    this.detail.alpha = urgent ? 0.95 : 0.85;
+    this.paint(urgent);
+  }
+
+  private paint(urgent: boolean): void {
+    const padX = 12;
+    const padY = 8;
+    const nameH = 16;
+    const gap = this.detail.text ? 3 : 0;
+    const metaH = this.detail.text ? 12 : 0;
+    const w = Math.max(this.name.width, this.detail.width) + padX * 2;
+    const h = padY * 2 + nameH + gap + metaH;
+    const top = -(nameH + padY);
+    this.detail.position.set(0, gap + 2);
+    this.plate.clear();
+    this.plate.roundRect(-w / 2 + 1, top + 1.5, w, h, 7).fill({ color: 0x000000, alpha: 0.25 });
+    this.plate.roundRect(-w / 2, top, w, h, 7).fill({ color: 0x161920, alpha: 0.94 });
+    this.plate.roundRect(-w / 2, top, w, h, 7).stroke({
+      color: urgent ? ATTENTION : 0x2a2f3a,
+      width: urgent ? 1.5 : 1,
+      alpha: urgent ? 1 : 0.9,
+    });
   }
 }
 
@@ -229,16 +271,19 @@ const MIN_SIGN_SCALE = 0.72;
 /** Room between the notice and the counter when the sign carries both. */
 const DETAIL_GAP = 4;
 
-/** The sign over a block's front corner: the machine's name, its notice and how many need you. */
+/** Overlay status for a machine (notice / needs you). The name itself is the pavement plaque. */
 export class MachineSign extends Sign {
   /** its own text: the counter is the one thing an offline machine must NOT say quietly */
   private readonly count = new Text({ text: '', style: text(11, ATTENTION) });
+  /** false when there is nothing to say beyond the world plaque */
+  hasStatus = false;
 
   constructor(world: { x: number; y: number }, model: MachineModel) {
-    super(world, 16, MACHINE_LIFT);
+    super(world, 13, MACHINE_LIFT);
     this.count.anchor.set(0.5, 0);
     this.root.addChild(this.count);
     this.root.zIndex = SIGN_Z.machine;
+    this.name.visible = false;
     this.apply(model);
   }
 
@@ -246,14 +291,15 @@ export class MachineSign extends Sign {
     const counter = model.needsYou > 0 ? needsYouText(model.needsYou) : '';
     const notice = model.notice ? NOTICE[model.notice] : '';
     this.count.text = counter;
-    // the separator belongs to the notice, so it dims with it
-    this.write(model.label, notice ? [counter ? `${notice} ·` : notice] : [], false, model.lit);
-    // notice and counter are two texts on one line: centre the pair, not each half
+    this.hasStatus = !!(notice || counter);
+    this.write('', notice ? [counter ? `${notice} ·` : notice] : [], false, model.lit);
     const noticeW = this.detailWidth;
     const countW = counter ? this.count.width : 0;
     const total = noticeW + (noticeW && countW ? DETAIL_GAP : 0) + countW;
     this.detailX = noticeW / 2 - total / 2;
     this.count.x = total / 2 - countW / 2;
+    this.count.visible = !!counter;
+    this.detail.visible = !!notice;
   }
 
   place(view: View, screen: { width: number; height: number }): void {

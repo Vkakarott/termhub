@@ -1,9 +1,10 @@
 /** The city in PixiJS: one block per machine, rooms and desks inside. Knows nothing about tabs, the API or React. */
-import { Application, CanvasSource, Container, Rectangle, Texture, UPDATE_PRIORITY, type Graphics } from 'pixi.js';
+import { Application, CanvasSource, Container, ImageSource, Rectangle, Texture, UPDATE_PRIORITY, type Graphics } from 'pixi.js';
 import { BLOCK_MARGIN, blockBounds, cityBounds, layoutCity, placedRoomBounds, roomOnCity, type CityLayout, type PlacedBlock } from '../layout/city';
 import type { PlacedRoom } from '../layout/floor';
 import { depthOf, toScreen } from '../layout/iso';
 import { sameFocus, type CityModel, type FocusTarget } from '../model';
+import { ART_URLS } from '../pack/art';
 import { generatedPack } from '../pack/generated';
 import type { PackManifest } from '../pack/manifest';
 import { Camera, sameBox, type Box } from './camera';
@@ -11,7 +12,10 @@ import { signVisibility } from './detail';
 import { FrameListeners } from './frames';
 import { DeskOverlay, MachineSign, RoomSign } from './Overlay';
 import { DeskView, type Textures } from './PersonView';
+import { MachinePlaque, machinePlaqueArtKey } from './MachinePlaque';
+import { RoomLamp } from './RoomLamp';
 import { drawBlock, drawRoom, WALL_H } from './RoomView';
+import { RoomWallPlaque } from './wallPlaque';
 
 /**
  * Zoom from which a free-roaming view is close enough to be read as a room: a label keeps its
@@ -32,11 +36,15 @@ const BLOCK_BOTTOM = SIGN_H + 32;
 /** What is left of an unlit machine's furniture and people. Its markers keep their full strength. */
 const UNLIT_ALPHA = 0.45;
 
-/** One room as drawn, so a light going out can repaint it where it stands. */
+/** One room as drawn, so a light going out can flip the corner lamp without rebuilding. */
 interface DrawnRoom {
   ground: Graphics;
   placed: PlacedRoom;
   lit: boolean;
+  /** framed name on the back wall — identity of the office, not the floating status card */
+  plaque: RoomWallPlaque;
+  /** corner lamp: on = warm wash, off = same furniture, dark fixture */
+  lamp: RoomLamp;
 }
 
 /** One machine as drawn. `rooms` and `signs` are in model order, which the shape check pins. */
@@ -45,6 +53,8 @@ interface DrawnMachine {
   ground: Graphics;
   lit: boolean;
   sign: MachineSign;
+  /** freestanding nameplate on the front pavement — scales with office count */
+  plaque: MachinePlaque;
   rooms: DrawnRoom[];
   signs: RoomSign[];
   /** every desk of this machine, so its light going out dims them all without a rebuild */
@@ -69,6 +79,8 @@ export class OfficeScene {
   private readonly things = new Container();
   private readonly overlay = new Container();
   private textures: Textures = {};
+  /** pixel-art props outside the generated atlas (e.g. machine-signin/lg) */
+  private art: Record<string, Texture> = {};
   /** the pack's atlas: ours to free, since nothing else knows about it */
   private source: CanvasSource | null = null;
   private manifest: PackManifest | null = null;
@@ -127,6 +139,14 @@ export class OfficeScene {
     for (const [key, def] of Object.entries(pack.manifest.sprites)) {
       this.textures[key] = def.frames.map((f) => new Texture({ source: this.source!, frame: new Rectangle(f.x, f.y, f.w, f.h) }));
     }
+    await this.loadArt();
+    if (this.destroyed) {
+      for (const texture of Object.values(this.art)) texture.destroy(true);
+      this.art = {};
+      this.source?.destroy();
+      this.source = null;
+      return app.destroy(true, { children: true });
+    }
     app.stage.addChild(this.world, this.overlay);
     this.camera = new Camera(app.canvas);
     this.camera.locked = this.cameraLocked;
@@ -181,8 +201,30 @@ export class OfficeScene {
     this.app = null;
     for (const frames of Object.values(this.textures)) for (const texture of frames) texture.destroy();
     this.textures = {};
+    for (const texture of Object.values(this.art)) texture.destroy(true);
+    this.art = {};
     this.source?.destroy();
     this.source = null;
+  }
+
+  /** Loads PNGs from `pack/art` as nearest-neighbour textures. */
+  private async loadArt(): Promise<void> {
+    await Promise.all(
+      Object.entries(ART_URLS).map(async ([key, url]) => {
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = url;
+        await img.decode();
+        const source = new ImageSource({ resource: img, scaleMode: 'nearest' });
+        this.art[key] = new Texture({ source });
+      }),
+    );
+  }
+
+  /** Texture for a machine plaque when that size ships art; otherwise null (procedural). */
+  private plaqueArt(offices: number): Texture | null {
+    const key = machinePlaqueArtKey(offices);
+    return key ? this.art[key] ?? null : null;
   }
 
   get fps(): number {
@@ -227,6 +269,7 @@ export class OfficeScene {
         for (const view of drawn.views) view.root.alpha = machine.lit ? 1 : UNLIT_ALPHA;
       }
       drawn.sign.apply(machine);
+      drawn.plaque.apply(drawn.block, { label: machine.label, lit: machine.lit }, machine.floor.rooms.length, this.plaqueArt(machine.floor.rooms.length));
       machine.floor.rooms.forEach((room, i) => {
         // a room of an unlit machine is dark whatever its own project says
         const lit = room.lit && machine.lit;
@@ -235,7 +278,9 @@ export class OfficeScene {
           drawnRoom.lit = lit;
           drawRoom(drawnRoom.placed, lit, drawnRoom.ground);
         }
-        drawn.signs[i]?.apply(room);
+        drawn.signs[i]?.apply(room, lit);
+        drawnRoom?.plaque.apply(drawnRoom.placed, { label: room.label, lit });
+        drawnRoom?.lamp.apply(lit);
         for (const d of room.desks) {
           const desk = this.desks.get(deskKey(machine.id, d.id));
           desk?.view.apply(d);
@@ -324,7 +369,10 @@ export class OfficeScene {
       const sign = new MachineSign(front, machine);
       sign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickMachine(machine.id)));
       this.overlay.addChild(sign.root);
-      const drawn: DrawnMachine = { block, ground, lit: machine.lit, sign, rooms: [], signs: [], views: [] };
+      const offices = machine.floor.rooms.length;
+      const plaque = new MachinePlaque(block, { label: machine.label, lit: machine.lit }, offices, this.plaqueArt(offices));
+      this.things.addChild(plaque.root);
+      const drawn: DrawnMachine = { block, ground, lit: machine.lit, sign, plaque, rooms: [], signs: [], views: [] };
       this.machines.set(machine.id, drawn);
       machine.floor.rooms.forEach((room, i) => {
         const placed = roomOnCity(block, block.floor.rooms[i]);
@@ -332,16 +380,20 @@ export class OfficeScene {
         const roomGround = drawRoom(placed, lit);
         roomGround.on('pointertap', () => this.clicked(() => this.handlers.onPickRoom(machine.id, room.id)));
         this.floor.addChild(roomGround);
-        drawn.rooms.push({ ground: roomGround, placed, lit });
+        const plaque = new RoomWallPlaque(placed, { label: room.label, lit });
+        this.things.addChild(plaque.root);
+        const lamp = new RoomLamp(placed, lit);
+        this.things.addChild(lamp.root);
+        drawn.rooms.push({ ground: roomGround, placed, lit, plaque, lamp });
         const corner = toScreen(placed.origin.gx, placed.origin.gy);
-        const roomSign = new RoomSign({ x: corner.x, y: corner.y - WALL_H - 6 }, room);
+        const roomSign = new RoomSign({ x: corner.x, y: corner.y - WALL_H - 6 }, room, lit);
         roomSign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickSign(room.id)));
         drawn.signs.push(roomSign);
         this.overlay.addChild(roomSign.root);
         room.desks.forEach((d, j) => {
           const cell = { gx: placed.origin.gx + placed.layout.desks[j].gx, gy: placed.origin.gy + placed.layout.desks[j].gy };
           const at = toScreen(cell.gx, cell.gy);
-          const view = new DeskView(d, this.textures, this.manifest!, this.reducedMotion);
+          const view = new DeskView(d, this.textures, this.manifest!, this.reducedMotion, j, this.art);
           view.root.position.set(at.x, at.y);
           view.root.zIndex = depthOf(cell);
           // an unlit machine's furniture and people fade; their markers, in the overlay, do not
@@ -392,11 +444,12 @@ export class OfficeScene {
     // `place` turns a sign off again when its anchor has left the viewport
     for (const [machineId, drawn] of this.machines) {
       const show = signVisibility(target, view.scale, machineId);
-      drawn.sign.root.visible = show.machineSign;
-      if (show.machineSign) drawn.sign.place(view, screen);
+      drawn.sign.root.visible = show.machineSign && drawn.sign.hasStatus;
+      if (drawn.sign.root.visible) drawn.sign.place(view, screen);
       for (const sign of drawn.signs) {
-        sign.root.visible = show.roomSigns;
-        if (show.roomSigns) sign.place(view, screen);
+        // only active offices carry a floating card — paused / dark rooms stay unlabeled up here
+        sign.root.visible = show.roomSigns && sign.active;
+        if (sign.root.visible) sign.place(view, screen);
       }
     }
   }

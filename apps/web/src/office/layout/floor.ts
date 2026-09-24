@@ -21,8 +21,8 @@ export interface FloorLayout {
   height: number;
 }
 
-const GAP_X = 1;
-const CORRIDOR = 2;
+const GAP_X = 2;
+const CORRIDOR = 4;
 
 /** Packs each room's layout with the shared shelf packer; see shelves.ts for how packing works. */
 export function layoutFloor(rooms: RoomInput[], targetWidth?: number): FloorLayout {

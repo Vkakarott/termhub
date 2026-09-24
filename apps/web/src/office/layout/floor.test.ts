@@ -9,9 +9,9 @@ describe('layoutFloor', () => {
     const floor = layoutFloor([{ id: 'a', desks: 2 }, { id: 'b', desks: 2 }, { id: 'c', desks: 2 }], 12);
     expect(floor.rooms.map((r) => r.id)).toEqual(['a', 'b', 'c']);
     expect(floor.rooms[1].origin.gy).toBe(floor.rooms[0].origin.gy);
-    expect(floor.rooms[1].origin.gx).toBe(floor.rooms[0].layout.width + 1);
+    expect(floor.rooms[1].origin.gx).toBe(floor.rooms[0].layout.width + 2);
     expect(floor.rooms[2].origin.gx).toBe(0);
-    expect(floor.rooms[2].origin.gy).toBe(floor.rooms[0].layout.height + 2);
+    expect(floor.rooms[2].origin.gy).toBe(floor.rooms[0].layout.height + 4);
   });
 
   it('never overlaps rooms of very different sizes', () => {
