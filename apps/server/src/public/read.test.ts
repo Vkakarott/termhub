@@ -51,17 +51,16 @@ describe('readPublicCityCached', () => {
     expect(findByNickname).toHaveBeenCalledTimes(2);
   });
 
-  // A building leaving the street (owner reassigned, machine deleted, project unlinked) is as
-  // immediate as an unpublish.
-  it('forgets everything the moment rooms leave the street', async () => {
+  // Robots leaving the street (owner reassigned, machine deleted, project unlinked) is as immediate
+  // as an unpublish.
+  it('forgets everything the moment robots leave the street', async () => {
     const { repos, findByNickname } = stubRepos();
     await readPublicCityCached(repos, 'pedro');
-    publicBus.publishRoomsGone({ machine_id: 'm1' });
+    publicBus.publishRobotsGone({ machine_id: 'm1' });
     await readPublicCityCached(repos, 'pedro');
     expect(findByNickname).toHaveBeenCalledTimes(2);
   });
 
-  // A deleted owner takes their nickname and their city with them, at once.
   it('forgets everything the moment an owner is deleted', async () => {
     const { repos, findByNickname } = stubRepos();
     await readPublicCityCached(repos, 'pedro');

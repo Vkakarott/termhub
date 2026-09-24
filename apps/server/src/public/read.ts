@@ -45,39 +45,6 @@ export async function resolvePublicCity(repos: Pick<Repositories, 'machines' | '
   return { projects, machines };
 }
 
-/**
- * What a person's city is made of (merge ruling 2): their published, non-archived projects, and the
- * machines THEY own that at least one of those projects is linked to. A room is one (published
- * project, owned machine) pair. A project linked to a machine somebody else owns never brings that
- * machine along — publishing one's project must not expose another person's machine — so such a
- * link simply has no room. Buildings keep the machines' own order; rooms keep the projects' (by name).
- */
-export async function resolvePublicRooms(
-  repos: Pick<Repositories, 'machines' | 'projects' | 'projectMachines'>,
-  ownerId: string,
-): Promise<Array<{ machine: Machine; projects: Project[] }>> {
-  // An empty id must never reach `projects.list`, where a falsy owner could read as "no filter".
-  if (!ownerId) return [];
-  // `projects.list({ owner })` already filters by owner; checked again here for the same reason as
-  // the machines below: this is the line that decides whose work goes on the street.
-  const projects = (await repos.projects.list({ owner: ownerId })).filter((p) => p.owner_id === ownerId && p.is_public && p.status !== 'archived');
-  if (projects.length === 0) return [];
-  const [machines, links] = await Promise.all([repos.machines.list(ownerId), repos.projectMachines.listByProjects(projects.map((p) => p.id))]);
-  const buildings = [];
-  for (const machine of machines) {
-    // machines.list(ownerId) already filters by owner; checked again here because this is the one
-    // line standing between a published project and somebody else's machine
-    if (machine.owner_id !== ownerId) continue;
-    const linked = new Set(links.filter((l) => l.machine_id === machine.id).map((l) => l.project_id));
-    const rooms = projects.filter((p) => linked.has(p.id));
-    if (rooms.length > 0) buildings.push({ machine, projects: rooms });
-  }
-  return buildings;
-}
-
-/** The key of one public room, as the live channel tracks it. */
-export const roomKey = (projectId: string, machineId: string): string => `${projectId}:${machineId}`;
-
 export async function readPublicCity(repos: Repositories, nickname: string): Promise<PublicCity | undefined> {
   const owner = await repos.users.findByNickname(nickname);
   if (!owner) return undefined;
@@ -111,8 +78,8 @@ const cityMemo = new Map<string, { at: number; city: Promise<PublicCity | undefi
 // A publish, an unpublish, an archive, an unarchive or a deletion drops every memoised city at once: those are
 // rare, and an unpublished room must be gone for the very next read, not a few seconds later.
 publicBus.subscribe(() => cityMemo.clear());
-// A building or a room leaving the street (owner reassigned, machine deleted, project unlinked), likewise.
-publicBus.subscribeRoomsGone(() => cityMemo.clear());
+// Robots leaving the street (a machine reassigned or deleted, a project unlinked), likewise.
+publicBus.subscribeRobotsGone(() => cityMemo.clear());
 // A deleted owner (their nickname, and so their whole city), likewise.
 publicBus.subscribeOwnerGone(() => cityMemo.clear());
 // A closed tab, likewise: a reload right after must not bring its robot back for a few seconds.
