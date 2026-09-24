@@ -17,6 +17,7 @@ import { SignJWT, exportJWK, generateKeyPair, importJWK, type JWK, type KeyLike 
 import WebSocket from 'ws';
 import { canonicalHtu, decisionProofMessage, formatVerificationCode } from '@termhub/mobile-api';
 import { pinProofFor } from '../mobile/codes.js';
+import { describeError } from './mobile-client-errors.js';
 
 const API = '/api/m/v1';
 const APP_HEADER = 'ios/0.0.1+1';
@@ -106,6 +107,8 @@ function loadState(): State | null {
 
 function saveState(state: State): void {
   fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  // mkdir's mode is masked by the umask and ignored for a directory that already exists.
+  fs.chmodSync(path.dirname(statePath), 0o700);
   fs.writeFileSync(statePath, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.chmodSync(statePath, 0o600);
 }
@@ -152,8 +155,17 @@ class ApiError extends Error {
     readonly status: number,
     readonly code: string | undefined,
     readonly body: Record<string, unknown>,
+    readonly retryAfter: string | null,
   ) {
-    super(`${status}${code ? ` ${code}` : ''}`);
+    super(
+      describeError({
+        status,
+        code,
+        message: typeof body.error === 'string' ? body.error : undefined,
+        failures: typeof body.failures === 'number' ? body.failures : undefined,
+        retryAfter,
+      }),
+    );
   }
 }
 
@@ -197,7 +209,7 @@ async function call<T = Record<string, unknown>>(method: string, apiPath: string
       state = null;
       console.log(`Aparelho removido da conta (401 DEVICE_REVOKED): ${statePath} apagado. Rode de novo para cadastrar.`);
     }
-    throw new ApiError(res.status, code, json);
+    throw new ApiError(res.status, code, json, res.headers.get('retry-after'));
   }
   return json as T;
 }
@@ -400,8 +412,7 @@ async function repl(): Promise<void> {
       }
     } catch (err) {
       if (err instanceof ApiError) {
-        const failures = typeof err.body.failures === 'number' ? ` (${err.body.failures} erros de PIN)` : '';
-        console.log(`Erro ${err.message}${failures}`);
+        console.log(err.message);
         if (err.code === 'DEVICE_REVOKED') return;
         // Expired, or deleted by a revoke: renewing tells the two apart (a revoked device gets DEVICE_REVOKED).
         if (err.code === 'TOKEN_INVALID') {
@@ -429,7 +440,7 @@ async function main(): Promise<void> {
 
 main()
   .catch((err) => {
-    console.error(err instanceof ApiError ? `Erro ${err.message}` : `Erro: ${(err as Error).message}`);
+    console.error(err instanceof ApiError ? err.message : `Erro: ${(err as Error).message}`);
     process.exitCode = 1;
   })
   .finally(() => rl.close());
