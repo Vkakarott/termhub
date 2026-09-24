@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Machine, Project, Task, TaskColumn } from '../lib/types';
 
@@ -45,18 +45,24 @@ const col = (id: string, name: string, category: TaskColumn['category'], positio
 const columns = [col('c3', 'Feito', 'done', 2), col('c1', 'A fazer', 'todo', 0), col('c2', 'Em revisão', 'doing', 1)];
 const board = (tasks: Task[]) => ({ tasks, columns, agent_column_id: null });
 
-function mount() {
+function LocationProbe() {
+  const l = useLocation();
+  return <output data-testid="location">{`${l.pathname}|${(l.state as { from?: string } | null)?.from ?? ''}`}</output>;
+}
+
+type Entry = string | { pathname: string; state: unknown };
+
+function mount(openTaskId?: string, entry: Entry = '/projects/p1/tasks') {
   return render(
-    <MemoryRouter>
-      <TasksBoard projectId="p1" />
+    <MemoryRouter initialEntries={[entry]}>
+      <TasksBoard projectId="p1" openTaskId={openTaskId} />
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
 
-/** Opens the card editor and clicks "Abrir terminal para esta task". */
-async function requestTerminal(taskTitle = 't1') {
-  await screen.findByText(taskTitle);
-  fireEvent.click(screen.getByTitle('Abrir card'));
+/** With the card's editor open (its URL), clicks "Abrir terminal para esta task". */
+async function requestTerminal() {
   fireEvent.click(await screen.findByRole('button', { name: /Abrir terminal para esta task/ }));
 }
 
@@ -126,7 +132,7 @@ describe('TasksBoard — columns, cards and filter', () => {
 describe('TasksBoard — choosing a machine to open a task terminal', () => {
   it('opens directly on the only linked machine, without a picker', async () => {
     openTerminalMock.mockResolvedValue({ task: task({ id: 't1', tab_id: 'tab1' }), tab: { id: 'tab1' }, created: true });
-    mount();
+    mount('t1');
     await requestTerminal();
     await waitFor(() => expect(openTerminalMock).toHaveBeenCalledWith('t1', 'm1'));
     expect(screen.queryByText('Abrir em qual máquina?')).not.toBeInTheDocument();
@@ -135,7 +141,7 @@ describe('TasksBoard — choosing a machine to open a task terminal', () => {
   it('shows a picker with several machines when none was used before, and remembers the pick', async () => {
     project = { id: 'p1', key: 'P1', name: 'p1', machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }, { machine_id: 'm2', cwd: '/b', position: 1 }] } as Project;
     openTerminalMock.mockResolvedValue({ task: task({ id: 't1', tab_id: 'tab1' }), tab: { id: 'tab1' }, created: true });
-    mount();
+    mount('t1');
     await requestTerminal();
     expect(await screen.findByText('Abrir em qual máquina?')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /jarvis/ }));
@@ -147,7 +153,7 @@ describe('TasksBoard — choosing a machine to open a task terminal', () => {
     localStorage.setItem('termhub:last-machine:p1', 'm2');
     project = { id: 'p1', key: 'P1', name: 'p1', machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }, { machine_id: 'm2', cwd: '/b', position: 1 }] } as Project;
     openTerminalMock.mockResolvedValue({ task: task({ id: 't1', tab_id: 'tab1' }), tab: { id: 'tab1' }, created: true });
-    mount();
+    mount('t1');
     await requestTerminal();
     await waitFor(() => expect(openTerminalMock).toHaveBeenCalledWith('t1', 'm2'));
     expect(screen.queryByText('Abrir em qual máquina?')).not.toBeInTheDocument();
@@ -155,9 +161,31 @@ describe('TasksBoard — choosing a machine to open a task terminal', () => {
 
   it('shows the no-machine error and never calls the API when the project has no linked machine', async () => {
     project = { id: 'p1', key: 'P1', name: 'p1', machines: [] } as unknown as Project;
-    mount();
+    mount('t1');
     await requestTerminal();
     expect(await screen.findByText('Vincule uma máquina ao projeto em Setup → Máquinas para abrir terminais.')).toBeInTheDocument();
     expect(openTerminalMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('TasksBoard — card URLs', () => {
+  it('opening a card goes to /project/<ref>, remembering the section', async () => {
+    mount();
+    await screen.findByText('t1');
+    fireEvent.click(screen.getByTitle('Abrir card'));
+    expect(screen.getByTestId('location').textContent).toBe('/project/P1-t1|/projects/p1/tasks');
+  });
+
+  it('shows the editor of the card in the URL; closing goes back to the section it came from', async () => {
+    mount('t1', { pathname: '/project/P1-t1', state: { from: '/projects/p1/backlog' } });
+    expect(await screen.findByRole('heading', { name: 'P1-t1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
+    expect(screen.getByTestId('location').textContent).toBe('/projects/p1/backlog|');
+  });
+
+  it('closing a card opened from a pasted link goes to the board', async () => {
+    mount('t1', '/project/P1-t1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Fechar' }));
+    expect(screen.getByTestId('location').textContent).toBe('/projects/p1/tasks|');
   });
 });

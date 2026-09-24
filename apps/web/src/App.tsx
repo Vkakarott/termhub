@@ -9,6 +9,7 @@ import { retryOnceOnImportFailure } from './lib/lazy-retry';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
+import { CardPage } from './pages/CardPage';
 import { ChatPage } from './pages/ChatPage';
 import { MachinesPage } from './pages/MachinesPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -57,6 +58,8 @@ export function AppRoutes() {
           <Route path="/settings/:section" element={<SettingsPage />} />
           <Route path="/projects/:id" element={<ProjectPage />} />
           <Route path="/projects/:id/:section" element={<ProjectPage />} />
+          {/* a card's own URL (spec §7): TER-12 = project key + card number */}
+          <Route path="/project/:ref" element={<CardPage />} />
           <Route path="/office" element={<OfficeRoute />} />
           <Route path="/office/:machineId" element={<OfficeRoute />} />
         </Route>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
-import { applyMove, cardsIn, dropPosition, epicsOf, FILTER_TYPES, nextColumn, openCount, readBoardFilter, visible, writeBoardFilter, type BoardFilter } from '../lib/board';
+import { applyMove, cardPath, cardsIn, dropPosition, epicsOf, FILTER_TYPES, nextColumn, openCount, readBoardFilter, visible, writeBoardFilter, type BoardFilter } from '../lib/board';
 import { useData } from '../lib/data';
 import { readLastMachine, writeLastMachine } from '../lib/last-machine';
 import { COLUMN_CATEGORY_LABEL, PROVIDER_LABEL, TASK_TYPE_LABEL, type ColumnCategory, type Task, type TaskColumn, type TaskPatchInput, type TaskType } from '../lib/types';
@@ -13,6 +13,8 @@ const CATEGORY_DOT: Record<ColumnCategory, string> = { todo: 'bg-fg-dim', doing:
 
 interface Props {
   projectId: string;
+  /** `/project/:ref`: the card whose editor is open — the URL owns it */
+  openTaskId?: string;
 }
 
 interface DragState {
@@ -22,16 +24,16 @@ interface DragState {
 }
 
 /** The project's Board (spec §7): its own columns, a type/epic filter, cards with type, ref and epic. */
-export function TasksBoard({ projectId }: Props) {
+export function TasksBoard({ projectId, openTaskId }: Props) {
   const { projects, machinesOf, setOpenTasks } = useData();
   const navigate = useNavigate();
+  const location = useLocation();
   const project = projects.find((p) => p.id === projectId);
   const projectMachines = project ? machinesOf(project) : [];
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [columns, setColumns] = useState<TaskColumn[]>([]);
   const [filter, setFilter] = useState<BoardFilter>(() => readBoardFilter(projectId));
   const [error, setError] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [pickingMachineFor, setPickingMachineFor] = useState<string | null>(null);
 
@@ -55,7 +57,11 @@ export function TasksBoard({ projectId }: Props) {
 
   const epics = useMemo(() => epicsOf(tasks ?? []), [tasks]);
   const epicTitle = useMemo(() => new Map(epics.map((e) => [e.id, e.title])), [epics]);
-  const editing = editingId ? ((tasks ?? []).find((t) => t.id === editingId) ?? null) : null;
+  const editing = openTaskId ? ((tasks ?? []).find((t) => t.id === openTaskId) ?? null) : null;
+  /** The section a card was opened from; the card URL keeps it in the history state (a pasted link has none). */
+  const from = (location.state as { from?: string } | null)?.from ?? `/projects/${projectId}/tasks`;
+  const openCard = (task: Task) => navigate(cardPath(task.ref), { state: { from: location.pathname.startsWith('/project/') ? from : location.pathname } });
+  const closeCard = () => navigate(from);
 
   const changeFilter = (next: BoardFilter) => {
     setFilter(next);
@@ -120,7 +126,6 @@ export function TasksBoard({ projectId }: Props) {
       const r = await api.tasks.openTerminal(id, machineId);
       if (machineId) writeLastMachine(projectId, machineId);
       replaceTask(r.task);
-      setEditingId(null);
       navigate(`/projects/${projectId}?tab=${r.tab.id}`);
     } catch (e) {
       fail(e, 'Erro ao abrir terminal');
@@ -158,7 +163,7 @@ export function TasksBoard({ projectId }: Props) {
 
   /** Not optimistic: an epic that still has cards is refused (409) and must stay on screen. */
   const remove = async (id: string) => {
-    setEditingId(null);
+    if (openTaskId === id) closeCard();
     try {
       await api.tasks.remove(id);
       setTasks((t) => (t ?? []).filter((x) => x.id !== id));
@@ -244,7 +249,7 @@ export function TasksBoard({ projectId }: Props) {
                       dragging={drag?.taskId === task.id}
                       onDragStart={(e) => onDragStart(e, task)}
                       onDragEnd={() => setDrag(null)}
-                      onOpen={() => setEditingId(task.id)}
+                      onOpen={() => openCard(task)}
                       onRename={(title) => void update(task.id, { title })}
                       next={next}
                       onMoveNext={next ? () => void move(task.id, next.id, 0) : undefined}
@@ -267,7 +272,7 @@ export function TasksBoard({ projectId }: Props) {
           columns={columns}
           epics={epics}
           terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
-          onClose={() => setEditingId(null)}
+          onClose={closeCard}
           onSave={(patch) => void update(editing.id, patch)}
           onPlace={(target) => void place(editing.id, target)}
           onDelete={() => void remove(editing.id)}

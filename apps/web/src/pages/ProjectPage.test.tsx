@@ -29,7 +29,7 @@ vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
 // API calls — and none of it is this task's concern. Stubbed out so only the header and the publish
 // control, which this test is about, render for real.
 vi.mock('../components/TerminalsView', () => ({ TerminalsView: () => null }));
-vi.mock('../components/TasksBoard', () => ({ TasksBoard: () => null }));
+vi.mock('../components/TasksBoard', () => ({ TasksBoard: ({ openTaskId }: { openTaskId?: string }) => <div>board {openTaskId ?? ''}</div> }));
 vi.mock('../components/TicketsView', () => ({ TicketsView: () => null }));
 vi.mock('../components/NotesEditor', () => ({ NotesEditor: () => null }));
 vi.mock('../components/ProjectSettings', () => ({ ProjectSettings: () => null }));
@@ -205,5 +205,20 @@ describe('ProjectPage header', () => {
     expect(within(tabs).getByRole('link', { name: /Tarefas/ }).textContent).toBe('Tarefas3');
     expect(within(tabs).getByRole('link', { name: 'Terminais' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('switch', { name: /publicar/i }).closest('header')).not.toBeNull();
+  });
+});
+
+describe('ProjectPage with a card', () => {
+  it('shows the Board with that card open, whatever the URL is', () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    render(
+      <MemoryRouter initialEntries={['/project/MEU-3']}>
+        <Routes>
+          <Route path="/project/:ref" element={<ProjectPage card={{ projectId: 'p1', taskId: 'k3' }} />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('board k3')).toBeTruthy();
   });
 });

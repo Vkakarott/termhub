@@ -20,8 +20,15 @@ const SECTIONS: { key: ProjectSection; label: string; path: string }[] = [
   { key: 'settings', label: 'Setup', path: 'settings' },
 ];
 
-export function ProjectPage() {
-  const { id, section } = useParams<{ id: string; section?: string }>();
+interface Props {
+  /** `/project/:ref` (CardPage): the card's project, on its Board, with the card's editor open */
+  card?: { projectId: string; taskId: string };
+}
+
+export function ProjectPage({ card }: Props = {}) {
+  const params = useParams<{ id: string; section?: string }>();
+  const id = card?.projectId ?? params.id;
+  const section = card ? 'tasks' : params.section;
   const { projects, machinesOf, statuses, loading } = useData();
   const project = projects.find((p) => p.id === id);
   const current: ProjectSection = SECTIONS.find((s) => s.path === (section ?? ''))?.key ?? 'terminals';
@@ -67,7 +74,7 @@ export function ProjectPage() {
       <div className="relative min-h-0 flex-1">
         {/* Terminais ficam montados mesmo em outras seções: trocar de aba não reconecta. */}
         <TerminalsView key={`terminals-${project.id}`} project={project} visible={current === 'terminals'} />
-        {current === 'tasks' && <TasksBoard key={`tasks-${project.id}`} projectId={project.id} />}
+        {current === 'tasks' && <TasksBoard key={`tasks-${project.id}`} projectId={project.id} openTaskId={card?.taskId} />}
         {current === 'tickets' && <TicketsView key={`tickets-${project.id}`} project={project} />}
         {current === 'notes' && <NotesEditor key={`notes-${project.id}`} projectId={project.id} />}
         {current === 'settings' && (
