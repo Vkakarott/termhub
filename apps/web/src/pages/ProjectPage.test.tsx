@@ -55,7 +55,6 @@ function machine(id: string, name: string): Machine {
     owner_id: 'u1',
     owner_name: 'pedro',
     created_at: '2026-01-01T00:00:00Z',
-    public_id: 'mpub1',
   };
 }
 
@@ -105,11 +104,11 @@ describe('ProjectPage publish switch', () => {
     renderPage(proj);
 
     fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
-    expect(screen.getByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeTruthy();
-    // merge ruling 2: somebody else's machine linked to the project never shows, and the panel says so
-    expect(screen.getByText(/máquinas de outras pessoas vinculadas ao projeto não aparecem/i)).toBeTruthy();
-    // spec §4: the owner's display name and nickname become public too
-    expect(screen.getByText(/seu nome e seu apelido/i)).toBeTruthy();
+    expect(screen.getByText(/o nome do projeto e cada agente \(aba\) dele que roda nas suas máquinas/i)).toBeTruthy();
+    // city-by-project §5: an agent on somebody else's machine never shows, and the panel says so
+    expect(screen.getByText(/agentes em máquinas de outras pessoas não aparecem/i)).toBeTruthy();
+    // the owner's display name and nickname become public too
+    expect(screen.getByText(/além do seu nome e apelido/i)).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /publicar/i }));
@@ -158,7 +157,7 @@ describe('ProjectPage publish switch', () => {
     });
 
     expect(patchMock).toHaveBeenCalledWith(proj.id, expect.objectContaining({ is_public: false }));
-    expect(screen.queryByText(/o nome do projeto, o nome de cada máquina sua em que ele roda e todas as abas/i)).toBeNull();
+    expect(screen.queryByText(/o nome do projeto e cada agente \(aba\) dele que roda nas suas máquinas/i)).toBeNull();
   });
 
   it('says so when unpublishing fails, on the same path that bypasses the confirmation panel', async () => {

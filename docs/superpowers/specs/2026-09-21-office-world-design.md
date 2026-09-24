@@ -69,6 +69,10 @@ still reads both as "no sessions".
 
 ## 4. Levels and navigation
 
+> **Superseded by `2026-09-24-city-by-project-design.md`**: the city has one building per project
+> and two levels (city › project, `/office` and `/office/:projectId`); a machine is a tag on each
+> desk, not a building, and there are no rooms.
+
 **One continuous scene for the whole account, not separate screens.** The city is one scene: a
 block per machine, each block holding that machine's open floor — the projects' rooms side by side
 with the people inside. Entering a machine or a room is a camera move (eased zoom and pan), not a

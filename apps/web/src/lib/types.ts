@@ -26,6 +26,10 @@ export interface User {
   last_login_at: string | null;
   /** the address of this user's public city (`/city/@<nickname>`); null until claimed */
   nickname: string | null;
+  /** store-review mode: while in the future, this account's mobile device requests auto-approve */
+  review_enabled_until: string | null;
+  /** the admin who last set review_enabled_until; only the user-admin routes (/api/users) send it */
+  review_enabled_by?: string | null;
 }
 
 /** Side effects of an invite (the user row is created regardless). */
@@ -92,8 +96,6 @@ export interface Machine {
   /** terminal tabs on the machine, and how many of them ever reported a state to the monitor */
   tabs?: number;
   tabs_reporting?: number;
-  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
-  public_id: string;
 }
 
 /** Admin data-scope switch: null = own data, "all" = everything, or the impersonated user. */
@@ -142,8 +144,10 @@ export interface Project {
   created_at: string;
   /** machines the project runs on; empty = board and notes only */
   machines: ProjectMachineLink[];
-  /** whether this project's rooms (one per machine its owner owns) are readable on the owner's public city */
+  /** whether this project is a building on its owner's public city (with its agents on the owner's own machines) */
   is_public: boolean;
+  /** this project's building id on its owner's public city (one-way, from the server): the share link is built from it */
+  public_id: string;
   /** column a card moves to when an agent starts on it; null = automatic (first "Fazendo"). The board reads it from the tasks list. */
   agent_column_id?: string | null;
   /** tasks em "todo" + "doing" (vem na listagem) */
@@ -167,7 +171,7 @@ export interface ProjectInput {
   machine_id?: string;
   cwd?: string;
   create_dir?: boolean;
-  /** edit only (a project is born private): publishes its rooms on the owner's public city */
+  /** edit only (a project is born private): publishes it on the owner's public city */
   is_public?: boolean;
 }
 
@@ -440,7 +444,7 @@ export interface MonitorItem {
   machine: Machine;
 }
 
-/** GET /office/:machineId: a machine's floor, one room per non-archived project. */
+/** Board columns that count as a project's work in the office: todo, doing, done (not the backlog). */
 export interface OfficeTaskCounts {
   todo: number;
   doing: number;
@@ -459,27 +463,37 @@ export interface OfficeTab extends Tab {
   progress: OfficeTabProgress | null;
 }
 
-export interface OfficeRoom {
+/** One building of the office (GET /office): a project and every desk (tab) it has, whatever machine each runs on. */
+export interface OfficeBuilding {
   project: Project;
-  /** this room's id on the owner's public city: one per (project, machine), used by the share link */
+  /** the building's id on the owner's public city (the same as `project.public_id`) */
   public_id: string;
   tabs: OfficeTab[];
   /** null when the board could not be read (no `tasks:read`); a project with no tasks sends zeros */
   tasks: OfficeTaskCounts | null;
 }
 
-export interface OfficeSnapshot {
-  machine: Machine;
-  /** false when the machine could not be asked which tmux sessions are alive */
-  reachable: boolean;
-  rooms: OfficeRoom[];
+/** A machine one of the city's desks runs on: a detail of the desk, never a building. */
+export interface OfficeMachine {
+  id: string;
+  name: string;
+  subtitle: string | null;
+  type: MachineType;
+  online: boolean;
+  /** the tmux probe: false = it could not ask the machine; null = not probed (no terminal desk on it) */
+  reachable: boolean | null;
+}
+
+/** GET /office: the whole city — one building per non-archived project of the scope, and the machines its desks run on. */
+export interface OfficeCity {
+  projects: OfficeBuilding[];
+  machines: OfficeMachine[];
 }
 
 /**
  * The public city, mirrored field for field from apps/server/src/public/city.ts — the only shape a
- * visitor with no account ever sees. The names follow the office snapshot's on purpose, so the same
- * model code draws both (src/city/api.ts adapts one into the other). The ids are derived from the
- * real ones by the server and are what the public surfaces join on.
+ * visitor with no account ever sees. A building is a published project; nothing about a machine is
+ * in it. The ids are derived from the real ones by the server and are what the public surfaces join on.
  */
 export interface PublicRobot {
   id: string;
@@ -495,16 +509,10 @@ export interface PublicRobot {
   progress: { done: number; total: number } | null;
 }
 
-export interface PublicRoom {
-  id: string;
-  name: string;
-  robots: PublicRobot[];
-}
-
 export interface PublicBuilding {
   id: string;
   name: string;
-  rooms: PublicRoom[];
+  robots: PublicRobot[];
 }
 
 export interface PublicCity {
@@ -823,6 +831,56 @@ export interface WaitlistEntry {
 export type WaitlistInviteResult =
   | { id: string; error: string }
   | { id: string; user_id: string; existing: boolean; access: InviteResult['access']; mail: InviteResult['mail'] };
+
+/** Settings → Aparelhos: a phone's pending enrolment request, awaiting approve/deny. */
+export interface DeviceRequestView {
+  id: string;
+  device_name: string;
+  model: string;
+  platform: string;
+  os_version: string;
+  country: string | null;
+  city: string | null;
+  ip: string;
+  /** already formatted as 'XXX-XXX' */
+  verification_code: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export type DeviceStatus = 'active' | 'revoked';
+
+/** An enrolled phone as Settings → Aparelhos shows it. */
+export interface Device {
+  id: string;
+  user_id: string;
+  name: string;
+  platform: string;
+  model: string;
+  os_version: string;
+  app_version: string;
+  status: DeviceStatus;
+  revoked_at: string | null;
+  /** 'user' | 'admin' | 'pin_bruteforce' | 'review' | null */
+  revoked_reason: string | null;
+  pin_locked_until: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+}
+
+/** One row of the device trail (GET /devices/events), already carrying its pt-BR sentence. */
+export interface DeviceEventView {
+  id: string;
+  kind: string;
+  text: string;
+  created_at: string;
+}
+
+/** GET /devices/summary: feeds the global banner without listing every request/device. */
+export interface DevicesSummary {
+  pending_requests: number;
+  active_devices: number;
+}
 
 export type ApiTokenScope = 'read' | 'tasks' | 'terminals';
 

@@ -129,6 +129,17 @@ describe('POST /api/transcriptions', () => {
     expect(third.statusCode).toBe(409);
     expect((await app.inject({ method: 'POST', url: '/api/transcriptions', headers: { 'content-type': 'audio/webm', 'x-user': 'bob' }, payload: Buffer.from('x') })).statusCode).toBe(202);
   });
+
+  it('rejects a clip whisper measured past maxSeconds, even though the client-reported seconds were within range', async () => {
+    whisperAnswers(200, { text: 'texto longo', language: 'pt', duration: 400 });
+    const service = new TranscriptionService({ log: () => {} });
+    const job = service.start('u-alice', Buffer.from('x'), 'audio/mp4', 300, { maxSeconds: 330 });
+    await settle();
+    const view = service.view(service.get('u-alice', job.id));
+    expect(view.status).toBe('error');
+    expect(view.code).toBe('TOO_LONG');
+    expect(view.error).toBe('Áudio longo demais');
+  });
 });
 
 describe('GET /api/transcriptions/config', () => {

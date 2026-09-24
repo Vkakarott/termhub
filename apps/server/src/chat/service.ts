@@ -37,6 +37,13 @@ export interface RunnerInput {
   /** Project chats only: the server-composed focus text (spec §4.3). Absent for the account-wide chat. */
   append_system_prompt?: string | null;
 }
+/** A run that has started: both messages are stored and published; `done` settles when it ends. */
+export interface StartedRun {
+  conversation_id: string;
+  user_message_id: string;
+  assistant_message_id: string;
+  done: Promise<ChatMessage>;
+}
 export interface RunnerClient {
   run(input: RunnerInput): AsyncIterable<string>;
 }
@@ -70,7 +77,7 @@ export async function purgeExpiredActions(repos: Repositories, now = new Date())
  * of reach: a rejected write carries the rejected data, so logging one would put the injected sentence
  * or the proposed command in a log line — the one thing that must never be logged (spec §7.1).
  */
-const failureLabel = (err: unknown): string => {
+export const failureLabel = (err: unknown): string => {
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && code.length > 0) return code;
   return err instanceof Error ? err.name : typeof err;
@@ -314,9 +321,22 @@ export class ChatService {
     }
   }
 
-  /** A message the user typed, in the account-wide chat or in one of their projects' (`projectId`). */
+  /** A message the user typed, in the account-wide chat or in one of their projects' (`projectId`).
+   * Awaits the whole run: what the web's `POST /api/chat/messages` answers with. */
   async send(user: User, text: string, opts: { projectId?: string | null } = {}): Promise<ChatMessage> {
-    return this.sendIn(user, await this.conversationFor(user, opts.projectId ?? null), text);
+    return (await this.start(user, text, opts)).done;
+  }
+
+  /**
+   * The same message as `send`, but resolved as soon as the question and the empty answer are stored
+   * and published — for a client that cannot hold a request open for the whole run (the phone app).
+   * Everything that refuses the message outright (no host, busy, archived) still rejects this call
+   * itself, with nothing stored; what happens afterwards is `done`'s, which rejects exactly when `send`
+   * would have thrown (a setup failure). A caller that does not await `done` must attach its own
+   * `catch`: this never swallows it, since `send` relies on that rejection.
+   */
+  async start(user: User, text: string, opts: { projectId?: string | null } = {}): Promise<StartedRun> {
+    return this.startIn(user, await this.conversationFor(user, opts.projectId ?? null), text);
   }
 
   /** The project's focus text for this run, or null for the account-wide chat. Owner-scoped reads, so a
@@ -334,9 +354,16 @@ export class ChatService {
     return projectSystemPrompt(project, links.filter((l) => nameOf.has(l.machine_id)).map((l) => ({ machine: nameOf.get(l.machine_id)!, cwd: l.cwd })));
   }
 
-  /** One run in a given conversation — what `send`, a decision's re-injection and the drain share. The
-   * conversation's own id is the lock, so a project chat and the account-wide chat run side by side. */
+  /** One whole run in a given conversation — what a decision's re-injection and the drain await. */
   private async sendIn(user: User, conversation: ChatConversation, text: string, opts?: { beforeRun?: () => Promise<void> }): Promise<ChatMessage> {
+    return (await this.startIn(user, conversation, text, opts)).done;
+  }
+
+  /** The first half of a run — what `start`, `send`, a decision's re-injection and the drain share: the
+   * checks, the lock and the two stored messages. The rest is `finishRun`'s, started here and handed
+   * back as `done`. The conversation's own id is the lock, so a project chat and the account-wide chat
+   * run side by side. */
+  private async startIn(user: User, conversation: ChatConversation, text: string, opts?: { beforeRun?: () => Promise<void> }): Promise<StartedRun> {
     // Which machine and which account, before the lock is taken and before a single row is written: a
     // host that cannot run is not a failed answer, it is a message that was never sent. Storing the
     // question and an empty assistant bubble for it would leave the screen waiting on an answer nobody
@@ -353,6 +380,7 @@ export class ChatService {
     if (this.running.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
     const runner = this.deps.runnerFor(host.machine.id);
     this.running.add(conversation.id);
+    let handedOff = false;
     try {
       // Re-read under the lock: `conversation` was read before the host and prompt reads above, and a
       // `reset` in that gap archived it and revoked its tokens. `reset` holds this same lock for its
@@ -379,9 +407,34 @@ export class ChatService {
       const question = await this.deps.repos.chat.addMessage({ conversation_id: conversation.id, role: 'user', text });
       chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: question });
 
-      let answer = await this.deps.repos.chat.addMessage({ conversation_id: conversation.id, role: 'assistant', text: '' });
+      const answer = await this.deps.repos.chat.addMessage({ conversation_id: conversation.id, role: 'assistant', text: '' });
       chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: answer });
 
+      // Not awaited: this call resolves now, and the lock passes to `finishRun`, whose own `finally`
+      // releases it whether or not anybody ever awaits `done`.
+      const done = this.finishRun(user, conversation, text, question, answer, runner, host.configDir, appendSystemPrompt);
+      handedOff = true;
+      return { conversation_id: conversation.id, user_message_id: question.id, assistant_message_id: answer.id, done };
+    } finally {
+      // Anything thrown before the hand-off (an archived conversation, `beforeRun`, a failed insert)
+      // never reaches `finishRun`, so the lock is released here instead, exactly as it always was.
+      if (!handedOff) this.releaseLock(user, conversation.id);
+    }
+  }
+
+  /** The second half of a run: the stream, the one retry, the stored answer. Holds the lock `startIn`
+   * took and releases it in every path. Announces its end with `run_finished` exactly once. */
+  private async finishRun(
+    user: User,
+    conversation: ChatConversation,
+    text: string,
+    question: ChatMessage,
+    answer: ChatMessage,
+    runner: RunnerClient,
+    configDir: string | null,
+    appendSystemPrompt: string | null,
+  ): Promise<ChatMessage> {
+    try {
       let collected = '';
       let usage: unknown = null;
       /** Whether a `done` frame was seen for the run currently being consumed. A stream that ends
@@ -449,7 +502,7 @@ export class ChatService {
           session_id: sessionId,
           resume: conversation.cli_session_id !== null,
           text,
-          config_dir: host.configDir,
+          config_dir: configDir,
           model: conversation.model,
           token,
           append_system_prompt: appendSystemPrompt,
@@ -470,6 +523,7 @@ export class ChatService {
             // Re-publishing the question makes every open tab re-read the conversation, which is
             // how they learn the assistant row is gone (the bus has no "removed" event).
             chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: question });
+            this.publishSetupFailure(user, conversation.id);
             throw e;
           }
           // The stream itself broke (the container closed the socket, the deadline aborted it):
@@ -498,6 +552,7 @@ export class ChatService {
             if (isSetupFailure(e)) {
               await this.deps.repos.chat.deleteMessage(answer.id);
               chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: question });
+              this.publishSetupFailure(user, conversation.id);
               throw e;
             }
             errorCode = 'RUNNER_FAILED';
@@ -505,22 +560,33 @@ export class ChatService {
         }
       }
 
-      answer = await this.deps.repos.chat.updateMessage(answer.id, { text: collected, usage, error_code: errorCode });
-      chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: answer });
-      return answer;
+      const final = await this.deps.repos.chat.updateMessage(answer.id, { text: collected, usage, error_code: errorCode });
+      chatBus.publish({ type: 'message', user_id: user.id, conversation_id: conversation.id, message: final });
+      chatBus.publish({ type: 'run_finished', user_id: user.id, conversation_id: conversation.id, message_id: final.id, ok: errorCode === null, error_code: errorCode });
+      return final;
     } finally {
-      this.running.delete(conversation.id);
-      // The lock is free: if a decision was recorded while it was held (fix round 2) and could not
-      // be injected immediately, this is where it finally gets its turn. Scheduled, never awaited:
-      // the drain starts a CLI run of its own, whose completion schedules another — awaiting it would
-      // hold this request open across every run the backlog needs (a user who approves two actions
-      // during one run would keep their original `POST /api/chat/messages` open across three runs, and
-      // nginx would cut the client while the runs carried on). The answer this request came for is
-      // already stored and published, so the client loses nothing by being answered now: the injected
-      // runs reach it over the chat's own stream, exactly as they do for a decision taken while idle.
-      // `drainNextDecision` logs its own failure (metadata only) and resolves; the `catch` is the last
-      // guard that nothing from it can ever become this run's outcome or an unhandled rejection.
-      void this.drainNextDecision(user, conversation.id).catch(() => {});
+      this.releaseLock(user, conversation.id);
     }
+  }
+
+  /** A run that could not even be attempted (`isSetupFailure`): its assistant row is already gone. */
+  private publishSetupFailure(user: User, conversationId: string): void {
+    chatBus.publish({ type: 'run_finished', user_id: user.id, conversation_id: conversationId, message_id: null, ok: false, error_code: 'SETUP_FAILED' });
+  }
+
+  /** Frees a conversation's run lock and hands the conversation to the decision drain. */
+  private releaseLock(user: User, conversationId: string): void {
+    this.running.delete(conversationId);
+    // The lock is free: if a decision was recorded while it was held (fix round 2) and could not
+    // be injected immediately, this is where it finally gets its turn. Scheduled, never awaited:
+    // the drain starts a CLI run of its own, whose completion schedules another — awaiting it would
+    // hold this request open across every run the backlog needs (a user who approves two actions
+    // during one run would keep their original `POST /api/chat/messages` open across three runs, and
+    // nginx would cut the client while the runs carried on). The answer this request came for is
+    // already stored and published, so the client loses nothing by being answered now: the injected
+    // runs reach it over the chat's own stream, exactly as they do for a decision taken while idle.
+    // `drainNextDecision` logs its own failure (metadata only) and resolves; the `catch` is the last
+    // guard that nothing from it can ever become this run's outcome or an unhandled rejection.
+    void this.drainNextDecision(user, conversationId).catch(() => {});
   }
 }

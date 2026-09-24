@@ -10,6 +10,11 @@ the card needs no second file on disk); it does not reproduce that logo's full o
 Builds on `2026-09-21-office-world-design.md` (the office city, in production) and
 `2026-09-22-agent-activity-design.md` (the activity under each person, in production).
 
+> **Superseded by `2026-09-24-city-by-project-design.md`** for what a city is, its ids and the
+> sharing rules below: a building is a published project, its robots are that project's tabs on
+> machines the owner owns, nothing about a machine is public, and `RobotsGone` replaced `RoomsGone`.
+> The surfaces (snapshot, socket, card, document) are still described here.
+
 **Amended after merge with projects-decoupled** (`2026-09-22-projects-decoupled-from-machines-design.md`,
 where a project belongs to a user and links to 0..N machines, and a tab carries its machine). Where
 this spec says "the machine that hosts the project", read:

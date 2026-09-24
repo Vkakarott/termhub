@@ -27,7 +27,7 @@ class ThrowingRecorder {
 }
 
 const info = () => ({ ownerName: 'Pedro', working: 0, waiting: 0, shortLink: '77a.it/pedro' });
-const model = () => ({ machines: [], needsYou: 0 }) as unknown as CityModel;
+const model = () => ({ buildings: [], needsYou: 0 }) as unknown as CityModel;
 
 beforeEach(() => {
   sound.stop.mockReset();

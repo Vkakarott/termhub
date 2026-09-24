@@ -12,6 +12,11 @@ limit_req_zone $http_cf_connecting_ip zone=termhub_mcp:1m rate=10r/s;
 limit_req_zone $http_cf_connecting_ip zone=termhub_public:1m rate=5r/s;
 limit_conn_zone $http_cf_connecting_ip zone=termhub_public_conn:1m;
 
+# Mobile API (spec 2026-09-24): per-client budgets; the app authenticates every call itself
+limit_req_zone $http_cf_connecting_ip zone=termhub_mobile:1m rate=10r/s;
+limit_req_zone $http_cf_connecting_ip zone=termhub_mobile_enrol:1m rate=2r/s;
+limit_conn_zone $http_cf_connecting_ip zone=termhub_mobile_conn:1m;
+
 # Landing page
 server {
     listen 80;
@@ -62,6 +67,83 @@ server {
         proxy_buffering off;
         proxy_read_timeout 120s;
         client_max_body_size 256k;
+    }
+    # Mobile app (spec 2026-09-24): the phone signs every call with a device token + DPoP proof (public
+    # routes; no Access on this host). The path is forwarded untouched: every proof signs the exact URL.
+    # Enrolment requests and their status polls: the tightest budget, it is the one anonymous entry point
+    location /api/m/v1/devices/requests {
+        limit_req zone=termhub_mobile_enrol burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass http://$upstream_app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header CF-IPCountry      $http_cf_ipcountry;
+        proxy_set_header CF-IPCity         $http_cf_ipcity;
+        client_max_body_size 64k;
+        proxy_read_timeout 30s;
+    }
+    # Session challenge and token renewal (the PIN proof): same budget as enrolment
+    location /api/m/v1/session/ {
+        limit_req zone=termhub_mobile_enrol burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass http://$upstream_app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header CF-IPCountry      $http_cf_ipcountry;
+        proxy_set_header CF-IPCity         $http_cf_ipcity;
+        client_max_body_size 64k;
+        proxy_read_timeout 30s;
+    }
+    # Voice dictation: the recorded audio is streamed to the app unbuffered
+    location = /api/m/v1/transcriptions {
+        limit_except POST { deny all; }
+        limit_req zone=termhub_mobile burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass http://$upstream_app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header CF-IPCountry      $http_cf_ipcountry;
+        proxy_set_header CF-IPCity         $http_cf_ipcity;
+        proxy_request_buffering off;
+        client_max_body_size 32m;
+        proxy_read_timeout 120s;
+    }
+    # The rest of the mobile API: chat, devices, notifications, push token
+    location /api/m/ {
+        limit_req zone=termhub_mobile burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass http://$upstream_app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header CF-IPCountry      $http_cf_ipcountry;
+        proxy_set_header CF-IPCity         $http_cf_ipcity;
+        client_max_body_size 64k;
+        proxy_read_timeout 60s;
+    }
+    # The phone's chat stream (/ws/m/chat): a few sockets per client
+    location /ws/m/ {
+        limit_conn termhub_mobile_conn 4;
+        proxy_pass http://$upstream_app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 3600s;
     }
     # The public city: the page, its snapshot and its live channel (public routes; no Access on this host)
     location /city/ {

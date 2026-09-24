@@ -138,8 +138,8 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     }
     const project = await repos.projects.update(id, patch);
     // The public bus fans this out to any `/ws/public/:nickname` socket watching this project's
-    // rooms: a publish opens them up, an unpublish drops the connection at once (see public/ws.ts).
-    // Archiving takes the rooms out of the snapshot's filter too (`status !== 'archived'`), so it
+    // building: a publish opens them up, an unpublish drops the connection at once (see public/ws.ts).
+    // Archiving takes the building out of the snapshot's filter too (`status !== 'archived'`), so it
     // counts as "no longer publicly visible" here as well — the two surfaces must not disagree.
     if (patch.is_public !== undefined && patch.is_public !== current.is_public) {
       publicBus.publish({ project_id: id, is_public: patch.is_public });
@@ -147,7 +147,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     if (patch.status === 'archived' && current.status !== 'archived') {
       publicBus.publish({ project_id: id, is_public: false });
     }
-    // Unarchiving brings a published project's rooms back into the snapshot's filter: the memoised
+    // Unarchiving brings a published project's building back into the snapshot's filter: the memoised
     // cities must be dropped at once, as they are for a publish.
     if (patch.status !== undefined && patch.status !== 'archived' && current.status === 'archived') {
       publicBus.publish({ project_id: id, is_public: patch.is_public ?? current.is_public });
@@ -175,7 +175,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     );
     await repos.projects.delete(id);
     await publishTabsRemoved(repos, allTabs, machines.map(({ machine }) => machine));
-    // A deleted room can never be publicly visible again either — tell the public bus regardless
+    // A deleted project can never be publicly visible again either — tell the public bus regardless
     // of whether this project was ever published; a socket that never had it just no-ops.
     publicBus.publish({ project_id: id, is_public: false });
     return { ok: true };
@@ -197,7 +197,7 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     });
     const resolved = await resolveCwd(machine, cwd, create_dir);
     const link = await rule(() => repos.projectMachines.link({ project_id: id, machine_id: machine.id, cwd: resolved }));
-    // a published project on a new machine may be a new public room: the next public read must see it
+    // a published project on a new machine may bring its robots there onto the street: the next public read must see them
     if (project.is_public) publicBus.publish({ project_id: id, is_public: true });
     return reply.code(201).send({ link: linkView(link) });
   });
@@ -219,8 +219,8 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
     for (const t of tabs) await repos.tabs.delete(t.id);
     await publishTabsRemoved(repos, tabs, [machine]);
     await repos.projectMachines.unlink(id, machineId);
-    // that room leaves the street at once (the project stays published on its other machines)
-    publicBus.publishRoomsGone({ machine_id: machineId, project_id: id });
+    // that project's robots on this machine leave the street at once (the building stays)
+    publicBus.publishRobotsGone({ machine_id: machineId, project_id: id });
     return { ok: true, closed_tabs: tabs.length };
   });
 
