@@ -3,75 +3,67 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useCityLink } from '../lib/city-link';
-import { useData } from '../lib/data';
 import { useFocusMode } from '../lib/focus';
 import { useMonitor } from '../lib/monitor';
 import { cityLinkFor } from '../lib/public-city';
-import type { Machine, OfficeRoom } from '../lib/types';
+import type { Project } from '../lib/types';
 import { PageHeader } from '../components/PageHeader';
-import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type CityModel, type FocusTarget, type MachineEntry, type MachineModel } from '../office/model';
+import { buildCityModel, missingTabIds, resolveFocus, sameFocus, type BuildingModel, type CityModel, type FocusTarget } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
-import { useOfficeSnapshots, type MachineSnapshotState } from '../office/useOfficeSnapshots';
+import { useOfficeCity } from '../office/useOfficeCity';
+
+const EMPTY_CITY: CityModel = { buildings: [], needsYou: 0 };
+
+/** The query string without `room` — a key of the office by machine that means nothing any more. */
+function withoutRoom(params: URLSearchParams): string {
+  const next = new URLSearchParams(params);
+  next.delete('room');
+  const query = next.toString();
+  return query ? `?${query}` : '';
+}
 
 /**
- * The office: the whole account as a city, live. The URL is the state, and each of its rests is a
- * place the camera stands — /office the city, /office/:machineId a block, ?room=<projectId> a room
- * inside it, ?focus=1 focus mode. Moving between rests only moves the camera: one scene is built
- * per visit and kept, so the canvas never blanks on the way down or up.
+ * The office: the whole account as a city, live, one building per project (city-by-project §3). The
+ * URL is the state, and each of its rests is a place the camera stands — /office the city,
+ * /office/:projectId a building, ?focus=1 focus mode. Moving between rests only moves the camera:
+ * one scene is built per visit and kept, so the canvas never blanks on the way down or up. A machine
+ * is a detail of a desk here, never a place.
  */
 export function OfficePage() {
-  const { machineId } = useParams();
+  const { projectId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { can, user, publicCityUrl } = useAuth();
-  // the city's short link, when the instance makes one: only the city depth uses it (a building or a room has none)
+  // the city's short link, when the instance makes one: only the city depth uses it (a building has none)
   const cityLink = useCityLink(!!user?.nickname);
-  const { machines, projects, statuses, loading } = useData();
   const { items, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
-  // a fresh array every render is fine: the hook keys on the sorted ids, not on this identity
-  const { byMachine, reload } = useOfficeSnapshots(machines.map((m) => m.id));
-  // a callback ref, not useRef: the host <div> is absent on the first render (loading/no-machines/
-  // permission branches return early below), and a ref alone would never re-trigger the mount effect
-  // once it finally renders — which left the scene blank on a direct load or reload of the URL.
+  const allowed = can('projects', 'read') && can('terminals', 'read');
+  const { city: office, failed: readFailed, reload } = useOfficeCity(allowed);
+  // a callback ref, not useRef: the host <div> is absent on the first render (loading/permission
+  // branches return early below), and a ref alone would never re-trigger the mount effect once it
+  // finally renders — which left the scene blank on a direct load or reload of the URL.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const sceneRef = useRef<OfficeScene | null>(null);
-  const room = params.get('room');
   const [failed, setFailed] = useState(false);
 
-  const entries = useMemo(
-    (): MachineEntry[] =>
-      machines.map((m) => ({
-        id: m.id,
-        name: m.name,
-        subtitle: m.subtitle,
-        // statuses[id] is a 'checking' | 'online' | 'offline' tag (lib/data.tsx), not an object with
-        // an `online` field: only an explicit 'offline' darkens a block and shows the banner.
-        online: statuses[m.id] !== 'offline',
-        snapshot: byMachine[m.id]?.snapshot ?? null,
-        failed: byMachine[m.id]?.failed ?? false,
-      })),
-    [machines, statuses, byMachine],
-  );
   // tabState reads a ref (lib/monitor.tsx), so it never changes identity; `items` is what actually
   // changes on a live push — keep it as a dep, or the model stops updating on monitor pushes.
-  const city = useMemo(() => buildCityModel(entries, tabState), [entries, tabState, items]);
+  const city = useMemo(() => (office ? buildCityModel(office, tabState) : EMPTY_CITY), [office, tabState, items]);
 
-  // mirrors `city` for the scene-mount effect below: a scene created there (the host element
-  // arriving, a remount after a failed one) must be seeded with whatever is already known, not sit
-  // blank waiting for this effect to fire again — it won't, the model itself has not changed.
+  // mirrors `city` for the scene-mount effect below: a scene created there must be seeded with
+  // whatever is already known, not sit blank waiting for this effect to fire again.
   const cityRef = useRef<CityModel>(city);
   useEffect(() => {
     cityRef.current = city;
     sceneRef.current?.setModel(city);
   }, [city]);
 
-  // What the URL asks the camera to frame, against what exists: an unknown machine or a ?room= of
-  // another machine falls back on its own (office/model.ts), so neither can throw here.
-  const target = resolveFocus(city, machineId, room);
-  // mirrors the target for the same reason as cityRef. The object itself is rebuilt on every render
-  // — a poll brings a fresh snapshot — so the scene is only told when the target changed BY VALUE:
-  // re-framing an equal target would undo a camera the person moved by hand.
+  // What the URL asks the camera to frame, against what exists: an unknown project (an old machine
+  // bookmark too) is the city (office/model.ts), so it can never throw here.
+  const target = resolveFocus(city, projectId);
+  // mirrors the target; the object is rebuilt on every render, so the scene is only told when the
+  // target changed BY VALUE: re-framing an equal target would undo a camera the person moved by hand.
   const targetRef = useRef<FocusTarget>(target);
   useEffect(() => {
     if (sameFocus(target, targetRef.current)) return;
@@ -80,57 +72,32 @@ export function OfficePage() {
   });
 
   // Every move keeps the rest of the query string — ?focus=1 above all: a screen left in focus mode
-  // must stay in it through a block, a room and the way back up. `room` is the only key this page owns.
+  // must stay in it through a building and the way back up.
   const go = useCallback(
-    (id: string | null, roomId: string | null, replace = false) => {
-      const next = new URLSearchParams(params);
-      if (roomId) next.set('room', roomId);
-      else next.delete('room');
-      const query = next.toString();
-      navigate(`/office${id ? `/${id}` : ''}${query ? `?${query}` : ''}`, { replace });
-    },
+    (id: string | null, replace = false) => navigate(`/office${id ? `/${encodeURIComponent(id)}` : ''}${withoutRoom(params)}`, { replace }),
     [navigate, params],
   );
+  const count = city.buildings.length;
 
-  // a rest the person asked for by hand, tracked PER MACHINE id: the auto-drill below must not undo
-  // it by opening a room again. A click on a block, or a step up from a room, marks that machine's
-  // id; a different machine reached later — a direct load, Back/Forward — is never affected by what
-  // happened on another one (a single shared flag used to leak across machines this way).
-  const byHand = useRef(new Set<string>());
   /**
-   * The ladder: room -> machine -> city -> out of focus mode. Going up replaces, or Back would walk
-   * straight back into the room that was just left. With a single machine the city rung is skipped:
-   * /office would auto-drill straight back into that machine.
-   *
-   * `camera` is set only by the scene's own zoom-out gesture (a wheel/pinch on the canvas): it climbs
-   * the same room -> machine -> city rungs, but never takes the last one — leaving focus mode is a
-   * deliberate act (Esc, the "sair do foco" button), not something a zoom gesture should do by
-   * itself. Esc and the breadcrumb call `up()` plain, so they still walk the full ladder.
+   * The ladder: building -> city -> out of focus mode. Going up replaces, or Back would walk
+   * straight back into the building that was just left. With a single project the city rung is
+   * skipped: /office would auto-drill straight back into it. `camera` is set only by the scene's
+   * own zoom-out gesture: it never takes the last rung — leaving focus mode is a deliberate act (Esc,
+   * the "sair do foco" button), not something a zoom gesture should do by itself.
    */
   const up = (opts: { camera?: boolean } = {}) => {
-    if (target.kind === 'room') {
-      byHand.current.add(target.machineId);
-      go(target.machineId, null, true);
-    } else if (machineId && machines.length > 1) {
-      go(null, null, true);
-    } else if (!opts.camera && focus) {
-      setFocus(false);
-    }
+    if (projectId && count > 1) go(null, true);
+    else if (!opts.camera && focus) setFocus(false);
   };
 
-  // react-router's `navigate` gets a new identity on every pathname change, and `useSearchParams` on
-  // every query-string change — so `go`, and everything built on it, is new after every move. The
-  // scene and the key listener call through this ref, re-synced after every render, which is what
-  // lets the scene-mount effect below depend on the host element ALONE: a handler in its dependency
-  // list would destroy the city and mount a blank canvas on every click.
+  // `navigate` and `useSearchParams` change identity on every move, and so does everything built on
+  // them. The scene and the key listener call through this ref, re-synced after every render, which
+  // is what lets the scene-mount effect below depend on the host element ALONE.
   const actions = {
-    onPickDesk: (tabId: string, projectId: string) => window.open(`/projects/${projectId}?tab=${tabId}`, '_blank', 'noopener'),
-    onPickRoom: (id: string, roomId: string) => go(id, roomId),
-    onPickMachine: (id: string) => {
-      byHand.current.add(id);
-      go(id, null);
-    },
-    onPickSign: (roomId: string) => navigate(`/projects/${roomId}`),
+    onPickDesk: (tabId: string, pid: string) => window.open(`/projects/${pid}?tab=${tabId}`, '_blank', 'noopener'),
+    onPickBuilding: (id: string) => go(id),
+    onPickSign: (id: string) => navigate(`/projects/${id}`),
     onGoUp: () => up({ camera: true }),
     onEscape: () => up(),
     toggleFocus: () => setFocus(!focus),
@@ -140,69 +107,35 @@ export function OfficePage() {
     handlers.current = actions;
   });
 
-  // a tab opened since a snapshot: re-read THAT machine, and only once per newly-missing id that
-  // really started a request — a re-read that bounced off an in-flight one must not be marked
-  // "asked", or that tab is stuck on screen until the machine's next 60 s tick
-  const notified = useRef(new Map<string, Set<string>>());
+  // a tab the monitor knows and the city lacks (opened since the last read): read the city again,
+  // fresh, once per newly-missing id that really started a read — a re-read that bounced off one
+  // in flight must not be marked "asked", or that tab is stuck until the next minute's read
+  const notified = useRef(new Set<string>());
   useEffect(() => {
-    const tabIds = items.map((i) => i.tab.id);
     const projectOf = (tabId: string) => items.find((i) => i.tab.id === tabId)?.project.id;
-    for (const machine of machines) {
-      const mine = new Set(projects.filter((p) => p.machines.some((l) => l.machine_id === machine.id) && p.status !== 'archived').map((p) => p.id));
-      const missing = missingTabIds(byMachine[machine.id]?.snapshot ?? null, tabIds, mine, projectOf);
-      if (missing.length === 0) continue;
-      const asked = notified.current.get(machine.id) ?? new Set<string>();
-      notified.current.set(machine.id, asked);
-      if (missing.some((id) => !asked.has(id)) && reload(machine.id)) for (const id of missing) asked.add(id);
-    }
-  }, [items, byMachine, machines, projects, reload]);
+    const missing = missingTabIds(office, items.map((i) => i.tab.id), projectOf);
+    if (missing.length === 0) return;
+    if (missing.some((id) => !notified.current.has(id)) && reload()) for (const id of missing) notified.current.add(id);
+  }, [items, office, reload]);
 
-  // Auto-drill: what is not a choice is not asked. /office with a single machine IS that machine,
-  // and a machine with a single room that has desks is that room. At most once per arrival at a
-  // rest (`drilled`), and never after a click on a block or a step up the ladder (`byHand`) — those
-  // name the rest the person wants to stand at. `byHand` is consumed at EVERY decision point for
-  // THIS machine id, including the short-circuit, so a mark left by an earlier visit to a different
-  // machine can never decide this one's drill, and a stale mark never lingers past its own machine.
-  const drilled = useRef<string | null>(null);
+  // Auto-drill: what is not a choice is not asked — /office with a single project IS that building.
+  // Only from the city rest, and with one project the ladder never goes back there.
   useEffect(() => {
-    if (loading) return;
-    if (!machineId) {
-      drilled.current = null;
-      if (machines.length === 1) go(machines[0].id, room, true);
-      return;
-    }
-    // standing in a room IS having arrived at its machine: without this, stepping out to the block
-    // through the breadcrumb (from a pasted v1 link, Back, or a room entered straight from the
-    // city) looked like a first arrival and drilled right back into the only room — a dead click
-    if (room) {
-      drilled.current = machineId;
-      return;
-    }
-    if (drilled.current === machineId) {
-      byHand.current.delete(machineId);
-      return;
-    }
-    const here = city.machines.find((m) => m.id === machineId);
-    if (!here) return; // its snapshot has not landed yet: there is nothing to drill into
-    drilled.current = machineId;
-    if (byHand.current.delete(machineId)) return; // arrived by hand: leave the choice alone
-    const withDesks = here.floor.rooms.filter((r) => r.desks.length > 0);
-    if (withDesks.length === 1) go(machineId, withDesks[0].id, true);
-  }, [loading, machineId, room, machines, city, go]);
+    if (!projectId && office?.projects.length === 1) go(office.projects[0].project.id, true);
+  }, [projectId, office, go]);
 
   useEffect(() => {
     if (!host) return;
     setFailed(false);
     const scene = new OfficeScene({
-      onPickDesk: (tabId, projectId) => handlers.current.onPickDesk(tabId, projectId),
-      onPickRoom: (id, roomId) => handlers.current.onPickRoom(id, roomId),
-      onPickMachine: (id) => handlers.current.onPickMachine(id),
+      onPickDesk: (tabId, pid) => handlers.current.onPickDesk(tabId, pid),
+      onPickBuilding: (id) => handlers.current.onPickBuilding(id),
       onPickSign: (id) => handlers.current.onPickSign(id),
       onGoUp: () => handlers.current.onGoUp(),
     });
     sceneRef.current = scene;
-    // setModel/focus are safe to call before mount() resolves — the scene stores them and
-    // replays them once it can draw, so a scene created here is never left blank
+    // setModel/focus are safe to call before mount() resolves — the scene stores them and replays
+    // them once it can draw, so a scene created here is never left blank
     scene.setModel(cityRef.current);
     scene.focus(targetRef.current, true);
     // Pixi falls back from WebGL to canvas by itself; this only fires when neither could start
@@ -217,7 +150,7 @@ export function OfficePage() {
   // through the same ref the scene's handlers use, so no move re-subscribes this listener.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return; // a dialog already handled it — don't also kick out of the room
+      if (e.defaultPrevented) return; // a dialog already handled it — don't also kick out of the building
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
       if (e.key === 'Escape') handlers.current.onEscape();
@@ -227,27 +160,24 @@ export function OfficePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (!can('projects', 'read') || !can('terminals', 'read')) return <Navigate to="/" replace />;
-  if (loading) return <Message>Carregando…</Message>;
-  if (machines.length === 0) {
+  if (!allowed) return <Navigate to="/" replace />;
+  if (!office) return <Message>{readFailed ? 'Não foi possível carregar o escritório. Tentando de novo…' : 'Carregando…'}</Message>;
+  if (office.projects.length === 0) {
     return (
       <Message>
-        Nenhuma máquina cadastrada ainda. <Link className="text-accent hover:underline" to="/">Cadastre a primeira</Link> para ver o escritório.
+        Nenhum projeto ainda. <Link className="text-accent hover:underline" to="/">Crie o primeiro</Link> para ver o escritório.
       </Message>
     );
   }
-  if (machineId && !machines.some((m) => m.id === machineId)) return <Navigate to="/office" replace />;
+  // an unknown project — a /office/:machineId bookmark of the office by machine, too — is the city
+  if (projectId && !office.projects.some((b) => b.project.id === projectId)) return <Navigate to={`/office${withoutRoom(params)}`} replace />;
 
-  // the machine the camera is standing at, as the city drew it: null in the city, and null while a
-  // machine's first snapshot is still on its way (there is nothing true to say about it yet)
-  const here = machineId ? (city.machines.find((m) => m.id === machineId) ?? null) : null;
+  // the building the camera is standing at, as the city drew it: null in the city
+  const here = target.kind === 'building' ? (city.buildings.find((b) => b.id === target.projectId) ?? null) : null;
   const trail: Array<{ label: string; go?: () => void }> = [];
-  if (machines.length > 1) trail.push({ label: 'Cidade', go: () => go(null, null, true) });
-  const machineName = machines.find((m) => m.id === machineId)?.name;
-  if (machineId && machineName) trail.push({ label: machineName, go: () => go(machineId, null, true) });
-  const roomName = here?.floor.rooms.find((r) => r.id === room)?.name;
-  if (roomName) trail.push({ label: roomName });
-  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, publicCityUrl, cityLink.link?.short_url ?? null, machines, byMachine);
+  if (count > 1) trail.push({ label: 'Cidade', go: () => go(null, true) });
+  if (here) trail.push({ label: here.name });
+  const shareResult = shareResultFor(target, user?.id, user?.nickname ?? null, publicCityUrl, cityLink.link?.short_url ?? null, office.projects.map((b) => b.project));
 
   return (
     <div className="flex h-full flex-col">
@@ -257,7 +187,7 @@ export function OfficePage() {
           extra={<Trail parts={trail} />}
           actions={
             <span className="flex items-center gap-3 text-xs text-fg-muted">
-              <StatusNotices machine={here} connected={connected} />
+              <StatusNotices building={here} connected={connected} />
               <ShareButton result={shareResult} />
               <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
                 modo foco
@@ -267,12 +197,11 @@ export function OfficePage() {
         />
       )}
       <div className="relative min-h-0 flex-1">
-        {/* an offline machine is dimmed by the scene now — its whole block is drawn dark — so the
-            canvas must not be dimmed a second time on top of it, which left the floor unreadable */}
+        {/* an unlit building is dimmed by the scene itself, so the canvas is never dimmed on top of it */}
         <div ref={setHost} className="absolute inset-0 overflow-hidden" />
         {focus && (
           <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
-            <StatusNotices machine={here} connected={connected} />
+            <StatusNotices building={here} connected={connected} />
             <ShareButton result={shareResult} />
             <button className="rounded hover:text-fg" onClick={() => setFocus(false)}>
               sair do foco (Esc)
@@ -280,21 +209,15 @@ export function OfficePage() {
           </div>
         )}
         {failed && <Overlay>Seu navegador não conseguiu desenhar o escritório.</Overlay>}
-        {city.machines.length === 0 && <Overlay>Carregando a cidade…</Overlay>}
-        {/* at its own rest a machine's block carries no words: its sign is the one thing hidden
-            there (scene/detail.ts), so a failed read would otherwise be an empty outlined diamond
-            and, on a single-machine account, the whole page */}
-        {here?.notice === 'error' && <Overlay>Não foi possível carregar o escritório desta máquina.</Overlay>}
-        {here && here.notice !== 'error' && here.floor.rooms.length === 0 && <Overlay>Esta máquina ainda não tem projetos.</Overlay>}
       </div>
     </div>
   );
 }
 
 /**
- * Where the camera stands, as the ladder Esc walks: Cidade › máquina › projeto. Every part but the
- * last one goes to that rest, replacing rather than pushing (going up must not pile history up).
- * With a single machine there is no city to go back to, so that part is not rendered at all.
+ * Where the camera stands, as the ladder Esc walks: Cidade › projeto. Every part but the last one
+ * goes to that rest, replacing rather than pushing (going up must not pile history up). With a
+ * single project there is no city to go back to, so that part is not rendered at all.
  */
 function Trail({ parts }: { parts: Array<{ label: string; go?: () => void }> }) {
   return (
@@ -322,16 +245,16 @@ function Trail({ parts }: { parts: Array<{ label: string; go?: () => void }> }) 
 /**
  * Why the scene may not be telling the truth right now. Rendered in the top bar and, in focus mode
  * (where there is no top bar), in the corner: a second monitor left open all day must never show a
- * frozen picture that looks live. One machine's own trouble is only said at its rest — in the city
- * its block is dark and its sign carries the notice.
+ * frozen picture that looks live. A building's own trouble is only said at its rest — in the city
+ * its sign carries the notice.
  */
 const TMUX_SILENT = 'sem resposta do tmux: estado pode estar desatualizado';
 
-function StatusNotices({ machine, connected }: { machine: MachineModel | null; connected: boolean }) {
+function StatusNotices({ building, connected }: { building: BuildingModel | null; connected: boolean }) {
   return (
     <>
-      {machine?.notice === 'offline' && <span className="text-warn">máquina offline</span>}
-      {machine?.notice === 'silent' && (
+      {building?.notice === 'offline' && <span className="text-warn">máquina offline</span>}
+      {building?.notice === 'silent' && (
         // compact: the header's actions must fit a narrow window; the whole sentence is on hover and for screen readers
         <span className="flex items-center gap-1 whitespace-nowrap text-warn" role="status" aria-label={TMUX_SILENT} title={TMUX_SILENT}>
           <TriangleAlert size={14} aria-hidden="true" />
@@ -355,19 +278,17 @@ function Overlay({ children }: { children: React.ReactNode }) {
  * `unpublished`: nothing in view has been made public (or the viewer has no nickname yet, which can
  * only be true before anything of theirs was ever published). `foreign`: something IS published
  * here, but it is a project somebody else owns (view-as/view-all only) — there is no link this
- * viewer's own nickname could build for it. `offstreet`: the viewer's own published project, in a
- * room on a machine somebody else owns — a public city never shows another person's machine, so
- * that room has no public address.
+ * viewer's own nickname could build for it.
  */
-type ShareResult = { kind: 'link'; url: string } | { kind: 'unpublished' } | { kind: 'foreign' } | { kind: 'offstreet' };
+type ShareResult = { kind: 'link'; url: string } | { kind: 'unpublished' } | { kind: 'foreign' };
 
 /**
- * The public city a nickname points to is that nickname's OWNER's city: their own published projects,
- * on the machines they own (one room per project and machine) — never the signed-in viewer's view.
- * The two only agree while someone looks at their own work; under the view-as/view-all admin scope
- * the office can carry other people's projects and machines, and building the link from the viewer's
- * own nickname would then point at a city that does not contain them. So the check is on the
- * PROJECT's owner (who publishes), and the machine's owner decides whether that room is on the street.
+ * The public city a nickname points to is that nickname's OWNER's city: their own published
+ * projects, one building each (city-by-project §2.4) — never the signed-in viewer's view. The two
+ * only agree while someone looks at their own work; under the view-as/view-all admin scope the
+ * office can carry other people's projects, and building the link from the viewer's own nickname
+ * would then point at a city that does not contain them. So the check is on the PROJECT's owner.
+ * Which machines the agents run on no longer matters: a published project is always on the street.
  */
 function shareResultFor(
   target: FocusTarget,
@@ -376,50 +297,28 @@ function shareResultFor(
   publicCityUrl: string | null,
   /** the owner's short link (77a.it/…), used at the city depth only */
   shortUrl: string | null,
-  machines: Machine[],
-  byMachine: Record<string, MachineSnapshotState>,
+  projects: Array<Pick<Project, 'id' | 'owner_id' | 'is_public' | 'public_id'>>,
 ): ShareResult {
-  const ownsMachine = (m: Machine) => !!userId && m.owner_id === userId;
-  const ownsProject = (r: OfficeRoom) => !!userId && r.project.owner_id === userId;
-  const roomsOf = (m: Machine): OfficeRoom[] => byMachine[m.id]?.snapshot?.rooms ?? [];
-  // a room on the viewer's own street: their published project, on a machine they own
-  const onStreet = (m: Machine, r: OfficeRoom) => r.project.is_public && ownsProject(r) && ownsMachine(m);
-  const foreign = (r: OfficeRoom) => r.project.is_public && !ownsProject(r);
+  const mine = (p: Pick<Project, 'owner_id'>) => !!userId && p.owner_id === userId;
   const base = cityLinkFor(publicCityUrl, nickname);
-
   if (target.kind === 'city') {
-    if (base && machines.some((m) => roomsOf(m).some((r) => onStreet(m, r)))) return { kind: 'link', url: shortUrl ?? base };
-    if (machines.some((m) => roomsOf(m).some(foreign))) return { kind: 'foreign' };
-    if (machines.some((m) => roomsOf(m).some((r) => r.project.is_public))) return { kind: 'offstreet' };
+    if (base && projects.some((p) => p.is_public && mine(p))) return { kind: 'link', url: shortUrl ?? base };
+    if (projects.some((p) => p.is_public && !mine(p))) return { kind: 'foreign' };
     return { kind: 'unpublished' };
   }
-
-  const machine = machines.find((m) => m.id === target.machineId);
-  if (!machine) return { kind: 'unpublished' };
-  const rooms = roomsOf(machine);
-
-  if (target.kind === 'machine') {
-    if (base && rooms.some((r) => onStreet(machine, r))) return { kind: 'link', url: `${base}/${encodeURIComponent(machine.public_id)}` };
-    if (rooms.some(foreign)) return { kind: 'foreign' };
-    if (rooms.some((r) => r.project.is_public)) return { kind: 'offstreet' };
-    return { kind: 'unpublished' };
-  }
-
-  const room = rooms.find((r) => r.project.id === target.roomId);
-  if (!room?.project.is_public) return { kind: 'unpublished' };
-  if (!ownsProject(room)) return { kind: 'foreign' };
-  if (!ownsMachine(machine)) return { kind: 'offstreet' };
+  const project = projects.find((p) => p.id === target.projectId);
+  if (!project?.is_public) return { kind: 'unpublished' };
+  if (!mine(project)) return { kind: 'foreign' };
   if (!base) return { kind: 'unpublished' };
-  return { kind: 'link', url: `${base}/${encodeURIComponent(machine.public_id)}?room=${encodeURIComponent(room.public_id)}` };
+  return { kind: 'link', url: `${base}/${encodeURIComponent(project.public_id)}` };
 }
 
 type ShareStatus = 'idle' | 'copied' | 'failed';
 
 /**
  * Copies the current rest's public link. When there is nothing to copy, the button explains why
- * instead of pretending there is something to copy — nothing published yet, something published
- * that belongs to a city this viewer's own nickname cannot address (view-as/view-all), or the
- * viewer's own project in a room on somebody else's machine, which no public city shows.
+ * instead of pretending there is something to copy — nothing published yet, or something published
+ * that belongs to a city this viewer's own nickname cannot address (view-as/view-all).
  */
 function ShareButton({ result }: { result: ShareResult }) {
   const [status, setStatus] = useState<ShareStatus>('idle');
@@ -441,13 +340,6 @@ function ShareButton({ result }: { result: ShareResult }) {
     return (
       <span className="rounded px-2 py-1 text-fg-dim" title="Só o dono de um projeto pode compartilhar o link dele">
         pertence a outra pessoa
-      </span>
-    );
-  }
-  if (result.kind === 'offstreet') {
-    return (
-      <span className="rounded px-2 py-1 text-fg-dim" title="A cidade pública só mostra as suas máquinas: esta é de outra pessoa">
-        máquina de outra pessoa
       </span>
     );
   }

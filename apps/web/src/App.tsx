@@ -58,7 +58,7 @@ export function AppRoutes() {
           <Route path="/projects/:id" element={<ProjectPage />} />
           <Route path="/projects/:id/:section" element={<ProjectPage />} />
           <Route path="/office" element={<OfficeRoute />} />
-          <Route path="/office/:machineId" element={<OfficeRoute />} />
+          <Route path="/office/:projectId" element={<OfficeRoute />} />
         </Route>
         <Route element={<ChatLayout />}>
           <Route path="/chat" element={<ChatPage />} />

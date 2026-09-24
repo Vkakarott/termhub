@@ -2,21 +2,21 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Machine, OfficeRoom, OfficeSnapshot, OfficeTab, Project, User } from '../lib/types';
+import type { OfficeBuilding, OfficeCity, OfficeMachine, OfficeTab, Project, User } from '../lib/types';
 
 // vi.mock factories are hoisted above every other top-level statement in this file, including this
 // file's own `import { OfficePage } from './OfficePage'` below — so everything a factory needs to
 // reference has to be created through vi.hoisted(), not as a plain top-level const/class.
-const { officeMock, canMock, dataState, monitorState, authState, FakeOfficeScene } = vi.hoisted(() => {
+const { officeMock, canMock, monitorState, authState, FakeOfficeScene } = vi.hoisted(() => {
   /**
    * Pins the scene-mount effect's stability: no WebGL in jsdom, so `OfficeScene` itself is replaced
-   * with a spy-able stand-in that records what the page does to it, instead of trying to draw anything.
+   * with a spy-able stand-in that records what the page does to it, instead of drawing anything.
    */
-  type Target = { kind: 'city' } | { kind: 'machine'; machineId: string } | { kind: 'room'; machineId: string; roomId: string };
+  type Target = { kind: 'city' } | { kind: 'building'; projectId: string };
   class FakeOfficeScene {
     static instances: FakeOfficeScene[] = [];
-    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickRoom: (machineId: string, roomId: string) => void; onPickMachine: (machineId: string) => void; onPickSign: (id: string) => void; onGoUp: () => void };
-    models: Array<{ machines: Array<{ id: string; floor: { rooms: Array<{ id: string }> } }> }> = [];
+    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickBuilding: (projectId: string) => void; onPickSign: (projectId: string) => void; onGoUp: () => void };
+    models: Array<{ buildings: Array<{ id: string; notice: string | null; desks: Array<{ id: string; machine: unknown }> }> }> = [];
     focusCalls: Array<[Target, boolean | undefined]> = [];
     destroyed = false;
     constructor(handlers: FakeOfficeScene['handlers']) {
@@ -27,9 +27,9 @@ const { officeMock, canMock, dataState, monitorState, authState, FakeOfficeScene
     get targets(): Target[] {
       return this.focusCalls.map(([t]) => t);
     }
-    /** which machines the last model the page handed over carries */
-    get machineIds(): string[] {
-      return (this.models.at(-1)?.machines ?? []).map((m) => m.id);
+    /** which buildings the last model the page handed over carries */
+    get buildingIds(): string[] {
+      return (this.models.at(-1)?.buildings ?? []).map((b) => b.id);
     }
     async mount(): Promise<void> {}
     destroy(): void {
@@ -44,13 +44,10 @@ const { officeMock, canMock, dataState, monitorState, authState, FakeOfficeScene
   }
   return {
     officeMock: vi.fn(),
-    canMock: vi.fn(() => true),
-    // mutable containers: the mocked hooks below read `.current` fresh on every call, so the test
-    // body can reassign it (e.g. flipping `loading`) and a rerender picks up the new value
-    dataState: { current: { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], statuses: { m1: 'online' as const }, loading: true } },
+    canMock: vi.fn((_resource: string, _action?: string) => true),
+    // mutable containers: the mocked hooks below read `.current` fresh on every call
     monitorState: { current: { items: [] as unknown[], needsYou: [] as unknown[], tabState: () => undefined, connected: true } },
-    // null by default: every pre-existing test above never claimed a nickname, and the share button
-    // must stay out of their way (it renders as a quiet "nothing published" span, never a link)
+    // null by default: the share button must stay out of the way (a quiet "nothing published" span)
     authState: { current: { user: null as User | null, publicCityUrl: 'https://termhub.dev/city' as string | null } },
     FakeOfficeScene,
   };
@@ -61,40 +58,32 @@ vi.mock('../lib/city-link', () => ({ useCityLink: () => cityLinkState.current })
 vi.mock('../office/scene/OfficeScene', () => ({ OfficeScene: FakeOfficeScene }));
 vi.mock('../lib/api', () => ({ api: { office: (...a: unknown[]) => officeMock(...a) } }));
 vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock, user: authState.current.user, publicCityUrl: authState.current.publicCityUrl }) }));
-vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
 vi.mock('../lib/monitor', () => ({ useMonitor: () => monitorState.current }));
 
 import { FocusProvider } from '../lib/focus';
 import { OfficePage } from './OfficePage';
 
-const tab = (id: string, projectId: string): OfficeTab =>
-  ({ id, project_id: projectId, name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, activity_verb: null, alive: true, progress: null }) as OfficeTab;
-const room = (id: string, tabs: OfficeTab[] = []): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, public_id: `${id}-room`, tabs, tasks: null });
-const snap = (machineId: string, rooms: OfficeRoom[]): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms });
+const tab = (id: string, projectId: string, machineId = 'm1'): OfficeTab => ({
+  id, project_id: projectId, machine_id: machineId, name: id, kind: 'terminal', tmux_session: null, simulator_udid: null, position: 0,
+  state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, activity_verb: null, created_at: '', alive: true, progress: null,
+});
+const project = (id: string, over: Partial<Project> = {}): Project => ({ id, name: id, status: 'active', owner_id: 'u1', is_public: false, public_id: `${id}-pub`, ...over }) as Project;
+const building = (id: string, tabs: OfficeTab[] = [], over: Partial<Project> = {}): OfficeBuilding => ({ project: project(id, over), public_id: `${id}-pub`, tabs, tasks: null });
+const machine = (id: string, name: string, over: Partial<OfficeMachine> = {}): OfficeMachine => ({ id, name, subtitle: null, type: 'agent', online: true, reachable: true, ...over });
+const MACHINES = [machine('m1', 'jarvis', { subtitle: 'MacBook do escritório' }), machine('m2', 'hal')];
+const cityOf = (projects: OfficeBuilding[], machines: OfficeMachine[] = MACHINES): OfficeCity => ({ projects, machines });
 
-/** m1 "jarvis" with two rooms that have desks (no auto-drill), m2 "hal" with one. */
-function twoMachines() {
-  dataState.current = {
-    machines: [
-      { id: 'm1', name: 'jarvis' },
-      { id: 'm2', name: 'hal' },
-    ],
-    projects: [
-      { id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
-      { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
-      { id: 'p2', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
-    ],
-    statuses: { m1: 'online', m2: 'online' },
-    loading: false,
-  };
-  officeMock.mockImplementation((id: string) =>
-    Promise.resolve(id === 'm1' ? snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]) : snap('m2', [room('p2', [tab('t2', 'p2')])])),
-  );
+/** p1 runs on jarvis and hal, p2 on hal: two buildings, so /office rests on the city. */
+function twoProjects(over: { p1?: Partial<Project>; p2?: Partial<Project> } = {}, machines: OfficeMachine[] = MACHINES) {
+  officeMock.mockResolvedValue(cityOf([building('p1', [tab('t1', 'p1', 'm1'), tab('t1b', 'p1', 'm2')], over.p1), building('p2', [tab('t2', 'p2', 'm2')], over.p2)], machines));
+}
+/** one project: /office is its building */
+function oneProject(machines: OfficeMachine[] = MACHINES) {
+  officeMock.mockResolvedValue(cityOf([building('p1', [tab('t1', 'p1', 'm1')])], machines));
 }
 
 // lets a test drive real react-router navigation (path AND query string) the same way a production
-// click or a pasted URL would, instead of only ever changing props — the rests of the office are
-// URLs, so every move the page makes has to be read back from the location
+// click or a pasted URL would — the rests of the office are URLs, so every move is read back from them
 let testNavigate: NavigateFunction | undefined;
 let testPath = '';
 let testSearch = '';
@@ -112,7 +101,7 @@ const tree = (initialEntry: string) => (
       <NavCapture />
       <Routes>
         <Route path="/office" element={<OfficePage />} />
-        <Route path="/office/:machineId" element={<OfficePage />} />
+        <Route path="/office/:projectId" element={<OfficePage />} />
       </Routes>
     </FocusProvider>
   </MemoryRouter>
@@ -124,6 +113,7 @@ function renderPage(initialEntry = '/office') {
 
 const scene = () => FakeOfficeScene.instances[0];
 const escape = () => fireEvent.keyDown(document.body, { key: 'Escape' });
+const pedro = () => (authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User });
 
 beforeEach(() => {
   FakeOfficeScene.instances = [];
@@ -134,7 +124,6 @@ beforeEach(() => {
   testNavigate = undefined;
   testPath = '';
   testSearch = '';
-  dataState.current = { machines: [{ id: 'm1', name: 'jarvis' }], projects: [{ id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], statuses: { m1: 'online' }, loading: true };
   monitorState.current = { items: [], needsYou: [], tabState: () => undefined, connected: true };
   authState.current = { user: null, publicCityUrl: 'https://termhub.dev/city' };
 });
@@ -144,362 +133,261 @@ afterEach(() => {
 });
 
 describe('OfficePage scene lifecycle', () => {
-  it('builds one scene for the visit and hands it the whole city', async () => {
-    twoMachines();
-    dataState.current = { ...dataState.current, loading: true };
-    const { rerender } = renderPage();
-    // loading: the host <div> does not exist yet — the mount effect must not have anything to grab
+  it('builds one scene once the city is read, and hands it every building', async () => {
+    let resolve!: (c: OfficeCity) => void;
+    officeMock.mockReturnValue(new Promise<OfficeCity>((r) => (resolve = r)));
+    renderPage('/office');
+    await act(async () => {});
+    // still reading: there is no host to mount on yet
     expect(FakeOfficeScene.instances).toHaveLength(0);
-
-    dataState.current = { ...dataState.current, loading: false };
-    await act(async () => {
-      rerender(tree('/office'));
-    });
-
+    expect(screen.getByText('Carregando…')).toBeTruthy();
+    await act(async () => resolve(cityOf([building('p1', [tab('t1', 'p1')]), building('p2')])));
     expect(FakeOfficeScene.instances).toHaveLength(1);
-    // one scene for the whole account, not one floor at a time
-    expect(scene().machineIds.slice().sort()).toEqual(['m1', 'm2']);
+    expect(scene().buildingIds).toEqual(['p1', 'p2']);
   });
 
-  it('keeps the same scene from the city into a machine, a room and back up', async () => {
-    twoMachines();
+  it('reads the whole city in one request', async () => {
+    twoProjects();
+    renderPage('/office');
+    await act(async () => {});
+    expect(officeMock).toHaveBeenCalledTimes(1);
+    expect(officeMock).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps the same scene from the city into a building and back up', async () => {
+    twoProjects();
     renderPage('/office?focus=1');
     await act(async () => {});
-    expect(FakeOfficeScene.instances).toHaveLength(1);
     const only = scene();
-
-    act(() => only.handlers.onPickMachine('m1'));
+    act(() => only.handlers.onPickBuilding('p1'));
     await act(async () => {});
-    expect(testPath).toBe('/office/m1');
-
-    act(() => only.handlers.onPickRoom('m1', 'p1'));
-    await act(async () => {});
-    expect(testSearch).toContain('room=p1');
-
-    escape();
-    await act(async () => {});
-    expect(testSearch).not.toContain('room=');
-
+    expect(testPath).toBe('/office/p1');
+    expect(new URLSearchParams(testSearch).get('focus')).toBe('1');
     escape();
     await act(async () => {});
     expect(testPath).toBe('/office');
-
     // every rest of the walk is a camera move on ONE scene: the canvas never blanks
     expect(FakeOfficeScene.instances).toHaveLength(1);
     expect(only.destroyed).toBe(false);
-    expect(only.targets.slice(-3)).toEqual([
-      { kind: 'room', machineId: 'm1', roomId: 'p1' },
-      { kind: 'machine', machineId: 'm1' },
-      { kind: 'city' },
-    ]);
+    expect(only.targets.slice(-2)).toEqual([{ kind: 'building', projectId: 'p1' }, { kind: 'city' }]);
   });
 
-  it('keeps the same scene when focus mode is toggled by the real button, not just the fake scene', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
-    renderPage('/office/m1');
+  it('keeps the same scene when focus mode is toggled by the real button', async () => {
+    twoProjects();
+    renderPage('/office/p1');
     await act(async () => {});
-    expect(FakeOfficeScene.instances).toHaveLength(1);
     const only = scene();
-
     fireEvent.click(screen.getByText('modo foco'));
     await act(async () => {});
     expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
-
     fireEvent.click(screen.getByText('sair do foco (Esc)'));
     await act(async () => {});
     expect(screen.getByText('modo foco')).toBeTruthy();
-
-    // the real button, not just the fake scene's onGoUp/handlers, must not force a remount
     expect(FakeOfficeScene.instances).toHaveLength(1);
     expect(only.destroyed).toBe(false);
   });
 
-  it('leaves a room without pushing history, so Back does not walk straight back in', async () => {
-    twoMachines();
-    renderPage('/office/m1');
-    await act(async () => {});
-
-    act(() => scene().handlers.onPickRoom('m1', 'p1'));
-    await act(async () => {});
-    expect(testSearch).toBe('?room=p1');
-
-    escape();
-    await act(async () => {});
-    expect(testSearch).toBe('');
-
-    // the spec: "the browser's back button leaves the room" — it must not put us back inside it
-    await act(async () => testNavigate?.(-1));
-    expect(testSearch).toBe('');
-  });
-
-  it('gives the same scene the block of a slow machine as soon as it answers', async () => {
-    let resolveM2: ((s: OfficeSnapshot) => void) | undefined;
-    const pendingM2 = new Promise<OfficeSnapshot>((resolve) => {
-      resolveM2 = resolve;
-    });
-    twoMachines();
-    officeMock.mockImplementation((id: string) => (id === 'm1' ? Promise.resolve(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [])])) : pendingM2));
+  it('leaves a building without pushing history, so Back does not walk straight back in', async () => {
+    twoProjects();
     renderPage('/office');
     await act(async () => {});
+    act(() => scene().handlers.onPickBuilding('p2'));
+    await act(async () => {});
+    expect(testPath).toBe('/office/p2');
+    escape();
+    await act(async () => {});
+    expect(testPath).toBe('/office');
+    await act(async () => testNavigate?.(-1));
+    expect(testPath).toBe('/office');
+  });
 
-    expect(FakeOfficeScene.instances).toHaveLength(1);
-    const only = scene();
-    expect(only.machineIds).toEqual(['m1']); // a machine still loading is not drawn as an empty block
-
-    await act(async () => {
-      resolveM2?.(snap('m2', [room('p2', [])]));
-    });
-    expect(FakeOfficeScene.instances).toHaveLength(1);
-    expect(only.destroyed).toBe(false);
-    expect(only.machineIds.slice().sort()).toEqual(['m1', 'm2']);
+  it("opens a desk's terminal in a new tab, and the building sign opens its project", async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    twoProjects();
+    renderPage('/office/p1');
+    await act(async () => {});
+    act(() => scene().handlers.onPickDesk('t1', 'p1'));
+    expect(open).toHaveBeenCalledWith('/projects/p1?tab=t1', '_blank', 'noopener');
+    open.mockRestore();
+    act(() => scene().handlers.onPickSign('p1'));
+    await act(async () => {});
+    expect(testPath).toBe('/projects/p1');
   });
 });
 
 describe('OfficePage rests and the URL', () => {
-  it('with a single machine, /office lands on that machine and keeps ?focus=1', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
+  it('with a single project, /office lands on its building and keeps ?focus=1', async () => {
+    oneProject();
     renderPage('/office?focus=1');
     await act(async () => {});
-
-    expect(testPath).toBe('/office/m1');
-    expect(testSearch).toBe('?focus=1'); // a wall display in focus mode must stay in focus mode
+    expect(testPath).toBe('/office/p1');
+    expect(testSearch).toBe('?focus=1');
   });
 
-  it('with a single machine, the ladder skips the city: room, machine, out of focus mode', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')])]));
-    dataState.current = { ...dataState.current, loading: false };
-    renderPage('/office/m1?focus=1');
+  it('with a single project, the ladder skips the city: Esc leaves focus mode', async () => {
+    oneProject();
+    renderPage('/office/p1?focus=1');
     await act(async () => {});
-    expect(new URLSearchParams(testSearch).get('room')).toBe('p1'); // the only room with desks
-
     escape();
     await act(async () => {});
-    expect(testSearch).toBe('?focus=1');
-
-    escape();
-    await act(async () => {});
-    // the city rung is skipped: /office with one machine would auto-drill straight back here
-    expect(testPath).toBe('/office/m1');
+    // the city rung is skipped: /office with one project would auto-drill straight back here
+    expect(testPath).toBe('/office/p1');
     expect(testSearch).toBe('');
-    expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm1' });
-    // the UI itself left focus mode, not just the URL: the top bar is back, the corner button is gone
+    expect(scene().targets.at(-1)).toEqual({ kind: 'building', projectId: 'p1' });
     expect(screen.getByText('Escritório')).toBeTruthy();
     expect(screen.queryByText('sair do foco (Esc)')).toBeNull();
   });
 
-  it('a zoom-out gesture never leaves focus mode, even at the rest of a single machine', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')]), room('p1b', [tab('t1b', 'p1b')])]));
-    dataState.current = { ...dataState.current, projects: [...dataState.current.projects, { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' }], loading: false };
-    renderPage('/office/m1?focus=1'); // two rooms with desks: no auto-drill, rests at the machine
+  it('a zoom-out gesture never leaves focus mode', async () => {
+    oneProject();
+    renderPage('/office/p1?focus=1');
     await act(async () => {});
-    expect(testPath).toBe('/office/m1');
-    expect(testSearch).toBe('?focus=1');
-
-    // the scene's own zoom-out gesture (a wheel gesture on a wall monitor), not Esc
     act(() => scene().handlers.onGoUp());
     await act(async () => {});
-
-    expect(testPath).toBe('/office/m1'); // still at the machine
-    expect(testSearch).toBe('?focus=1'); // still in focus mode
+    expect(testPath).toBe('/office/p1');
+    expect(testSearch).toBe('?focus=1');
     expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
-    expect(screen.queryByText('Escritório')).toBeNull(); // top bar still absent
   });
 
-  it('with several machines, /office rests on the city', async () => {
-    twoMachines();
+  it('with several projects, /office rests on the city', async () => {
+    twoProjects();
     renderPage('/office');
     await act(async () => {});
-
     expect(testPath).toBe('/office');
     expect(scene().targets.at(-1)).toEqual({ kind: 'city' });
   });
 
-  it('sends an unknown machine back to the city', async () => {
-    twoMachines();
-    renderPage('/office/ghost');
+  it('frames the building of the project in the URL on a direct load', async () => {
+    twoProjects();
+    renderPage('/office/p2');
     await act(async () => {});
-
-    expect(testPath).toBe('/office');
+    expect(scene().targets.at(-1)).toEqual({ kind: 'building', projectId: 'p2' });
   });
 
-  it('never frames a room of another machine', async () => {
-    twoMachines();
-    renderPage('/office/m1?room=p2'); // p2 exists in the city, but on m2's block
-    await act(async () => {});
-
-    expect(scene().machineIds.slice().sort()).toEqual(['m1', 'm2']);
-    expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm1' });
-  });
-
-  it('auto-drills into the only room with desks on a direct load', async () => {
-    twoMachines();
-    renderPage('/office/m2'); // hal has exactly one room with desks
-    await act(async () => {});
-
-    expect(testSearch).toBe('?room=p2');
-    expect(FakeOfficeScene.instances).toHaveLength(1);
-    expect(scene().targets.at(-1)).toEqual({ kind: 'room', machineId: 'm2', roomId: 'p2' });
-  });
-
-  it('does not auto-drill after a click on a block', async () => {
-    twoMachines();
-    renderPage('/office');
-    await act(async () => {});
-
-    act(() => scene().handlers.onPickMachine('m2'));
-    await act(async () => {});
-
-    // clicking a block asks for the block: the person is looking at the machine, not at one room
-    expect(testPath).toBe('/office/m2');
-    expect(testSearch).toBe('');
-    expect(scene().targets.at(-1)).toEqual({ kind: 'machine', machineId: 'm2' });
-  });
-
-  it('auto-drills a machine reached directly after a hand-clicked visit to another machine was left with Esc', async () => {
-    twoMachines(); // m1 has two rooms with desks (no drill of its own); m2 has exactly one
-    renderPage('/office');
-    await act(async () => {});
-
-    act(() => scene().handlers.onPickMachine('m1'));
-    await act(async () => {});
-    expect(testPath).toBe('/office/m1');
-
-    escape(); // machine -> city
+  // city-by-project §7: a /office/:machineId bookmark, with the old office's ?room=, is the city
+  it('sends an unknown project — an old machine bookmark — back to the city, keeping focus and dropping ?room=', async () => {
+    twoProjects();
+    renderPage('/office/m1?room=p1&focus=1');
     await act(async () => {});
     expect(testPath).toBe('/office');
-
-    // arriving directly at m2 (a pasted URL, or Back/Forward) — m2 was never clicked
-    await act(async () => {
-      testNavigate?.('/office/m2');
-    });
-    expect(testSearch).toBe('?room=p2');
-    expect(scene().targets.at(-1)).toEqual({ kind: 'room', machineId: 'm2', roomId: 'p2' });
+    expect(testSearch).toBe('?focus=1');
   });
 
-  it('does not re-drill a machine already left, when Back returns to its rest', async () => {
-    twoMachines();
-    renderPage('/office/m2'); // auto-drills into its only room, p2
+  it('re-reads the city, fresh, when the monitor names a tab it lacks — once per tab', async () => {
+    twoProjects();
+    const { rerender } = renderPage('/office');
     await act(async () => {});
-    expect(testSearch).toBe('?room=p2');
-
-    escape(); // room -> machine
-    await act(async () => {});
-    expect(testSearch).toBe('');
-
-    // back into the room by hand, this time pushing history — so Back below is a real arrival at
-    // the machine rest, not the no-op navigation to the URL the page already sits at
-    act(() => scene().handlers.onPickRoom('m2', 'p2'));
-    await act(async () => {});
-    expect(testSearch).toBe('?room=p2');
-
+    expect(officeMock).toHaveBeenCalledTimes(1);
+    monitorState.current = { ...monitorState.current, items: [{ tab: { id: 'new' }, project: { id: 'p1' } }] };
     await act(async () => {
-      testNavigate?.(-1);
+      rerender(tree('/office'));
     });
-    expect(testPath).toBe('/office/m2');
-    expect(testSearch).toBe(''); // Back left the room; the drill must not push us straight back in
+    expect(officeMock).toHaveBeenCalledTimes(2);
+    expect(officeMock).toHaveBeenLastCalledWith(true);
+    await act(async () => {
+      rerender(tree('/office'));
+    });
+    expect(officeMock).toHaveBeenCalledTimes(2);
   });
 
-  it('enters a room straight from the city and keeps ?focus=1 all the way', async () => {
-    twoMachines();
-    renderPage('/office?focus=1');
+  it('reads nothing and goes home without the grants to see the office', async () => {
+    canMock.mockImplementation((resource: string) => resource !== 'terminals');
+    renderPage('/office');
     await act(async () => {});
+    expect(officeMock).not.toHaveBeenCalled();
+    expect(testPath).toBe('/');
+  });
 
-    act(() => scene().handlers.onPickRoom('m2', 'p2'));
+  it('says there is nothing to draw without projects', async () => {
+    officeMock.mockResolvedValue(cityOf([], []));
+    renderPage('/office');
     await act(async () => {});
-    expect(testPath).toBe('/office/m2');
-    expect(new URLSearchParams(testSearch).get('room')).toBe('p2');
-    expect(new URLSearchParams(testSearch).get('focus')).toBe('1');
+    expect(screen.getByText(/Nenhum projeto ainda/)).toBeTruthy();
+    expect(FakeOfficeScene.instances).toHaveLength(0);
+  });
 
-    escape();
+  it('says so when the city could not be read', async () => {
+    officeMock.mockRejectedValue(new Error('nope'));
+    renderPage('/office');
     await act(async () => {});
-    expect(new URLSearchParams(testSearch).get('room')).toBeNull();
-    expect(new URLSearchParams(testSearch).get('focus')).toBe('1');
+    expect(screen.getByText('Não foi possível carregar o escritório. Tentando de novo…')).toBeTruthy();
+  });
+});
 
-    act(() => scene().handlers.onPickMachine('m1'));
+describe('OfficePage desks', () => {
+  // city-by-project §1: the machine is a detail of the desk, not a place
+  it('hands the scene every desk with the machine it runs on', async () => {
+    twoProjects();
+    renderPage('/office');
     await act(async () => {});
-    expect(testPath).toBe('/office/m1');
-    expect(new URLSearchParams(testSearch).get('focus')).toBe('1');
+    const p1 = scene().models.at(-1)!.buildings.find((b) => b.id === 'p1')!;
+    expect(p1.desks.map((d) => [d.id, d.machine])).toEqual([
+      ['t1', { name: 'jarvis', subtitle: 'MacBook do escritório', online: true }],
+      ['t1b', { name: 'hal', subtitle: null, online: true }],
+    ]);
   });
 });
 
 describe('OfficePage top bar', () => {
-  it('renders the breadcrumb inside a room, and its city part goes back up', async () => {
-    twoMachines();
-    renderPage('/office/m1?room=p1');
+  it('renders the trail at a building, and its city part goes back up', async () => {
+    twoProjects();
+    renderPage('/office/p1');
     await act(async () => {});
-
-    const trail = screen.getByLabelText('Trilha');
-    expect(trail.textContent).toBe('Cidade›jarvis›p1');
-
+    expect(screen.getByLabelText('Trilha').textContent).toBe('Cidade›p1');
     fireEvent.click(screen.getByRole('button', { name: 'Cidade' }));
     await act(async () => {});
     expect(testPath).toBe('/office');
     expect(scene().targets.at(-1)).toEqual({ kind: 'city' });
   });
 
-  it('steps out to the block when the machine part is clicked inside its only room', async () => {
-    twoMachines();
-    // arriving straight inside a room (a v1 link, Back, or a room clicked from the city) on a
-    // machine whose single room has desks: the machine part of the trail used to be a dead click,
-    // because the auto-drill had never seen this machine "arrived at" and sent us back in
-    renderPage('/office/m2?room=p2');
+  it('leaves the city part out of the trail with a single project', async () => {
+    oneProject();
+    renderPage('/office/p1');
     await act(async () => {});
-    expect(testSearch).toBe('?room=p2');
-
-    fireEvent.click(screen.getByRole('button', { name: 'hal' }));
-    await act(async () => {});
-    expect(testPath).toBe('/office/m2');
-    expect(testSearch).toBe('');
+    expect(screen.getByLabelText('Trilha').textContent).toBe('p1');
   });
 
-  it('leaves the city part out of the breadcrumb with a single machine', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [tab('t1', 'p1')])]));
-    dataState.current = { ...dataState.current, loading: false };
-    renderPage('/office/m1?room=p1');
+  it('is the shared page header: Escritório as the only title, the trail and the actions in it', async () => {
+    twoProjects();
+    renderPage('/office');
     await act(async () => {});
-
-    expect(screen.getByLabelText('Trilha').textContent).toBe('jarvis›p1');
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Escritório']);
+    const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
+    expect(header.contains(screen.getByLabelText('Trilha'))).toBe(true);
+    expect(header.contains(screen.getByText('modo foco'))).toBe(true);
   });
 });
 
 describe('OfficePage status notices', () => {
-  // focus mode is the second monitor left open all day: a dropped WebSocket there used to be a
-  // frozen picture that looked live, because the whole top bar (notices included) was not rendered
+  // focus mode is the second monitor left open all day: a dropped WebSocket there must not be a
+  // frozen picture that looks live
   it('shows "reconectando…" in focus mode, where the top bar is gone', async () => {
-    officeMock.mockResolvedValue(snap('m1', [room('p1', [])]));
-    dataState.current = { ...dataState.current, loading: false };
+    oneProject();
     monitorState.current = { ...monitorState.current, connected: false };
-    renderPage('/office/m1?focus=1');
+    renderPage('/office/p1?focus=1');
     await act(async () => {});
-
     expect(screen.getByText('sair do foco (Esc)')).toBeTruthy();
     expect(screen.queryByText('modo foco')).toBeNull();
     expect(screen.getByText('reconectando…')).toBeTruthy();
   });
 
-  it('shows "máquina offline" at the machine rest in both modes', async () => {
-    officeMock.mockResolvedValue({ ...snap('m1', [room('p1', [])]), reachable: false });
-    dataState.current = { ...dataState.current, loading: false, statuses: { m1: 'offline' as const } };
-    const { unmount } = renderPage('/office/m1');
+  it('shows "máquina offline" at a building whose every machine is offline, in both modes', async () => {
+    oneProject([machine('m1', 'jarvis', { online: false, reachable: false })]);
+    const { unmount } = renderPage('/office/p1');
     await act(async () => {});
     expect(screen.getByText('máquina offline')).toBeTruthy();
     unmount();
-
-    renderPage('/office/m1?focus=1');
+    renderPage('/office/p1?focus=1');
     await act(async () => {});
     expect(screen.getByText('máquina offline')).toBeTruthy();
     // an offline machine already explains the silence; the tmux notice is for a machine that answers
     expect(screen.queryByText(/tmux sem resposta/)).toBeNull();
   });
 
-  it('says so when a machine that answers cannot read its tmux', async () => {
-    officeMock.mockResolvedValue({ ...snap('m1', [room('p1', [])]), reachable: false });
-    dataState.current = { ...dataState.current, loading: false };
-    renderPage('/office/m1');
+  it('says so when a machine of the building cannot read its tmux', async () => {
+    oneProject([machine('m1', 'jarvis', { reachable: false })]);
+    renderPage('/office/p1');
     await act(async () => {});
-
     // compact in the header: a short label, the whole sentence for hover and screen readers
     const notice = screen.getByLabelText('sem resposta do tmux: estado pode estar desatualizado');
     expect(notice.textContent).toBe('tmux sem resposta');
@@ -507,79 +395,16 @@ describe('OfficePage status notices', () => {
     expect(notice.querySelector('svg')).not.toBeNull();
   });
 
-  it('says so at the machine rest when that machine\'s snapshot could not be read', async () => {
-    officeMock.mockRejectedValue(new Error('nope'));
-    dataState.current = { ...dataState.current, loading: false };
-    const { unmount } = renderPage('/office/m1');
-    await act(async () => {});
-    // its block is drawn empty and its own sign is hidden at its rest: without this the page is a
-    // blank diamond with no words at all on a single-machine account
-    expect(screen.getByText('Não foi possível carregar o escritório desta máquina.')).toBeTruthy();
-    // and not the "no projects yet" line, which would be a lie about a machine we could not read
-    expect(screen.queryByText('Esta máquina ainda não tem projetos.')).toBeNull();
-    unmount();
-
-    renderPage('/office/m1?focus=1');
-    await act(async () => {});
-    expect(screen.getByText('Não foi possível carregar o escritório desta máquina.')).toBeTruthy();
-  });
-
-  it('keeps the failed read out of the city rest, where the block\'s sign says it', async () => {
-    twoMachines();
-    officeMock.mockImplementation((id: string) => (id === 'm1' ? Promise.reject(new Error('nope')) : Promise.resolve(snap('m2', [room('p2', [tab('t2', 'p2')])]))));
+  it("keeps a building's notices out of the city rest, where its sign says it", async () => {
+    twoProjects({}, [machine('m1', 'jarvis', { online: false, reachable: false }), machine('m2', 'hal', { online: false, reachable: false })]);
     renderPage('/office');
     await act(async () => {});
-
-    expect(testPath).toBe('/office');
-    expect(screen.queryByText('Não foi possível carregar o escritório desta máquina.')).toBeNull();
-  });
-
-  it('keeps one machine\'s notices out of the city rest, where the block\'s sign says it', async () => {
-    twoMachines();
-    dataState.current = { ...dataState.current, statuses: { m1: 'offline', m2: 'online' } };
-    renderPage('/office');
-    await act(async () => {});
-
     expect(testPath).toBe('/office');
     expect(screen.queryByText('máquina offline')).toBeNull();
   });
 });
 
 describe('OfficePage share button', () => {
-  // owned by 'u1' unless told otherwise — the signed-in viewer in every test below, except the one
-  // that deliberately looks at a machine owned by someone else (view-as/view-all)
-  const pMachine = (id: string, name: string, ownerId: string | null = 'u1'): Machine => ({ id, name, public_id: `${id}-pub`, owner_id: ownerId }) as Machine;
-  // a project is owned by 'u1' (the viewer) unless told otherwise: merge ruling 5 — who may share a
-  // published room is decided by the PROJECT's owner; the machine's owner decides whether that room
-  // is on the street at all. The room's public id is per (project, machine), like the server's.
-  const pProject = (id: string, isPublic: boolean, ownerId: string | null = 'u1'): Project => ({ id, name: id, status: 'active', owner_id: ownerId, is_public: isPublic }) as Project;
-  const pRoom = (id: string, machineId: string, isPublic: boolean, tabs: OfficeTab[] = [], ownerId: string | null = 'u1'): OfficeRoom => ({ project: pProject(id, isPublic, ownerId), public_id: `${id}-${machineId}-room`, tabs, tasks: null });
-
-  /**
-   * m1 has two rooms with desks (p1 published, p1b not); m2 has two rooms with desks, neither
-   * published. Machines owned by `owners.m1`/`owners.m2`, p1 by `owners.p1` (default 'u1', the viewer).
-   */
-  function twoMachinesOnePublished(owners: { m1?: string | null; m2?: string | null; p1?: string | null } = {}) {
-    dataState.current = {
-      machines: [pMachine('m1', 'jarvis', owners.m1 ?? 'u1'), pMachine('m2', 'hal', owners.m2 ?? 'u1')],
-      projects: [
-        { id: 'p1', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
-        { id: 'p1b', machines: [{ machine_id: 'm1', cwd: '/', position: 0 }], status: 'active' },
-        { id: 'p2', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
-        { id: 'p2b', machines: [{ machine_id: 'm2', cwd: '/', position: 0 }], status: 'active' },
-      ],
-      statuses: { m1: 'online', m2: 'online' },
-      loading: false,
-    };
-    officeMock.mockImplementation((id: string) =>
-      Promise.resolve(
-        id === 'm1'
-          ? snap('m1', [pRoom('p1', 'm1', true, [tab('t1', 'p1')], owners.p1 === undefined ? 'u1' : owners.p1), pRoom('p1b', 'm1', false, [tab('t1b', 'p1b')])])
-          : snap('m2', [pRoom('p2', 'm2', false, [tab('t2', 'p2')]), pRoom('p2b', 'm2', false, [tab('t2b', 'p2b')])]),
-      ),
-    );
-  }
-
   function stubClipboard() {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -590,157 +415,106 @@ describe('OfficePage share button', () => {
     Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
   });
 
-  it("copies the city's own address when something anywhere is published", async () => {
-    const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished();
-    renderPage('/office');
-    await act(async () => {});
-
+  async function share() {
     fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
     await act(async () => {});
+  }
+
+  it("copies the city's own address when one of the viewer's projects is published", async () => {
+    const writeText = stubClipboard();
+    pedro();
+    twoProjects({ p1: { is_public: true } });
+    renderPage('/office');
+    await act(async () => {});
+    await share();
     expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro');
   });
 
   it('copies the short link at the city, when there is one', async () => {
     const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    pedro();
     cityLinkState.current = { link: { short_url: 'https://77a.it/pedro' } };
-    twoMachinesOnePublished();
+    twoProjects({ p1: { is_public: true } });
     renderPage('/office');
     await act(async () => {});
-
-    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
-    await act(async () => {});
+    await share();
     expect(writeText).toHaveBeenCalledWith('https://77a.it/pedro');
   });
 
-  it('keeps the long link inside a building even with a short link (only the city has one)', async () => {
+  // city-by-project §3.3: a building's link is the base plus its project's public id
+  it("copies a building's address from its project's public id, even with a short link", async () => {
     const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
+    pedro();
     cityLinkState.current = { link: { short_url: 'https://77a.it/pedro' } };
-    twoMachinesOnePublished();
-    renderPage('/office/m1');
+    twoProjects({ p1: { is_public: true } });
+    renderPage('/office/p1');
     await act(async () => {});
-
-    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
-    await act(async () => {});
-    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub');
+    await share();
+    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/p1-pub');
   });
 
   // A self-hosted instance: the link is its own public-city address, as the server reports it.
   it("builds the link from this instance's own public-city address, never termhub.dev", async () => {
     const writeText = stubClipboard();
     authState.current = { user: { id: 'u1', nickname: 'pedro' } as User, publicCityUrl: 'https://th.example.org/city' };
-    twoMachinesOnePublished();
-    renderPage('/office/m1');
+    twoProjects({ p1: { is_public: true } });
+    renderPage('/office/p1');
     await act(async () => {});
-
-    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
-    await act(async () => {});
-    expect(writeText).toHaveBeenCalledWith('https://th.example.org/city/@pedro/m1-pub');
+    await share();
+    expect(writeText).toHaveBeenCalledWith('https://th.example.org/city/@pedro/p1-pub');
   });
 
-  it("copies the building's address inside a machine, using the machine's public id", async () => {
+  // §2.4: a published project is always on the street, whatever machines its agents use
+  it("shares the viewer's published project even when its agents run on other machines, and never says 'máquina de outra pessoa'", async () => {
     const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished();
-    renderPage('/office/m1');
+    pedro();
+    twoProjects({ p1: { is_public: true } });
+    renderPage('/office/p1');
     await act(async () => {});
-
-    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
-    await act(async () => {});
-    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub');
+    expect(screen.queryByText(/máquina de outra pessoa/i)).toBeNull();
+    await share();
+    expect(writeText).toHaveBeenCalledTimes(1);
   });
 
-  it("copies the room's address inside a room, using the room's own public id", async () => {
+  it('explains itself instead of copying when the project in view is not published', async () => {
     const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished();
-    renderPage('/office/m1?room=p1');
+    pedro();
+    twoProjects({ p1: { is_public: true } });
+    renderPage('/office/p2');
     await act(async () => {});
-
-    fireEvent.click(screen.getByRole('button', { name: /compartilhar/i }));
-    await act(async () => {});
-    expect(writeText).toHaveBeenCalledWith('https://termhub.dev/city/@pedro/m1-pub?room=p1-m1-room');
-  });
-
-  it('explains itself instead of copying when nothing in view is published', async () => {
-    const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished();
-    renderPage('/office/m2'); // both of hal's rooms are unpublished
-    await act(async () => {});
-
     expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
     expect(screen.getByText(/nada publicado/i)).toBeTruthy();
     expect(writeText).not.toHaveBeenCalled();
   });
 
+  it('explains itself at the city while nothing is published', async () => {
+    pedro();
+    twoProjects();
+    renderPage('/office');
+    await act(async () => {});
+    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
+    expect(screen.getByText(/nada publicado/i)).toBeTruthy();
+  });
+
   it('produces no link for a published project whose owner is not the viewer (view-as/view-all)', async () => {
     const writeText = stubClipboard();
-    // the signed-in person is 'u1' (an admin, say), but p1 and the machines here belong to someone
-    // else ('u2') — a nickname of 'u1' would either be missing or point at the wrong city
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished({ m1: 'u2', m2: 'u2', p1: 'u2' });
-    renderPage('/office/m1');
+    pedro();
+    twoProjects({ p1: { is_public: true, owner_id: 'u2' } });
+    renderPage('/office/p1');
     await act(async () => {});
-
     expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
     expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
     expect(writeText).not.toHaveBeenCalled();
   });
 
-  it("does not build the city link from an admin's own nickname when only someone else's machine is published", async () => {
+  it("does not build the city link from an admin's own nickname when only someone else's project is published", async () => {
     const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished({ m1: 'u2', m2: 'u2', p1: 'u2' }); // nothing here is 'u1's own
+    pedro();
+    twoProjects({ p1: { is_public: true, owner_id: 'u2' } });
     renderPage('/office');
     await act(async () => {});
-
     expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
     expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
     expect(writeText).not.toHaveBeenCalled();
-  });
-
-  // Merge ruling 5: the check is on the PROJECT's owner. Somebody else's published project in a room
-  // on the viewer's own machine is still not the viewer's to share.
-  it("says a published room belongs to somebody else when the project is theirs, even on the viewer's machine", async () => {
-    const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished({ p1: 'u2' });
-    renderPage('/office/m1?room=p1');
-    await act(async () => {});
-
-    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
-    expect(screen.getByText(/pertence a outra pessoa/i)).toBeTruthy();
-    expect(writeText).not.toHaveBeenCalled();
-  });
-
-  // Merge ruling 2: the viewer's own published project, in a room on somebody else's machine, is not
-  // on any street — the public city never shows another person's machine — so there is no link.
-  it("gives no link for the viewer's own published project in a room on somebody else's machine", async () => {
-    const writeText = stubClipboard();
-    authState.current = { ...authState.current, user: { id: 'u1', nickname: 'pedro' } as User };
-    twoMachinesOnePublished({ m1: 'u2' });
-    renderPage('/office/m1?room=p1');
-    await act(async () => {});
-
-    expect(screen.queryByRole('button', { name: /compartilhar/i })).toBeNull();
-    expect(screen.getByText(/máquina de outra pessoa/i)).toBeTruthy();
-    expect(writeText).not.toHaveBeenCalled();
-  });
-});
-
-describe('OfficePage header', () => {
-  it('is the shared page header: Escritório as the only title, the trail and the actions in it', async () => {
-    officeMock.mockReturnValue(new Promise(() => {}));
-    dataState.current = { ...dataState.current, loading: false };
-    renderPage('/office');
-    await act(async () => {});
-    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Escritório']);
-    const header = screen.getByRole('heading', { level: 1 }).closest('header')!;
-    expect(header.contains(screen.getByLabelText('Trilha'))).toBe(true);
-    expect(header.contains(screen.getByText('modo foco'))).toBe(true);
   });
 });
