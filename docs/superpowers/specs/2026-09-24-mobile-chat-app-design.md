@@ -82,9 +82,9 @@ When the account exists, the request appears under Configurações → Aparelhos
 
 ### 4.5 Back in the app
 
-`GET /api/m/v1/devices/requests/:id` (bearer `request_secret`) answers `{ status: 'pending' | 'approved' | 'closed' }`. Denied, expired, decoy and unknown ids are all `closed`. With `approved` comes a single-use `enrolment_token`.
+`GET /api/m/v1/devices/requests/:id` (bearer `request_secret`) answers `{ status: 'pending' | 'approved' | 'closed' }`. Denied, expired, decoy and unknown ids are all `closed`. With `approved` the app moves on; the `request_secret` it already holds doubles as the activation credential (only this app instance has it, and activation also needs the key's signature).
 
-The app then asks the person to **create the PIN** (6 digits, typed twice) and only then calls `POST /api/m/v1/devices/activate` with the enrolment token, signed by the hardware key (the DPoP proof of §5.2 with no access token yet). That is when the `devices` row is created. The response carries `device_id`, the first access token and, **once**, the `pin_secret` the server generated; the app wraps it under the PIN (§5.4) and stores it. Abandoning the PIN screen creates nothing; the approval expires by itself. A device without a PIN does not exist.
+The app then asks the person to **create the PIN** (6 digits, typed twice) and only then calls `POST /api/m/v1/devices/activate` with `request_id` and `request_secret`, signed by the hardware key (the DPoP proof of §5.2 with no access token yet). That is when the `devices` row is created. The response carries `device_id`, the first access token and, **once**, the `pin_secret` the server generated; the app wraps it under the PIN (§5.4) and stores it. Abandoning the PIN screen creates nothing; the approval expires by itself. A device without a PIN does not exist.
 
 ### 4.6 Audit
 
@@ -201,7 +201,7 @@ All additive: new tables and two nullable columns on `users`. The previous conta
 
 | Table | Columns | Notes |
 |---|---|---|
-| `device_requests` | `id`, `user_id?` (null = decoy), `email_hash`, `public_key` (JWK text), `key_thumbprint`, `platform`, `model`, `os_version`, `device_name`, `app_version`, `verification_code`, `request_secret_hash`, `enrolment_token_hash?`, `status` (`pending`, `approved`, `denied`, `expired`, `activated`), `ip`, `country?`, `city?`, `created_at`, `expires_at`, `decided_at?`, `activate_until?` | Indexes on `(user_id, status)`, `(email_hash, created_at)`, `expires_at`. Purged 24 h after expiry. |
+| `device_requests` | `id`, `user_id?` (null = decoy), `email_hash`, `public_key` (JWK text), `key_thumbprint`, `platform`, `model`, `os_version`, `device_name`, `app_version`, `verification_code`, `request_secret_hash`, `status` (`pending`, `approved`, `denied`, `expired`, `activated`), `ip`, `country?`, `city?`, `created_at`, `expires_at`, `decided_at?`, `activate_until?` | Indexes on `(user_id, status)`, `(email_hash, created_at)`, `expires_at`. Purged 24 h after expiry. |
 | `devices` | `id`, `user_id`, `name`, `platform`, `model`, `os_version`, `app_version`, `public_key`, `key_thumbprint` (unique), `pin_secret_enc`, `pin_failures`, `pin_locked_until?`, `status` (`active`, `revoked`), `revoked_at?`, `revoked_reason?` (`user`, `admin`, `pin_bruteforce`, `review`), `push_token?`, `last_seen_at?`, `last_ip?`, `request_id?`, `created_at` | `pin_secret_enc` through `encryptSecret` (`ENCRYPTION_KEY`). Revoked rows are kept for the list and the trail. At most 5 active per user, enforced in code. |
 | `device_tokens` | `id`, `device_id`, `token_hash` (unique), `expires_at`, `created_at`, `last_used_at?` | Hash only. Hourly purge of expired rows. |
 | `device_challenges` | `id`, `device_id`, `challenge_hash` (unique), `purpose` (`refresh`, `decision`), `action_id?`, `expires_at`, `used_at?` | In the database, not in memory: survives a blue/green switch and works with more than one process. Single use. |
