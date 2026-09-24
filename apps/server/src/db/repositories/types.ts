@@ -7,6 +7,7 @@ import type {
   Tab as PrismaTab,
   TabEvent as PrismaTabEvent,
   Task as PrismaTask,
+  TaskColumn as PrismaTaskColumn,
   Note as PrismaNote,
   Ticket as PrismaTicket,
 } from '../../generated/prisma/client.js';
@@ -16,6 +17,10 @@ export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh' | 'agent';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
+/** Kind of card (spec 2026-09-24 §3): epics group work, subtasks are a checklist inside a story or task. */
+export type TaskType = 'epic' | 'story' | 'task' | 'subtask' | 'bug' | 'spike';
+/** What a board column means to the system; the backlog is not a column. */
+export type ColumnCategory = Exclude<TaskStatus, 'backlog'>;
 export type TabKind = 'terminal' | 'simulator';
 /** Monitor state of the tool running in a tab (see monitor/state.ts). */
 export type TabState = 'working' | 'waiting_input' | 'waiting_permission' | 'idle' | 'error';
@@ -99,6 +104,8 @@ export interface Project {
   description: string | null;
   /** published: readable by anyone with the /city/@nickname link */
   is_public: boolean;
+  /** column a card moves to when an agent starts on it; null = automatic (first `doing` column) */
+  agent_column_id: string | null;
   last_terminal_at: string | null;
   created_at: string;
 }
@@ -153,18 +160,39 @@ export interface TabEvent {
 export interface Task {
   id: string;
   project_id: string;
+  /** epic, story, task, subtask, bug or spike (spec 2026-09-24 §3) */
+  type: TaskType;
+  /** sequential per project, set by the database trigger; never reused */
+  number: number;
+  /** "TER-12": project key + number; the card opens at /project/<ref> */
+  ref: string;
   title: string;
   description: string | null;
+  /** backlog = in the backlog; otherwise the category of its column */
   status: TaskStatus;
   position: number;
   /** Ticket externo: { provider, id, identifier, url, state, meta } */
   external_ref: unknown | null;
   external_key: string | null;
   tab_id: string | null;
-  /** Parent task for a subtask; null for a top-level (board) task. */
+  /** Parent story/task for a subtask; null for every other card. */
   parent_id: string | null;
+  /** The epic of a story/task/bug/spike; null on epics and subtasks. */
+  epic_id: string | null;
+  /** Board column; null in the backlog and on subtasks. */
+  column_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A board column of a project: the user's name, the system's category. */
+export interface TaskColumn {
+  id: string;
+  project_id: string;
+  name: string;
+  category: ColumnCategory;
+  position: number;
+  created_at: string;
 }
 
 /** A top-level task as the list endpoint returns it. */
@@ -277,6 +305,7 @@ export const mapProject = (p: PrismaProject): Project => ({
   status: p.status,
   description: p.description,
   is_public: p.isPublic,
+  agent_column_id: p.agentColumnId,
   last_terminal_at: iso(p.lastTerminalAt),
   created_at: p.createdAt.toISOString(),
 });
@@ -320,9 +349,13 @@ export const mapTabEvent = (e: PrismaTabEvent): TabEvent => ({
   created_at: e.createdAt.toISOString(),
 });
 
-export const mapTask = (t: PrismaTask): Task => ({
+/** `key`: the project's key, for `ref` (TasksRepository loads it with every task). */
+export const mapTask = (t: PrismaTask, key: string): Task => ({
   id: t.id,
   project_id: t.projectId,
+  type: t.type,
+  number: t.number,
+  ref: `${key}-${t.number}`,
   title: t.title,
   description: t.description,
   status: t.status,
@@ -331,8 +364,19 @@ export const mapTask = (t: PrismaTask): Task => ({
   external_key: t.externalKey,
   tab_id: t.tabId,
   parent_id: t.parentId,
+  epic_id: t.epicId,
+  column_id: t.columnId,
   created_at: t.createdAt.toISOString(),
   updated_at: t.updatedAt.toISOString(),
+});
+
+export const mapTaskColumn = (c: PrismaTaskColumn): TaskColumn => ({
+  id: c.id,
+  project_id: c.projectId,
+  name: c.name,
+  category: c.category as ColumnCategory,
+  position: c.position,
+  created_at: c.createdAt.toISOString(),
 });
 
 export const mapTicket = (t: PrismaTicket): Ticket => ({

@@ -180,13 +180,15 @@ model Project {
   /// Short key shown in URLs and card numbers (TERMHUB-42): 2–10 chars, ^[A-Z][A-Z0-9]{1,9}$,
   /// unique across the instance, never changed after creation.
   key            String        @unique
-  /// Next card number for this project (used by the task-hierarchy spec; untouched here).
+  /// Next card number for this project; the `tasks_assign_number` trigger takes it on every insert.
   nextTaskNumber Int           @default(1) @map("next_task_number")
   name           String
   status         ProjectStatus @default(active)
   description    String?
   /// Published: one room per machine the project's owner owns and links it to — with its tabs and that machine's name — is readable by anyone with the link. A link to somebody else's machine never becomes a room.
   isPublic       Boolean       @default(false) @map("is_public")
+  /// Column a card moves to when an agent starts on it (start_agent). Null = automatic: the first `doing` column.
+  agentColumnId  String?       @map("agent_column_id")
   lastTerminalAt DateTime?     @map("last_terminal_at")
   createdAt      DateTime      @default(now()) @map("created_at")
   owner          User?         @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
@@ -199,6 +201,9 @@ model Project {
   tickets        Ticket[]
   chatConversations ChatConversation[]
   groupItems     ProjectGroupItem[]
+  agentColumn    TaskColumn?   @relation("ProjectAgentColumn", fields: [agentColumnId], references: [id], onDelete: SetNull)
+  /// The project's board columns, in `position` order.
+  columns        TaskColumn[]  @relation("ProjectColumns")
 
   @@index([ownerId])
   @@map("projects")
@@ -335,12 +340,43 @@ enum TaskStatus {
   done
 }
 
+/// Kind of card. Epics group work; stories/tasks/bugs/spikes are the work; subtasks are a checklist inside a story or task.
+enum TaskType {
+  epic
+  story
+  task
+  subtask
+  bug
+  spike
+}
+
+/// A board column of a project. The user names it; `category` is what the system reasons with
+/// (todo, doing or done — never backlog, a CHECK in the migration enforces it).
+model TaskColumn {
+  id        String     @id
+  projectId String     @map("project_id")
+  name      String
+  category  TaskStatus
+  position  Int
+  createdAt DateTime   @default(now()) @map("created_at")
+  project   Project    @relation("ProjectColumns", fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+  agentFor  Project[]  @relation("ProjectAgentColumn")
+
+  @@index([projectId, position])
+  @@map("task_columns")
+}
+
 model Task {
   id          String     @id
   projectId   String     @map("project_id")
   title       String
   description String?
+  /// The card's category: backlog = in the backlog; otherwise the category of `column`. Kept in sync on every write.
   status      TaskStatus @default(todo)
+  type        TaskType   @default(task)
+  /// Sequential per project (projects.next_task_number), set by the tasks_assign_number trigger; never reused.
+  number      Int        @default(0)
   position    Int        @default(0)
   /// Reservado para integrações (GitHub/Jira/Linear): { provider, id, url, ... }
   externalRef Json?      @map("external_ref")
@@ -354,15 +390,26 @@ model Task {
   tabId       String?    @map("tab_id")
   tab         Tab?       @relation(fields: [tabId], references: [id], onDelete: SetNull)
 
-  /// Subtask: the parent task (one level only, enforced in TasksRepository). Subtasks have no
+  /// Subtask: the parent story or task (one level only, enforced in TasksRepository). Subtasks have no
   /// board column — `position` orders them among siblings — and are always local (no externalKey).
   parentId    String?    @map("parent_id")
   parent      Task?      @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
   subtasks    Task[]     @relation("TaskSubtasks")
 
+  /// Story/task/bug/spike: the epic it belongs to. Null on epics and subtasks.
+  epicId      String?    @map("epic_id")
+  epic        Task?      @relation("TaskEpic", fields: [epicId], references: [id], onDelete: SetNull)
+  epicCards   Task[]     @relation("TaskEpic")
+  /// Board column; null in the backlog and on subtasks.
+  columnId    String?    @map("column_id")
+  column      TaskColumn? @relation(fields: [columnId], references: [id], onDelete: SetNull)
+
   @@unique([projectId, externalKey])
+  @@unique([projectId, number])
   @@index([projectId, status, position])
   @@index([parentId, position])
+  @@index([columnId, position])
+  @@index([epicId, status, position])
   @@map("tasks")
 }
 

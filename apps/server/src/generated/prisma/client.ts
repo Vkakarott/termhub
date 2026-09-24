@@ -108,6 +108,12 @@ export type MachineHook = Prisma.MachineHookModel
  */
 export type Ticket = Prisma.TicketModel
 /**
+ * Model TaskColumn
+ * A board column of a project. The user names it; `category` is what the system reasons with
+ * (todo, doing or done — never backlog, a CHECK in the migration enforces it).
+ */
+export type TaskColumn = Prisma.TaskColumnModel
+/**
  * Model Task
  * 
  */
