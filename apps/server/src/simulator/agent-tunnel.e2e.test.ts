@@ -23,13 +23,29 @@ const WDA_PORT = 8199;
 const MJPEG_PORT = 9199;
 
 function startStub(port: number): Promise<net.Server | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = net.createServer((sock) => {
-      sock.on('data', () => {
-        sock.write('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 24\r\n\r\n{"value":{"ready":true}}');
+      // Per-connection buffer: a request may arrive split across chunks, and the keep-alive
+      // path in test 1 sends a second request on the same connection, so this must answer
+      // exactly once per complete request header block, not once per 'data' event.
+      let buf = '';
+      sock.on('data', (chunk: Buffer) => {
+        buf += chunk.toString('utf8');
+        let headerEnd: number;
+        while ((headerEnd = buf.indexOf('\r\n\r\n')) !== -1) {
+          buf = buf.slice(headerEnd + 4);
+          sock.write('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 24\r\n\r\n{"value":{"ready":true}}');
+        }
       });
     });
-    server.once('error', () => resolve(null)); // EADDRINUSE on a dev Mac with a real WDA: skip below
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`agent-tunnel.e2e.test: skipping, port ${port} is already in use`);
+        resolve(null); // dev Mac with a real WDA on this port: skip below
+        return;
+      }
+      reject(err); // any other listen failure should fail loudly, not silently pass 0 assertions
+    });
     server.listen(port, '127.0.0.1', () => resolve(server));
   });
 }
