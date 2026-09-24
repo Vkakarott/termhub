@@ -92,6 +92,13 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
       ...(chal ? { chal } : {}),
     });
 
+  // The single-flighted renewal only covers calls that fail *while it is in flight*: A gets a
+  // 401, starts renewing, and B's 401 (sent with the same stale token) arrives before the
+  // renewal settles — both await the same `renewing` promise, one real renewal. But if B's 401
+  // arrives *after* A's renewal has already settled (`renewing` is back to `null`), a plain
+  // single-flight would renew a second time for a token that is already known to be current.
+  // `latestToken` remembers the last token a renewal produced so that case reuses it instead.
+  let latestToken: string | null = null;
   let renewing: Promise<string | null> | null = null;
   const renewOnce = (): Promise<string | null> => {
     renewing ??= o.onTokenExpired().finally(() => {
@@ -115,15 +122,32 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
     learn(res.headers);
 
     if (res.status >= 200 && res.status < 300) {
-      const parsed = schema.safeParse(res.text ? JSON.parse(res.text) : {});
+      let json: unknown;
+      try {
+        json = res.text ? JSON.parse(res.text) : {};
+      } catch {
+        // A non-JSON 2xx body (a captive portal, a Cloudflare interstitial, ...) is the same
+        // "the server answered something we don't understand" case as a body that parses but
+        // does not match the schema — never a raw SyntaxError quoting arbitrary response text.
+        throw new ApiError(502, 'BAD_RESPONSE', 'Resposta inesperada do servidor');
+      }
+      const parsed = schema.safeParse(json);
       if (!parsed.success) throw new ApiError(502, 'BAD_RESPONSE', 'Resposta inesperada do servidor');
       return parsed.data;
     }
 
     const err = ApiError.fromBody(res.status, res.headers, res.text);
     if (err.status === 401 && err.code === 'TOKEN_EXPIRED' && opts.token && opts.retry !== false) {
+      if (latestToken && latestToken !== opts.token) {
+        // Someone else already renewed while this call was in flight; reuse that token instead
+        // of renewing again.
+        return call(htm, path, schema, { ...opts, token: latestToken, retry: false });
+      }
       const fresh = await renewOnce();
-      if (fresh) return call(htm, path, schema, { ...opts, token: fresh, retry: false });
+      if (fresh) {
+        latestToken = fresh;
+        return call(htm, path, schema, { ...opts, token: fresh, retry: false });
+      }
     }
     throw err;
   }

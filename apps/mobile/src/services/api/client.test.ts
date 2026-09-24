@@ -5,19 +5,55 @@ import type { VaultKey } from '../vault';
 import { createHttpMobileApi } from './client';
 import type { Transport } from './transport';
 
-function scripted(answers: Array<{ status: number; headers?: Record<string, string>; body: unknown }>) {
+function scripted(answers: Array<{ status: number; headers?: Record<string, string>; body?: unknown; text?: string }>) {
   const calls: Array<{ method: string; url: string; headers: Record<string, string>; body?: string }> = [];
   const transport: Transport = {
     fetch: async (req) => {
       calls.push(req);
       const a = answers.shift()!;
-      return { status: a.status, headers: { date: new Date(NOW * 1000).toUTCString(), ...(a.headers ?? {}) }, text: JSON.stringify(a.body) };
+      return {
+        status: a.status,
+        headers: { date: new Date(NOW * 1000).toUTCString(), ...(a.headers ?? {}) },
+        text: a.text ?? JSON.stringify(a.body),
+      };
     },
     connect: () => {
       throw new Error('not in this test');
     },
   };
   return { transport, calls };
+}
+
+/** A transport whose `fetch` never resolves on its own: the test drives exactly when each
+ * request's response arrives, by index, so a renewal race can be staged deterministically
+ * instead of relying on incidental microtask ordering. */
+function deferredTransport() {
+  const calls: Array<{ method: string; url: string; headers: Record<string, string>; body?: string }> = [];
+  const resolvers: Array<(r: { status: number; headers: Record<string, string>; text: string }) => void> = [];
+  const transport: Transport = {
+    fetch: (req) =>
+      new Promise((resolve) => {
+        calls.push(req);
+        resolvers.push(resolve);
+      }),
+    connect: () => {
+      throw new Error('not in this test');
+    },
+  };
+  const respond = (index: number, answer: { status: number; headers?: Record<string, string>; body?: unknown }) => {
+    const resolve = resolvers[index];
+    if (!resolve) throw new Error(`no fetch call at index ${index} yet`);
+    resolve({ status: answer.status, headers: { date: new Date(NOW * 1000).toUTCString(), ...(answer.headers ?? {}) }, text: JSON.stringify(answer.body) });
+  };
+  return { transport, calls, respond };
+}
+
+const tick = () => new Promise<void>((resolve) => setImmediate(() => resolve()));
+/** Polls `cond` a few ticks at a time — used to wait for async work (proof signing, ...) to reach
+ * `deferredTransport`'s `fetch` before the test decides which response to release next. */
+async function waitFor(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 200 && !cond(); i++) await tick();
+  if (!cond()) throw new Error('condition never became true');
 }
 
 const NOW = 1_800_000_000;
@@ -73,10 +109,11 @@ it('renews once on TOKEN_EXPIRED and retries with the new token; a second 401 su
   expect(calls[1]!.headers.Authorization).toBe('Bearer tok2');
 });
 
-it('only TOKEN_EXPIRED triggers renewal: DEVICE_REVOKED, PROOF_REPLAYED and APP_TOO_OLD surface untouched', async () => {
+it('only TOKEN_EXPIRED triggers renewal: DEVICE_REVOKED, PROOF_REPLAYED, PROOF_INVALID and APP_TOO_OLD surface untouched', async () => {
   for (const [status, code] of [
     [401, 'DEVICE_REVOKED'],
     [401, 'PROOF_REPLAYED'],
+    [401, 'PROOF_INVALID'],
     [426, 'APP_TOO_OLD'],
   ] as const) {
     const renew = jest.fn(async () => 'tok2');
@@ -89,6 +126,56 @@ it('only TOKEN_EXPIRED triggers renewal: DEVICE_REVOKED, PROOF_REPLAYED and APP_
 it('refuses a body that does not match the contract', async () => {
   const { transport } = scripted([{ status: 200, body: { nope: 1 } }]);
   await expect(make(transport).chatProjects({ accessToken: 'tok' })).rejects.toMatchObject({ status: 502, code: 'BAD_RESPONSE' });
+});
+
+it('refuses a non-JSON 2xx body as BAD_RESPONSE instead of surfacing the raw parse error', async () => {
+  const { transport } = scripted([{ status: 200, text: '<html>' }]);
+  await expect(make(transport).chatProjects({ accessToken: 'tok' })).rejects.toMatchObject({ status: 502, code: 'BAD_RESPONSE' });
+});
+
+it('a second 401 on the retry surfaces without a second renew', async () => {
+  const { transport } = scripted([
+    { status: 401, body: { error: 'x', code: 'TOKEN_EXPIRED' } },
+    { status: 401, body: { error: 'y', code: 'TOKEN_EXPIRED' } },
+  ]);
+  const renew = jest.fn(async () => 'tok2');
+  await expect(make(transport, renew).chatProjects({ accessToken: 'tok' })).rejects.toMatchObject({ status: 401, code: 'TOKEN_EXPIRED' });
+  expect(renew).toHaveBeenCalledTimes(1);
+});
+
+it('renewer returns null: the original TOKEN_EXPIRED error surfaces', async () => {
+  const { transport } = scripted([{ status: 401, body: { error: 'x', code: 'TOKEN_EXPIRED' } }]);
+  const renew = jest.fn(async () => null as string | null);
+  await expect(make(transport, renew).chatProjects({ accessToken: 'tok' })).rejects.toMatchObject({ status: 401, code: 'TOKEN_EXPIRED' });
+  expect(renew).toHaveBeenCalledTimes(1);
+});
+
+it('two parallel calls that both fail with TOKEN_EXPIRED renew only once, even when the second call\'s 401 arrives after the first has already renewed and cleared the in-flight renewal', async () => {
+  const { transport, calls, respond } = deferredTransport();
+  const renew = jest.fn(async () => 'tok2');
+  const api = make(transport, renew);
+
+  const p1 = api.chatProjects({ accessToken: 'tok' });
+  const p2 = api.chatProjects({ accessToken: 'tok' });
+
+  // Both calls' first attempts are in flight, both still holding the stale token.
+  await waitFor(() => calls.length === 2);
+
+  // A's attempt fails and its whole renew-then-retry cycle completes, clearing the single-flight.
+  respond(0, { status: 401, body: { error: 'x', code: 'TOKEN_EXPIRED' } });
+  await waitFor(() => calls.length === 3);
+  respond(2, { status: 200, body: { projects: [] } });
+  await p1;
+
+  // Only now does B's 401 get answered — `renewing` is already back to null.
+  respond(1, { status: 401, body: { error: 'x', code: 'TOKEN_EXPIRED' } });
+  await waitFor(() => calls.length === 4);
+  respond(3, { status: 200, body: { projects: [] } });
+  await p2;
+
+  expect(renew).toHaveBeenCalledTimes(1);
+  expect(calls[2]!.headers.Authorization).toBe('Bearer tok2');
+  expect(calls[3]!.headers.Authorization).toBe('Bearer tok2');
 });
 
 it('activate and token carry no ath; token carries chal', async () => {
