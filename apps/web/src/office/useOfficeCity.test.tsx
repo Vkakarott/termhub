@@ -64,6 +64,32 @@ describe('useOfficeCity', () => {
     expect(result.current).toMatchObject({ city: cityOf('a'), failed: false });
   });
 
+  // review fix: a failed re-read keeps the last city, but the page must be able to say it is old
+  it('marks the city stale when a re-read fails, and fresh again on the next good read', async () => {
+    vi.useFakeTimers();
+    officeMock.mockResolvedValueOnce(cityOf('a'));
+    const { result } = renderHook(() => useOfficeCity(true));
+    await act(async () => {});
+    expect(result.current.stale).toBe(false);
+    officeMock.mockRejectedValueOnce(new Error('again'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(result.current).toMatchObject({ city: cityOf('a'), failed: false, stale: true });
+    officeMock.mockResolvedValueOnce(cityOf('b'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(result.current).toMatchObject({ city: cityOf('b'), stale: false });
+  });
+
+  it('is not stale when only the first read failed: that is `failed`', async () => {
+    officeMock.mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderHook(() => useOfficeCity(true));
+    await act(async () => {});
+    expect(result.current).toMatchObject({ city: null, failed: true, stale: false });
+  });
+
   it('re-reads every minute while visible, never while hidden, and at once on coming back', async () => {
     vi.useFakeTimers();
     officeMock.mockResolvedValue(cityOf('a'));

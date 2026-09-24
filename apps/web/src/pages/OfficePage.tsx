@@ -39,7 +39,7 @@ export function OfficePage() {
   const { items, tabState, connected } = useMonitor();
   const { focus, setFocus } = useFocusMode();
   const allowed = can('projects', 'read') && can('terminals', 'read');
-  const { city: office, failed: readFailed, reload } = useOfficeCity(allowed);
+  const { city: office, failed: readFailed, stale, reload } = useOfficeCity(allowed);
   // a callback ref, not useRef: the host <div> is absent on the first render (loading/permission
   // branches return early below), and a ref alone would never re-trigger the mount effect once it
   // finally renders — which left the scene blank on a direct load or reload of the URL.
@@ -187,7 +187,7 @@ export function OfficePage() {
           extra={<Trail parts={trail} />}
           actions={
             <span className="flex items-center gap-3 text-xs text-fg-muted">
-              <StatusNotices building={here} connected={connected} />
+              <StatusNotices building={here} connected={connected} stale={stale} />
               <ShareButton result={shareResult} />
               <button className="rounded px-2 py-1 hover:bg-bg-3 hover:text-fg" onClick={() => setFocus(true)} title="Modo foco (F)">
                 modo foco
@@ -201,7 +201,7 @@ export function OfficePage() {
         <div ref={setHost} className="absolute inset-0 overflow-hidden" />
         {focus && (
           <div className="absolute right-3 top-3 flex items-center gap-3 rounded bg-bg-2/80 px-2 py-1 text-xs text-fg-muted">
-            <StatusNotices building={here} connected={connected} />
+            <StatusNotices building={here} connected={connected} stale={stale} />
             <ShareButton result={shareResult} />
             <button className="rounded hover:text-fg" onClick={() => setFocus(false)}>
               sair do foco (Esc)
@@ -249,11 +249,31 @@ function Trail({ parts }: { parts: Array<{ label: string; go?: () => void }> }) 
  * its sign carries the notice.
  */
 const TMUX_SILENT = 'sem resposta do tmux: estado pode estar desatualizado';
+/** A re-read failed: the city on screen is the last one read, kept rather than blanked. */
+const STALE = 'Escritório desatualizado: não foi possível atualizar';
 
-function StatusNotices({ building, connected }: { building: BuildingModel | null; connected: boolean }) {
+/** The distinct machines of a building's desks that are offline, by name, in desk order. */
+function offlineMachines(building: BuildingModel): string[] {
+  return [...new Set(building.desks.flatMap((d) => (d.machine && !d.machine.online ? [d.machine.name] : [])))];
+}
+
+function StatusNotices({ building, connected, stale }: { building: BuildingModel | null; connected: boolean; stale: boolean }) {
+  const offline = building?.notice === 'offline' ? offlineMachines(building) : [];
+  // counted in the header, named on hover and for screen readers: the names can be long
+  const offlineLabel = offline.length > 1 ? `máquinas offline: ${offline.join(', ')}` : `máquina offline: ${offline.join(', ')}`;
   return (
     <>
-      {building?.notice === 'offline' && <span className="text-warn">máquina offline</span>}
+      {stale && (
+        <span className="flex items-center gap-1 whitespace-nowrap text-warn" role="status" aria-label={STALE} title={STALE}>
+          <TriangleAlert size={14} aria-hidden="true" />
+          desatualizado
+        </span>
+      )}
+      {building?.notice === 'offline' && (
+        <span className="whitespace-nowrap text-warn" aria-label={offlineLabel} title={offlineLabel}>
+          {offline.length > 1 ? `${offline.length} máquinas offline` : 'máquina offline'}
+        </span>
+      )}
       {building?.notice === 'silent' && (
         // compact: the header's actions must fit a narrow window; the whole sentence is on hover and for screen readers
         <span className="flex items-center gap-1 whitespace-nowrap text-warn" role="status" aria-label={TMUX_SILENT} title={TMUX_SILENT}>

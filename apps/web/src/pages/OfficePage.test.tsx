@@ -290,6 +290,29 @@ describe('OfficePage rests and the URL', () => {
     expect(officeMock).toHaveBeenCalledTimes(2);
   });
 
+  // review fix: a re-read that fails keeps the last city on screen, and says it is out of date
+  it('says the office is out of date when a re-read fails, until one succeeds', async () => {
+    twoProjects();
+    const { rerender } = renderPage('/office');
+    await act(async () => {});
+    expect(screen.queryByRole('status', { name: /desatualizado/ })).toBeNull();
+    officeMock.mockRejectedValueOnce(new Error('nope'));
+    monitorState.current = { ...monitorState.current, items: [{ tab: { id: 'new' }, project: { id: 'p1' } }] };
+    await act(async () => {
+      rerender(tree('/office'));
+    });
+    const notice = screen.getByRole('status', { name: 'Escritório desatualizado: não foi possível atualizar' });
+    expect(notice).toBeTruthy();
+    // the last city stays drawn
+    expect(scene().buildingIds).toEqual(['p1', 'p2']);
+    monitorState.current = { ...monitorState.current, items: [...monitorState.current.items, { tab: { id: 'new2' }, project: { id: 'p1' } }] };
+    await act(async () => {
+      rerender(tree('/office'));
+    });
+    expect(officeMock).toHaveBeenCalledTimes(3);
+    expect(screen.queryByRole('status', { name: /desatualizado/ })).toBeNull();
+  });
+
   it('reads nothing and goes home without the grants to see the office', async () => {
     canMock.mockImplementation((resource: string) => resource !== 'terminals');
     renderPage('/office');
@@ -382,6 +405,23 @@ describe('OfficePage status notices', () => {
     expect(screen.getByText('máquina offline')).toBeTruthy();
     // an offline machine already explains the silence; the tmux notice is for a machine that answers
     expect(screen.queryByText(/tmux sem resposta/)).toBeNull();
+  });
+
+  // review fix: several offline machines are counted, and named on hover and for screen readers
+  it('counts the offline machines of a building and names them', async () => {
+    officeMock.mockResolvedValue(cityOf([building('p1', [tab('t1', 'p1', 'm1'), tab('t2', 'p1', 'm2')])], [machine('m1', 'jarvis', { online: false, reachable: false }), machine('m2', 'hal', { online: false, reachable: null })]));
+    renderPage('/office/p1');
+    await act(async () => {});
+    const notice = screen.getByText('2 máquinas offline');
+    expect(notice.getAttribute('title')).toBe('máquinas offline: jarvis, hal');
+    expect(notice.getAttribute('aria-label')).toBe('máquinas offline: jarvis, hal');
+  });
+
+  it('names the one offline machine too', async () => {
+    oneProject([machine('m1', 'jarvis', { online: false, reachable: false })]);
+    renderPage('/office/p1');
+    await act(async () => {});
+    expect(screen.getByText('máquina offline').getAttribute('title')).toBe('máquina offline: jarvis');
   });
 
   it('says so when a machine of the building cannot read its tmux', async () => {

@@ -12,12 +12,14 @@ const MIN_GAP_MS = 10_000;
  * which the page calls when the monitor names a tab the city lacks, and which asks the server for a
  * fresh tmux probe (that tab is already on screen and must not read as "no session yet"). One read
  * in flight at a time. `failed` is only about the FIRST read: a failed re-read keeps the last city,
- * which is still the best picture there is. Nothing is read while `enabled` is false (a role that
+ * which is still the best picture there is, and sets `stale` (cleared by the next good read) so the
+ * page can say that picture is old. Nothing is read while `enabled` is false (a role that
  * cannot read projects or terminals is sent away by the page anyway).
  */
-export function useOfficeCity(enabled: boolean): { city: OfficeCity | null; failed: boolean; reload: () => boolean } {
+export function useOfficeCity(enabled: boolean): { city: OfficeCity | null; failed: boolean; stale: boolean; reload: () => boolean } {
   const [city, setCity] = useState<OfficeCity | null>(null);
   const [failed, setFailed] = useState(false);
+  const [stale, setStale] = useState(false);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   const hasCity = useRef(false);
@@ -37,9 +39,12 @@ export function useOfficeCity(enabled: boolean): { city: OfficeCity | null; fail
         hasCity.current = true;
         setCity(next);
         setFailed(false);
+        setStale(false);
       })
       .catch(() => {
-        if (mounted.current && !hasCity.current) setFailed(true);
+        if (!mounted.current) return;
+        if (hasCity.current) setStale(true);
+        else setFailed(true);
       })
       .finally(() => {
         inFlight.current = false;
@@ -74,5 +79,5 @@ export function useOfficeCity(enabled: boolean): { city: OfficeCity | null; fail
   }, [read]);
 
   const reload = useCallback(() => read({ fresh: true }), [read]);
-  return { city, failed, reload };
+  return { city, failed, stale, reload };
 }
