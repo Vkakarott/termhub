@@ -137,12 +137,16 @@ describe('DevicesView', () => {
   });
 
   it('lists devices with name, model/OS, added date, last seen and situation', async () => {
-    // Far enough in the future to stay "locked" regardless of when this test actually runs;
-    // 17:30 UTC is 14:30 in this environment's timezone (America/Sao_Paulo, UTC-3).
+    // Far enough in the future to stay "locked" regardless of when this test actually runs. The
+    // expected label is built from this same instant with the same formatter the component uses,
+    // so the assertion holds under any runner timezone (verified under both TZ=UTC and
+    // TZ=America/Sao_Paulo — see task-11-report.md).
+    const PIN_LOCKED_UNTIL = '2099-01-01T17:30:00.000Z';
+    const lockedTime = new Date(PIN_LOCKED_UNTIL).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     listMock.mockResolvedValue({
       devices: [
         dev({ id: 'd1', name: 'iPhone de Ana', model: 'iPhone 15', os_version: '17.4', created_at: '2026-09-01T10:00:00.000Z', last_seen_at: null, status: 'active' }),
-        dev({ id: 'd2', name: 'Pixel', model: 'Pixel 8', os_version: '14', created_at: '2026-09-02T10:00:00.000Z', last_seen_at: '2026-09-20T09:00:00.000Z', status: 'active', pin_locked_until: '2099-01-01T17:30:00.000Z' }),
+        dev({ id: 'd2', name: 'Pixel', model: 'Pixel 8', os_version: '14', created_at: '2026-09-02T10:00:00.000Z', last_seen_at: '2026-09-20T09:00:00.000Z', status: 'active', pin_locked_until: PIN_LOCKED_UNTIL }),
         dev({ id: 'd3', name: 'Old phone', status: 'revoked', revoked_reason: 'pin_bruteforce', created_at: '2026-08-01T10:00:00.000Z' }),
         dev({ id: 'd4', name: 'Other phone', status: 'revoked', revoked_reason: 'user', created_at: '2026-08-02T10:00:00.000Z' }),
       ],
@@ -150,13 +154,13 @@ describe('DevicesView', () => {
     render(<DevicesView />);
 
     const row1 = (await screen.findByText('iPhone de Ana')).closest('tr')!;
-    expect(within(row1).getByText('01/09/2026')).toBeTruthy();
+    expect(within(row1).getByText(new Date('2026-09-01T10:00:00.000Z').toLocaleDateString('pt-BR'))).toBeTruthy();
     expect(within(row1).getByText('nunca')).toBeTruthy();
     expect(within(row1).getByText('ativo')).toBeTruthy();
     expect(within(row1).getByText(/iPhone 15/)).toBeTruthy();
 
     const row2 = screen.getByText('Pixel').closest('tr')!;
-    expect(within(row2).getByText('bloqueado por PIN até 14:30')).toBeTruthy();
+    expect(within(row2).getByText(`bloqueado por PIN até ${lockedTime}`)).toBeTruthy();
 
     const row3 = screen.getByText('Old phone').closest('tr')!;
     expect(within(row3).getByText('revogado (tentativas de PIN)')).toBeTruthy();
