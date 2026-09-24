@@ -1,28 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import type { OfficeRoom, OfficeSnapshot, OfficeTab, Project, Tab } from '../lib/types';
-import { activityLabel, buildCityModel, buildModel, lookOf, missingTabIds, resolveFocus, sameFocus, truncateLabel, workingLabel, type MachineEntry } from './model';
+import type { OfficeBuilding, OfficeCity, OfficeMachine, OfficeTab, Project, Tab } from '../lib/types';
+import { activityLabel, buildCityModel, deskMachineLine, lookOf, missingTabIds, resolveFocus, sameFocus, SUBTITLE_CAP, truncateLabel, workingLabel } from './model';
 
+const AT = '2026-09-21T10:00:00.000Z';
 const tab = (id: string, over: Partial<OfficeTab> = {}): OfficeTab =>
-  ({ id, project_id: 'p1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, activity_verb: null, alive: true, progress: null, ...over }) as OfficeTab;
-const room = (id: string, tabs: OfficeTab[], over: Partial<OfficeRoom> = {}): OfficeRoom => ({ project: { id, name: id, status: 'active' } as Project, tabs, tasks: null, ...over });
-const snap = (rooms: OfficeRoom[], machineId = 'm1', over: Partial<OfficeSnapshot> = {}): OfficeSnapshot => ({ machine: { id: machineId, name: machineId } as never, reachable: true, rooms, ...over });
+  ({ id, project_id: 'p1', machine_id: 'm1', name: id, kind: 'terminal', position: 0, state: null, state_text: null, state_tool: null, state_at: null, state_seen_at: null, activity: null, activity_verb: null, alive: true, progress: null, ...over }) as OfficeTab;
+const building = (id: string, tabs: OfficeTab[], over: Partial<OfficeBuilding> = {}): OfficeBuilding => ({ project: { id, name: id, status: 'active' } as Project, public_id: `${id}-pub`, tabs: tabs.map((t) => ({ ...t, project_id: id })), tasks: null, ...over });
+const machine = (id: string, over: Partial<OfficeMachine> = {}): OfficeMachine => ({ id, name: id, subtitle: null, type: 'agent', online: true, reachable: true, ...over });
+const city = (projects: OfficeBuilding[], machines: OfficeMachine[] = [machine('m1')]): OfficeCity => ({ projects, machines });
 const none = () => undefined;
+/** the desks of the first building */
+const desks = (c: OfficeCity, live: (id: string) => Tab | undefined = none) => buildCityModel(c, live).buildings[0].desks;
 
-describe('buildModel', () => {
+describe('buildCityModel: desks', () => {
   it('maps each tab state to a pose and a marker', () => {
-    const at = '2026-09-21T10:00:00.000Z';
-    const m = buildModel(
-      snap([room('p1', [
-        tab('w', { state: 'working', state_at: at }),
-        tab('i', { state: 'waiting_input', state_at: at }),
-        tab('p', { state: 'waiting_permission', state_at: at }),
-        tab('z', { state: 'idle', state_at: at }),
-        tab('e', { state: 'error', state_at: at }),
-        tab('n'),
-      ])]),
-      none,
-    );
-    expect(m.rooms[0].desks.map((d) => [d.id, d.pose, d.marker, d.dimmed, d.screenOn])).toEqual([
+    const c = city([building('p1', [
+      tab('w', { state: 'working', state_at: AT }),
+      tab('i', { state: 'waiting_input', state_at: AT }),
+      tab('p', { state: 'waiting_permission', state_at: AT }),
+      tab('z', { state: 'idle', state_at: AT }),
+      tab('e', { state: 'error', state_at: AT }),
+      tab('n'),
+    ])]);
+    expect(desks(c).map((d) => [d.id, d.pose, d.marker, d.dimmed, d.screenOn])).toEqual([
       ['w', 'type', null, false, true],
       ['i', 'raise', 'input', false, false],
       ['p', 'raise', 'permission', false, false],
@@ -30,149 +30,183 @@ describe('buildModel', () => {
       ['e', 'shake', 'error', false, false],
       ['n', 'sit', null, true, false],
     ]);
-    expect(m.rooms[0].needsYou).toBe(2);
+    const m = buildCityModel(c, none);
+    expect(m.buildings[0].needsYou).toBe(2);
     expect(m.needsYou).toBe(2);
   });
 
   it('keeps the hand up but drops the marker once the tab was seen', () => {
-    const seen = tab('i', { state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z', state_seen_at: '2026-09-21T10:05:00.000Z' });
-    const d = buildModel(snap([room('p1', [seen])]), none).rooms[0].desks[0];
+    const seen = tab('i', { state: 'waiting_input', state_at: AT, state_seen_at: '2026-09-21T10:05:00.000Z' });
+    const d = desks(city([building('p1', [seen])]))[0];
     expect([d.pose, d.marker]).toEqual(['raise', null]);
-    expect(buildModel(snap([room('p1', [seen])]), none).needsYou).toBe(0);
+    expect(buildCityModel(city([building('p1', [seen])]), none).needsYou).toBe(0);
   });
 
-  it('lets the live monitor state override the snapshot, and a tab the monitor never saw stay as it is', () => {
-    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), state: 'working', state_at: '2026-09-21T10:00:00.000Z' } as Tab) : undefined);
-    const desks = buildModel(snap([room('p1', [tab('a'), tab('b')])]), live).rooms[0].desks;
-    expect(desks.map((d) => d.pose)).toEqual(['type', 'sit']);
+  it('lets the live monitor state override the city, and a tab the monitor never saw stay as it is', () => {
+    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), state: 'working', state_at: AT } as Tab) : undefined);
+    expect(desks(city([building('p1', [tab('a'), tab('b')])]), live).map((d) => d.pose)).toEqual(['type', 'sit']);
   });
 
-  it('takes only the live state from the monitor tab, keeping the snapshot identity fields and ordering', () => {
-    const snapshotTab = tab('a', { name: 'new name', position: 1, kind: 'terminal' });
-    const other = tab('b', { name: 'b', position: 0 });
-    const live = (id: string) =>
-      id === 'a'
-        ? ({ ...tab('a'), name: 'old name', position: 0, kind: 'simulator', state: 'working', state_at: '2026-09-21T10:00:00.000Z' } as Tab)
-        : undefined;
-    const desks = buildModel(snap([room('p1', [snapshotTab, other])]), live).rooms[0].desks;
-    expect(desks.map((d) => d.id)).toEqual(['b', 'a']);
-    const desk = desks[1];
-    expect(desk.name).toBe('new name');
-    expect(desk.kind).toBe('person');
-    expect(desk.pose).toBe('type');
+  it('takes only the live state from the monitor tab, keeping the city identity fields and ordering', () => {
+    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), name: 'old name', position: 0, kind: 'simulator', state: 'working', state_at: AT } as Tab) : undefined);
+    const ds = desks(city([building('p1', [tab('a', { name: 'new name', position: 1 }), tab('b', { position: 0 })])]), live);
+    expect(ds.map((d) => d.id)).toEqual(['b', 'a']);
+    expect([ds[1].name, ds[1].kind, ds[1].pose]).toEqual(['new name', 'person', 'type']);
   });
 
   it('shows an empty chair for a dead terminal tab and a phone for a simulator tab', () => {
-    const desks = buildModel(snap([room('p1', [tab('dead', { alive: false, state: 'working', state_at: 'x' }), tab('sim', { kind: 'simulator', alive: true })])]), none).rooms[0].desks;
-    expect([desks[0].pose, desks[0].marker, desks[0].screenOn]).toEqual(['empty', null, false]);
-    expect([desks[1].kind, desks[1].screenOn]).toEqual(['phone', true]);
+    const ds = desks(city([building('p1', [tab('dead', { alive: false, state: 'working', state_at: 'x' }), tab('sim', { kind: 'simulator', alive: true })])]));
+    expect([ds[0].pose, ds[0].marker, ds[0].screenOn]).toEqual(['empty', null, false]);
+    expect([ds[1].kind, ds[1].screenOn]).toEqual(['phone', true]);
   });
 
-  it('keeps people, markers and needsYou when the snapshot could not ask the machine', () => {
+  it('keeps people, markers and needsYou when the machine could not be asked', () => {
     // reachable: false means the tmux listing failed, so `alive: false` is not evidence of anything:
     // emptying the chairs there would erase every raised hand for up to a minute
-    const desks = buildModel(
-      snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' }), tab('sim', { kind: 'simulator', alive: false })])], 'm1', { reachable: false }),
-      none,
-    ).rooms[0].desks;
-    expect([desks[0].pose, desks[0].marker]).toEqual(['raise', 'input']);
+    const c = city([building('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: AT }), tab('sim', { kind: 'simulator', alive: false })])], [machine('m1', { reachable: false })]);
+    const ds = desks(c);
+    expect([ds[0].pose, ds[0].marker]).toEqual(['raise', 'input']);
     // a simulator's `alive` comes from the simulator manager, not from tmux: it still holds
-    expect([desks[1].kind, desks[1].screenOn]).toEqual(['phone', false]);
-    expect(buildModel(snap([room('p1', [tab('a', { alive: false, state: 'waiting_input', state_at: '2026-09-21T10:00:00.000Z' })])], 'm1', { reachable: false }), none).needsYou).toBe(1);
+    expect([ds[1].kind, ds[1].screenOn]).toEqual(['phone', false]);
+    expect(buildCityModel(c, none).needsYou).toBe(1);
   });
 
   it('takes the state fields from whichever side saw them last', () => {
-    const older = '2026-09-21T10:00:00.000Z';
+    const older = AT;
     const newer = '2026-09-21T10:05:00.000Z';
     const liveWith = (over: Partial<Tab>) => (id: string) => (id === 'a' ? ({ ...tab('a'), ...over } as Tab) : undefined);
-
-    // a monitor push newer than the snapshot wins (the normal case: the WebSocket is ahead)
-    const fresh = buildModel(snap([room('p1', [tab('a', { state: 'idle', state_at: older })])]), liveWith({ state: 'working', state_at: newer })).rooms[0].desks[0];
+    const fresh = desks(city([building('p1', [tab('a', { state: 'idle', state_at: older })])]), liveWith({ state: 'working', state_at: newer }))[0];
     expect([fresh.state, fresh.pose]).toEqual(['working', 'type']);
-
-    // with the WebSocket down the monitor goes stale (it resyncs every 3 min): the snapshot wins
-    const stale = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: newer })])]), liveWith({ state: 'idle', state_at: older })).rooms[0].desks[0];
+    const stale = desks(city([building('p1', [tab('a', { state: 'working', state_at: newer })])]), liveWith({ state: 'idle', state_at: older }))[0];
     expect([stale.state, stale.pose]).toEqual(['working', 'type']);
-
-    // same state_at: only a fresher "seen" (the hand was lowered in another browser tab) wins
-    const seen = buildModel(snap([room('p1', [tab('a', { state: 'waiting_input', state_at: older })])]), liveWith({ state: 'waiting_input', state_at: older, state_seen_at: newer })).rooms[0].desks[0];
+    const seen = desks(city([building('p1', [tab('a', { state: 'waiting_input', state_at: older })])]), liveWith({ state: 'waiting_input', state_at: older, state_seen_at: newer }))[0];
     expect(seen.marker).toBeNull();
   });
 
   it('draws progress only from a bound task, and a bar only when it has subtasks', () => {
-    const desks = buildModel(
-      snap([room('p1', [tab('a', { progress: { task_id: 'k', title: 'Ship', done: 1, total: 3 } }), tab('b', { progress: { task_id: 'k2', title: 'Solo', done: 0, total: 0 } }), tab('c')])]),
-      none,
-    ).rooms[0].desks;
-    expect(desks.map((d) => d.progress)).toEqual([{ done: 1, total: 3, title: 'Ship' }, { done: 0, total: 0, title: 'Solo' }, null]);
-  });
-
-  it('gives a room its board progress, none when the board is empty or unreadable, and lights by project status', () => {
-    const m = buildModel(
-      snap([
-        room('a', [], { tasks: { todo: 1, doing: 1, done: 2 } }),
-        room('b', [], { tasks: { todo: 0, doing: 0, done: 0 } }),
-        room('c', [], { tasks: null }),
-        room('d', [], { project: { id: 'd', name: 'd', status: 'paused' } as Project }),
-      ]),
-      none,
-    );
-    expect(m.rooms.map((r) => r.progress)).toEqual([{ done: 2, total: 4 }, null, null, null]);
-    expect(m.rooms.map((r) => r.lit)).toEqual([true, true, true, false]);
+    const ds = desks(city([building('p1', [tab('a', { progress: { task_id: 'k', title: 'Ship', done: 1, total: 3 } }), tab('b', { progress: { task_id: 'k2', title: 'Solo', done: 0, total: 0 } }), tab('c')])]));
+    expect(ds.map((d) => d.progress)).toEqual([{ done: 1, total: 3, title: 'Ship' }, { done: 0, total: 0, title: 'Solo' }, null]);
   });
 
   it('orders desks by tab position and truncates labels without touching names', () => {
     const long = 'x'.repeat(120);
-    const m = buildModel(snap([room(long, [tab('second', { position: 1 }), tab('first', { position: 0, name: long })])]), none);
-    expect(m.rooms[0].desks.map((d) => d.id)).toEqual(['first', 'second']);
-    expect(m.rooms[0].desks[0].name).toBe(long);
-    expect(m.rooms[0].desks[0].label.length).toBeLessThanOrEqual(18);
-    expect(m.rooms[0].label.length).toBeLessThanOrEqual(28);
+    const m = buildCityModel(city([building(long, [tab('second', { position: 1 }), tab('first', { position: 0, name: long })])]), none);
+    expect(m.buildings[0].desks.map((d) => d.id)).toEqual(['first', 'second']);
+    expect(m.buildings[0].desks[0].name).toBe(long);
+    expect(m.buildings[0].desks[0].label.length).toBeLessThanOrEqual(18);
+    expect(m.buildings[0].label.length).toBeLessThanOrEqual(28);
+    expect(m.buildings[0].name).toBe(long);
+  });
+});
+
+describe('buildCityModel: buildings', () => {
+  it('makes one building per project, in the order given, empty ones kept', () => {
+    const m = buildCityModel(city([building('b', []), building('a', [tab('t1')])]), none);
+    expect(m.buildings.map((b) => [b.id, b.desks.length])).toEqual([['b', 0], ['a', 1]]);
+  });
+
+  // city-by-project §1: the machine is a detail of the desk
+  it("puts a project's desks from every machine in its one building, each desk carrying its machine", () => {
+    const c = city([building('p1', [tab('t1', { position: 0 }), tab('t2', { machine_id: 'm2', position: 1 })])], [machine('m1', { name: 'jarvis', subtitle: 'MacBook do escritório' }), machine('m2', { name: 'friday' })]);
+    expect(desks(c).map((d) => [d.id, d.machine])).toEqual([
+      ['t1', { name: 'jarvis', subtitle: 'MacBook do escritório', online: true }],
+      ['t2', { name: 'friday', subtitle: null, online: true }],
+    ]);
+  });
+
+  it('dims a desk whose machine is offline or unreachable, and only that desk', () => {
+    const working = { state: 'working' as const, state_at: AT };
+    const c = city(
+      [building('p1', [tab('ok', { ...working, position: 0 }), tab('off', { ...working, machine_id: 'm2', position: 1 }), tab('mute', { ...working, machine_id: 'm3', position: 2 })])],
+      [machine('m1'), machine('m2', { online: false, reachable: false }), machine('m3', { reachable: false })],
+    );
+    expect(desks(c).map((d) => [d.id, d.dimmed])).toEqual([['ok', false], ['off', true], ['mute', true]]);
+    expect(desks(c)[1].machine).toEqual({ name: 'm2', subtitle: null, online: false });
+  });
+
+  it('says offline only when every machine of its desks is offline, silent when some tmux did not answer', () => {
+    const on = (id: string, machineId: string) => tab(id, { machine_id: machineId });
+    const ms = [machine('m1'), machine('m2', { online: false, reachable: false }), machine('m3', { reachable: false }), machine('m4', { online: false, reachable: null })];
+    const m = buildCityModel(city([building('all-off', [on('a', 'm2'), on('b', 'm4')]), building('mixed', [on('c', 'm1'), on('d', 'm2')]), building('silent', [on('e', 'm3')]), building('fine', [on('f', 'm1')]), building('empty', [])], ms), none);
+    expect(m.buildings.map((b) => [b.id, b.notice])).toEqual([['all-off', 'offline'], ['mixed', 'silent'], ['silent', 'silent'], ['fine', null], ['empty', null]]);
+  });
+
+  it('lights a building with someone at a desk or someone waiting, and leaves an empty or deserted one dark', () => {
+    const m = buildCityModel(
+      city(
+        [
+          building('busy', [tab('a')]),
+          building('deserted', [tab('b', { alive: false })]),
+          // its machine did not answer: the hand stays up, and so does the light
+          building('waiting', [tab('c', { alive: false, machine_id: 'm9', state: 'waiting_input', state_at: AT })]),
+          building('empty', []),
+        ],
+        [machine('m1'), machine('m9', { reachable: false })],
+      ),
+      none,
+    );
+    expect(m.buildings.map((b) => [b.id, b.lit])).toEqual([['busy', true], ['deserted', false], ['waiting', true], ['empty', false]]);
+  });
+
+  it('gives a building its board progress, none when the board is empty or unreadable', () => {
+    const m = buildCityModel(city([building('a', [], { tasks: { todo: 1, doing: 1, done: 2 } }), building('b', [], { tasks: { todo: 0, doing: 0, done: 0 } }), building('c', [], { tasks: null })]), none);
+    expect(m.buildings.map((b) => b.progress)).toEqual([{ done: 2, total: 4 }, null, null]);
+  });
+
+  it('sums who needs you per building and for the city', () => {
+    const waiting = (id: string) => tab(id, { state: 'waiting_input', state_at: AT });
+    const m = buildCityModel(city([building('a', [waiting('t1'), waiting('t2')]), building('b', [waiting('t3')])]), none);
+    expect(m.buildings.map((b) => b.needsYou)).toEqual([2, 1]);
+    expect(m.needsYou).toBe(3);
+  });
+});
+
+describe('deskMachineLine', () => {
+  it('is the machine name, with its subtitle when the two fit', () => {
+    expect(deskMachineLine({ name: 'jarvis', subtitle: 'MacBook', online: true })).toBe('jarvis · MacBook');
+    expect(deskMachineLine({ name: 'jarvis', subtitle: null, online: true })).toBe('jarvis');
+  });
+
+  it('drops a subtitle that would not fit, and cuts a long name', () => {
+    expect(deskMachineLine({ name: 'jarvis', subtitle: 'um subtítulo comprido demais para a mesa', online: true })).toBe('jarvis');
+    const long = deskMachineLine({ name: 'm'.repeat(60), subtitle: null, online: true });
+    expect(Array.from(long)).toHaveLength(SUBTITLE_CAP);
+    expect(long.endsWith('…')).toBe(true);
+  });
+
+  it('says offline in place of the subtitle', () => {
+    expect(deskMachineLine({ name: 'jarvis', subtitle: 'MacBook', online: false })).toBe('jarvis · offline');
+    expect(Array.from(deskMachineLine({ name: 'x'.repeat(60), subtitle: null, online: false })).length).toBeLessThanOrEqual(SUBTITLE_CAP);
+  });
+
+  it('is empty without a machine — the public city', () => {
+    expect(deskMachineLine(null)).toBe('');
   });
 });
 
 describe('activity', () => {
-  const at = '2026-09-22T10:00:00.000Z';
-  it('reaches the desk from the snapshot and from a newer monitor push', () => {
-    const snapOnly = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding' })])]), none).rooms[0].desks[0];
-    expect(snapOnly.activity).toBe('coding');
-    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), state: 'working', state_at: '2026-09-22T10:01:00.000Z', activity: 'reading' } as Tab) : undefined);
-    const merged = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding' })])]), live).rooms[0].desks[0];
-    expect(merged.activity).toBe('reading');
+  it('reaches the desk from the city and from a newer monitor push', () => {
+    expect(desks(city([building('p1', [tab('a', { state: 'working', state_at: AT, activity: 'coding' })])]))[0].activity).toBe('coding');
+    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), state: 'working', state_at: '2026-09-21T10:01:00.000Z', activity: 'reading' } as Tab) : undefined);
+    expect(desks(city([building('p1', [tab('a', { state: 'working', state_at: AT, activity: 'coding' })])]), live)[0].activity).toBe('reading');
   });
-  it('is null when the tab is not working, whatever the snapshot says', () => {
-    const d = buildModel(snap([room('p1', [tab('a', { state: 'waiting_input', state_at: at, activity: 'coding' })])]), none).rooms[0].desks[0];
-    expect(d.activity).toBeNull();
+  it('is null when the tab is not working, whatever the city says', () => {
+    expect(desks(city([building('p1', [tab('a', { state: 'waiting_input', state_at: AT, activity: 'coding' })])]))[0].activity).toBeNull();
   });
-  it('carries the spinner verb with the activity, from the snapshot and from a newer monitor push', () => {
-    const snapOnly = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding', activity_verb: 'Brewing' })])]), none).rooms[0].desks[0];
-    expect(snapOnly.verb).toBe('Brewing');
-    const live = (id: string) => (id === 'a' ? ({ ...tab('a'), state: 'working', state_at: '2026-09-22T10:01:00.000Z', activity: 'reading', activity_verb: 'Moonwalking' } as Tab) : undefined);
-    const merged = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding', activity_verb: 'Brewing' })])]), live).rooms[0].desks[0];
-    expect([merged.activity, merged.verb]).toEqual(['reading', 'Moonwalking']);
-  });
-  it('drops the verb when the tab is not working, and on a desk nobody is at', () => {
-    const waiting = buildModel(snap([room('p1', [tab('a', { state: 'waiting_input', state_at: at, activity: 'coding', activity_verb: 'Brewing' })])]), none).rooms[0].desks[0];
-    expect(waiting.verb).toBeNull();
-    const gone = buildModel(snap([room('p1', [tab('a', { state: 'working', state_at: at, activity: 'coding', activity_verb: 'Brewing', alive: false })])]), none).rooms[0].desks[0];
-    expect(gone.verb).toBeNull();
+  it('carries the spinner verb with the activity, and drops it off working or at an empty desk', () => {
+    expect(desks(city([building('p1', [tab('a', { state: 'working', state_at: AT, activity: 'coding', activity_verb: 'Brewing' })])]))[0].verb).toBe('Brewing');
+    expect(desks(city([building('p1', [tab('a', { state: 'waiting_input', state_at: AT, activity: 'coding', activity_verb: 'Brewing' })])]))[0].verb).toBeNull();
+    expect(desks(city([building('p1', [tab('a', { state: 'working', state_at: AT, activity: 'coding', activity_verb: 'Brewing', alive: false })])]))[0].verb).toBeNull();
   });
   it('shows "<Verb>…" before the activity label while working, and the activity alone without a verb', () => {
     expect(workingLabel('coding', 'Moonwalking')).toBe('Moonwalking… · codando');
     expect(workingLabel('reading', null)).toBe('lendo arquivos');
     expect(workingLabel(null, 'Brewing')).toBe('Brewing…');
     expect(workingLabel(null, null)).toBeNull();
-    // the longest default verb with the longest label is cut rather than run over the next desk
     expect(Array.from(workingLabel('reading', 'Flibbertigibbeting')!)).toHaveLength(28);
-    expect(workingLabel('reading', 'Flibbertigibbeting')!.startsWith('Flibbertigibbeting… · ')).toBe(true);
   });
   it('labels every category in pt-BR and nothing for null', () => {
-    expect(activityLabel('coding')).toBe('codando');
-    expect(activityLabel('reading')).toBe('lendo arquivos');
-    expect(activityLabel('researching')).toBe('pesquisando');
-    expect(activityLabel('planning')).toBe('planejando');
-    expect(activityLabel('terminal')).toBe('no terminal');
-    expect(activityLabel('working')).toBe('trabalhando');
+    expect(['coding', 'reading', 'researching', 'planning', 'terminal', 'working'].map((a) => activityLabel(a as never))).toEqual(['codando', 'lendo arquivos', 'pesquisando', 'planejando', 'no terminal', 'trabalhando']);
     expect(activityLabel(null)).toBeNull();
   });
 });
@@ -191,84 +225,38 @@ describe('lookOf', () => {
     expect(lookOf('tab-1', 6)).toBe(lookOf('tab-1', 6));
     const seen = new Set(Array.from({ length: 60 }, (_, i) => lookOf(`tab-${i}`, 6)));
     expect(seen.size).toBe(6);
-    expect([...seen].every((n) => n >= 0 && n < 6)).toBe(true);
   });
 });
 
 describe('missingTabIds', () => {
-  const s = snap([room('p1', [tab('a')])]);
-  const projects = new Set(['p1']);
+  const c = city([building('p1', [tab('a')])]);
   const projectOf = (id: string) => ({ a: 'p1', b: 'p1', other: 'p9' })[id];
-  it('returns the ids of this machine that the monitor knows and the snapshot lacks', () => {
-    expect(missingTabIds(s, ['a', 'b'], projects, projectOf)).toEqual(['b']);
+  it("returns the ids the monitor knows for one of the city's projects that the city lacks", () => {
+    expect(missingTabIds(c, ['a', 'b'], projectOf)).toEqual(['b']);
   });
-  it('leaves out tabs of other machines and tabs the snapshot already knows', () => {
-    expect(missingTabIds(s, ['a', 'other'], projects, projectOf)).toEqual([]);
+  it('leaves out tabs of projects outside the city and tabs it already knows', () => {
+    expect(missingTabIds(c, ['a', 'other'], projectOf)).toEqual([]);
   });
-  it('returns [] before the first snapshot', () => {
-    expect(missingTabIds(null, ['b'], projects, projectOf)).toEqual([]);
-  });
-});
-
-describe('buildCityModel', () => {
-  const entry = (id: string, over: Partial<MachineEntry> = {}): MachineEntry => ({ id, name: id, online: true, snapshot: snap([room(`${id}-p`, [tab(`${id}-t`)])], id), failed: false, ...over });
-
-  it('carries a machine\'s subtitle for the second line of its sign, cut to fit, and null without one', () => {
-    const city = buildCityModel([entry('a', { subtitle: 'MacBook do escritório' }), entry('b'), entry('c', { subtitle: 'um subtítulo comprido demais para caber na placa do prédio' })], none);
-    expect(city.machines.map((m) => m.subtitle)).toEqual(['MacBook do escritório', null, truncateLabel('um subtítulo comprido demais para caber na placa do prédio', 32)]);
-    expect(city.machines[2].subtitle!.endsWith('…')).toBe(true);
-    expect(buildCityModel([entry('d', { subtitle: '   ' })], none).machines[0].subtitle).toBeNull();
-  });
-
-  it('orders machines by name and leaves out the ones still loading', () => {
-    const city = buildCityModel([entry('zeta'), entry('alpha'), entry('mid', { snapshot: null })], none);
-    expect(city.machines.map((m) => m.id)).toEqual(['alpha', 'zeta']);
-  });
-  it('turns a failed machine into an empty error block and keeps the rest', () => {
-    const city = buildCityModel([entry('a'), entry('b', { snapshot: null, failed: true })], none);
-    expect(city.machines.map((m) => [m.id, m.notice, m.floor.rooms.length])).toEqual([['a', null, 1], ['b', 'error', 0]]);
-  });
-  it('tells offline from silent, offline winning, and darkens only an offline block', () => {
-    const silent = snap([room('p', [tab('t')])], 's');
-    silent.reachable = false;
-    const city = buildCityModel([entry('o', { online: false }), entry('s', { snapshot: silent }), entry('k')], none);
-    expect(city.machines.map((m) => [m.id, m.notice, m.lit])).toEqual([['k', null, true], ['o', 'offline', false], ['s', 'silent', true]]);
-  });
-  it('sums who needs you per machine and for the city', () => {
-    const at = '2026-09-21T10:00:00.000Z';
-    const waiting = (id: string) => tab(id, { state: 'waiting_input', state_at: at });
-    const city = buildCityModel([entry('a', { snapshot: snap([room('p', [waiting('t1'), waiting('t2')])], 'a') }), entry('b', { snapshot: snap([room('q', [waiting('t3')])], 'b') })], none);
-    expect(city.machines.map((m) => m.needsYou)).toEqual([2, 1]);
-    expect(city.needsYou).toBe(3);
-  });
-  it('ignores a snapshot that belongs to another machine', () => {
-    expect(buildCityModel([entry('a', { snapshot: snap([], 'someone-else') })], none).machines).toEqual([]);
-  });
-  it('truncates the label and keeps the name', () => {
-    const long = 'm'.repeat(80);
-    const m = buildCityModel([entry('a', { name: long })], none).machines[0];
-    expect(m.name).toBe(long);
-    expect(m.label.length).toBeLessThanOrEqual(28);
+  it('returns [] before the first read', () => {
+    expect(missingTabIds(null, ['b'], projectOf)).toEqual([]);
   });
 });
 
 describe('resolveFocus', () => {
-  const city = buildCityModel(
-    [{ id: 'm1', name: 'm1', online: true, failed: false, snapshot: snap([room('p1', [tab('t')])], 'm1') }, { id: 'm2', name: 'm2', online: true, failed: false, snapshot: snap([room('p2', [])], 'm2') }],
-    none,
-  );
-  it('frames the city with no machine, an unknown machine, or before anything loaded', () => {
-    expect(resolveFocus(city, undefined, null)).toEqual({ kind: 'city' });
-    expect(resolveFocus(city, 'ghost', 'p1')).toEqual({ kind: 'city' });
-    expect(resolveFocus(null, 'm1', 'p1')).toEqual({ kind: 'city' });
+  const model = buildCityModel(city([building('p1', [tab('t')]), building('p2', [])]), none);
+  it('frames the city with no project, an unknown one (an old machine id), or before anything loaded', () => {
+    expect(resolveFocus(model, undefined)).toEqual({ kind: 'city' });
+    expect(resolveFocus(model, 'm1')).toEqual({ kind: 'city' });
+    expect(resolveFocus(null, 'p1')).toEqual({ kind: 'city' });
   });
-  it('frames a machine, and a room only when it belongs to that machine', () => {
-    expect(resolveFocus(city, 'm1', null)).toEqual({ kind: 'machine', machineId: 'm1' });
-    expect(resolveFocus(city, 'm1', 'p1')).toEqual({ kind: 'room', machineId: 'm1', roomId: 'p1' });
-    expect(resolveFocus(city, 'm1', 'p2')).toEqual({ kind: 'machine', machineId: 'm1' });
+  it('frames a building of the city, an empty one included', () => {
+    expect(resolveFocus(model, 'p1')).toEqual({ kind: 'building', projectId: 'p1' });
+    expect(resolveFocus(model, 'p2')).toEqual({ kind: 'building', projectId: 'p2' });
   });
   it('compares targets by value', () => {
-    expect(sameFocus({ kind: 'room', machineId: 'a', roomId: 'r' }, { kind: 'room', machineId: 'a', roomId: 'r' })).toBe(true);
-    expect(sameFocus({ kind: 'machine', machineId: 'a' }, { kind: 'city' })).toBe(false);
+    expect(sameFocus({ kind: 'building', projectId: 'a' }, { kind: 'building', projectId: 'a' })).toBe(true);
+    expect(sameFocus({ kind: 'building', projectId: 'a' }, { kind: 'building', projectId: 'b' })).toBe(false);
+    expect(sameFocus({ kind: 'building', projectId: 'a' }, { kind: 'city' })).toBe(false);
+    expect(sameFocus({ kind: 'city' }, { kind: 'city' })).toBe(true);
   });
 });

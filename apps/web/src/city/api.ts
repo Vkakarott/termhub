@@ -3,22 +3,20 @@
  * a plain fetch and a plain socket, no session, no credentials, nothing shared with the app's api
  * client. Both surfaces are open to anyone with the link (apps/server/src/routes/public-city.ts).
  */
-import type { MachineEntry } from '../office/model';
+import type { ModelCity } from '../office/model';
 import type { PublicCity, PublicRobot } from '../lib/types';
 
-/** One change of one published room, as /ws/public sends it. `building`/`room` are snapshot ids: they join. */
+/** One change of one robot of a published building, as /ws/public sends it. `building` is a snapshot id: they join. */
 export interface RobotFrame {
   type: 'robot';
   building: string;
-  room: string;
   robot: PublicRobot;
 }
 
-/** A tab of a published room was closed or deleted: its robot leaves. `robot` is the robot's id. */
+/** A tab of a published building was closed or deleted: its robot leaves. `robot` is the robot's id. */
 export interface RobotGoneFrame {
   type: 'robot_gone';
   building: string;
-  room: string;
   robot: string;
 }
 
@@ -44,8 +42,8 @@ export async function fetchCity(nickname: string): Promise<PublicCity | null> {
 
 /**
  * The live channel, reconnecting on close with a backoff that doubles up to 30 s. `onClosed` fires
- * on every close the page did not ask for: the server hangs this socket up when the last published
- * room is taken off the street, and a reconnect refused at the upgrade looks exactly the same from
+ * on every close the page did not ask for: the server hangs this socket up whenever something it
+ * showed leaves the street, and a reconnect refused at the upgrade looks exactly the same from
  * here — only a fresh read of the snapshot can tell the two apart, so that is the caller's job.
  * Returns the close.
  */
@@ -89,47 +87,38 @@ export function openCitySocket(nickname: string, handlers: { onRobot: (frame: Ci
 }
 
 /**
- * The public payload as the office model's input, and the one adaptation the street needs: the
- * server mirrors the office snapshot's field names (apps/server/src/public/city.ts), so from here on
- * the model, the scene, the overlay and the activity label are the very code the app runs.
+ * The public payload as the office model's input. The server mirrors the office's field names
+ * (apps/server/src/public/city.ts), so from here on the model, the scene, the overlay and the
+ * activity label are the very code the app runs. Nothing here is a machine: the public shape has
+ * none, so the model gets none — every desk reads as online and reachable, and none carries a
+ * machine line.
  */
-export function toMachineEntries(city: PublicCity): MachineEntry[] {
-  return city.buildings.map((building) => ({
-    id: building.id,
-    name: building.name,
-    // a visitor is never told a machine is offline: the city they were given a link to is the one
-    // that was published, drawn lit, and each robot's own `alive` already says who is at a desk
-    online: true,
-    failed: false,
-    snapshot: {
-      machine: { id: building.id },
-      // the server read the tmux memo before answering and never asks a machine on a visitor's
-      // behalf, so there is no "could not reach it" for this page to draw
-      reachable: true,
-      rooms: building.rooms.map((room) => ({
-        project: { id: room.id, name: room.name, status: 'active' as const },
-        // the board is not published: a room sign on the street carries a name, never a task count
-        tasks: null,
-        tabs: room.robots.map((robot, i) => ({
-          id: robot.id,
-          project_id: room.id,
-          name: robot.name,
-          kind: robot.kind,
-          // the payload keeps the server's order and nothing else orders the desks
-          position: i,
-          state: robot.state,
-          // the tool's own message and the tool's name are not published
-          state_text: null,
-          state_tool: null,
-          state_at: robot.state_at,
-          // whether the owner has looked is the owner's business: on the street a raised hand stays raised
-          state_seen_at: null,
-          activity: robot.activity,
-          activity_verb: robot.activity_verb,
-          alive: robot.alive,
-          progress: robot.progress,
-        })),
+export function toBuildingEntries(city: PublicCity): ModelCity {
+  return {
+    machines: [],
+    projects: city.buildings.map((building) => ({
+      project: { id: building.id, name: building.name, status: 'active' as const },
+      // the board is not published: a building sign on the street carries a name, never a task count
+      tasks: null,
+      tabs: building.robots.map((robot, i) => ({
+        id: robot.id,
+        project_id: building.id,
+        name: robot.name,
+        kind: robot.kind,
+        // the payload keeps the server's order and nothing else orders the desks
+        position: i,
+        state: robot.state,
+        // the tool's own message and the tool's name are not published
+        state_text: null,
+        state_tool: null,
+        state_at: robot.state_at,
+        // whether the owner has looked is the owner's business: on the street a raised hand stays raised
+        state_seen_at: null,
+        activity: robot.activity,
+        activity_verb: robot.activity_verb,
+        alive: robot.alive,
+        progress: robot.progress,
       })),
-    },
-  }));
+    })),
+  };
 }
