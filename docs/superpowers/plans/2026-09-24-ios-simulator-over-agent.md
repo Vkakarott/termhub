@@ -2258,7 +2258,7 @@ function startStub(port: number): Promise<net.Server | null> {
   return new Promise((resolve) => {
     const server = net.createServer((sock) => {
       sock.on('data', () => {
-        sock.write('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 22\r\n\r\n{"value":{"ready":true}}');
+        sock.write('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 24\r\n\r\n{"value":{"ready":true}}');
       });
     });
     server.once('error', () => resolve(null)); // EADDRINUSE on a dev Mac with a real WDA: skip below
