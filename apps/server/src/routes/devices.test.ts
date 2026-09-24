@@ -129,20 +129,30 @@ describe('device routes', () => {
     expect(body.requests[0]).not.toHaveProperty('email_hash');
   });
 
-  it('approves a request through the enrolment service', async () => {
+  it('approves a request through the enrolment service and answers the request view', async () => {
     const { app, enrolment } = buildApp();
     const r = await app.inject({ method: 'POST', url: '/devices/requests/r1/approve' });
     expect(r.statusCode).toBe(200);
     expect(enrolment.approve).toHaveBeenCalledWith('r1', expect.objectContaining({ id: 'u1' }), expect.any(Object));
-    expect(r.json().request).toMatchObject({ id: 'r1', status: 'approved' });
+    const body = r.json().request;
+    expect(body).toMatchObject({ id: 'r1', device_name: 'iPhone de Pedro', model: 'iPhone 15', verification_code: 'K7F-2QD' });
+    expect(body).not.toHaveProperty('public_key');
+    expect(body).not.toHaveProperty('key_thumbprint');
+    expect(body).not.toHaveProperty('email_hash');
+    expect(body).not.toHaveProperty('status');
   });
 
-  it('denies a request through the enrolment service', async () => {
+  it('denies a request through the enrolment service and answers the request view', async () => {
     const { app, enrolment } = buildApp();
     const r = await app.inject({ method: 'POST', url: '/devices/requests/r1/deny' });
     expect(r.statusCode).toBe(200);
     expect(enrolment.deny).toHaveBeenCalledWith('r1', expect.objectContaining({ id: 'u1' }), expect.any(Object));
-    expect(r.json().request).toMatchObject({ id: 'r1', status: 'denied' });
+    const body = r.json().request;
+    expect(body).toMatchObject({ id: 'r1', device_name: 'iPhone de Pedro', model: 'iPhone 15', verification_code: 'K7F-2QD' });
+    expect(body).not.toHaveProperty('public_key');
+    expect(body).not.toHaveProperty('key_thumbprint');
+    expect(body).not.toHaveProperty('email_hash');
+    expect(body).not.toHaveProperty('status');
   });
 
   it('passes a DEVICE_LIMIT 409 from the enrolment service through with its pt-BR message', async () => {

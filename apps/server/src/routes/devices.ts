@@ -71,13 +71,13 @@ export async function deviceRoutes(app: FastifyInstance, repos: Repositories, de
   app.post('/requests/:id/approve', async (request) => {
     const { id } = idParam.parse(request.params);
     const decided = await deps.enrolment.approve(id, request.user!, clientLocation(request));
-    return { request: decided };
+    return { request: toRequestView(decided) };
   });
 
   app.post('/requests/:id/deny', async (request) => {
     const { id } = idParam.parse(request.params);
     const decided = await deps.enrolment.deny(id, request.user!, clientLocation(request));
-    return { request: decided };
+    return { request: toRequestView(decided) };
   });
 
   app.get('/', async (request) => ({ devices: await repos.devices.listByUser(request.user!.id) }));
