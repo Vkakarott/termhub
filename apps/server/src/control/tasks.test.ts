@@ -15,17 +15,22 @@ const project = (over: Partial<Project> & { id: string; owner_id: string }): Pro
 });
 const task = (over: Partial<Task> & { id: string; project_id: string }): Task => ({
   title: over.id, description: null, status: 'todo', position: 0, external_ref: null, external_key: null, tab_id: null, parent_id: null,
+  type: over.parent_id ? 'subtask' : 'task', number: 1, ref: `P1-${over.id}`, epic_id: over.parent_id ? null : 'e1', column_id: null,
   created_at: '2026-09-20T10:00:00.000Z', updated_at: '2026-09-20T10:00:00.000Z', ...over,
 });
 const tree = (t: Task, subtasks: Task[] = []): TaskWithSubtasks => ({ ...t, subtasks, subtask_counts: { done: subtasks.filter((s) => s.status === 'done').length, total: subtasks.length } });
 
 /** u1 owns p1; u2 owns px. */
 const projects = [project({ id: 'p1', owner_id: 'u1' }), project({ id: 'px', owner_id: 'u2' })];
-const k1 = task({ id: 'k1', project_id: 'p1', title: 'Spec', status: 'doing', external_ref: { provider: 'linear' }, external_key: 'LIN-1' });
+const k1 = task({ id: 'k1', project_id: 'p1', title: 'Spec', status: 'doing', column_id: 'c2', external_ref: { provider: 'linear' }, external_key: 'LIN-1' });
 const s1 = task({ id: 's1', project_id: 'p1', title: 'Write it', parent_id: 'k1', status: 'done' });
-const k2 = task({ id: 'k2', project_id: 'p1', title: 'Plan', status: 'todo', position: 1 });
+const k2 = task({ id: 'k2', project_id: 'p1', title: 'Plan', status: 'todo', position: 1, type: 'bug', epic_id: 'e2', column_id: 'c1' });
 const kx = task({ id: 'kx', project_id: 'px', title: 'Not yours' });
 const tasks = [k1, s1, k2, kx];
+const columns = [
+  { id: 'c1', project_id: 'p1', name: 'A fazer', category: 'todo', position: 0, created_at: '' },
+  { id: 'c2', project_id: 'p1', name: 'Em revisão', category: 'doing', position: 1, created_at: '' },
+];
 
 function ctx() {
   const repos = {
@@ -40,6 +45,7 @@ function ctx() {
       childIds: vi.fn(async () => [] as string[]),
       delete: vi.fn(async () => true),
     },
+    taskColumns: { list: vi.fn(async (pid: string) => columns.filter((c) => c.project_id === pid)) },
     tickets: { unlinkTask: vi.fn(async () => {}) },
   };
   const scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' } as const, ownerId: 'u1', createAs: 'u1' };
@@ -145,7 +151,7 @@ describe('updateTask', () => {
 
   it('requires at least one field', async () => {
     const { c, repos } = ctx();
-    await expect(updateTask(c, { task_id: 'k1' })).rejects.toEqual(new ControlError('BAD_REQUEST', 'Informe title, description ou status'));
+    await expect(updateTask(c, { task_id: 'k1' })).rejects.toEqual(new ControlError('BAD_REQUEST', 'Informe title, description, status, type ou epic_id'));
     expect(repos.tasks.update).not.toHaveBeenCalled();
   });
 
@@ -217,5 +223,53 @@ describe('deleteTask', () => {
     const { c, repos } = ctx();
     await expect(deleteTask(c, { task_id: 'kx', confirm: true })).rejects.toMatchObject({ statusCode: 404 });
     expect(repos.tasks.delete).not.toHaveBeenCalled();
+  });
+
+  it('turns an EPIC_HAS_CHILDREN repository rule into a ControlError with its pt-BR message', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.delete.mockRejectedValue(new TaskRuleError('EPIC_HAS_CHILDREN'));
+    await expect(deleteTask(c, { task_id: 'k1', confirm: true })).rejects.toEqual(new ControlError('EPIC_HAS_CHILDREN', 'Este épico ainda tem cards'));
+  });
+});
+
+describe('card fields, filters and move by column', () => {
+  it('gives every card its type, ref, url, epic and column, and lists the columns in order', async () => {
+    const { c } = ctx();
+    const r = await listTasks(c, { project_id: 'p1' });
+    expect(r.columns).toEqual([{ id: 'c1', name: 'A fazer', category: 'todo' }, { id: 'c2', name: 'Em revisão', category: 'doing' }]);
+    expect(r.tasks[0]).toMatchObject({ id: 'k1', type: 'task', ref: 'P1-k1', url: 'https://app.test/project/P1-k1', epic_id: 'e1', column_id: 'c2', column: { id: 'c2', name: 'Em revisão', category: 'doing' } });
+    expect(r.tasks[0].subtasks[0]).toMatchObject({ id: 's1', type: 'subtask', url: 'https://app.test/project/P1-s1' });
+  });
+
+  it('filters by type and by epic', async () => {
+    const { c } = ctx();
+    expect((await listTasks(c, { project_id: 'p1', type: 'bug' })).tasks.map((t) => t.id)).toEqual(['k2']);
+    expect((await listTasks(c, { project_id: 'p1', epic_id: 'e1' })).tasks.map((t) => t.id)).toEqual(['k1']);
+  });
+
+  it('creates with a type and an epic', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.createWithSubtasks.mockResolvedValue(tree(task({ id: 'k9', project_id: 'p1', type: 'story' })));
+    const r = await createTask(c, { project_id: 'p1', title: 'Pay', type: 'story', epic_id: 'e2' });
+    expect(repos.tasks.createWithSubtasks).toHaveBeenCalledWith('p1', { title: 'Pay', description: undefined, status: undefined, type: 'story', epic_id: 'e2' }, []);
+    expect(r.task).toMatchObject({ type: 'story', url: 'https://app.test/project/P1-k9' });
+  });
+
+  it('updates the type and the epic', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.update.mockResolvedValue({ ...k2, type: 'spike' });
+    await updateTask(c, { task_id: 'k2', type: 'spike', epic_id: 'e1' });
+    expect(repos.tasks.update).toHaveBeenCalledWith('k2', { title: undefined, description: undefined, status: undefined, type: 'spike', epic_id: 'e1' });
+  });
+
+  it('moves to a column by id, and wants exactly one of column_id and status', async () => {
+    const { c, repos } = ctx();
+    repos.tasks.move.mockResolvedValue({ ...k2, column_id: 'c2', status: 'doing' });
+    await moveTask(c, { task_id: 'k2', column_id: 'c2', position: 1 });
+    expect(repos.tasks.move).toHaveBeenCalledWith('k2', { column_id: 'c2' }, 1);
+    const one = new ControlError('BAD_REQUEST', 'Informe column_id ou status (um dos dois)');
+    await expect(moveTask(c, { task_id: 'k2', column_id: 'c2', status: 'done' })).rejects.toEqual(one);
+    await expect(moveTask(c, { task_id: 'k2' })).rejects.toEqual(one);
+    expect(repos.tasks.move).toHaveBeenCalledTimes(1);
   });
 });
