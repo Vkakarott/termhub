@@ -16,6 +16,10 @@ export type UserRole = 'owner' | 'member';
 export type MachineType = 'local' | 'ssh' | 'agent';
 export type ProjectStatus = 'active' | 'paused' | 'archived';
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
+/** Kind of card (spec 2026-09-24 §3): epics group work, subtasks are a checklist inside a story or task. */
+export type TaskType = 'epic' | 'story' | 'task' | 'subtask' | 'bug' | 'spike';
+/** What a board column means to the system; the backlog is not a column. */
+export type ColumnCategory = Exclude<TaskStatus, 'backlog'>;
 export type TabKind = 'terminal' | 'simulator';
 /** Monitor state of the tool running in a tab (see monitor/state.ts). */
 export type TabState = 'working' | 'waiting_input' | 'waiting_permission' | 'idle' | 'error';
