@@ -74,6 +74,10 @@ export interface ChatState {
   /** The project of a conversation this store holds: `null` for the account-wide chat,
    * `undefined` when the id is unknown here. */
   conversationIdToProject(id: string): string | null | undefined;
+  /** Every raw event of the app's one socket, before the open conversation's filter — the
+   * notifications store taps in here for a `confirmation` while no screen is watching for it.
+   * Returns an unsubscribe function. */
+  subscribeEvents(fn: (e: ChatEvent) => void): () => void;
 }
 
 type Data = Omit<ChatState, { [K in keyof ChatState]: ChatState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatState]>;
@@ -109,6 +113,9 @@ export function createChatStore(deps: ChatDeps) {
   let closeSocket: (() => void) | null = null;
   /** Per conversation, the latest `GET chat` in flight: an older answer never overwrites a newer. */
   const readSeq = new Map<string, number>();
+  /** App-level taps into every raw event (`subscribeEvents`), independent of the open conversation
+   * and never cleared by `close()`/`generation` — a subscriber outlives any one socket connection. */
+  const eventListeners = new Set<(e: ChatEvent) => void>();
 
   const store = create<ChatState>()(
     persist(
@@ -167,7 +174,9 @@ export function createChatStore(deps: ChatDeps) {
           // which the socket client treats as a dropped connection and retries.
           closeSocket = api.events(() => session().auth(), {
             onEvent: (e) => {
-              if (gen === generation) onEvent(e);
+              if (gen !== generation) return;
+              eventListeners.forEach((fn) => fn(e));
+              onEvent(e);
             },
             onReconnect: () => {
               if (gen !== generation) return;
@@ -330,6 +339,13 @@ export function createChatStore(deps: ChatDeps) {
               if (slot.conversation?.id === id) return projectOf(key);
             }
             return undefined;
+          },
+
+          subscribeEvents(fn) {
+            eventListeners.add(fn);
+            return () => {
+              eventListeners.delete(fn);
+            };
           },
         };
       },

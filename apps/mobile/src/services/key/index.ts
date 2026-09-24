@@ -7,3 +7,10 @@ import type { DeviceKey } from './types';
 
 export const deviceKey: DeviceKey =
   process.env.EXPO_PUBLIC_API_MODE === 'http' && process.env.NODE_ENV !== 'test' ? new HardwareDeviceKey() : new SoftwareDeviceKey();
+
+/** The Ajustes → "Diagnóstico da chave" key (design spec §10): a dedicated tag/vault key, never
+ * `deviceKey` above, so the diagnostic can never disturb the enrolled session. */
+export const diagnosticKey: DeviceKey =
+  process.env.EXPO_PUBLIC_API_MODE === 'http' && process.env.NODE_ENV !== 'test'
+    ? new HardwareDeviceKey('dev.termhub.diagnostic')
+    : new SoftwareDeviceKey('key.diagnostic');

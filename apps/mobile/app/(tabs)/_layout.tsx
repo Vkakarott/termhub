@@ -1,7 +1,9 @@
 import { Tabs } from 'expo-router';
+import { useNotificationsStore } from '@/features/notifications/viewmodel/useNotificationsStore';
 
-/** The three tabs of spec §11.2. */
+/** The three tabs of spec §11.2; Notificações carries the unread count (design spec §7). */
 export default function TabsLayout() {
+  const unread = useNotificationsStore((s) => s.unread);
   return (
     <Tabs
       screenOptions={{
@@ -12,7 +14,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Chats' }} />
-      <Tabs.Screen name="notifications" options={{ title: 'Notificações' }} />
+      <Tabs.Screen name="notifications" options={{ title: 'Notificações', tabBarBadge: unread > 0 ? unread : undefined }} />
       <Tabs.Screen name="settings" options={{ title: 'Ajustes' }} />
     </Tabs>
   );

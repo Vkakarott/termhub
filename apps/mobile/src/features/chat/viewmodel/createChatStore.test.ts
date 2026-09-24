@@ -336,3 +336,19 @@ it('persists projects and each conversation, never live or transient state', asy
   expect(slot(again, 'p-termhub').messages).toHaveLength(4);
   expect(again.getState().live).toEqual([]);
 });
+
+it('subscribeEvents delivers every raw event, of any conversation, ahead of the open one\'s filter; unsubscribe stops it', async () => {
+  const { chat, handlers } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+
+  const seen: TChatEvent[] = [];
+  const unsubscribe = chat.getState().subscribeEvents((e) => seen.push(e));
+
+  handlers().onEvent(decision('c-opapingou', 'a-x', 'approved')); // belongs to another conversation
+  expect(seen).toHaveLength(1);
+  expect(seen[0]).toMatchObject({ type: 'decision', conversation_id: 'c-opapingou' });
+
+  unsubscribe();
+  handlers().onEvent(decision('c-opapingou', 'a-y', 'denied'));
+  expect(seen).toHaveLength(1); // no more events after unsubscribing
+});

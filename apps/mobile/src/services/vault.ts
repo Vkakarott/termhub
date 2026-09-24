@@ -1,9 +1,10 @@
 import * as SecureStore from 'expo-secure-store';
 
-/** The closed set of secrets the app ever puts in SecureStore (design spec §5.1). */
-export type VaultKey = 'key.private' | 'pin.wrapped' | 'pin.salt' | 'pin.biometric' | 'device.id';
+/** The closed set of secrets the app ever puts in SecureStore (design spec §5.1). `key.diagnostic`
+ * backs the software device key the Ajustes diagnostic uses (never the enrolled `key.private`). */
+export type VaultKey = 'key.private' | 'pin.wrapped' | 'pin.salt' | 'pin.biometric' | 'device.id' | 'key.diagnostic';
 
-const KEYS: VaultKey[] = ['key.private', 'pin.wrapped', 'pin.salt', 'pin.biometric', 'device.id'];
+const KEYS: VaultKey[] = ['key.private', 'pin.wrapped', 'pin.salt', 'pin.biometric', 'device.id', 'key.diagnostic'];
 
 const opts = (biometric: boolean): SecureStore.SecureStoreOptions => ({
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,

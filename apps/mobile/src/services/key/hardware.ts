@@ -15,6 +15,8 @@ import { fromB64std, fromUtf8 } from '../crypto/encoding';
 import { derToRaw, normaliseLowS } from './jwk';
 import type { DeviceKey, P256Jwk } from './types';
 
+/** The enrolled device's own key. The Ajustes diagnostic (design spec §10) uses a different tag,
+ * `dev.termhub.diagnostic`, so it never touches this one. */
 const KEY_TAG = 'dev.termhub.device';
 
 // `getPublicKeyFixed`/`generate` return an ECKey | RSAKey union (RSA is only an Android
@@ -26,13 +28,15 @@ const normalise = (jwk: PublicKey): P256Jwk => {
 };
 
 export class HardwareDeviceKey implements DeviceKey {
+  constructor(private readonly keyTag: string = KEY_TAG) {}
+
   async create(): Promise<P256Jwk> {
     try {
-      return normalise(await generate(KEY_TAG));
+      return normalise(await generate(this.keyTag));
     } catch (err) {
       if ((err as { message?: string } | undefined)?.message === 'KEY_ALREADY_EXISTS') {
-        await deleteKey(KEY_TAG);
-        return normalise(await generate(KEY_TAG));
+        await deleteKey(this.keyTag);
+        return normalise(await generate(this.keyTag));
       }
       throw err;
     }
@@ -40,7 +44,7 @@ export class HardwareDeviceKey implements DeviceKey {
 
   async exists(): Promise<boolean> {
     try {
-      await getPublicKeyFixed(KEY_TAG);
+      await getPublicKeyFixed(this.keyTag);
       return true;
     } catch (err) {
       if ((err as { message?: string } | undefined)?.message === 'PUBLIC_KEY_NOT_FOUND') return false;
@@ -49,7 +53,7 @@ export class HardwareDeviceKey implements DeviceKey {
   }
 
   async publicJwk(): Promise<P256Jwk> {
-    return normalise(await getPublicKeyFixed(KEY_TAG));
+    return normalise(await getPublicKeyFixed(this.keyTag));
   }
 
   async sign(message: Uint8Array): Promise<Uint8Array> {
@@ -57,11 +61,11 @@ export class HardwareDeviceKey implements DeviceKey {
     // and returns the DER signature as standard, padded base64 — decode that, convert to raw
     // r‖s, then normalise to low-S: the keystore/Secure Enclave does not do this itself, and
     // `verifyProof`'s ES256 check rejects high-S signatures by default.
-    const derB64 = await hwSign(fromUtf8(message), KEY_TAG);
+    const derB64 = await hwSign(fromUtf8(message), this.keyTag);
     return normaliseLowS(derToRaw(fromB64std(derB64)));
   }
 
   async destroy(): Promise<void> {
-    await deleteKey(KEY_TAG);
+    await deleteKey(this.keyTag);
   }
 }
