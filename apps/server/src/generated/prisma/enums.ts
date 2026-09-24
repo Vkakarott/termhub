@@ -76,6 +76,18 @@ export const TaskStatus = {
 export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus]
 
 
+export const TaskType = {
+  epic: 'epic',
+  story: 'story',
+  task: 'task',
+  subtask: 'subtask',
+  bug: 'bug',
+  spike: 'spike'
+} as const
+
+export type TaskType = (typeof TaskType)[keyof typeof TaskType]
+
+
 export const IntegrationProvider = {
   github: 'github',
   linear: 'linear',
