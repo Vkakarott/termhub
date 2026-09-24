@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alphaInviteMail, deviceRequestMail } from './templates.js';
+import { alphaInviteMail, deviceRequestMail, deviceRevokedMail } from './templates.js';
 
 const opts = { appUrl: 'https://app.termhub.dev', communityUrl: 'https://77a.it/comunidadetermhub', firstName: 'Ana' };
 
@@ -56,6 +56,21 @@ describe('deviceRequestMail', () => {
     expect(mail.text).toContain(`${appUrl}/settings/devices`);
     expect(mail.html).toContain(`href="${appUrl}/settings/devices"`);
     const evil = deviceRequestMail('a@b.c', { deviceLabel: '<script>x</script>', code: 'K7F2QD', place: 'X', ip: '1.2.3.4', appUrl });
+    expect(evil.html).not.toContain('<script>');
+    expect(evil.html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('deviceRevokedMail', () => {
+  it('names the device and the time, says nothing else changed, and escapes the label', () => {
+    const at = new Date('2026-09-24T15:30:00.000Z');
+    const mail = deviceRevokedMail('a@b.c', { deviceLabel: 'iPhone de Ana (iPhone 15)', at });
+    expect(mail.to).toBe('a@b.c');
+    expect(mail.subject).toBe('Um aparelho foi removido da sua conta por tentativas de PIN');
+    expect(mail.text).toContain('iPhone de Ana (iPhone 15)');
+    expect(mail.text).toContain('24/09/2026');
+    expect(mail.text).toContain('Nada mais foi alterado');
+    const evil = deviceRevokedMail('a@b.c', { deviceLabel: '<script>x</script>' });
     expect(evil.html).not.toContain('<script>');
     expect(evil.html).toContain('&lt;script&gt;');
   });

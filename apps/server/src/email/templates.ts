@@ -70,6 +70,36 @@ export function deviceRequestMail(to: string, opts: { deviceLabel: string; code:
   return { to, subject, html, text };
 }
 
+/** A device was revoked after too many wrong PIN attempts (spec §6): which device, when, and that
+ * nothing else on the account changed. Sent only for `pin_bruteforce` revocations. */
+export function deviceRevokedMail(to: string, opts: { deviceLabel: string; at?: Date }): Mail {
+  const subject = 'Um aparelho foi removido da sua conta por tentativas de PIN';
+  const when = (opts.at ?? new Date()).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+  const what = 'O PIN foi digitado errado vezes demais, então o aparelho foi desconectado e precisa ser cadastrado de novo para voltar a acessar.';
+  const rest = 'Nada mais foi alterado na sua conta: suas máquinas, projetos e os outros aparelhos continuam como estavam.';
+  const text = `${subject}\n\nAparelho: ${opts.deviceLabel}\nQuando: ${when}\n\n${what}\n\n${rest}`;
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:0;background:#0f1115;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f1115;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background:#161920;border:1px solid #2a2f3a;border-radius:14px;">
+        <tr><td style="padding:28px 32px 4px;text-align:center;font-size:18px;font-weight:700;color:#e6e8ee;"><span style="color:#4f8cff;">&#9646;</span> termhub</td></tr>
+        <tr><td style="padding:12px 32px 8px;text-align:center;font-size:16px;font-weight:600;color:#e6e8ee;">${esc(subject)}</td></tr>
+        <tr><td style="padding:0 32px 16px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">
+          ${esc(opts.deviceLabel)}<br/>${esc(when)}
+        </td></tr>
+        <tr><td style="padding:0 32px 8px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">${esc(what)}</td></tr>
+        <tr><td style="padding:8px 32px 28px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">${esc(rest)}</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+  return { to, subject, html, text };
+}
+
 /** Invite: the user already exists (created with the chosen role); they just need to sign in. */
 export function inviteMail(to: string, opts: { invitedBy: string; appUrl: string; roleLabel: string; accessAllowlisted: boolean }): Mail {
   const subject = `${opts.invitedBy} convidou você para o termhub`;

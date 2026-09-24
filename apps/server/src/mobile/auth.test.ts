@@ -224,4 +224,25 @@ describe('registerMobileApi', () => {
     expect(nf.json()).toEqual({ error: 'Rota não encontrada', code: 'NOT_FOUND' });
     await app.close();
   });
+
+  it('mounts /session/challenge and /session/token without the device-token hook (mobileAuth none)', async () => {
+    const key = await keypair();
+    const device = deviceRow(key.jwk);
+    const repos = fakeRepos(device);
+    const findActiveById = vi.fn(async (id: string) => (id === device.id ? device : undefined));
+    const deps = { repos: { ...repos, devices: { ...repos.devices, findActiveById } } as unknown as Repositories } as MobileDeps;
+    const app = Fastify();
+    applyErrorHandler(app);
+    app.decorateRequest('user', null);
+    await registerMobileApi(app, createMobileServices(deps), deps);
+    await app.ready();
+    const unknown = await app.inject({ method: 'POST', url: '/api/m/v1/session/challenge', payload: { device_id: 'nope' } });
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json().code).toBe('DEVICE_NOT_FOUND');
+    // No bearer: the route itself answers, checking the proof against the stored key.
+    const forged = await app.inject({ method: 'POST', url: '/api/m/v1/session/token', headers: { dpop: 'garbage' }, payload: { device_id: 'd1', challenge: 'c', pin_proof: 'p' } });
+    expect(forged.statusCode).toBe(401);
+    expect(forged.json().code).toBe('PROOF_INVALID');
+    await app.close();
+  });
 });

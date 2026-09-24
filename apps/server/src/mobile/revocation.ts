@@ -1,9 +1,11 @@
+import type { FastifyBaseLogger } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { Device } from '../db/repositories/devices.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Mailer } from '../email/mailer.js';
+import { deviceRevokedMail } from '../email/templates.js';
 
-/** Why a device was revoked, and who did it; written to the device trail once Task 9 wires the event. */
+/** Why a device was revoked, and who did it; written to the device trail as `device_revoked`. */
 export interface RevokeInput {
   reason: 'user' | 'admin' | 'pin_bruteforce' | 'review';
   actor: string;
@@ -50,13 +52,20 @@ export class MobileSocketRegistry {
     };
   }
 
-  /** Closes every live socket for a device; returns how many were closed. */
+  /**
+   * Closes every live socket for a device and forgets them at once, so `hasLive`/`liveDevices`
+   * stop reporting a revoked device before the sockets' own 'close' events arrive (their release
+   * functions then find nothing left to remove). Returns how many were closed.
+   */
   closeDevice(deviceId: string, code: number, reason: string): number {
     const sockets = this.byDevice.get(deviceId);
     if (!sockets) return 0;
-    const count = sockets.size;
+    this.byDevice.delete(deviceId);
+    for (const [userId, devices] of this.byUser) {
+      if (devices.delete(deviceId) && devices.size === 0) this.byUser.delete(userId);
+    }
     for (const ws of sockets) ws.close(code, reason);
-    return count;
+    return sockets.size;
   }
 
   hasLive(deviceId: string): boolean {
@@ -69,15 +78,38 @@ export class MobileSocketRegistry {
   }
 }
 
+const failureLabel = (err: unknown): string => {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && code.length > 0) return code;
+  return err instanceof Error ? err.name : typeof err;
+};
+
 /**
- * Revokes a device. Today this only flips its status; Task 9 completes it with session/token
- * deletion, clearing the push token, recording the `device_revoked` event, closing any live
- * socket through `deps.sockets` and mailing the owner through `deps.mailer`.
+ * Revokes a device, in this order: flip its status (conditional, so a second call or a race returns
+ * undefined and does nothing else), delete its access tokens, clear its push token, record
+ * `device_revoked`, close any live socket with 4401, and — only for a PIN brute-force, which the
+ * owner did not ask for — mail the owner. A mail failure never undoes or fails the revoke.
  */
 export async function revokeDevice(
-  deps: { repos: Repositories; sockets: MobileSocketRegistry; mailer: Mailer },
+  deps: { repos: Repositories; sockets: MobileSocketRegistry; mailer: Mailer; log?: FastifyBaseLogger; now?: () => Date },
   deviceId: string,
   input: RevokeInput,
 ): Promise<Device | undefined> {
-  return deps.repos.devices.revoke(deviceId, input.reason, new Date());
+  const { repos } = deps;
+  const now = deps.now?.() ?? new Date();
+  const device = await repos.devices.revoke(deviceId, input.reason, now);
+  if (!device) return undefined;
+  await repos.deviceSessions.deleteTokensForDevice(deviceId);
+  await repos.devices.setPushToken(deviceId, null);
+  await repos.deviceEvents.record({ user_id: device.user_id, device_id: deviceId, kind: 'device_revoked', actor: input.actor, ip: input.ip ?? null, meta: { reason: input.reason } });
+  deps.sockets.closeDevice(deviceId, 4401, 'device revoked');
+  if (input.reason === 'pin_bruteforce') {
+    try {
+      const owner = await repos.users.findById(device.user_id);
+      if (owner) await deps.mailer.send(deviceRevokedMail(owner.email, { deviceLabel: `${device.name} (${device.model})`, at: now }));
+    } catch (err) {
+      deps.log?.warn({ err: failureLabel(err), deviceId }, 'device revoked mail failed');
+    }
+  }
+  return device;
 }

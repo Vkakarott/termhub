@@ -8,18 +8,21 @@ import type { Mailer } from '../email/mailer.js';
 import type { createUpgradeRouter } from '../ws/router.js';
 import { actionForMethod, type Resource } from '../auth/permissions.js';
 import { mobileDeviceRoutes, mobilePushTokenRoutes } from '../routes/m-devices.js';
+import { mobileSessionRoutes } from '../routes/m-session.js';
 import { buildMobileAuthHook, type MobileAuthMode } from './auth.js';
 import { JtiCache } from './dpop.js';
 import { EnrolmentService } from './enrolment.js';
 import { MobileSocketRegistry, revokeDevice } from './revocation.js';
+import { SessionService } from './session.js';
 
 export const MOBILE_PREFIX = '/api/m/v1';
 
-/** Long-lived state of the mobile API, created once per server (later tasks add session, push). */
+/** Long-lived state of the mobile API, created once per server (later tasks add push). */
 export interface MobileServices {
   jtis: JtiCache;
   enrolment: EnrolmentService;
   sockets: MobileSocketRegistry;
+  session: SessionService;
 }
 
 export interface MobileDeps {
@@ -40,11 +43,15 @@ export interface MobileDeps {
 export type GuardedMobile = (resource: Resource, plugin: (a: FastifyInstance) => Promise<void>, prefix: string) => Promise<void>;
 
 export function createMobileServices(deps: MobileDeps): MobileServices {
+  const sockets = new MobileSocketRegistry();
+  const { repos, mailer, log } = deps;
   return {
     jtis: new JtiCache(),
     // `hooks` stays undefined until Task 16 wires push notifications into enrolment.
-    enrolment: new EnrolmentService({ repos: deps.repos, mailer: deps.mailer, log: deps.log, appUrl: config.publicUrl }),
-    sockets: new MobileSocketRegistry(),
+    enrolment: new EnrolmentService({ repos, mailer, log, appUrl: config.publicUrl }),
+    sockets,
+    // Six wrong PIN proofs revoke the device through the same path as every other revoke.
+    session: new SessionService({ repos, revoke: (id, input) => revokeDevice({ repos, sockets, mailer, log }, id, input) }),
   };
 }
 
@@ -61,6 +68,7 @@ export async function registerMobileApi(
 ): Promise<void> {
   const mobile = config.mobile;
   if (!mobile) throw new Error('registerMobileApi requires config.mobile (MOBILE_PUBLIC_URL)');
+  const publicUrl = mobile.publicUrl;
   await fastify.register(
     async (m) => {
       m.addHook('preHandler', buildMobileAuthHook({ repos: deps.repos, publicUrl: mobile.publicUrl, minAppVersion: mobile.minAppVersion, jtis: services.jtis }));
@@ -83,18 +91,20 @@ export async function registerMobileApi(
         );
       };
 
-      // The mobile API's own routes: enrolment, self-management and push-token, all under `devices`.
+      // The mobile API's own routes: enrolment, self-management, push-token and session, all under `devices`.
       async function mobileRoutes(guarded: GuardedMobile): Promise<void> {
         await guarded(
           'devices',
           (a) =>
             mobileDeviceRoutes(a, deps.repos, {
               enrolment: services.enrolment,
-              revoke: (id, input) => revokeDevice({ repos: deps.repos, sockets: services.sockets, mailer: deps.mailer }, id, input),
+              revoke: (id, input) => revokeDevice({ repos: deps.repos, sockets: services.sockets, mailer: deps.mailer, log: deps.log }, id, input),
             }),
           '/devices',
         );
         await guarded('devices', (a) => mobilePushTokenRoutes(a, deps.repos), '');
+        // Challenge and token renewal: both mobileAuth 'none', /token verifies the device proof itself.
+        await guarded('devices', (a) => mobileSessionRoutes(a, deps.repos, { session: services.session, jtis: services.jtis, publicUrl }), '/session');
       }
 
       await mobileRoutes(guardedMobile);
