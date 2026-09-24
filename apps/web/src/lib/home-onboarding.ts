@@ -6,11 +6,20 @@ import type { Machine, Project, ProjectGroup, Tab } from './types';
  */
 export type HomeStep = 'loading' | 1 | 2 | 3 | 'dashboard';
 
-export function homeStep(input: { loading: boolean; machines: Machine[]; projects: Project[]; openTabs: Tab[] }): HomeStep {
+export function homeStep(input: {
+  loading: boolean;
+  machines: Machine[];
+  projects: Project[];
+  openTabs: Tab[];
+  /** the list could not be read: its emptiness means nothing, so the step it decides is never shown */
+  machinesFailed?: boolean;
+  projectsFailed?: boolean;
+  openTabsFailed?: boolean;
+}): HomeStep {
   if (input.loading) return 'loading';
-  if (input.machines.length === 0) return 1;
-  if (input.projects.length === 0) return 2;
-  if (input.openTabs.length === 0) return 3;
+  if (input.machines.length === 0) return input.machinesFailed ? 'dashboard' : 1;
+  if (input.projects.length === 0) return input.projectsFailed ? 'dashboard' : 2;
+  if (input.openTabs.length === 0) return input.openTabsFailed ? 'dashboard' : 3;
   return 'dashboard';
 }
 

@@ -11,6 +11,10 @@ const state = vi.hoisted(() => ({
   projects: [] as Project[],
   openTabs: [] as Tab[],
   openTabsLoaded: true,
+  openTabsFailed: false,
+  machinesError: false,
+  projectsError: false,
+  reloadMonitor: vi.fn(async () => {}),
   groups: [] as ProjectGroup[],
   user: { id: 'u1', nickname: null as string | null },
   denied: new Set<string>(),
@@ -24,9 +28,19 @@ vi.mock('../lib/auth', () => ({
   }),
 }));
 vi.mock('../lib/data', () => ({
-  useData: () => ({ statuses: {}, projects: state.projects, machines: state.machines, loading: state.loading, refresh: state.refresh }),
+  useData: () => ({
+    statuses: {},
+    projects: state.projects,
+    machines: state.machines,
+    loading: state.loading,
+    refresh: state.refresh,
+    machinesError: state.machinesError,
+    projectsError: state.projectsError,
+  }),
 }));
-vi.mock('../lib/monitor', () => ({ useMonitor: () => ({ openTabs: state.openTabs, openTabsLoaded: state.openTabsLoaded }) }));
+vi.mock('../lib/monitor', () => ({
+  useMonitor: () => ({ openTabs: state.openTabs, openTabsLoaded: state.openTabsLoaded, openTabsFailed: state.openTabsFailed, reload: state.reloadMonitor }),
+}));
 vi.mock('../lib/project-groups', () => ({ useProjectGroups: () => ({ groups: state.groups }) }));
 vi.mock('../lib/api', () => ({ api: { dashboard: () => new Promise(() => {}) } }));
 vi.mock('../components/NeedsYouList', () => ({ NeedsYouList: () => null }));
@@ -83,6 +97,10 @@ beforeEach(() => {
   state.projects = [];
   state.openTabs = [];
   state.openTabsLoaded = true;
+  state.openTabsFailed = false;
+  state.machinesError = false;
+  state.projectsError = false;
+  state.reloadMonitor.mockClear();
   state.groups = [favorites()];
   state.user = { id: 'u1', nickname: null };
   state.denied = new Set();
@@ -167,6 +185,16 @@ describe('HomePage step 2: machines, no project', () => {
     expect(screen.getByRole('dialog', { name: 'project-form' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'fechar projeto' }));
     expect(screen.queryByRole('dialog', { name: 'project-form' })).not.toBeInTheDocument();
+  });
+
+  it('re-reads the account while waiting, so a project created elsewhere shows up', () => {
+    vi.useFakeTimers();
+    const { unmount } = mount();
+    act(() => vi.advanceTimersByTime(15_000));
+    expect(state.refresh).toHaveBeenCalledTimes(1);
+    unmount();
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(state.refresh).toHaveBeenCalledTimes(1);
   });
 
   it('explains instead of offering the button when the user cannot create projects', () => {
@@ -299,5 +327,62 @@ describe('HomePage dashboard and next steps', () => {
     expect(screen.getByRole('region', { name: 'Próximos passos' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Dispensar' }));
     expect(screen.queryByRole('region', { name: 'Próximos passos' })).not.toBeInTheDocument();
+  });
+});
+
+describe('HomePage when a list could not be read', () => {
+  const notice = () => screen.queryByRole('status', { name: 'Aviso de carregamento' });
+
+  it('never shows step 1 from a machine list it could not read', () => {
+    state.machinesError = true;
+    state.projects = [project('p1')];
+    mount();
+    expect(screen.queryByText(/Passo \d de 3/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'O que estou fazendo' })).toBeInTheDocument();
+    expect(notice()).toBeInTheDocument();
+  });
+
+  it('never shows step 2 from a project list it could not read', () => {
+    state.machines = [machine('m1')];
+    state.projectsError = true;
+    mount();
+    expect(screen.queryByText(/Passo \d de 3/)).not.toBeInTheDocument();
+    expect(notice()).toBeInTheDocument();
+  });
+
+  it('never shows step 3 when no open-tabs read succeeded', () => {
+    state.machines = [machine('m1')];
+    state.projects = [project('p1')];
+    state.openTabsLoaded = false;
+    state.openTabsFailed = true;
+    mount();
+    expect(screen.queryByText(/Passo \d de 3/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'O que estou fazendo' })).toBeInTheDocument();
+    expect(notice()).toBeInTheDocument();
+  });
+
+  it('retries every list from the notice', () => {
+    state.machinesError = true;
+    mount();
+    fireEvent.click(within(notice()!).getByRole('button', { name: 'Tentar de novo' }));
+    expect(state.refresh).toHaveBeenCalledTimes(1);
+    expect(state.reloadMonitor).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no notice when every list was read', () => {
+    everythingDone();
+    mount();
+    expect(notice()).not.toBeInTheDocument();
+  });
+});
+
+describe('HomePage next-step links', () => {
+  it('look like links: the city item ends with an arrow', () => {
+    everythingDone();
+    state.user = { id: 'u1', nickname: null };
+    mount();
+    const link = within(screen.getByRole('region', { name: 'Próximos passos' })).getByRole('link', { name: /apelido/ });
+    expect(link).toHaveTextContent('→');
+    expect(link.className).toMatch(/text-accent/);
   });
 });

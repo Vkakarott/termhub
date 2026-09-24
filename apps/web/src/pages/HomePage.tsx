@@ -14,8 +14,8 @@ import { PageFrame } from '../components/PageHeader';
 import { MachineForm } from '../components/MachineForm';
 import { ProjectForm } from '../components/ProjectForm';
 
-/** while no machine is visible, the account is re-read this often (a machine connected by someone else) */
-const WAIT_MACHINE_MS = 15_000;
+/** on steps 1 and 2 the account is re-read this often (a machine or project added from elsewhere) */
+const WAIT_MS = 15_000;
 
 /**
  * Início: a guide through the three required steps (connect a machine, create a project, open a
@@ -24,19 +24,28 @@ const WAIT_MACHINE_MS = 15_000;
  */
 export function HomePage() {
   const { user, can } = useAuth();
-  const { machines, projects, loading, refresh } = useData();
-  const { openTabs, openTabsLoaded } = useMonitor();
+  const { machines, projects, loading, refresh, machinesError, projectsError } = useData();
+  const { openTabs, openTabsLoaded, openTabsFailed, reload: reloadTabs } = useMonitor();
   const { groups } = useProjectGroups();
   // Both forms live here, outside the step being shown: creating a machine refreshes the data and
   // moves the home to step 2 while the form still shows the one-time enrollment token.
   const [machineForm, setMachineForm] = useState<{ machine: Machine | null } | null>(null);
   const [projectFormOpen, setProjectFormOpen] = useState(false);
 
-  const step = homeStep({ loading: loading || !openTabsLoaded, machines, projects, openTabs });
+  const step = homeStep({
+    loading: loading || (!openTabsLoaded && !openTabsFailed),
+    machines,
+    projects,
+    openTabs,
+    machinesFailed: machinesError,
+    projectsFailed: projectsError,
+    openTabsFailed,
+  });
+  const readFailed = machinesError || projectsError || openTabsFailed;
 
   useEffect(() => {
-    if (step !== 1) return;
-    const t = setInterval(() => void refresh(), WAIT_MACHINE_MS);
+    if (step !== 1 && step !== 2) return;
+    const t = setInterval(() => void refresh(), WAIT_MS);
     return () => clearInterval(t);
   }, [step, refresh]);
 
@@ -93,6 +102,21 @@ export function HomePage() {
   } else {
     body = (
       <>
+        {readFailed && (
+          <div role="status" aria-label="Aviso de carregamento" className="mb-4 flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-fg">
+            <span className="min-w-0 flex-1">Não foi possível carregar tudo: algumas listas podem estar incompletas.</span>
+            <button
+              type="button"
+              className="shrink-0 font-medium text-accent hover:underline"
+              onClick={() => {
+                void refresh();
+                void reloadTabs();
+              }}
+            >
+              Tentar de novo
+            </button>
+          </div>
+        )}
         {user && (
           <NextStepsCard
             key={user.id}
@@ -185,8 +209,9 @@ function NextStepItem({ step, onInstallHooks }: { step: NextStep; onInstallHooks
   }
   if (step.kind === 'city') {
     return (
-      <Link to="/settings/city" className="min-w-0 flex-1 text-fg hover:text-accent">
-        {step.hasNickname ? 'Publique sua cidade: escolha os projetos que aparecem nela' : 'Escolha seu apelido e publique sua cidade'}
+      <Link to="/settings/city" className="min-w-0 flex-1 font-medium text-accent hover:underline">
+        {step.hasNickname ? 'Publique sua cidade: escolha os projetos que aparecem nela' : 'Escolha seu apelido e publique sua cidade'}{' '}
+        <span aria-hidden="true">→</span>
       </Link>
     );
   }
