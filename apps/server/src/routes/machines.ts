@@ -149,12 +149,13 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
       if (owner_id && !(await repos.users.findById(owner_id))) throw badRequest('Usuário inexistente');
     }
     const machine = await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) });
-    // A city only ever shows machines its person owns (public/read.ts), so a transferred machine
-    // leaves the old owner's city by that rule alone — its projects stay published (they belong to
-    // their own owners now, not to the machine). Any public page showing the building drops it at once.
+    // A city only ever shows the robots on machines its person owns (public/read.ts), so a
+    // transferred machine's robots leave the old owner's city by that rule alone — the projects stay
+    // published (they belong to their owners, not to the machine). Any public page showing them
+    // hangs up and re-reads.
     if (owner_id !== undefined && owner_id !== current.owner_id) {
-      publicBus.publishRoomsGone({ machine_id: id });
-      request.log.info({ machineId: id }, 'machine transferred: left its old owner\'s public city');
+      publicBus.publishRobotsGone({ machine_id: id });
+      request.log.info({ machineId: id }, 'machine transferred: its robots left its old owner\'s public city');
       // its tabs leave the old owner's open tabs (sidebar) and join the new owner's
       for (const tab of await repos.tabs.listByMachine(id)) {
         publishTabRemoved(tab, current);
@@ -171,8 +172,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const tabs = await repos.tabs.listByMachine(id);
     await repos.machines.delete(id);
     await publishTabsRemoved(repos, tabs, [machine]);
-    // its buildings leave every public city at once (the projects, and their publish switch, stay)
-    publicBus.publishRoomsGone({ machine_id: id });
+    // its robots leave every public city at once (the projects, and their publish switch, stay)
+    publicBus.publishRobotsGone({ machine_id: id });
     agents.disconnect(id, CLOSE.UNAUTHORIZED, 'deleted');
     return { ok: true };
   });

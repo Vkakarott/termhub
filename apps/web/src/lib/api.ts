@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeSnapshot, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatConversation, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -162,7 +162,7 @@ export const api = {
     setMemberships: (groups: { id: string; project_ids: string[] }[]) => request<{ groups: ProjectGroup[] }>('PUT', '/project-groups/memberships', { groups }),
   },
   dashboard: () => request<{ items: DashboardItem[] }>('GET', '/dashboard'),
-  office: (machineId: string, fresh = false) => request<OfficeSnapshot>('GET', `/office/${encodeURIComponent(machineId)}${fresh ? '?fresh=1' : ''}`),
+  office: (fresh = false) => request<OfficeCity>('GET', `/office${fresh ? '?fresh=1' : ''}`),
   /** The active conversation of a scope: no project = the account-wide chat (`/chat`); a project id =
    * that project's own chat (404 when it is not the signed-in user's). `actions` is the trail as it
    * truly is server-side (survives a reload); live socket events only update it, they are never its

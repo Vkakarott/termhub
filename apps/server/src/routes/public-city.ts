@@ -10,21 +10,22 @@ import { readPublicCityCached } from '../public/read.js';
 // of a distinguishable 400.
 const params = z.object({ nickname: z.string().min(1) });
 
-// building/room are the public (obfuscated) ids from PublicCity, 22 base64url characters; the cap
-// is a generous safety limit, not a shape check — an id that matches nothing just renders the
-// city-level card (see buildCardSvg's own resolution), the same as an id that was never real. A
-// query that does not fit (an oversized id, a repeated parameter) falls back to the landing card
-// like every other malformed input on this route, never a 400 with validation details.
-const cardQuery = z.object({ building: z.string().max(64).optional(), room: z.string().max(64).optional() });
+// `building` is a public (obfuscated) id from PublicCity, 22 base64url characters; the cap is a
+// generous safety limit, not a shape check — an id that matches nothing (a stale one, or a machine
+// id from the links of the city by machine) renders the city-level card (see buildCardSvg's own
+// resolution). A `?room=` from those old links is not read at all. A query that does not fit (an
+// oversized id, a repeated parameter) falls back to the landing card like every other malformed
+// input on this route, never a 400 with validation details.
+const cardQuery = z.object({ building: z.string().max(64).optional() });
 
 /** Falls back to the landing's own card: a link that shows the product's image beats one that shows a broken one. */
 const FALLBACK_CARD = '/og-image.png';
 
 const CARD_CACHE_MS = 5 * 60 * 1000;
 
-// A generous bound: this instance's own published cities plus their buildings/rooms are the only
+// A generous bound: this instance's own published cities plus their buildings are the only
 // keys that will ever actually be requested for real, and none of that should approach four figures.
-// It exists purely so a determined caller mining random ?building=/?room= values can't grow the map
+// It exists purely so a determined caller mining random ?building= values can't grow the map
 // forever — see the note on the key below for why it can't do that by minting new entries either.
 const CARD_CACHE_MAX_ENTRIES = 500;
 
@@ -35,7 +36,7 @@ const CARD_CACHE_MAX_ENTRIES = 500;
  * worth the shelf space, and caching a miss would keep a newly published city's first card looking
  * stale.
  *
- * The key is built from the *resolved* building/room (their real public ids, once matched against
+ * The key is built from the *resolved* building (its real public id, once matched against
  * the city just read), never from the raw query string: `cardQuery` accepts any string and an id
  * that matches nothing silently falls back to the city-level card, so keying on the raw value would
  * let a caller mint one cache entry — one DB read, one `rsvg-convert` spawn — per garbage id it
@@ -69,9 +70,9 @@ function setCachedCard(key: string, png: Buffer): void {
   cardCache.set(key, { png, expiresAt: Date.now() + CARD_CACHE_MS });
 }
 
-/** The cache key for a nickname at a resolved depth: two different unresolved ids fold onto the same key as no id at all. */
-function cardCacheKey(nickname: string, focus: { building?: { id: string }; room?: { id: string } }): string {
-  return `${nickname}:${focus.building?.id ?? ''}:${focus.room?.id ?? ''}`;
+/** The cache key for a nickname at a resolved depth: an unresolved id folds onto the same key as no id at all. */
+function cardCacheKey(nickname: string, focus: { building?: { id: string } }): string {
+  return `${nickname}:${focus.building?.id ?? ''}`;
 }
 
 /**
@@ -100,12 +101,12 @@ export async function publicCityRoutes(app: FastifyInstance, repos: Repositories
     if (!parsed.ok) return reply.redirect(FALLBACK_CARD, 302);
     const query = cardQuery.safeParse(request.query);
     if (!query.success) return reply.redirect(FALLBACK_CARD, 302);
-    const { building, room } = query.data;
+    const { building } = query.data;
     const city = await readPublicCityCached(repos, parsed.value);
     if (!city) return reply.redirect(FALLBACK_CARD, 302);
     // Resolved before the cache is ever consulted: an id that matches nothing in this city (or one
     // from a different city, or a stale id after unpublishing) must key exactly like no id at all.
-    const focus = resolveFocus(city, { building, room });
+    const focus = resolveFocus(city, { building });
     const cacheKey = cardCacheKey(parsed.value, focus);
     const cached = cachedCard(cacheKey);
     if (cached) {
@@ -113,7 +114,7 @@ export async function publicCityRoutes(app: FastifyInstance, repos: Repositories
       reply.header('cache-control', 'public, max-age=300');
       return cached;
     }
-    const png = await renderCard(buildCardSvg(city, { building, room }));
+    const png = await renderCard(buildCardSvg(city, { building }));
     if (!png) return reply.redirect(FALLBACK_CARD, 302);
     setCachedCard(cacheKey, png);
     reply.header('content-type', 'image/png');

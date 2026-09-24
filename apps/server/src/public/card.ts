@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
-import type { PublicBuilding, PublicCity, PublicRoom } from './city.js';
+import type { PublicBuilding, PublicCity } from './city.js';
 
 /**
  * The link preview card: what WhatsApp, Slack and X show before anyone clicks. It is drawn in the
  * same visual language as `apps/landing/og/og-image.svg` (same size, same palette, same product
- * mark), but for the city the link points at — whose city, how much of it is published, and how
- * many robots are working right now — instead of one fixed image for every link.
+ * mark), but for the city the link points at — whose city, how many projects it shows, and how many
+ * agents are working right now — instead of one fixed image for every link.
  */
 
 const CARD_WIDTH = 1200;
@@ -13,7 +13,7 @@ const CARD_HEIGHT = 630;
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-/** Every name in the card was written by someone else (an owner's name, a building, a room): never trust it as markup. */
+/** Every name in the card was written by someone else (an owner's name, a project's): never trust it as markup. */
 function xml(s: string): string {
   // ASCII control characters (tab/newline/CR included — these are single-line labels) are not
   // valid XML text content; rsvg-convert simply fails to parse them, silently breaking that one
@@ -26,40 +26,24 @@ function plural(n: number, one: string, many: string): string {
 }
 
 /**
- * The building and room a link points at, resolved from the public (obfuscated) ids in the query.
- * Exported so a caller (the route's cache) can key on what this actually resolved to rather than on
- * the raw query string — an id that matches nothing must collapse onto the same entry as no id at
- * all, not mint one cache entry per garbage value.
+ * The building a link points at, resolved from the public (obfuscated) id in the query. Exported so
+ * a caller (the route's cache) can key on what this actually resolved to rather than on the raw
+ * query string — an id that matches nothing (a stale one, or a machine id from the links of the
+ * city by machine) must collapse onto the same entry as no id at all, not mint one cache entry per
+ * garbage value.
  */
-export function resolveFocus(city: PublicCity, focus: { building?: string; room?: string }): { building?: PublicBuilding; room?: PublicRoom } {
-  const building = focus.building ? city.buildings.find((b) => b.id === focus.building) : undefined;
-  const room = building && focus.room ? building.rooms.find((r) => r.id === focus.room) : undefined;
-  return { building, room };
+export function resolveFocus(city: PublicCity, focus: { building?: string }): { building?: PublicBuilding } {
+  return { building: focus.building ? city.buildings.find((b) => b.id === focus.building) : undefined };
 }
 
-export function buildCardSvg(city: PublicCity, focus: { building?: string; room?: string }): string {
-  const { building, room } = resolveFocus(city, focus);
+export function buildCardSvg(city: PublicCity, focus: { building?: string }): string {
+  const { building } = resolveFocus(city, focus);
 
-  // What "is happening right now" scopes to the depth the link points at: a room card counts only
-  // that room's robots, a building card only that building's, and the city card counts everyone.
-  const scopeRooms = room ? [room] : building ? building.rooms : city.buildings.flatMap((b) => b.rooms);
-  const working = scopeRooms.flatMap((r) => r.robots).filter((r) => r.state === 'working').length;
-
-  const depthLabel = room ? `${xml(building!.name)} › ${xml(room.name)}` : building ? xml(building.name) : null;
-
-  // The machines/rooms line is redundant once a room is already named as the depth, so it only
-  // appears at the city and building levels.
-  const totalRooms = city.buildings.reduce((n, b) => n + b.rooms.length, 0);
-  const scopeLine = room
-    ? null
-    : building
-      ? plural(building.rooms.length, 'sala', 'salas')
-      : `${plural(city.buildings.length, 'prédio', 'prédios')} · ${plural(totalRooms, 'sala', 'salas')}`;
-
-  const depthLine = depthLabel ? `<text x="90" y="316" font-family="Inter, sans-serif" font-size="36" font-weight="600" fill="#98a4f7">${depthLabel}</text>` : '';
-  const scopeLineSvg = scopeLine
-    ? `<text x="90" y="446" font-family="Inter, sans-serif" font-size="26" fill="#646e87">${scopeLine}</text>`
-    : '';
+  // What "is happening right now" scopes to the depth the link points at: a building card counts
+  // only that project's agents, the city card counts everyone's.
+  const robots = building ? building.robots : city.buildings.flatMap((b) => b.robots);
+  const agents = plural(robots.filter((r) => r.state === 'working').length, 'agente trabalhando', 'agentes trabalhando');
+  const live = building ? `${xml(building.name)} — ${agents}` : `${plural(city.buildings.length, 'projeto', 'projetos')} · ${agents}`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}" viewBox="0 0 ${CARD_WIDTH} ${CARD_HEIGHT}">
   <defs>
@@ -86,9 +70,7 @@ export function buildCardSvg(city: PublicCity, focus: { building?: string; room?
   <text x="170" y="98" font-family="Inter, sans-serif" font-size="34" font-weight="700" fill="#e6e8ee">termhub</text>
   <text x="1110" y="98" text-anchor="end" font-family="Inter, sans-serif" font-size="24" fill="#646e87">termhub.dev</text>
   <text x="90" y="260" font-family="Inter, sans-serif" font-size="60" font-weight="700" fill="#c9d3ee">Cidade de ${xml(city.owner_name)}</text>
-  ${depthLine}
-  <text x="90" y="400" font-family="Inter, sans-serif" font-size="34" font-weight="600" fill="#c9d3ee">${plural(working, 'robô trabalhando', 'robôs trabalhando')}</text>
-  ${scopeLineSvg}
+  <text x="90" y="400" font-family="Inter, sans-serif" font-size="34" font-weight="600" fill="#c9d3ee">${live}</text>
   <rect x="90" y="530" width="404" height="46" rx="10" fill="#151621" stroke="#1f2433" stroke-width="2"/>
   <circle cx="118" cy="553" r="5" fill="#98a4f7"/>
   <text x="134" y="562" font-family="Inter, sans-serif" font-size="22" fill="#c9d3ee">self-hosted · open source · MIT</text>

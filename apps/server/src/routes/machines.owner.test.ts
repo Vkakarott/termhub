@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
-import { publicBus, type PublicChange, type RoomsGone } from '../public/bus.js';
+import { publicBus, type PublicChange, type RobotsGone } from '../public/bus.js';
 import { monitorBus, type TabLifecycle } from '../monitor/bus.js';
 import { machineRoutes } from './machines.js';
 
-const machine = { id: 'm1', name: 'box', type: 'agent', owner_id: 'u1', public_id: 'x' } as Machine;
+const machine = { id: 'm1', name: 'box', type: 'agent', owner_id: 'u1' } as Machine;
 const TABS = [
   { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Ana', kind: 'terminal' },
   { id: 't2', project_id: 'p2', machine_id: 'm1', name: 'Bia', kind: 'terminal' },
@@ -38,19 +38,19 @@ function buildApp() {
 
 describe('PATCH /machines/:id — owner transfer', () => {
   let changes: PublicChange[];
-  let gone: RoomsGone[];
+  let gone: RobotsGone[];
   const offs: (() => void)[] = [];
   beforeEach(() => {
     changes = [];
     gone = [];
-    offs.push(publicBus.subscribe((c) => changes.push(c)), publicBus.subscribeRoomsGone((g) => gone.push(g)));
+    offs.push(publicBus.subscribe((c) => changes.push(c)), publicBus.subscribeRobotsGone((g) => gone.push(g)));
   });
   afterEach(() => offs.splice(0).forEach((off) => off()));
 
   // Merge ruling 4: a city only shows machines its person owns (public/read.ts), so a transferred
   // machine leaves the old owner's city by that rule alone. Nothing is unpublished — the projects
   // belong to their owners, not to the machine — but open pages must drop the building at once.
-  it('drops the building from open public pages when its owner changes, without unpublishing anything', async () => {
+  it("drops the machine's robots from open public pages when its owner changes, without unpublishing anything", async () => {
     const { app } = buildApp();
     const res = await app.inject({ method: 'PATCH', url: '/machines/m1', payload: { owner_id: 'u2' } });
     expect(res.statusCode).toBe(200);
@@ -75,7 +75,7 @@ describe('PATCH /machines/:id — owner transfer', () => {
     expect(changes).toEqual([]);
   });
 
-  it('drops the building from open public pages when the machine is deleted', async () => {
+  it("drops the machine's robots from open public pages when the machine is deleted", async () => {
     const { app } = buildApp();
     const res = await app.inject({ method: 'DELETE', url: '/machines/m1' });
     expect(res.statusCode).toBe(200);

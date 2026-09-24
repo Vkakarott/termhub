@@ -11,12 +11,11 @@ export type SoundEvent = { kind: 'typing'; typists: number } | { kind: 'ding'; d
 function read(model: CityModel): { typists: number; raised: Set<string> } {
   let typists = 0;
   const raised = new Set<string>();
-  for (const machine of model.machines) {
-    for (const room of machine.floor.rooms) {
-      for (const desk of room.desks) {
-        if (desk.pose === 'type') typists += 1;
-        if (desk.marker === 'input' || desk.marker === 'permission') raised.add(`${machine.id}:${desk.id}`);
-      }
+  for (const building of model.buildings) {
+    for (const desk of building.desks) {
+      if (desk.pose === 'type') typists += 1;
+      // keyed by building too: two buildings may carry desks with the same id
+      if (desk.marker === 'input' || desk.marker === 'permission') raised.add(`${building.id}:${desk.id}`);
     }
   }
   return { typists, raised };

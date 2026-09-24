@@ -1,38 +1,56 @@
 /**
- * Snapshot + live monitor state -> what the scene draws. Pure, and the only place where a tab's
- * fields are turned into poses and markers: the scene never reads a `Tab`.
+ * City read + live monitor state -> what the scene draws. Pure, and the only place where a tab's
+ * fields are turned into poses and markers: the scene never reads a `Tab`. A building is a project
+ * (city-by-project §3.1); the machine a desk runs on is a detail of that desk.
  */
 import { tabNeedsYou } from '../lib/needs-you';
 import type { OfficeTab, OfficeTaskCounts, Project, Tab, TabActivity, TabState } from '../lib/types';
 
 /**
- * What the model actually reads of a snapshot, and nothing more. `OfficeSnapshot` satisfies it, and
- * so does the public city once src/city/api.ts adapts it — one model, one scene, both the office and
- * the page a stranger opens, instead of a second city drawn by a second set of rules. What the
- * narrowing costs: a bound task's title is no longer required of an input, because the public
- * payload publishes a bar without one, so `deskOf` falls back to '' when it is absent.
+ * What the model reads of a tab, and nothing more. `OfficeTab` satisfies it, and so does a robot of
+ * the public city once src/city/api.ts adapts it — one model, one scene, both the office and the
+ * page a stranger opens. A robot has no machine (the public payload carries none) and its bar has
+ * no title (a task's name is not published).
  */
 export type ModelTab = Pick<OfficeTab, 'id' | 'project_id' | 'name' | 'kind' | 'position' | 'state' | 'state_text' | 'state_tool' | 'state_at' | 'state_seen_at' | 'activity' | 'activity_verb' | 'alive'> & {
-  /** the public payload carries a bar with no title: a task's name is not published */
+  /** the machine the tab runs on; absent on the public city */
+  machine_id?: string;
   progress: { done: number; total: number; title?: string | null } | null;
 };
 
-export interface ModelRoom {
+/** One project and its desks, as the model reads it. `OfficeBuilding` satisfies it. */
+export interface ModelBuilding {
   project: Pick<Project, 'id' | 'name' | 'status'>;
   tabs: ModelTab[];
   /** null when the board could not be read (no `tasks:read`, or a city with no board at all) */
   tasks: OfficeTaskCounts | null;
 }
 
-export interface ModelSnapshot {
-  machine: { id: string };
-  /** false when the machine could not be asked which tmux sessions are alive */
-  reachable: boolean;
-  rooms: ModelRoom[];
+/** A machine a desk runs on. `OfficeMachine` satisfies it; the public city has none. */
+export interface ModelMachine {
+  id: string;
+  name: string;
+  subtitle: string | null;
+  online: boolean;
+  /** false = its tmux could not be asked; null = not probed */
+  reachable: boolean | null;
+}
+
+/** The model's whole input: `OfficeCity` satisfies it, and so does the public city through its adapter. */
+export interface ModelCity {
+  projects: ModelBuilding[];
+  machines: ModelMachine[];
 }
 
 export type Pose = 'type' | 'raise' | 'sleep' | 'shake' | 'sit' | 'empty';
 export type Marker = 'input' | 'permission' | 'error' | null;
+
+/** The machine tag of a desk: what the office tells about where an agent runs. */
+export interface DeskMachine {
+  name: string;
+  subtitle: string | null;
+  online: boolean;
+}
 
 export interface DeskModel {
   id: string;
@@ -44,7 +62,7 @@ export interface DeskModel {
   kind: 'person' | 'phone';
   pose: Pose;
   marker: Marker;
-  /** never reported a state: a person, but not an "idle" one */
+  /** never reported a state, or its machine is offline or unreachable: drawn faded */
   dimmed: boolean;
   screenOn: boolean;
   state: TabState | null;
@@ -56,27 +74,37 @@ export interface DeskModel {
   progress: { done: number; total: number; title: string } | null;
   /** stable appearance variant, from the tab id */
   look: number;
+  /** the machine the desk runs on — office only; null on the public city, which names no machine */
+  machine: DeskMachine | null;
 }
 
-export interface RoomModel {
+/** Why a building may not be telling the truth, read from across the city. */
+export type BuildingNotice = 'offline' | 'silent' | null;
+
+export interface BuildingModel {
+  /** the project id in the office; the building's public id on the street */
   id: string;
   name: string;
   label: string;
-  /** false for a paused project */
+  /** someone is at a desk, or someone needs you: an empty or deserted building is drawn dark */
   lit: boolean;
+  notice: BuildingNotice;
   needsYou: number;
+  /** the board, as the sign prints it (d/t tarefas); null when it is empty or unreadable */
   progress: { done: number; total: number } | null;
   desks: DeskModel[];
 }
 
-export interface FloorModel {
-  rooms: RoomModel[];
+export interface CityModel {
+  buildings: BuildingModel[];
   needsYou: number;
 }
 
 export const LOOK_VARIANTS = 6;
 const DESK_LABEL_MAX = 18;
-const ROOM_LABEL_MAX = 28;
+const BUILDING_LABEL_MAX = 28;
+/** The desk's machine line: name and subtitle together stay this short, or the subtitle goes. */
+export const SUBTITLE_CAP = 30;
 
 const POSE: Record<TabState, Pose> = { working: 'type', waiting_input: 'raise', waiting_permission: 'raise', idle: 'sleep', error: 'shake' };
 
@@ -111,16 +139,32 @@ export function lookOf(id: string, variants: number): number {
   return (h >>> 0) % variants;
 }
 
+const oneLine = (s: string) => s.trim().replace(/\s+/g, ' ');
+
+/**
+ * The muted line under a desk's name in the office (spec §3.2): the machine's name, with its
+ * subtitle when the two fit SUBTITLE_CAP, or "offline" in the subtitle's place when the machine is;
+ * '' without a machine — the public city, which names none.
+ */
+export function deskMachineLine(machine: DeskMachine | null): string {
+  if (!machine) return '';
+  const name = oneLine(machine.name);
+  if (!machine.online) return `${truncateLabel(name, SUBTITLE_CAP - ' · offline'.length)} · offline`;
+  const subtitle = machine.subtitle ? oneLine(machine.subtitle) : '';
+  const both = subtitle ? `${name} · ${subtitle}` : '';
+  return both && Array.from(both).length <= SUBTITLE_CAP ? both : truncateLabel(name, SUBTITLE_CAP);
+}
+
 const time = (iso: string | null): number | null => {
   const ms = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(ms) ? null : ms;
 };
 
 /**
- * Which side's state fields to draw. The monitor is normally ahead of the snapshot, but with the
- * WebSocket down its items go stale (it resyncs every 3 min) while a 60 s snapshot read keeps
- * coming — so the newer `state_at` wins, and on a tie only a fresher `state_seen_at` (the hand was
- * lowered elsewhere) moves the tab.
+ * Which side's state fields to draw. The monitor is normally ahead of the city read, but with the
+ * WebSocket down its items go stale (it resyncs every 3 min) while a 60 s read keeps coming — so the
+ * newer `state_at` wins, and on a tie only a fresher `state_seen_at` (the hand was lowered
+ * elsewhere) moves the tab.
  */
 function withLiveState(tab: ModelTab, live: Tab | undefined): ModelTab {
   if (!live) return tab;
@@ -131,121 +175,71 @@ function withLiveState(tab: ModelTab, live: Tab | undefined): ModelTab {
   return (time(live.state_seen_at) ?? -Infinity) > (time(tab.state_seen_at) ?? -Infinity) ? fromLive() : tab;
 }
 
-/** `reachable`: false = the machine could not be asked which tmux sessions exist (see below). */
-function deskOf(tab: ModelTab, live: Tab | undefined, reachable: boolean): DeskModel {
+/** `machine`: where the tab runs; undefined on the public city, which reads as online and reachable. */
+function deskOf(tab: ModelTab, live: Tab | undefined, machine: ModelMachine | undefined): DeskModel {
   const t = withLiveState(tab, live);
-  const base = { id: t.id, projectId: t.project_id, name: t.name, label: truncateLabel(t.name, DESK_LABEL_MAX), look: lookOf(t.id, LOOK_VARIANTS), progress: t.progress ? { done: t.progress.done, total: t.progress.total, title: t.progress.title ?? '' } : null };
+  // a machine that could not be asked answers `alive: false` for every terminal tab, which is not
+  // evidence that anyone left: keep the last known state (and its raised hand), faded
+  const reachable = machine?.reachable !== false;
+  const down = !!machine && (!machine.online || machine.reachable === false);
+  const base = {
+    id: t.id,
+    projectId: t.project_id,
+    name: t.name,
+    label: truncateLabel(t.name, DESK_LABEL_MAX),
+    look: lookOf(t.id, LOOK_VARIANTS),
+    progress: t.progress ? { done: t.progress.done, total: t.progress.total, title: t.progress.title ?? '' } : null,
+    machine: machine ? { name: machine.name, subtitle: machine.subtitle, online: machine.online } : null,
+  };
   // a simulator's `alive` comes from the simulator manager, so tmux being unreachable says nothing about it
-  if (t.kind === 'simulator') return { ...base, kind: 'phone', pose: 'empty', marker: null, dimmed: false, screenOn: t.alive, state: null, activity: null, verb: null };
-  // an unreachable machine answers `alive: false` for every terminal tab, which is not evidence that
-  // anyone left: keep the last known state (and its raised hand); the page's banner says it is stale
-  if (!t.alive && reachable) return { ...base, kind: 'person', pose: 'empty', marker: null, dimmed: false, screenOn: false, state: t.state, activity: null, verb: null };
+  if (t.kind === 'simulator') return { ...base, kind: 'phone', pose: 'empty', marker: null, dimmed: down, screenOn: t.alive, state: null, activity: null, verb: null };
+  if (!t.alive && reachable) return { ...base, kind: 'person', pose: 'empty', marker: null, dimmed: down, screenOn: false, state: t.state, activity: null, verb: null };
   const needs = tabNeedsYou(t);
   const marker: Marker = t.state === 'error' ? 'error' : !needs ? null : t.state === 'waiting_permission' ? 'permission' : 'input';
-  return { ...base, kind: 'person', pose: t.state ? POSE[t.state] : 'sit', marker, dimmed: !t.state, screenOn: t.state === 'working', state: t.state, activity: t.state === 'working' ? t.activity : null, verb: t.state === 'working' ? t.activity_verb : null };
+  return { ...base, kind: 'person', pose: t.state ? POSE[t.state] : 'sit', marker, dimmed: !t.state || down, screenOn: t.state === 'working', state: t.state, activity: t.state === 'working' ? t.activity : null, verb: t.state === 'working' ? t.activity_verb : null };
 }
 
-export function buildModel(snapshot: ModelSnapshot, liveTab: (tabId: string) => Tab | undefined): FloorModel {
-  const rooms = snapshot.rooms.map((r): RoomModel => {
-    const desks = [...r.tabs].sort((a, b) => a.position - b.position).map((t) => deskOf(t, liveTab(t.id), snapshot.reachable));
-    const total = r.tasks ? r.tasks.todo + r.tasks.doing + r.tasks.done : 0;
-    return {
-      id: r.project.id,
-      name: r.project.name,
-      label: truncateLabel(r.project.name, ROOM_LABEL_MAX),
-      lit: r.project.status !== 'paused',
-      needsYou: desks.filter((d) => d.marker === 'input' || d.marker === 'permission').length,
-      progress: r.tasks && total > 0 ? { done: r.tasks.done, total } : null,
-      desks,
-    };
-  });
-  return { rooms, needsYou: rooms.reduce((n, r) => n + r.needsYou, 0) };
+function buildingOf(b: ModelBuilding, machines: Map<string, ModelMachine>, liveTab: (tabId: string) => Tab | undefined): BuildingModel {
+  const machineOf = (t: ModelTab) => (t.machine_id ? machines.get(t.machine_id) : undefined);
+  const desks = [...b.tabs].sort((x, y) => x.position - y.position).map((t) => deskOf(t, liveTab(t.id), machineOf(t)));
+  const needsYou = desks.filter((d) => d.marker === 'input' || d.marker === 'permission').length;
+  const used = [...new Set(b.tabs.map(machineOf).filter((m): m is ModelMachine => !!m))];
+  const notice: BuildingNotice = used.length > 0 && used.every((m) => !m.online) ? 'offline' : used.some((m) => m.reachable === false) ? 'silent' : null;
+  const total = b.tasks ? b.tasks.todo + b.tasks.doing + b.tasks.done : 0;
+  return {
+    id: b.project.id,
+    name: b.project.name,
+    label: truncateLabel(b.project.name, BUILDING_LABEL_MAX),
+    lit: b.tabs.some((t) => t.alive) || needsYou > 0,
+    notice,
+    needsYou,
+    progress: b.tasks && total > 0 ? { done: b.tasks.done, total } : null,
+    desks,
+  };
 }
 
-/** Ids of this machine's tabs that the monitor knows about and the snapshot doesn't yet: time to re-read it. */
-export function missingTabIds(snapshot: ModelSnapshot | null, monitorTabIds: string[], machineProjectIds: Set<string>, projectOf: (tabId: string) => string | undefined): string[] {
-  if (!snapshot) return [];
-  const known = new Set(snapshot.rooms.flatMap((r) => r.tabs.map((t) => t.id)));
-  return monitorTabIds.filter((id) => !known.has(id) && machineProjectIds.has(projectOf(id) ?? ''));
+/** One building per project, in the order given (the server's: by name, like the sidebar), empty ones kept. */
+export function buildCityModel(city: ModelCity, liveTab: (tabId: string) => Tab | undefined): CityModel {
+  const machines = new Map(city.machines.map((m) => [m.id, m]));
+  const buildings = city.projects.map((b) => buildingOf(b, machines, liveTab));
+  return { buildings, needsYou: buildings.reduce((n, b) => n + b.needsYou, 0) };
 }
 
-/** What the page knows about one machine when it builds the city. */
-export interface MachineEntry {
-  id: string;
-  name: string;
-  /**
-   * The owner's own line under the name, office only: the public city's adapter (city/api.ts) never
-   * sets it, since the public payload does not carry one.
-   */
-  subtitle?: string | null;
-  /** false only when the status check said so; "still checking" counts as online */
-  online: boolean;
-  snapshot: ModelSnapshot | null;
-  /** the first read of this machine's snapshot failed */
-  failed: boolean;
+/** Ids the monitor knows for one of the city's projects that the city itself lacks: time to re-read it. */
+export function missingTabIds(city: ModelCity | null, monitorTabIds: string[], projectOf: (tabId: string) => string | undefined): string[] {
+  if (!city) return [];
+  const projects = new Set(city.projects.map((b) => b.project.id));
+  const known = new Set(city.projects.flatMap((b) => b.tabs.map((t) => t.id)));
+  return monitorTabIds.filter((id) => !known.has(id) && projects.has(projectOf(id) ?? ''));
 }
 
-export type MachineNotice = 'offline' | 'silent' | 'error' | null;
+export type FocusTarget = { kind: 'city' } | { kind: 'building'; projectId: string };
 
-export interface MachineModel {
-  id: string;
-  name: string;
-  label: string;
-  /** the sign's second line, cut to fit; null when the machine has none */
-  subtitle: string | null;
-  /** false for an offline machine: its block is drawn dark */
-  lit: boolean;
-  notice: MachineNotice;
-  needsYou: number;
-  floor: FloorModel;
-}
-
-export interface CityModel {
-  machines: MachineModel[];
-  needsYou: number;
-}
-
-const MACHINE_LABEL_MAX = 28;
-const MACHINE_SUBTITLE_MAX = 32;
-const EMPTY_FLOOR: FloorModel = { rooms: [], needsYou: 0 };
-
-/**
- * Every machine that has something to draw, in name order (the sidebar's): a loaded machine with
- * its floor, a failed one as an empty block. A machine still loading is left out — it joins when
- * its snapshot lands — and a snapshot for another machine counts as not loaded.
- */
-export function buildCityModel(entries: MachineEntry[], liveTab: (tabId: string) => Tab | undefined): CityModel {
-  const machines = entries
-    .map((e): MachineModel | null => {
-      const snapshot = e.snapshot && e.snapshot.machine.id === e.id ? e.snapshot : null;
-      if (!snapshot && !e.failed) return null;
-      const floor = snapshot ? buildModel(snapshot, liveTab) : EMPTY_FLOOR;
-      const notice: MachineNotice = !snapshot ? 'error' : !e.online ? 'offline' : !snapshot.reachable ? 'silent' : null;
-      const subtitle = e.subtitle?.trim() ? truncateLabel(e.subtitle, MACHINE_SUBTITLE_MAX) : null;
-      return { id: e.id, name: e.name, label: truncateLabel(e.name, MACHINE_LABEL_MAX), subtitle, lit: e.online, notice, needsYou: floor.needsYou, floor };
-    })
-    .filter((m): m is MachineModel => m !== null)
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  return { machines, needsYou: machines.reduce((n, m) => n + m.needsYou, 0) };
-}
-
-export type FocusTarget = { kind: 'city' } | { kind: 'machine'; machineId: string } | { kind: 'room'; machineId: string; roomId: string };
-
-/** What the URL asks the camera to frame, against what actually exists: never a room of another machine. */
-export function resolveFocus(city: CityModel | null, machineId: string | undefined, roomId: string | null): FocusTarget {
-  const machine = city?.machines.find((m) => m.id === machineId);
-  if (!machine) return { kind: 'city' };
-  if (roomId && machine.floor.rooms.some((r) => r.id === roomId)) return { kind: 'room', machineId: machine.id, roomId };
-  return { kind: 'machine', machineId: machine.id };
+/** What the URL asks the camera to frame, against what exists: an unknown id (an old machine id, too) is the city. */
+export function resolveFocus(city: CityModel | null, projectId: string | undefined): FocusTarget {
+  return projectId && city?.buildings.some((b) => b.id === projectId) ? { kind: 'building', projectId } : { kind: 'city' };
 }
 
 export function sameFocus(a: FocusTarget, b: FocusTarget): boolean {
-  switch (a.kind) {
-    case 'city':
-      return b.kind === 'city';
-    case 'machine':
-      return b.kind === 'machine' && a.machineId === b.machineId;
-    case 'room':
-      return b.kind === 'room' && a.machineId === b.machineId && a.roomId === b.roomId;
-  }
+  return a.kind === 'city' ? b.kind === 'city' : b.kind === 'building' && a.projectId === b.projectId;
 }

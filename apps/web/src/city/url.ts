@@ -1,14 +1,15 @@
 /**
  * The whole deep-link contract of the public city, in one place and testable on its own:
- * `/city/@nick`, `/city/@nick/<building>` and `?room=<room>` — the city, one building, one room.
- * main.tsx reads the nickname from here before the page mounts; the page reads the rest of it on
- * every move and on Back, and writes it back through `cityPath`.
+ * `/city/@nick` and `/city/@nick/<building>` — the city and one building (a published project). A
+ * `?room=` from the links of the city by machine is not read, and a building id that matches nothing
+ * (one of those old machine ids) falls back to the city on the page. main.tsx reads the nickname from
+ * here before the page mounts; the page reads the rest of it on every move and on Back, and writes
+ * it back through `cityPath`.
  */
 
 /** Where the visitor stands, below the nickname. */
 export interface Rest {
   building: string | null;
-  room: string | null;
 }
 
 /**
@@ -31,14 +32,13 @@ export function nicknameFromPath(pathname: string): string {
   return (segment(parts[1]) ?? '').replace(/^@/, '');
 }
 
-/** The building and the room of `/city/@nick/<building>?room=<room>`. */
-export function restFromUrl(pathname: string, search: string): Rest {
+/** The building of `/city/@nick/<building>`; the query string is not part of the rest. */
+export function restFromUrl(pathname: string): Rest {
   const parts = pathname.split('/').filter(Boolean);
-  return { building: segment(parts[2]), room: new URLSearchParams(search).get('room') };
+  return { building: segment(parts[2]) };
 }
 
 /** The address of a rest, as the page pushes it and as a person shares it. */
 export function cityPath(nickname: string, rest: Rest): string {
-  const query = rest.room ? `?room=${encodeURIComponent(rest.room)}` : '';
-  return `/city/@${encodeURIComponent(nickname)}${rest.building ? `/${encodeURIComponent(rest.building)}` : ''}${query}`;
+  return `/city/@${encodeURIComponent(nickname)}${rest.building ? `/${encodeURIComponent(rest.building)}` : ''}`;
 }

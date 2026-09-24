@@ -22,7 +22,7 @@ import { MachineForm } from './MachineForm';
 const machine = {
   id: 'm1', name: 'mini', subtitle: 'MacBook do escritório', host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: [],
   checked_at: null, agent_version: null, agent_last_seen_at: null, agent_auto_update: false, is_local: false, owner_id: 'u1', owner_name: null,
-  created_at: '', public_id: 'x',
+  created_at: '',
 } as Machine;
 
 afterEach(() => {

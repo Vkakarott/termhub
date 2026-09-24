@@ -88,8 +88,6 @@ export interface Machine {
   /** owner's display name (list/detail convenience for the "all" view) */
   owner_name: string | null;
   created_at: string;
-  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
-  public_id: string;
 }
 
 export interface Project {
@@ -102,8 +100,14 @@ export interface Project {
   name: string;
   status: ProjectStatus;
   description: string | null;
-  /** published: readable by anyone with the /city/@nickname link */
+  /** published: this project is a building on its owner's public city (/city/@nickname) */
   is_public: boolean;
+  /**
+   * The project's building id on its owner's public city (`publicId('project', id)`): one-way, so
+   * carrying it to the person who already reads the real id costs nothing, and the share button
+   * builds the building's link from it. Never part of the public payload (public/city.ts).
+   */
+  public_id: string;
   /** column a card moves to when an agent starts on it; null = automatic (first `doing` column) */
   agent_column_id: string | null;
   last_terminal_at: string | null;
@@ -293,7 +297,6 @@ export const mapMachine = (m: PrismaMachine & { owner?: { name: string } | null 
   owner_id: m.ownerId,
   owner_name: m.owner?.name ?? null,
   created_at: m.createdAt.toISOString(),
-  public_id: publicId('machine', m.id),
 });
 
 export const mapProject = (p: PrismaProject): Project => ({
@@ -305,6 +308,7 @@ export const mapProject = (p: PrismaProject): Project => ({
   status: p.status,
   description: p.description,
   is_public: p.isPublic,
+  public_id: publicId('project', p.id),
   agent_column_id: p.agentColumnId,
   last_terminal_at: iso(p.lastTerminalAt),
   created_at: p.createdAt.toISOString(),

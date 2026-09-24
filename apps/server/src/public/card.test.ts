@@ -8,27 +8,31 @@ import type { PublicCity } from './city.js';
 const city: PublicCity = {
   nickname: 'pedro',
   owner_name: 'Pedro',
+  short_url: null,
   buildings: [
-    { id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [
+    { id: 'b1', name: 'Engage Easy', robots: [
       { id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: null, activity: 'coding', activity_verb: null, alive: true, progress: null },
       { id: 'x2', name: 'aba 2', kind: 'terminal', state: 'waiting_input', state_at: null, activity: null, activity_verb: null, alive: true, progress: null },
-    ] }] },
+    ] },
+    { id: 'b2', name: 'Vazio', robots: [] },
   ],
 };
 
 describe('the link preview card', () => {
-  it('says whose city it is and what is happening in it', () => {
+  it('says whose city it is, how many projects it has and how many agents are working', () => {
     const svg = buildCardSvg(city, {});
     expect(svg).toContain('Pedro');
-    expect(svg).toContain('1 robô trabalhando');
+    expect(svg).toContain('2 projetos · 1 agente trabalhando');
     expect(svg.startsWith('<svg')).toBe(true);
     expect(svg).toContain('width="1200"');
     expect(svg).toContain('height="630"');
   });
 
-  it('names the building or the room when the link points at one', () => {
-    expect(buildCardSvg(city, { building: 'b1' })).toContain('Jarvis');
-    expect(buildCardSvg(city, { building: 'b1', room: 'r1' })).toContain('Engage Easy');
+  it('names the project and counts only its own agents when the link points at a building', () => {
+    expect(buildCardSvg(city, { building: 'b1' })).toContain('Engage Easy — 1 agente trabalhando');
+    // §2.4: a published project with nobody in it right now is still a building with a card
+    expect(buildCardSvg(city, { building: 'b2' })).toContain('Vazio — 0 agentes trabalhando');
+    expect(buildCardSvg(city, { building: 'b1' })).not.toContain('projetos');
   });
 
   it('escapes a name that would otherwise break the drawing', () => {
@@ -38,6 +42,11 @@ describe('the link preview card', () => {
     expect(svg).toContain('&amp;');
     expect(svg).toContain('&lt;');
     expect(svg).toContain('&quot;');
+  });
+
+  // city-by-project §7: a building id of the old scheme (a machine's) is just an id that matches nothing
+  it('falls back to the city card for an id that matches no building, an old machine id included', () => {
+    expect(buildCardSvg(city, { building: 'old-machine-id' })).toContain('2 projetos · 1 agente trabalhando');
   });
 
   it('falls back to null instead of throwing when the rasteriser is missing', async () => {
@@ -54,12 +63,10 @@ describe('the link preview card', () => {
     expect(svg).toContain('Pedro Bell');
   });
 
-  it('resolves an id from the query against the real city, and nothing for one that matches no building or room', () => {
-    expect(resolveFocus(city, { building: 'b1' }).building?.name).toBe('Jarvis');
-    expect(resolveFocus(city, { building: 'b1', room: 'r1' }).room?.name).toBe('Engage Easy');
-    const nothing = resolveFocus(city, { building: 'not-a-real-id' });
-    expect(nothing.building).toBeUndefined();
-    expect(nothing.room).toBeUndefined();
+  it('resolves an id from the query against the real city, and nothing for one that matches no building', () => {
+    expect(resolveFocus(city, { building: 'b1' }).building?.name).toBe('Engage Easy');
+    expect(resolveFocus(city, { building: 'not-a-real-id' }).building).toBeUndefined();
+    expect(resolveFocus(city, {}).building).toBeUndefined();
   });
 
   it('resolves null instead of hanging when the rasteriser never exits', async () => {

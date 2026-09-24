@@ -14,4 +14,9 @@ describe('mapMachine', () => {
     expect(mapMachine(row({ subtitle: 'MacBook do escritório' })).subtitle).toBe('MacBook do escritório');
     expect(mapMachine(row()).subtitle).toBeNull();
   });
+
+  // city-by-project §2.3: nothing on the street is a machine any more, so a machine has no public id
+  it('carries no public id', () => {
+    expect('public_id' in mapMachine(row())).toBe(false);
+  });
 });
