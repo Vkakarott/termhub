@@ -99,14 +99,16 @@ makes open sockets drop the affected robots (they are gone from the street, the 
 
 ```ts
 DeskModel  += machine: { name: string; subtitle: string | null; online: boolean }
-BuildingModel { id: projectId; name; label; lit; notice: 'offline' | 'silent' | 'error' | null; needsYou; progress: OfficeTaskCounts | null; desks: DeskModel[] }
+BuildingModel { id: projectId; name; label; lit; notice: 'offline' | 'silent' | null; needsYou; progress: OfficeTaskCounts | null; desks: DeskModel[] }
 CityModel  { buildings: BuildingModel[]; needsYou }
 FocusTarget = { kind: 'city' } | { kind: 'building'; projectId }
 ```
 
 - `buildCityModel(city: OfficeCity, liveTab)` — one building per project; a desk is `dimmed` when its
   machine is offline or unreachable; `notice`: `'offline'` when every machine of the building's desks
-  is offline, `'silent'` when some tmux probe failed, `'error'` when the read failed.
+  is offline, `'silent'` when some tmux probe failed. A failed read is not a building notice: there is
+  one read for the whole city, so the page says it ("Não foi possível carregar o escritório" before the
+  first read, "Escritório desatualizado: não foi possível atualizar" when a later one fails).
 - `lit` = the building has at least one alive desk or needs you; empty buildings are unlit.
 - `resolveFocus(city, projectId)`; `missingTabIds` compares the city's tab ids with the monitor's for
   the scope's projects.
@@ -116,7 +118,7 @@ FocusTarget = { kind: 'city' } | { kind: 'building'; projectId }
 - Layout: `layoutCity` places one block per building; inside, `layoutFloor` places the desks on one
   floor (no rooms, no room signs). Shape key `b{d:kind}`.
 - `BuildingSign` merges today's machine and room signs: name, "d/t tarefas", needs-you count, and the
-  notice ("offline", "sem resposta", "não foi possível carregar").
+  notice ("offline", "sem resposta").
 - `DeskOverlay` label: the tab name; a second muted line with the machine (`name`, or
   `name · subtitle` when it fits `SUBTITLE_CAP`), hidden on the public city (the city model gives no
   machine).
@@ -128,7 +130,7 @@ FocusTarget = { kind: 'city' } | { kind: 'building'; projectId }
 - `useOfficeCity()` replaces `useOfficeSnapshots`: one `api.office(fresh)` read, refreshed every 60 s,
   on focus/visibility (≥ 10 s apart) and when the monitor names a tab the city lacks.
 - Ladder: building → city → exit focus. Auto-drill into the only project.
-- Trail: `Cidade › <projeto>`. `StatusNotices` per building (from `notice`).
+- Trail: `Cidade › <projeto>`. `StatusNotices` per building (from `notice`; "N máquinas offline", named on hover), plus the page-level "desatualizado" notice when a re-read fails.
 - Share (`shareResultFor(target, userId, nickname, publicCityUrl, shortUrl, projects)`):
   city → short link/base; building → `${base}/${project.public_id}`; `unpublished` when the project
   is not public; `foreign` when its owner is not the viewer. `offstreet` is gone.
