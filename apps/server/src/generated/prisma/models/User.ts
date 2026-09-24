@@ -39,6 +39,8 @@ export type UserMinAggregateOutputType = {
   invitedAt: Date | null
   lastLoginAt: Date | null
   createdAt: Date | null
+  reviewEnabledUntil: Date | null
+  reviewEnabledBy: string | null
 }
 
 export type UserMaxAggregateOutputType = {
@@ -56,6 +58,8 @@ export type UserMaxAggregateOutputType = {
   invitedAt: Date | null
   lastLoginAt: Date | null
   createdAt: Date | null
+  reviewEnabledUntil: Date | null
+  reviewEnabledBy: string | null
 }
 
 export type UserCountAggregateOutputType = {
@@ -73,6 +77,8 @@ export type UserCountAggregateOutputType = {
   invitedAt: number
   lastLoginAt: number
   createdAt: number
+  reviewEnabledUntil: number
+  reviewEnabledBy: number
   _all: number
 }
 
@@ -92,6 +98,8 @@ export type UserMinAggregateInputType = {
   invitedAt?: true
   lastLoginAt?: true
   createdAt?: true
+  reviewEnabledUntil?: true
+  reviewEnabledBy?: true
 }
 
 export type UserMaxAggregateInputType = {
@@ -109,6 +117,8 @@ export type UserMaxAggregateInputType = {
   invitedAt?: true
   lastLoginAt?: true
   createdAt?: true
+  reviewEnabledUntil?: true
+  reviewEnabledBy?: true
 }
 
 export type UserCountAggregateInputType = {
@@ -126,6 +136,8 @@ export type UserCountAggregateInputType = {
   invitedAt?: true
   lastLoginAt?: true
   createdAt?: true
+  reviewEnabledUntil?: true
+  reviewEnabledBy?: true
   _all?: true
 }
 
@@ -216,6 +228,8 @@ export type UserGroupByOutputType = {
   invitedAt: Date | null
   lastLoginAt: Date | null
   createdAt: Date
+  reviewEnabledUntil: Date | null
+  reviewEnabledBy: string | null
   _count: UserCountAggregateOutputType | null
   _min: UserMinAggregateOutputType | null
   _max: UserMaxAggregateOutputType | null
@@ -254,6 +268,8 @@ export type UserWhereInput = {
   invitedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   lastLoginAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
+  reviewEnabledUntil?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
   machines?: Prisma.MachineListRelationFilter
@@ -263,6 +279,9 @@ export type UserWhereInput = {
   apiTokens?: Prisma.ApiTokenListRelationFilter
   chatConversations?: Prisma.ChatConversationListRelationFilter
   projectGroups?: Prisma.ProjectGroupListRelationFilter
+  deviceRequests?: Prisma.DeviceRequestListRelationFilter
+  devices?: Prisma.DeviceListRelationFilter
+  notifications?: Prisma.UserNotificationListRelationFilter
 }
 
 export type UserOrderByWithRelationInput = {
@@ -280,6 +299,8 @@ export type UserOrderByWithRelationInput = {
   invitedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  reviewEnabledUntil?: Prisma.SortOrderInput | Prisma.SortOrder
+  reviewEnabledBy?: Prisma.SortOrderInput | Prisma.SortOrder
   roleRef?: Prisma.RoleOrderByWithRelationInput
   sessions?: Prisma.SessionOrderByRelationAggregateInput
   machines?: Prisma.MachineOrderByRelationAggregateInput
@@ -289,6 +310,9 @@ export type UserOrderByWithRelationInput = {
   apiTokens?: Prisma.ApiTokenOrderByRelationAggregateInput
   chatConversations?: Prisma.ChatConversationOrderByRelationAggregateInput
   projectGroups?: Prisma.ProjectGroupOrderByRelationAggregateInput
+  deviceRequests?: Prisma.DeviceRequestOrderByRelationAggregateInput
+  devices?: Prisma.DeviceOrderByRelationAggregateInput
+  notifications?: Prisma.UserNotificationOrderByRelationAggregateInput
 }
 
 export type UserWhereUniqueInput = Prisma.AtLeast<{
@@ -309,6 +333,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   invitedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   lastLoginAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
+  reviewEnabledUntil?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
   machines?: Prisma.MachineListRelationFilter
@@ -318,6 +344,9 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   apiTokens?: Prisma.ApiTokenListRelationFilter
   chatConversations?: Prisma.ChatConversationListRelationFilter
   projectGroups?: Prisma.ProjectGroupListRelationFilter
+  deviceRequests?: Prisma.DeviceRequestListRelationFilter
+  devices?: Prisma.DeviceListRelationFilter
+  notifications?: Prisma.UserNotificationListRelationFilter
 }, "id" | "email" | "nickname" | "googleId">
 
 export type UserOrderByWithAggregationInput = {
@@ -335,6 +364,8 @@ export type UserOrderByWithAggregationInput = {
   invitedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  reviewEnabledUntil?: Prisma.SortOrderInput | Prisma.SortOrder
+  reviewEnabledBy?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
   _max?: Prisma.UserMaxOrderByAggregateInput
   _min?: Prisma.UserMinOrderByAggregateInput
@@ -358,6 +389,8 @@ export type UserScalarWhereWithAggregatesInput = {
   invitedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   lastLoginAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
+  reviewEnabledUntil?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
+  reviewEnabledBy?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
 }
 
 export type UserCreateInput = {
@@ -374,6 +407,8 @@ export type UserCreateInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -383,6 +418,9 @@ export type UserCreateInput = {
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateInput = {
@@ -400,6 +438,8 @@ export type UserUncheckedCreateInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -408,6 +448,9 @@ export type UserUncheckedCreateInput = {
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserUpdateInput = {
@@ -424,6 +467,8 @@ export type UserUpdateInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -433,6 +478,9 @@ export type UserUpdateInput = {
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateInput = {
@@ -450,6 +498,8 @@ export type UserUncheckedUpdateInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -458,6 +508,9 @@ export type UserUncheckedUpdateInput = {
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateManyInput = {
@@ -475,6 +528,8 @@ export type UserCreateManyInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
 }
 
 export type UserUpdateManyMutationInput = {
@@ -491,6 +546,8 @@ export type UserUpdateManyMutationInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type UserUncheckedUpdateManyInput = {
@@ -508,6 +565,8 @@ export type UserUncheckedUpdateManyInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type UserCountOrderByAggregateInput = {
@@ -525,6 +584,8 @@ export type UserCountOrderByAggregateInput = {
   invitedAt?: Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  reviewEnabledUntil?: Prisma.SortOrder
+  reviewEnabledBy?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -542,6 +603,8 @@ export type UserMaxOrderByAggregateInput = {
   invitedAt?: Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  reviewEnabledUntil?: Prisma.SortOrder
+  reviewEnabledBy?: Prisma.SortOrder
 }
 
 export type UserMinOrderByAggregateInput = {
@@ -559,6 +622,8 @@ export type UserMinOrderByAggregateInput = {
   invitedAt?: Prisma.SortOrder
   lastLoginAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  reviewEnabledUntil?: Prisma.SortOrder
+  reviewEnabledBy?: Prisma.SortOrder
 }
 
 export type UserListRelationFilter = {
@@ -763,6 +828,50 @@ export type UserUpdateOneRequiredWithoutProjectGroupsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutProjectGroupsInput, Prisma.UserUpdateWithoutProjectGroupsInput>, Prisma.UserUncheckedUpdateWithoutProjectGroupsInput>
 }
 
+export type UserCreateNestedOneWithoutDeviceRequestsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutDeviceRequestsInput, Prisma.UserUncheckedCreateWithoutDeviceRequestsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutDeviceRequestsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneWithoutDeviceRequestsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutDeviceRequestsInput, Prisma.UserUncheckedCreateWithoutDeviceRequestsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutDeviceRequestsInput
+  upsert?: Prisma.UserUpsertWithoutDeviceRequestsInput
+  disconnect?: Prisma.UserWhereInput | boolean
+  delete?: Prisma.UserWhereInput | boolean
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutDeviceRequestsInput, Prisma.UserUpdateWithoutDeviceRequestsInput>, Prisma.UserUncheckedUpdateWithoutDeviceRequestsInput>
+}
+
+export type UserCreateNestedOneWithoutDevicesInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutDevicesInput, Prisma.UserUncheckedCreateWithoutDevicesInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutDevicesInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutDevicesNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutDevicesInput, Prisma.UserUncheckedCreateWithoutDevicesInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutDevicesInput
+  upsert?: Prisma.UserUpsertWithoutDevicesInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutDevicesInput, Prisma.UserUpdateWithoutDevicesInput>, Prisma.UserUncheckedUpdateWithoutDevicesInput>
+}
+
+export type UserCreateNestedOneWithoutNotificationsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutNotificationsInput, Prisma.UserUncheckedCreateWithoutNotificationsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutNotificationsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutNotificationsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutNotificationsInput, Prisma.UserUncheckedCreateWithoutNotificationsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutNotificationsInput
+  upsert?: Prisma.UserUpsertWithoutNotificationsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutNotificationsInput, Prisma.UserUpdateWithoutNotificationsInput>, Prisma.UserUncheckedUpdateWithoutNotificationsInput>
+}
+
 export type UserCreateWithoutRoleRefInput = {
   id: string
   email: string
@@ -777,6 +886,8 @@ export type UserCreateWithoutRoleRefInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -785,6 +896,9 @@ export type UserCreateWithoutRoleRefInput = {
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutRoleRefInput = {
@@ -801,6 +915,8 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -809,6 +925,9 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutRoleRefInput = {
@@ -855,6 +974,8 @@ export type UserScalarWhereInput = {
   invitedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   lastLoginAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
+  reviewEnabledUntil?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
 }
 
 export type UserCreateWithoutSessionsInput = {
@@ -871,6 +992,8 @@ export type UserCreateWithoutSessionsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -879,6 +1002,9 @@ export type UserCreateWithoutSessionsInput = {
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutSessionsInput = {
@@ -896,6 +1022,8 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -903,6 +1031,9 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutSessionsInput = {
@@ -935,6 +1066,8 @@ export type UserUpdateWithoutSessionsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -943,6 +1076,9 @@ export type UserUpdateWithoutSessionsInput = {
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutSessionsInput = {
@@ -960,6 +1096,8 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -967,6 +1105,9 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutMachinesInput = {
@@ -983,6 +1124,8 @@ export type UserCreateWithoutMachinesInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -991,6 +1134,9 @@ export type UserCreateWithoutMachinesInput = {
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutMachinesInput = {
@@ -1008,6 +1154,8 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1015,6 +1163,9 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutMachinesInput = {
@@ -1047,6 +1198,8 @@ export type UserUpdateWithoutMachinesInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -1055,6 +1208,9 @@ export type UserUpdateWithoutMachinesInput = {
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutMachinesInput = {
@@ -1072,6 +1228,8 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1079,6 +1237,9 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutProjectsInput = {
@@ -1095,6 +1256,8 @@ export type UserCreateWithoutProjectsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1103,6 +1266,9 @@ export type UserCreateWithoutProjectsInput = {
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutProjectsInput = {
@@ -1120,6 +1286,8 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1127,6 +1295,9 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutProjectsInput = {
@@ -1159,6 +1330,8 @@ export type UserUpdateWithoutProjectsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1167,6 +1340,9 @@ export type UserUpdateWithoutProjectsInput = {
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutProjectsInput = {
@@ -1184,6 +1360,8 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1191,6 +1369,9 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutIntegrationsInput = {
@@ -1207,6 +1388,8 @@ export type UserCreateWithoutIntegrationsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1215,6 +1398,9 @@ export type UserCreateWithoutIntegrationsInput = {
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutIntegrationsInput = {
@@ -1232,6 +1418,8 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1239,6 +1427,9 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutIntegrationsInput = {
@@ -1271,6 +1462,8 @@ export type UserUpdateWithoutIntegrationsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1279,6 +1472,9 @@ export type UserUpdateWithoutIntegrationsInput = {
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutIntegrationsInput = {
@@ -1296,6 +1492,8 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1303,6 +1501,9 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutUploadsInput = {
@@ -1319,6 +1520,8 @@ export type UserCreateWithoutUploadsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1327,6 +1530,9 @@ export type UserCreateWithoutUploadsInput = {
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutUploadsInput = {
@@ -1344,6 +1550,8 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1351,6 +1559,9 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutUploadsInput = {
@@ -1383,6 +1594,8 @@ export type UserUpdateWithoutUploadsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1391,6 +1604,9 @@ export type UserUpdateWithoutUploadsInput = {
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutUploadsInput = {
@@ -1408,6 +1624,8 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1415,6 +1633,9 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutApiTokensInput = {
@@ -1431,6 +1652,8 @@ export type UserCreateWithoutApiTokensInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1439,6 +1662,9 @@ export type UserCreateWithoutApiTokensInput = {
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutApiTokensInput = {
@@ -1456,6 +1682,8 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1463,6 +1691,9 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutApiTokensInput = {
@@ -1495,6 +1726,8 @@ export type UserUpdateWithoutApiTokensInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1503,6 +1736,9 @@ export type UserUpdateWithoutApiTokensInput = {
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutApiTokensInput = {
@@ -1520,6 +1756,8 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1527,6 +1765,9 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutChatConversationsInput = {
@@ -1543,6 +1784,8 @@ export type UserCreateWithoutChatConversationsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1551,6 +1794,9 @@ export type UserCreateWithoutChatConversationsInput = {
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutChatConversationsInput = {
@@ -1568,6 +1814,8 @@ export type UserUncheckedCreateWithoutChatConversationsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1575,6 +1823,9 @@ export type UserUncheckedCreateWithoutChatConversationsInput = {
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutChatConversationsInput = {
@@ -1607,6 +1858,8 @@ export type UserUpdateWithoutChatConversationsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1615,6 +1868,9 @@ export type UserUpdateWithoutChatConversationsInput = {
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutChatConversationsInput = {
@@ -1632,6 +1888,8 @@ export type UserUncheckedUpdateWithoutChatConversationsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1639,6 +1897,9 @@ export type UserUncheckedUpdateWithoutChatConversationsInput = {
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutProjectGroupsInput = {
@@ -1655,6 +1916,8 @@ export type UserCreateWithoutProjectGroupsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1663,6 +1926,9 @@ export type UserCreateWithoutProjectGroupsInput = {
   uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutProjectGroupsInput = {
@@ -1680,6 +1946,8 @@ export type UserUncheckedCreateWithoutProjectGroupsInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1687,6 +1955,9 @@ export type UserUncheckedCreateWithoutProjectGroupsInput = {
   uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
   chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutProjectGroupsInput = {
@@ -1719,6 +1990,8 @@ export type UserUpdateWithoutProjectGroupsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1727,6 +2000,9 @@ export type UserUpdateWithoutProjectGroupsInput = {
   uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutProjectGroupsInput = {
@@ -1744,6 +2020,8 @@ export type UserUncheckedUpdateWithoutProjectGroupsInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1751,6 +2029,405 @@ export type UserUncheckedUpdateWithoutProjectGroupsInput = {
   uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutDeviceRequestsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutDeviceRequestsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutDeviceRequestsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutDeviceRequestsInput, Prisma.UserUncheckedCreateWithoutDeviceRequestsInput>
+}
+
+export type UserUpsertWithoutDeviceRequestsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutDeviceRequestsInput, Prisma.UserUncheckedUpdateWithoutDeviceRequestsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutDeviceRequestsInput, Prisma.UserUncheckedCreateWithoutDeviceRequestsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutDeviceRequestsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutDeviceRequestsInput, Prisma.UserUncheckedUpdateWithoutDeviceRequestsInput>
+}
+
+export type UserUpdateWithoutDeviceRequestsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutDeviceRequestsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutDevicesInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutDevicesInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutDevicesInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutDevicesInput, Prisma.UserUncheckedCreateWithoutDevicesInput>
+}
+
+export type UserUpsertWithoutDevicesInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutDevicesInput, Prisma.UserUncheckedUpdateWithoutDevicesInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutDevicesInput, Prisma.UserUncheckedCreateWithoutDevicesInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutDevicesInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutDevicesInput, Prisma.UserUncheckedUpdateWithoutDevicesInput>
+}
+
+export type UserUpdateWithoutDevicesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutDevicesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutNotificationsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutNotificationsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutNotificationsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutNotificationsInput, Prisma.UserUncheckedCreateWithoutNotificationsInput>
+}
+
+export type UserUpsertWithoutNotificationsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutNotificationsInput, Prisma.UserUncheckedUpdateWithoutNotificationsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutNotificationsInput, Prisma.UserUncheckedCreateWithoutNotificationsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutNotificationsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutNotificationsInput, Prisma.UserUncheckedUpdateWithoutNotificationsInput>
+}
+
+export type UserUpdateWithoutNotificationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutNotificationsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateManyRoleRefInput = {
@@ -1767,6 +2444,8 @@ export type UserCreateManyRoleRefInput = {
   invitedAt?: Date | string | null
   lastLoginAt?: Date | string | null
   createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
 }
 
 export type UserUpdateWithoutRoleRefInput = {
@@ -1783,6 +2462,8 @@ export type UserUpdateWithoutRoleRefInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -1791,6 +2472,9 @@ export type UserUpdateWithoutRoleRefInput = {
   apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutRoleRefInput = {
@@ -1807,6 +2491,8 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1815,6 +2501,9 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
   chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
   projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateManyWithoutRoleRefInput = {
@@ -1831,6 +2520,8 @@ export type UserUncheckedUpdateManyWithoutRoleRefInput = {
   invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 
@@ -1847,6 +2538,9 @@ export type UserCountOutputType = {
   apiTokens: number
   chatConversations: number
   projectGroups: number
+  deviceRequests: number
+  devices: number
+  notifications: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1858,6 +2552,9 @@ export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.I
   apiTokens?: boolean | UserCountOutputTypeCountApiTokensArgs
   chatConversations?: boolean | UserCountOutputTypeCountChatConversationsArgs
   projectGroups?: boolean | UserCountOutputTypeCountProjectGroupsArgs
+  deviceRequests?: boolean | UserCountOutputTypeCountDeviceRequestsArgs
+  devices?: boolean | UserCountOutputTypeCountDevicesArgs
+  notifications?: boolean | UserCountOutputTypeCountNotificationsArgs
 }
 
 /**
@@ -1926,6 +2623,27 @@ export type UserCountOutputTypeCountProjectGroupsArgs<ExtArgs extends runtime.Ty
   where?: Prisma.ProjectGroupWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountDeviceRequestsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.DeviceRequestWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountDevicesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.DeviceWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountNotificationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.UserNotificationWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1942,6 +2660,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   invitedAt?: boolean
   lastLoginAt?: boolean
   createdAt?: boolean
+  reviewEnabledUntil?: boolean
+  reviewEnabledBy?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
   machines?: boolean | Prisma.User$machinesArgs<ExtArgs>
@@ -1951,6 +2671,9 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   apiTokens?: boolean | Prisma.User$apiTokensArgs<ExtArgs>
   chatConversations?: boolean | Prisma.User$chatConversationsArgs<ExtArgs>
   projectGroups?: boolean | Prisma.User$projectGroupsArgs<ExtArgs>
+  deviceRequests?: boolean | Prisma.User$deviceRequestsArgs<ExtArgs>
+  devices?: boolean | Prisma.User$devicesArgs<ExtArgs>
+  notifications?: boolean | Prisma.User$notificationsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -1969,6 +2692,8 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   invitedAt?: boolean
   lastLoginAt?: boolean
   createdAt?: boolean
+  reviewEnabledUntil?: boolean
+  reviewEnabledBy?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -1987,6 +2712,8 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   invitedAt?: boolean
   lastLoginAt?: boolean
   createdAt?: boolean
+  reviewEnabledUntil?: boolean
+  reviewEnabledBy?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -2005,9 +2732,11 @@ export type UserSelectScalar = {
   invitedAt?: boolean
   lastLoginAt?: boolean
   createdAt?: boolean
+  reviewEnabledUntil?: boolean
+  reviewEnabledBy?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "cityShortUrlPartner" | "cityShortUrlCustom" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "cityShortUrlPartner" | "cityShortUrlCustom" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt" | "reviewEnabledUntil" | "reviewEnabledBy", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -2018,6 +2747,9 @@ export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   apiTokens?: boolean | Prisma.User$apiTokensArgs<ExtArgs>
   chatConversations?: boolean | Prisma.User$chatConversationsArgs<ExtArgs>
   projectGroups?: boolean | Prisma.User$projectGroupsArgs<ExtArgs>
+  deviceRequests?: boolean | Prisma.User$deviceRequestsArgs<ExtArgs>
+  devices?: boolean | Prisma.User$devicesArgs<ExtArgs>
+  notifications?: boolean | Prisma.User$notificationsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type UserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -2039,6 +2771,9 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     apiTokens: Prisma.$ApiTokenPayload<ExtArgs>[]
     chatConversations: Prisma.$ChatConversationPayload<ExtArgs>[]
     projectGroups: Prisma.$ProjectGroupPayload<ExtArgs>[]
+    deviceRequests: Prisma.$DeviceRequestPayload<ExtArgs>[]
+    devices: Prisma.$DevicePayload<ExtArgs>[]
+    notifications: Prisma.$UserNotificationPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -2073,6 +2808,11 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
      */
     lastLoginAt: Date | null
     createdAt: Date
+    /**
+     * Store-review switch (spec §10.2): a device request for this e-mail auto-approves while this is in the future.
+     */
+    reviewEnabledUntil: Date | null
+    reviewEnabledBy: string | null
   }, ExtArgs["result"]["user"]>
   composites: {}
 }
@@ -2476,6 +3216,9 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   apiTokens<T extends Prisma.User$apiTokensArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$apiTokensArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ApiTokenPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatConversations<T extends Prisma.User$chatConversationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$chatConversationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatConversationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   projectGroups<T extends Prisma.User$projectGroupsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$projectGroupsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProjectGroupPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  deviceRequests<T extends Prisma.User$deviceRequestsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$deviceRequestsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DeviceRequestPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  devices<T extends Prisma.User$devicesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$devicesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DevicePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  notifications<T extends Prisma.User$notificationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$notificationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$UserNotificationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2519,6 +3262,8 @@ export interface UserFieldRefs {
   readonly invitedAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly lastLoginAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
+  readonly reviewEnabledUntil: Prisma.FieldRef<"User", 'DateTime'>
+  readonly reviewEnabledBy: Prisma.FieldRef<"User", 'String'>
 }
     
 
@@ -3128,6 +3873,78 @@ export type User$projectGroupsArgs<ExtArgs extends runtime.Types.Extensions.Inte
   take?: number
   skip?: number
   distinct?: Prisma.ProjectGroupScalarFieldEnum | Prisma.ProjectGroupScalarFieldEnum[]
+}
+
+/**
+ * User.deviceRequests
+ */
+export type User$deviceRequestsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the DeviceRequest
+   */
+  select?: Prisma.DeviceRequestSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the DeviceRequest
+   */
+  omit?: Prisma.DeviceRequestOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DeviceRequestInclude<ExtArgs> | null
+  where?: Prisma.DeviceRequestWhereInput
+  orderBy?: Prisma.DeviceRequestOrderByWithRelationInput | Prisma.DeviceRequestOrderByWithRelationInput[]
+  cursor?: Prisma.DeviceRequestWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.DeviceRequestScalarFieldEnum | Prisma.DeviceRequestScalarFieldEnum[]
+}
+
+/**
+ * User.devices
+ */
+export type User$devicesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Device
+   */
+  select?: Prisma.DeviceSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Device
+   */
+  omit?: Prisma.DeviceOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DeviceInclude<ExtArgs> | null
+  where?: Prisma.DeviceWhereInput
+  orderBy?: Prisma.DeviceOrderByWithRelationInput | Prisma.DeviceOrderByWithRelationInput[]
+  cursor?: Prisma.DeviceWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.DeviceScalarFieldEnum | Prisma.DeviceScalarFieldEnum[]
+}
+
+/**
+ * User.notifications
+ */
+export type User$notificationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the UserNotification
+   */
+  select?: Prisma.UserNotificationSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the UserNotification
+   */
+  omit?: Prisma.UserNotificationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.UserNotificationInclude<ExtArgs> | null
+  where?: Prisma.UserNotificationWhereInput
+  orderBy?: Prisma.UserNotificationOrderByWithRelationInput | Prisma.UserNotificationOrderByWithRelationInput[]
+  cursor?: Prisma.UserNotificationWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.UserNotificationScalarFieldEnum | Prisma.UserNotificationScalarFieldEnum[]
 }
 
 /**

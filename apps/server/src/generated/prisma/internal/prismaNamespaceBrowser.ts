@@ -78,7 +78,13 @@ export const ModelName = {
   ChatAction: 'ChatAction',
   InstanceSecret: 'InstanceSecret',
   ProjectGroup: 'ProjectGroup',
-  ProjectGroupItem: 'ProjectGroupItem'
+  ProjectGroupItem: 'ProjectGroupItem',
+  DeviceRequest: 'DeviceRequest',
+  Device: 'Device',
+  DeviceToken: 'DeviceToken',
+  DeviceChallenge: 'DeviceChallenge',
+  DeviceEvent: 'DeviceEvent',
+  UserNotification: 'UserNotification'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -111,7 +117,9 @@ export const UserScalarFieldEnum = {
   roleId: 'roleId',
   invitedAt: 'invitedAt',
   lastLoginAt: 'lastLoginAt',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  reviewEnabledUntil: 'reviewEnabledUntil',
+  reviewEnabledBy: 'reviewEnabledBy'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
@@ -509,6 +517,114 @@ export const ProjectGroupItemScalarFieldEnum = {
 } as const
 
 export type ProjectGroupItemScalarFieldEnum = (typeof ProjectGroupItemScalarFieldEnum)[keyof typeof ProjectGroupItemScalarFieldEnum]
+
+
+export const DeviceRequestScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  emailHash: 'emailHash',
+  publicKey: 'publicKey',
+  keyThumbprint: 'keyThumbprint',
+  platform: 'platform',
+  model: 'model',
+  osVersion: 'osVersion',
+  deviceName: 'deviceName',
+  appVersion: 'appVersion',
+  verificationCode: 'verificationCode',
+  requestSecretHash: 'requestSecretHash',
+  status: 'status',
+  ip: 'ip',
+  country: 'country',
+  city: 'city',
+  createdAt: 'createdAt',
+  expiresAt: 'expiresAt',
+  decidedAt: 'decidedAt',
+  activateUntil: 'activateUntil'
+} as const
+
+export type DeviceRequestScalarFieldEnum = (typeof DeviceRequestScalarFieldEnum)[keyof typeof DeviceRequestScalarFieldEnum]
+
+
+export const DeviceScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  name: 'name',
+  platform: 'platform',
+  model: 'model',
+  osVersion: 'osVersion',
+  appVersion: 'appVersion',
+  publicKey: 'publicKey',
+  keyThumbprint: 'keyThumbprint',
+  pinSecretEnc: 'pinSecretEnc',
+  pinFailures: 'pinFailures',
+  pinLockedUntil: 'pinLockedUntil',
+  status: 'status',
+  revokedAt: 'revokedAt',
+  revokedReason: 'revokedReason',
+  pushToken: 'pushToken',
+  lastSeenAt: 'lastSeenAt',
+  lastIp: 'lastIp',
+  requestId: 'requestId',
+  createdAt: 'createdAt'
+} as const
+
+export type DeviceScalarFieldEnum = (typeof DeviceScalarFieldEnum)[keyof typeof DeviceScalarFieldEnum]
+
+
+export const DeviceTokenScalarFieldEnum = {
+  id: 'id',
+  deviceId: 'deviceId',
+  tokenHash: 'tokenHash',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt',
+  lastUsedAt: 'lastUsedAt'
+} as const
+
+export type DeviceTokenScalarFieldEnum = (typeof DeviceTokenScalarFieldEnum)[keyof typeof DeviceTokenScalarFieldEnum]
+
+
+export const DeviceChallengeScalarFieldEnum = {
+  id: 'id',
+  deviceId: 'deviceId',
+  challengeHash: 'challengeHash',
+  purpose: 'purpose',
+  actionId: 'actionId',
+  expiresAt: 'expiresAt',
+  usedAt: 'usedAt'
+} as const
+
+export type DeviceChallengeScalarFieldEnum = (typeof DeviceChallengeScalarFieldEnum)[keyof typeof DeviceChallengeScalarFieldEnum]
+
+
+export const DeviceEventScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  deviceId: 'deviceId',
+  requestId: 'requestId',
+  kind: 'kind',
+  actor: 'actor',
+  ip: 'ip',
+  country: 'country',
+  city: 'city',
+  meta: 'meta',
+  createdAt: 'createdAt'
+} as const
+
+export type DeviceEventScalarFieldEnum = (typeof DeviceEventScalarFieldEnum)[keyof typeof DeviceEventScalarFieldEnum]
+
+
+export const UserNotificationScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  kind: 'kind',
+  title: 'title',
+  body: 'body',
+  data: 'data',
+  createdAt: 'createdAt',
+  readAt: 'readAt'
+} as const
+
+export type UserNotificationScalarFieldEnum = (typeof UserNotificationScalarFieldEnum)[keyof typeof UserNotificationScalarFieldEnum]
 
 
 export const SortOrder = {
