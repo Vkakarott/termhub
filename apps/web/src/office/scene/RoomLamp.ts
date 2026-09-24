@@ -4,8 +4,9 @@
  */
 import { Container, Graphics } from 'pixi.js';
 import type { PlacedFloor } from '../layout/floor';
-import { depthOf, toScreen } from '../layout/iso';
+import { toScreen } from '../layout/iso';
 import { WALL_H } from './RoomView';
+import { localOf, quad, type Local } from './wallQuad';
 
 const METAL = 0x4a5366;
 const METAL_DIM = 0x2a3140;
@@ -30,25 +31,10 @@ export function lampPose(floor: PlacedFloor): LampPose {
   return { gx, gy: oy + 0.04, z: WALL_H * 0.52 };
 }
 
-type Local = (gx: number, gy: number, z: number) => { x: number; y: number };
-
-function localOf(pose: LampPose): Local {
-  const origin = toScreen(pose.gx, pose.gy, 0);
-  return (gx, gy, z) => {
-    const p = toScreen(gx, gy, z);
-    return { x: p.x - origin.x, y: p.y - origin.y };
-  };
-}
-
-function quad(g: Graphics, loc: Local, pts: Array<[number, number, number]>, color: number, alpha: number): void {
-  const a = loc(...pts[0]!);
-  const b = loc(...pts[1]!);
-  const c = loc(...pts[2]!);
-  const d = loc(...pts[3]!);
-  g.poly([a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y]).fill({ color, alpha });
-}
-
-/** Built-in wall lantern. `apply(false)` keeps the fixture, kills the wash. */
+/**
+ * Built-in wall lantern. `apply(false)` keeps the fixture, kills the wash. Painted with the walls,
+ * under the depth-sorted things: the wash lands behind the furniture and the desks, never on them.
+ */
 export class RoomLamp {
   readonly root = new Container();
   private readonly wash = new Graphics();
@@ -70,7 +56,10 @@ export class RoomLamp {
     this.pose = lampPose(floor);
     const at = toScreen(this.pose.gx, this.pose.gy, 0);
     this.root.position.set(at.x, at.y);
-    this.root.zIndex = depthOf({ gx: this.pose.gx, gy: this.pose.gy }) - 0.15;
+  }
+
+  private local(): Local {
+    return localOf(toScreen(this.pose.gx, this.pose.gy, 0));
   }
 
   apply(lit: boolean): void {
@@ -83,7 +72,7 @@ export class RoomLamp {
     this.wash.clear();
     this.wash.visible = this.lit;
     if (!this.lit) return;
-    const loc = localOf(this.pose);
+    const loc = this.local();
     this.paintWallWash(loc);
     this.paintFloorWash(loc);
   }
@@ -170,7 +159,7 @@ export class RoomLamp {
 
   private paintFixture(): void {
     this.fixture.clear();
-    const loc = localOf(this.pose);
+    const loc = this.local();
     this.paintMount(loc);
     this.paintLantern(loc);
   }

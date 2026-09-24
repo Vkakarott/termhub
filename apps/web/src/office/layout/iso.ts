@@ -41,7 +41,8 @@ export interface RoomLayout {
  * Lays out `count` desks in rows with a one-tile aisle around each, in a room a bit wider than
  * deep. The room grows with the count, so nothing here is hand-placed. A single desk sits near
  * the bay centre so the station reads as centred in a 1-terminal office.
- * After sizing, grows one tile on the shorter side and recentres the desk block in that space.
+ * After sizing, grows one tile on the shorter side and moves the desks a whole tile off that back
+ * wall, which leaves a strip for the wall furniture.
  */
 export function layoutRoom(count: number): RoomLayout {
   const n = Math.max(0, count);
@@ -57,30 +58,17 @@ export function layoutRoom(count: number): RoomLayout {
 }
 
 /**
- * +1 tile on the shorter axis (height when tied), recentre the desk block, then nudge
- * half a tile on the *other* axis (away from the longer wall).
+ * +1 tile on the shorter axis (height when tied). On that axis the desks move a whole tile away
+ * from the back wall — the strip the wall furniture stands in — and on the other half a tile, off
+ * the longer wall.
  */
 function growMinSide(layout: RoomLayout): RoomLayout {
-  const baseW = layout.width;
-  const baseH = layout.height;
-  let width = baseW;
-  let height = baseH;
-  let grown: 'x' | 'y' = 'y';
-  if (height < width) {
-    height += 1;
-    grown = 'y';
-  } else if (width < height) {
-    width += 1;
-    grown = 'x';
-  } else {
-    height += 1;
-    grown = 'y';
-  }
-  const ox = Math.round((width - baseW) / 2) + (grown === 'y' ? 0.5 : 0);
-  const oy = Math.round((height - baseH) / 2) + (grown === 'x' ? 0.5 : 0);
+  const growX = layout.width < layout.height;
+  const ox = growX ? 1 : 0.5;
+  const oy = growX ? 0.5 : 1;
   return {
-    width,
-    height,
+    width: layout.width + (growX ? 1 : 0),
+    height: layout.height + (growX ? 0 : 1),
     desks: layout.desks.map((d) => ({ gx: d.gx + ox, gy: d.gy + oy })),
   };
 }

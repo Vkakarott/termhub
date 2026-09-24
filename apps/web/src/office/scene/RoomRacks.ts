@@ -6,20 +6,20 @@
 import { Sprite, type Texture } from 'pixi.js';
 import type { PlacedFloor } from '../layout/floor';
 import { depthOf, toScreen } from '../layout/iso';
+import { fnv1a } from '../model';
 import { ART_CANVAS, DESK_ART_SIZE, RACK_ART, sheetToTiles, type RackKey } from '../pack/art';
 import { lampPose } from './RoomLamp';
 import { wallPlaquePose } from './wallPlaque';
 
 /** Clearance between a piece and the wall, the corner, or its neighbour (tiles). */
-const GAP = 0.1;
+export const GAP = 0.1;
 /** Half the lamp's width on the wall plus clearance, so no piece hides it (tiles). */
 const LAMP_CLEAR = 0.25;
 const UNLIT_TINT = 0x8890a0;
 
-/** FNV-1a over the id, then a small LCG: stable pseudo-random numbers per building. */
+/** The id's hash, then a small LCG: stable pseudo-random numbers per building. */
 function seeded(id: string): () => number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0;
+  let h = fnv1a(id);
   return () => {
     h = (Math.imul(h, 1664525) + 1013904223) >>> 0;
     return h / 0x100000000;
@@ -64,8 +64,7 @@ function footprint(key: RackKey): { w: number; d: number } {
 }
 
 /** Free runs of the back wall: corner → lamp, lamp → plaque. */
-function backWallSpans(floor: PlacedFloor): Span[] {
-  const lamp = lampPose(floor).gx;
+function backWallSpans(floor: PlacedFloor, lamp: number): Span[] {
   const plaque = wallPlaquePose(floor);
   return [
     { from: floor.origin.gx + GAP, to: lamp - LAMP_CLEAR },
@@ -86,21 +85,24 @@ function takeFrom(spans: Span[], length: number): number | null {
 
 /**
  * Back pieces run along the back wall between the corner, the lamp and the plaque; side pieces run
- * down the left wall, starting past the deepest back piece so the two never meet in the corner.
- * A piece with no floor left is dropped rather than drawn over the lamp, the plaque or a neighbour.
+ * down the left wall, starting past the back piece standing in the corner so the two never meet
+ * there. A piece with no floor left is dropped rather than drawn over the lamp, the plaque or a
+ * neighbour.
  */
 export function placeRacks(floor: PlacedFloor, keys: RackKey[]): RackPose[] {
   const { gx: ox, gy: oy } = floor.origin;
   const back = keys.filter((k) => RACK_ART[k].wall === 'back');
   const side = keys.filter((k) => RACK_ART[k].wall === 'side');
   const poses: RackPose[] = [];
-  const spans = backWallSpans(floor);
+  const lamp = lampPose(floor).gx;
+  const spans = backWallSpans(floor, lamp);
   for (const key of back) {
     const { w, d } = footprint(key);
     const at = takeFrom(spans, w);
     if (at !== null) poses.push({ key, gx: at, gy: oy + GAP / 2, w, d });
   }
-  const cornerDepth = Math.max(0, ...poses.map((p) => p.d));
+  // only a piece in the corner run (before the lamp) can meet a side piece; one past the lamp cannot
+  const cornerDepth = Math.max(0, ...poses.filter((p) => p.gx < lamp).map((p) => p.d));
   const sideSpans = [{ from: oy + (cornerDepth ? cornerDepth + GAP : GAP), to: oy + floor.layout.height - GAP }];
   for (const key of side) {
     const { w, d } = footprint(key);
@@ -110,7 +112,7 @@ export function placeRacks(floor: PlacedFloor, keys: RackKey[]): RackPose[] {
   return poses;
 }
 
-function rackSprite(pose: RackPose, texture: Texture, minZ: number): Sprite {
+function rackSprite(pose: RackPose, texture: Texture): Sprite {
   const art = RACK_ART[pose.key];
   const s = new Sprite(texture);
   s.anchor.set(art.foot.x / ART_CANVAS, art.foot.y / ART_CANVAS);
@@ -118,20 +120,17 @@ function rackSprite(pose: RackPose, texture: Texture, minZ: number): Sprite {
   s.scale.set(scale, scale);
   const foot = toScreen(pose.gx + pose.w, pose.gy + pose.d);
   s.position.set(foot.x, foot.y);
-  s.zIndex = Math.max(minZ, depthOf({ gx: pose.gx + pose.w / 2, gy: pose.gy + pose.d / 2 }));
+  s.zIndex = depthOf({ gx: pose.gx + pose.w / 2, gy: pose.gy + pose.d / 2 });
   return s;
 }
 
-/**
- * The wall pieces of one floor. Sprites sit straight in the depth-sorted layer, like the desks, but
- * never below `minZ`: the lamp's wash is painted on the wall behind them, not over them.
- */
+/** The wall pieces of one floor. Sprites sit straight in the depth-sorted layer, like the desks. */
 export class RoomRacks {
   readonly sprites: Sprite[];
 
-  constructor(buildingId: string, floor: PlacedFloor, terminals: number, art: Record<string, Texture>, lit: boolean, minZ = -Infinity) {
+  constructor(buildingId: string, floor: PlacedFloor, terminals: number, art: Record<string, Texture>, lit: boolean) {
     const poses = placeRacks(floor, pickRacks(buildingId, terminals));
-    this.sprites = poses.filter((p) => art[p.key]).map((p) => rackSprite(p, art[p.key]!, minZ));
+    this.sprites = poses.filter((p) => art[p.key]).map((p) => rackSprite(p, art[p.key]!));
     for (const s of this.sprites) s.eventMode = 'none';
     this.apply(lit);
   }

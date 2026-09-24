@@ -3,6 +3,7 @@ import { Graphics } from 'pixi.js';
 import { BLOCK_MARGIN, type PlacedBlock } from '../layout/city';
 import type { PlacedFloor } from '../layout/floor';
 import { toScreen } from '../layout/iso';
+import { quad, world } from './wallQuad';
 
 /** Office walls: high enough to read as a building, low enough not to hide the block behind. */
 export const WALL_H = 56;
@@ -135,20 +136,12 @@ export function drawBlock(block: PlacedBlock, lit: boolean, into?: Graphics): Gr
 
 /** Vertical face from floor to WALL_H between two floor points. */
 function wallFace(g: Graphics, ax: number, ay: number, bx: number, by: number, color: number): void {
-  const a0 = toScreen(ax, ay, 0);
-  const b0 = toScreen(bx, by, 0);
-  const b1 = toScreen(bx, by, WALL_H);
-  const a1 = toScreen(ax, ay, WALL_H);
-  g.poly([a0.x, a0.y, b0.x, b0.y, b1.x, b1.y, a1.x, a1.y]).fill(color);
+  quad(g, world, [[ax, ay, 0], [bx, by, 0], [bx, by, WALL_H], [ax, ay, WALL_H]], color);
 }
 
 /** Top cap of a thick wall between the outer and inner edges. */
 function wallTop(g: Graphics, ix0: number, iy0: number, ix1: number, iy1: number, ox0: number, oy0: number, ox1: number, oy1: number, color: number): void {
-  const a = toScreen(ox0, oy0, WALL_H);
-  const b = toScreen(ox1, oy1, WALL_H);
-  const c = toScreen(ix1, iy1, WALL_H);
-  const d = toScreen(ix0, iy0, WALL_H);
-  g.poly([a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y]).fill(color);
+  quad(g, world, [[ox0, oy0, WALL_H], [ox1, oy1, WALL_H], [ix1, iy1, WALL_H], [ix0, iy0, WALL_H]], color);
 }
 
 /**
@@ -181,11 +174,7 @@ function paintWallCorner(g: Graphics, ox: number, oy: number, c: FloorColors): v
   const t = WALL_THICK;
   wallFace(g, ox - t, oy - t, ox, oy - t, c.wallROuter);
   wallFace(g, ox - t, oy - t, ox - t, oy, c.wallLOuter);
-  const a = toScreen(ox - t, oy - t, WALL_H);
-  const b = toScreen(ox, oy - t, WALL_H);
-  const d = toScreen(ox, oy, WALL_H);
-  const e = toScreen(ox - t, oy, WALL_H);
-  g.poly([a.x, a.y, b.x, b.y, d.x, d.y, e.x, e.y]).fill(c.wallTop);
+  quad(g, world, [[ox - t, oy - t, WALL_H], [ox, oy - t, WALL_H], [ox, oy, WALL_H], [ox - t, oy, WALL_H]], c.wallTop);
 }
 
 function paintWalls(g: Graphics, ox: number, oy: number, width: number, height: number, c: FloorColors): void {

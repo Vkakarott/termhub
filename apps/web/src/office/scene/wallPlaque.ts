@@ -7,6 +7,7 @@ import type { PlacedFloor } from '../layout/floor';
 import { depthOf, TILE_H, TILE_W, toScreen, type Point } from '../layout/iso';
 import { ID } from './identity';
 import { WALL_H } from './RoomView';
+import { localOf, quad, type Local } from './wallQuad';
 
 /** Iso shear of the right back wall — baselines follow the wall, stems stay upright. */
 export const WALL_SKEW = Math.atan(TILE_H / TILE_W);
@@ -34,22 +35,9 @@ export function wallPlaquePose(floor: PlacedFloor): WallPlaquePose {
   return { cx, gy, halfW, z0: mid - halfH, z1: mid + halfH, center: toScreen(cx, gy, mid) };
 }
 
-type Local = (gx: number, z: number) => { x: number; y: number };
-
-function localOf(pose: WallPlaquePose): Local {
-  const { gy, center } = pose;
-  return (gx, z) => {
-    const p = toScreen(gx, gy, z);
-    return { x: p.x - center.x, y: p.y - center.y };
-  };
-}
-
-function quad(g: Graphics, local: Local, x0: number, x1: number, z0: number, z1: number, color: number, alpha = 1): void {
-  const a = local(x0, z0);
-  const b = local(x1, z0);
-  const c = local(x1, z1);
-  const d = local(x0, z1);
-  g.poly([a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y]).fill({ color, alpha });
+/** A rectangle on the back wall (`gy` fixed) from `x0` to `x1` and from `z0` up to `z1`. */
+function wallRect(g: Graphics, local: Local, gy: number, x0: number, x1: number, z0: number, z1: number, color: number, alpha = 1): void {
+  quad(g, local, [[x0, gy, z0], [x1, gy, z0], [x1, gy, z1], [x0, gy, z1]], color, alpha);
 }
 
 export function plaqueScreenSize(pose: WallPlaquePose): { w: number; h: number } {
@@ -94,33 +82,33 @@ export class RoomWallPlaque {
   }
 
   private paintFrame(pose: WallPlaquePose, lit: boolean): Inset {
-    const { cx, halfW, z0, z1 } = pose;
-    const local = localOf(pose);
+    const { cx, gy, halfW, z0, z1 } = pose;
+    const local = localOf(pose.center);
+    const rect = (x0: number, x1: number, zLo: number, zHi: number, color: number, alpha = 1) => wallRect(this.plate, local, gy, x0, x1, zLo, zHi, color, alpha);
     const h = z1 - z0;
     // card colours: dark face, line moulding, soft depth
     const moulding = lit ? ID.lineBright : ID.line;
     const well = lit ? 0x0c0e14 : 0x080a10;
     const face = lit ? 0x161920 : 0x12151c;
     this.plate.clear();
-    quad(this.plate, local, cx - halfW + 0.05, cx + halfW + 0.09, z0 - 2, z1 - 2, 0x000000, 0.32);
+    rect(cx - halfW + 0.05, cx + halfW + 0.09, z0 - 2, z1 - 2, 0x000000, 0.32);
     // outer frame
-    quad(this.plate, local, cx - halfW, cx + halfW, z0, z1, moulding);
+    rect(cx - halfW, cx + halfW, z0, z1, moulding);
     // top highlight / bottom shade on the frame
-    quad(this.plate, local, cx - halfW, cx + halfW, z1 - h * 0.08, z1, lit ? 0x4a5368 : 0x2a3140);
-    quad(this.plate, local, cx - halfW, cx + halfW, z0, z0 + h * 0.08, lit ? 0x1a1e28 : 0x10141a);
+    rect(cx - halfW, cx + halfW, z1 - h * 0.08, z1, lit ? 0x4a5368 : 0x2a3140);
+    rect(cx - halfW, cx + halfW, z0, z0 + h * 0.08, lit ? 0x1a1e28 : 0x10141a);
     // recessed well + inner face (even padding)
     const g1 = halfW * 0.1;
     const z1i = h * 0.12;
-    quad(this.plate, local, cx - halfW + g1, cx + halfW - g1, z0 + z1i, z1 - z1i, well);
+    rect(cx - halfW + g1, cx + halfW - g1, z0 + z1i, z1 - z1i, well);
     const gx = halfW * 0.16;
     const z = h * 0.2;
-    quad(this.plate, local, cx - halfW + gx, cx + halfW - gx, z0 + z, z1 - z, face);
+    rect(cx - halfW + gx, cx + halfW - gx, z0 + z, z1 - z, face);
     return { gx, z };
   }
 
   private fitLabel(text: string, lit: boolean, pose: WallPlaquePose, inset: Inset): void {
-    const local = localOf(pose);
-    const mid = local(pose.cx, (pose.z0 + pose.z1) / 2);
+    const mid = localOf(pose.center)(pose.cx, pose.gy, (pose.z0 + pose.z1) / 2);
     this.label.text = text;
     this.label.style.fill = lit ? ID.fg : ID.dim;
     this.label.alpha = lit ? 1 : 0.55;

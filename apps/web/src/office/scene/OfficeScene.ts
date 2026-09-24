@@ -38,6 +38,8 @@ interface DrawnBuilding {
   sign: BuildingSign;
   /** the project's name, framed on the back wall */
   plaque: RoomWallPlaque;
+  /** the name the plaque shows, so a tick that changed nothing does not repaint it */
+  label: string;
   /** wall lamp: on = warm wash, off = the same fixture, dark */
   lamp: RoomLamp;
   /** shelves, cabinets and the server rack against the back walls */
@@ -104,6 +106,8 @@ export class OfficeScene {
     if (this.app || this.mounting || this.destroyed) return;
     this.mounting = true;
     const app = new Application();
+    // the art sheets download and decode while Pixi picks its renderer, not after it
+    const art = this.loadArt();
     try {
       await app.init({ resizeTo: host, background: 0x0f1115, antialias: false, autoDensity: true, resolution: window.devicePixelRatio || 1 });
     } catch (err) {
@@ -113,7 +117,10 @@ export class OfficeScene {
       app.destroy(true, { children: true });
       throw err;
     }
+    await art;
     this.mounting = false;
+    // unmounted meanwhile: destroy() found no app to free (it is only published below) and
+    // loadArt() added no sheet behind it, so this app is all that is left
     if (this.destroyed) return app.destroy(true, { children: true });
     this.app = app;
     host.appendChild(app.canvas);
@@ -124,9 +131,6 @@ export class OfficeScene {
     for (const [key, def] of Object.entries(pack.manifest.sprites)) {
       this.textures[key] = def.frames.map((f) => new Texture({ source: this.source!, frame: new Rectangle(f.x, f.y, f.w, f.h) }));
     }
-    await this.loadArt();
-    // unmounted while the art decoded: destroy() already ran, but found no app to free
-    if (this.destroyed) return app.destroy(true, { children: true });
     app.stage.addChild(this.world, this.overlay);
     this.camera = new Camera(app.canvas);
     this.camera.locked = this.cameraLocked;
@@ -190,10 +194,12 @@ export class OfficeScene {
   /**
    * Loads the PNGs of `pack/art` as nearest-neighbour textures. A sheet that fails to decode is left
    * out, and whatever needs it falls back (a desk to the generated pack, a piece of furniture to nothing).
+   * A sheet already loaded (a mount retried after a failed init) is kept rather than replaced.
    */
   private async loadArt(): Promise<void> {
     await Promise.all(
       Object.entries(ART_URLS).map(async ([key, url]) => {
+        if (this.art[key]) return;
         const img = new Image();
         img.src = url;
         try {
@@ -201,6 +207,8 @@ export class OfficeScene {
         } catch {
           return;
         }
+        // unmounted while it decoded: destroy() has freed the sheets it found, so add none behind it
+        if (this.destroyed) return;
         this.art[key] = new Texture({ source: new ImageSource({ resource: img, scaleMode: 'nearest' }) });
       }),
     );
@@ -242,7 +250,8 @@ export class OfficeScene {
       const drawn = this.buildings.get(building.id);
       if (!drawn) continue;
       // a building going dark is not a new city: repaint it and dim its desks where they stand
-      if (drawn.lit !== building.lit) {
+      const relit = drawn.lit !== building.lit;
+      if (relit) {
         drawn.lit = building.lit;
         drawBlock(drawn.block, building.lit, drawn.ground);
         drawFloor(floorOnCity(drawn.block), building.lit, drawn.floor);
@@ -251,7 +260,11 @@ export class OfficeScene {
         drawn.racks.apply(building.lit);
       }
       drawn.sign.apply(building);
-      drawn.plaque.apply(floorOnCity(drawn.block), { label: building.label, lit: building.lit });
+      // repainting the plaque rebuilds its frame and re-measures its text: only when it would look different
+      if (relit || drawn.label !== building.label) {
+        drawn.label = building.label;
+        drawn.plaque.apply(floorOnCity(drawn.block), { label: building.label, lit: building.lit });
+      }
       for (const d of building.desks) {
         const desk = this.desks.get(deskKey(building.id, d.id));
         desk?.view.apply(d);
@@ -333,12 +346,14 @@ export class OfficeScene {
       const sign = new BuildingSign(front, building);
       sign.root.on('pointertap', () => this.clicked(() => this.handlers.onPickSign(building.id)));
       this.overlay.addChild(sign.root);
-      const plaque = new RoomWallPlaque(placed, { label: building.label, lit: building.lit });
+      // the lamp goes down with the walls, under everything in `things`: its wash lands on the wall
+      // and floor behind the furniture and the desks, never over them
       const lamp = new RoomLamp(placed, building.lit);
-      // just above the lamp, so its wash lands on the wall behind the furniture, not on it
-      const racks = new RoomRacks(building.id, placed, building.desks.length, this.art, building.lit, lamp.root.zIndex + 0.01);
-      this.things.addChild(plaque.root, lamp.root, ...racks.sprites);
-      const drawn: DrawnBuilding = { block, ground, floor, lit: building.lit, sign, plaque, lamp, racks, views: [] };
+      this.floor.addChild(lamp.root);
+      const plaque = new RoomWallPlaque(placed, { label: building.label, lit: building.lit });
+      const racks = new RoomRacks(building.id, placed, building.desks.length, this.art, building.lit);
+      this.things.addChild(plaque.root, ...racks.sprites);
+      const drawn: DrawnBuilding = { block, ground, floor, lit: building.lit, sign, plaque, label: building.label, lamp, racks, views: [] };
       this.buildings.set(building.id, drawn);
       building.desks.forEach((d, j) => {
         const cell = { gx: placed.origin.gx + placed.layout.desks[j].gx, gy: placed.origin.gy + placed.layout.desks[j].gy };

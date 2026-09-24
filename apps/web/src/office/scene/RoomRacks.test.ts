@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { layoutFloor, type PlacedFloor } from '../layout/floor';
-import { depthOf } from '../layout/iso';
 import { lampPose } from './RoomLamp';
-import { pickRacks, placeRacks, type RackPose } from './RoomRacks';
+import { GAP, pickRacks, placeRacks, type RackPose } from './RoomRacks';
 import { wallPlaquePose } from './wallPlaque';
 
 const ids = Array.from({ length: 40 }, (_, i) => `room-${i}`);
@@ -57,13 +56,14 @@ describe('placeRacks', () => {
       }
     }
   });
-  it('leaves room between the lamp and the nearest desk for the furniture to sit above the wash', () => {
-    for (const desks of [1, 2, 3, 4, 5, 9, 20]) {
-      const r = room(desks);
-      const lampZ = depthOf(lampPose(r)) - 0.15;
-      const nearest = Math.min(...r.layout.desks.map((d) => depthOf({ gx: r.origin.gx + d.gx, gy: r.origin.gy + d.gy })));
-      expect(lampZ + 0.01).toBeLessThan(nearest);
-    }
+  it('starts the side pieces past the piece standing in the corner, not past the deepest back piece', () => {
+    const r = room(5);
+    // the shallow bookshelf takes the corner run, the deep cabinet lands past the lamp
+    const [shelf, cabinet, rack] = placeRacks(r, ['rack/h-2', 'rack/h', 'rack/v']);
+    expect(shelf!.gx).toBeLessThan(lampPose(r).gx);
+    expect(cabinet!.gx).toBeGreaterThan(lampPose(r).gx);
+    expect(shelf!.d).toBeLessThan(cabinet!.d);
+    expect(rack!.gy).toBeCloseTo(r.origin.gy + shelf!.d + GAP);
   });
   it('keeps pieces off the desks', () => {
     for (const desks of [2, 3, 4, 5, 9]) {

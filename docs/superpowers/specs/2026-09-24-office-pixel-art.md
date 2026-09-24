@@ -8,8 +8,11 @@ How the office's building floor is dressed. Builds on the city by project
 - Every sheet is a **512×512 PNG** on a transparent canvas, all drawn at the same scale:
   `DESK_ART_SIZE` on-screen pixels for the whole canvas (`ART_CANVAS = 512`).
 - `ART_URLS` maps a sprite key to its file; `OfficeScene.loadArt()` decodes them into
-  nearest-neighbour textures after the generated pack. A sheet that fails to decode is left out
-  and whatever needs it falls back (a desk to the generated pack, a piece of furniture to nothing).
+  nearest-neighbour textures while Pixi picks its renderer, and `mount()` resolves once both are in.
+  A sheet that fails to decode is left out and whatever needs it falls back (a desk to the
+  generated pack, a piece of furniture to nothing). The scene's `app` is only published after
+  that, so a `destroy()` during the decode finds nothing to free and `loadArt()` adds no sheet
+  behind it.
 - **Layers of one desk share one canvas.** Desk, display and agent are cut from the same
   composition, so stacking them with one anchor (`STATION_ANCHOR`) lines them up. Draw order:
   desk → display → agent (agent last, or the desk covers the person).
@@ -21,7 +24,7 @@ How the office's building floor is dressed. Builds on the city by project
 
 | seat | layers |
 | --- | --- |
-| a person at the desk | `desk/side-v-2` + `display/v-2` + `agent/side-v` |
+| a person at the desk | `desk/side-v-2` + `display/v-2` (only while `screenOn`) + `agent/side-v` |
 | free (or a phone tab) | `desk/side-h` + `chair/h` |
 
 The keys point to `desk-v-off-2`, `display-v-on-2`, `agent-v`, `desk-notebook-h-off` and
@@ -30,8 +33,9 @@ The keys point to `desk-v-off-2`, `display-v-on-2`, `agent-v`, `desk-notebook-h-
 
 ## Floor and walls (`scene/RoomView.ts`, `layout/iso.ts`)
 
-- `layoutRoom` sizes the floor, then grows one tile on its shorter side and re-centres the desks,
-  so a building always has a clear strip along its walls (desks may sit on half tiles).
+- `layoutRoom` sizes the floor, then grows one tile on its shorter side and moves the desks a whole
+  tile off that back wall (half a tile off the other), so a building always has a clear strip along
+  its walls for the furniture (desks may sit on half tiles).
 - `drawFloor` paints thick back walls (outer face, end cap, top, inner face, base trim) and a soft
   tile field (`tileTone`: low-frequency tonal drift, no checkerboard). Unlit keeps the same shapes
   at a lower exposure; the lamp carries the on/off cue. `drawBlock` paints the pavement the same way.
@@ -41,7 +45,11 @@ The keys point to `desk-v-off-2`, `display-v-on-2`, `agent-v`, `desk-notebook-h-
 - `RoomWallPlaque`: the building's name, framed and skewed onto the right part of the back wall
   (`WALL_SKEW` = the iso shear of that wall).
 - `RoomLamp`: a lantern on the back wall near the corner. Lit, it paints a warm wash on the back
-  wall, wraps it onto the left wall at the corner, and fans it onto the floor.
+  wall, wraps it onto the left wall at the corner, and fans it onto the floor. It is painted in the
+  floor layer, with the walls, so the wash lands behind the furniture and the desks.
+- `OfficeScene.setModel` repaints the plaque only when its name or its light changed: a repaint
+  rebuilds the frame and re-measures the text, and the model ticks on every activity change.
+- The three share `scene/wallQuad.ts` (`quad`, `localOf`, `world`) to fill iso faces on the walls.
 
 ## Wall furniture (`scene/RoomRacks.ts`)
 
@@ -59,8 +67,8 @@ sheets face +gx and stand on the side wall.
 | 4 | `rack/v` (server rack) + `rack/h` or `rack/h-2` |
 | 5+ | all four, in random order |
 
-"Random" is seeded by the building id (FNV-1a + LCG), so a building keeps its furniture across
-rebuilds.
+"Random" is seeded by the building id (`fnv1a` from `model.ts`, then an LCG), so a building keeps
+its furniture across rebuilds.
 
 **Where** (`placeRacks`). Each sheet's footprint is measured once in `RACK_ART`: `foot` is the
 footprint's bottom corner on the sheet, `alongGx` / `alongGy` the sheet pixels from it to the left
@@ -68,13 +76,12 @@ and right extremes; `sheetToTiles` turns them into tiles. The sprite is anchored
 placed at the footprint's bottom corner on the grid, so its back edge touches the wall.
 
 - Back pieces fill the free runs of the back wall: corner → lamp, then lamp → plaque.
-- Side pieces run down the side wall, starting past the deepest back piece, so the two walls never
-  meet in the corner.
+- Side pieces run down the side wall, starting past the back piece standing in the corner run
+  (before the lamp), so the two walls never meet in the corner.
 - A piece with no room left is dropped rather than drawn over the lamp, the plaque or a neighbour.
 
-**Depth.** Pieces sort with the desks by `depthOf` their footprint centre, but never below the
-lamp's `zIndex` (+0.01): the lamp's wash is painted on the wall *behind* the furniture, not over it.
-A test pins that the nearest desk still sorts above that floor.
+**Depth.** Pieces sort with the desks by `depthOf` their footprint centre. The lamp and its wash
+are not in that layer at all (see above), so nothing has to sort around them.
 
 ## Adding a sheet
 

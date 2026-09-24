@@ -156,8 +156,9 @@ export class DeskView {
       this.agentArt.visible = show;
       this.agentArt.alpha = model.dimmed ? 0.55 : 1;
     }
+    // the desk sheet has its monitors off; the display sheet lights them, so it follows the screen
     if (this.displayArt) {
-      this.displayArt.visible = show;
+      this.displayArt.visible = show && model.screenOn;
       this.displayArt.alpha = model.dimmed ? 0.55 : 1;
     }
     if (this.deskArt) {

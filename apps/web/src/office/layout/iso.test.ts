@@ -33,8 +33,8 @@ describe('layoutRoom', () => {
     expect(layoutRoom(0)).toEqual({ width: 5, height: 4, desks: [] });
   });
 
-  it('grows one tile on the shorter side and recentres desks', () => {
-    // 2 desks → base 5×3 → grow height → 5×4; centre +0.5 on the other axis (gx)
+  it('grows one tile on the shorter side and moves the desks a whole tile off that back wall', () => {
+    // 2 desks → base 5×3 → grow height → 5×4; +1 on gy (the grown axis), +0.5 on gx
     expect(layoutRoom(2)).toEqual({
       width: 5,
       height: 4,
