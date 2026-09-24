@@ -1,0 +1,432 @@
+import Fastify from 'fastify';
+import { describe, expect, it, vi } from 'vitest';
+import { decisionProofMessage } from '@termhub/mobile-api';
+import type { Device } from '../db/repositories/devices.js';
+import { applyErrorHandler, HttpError } from '../lib/errors.js';
+import { chatBus, type ChatEvent } from '../chat/bus.js';
+import { mobileChatRoutes, mobileMeRoutes } from './m-chat.js';
+
+const device: Device = {
+  id: 'd1',
+  user_id: 'u1',
+  name: 'iPhone de Ana',
+  platform: 'ios',
+  model: 'iPhone 15',
+  os_version: '18.0',
+  app_version: '1.0.0+1',
+  public_key: '{"kty":"EC"}',
+  key_thumbprint: 'thumb',
+  pin_failures: 0,
+  pin_locked_until: null,
+  status: 'active',
+  revoked_at: null,
+  revoked_reason: null,
+  push_token: null,
+  last_seen_at: '2026-09-20T00:00:00.000Z',
+  last_ip: null,
+  request_id: null,
+  created_at: '2026-09-19T00:00:00.000Z',
+};
+const user = { id: 'u1', email: 'ana@example.com', name: 'Ana', nickname: 'ana', role_id: null, password_hash: 'secret-hash' };
+const pendingAction = { id: 'act1', conversation_id: 'c1', tool: 'send_input', args: { tab_id: 't1' }, class: 'write', tab_id: 't1', machine_id: null, project_id: null };
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function build(opts: {
+  start?: ReturnType<typeof vi.fn>;
+  reset?: ReturnType<typeof vi.fn>;
+  resumeAfterDecision?: ReturnType<typeof vi.fn>;
+  decide?: ReturnType<typeof vi.fn>;
+  findByIdForUser?: ReturnType<typeof vi.fn>;
+  checkPin?: ReturnType<typeof vi.fn>;
+  consumeDecisionChallenge?: ReturnType<typeof vi.fn>;
+  hostMachines?: { id: string; name: string; type: string }[];
+  aiAccounts?: { id: string; provider: string; machine_id: string; config_dir: string | null; label?: string }[];
+  setHost?: ReturnType<typeof vi.fn>;
+} = {}) {
+  const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
+  const findByIdForUser = opts.findByIdForUser ?? vi.fn(async () => ({ ...pendingAction, status: 'pending' }));
+  const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
+  const start =
+    opts.start ??
+    vi.fn(async () => ({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma', done: new Promise(() => undefined) }));
+  const service = {
+    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: null })),
+    start,
+    resumeAfterDecision,
+    reset: opts.reset ?? vi.fn(async () => ({ id: 'c_new', project_id: 'p1' })),
+    hostFor: vi.fn(async () => ({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null })),
+    projectStatuses: vi.fn(async () => [{ project_id: 'p1', busy: true, pending_confirmations: 2 }]),
+  };
+  const session = {
+    checkPin: opts.checkPin ?? vi.fn(async () => ({ ok: true })),
+    consumeDecisionChallenge: opts.consumeDecisionChallenge ?? vi.fn(async () => true),
+  };
+  const agents = {
+    capabilities: vi.fn((id: string) => (id === 'm1' ? ['chat'] : null)),
+    info: vi.fn((id: string) => (id === 'm1' ? { agent_version: '0.9.0' } : null)),
+  };
+  const hostMachines = opts.hostMachines ?? [{ id: 'm1', name: 'jarvis', type: 'agent' }];
+  const aiAccounts = opts.aiAccounts ?? [];
+  const setHost =
+    opts.setHost ??
+    vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ conversation: { id, user_id: 'u1', cli_session_id: null, ...host }, moved: false }));
+  const repos = {
+    chat: {
+      listMessages: vi.fn(async () => [{ id: 'm1', role: 'user', text: 'oi' }]),
+      setHost,
+      clearProjectSessions: vi.fn(async () => undefined),
+      listActiveProjectConversations: vi.fn(async () => [{ id: 'c_p1', project_id: 'p1', last_message_at: '2026-09-23T10:00:00.000Z' }]),
+    },
+    chatActions: { decide, findByIdForUser, listByConversation: vi.fn(async () => []) },
+    tabs: { findByIdsForOwner: vi.fn(async () => []) },
+    projects: {
+      findByIdsForOwner: vi.fn(async () => []),
+      list: vi.fn(async (f: { owner?: string }) =>
+        f.owner === 'u1'
+          ? [
+              { id: 'p1', name: 'reactivando', key: 'REA' },
+              { id: 'p2', name: 'termhub', key: 'TH' },
+            ]
+          : []
+      ),
+    },
+    machines: {
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === 'u1' ? hostMachines.filter((m) => ids.includes(m.id)) : [])),
+      list: vi.fn(async (owner: string) =>
+        owner === 'u1'
+          ? [
+              { id: 'm1', name: 'jarvis', type: 'agent' },
+              { id: 'm2', name: 'macbook', type: 'agent' },
+              { id: 'm3', name: 'vps', type: 'ssh' },
+            ]
+          : []
+      ),
+    },
+    aiAccounts: {
+      findById: vi.fn(async (id: string) => aiAccounts.find((a) => a.id === id)),
+      list: vi.fn(async (owner: string) =>
+        owner === 'u1'
+          ? [
+              { id: 'acc1', label: 'Trabalho', machine_id: 'm1', provider: 'claude', config_dir: '/home/u/.claude-work' },
+              { id: 'acc2', label: 'GPT', machine_id: 'm1', provider: 'chatgpt', config_dir: null },
+              { id: 'acc3', label: 'Pessoal', machine_id: 'm2', provider: 'claude', config_dir: null },
+            ]
+          : []
+      ),
+    },
+    tasks: { findByIdsForOwner: vi.fn(async () => []) },
+    userNotifications: { countUnread: vi.fn(async () => 3) },
+    roles: { findById: vi.fn(async () => undefined), permissionsOf: vi.fn(async () => []) },
+  };
+  const app = Fastify();
+  applyErrorHandler(app);
+  app.decorateRequest('scope', null);
+  app.addHook('preHandler', async (req) => {
+    (req as unknown as { scope: unknown }).scope = { user, viewAs: { kind: 'self' }, ownerId: 'u1', createAs: 'u1' };
+    req.mobile = { device, user } as never;
+  });
+  app.register((a) => mobileChatRoutes(a, repos as never, { chat: service as never, agents, session: session as never }), { prefix: '/chat' });
+  app.register((a) => mobileMeRoutes(a, repos as never), { prefix: '' });
+  return { app, service, session, agents, repos, decide, findByIdForUser, resumeAfterDecision, start, setHost };
+}
+
+const approve = { decision: 'approve', challenge: 'chal-1', pin_proof: 'proof-1' };
+
+describe('GET /chat', () => {
+  it('returns { conversation, messages, actions, host } like the web', async () => {
+    const { app, service, repos } = build();
+    const res = await app.inject({ method: 'GET', url: '/chat' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ conversation: { id: 'c1' }, messages: [{ id: 'm1', text: 'oi' }], actions: [], host: { kind: 'ready' } });
+    expect(service.conversationFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), null);
+    expect(repos.chat.listMessages).toHaveBeenCalledWith('c1');
+    expect(repos.chatActions.listByConversation).toHaveBeenCalledWith('c1');
+  });
+
+  it('?project= reads that project conversation and its host', async () => {
+    const { app, service } = build();
+    const res = await app.inject({ method: 'GET', url: '/chat?project=p1' });
+    expect(res.statusCode).toBe(200);
+    expect(service.conversationFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'p1');
+    expect(service.hostFor).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'p1');
+  });
+});
+
+describe('GET /chat/projects', () => {
+  it('joins the statuses with the owner projects, including projects with no conversation yet', async () => {
+    const { app, repos } = build();
+    const res = await app.inject({ method: 'GET', url: '/chat/projects' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.projects.list).toHaveBeenCalledWith({ owner: 'u1' });
+    expect(res.json()).toEqual({
+      projects: [
+        { id: 'p1', name: 'reactivando', key: 'REA', busy: true, pending_confirmations: 2, last_message_at: '2026-09-23T10:00:00.000Z' },
+        { id: 'p2', name: 'termhub', key: 'TH', busy: false, pending_confirmations: 0, last_message_at: null },
+      ],
+    });
+  });
+});
+
+describe('GET /chat/host/options', () => {
+  it('lists only the user agent machines, with online, agent_version and their Claude accounts', async () => {
+    const { app, repos } = build();
+    const res = await app.inject({ method: 'GET', url: '/chat/host/options' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.machines.list).toHaveBeenCalledWith('u1');
+    expect(repos.aiAccounts.list).toHaveBeenCalledWith('u1');
+    expect(res.json()).toEqual({
+      machines: [
+        { id: 'm1', name: 'jarvis', online: true, agent_version: '0.9.0', accounts: [{ id: 'acc1', label: 'Trabalho', config_dir: '/home/u/.claude-work' }] },
+        { id: 'm2', name: 'macbook', online: false, agent_version: null, accounts: [{ id: 'acc3', label: 'Pessoal', config_dir: null }] },
+      ],
+    });
+  });
+});
+
+describe('POST /chat/host', () => {
+  it('sets the host and answers with the conversation and the resolved state', async () => {
+    const { app, setHost } = build({ aiAccounts: [{ id: 'acc1', provider: 'claude', machine_id: 'm1', config_dir: null }] });
+    const res = await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1', ai_account_id: 'acc1' } });
+    expect(res.statusCode).toBe(200);
+    expect(setHost).toHaveBeenCalledWith('c1', { machine_id: 'm1', ai_account_id: 'acc1' });
+    expect(res.json()).toMatchObject({ host: { kind: 'ready' } });
+  });
+
+  it('never accepts a machine this user does not own, nor an account that is not on it', async () => {
+    const { app, setHost } = build({ aiAccounts: [{ id: 'acc9', provider: 'claude', machine_id: 'm9', config_dir: null }] });
+    expect((await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm-someone-else' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1', ai_account_id: 'acc9' } })).statusCode).toBe(404);
+    expect(setHost).not.toHaveBeenCalled();
+  });
+
+  it('refuses a machine with no agent and an account that is not a Claude login', async () => {
+    const ssh = build({ hostMachines: [{ id: 'm1', name: 'vps', type: 'ssh' }] });
+    const noAgent = await ssh.app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
+    expect(noAgent.statusCode).toBe(400);
+    expect(noAgent.json().code).toBe('CHAT_HOST_NOT_AGENT');
+
+    const other = build({ aiAccounts: [{ id: 'acc1', provider: 'chatgpt', machine_id: 'm1', config_dir: null }] });
+    const notClaude = await other.app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1', ai_account_id: 'acc1' } });
+    expect(notClaude.statusCode).toBe(400);
+    expect(other.setHost).not.toHaveBeenCalled();
+  });
+
+  it('clears the project sessions when the host really moved', async () => {
+    const setHost = vi.fn(async (id: string, host: { machine_id: string; ai_account_id: string | null }) => ({ conversation: { id, ...host }, moved: true }));
+    const { app, repos } = build({ setHost });
+    await app.inject({ method: 'POST', url: '/chat/host', payload: { machine_id: 'm1' } });
+    expect(repos.chat.clearProjectSessions).toHaveBeenCalledWith('u1');
+  });
+});
+
+describe('POST /chat/reset', () => {
+  it('archives the scope and answers the fresh conversation', async () => {
+    const { app, service } = build();
+    const res = await app.inject({ method: 'POST', url: '/chat/reset', payload: { project_id: 'p1' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().conversation.id).toBe('c_new');
+    expect(service.reset).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'p1');
+  });
+
+  it('without project_id resets the account-wide chat, and is a 409 while busy', async () => {
+    const { app, service } = build();
+    await app.inject({ method: 'POST', url: '/chat/reset', payload: {} });
+    expect(service.reset).toHaveBeenCalledWith(expect.anything(), null);
+
+    const busy = build({ reset: vi.fn(async () => { throw new HttpError(409, 'ocupado', 'CHAT_BUSY'); }) });
+    expect((await busy.app.inject({ method: 'POST', url: '/chat/reset', payload: {} })).statusCode).toBe(409);
+  });
+});
+
+describe('POST /chat/messages', () => {
+  it('answers 202 with the three ids while the run is still going', async () => {
+    const d = deferred<unknown>();
+    const start = vi.fn(async () => ({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma', done: d.promise }));
+    const { app } = build({ start });
+    const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', project_id: 'p1' } });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma' });
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'oi', { projectId: 'p1' });
+    d.resolve({ id: 'ma' });
+  });
+
+  it('swallows a rejected done: never an unhandled rejection', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const d = deferred<unknown>();
+      const start = vi.fn(async () => ({ conversation_id: 'c1', user_message_id: 'mu', assistant_message_id: 'ma', done: d.promise }));
+      const { app } = build({ start });
+      const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi' } });
+      expect(res.statusCode).toBe(202);
+      d.reject(new HttpError(502, 'O concierge não respondeu', 'CONCIERGE_FAILED'));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('passes CHAT_BUSY from start through as 409, and rejects an empty message', async () => {
+    const { app } = build({ start: vi.fn(async () => { throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY'); }) });
+    const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'segunda' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('CHAT_BUSY');
+    expect((await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: '  ' } })).statusCode).toBe(400);
+  });
+});
+
+describe('POST /chat/actions/:id/decision', () => {
+  it('deny: decides, publishes the event and resumes, with no PIN involvement', async () => {
+    const { app, decide, resumeAfterDecision, session } = build();
+    const events: ChatEvent[] = [];
+    const unsubscribe = chatBus.subscribe((e) => events.push(e));
+    let res;
+    try {
+      res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'deny' } });
+    } finally {
+      unsubscribe();
+    }
+    expect(res.statusCode).toBe(200);
+    expect(decide).toHaveBeenCalledWith('act1', 'u1', 'denied');
+    expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'denied' });
+    expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'denied' });
+    expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'denied' }, message: { id: 'm3' } });
+    expect(session.checkPin).not.toHaveBeenCalled();
+    expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
+  });
+
+  it('deny: 404 for an unknown row and 409 for a decided one', async () => {
+    const missing = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) });
+    expect((await missing.app.inject({ method: 'POST', url: '/chat/actions/nope/decision', payload: { decision: 'deny' } })).statusCode).toBe(404);
+    const decided = build({ decide: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => ({ ...pendingAction, status: 'approved' })) });
+    expect((await decided.app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'deny' } })).statusCode).toBe(409);
+  });
+
+  it('approve: rejects a body without the challenge or the pin proof', async () => {
+    const { app, decide } = build();
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve' } });
+    expect(res.statusCode).toBe(400);
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('approve: 404 for a row this user cannot see, before any PIN work', async () => {
+    const { app, session, decide } = build({ findByIdForUser: vi.fn(async () => undefined) });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/nope/decision', payload: approve });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('Ação não encontrada');
+    expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
+    expect(session.checkPin).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('approve: an already-decided action answers 409 before the challenge or the PIN are touched', async () => {
+    const { app, session, decide } = build({ findByIdForUser: vi.fn(async () => ({ ...pendingAction, status: 'denied' })) });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe('Esta ação já foi decidida');
+    expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
+    expect(session.checkPin).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('approve: a challenge that does not consume is 400 CHALLENGE_INVALID, with no PIN check', async () => {
+    const { app, session, decide } = build({ consumeDecisionChallenge: vi.fn(async () => false) });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'CHALLENGE_INVALID', error: 'Desafio inválido ou vencido' });
+    expect(session.consumeDecisionChallenge).toHaveBeenCalledWith(device, 'chal-1', 'act1');
+    expect(session.checkPin).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('approve: a wrong PIN is 401 with the failures, and the action stays pending', async () => {
+    const { app, session, decide, resumeAfterDecision } = build({ checkPin: vi.fn(async () => ({ ok: false, code: 'PIN_INVALID', failures: 2 })) });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ code: 'PIN_INVALID', failures: 2 });
+    expect(session.checkPin).toHaveBeenCalledWith(device, decisionProofMessage('chal-1', 'act1', 'approve'), 'proof-1', expect.objectContaining({ ip: expect.any(String) }));
+    expect(decide).not.toHaveBeenCalled();
+    expect(resumeAfterDecision).not.toHaveBeenCalled();
+  });
+
+  it('approve: a locked device is 423 with retry-after in whole seconds', async () => {
+    const { app, decide } = build({ checkPin: vi.fn(async () => ({ ok: false, code: 'DEVICE_LOCKED', retryAfterMs: 61_500 })) });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    expect(res.statusCode).toBe(423);
+    expect(res.headers['retry-after']).toBe('62');
+    expect(res.json().code).toBe('DEVICE_LOCKED');
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('approve: a device revoked by the attempt is 401 DEVICE_REVOKED', async () => {
+    const { app, decide } = build({ checkPin: vi.fn(async () => ({ ok: false, code: 'DEVICE_REVOKED' })) });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe('DEVICE_REVOKED');
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('approve: with a good proof decides, publishes the event and resumes', async () => {
+    const { app, decide, resumeAfterDecision } = build();
+    const events: ChatEvent[] = [];
+    const unsubscribe = chatBus.subscribe((e) => events.push(e));
+    let res;
+    try {
+      res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    } finally {
+      unsubscribe();
+    }
+    expect(res.statusCode).toBe(200);
+    expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+    expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'approved' });
+    expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'approved' });
+    expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'approved' }, message: { id: 'm3' } });
+  });
+
+  it('approve: a race lost to the web after the proof ends in the same 409', async () => {
+    const findByIdForUser = vi
+      .fn()
+      .mockResolvedValueOnce({ ...pendingAction, status: 'pending' })
+      .mockResolvedValueOnce({ ...pendingAction, status: 'approved' });
+    const { app, resumeAfterDecision } = build({ decide: vi.fn(async () => undefined), findByIdForUser });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    expect(res.statusCode).toBe(409);
+    expect(resumeAfterDecision).not.toHaveBeenCalled();
+  });
+
+  it('approve: a busy run answers 200 queued with the note', async () => {
+    const { app } = build({ resumeAfterDecision: vi.fn(async () => { throw new HttpError(409, 'ocupado', 'CHAT_BUSY'); }) });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: approve });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ action: { id: 'act1', status: 'approved' }, queued: true });
+    expect(res.json().note).toMatch(/registrada/i);
+  });
+});
+
+describe('GET /me', () => {
+  it('answers the user, the permissions, this device and the unread count, never the device secrets', async () => {
+    const { app, repos } = build();
+    const res = await app.inject({ method: 'GET', url: '/me' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.userNotifications.countUnread).toHaveBeenCalledWith('u1');
+    expect(res.json()).toEqual({
+      user: { id: 'u1', email: 'ana@example.com', name: 'Ana', nickname: 'ana' },
+      permissions: [],
+      device: { id: 'd1', name: 'iPhone de Ana', platform: 'ios', model: 'iPhone 15', created_at: '2026-09-19T00:00:00.000Z', last_seen_at: '2026-09-20T00:00:00.000Z' },
+      unread_notifications: 3,
+    });
+    expect(res.body).not.toContain('public_key');
+    expect(res.body).not.toContain('pin_secret_enc');
+    expect(res.body).not.toContain('secret-hash');
+  });
+});

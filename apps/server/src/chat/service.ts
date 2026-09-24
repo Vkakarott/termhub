@@ -77,7 +77,7 @@ export async function purgeExpiredActions(repos: Repositories, now = new Date())
  * of reach: a rejected write carries the rejected data, so logging one would put the injected sentence
  * or the proposed command in a log line — the one thing that must never be logged (spec §7.1).
  */
-const failureLabel = (err: unknown): string => {
+export const failureLabel = (err: unknown): string => {
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && code.length > 0) return code;
   return err instanceof Error ? err.name : typeof err;

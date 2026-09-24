@@ -7,6 +7,7 @@ import type { TranscriptionService } from '../terminal/transcription.js';
 import type { Mailer } from '../email/mailer.js';
 import type { createUpgradeRouter } from '../ws/router.js';
 import { actionForMethod, type Resource } from '../auth/permissions.js';
+import { mobileChatRoutes, mobileMeRoutes } from '../routes/m-chat.js';
 import { mobileDeviceRoutes, mobilePushTokenRoutes } from '../routes/m-devices.js';
 import { mobileSessionRoutes } from '../routes/m-session.js';
 import { buildMobileAuthHook, type MobileAuthMode } from './auth.js';
@@ -91,7 +92,7 @@ export async function registerMobileApi(
         );
       };
 
-      // The mobile API's own routes: enrolment, self-management, push-token and session, all under `devices`.
+      // The mobile API's own routes: enrolment, self-management, push-token and session under `devices`, then the chat.
       async function mobileRoutes(guarded: GuardedMobile): Promise<void> {
         await guarded(
           'devices',
@@ -105,6 +106,9 @@ export async function registerMobileApi(
         await guarded('devices', (a) => mobilePushTokenRoutes(a, deps.repos), '');
         // Challenge and token renewal: both mobileAuth 'none', /token verifies the device proof itself.
         await guarded('devices', (a) => mobileSessionRoutes(a, deps.repos, { session: services.session, jtis: services.jtis, publicUrl }), '/session');
+        // The chat, over the same ChatService as the web; `GET /me` reads under `chat` too (spec §6).
+        await guarded('chat', (a) => mobileChatRoutes(a, deps.repos, { chat: deps.chat, agents: deps.agents, session: services.session }), '/chat');
+        await guarded('chat', (a) => mobileMeRoutes(a, deps.repos), '');
       }
 
       await mobileRoutes(guardedMobile);

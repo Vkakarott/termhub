@@ -106,9 +106,14 @@ export class ChatRepository {
     await this.db.chatConversation.updateMany({ where: { userId, projectId: { not: null }, archivedAt: null }, data: { cliSessionId: null } });
   }
 
-  async listActiveProjectConversations(userId: string): Promise<{ id: string; project_id: string }[]> {
-    const rows = await this.db.chatConversation.findMany({ where: { userId, projectId: { not: null }, tabId: null, archivedAt: null }, select: { id: true, projectId: true }, orderBy: { createdAt: 'asc' } });
-    return rows.map((r) => ({ id: r.id, project_id: r.projectId! }));
+  /** The user's active project conversations, with when each last saw a message (null = none yet). */
+  async listActiveProjectConversations(userId: string): Promise<{ id: string; project_id: string; last_message_at: string | null }[]> {
+    const rows = await this.db.chatConversation.findMany({
+      where: { userId, projectId: { not: null }, tabId: null, archivedAt: null },
+      select: { id: true, projectId: true, lastMessageAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((r) => ({ id: r.id, project_id: r.projectId!, last_message_at: r.lastMessageAt?.toISOString() ?? null }));
   }
 
   async setCliSession(id: string, sessionId: string | null): Promise<void> {
