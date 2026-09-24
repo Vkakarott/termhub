@@ -37,6 +37,30 @@ export const fromB64url = (s: string): Uint8Array => {
   return out;
 };
 
+// Standard base64 (RFC 4648 §4) decoder, padded with `=`. Only needed to decode the DER
+// signature @pagopa/io-react-native-crypto returns from `sign()`, which is standard base64,
+// not base64url; `=` is simply not in the alphabet so it is dropped like any other filler.
+const STD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const STD_REVERSE: Record<string, number> = Object.fromEntries([...STD_ALPHABET].map((c, i) => [c, i]));
+
+/** Decodes standard (padded) base64 back to bytes. */
+export const fromB64std = (s: string): Uint8Array => {
+  const chars = [...s].filter((c) => c in STD_REVERSE);
+  const out = new Uint8Array(Math.floor((chars.length * 6) / 8));
+  let buffer = 0;
+  let bits = 0;
+  let pos = 0;
+  for (const c of chars) {
+    buffer = (buffer << 6) | (STD_REVERSE[c] ?? 0);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[pos++] = (buffer >> bits) & 0xff;
+    }
+  }
+  return out;
+};
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 

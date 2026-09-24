@@ -9,9 +9,10 @@ const moduleNameMapper = {
 
 // The `ui` project renders NativeWind-styled components: nativewind and react-native-css-interop
 // ship untransformed ESM, so jest-expo's own ignore list is extended to transform them too.
+// @noble is added the same way, for a screen that imports a store that signs DPoP proofs.
 const [expoIgnore, ...restIgnore] = expoPreset.transformIgnorePatterns;
 const uiTransformIgnore = [
-  expoIgnore.replace('))', '|nativewind|react-native-css-interop|react-native-markdown-display))'),
+  expoIgnore.replace('))', '|nativewind|react-native-css-interop|react-native-markdown-display|@noble))'),
   ...restIgnore,
 ];
 

@@ -1,4 +1,4 @@
-import { b64url, fromB64url, fromUtf8, utf8 } from './encoding';
+import { b64url, fromB64std, fromB64url, fromUtf8, utf8 } from './encoding';
 
 describe('encoding', () => {
   it('encodes bytes to base64url', () => {
@@ -23,5 +23,18 @@ describe('encoding', () => {
 
   it('round-trips utf8 text with non-ASCII characters', () => {
     expect(fromUtf8(utf8('máquina'))).toBe('máquina');
+  });
+
+  it('decodes standard padded base64 (hardware signatures from @pagopa/io-react-native-crypto)', () => {
+    expect(fromUtf8(fromB64std('aGVsbG8='))).toBe('hello');
+  });
+
+  it('decodes standard base64 with two padding characters', () => {
+    expect(fromUtf8(fromB64std('aGk='))).toBe('hi');
+  });
+
+  it('decodes standard base64 with a "+" and a "/", which base64url spells differently', () => {
+    // Same bytes as the b64url('-_-_') test above, spelled with the standard alphabet.
+    expect(fromB64std('+/+/')).toEqual(new Uint8Array([251, 255, 191]));
   });
 });
