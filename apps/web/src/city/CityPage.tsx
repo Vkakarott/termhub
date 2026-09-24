@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildCityModel, resolveFocus, sameFocus, type CityModel, type FocusTarget } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import type { PublicCity } from '../lib/types';
-import { fetchCity, openCitySocket, toMachineEntries, type CityFrame } from './api';
+import { fetchCity, openCitySocket, toBuildingEntries, type CityFrame } from './api';
 import { BetaCard, LANDING_URL, useBetaCard } from './BetaCard';
 import { CopyLinkButton } from './share/CopyLinkButton';
 import { SharePanel } from './share/SharePanel';
@@ -12,11 +12,11 @@ import { cityPath, restFromUrl, type Rest } from './url';
 const RETRY_MIN_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
 
-const readRest = (): Rest => restFromUrl(location.pathname, location.search);
+const readRest = (): Rest => restFromUrl(location.pathname);
 
 /**
- * One socket frame, applied where it lands. The ids in it are the snapshot's own, so a change never
- * costs a second read of the city; a frame for a building or a room this page has never seen is
+ * One socket frame, applied where it lands. The building id in it is the snapshot's own, so a
+ * change never costs a second read of the city; a frame for a building this page has never seen is
  * dropped, since there is nowhere to draw it.
  */
 function applyRobot(city: PublicCity | null, frame: CityFrame): PublicCity | null {
@@ -24,29 +24,26 @@ function applyRobot(city: PublicCity | null, frame: CityFrame): PublicCity | nul
   let landed = false;
   const buildings = city.buildings.map((building) => {
     if (building.id !== frame.building) return building;
-    const rooms = building.rooms.map((room) => {
-      if (room.id !== frame.room) return room;
-      landed = true;
-      // a tab closed or deleted while somebody watches leaves its desk at once
-      if (frame.type === 'robot_gone') return { ...room, robots: room.robots.filter((r) => r.id !== frame.robot) };
-      const i = room.robots.findIndex((r) => r.id === frame.robot.id);
-      const robots = room.robots.slice();
-      // a tab opened while somebody is watching joins the room instead of waiting for a reload
-      if (i === -1) robots.push(frame.robot);
-      else robots[i] = frame.robot;
-      return { ...room, robots };
-    });
-    return { ...building, rooms };
+    landed = true;
+    // a tab closed or deleted while somebody watches leaves its desk at once
+    if (frame.type === 'robot_gone') return { ...building, robots: building.robots.filter((r) => r.id !== frame.robot) };
+    const i = building.robots.findIndex((r) => r.id === frame.robot.id);
+    const robots = building.robots.slice();
+    // a tab opened while somebody is watching joins the building instead of waiting for a reload
+    if (i === -1) robots.push(frame.robot);
+    else robots[i] = frame.robot;
+    return { ...building, robots };
   });
   return landed ? { ...city, buildings } : city;
 }
 
 /**
  * The public city: somebody else's account as a city, live, to a visitor with no account at all.
- * Three rests, like the office — the city, one building, one room — and nothing else: no sidebar,
- * no actions, no terminal. The snapshot is read on arrival and every change after it comes down the
- * socket, so a visit costs one read while the channel holds; the snapshot is read again only when
- * that channel is hung up, which is how a city taken off the street disappears without a reload.
+ * Two rests, like the office — the city and one building (a published project) — and nothing else:
+ * no sidebar, no actions, no terminal, no machine. The snapshot is read on arrival and every change
+ * after it comes down the socket, so a visit costs one read while the channel holds; the snapshot is
+ * read again only when that channel is hung up, which is how a building (or a machine's robots)
+ * taken off the street disappears without a reload.
  */
 export function CityPage({ nickname }: { nickname: string }) {
   const [city, setCity] = useState<PublicCity | null>(null);
@@ -117,7 +114,7 @@ export function CityPage({ nickname }: { nickname: string }) {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const entries = useMemo(() => (city ? toMachineEntries(city) : []), [city]);
+  const entries = useMemo(() => (city ? toBuildingEntries(city) : { projects: [], machines: [] }), [city]);
   // no monitor on the street: the socket already wrote every change into `city` above
   const model = useMemo(() => buildCityModel(entries, () => undefined), [entries]);
 
@@ -129,8 +126,8 @@ export function CityPage({ nickname }: { nickname: string }) {
     sceneRef.current?.setModel(model);
   }, [model]);
 
-  // an unknown building, or a ?room= of another building, falls back on its own (office/model.ts)
-  const target = resolveFocus(model, rest.building ?? undefined, rest.room);
+  // an unknown building — an old machine id, say — falls back to the city on its own (office/model.ts)
+  const target = resolveFocus(model, rest.building ?? undefined);
   // the target is rebuilt on every render, so the scene is only told when it changed BY VALUE:
   // re-framing an equal target would undo a camera the visitor moved by hand
   const targetRef = useRef<FocusTarget>(target);
@@ -141,24 +138,22 @@ export function CityPage({ nickname }: { nickname: string }) {
   });
 
   const go = useCallback(
-    (building: string | null, room: string | null, replace = false) => {
-      history[replace ? 'replaceState' : 'pushState'](null, '', cityPath(nickname, { building, room }));
-      setRest({ building, room });
+    (building: string | null, replace = false) => {
+      history[replace ? 'replaceState' : 'pushState'](null, '', cityPath(nickname, { building }));
+      setRest({ building });
     },
     [nickname],
   );
 
-  /** The ladder Esc and the zoom-out gesture walk: room -> building -> city. Going up replaces, or Back would walk straight back in. */
+  /** The ladder Esc and the zoom-out gesture walk: building -> city. Going up replaces, or Back would walk straight back in. */
   const up = () => {
-    if (target.kind === 'room') go(target.machineId, null, true);
-    else if (target.kind === 'machine') go(null, null, true);
+    if (target.kind === 'building') go(null, true);
   };
 
   // the scene and the key listener call through this ref, re-synced after every render, which is
   // what lets the mount effect below depend on the host element ALONE
   const actions = {
-    onPickRoom: (building: string, room: string) => go(building, room),
-    onPickBuilding: (building: string) => go(building, null),
+    onPickBuilding: (building: string) => go(building),
     onGoUp: () => up(),
   };
   const handlers = useRef(actions);
@@ -170,12 +165,12 @@ export function CityPage({ nickname }: { nickname: string }) {
     if (!host) return;
     setFailed(false);
     const scene = new OfficeScene({
-      // a desk and a room sign lead somewhere only for the person who owns them: on the street they
-      // are scenery, and this bundle knows no route that could open one
+      // a desk leads somewhere only for the person who owns it: on the street it is scenery, and
+      // this bundle knows no route that could open one
       onPickDesk: () => {},
-      onPickSign: () => {},
-      onPickRoom: (building, room) => handlers.current.onPickRoom(building, room),
-      onPickMachine: (building) => handlers.current.onPickBuilding(building),
+      onPickBuilding: (building) => handlers.current.onPickBuilding(building),
+      // the sign names the building, so it leads into it, like its ground
+      onPickSign: (building) => handlers.current.onPickBuilding(building),
       onGoUp: () => handlers.current.onGoUp(),
     });
     sceneRef.current = scene;
@@ -214,19 +209,17 @@ export function CityPage({ nickname }: { nickname: string }) {
   }
 
   // the city's own address: the media footers print it when there is no short link
-  const cityUrl = `${location.origin}${cityPath(nickname, { building: null, room: null })}`;
-  // "Copiar link": only the city has a short link; a building or a room keeps its long address
-  const restUrl = target.kind === 'city' ? null : `${location.origin}${cityPath(nickname, { building: target.machineId, room: target.kind === 'room' ? target.roomId : null })}`;
+  const cityUrl = `${location.origin}${cityPath(nickname, { building: null })}`;
+  // "Copiar link": only the city has a short link; a building keeps its long address
+  const restUrl = target.kind === 'city' ? null : `${location.origin}${cityPath(nickname, { building: target.projectId })}`;
   const copyUrl = restUrl ?? city?.short_url ?? cityUrl;
   // media are made from the scene: nothing to share before it has a city to draw
-  const canShare = !!city && model.machines.length > 0;
+  const canShare = !!city && model.buildings.length > 0;
 
-  const here = rest.building ? (model.machines.find((m) => m.id === rest.building) ?? null) : null;
+  // only a building that exists gets a trail: an old link that fell back to the city shows none
+  const here = target.kind === 'building' ? (model.buildings.find((b) => b.id === target.projectId) ?? null) : null;
   const trail: Array<{ label: string; go?: () => void }> = [];
-  if (rest.building) trail.push({ label: 'Cidade', go: () => go(null, null, true) });
-  if (here) trail.push({ label: here.name, go: () => go(here.id, null, true) });
-  const roomName = here?.floor.rooms.find((r) => r.id === rest.room)?.name;
-  if (roomName) trail.push({ label: roomName });
+  if (here) trail.push({ label: 'Cidade', go: () => go(null, true) }, { label: here.name });
 
   return (
     <div className="flex h-full flex-col">
@@ -265,7 +258,7 @@ export function CityPage({ nickname }: { nickname: string }) {
       <div className="relative min-h-0 flex-1">
         <div ref={setHost} className="absolute inset-0 overflow-hidden" />
         {failed && <Overlay>Seu navegador não conseguiu desenhar a cidade.</Overlay>}
-        {!failed && model.machines.length === 0 && <Overlay>Carregando a cidade…</Overlay>}
+        {!failed && !city && <Overlay>Carregando a cidade…</Overlay>}
         {betaOpen && (
           // a bottom sheet on a phone, a card in the corner from `sm` up; only its own box takes the
           // pointer, so the rest of the scene stays as draggable and clickable as without it
@@ -284,7 +277,7 @@ export function CityPage({ nickname }: { nickname: string }) {
   );
 }
 
-/** Where the camera stands, as the ladder Esc walks: Cidade › prédio › sala. */
+/** Where the camera stands, as the ladder Esc walks: Cidade › projeto. */
 function Trail({ parts }: { parts: Array<{ label: string; go?: () => void }> }) {
   return (
     <nav aria-label="Trilha" className="flex items-center gap-1">

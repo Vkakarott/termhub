@@ -9,7 +9,7 @@ const { FakeOfficeScene, socket } = vi.hoisted(() => {
   /** The scene stub OfficePage.test.tsx installs: no WebGL in jsdom, so it only records. */
   class FakeOfficeScene {
     static instances: FakeOfficeScene[] = [];
-    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickRoom: (machineId: string, roomId: string) => void; onPickMachine: (machineId: string) => void; onPickSign: (id: string) => void; onGoUp: () => void };
+    handlers: { onPickDesk: (tabId: string, projectId: string) => void; onPickBuilding: (projectId: string) => void; onPickSign: (projectId: string) => void; onGoUp: () => void };
     setModel = vi.fn();
     focus = vi.fn();
     destroy = vi.fn();
@@ -26,8 +26,8 @@ const { FakeOfficeScene, socket } = vi.hoisted(() => {
   }
   /**
    * The fake /ws/public channel: `emit` hands a parsed frame to the callback openCitySocket was
-   * given, and `hangUp` is the server closing the socket — what it does when the last published
-   * room is taken off the street.
+   * given, and `hangUp` is the server closing the socket — what it does when something it
+   * showed leaves the street.
    */
   const socket = {
     onRobot: null as ((frame: unknown) => void) | null,
@@ -64,13 +64,13 @@ import { CityPage } from './CityPage';
 
 const AT = '2026-09-22T10:00:00.000Z';
 const LATER = '2026-09-22T10:05:00.000Z';
-const CITY: PublicCity = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: AT, activity: 'coding', activity_verb: 'Moonwalking', alive: true, progress: null }] }] }] };
+const CITY: PublicCity = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [{ id: 'b1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: AT, activity: 'coding', activity_verb: 'Moonwalking', alive: true, progress: null }] }] };
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 const fetchMock = vi.fn();
 const scene = () => FakeOfficeScene.instances[0];
 /** what the page last handed the scene, as the office's own CityModel */
-const desks = (city: unknown) => ({ machines: [expect.objectContaining({ floor: expect.objectContaining({ rooms: [expect.objectContaining({ desks: [expect.objectContaining(city as object)] })] }) })] });
+const desks = (desk: unknown) => ({ buildings: [expect.objectContaining({ desks: [expect.objectContaining(desk as object)] })] });
 
 beforeEach(() => {
   FakeOfficeScene.instances = [];
@@ -176,7 +176,7 @@ describe('CityPage', () => {
     await screen.findByText(/Cidade de Pedro/);
     expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' })));
 
-    act(() => socket.emit({ type: 'robot', building: 'b1', room: 'r1', robot: { ...CITY.buildings[0].rooms[0].robots[0], activity: 'reading', state_at: LATER } }));
+    act(() => socket.emit({ type: 'robot', building: 'b1', robot: { ...CITY.buildings[0].robots[0], activity: 'reading', state_at: LATER } }));
 
     await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'reading' }))));
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -196,11 +196,11 @@ describe('CityPage', () => {
     await screen.findByText(/Cidade de Pedro/);
     expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' })));
 
-    act(() => socket.emit({ type: 'robot_gone', building: 'b1', room: 'r1', robot: 'x1' }));
+    act(() => socket.emit({ type: 'robot_gone', building: 'b1', robot: 'x1' }));
 
     await waitFor(() =>
       expect(scene().setModel).toHaveBeenLastCalledWith(
-        expect.objectContaining({ machines: [expect.objectContaining({ floor: expect.objectContaining({ rooms: [expect.objectContaining({ desks: [] })] }) })] }),
+        expect.objectContaining({ buildings: [expect.objectContaining({ desks: [] })] }),
       ),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -211,7 +211,7 @@ describe('CityPage', () => {
     render(<CityPage nickname="pedro" />);
     await screen.findByText(/Cidade de Pedro/);
 
-    // the server hangs the socket up when the last published room comes off the street
+    // the server hangs the socket up when something it showed leaves the street
     await act(async () => {
       socket.hangUp();
     });
@@ -249,6 +249,50 @@ describe('CityPage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // city-by-project §4: the street's model has no machine, so no desk carries a machine line
+  it('hands the scene desks with no machine', async () => {
+    fetchMock.mockResolvedValueOnce(json(CITY));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ machine: null })));
+  });
+});
+
+describe('CityPage rests', () => {
+  beforeEach(() => history.replaceState(null, '', '/city/@pedro'));
+
+  it('walks into a building from its ground or its sign, shows the trail, and Esc walks back out', async () => {
+    fetchMock.mockResolvedValueOnce(json(CITY));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    act(() => scene().handlers.onPickBuilding('b1'));
+    expect(location.pathname).toBe('/city/@pedro/b1');
+    expect(screen.getByLabelText('Trilha').textContent).toBe('Cidade›Engage Easy');
+    expect(scene().focus).toHaveBeenLastCalledWith({ kind: 'building', projectId: 'b1' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(location.pathname).toBe('/city/@pedro');
+    expect(screen.getByLabelText('Trilha').textContent).toBe('');
+    act(() => scene().handlers.onPickSign('b1'));
+    expect(location.pathname).toBe('/city/@pedro/b1');
+  });
+
+  // city-by-project §2.5/§7: links shared under the old scheme — a machine's id, a ?room= — open the city
+  it('opens an old link as the city, with no trail, and copies the city link from it', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    history.replaceState(null, '', '/city/@pedro/old-machine-id?room=old-room-id');
+    fetchMock.mockResolvedValueOnce(json({ ...CITY, short_url: 'https://77a.it/pedro' }));
+    render(<CityPage nickname="pedro" />);
+    await screen.findByText(/Cidade de Pedro/);
+    expect(screen.getByLabelText('Trilha').textContent).toBe('');
+    expect(scene().focus.mock.calls.at(-1)?.[0]).toEqual({ kind: 'city' });
+    fireEvent.click(screen.getByRole('button', { name: 'Compartilhar' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copiar link' }));
+    });
+    expect(writeText).toHaveBeenCalledWith('https://77a.it/pedro');
   });
 });
 
