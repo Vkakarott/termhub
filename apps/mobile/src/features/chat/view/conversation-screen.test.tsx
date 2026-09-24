@@ -45,7 +45,7 @@ function stubAction<K extends 'decide' | 'reset' | 'setHost'>(name: K) {
 }
 
 /** The first load of a file signs its first P-256 proof, slow while other suites share the CPU. */
-const LOAD = { timeout: 5000 };
+const LOAD = { timeout: 15_000 };
 
 beforeAll(async () => {
   await enrolStores();

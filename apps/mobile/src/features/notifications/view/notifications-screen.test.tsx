@@ -18,7 +18,7 @@ import { useNotificationsStore } from '@/features/notifications/viewmodel/useNot
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { NotificationsScreen } from './notifications-screen';
 
-const LOAD = { timeout: 5000 };
+const LOAD = { timeout: 15_000 };
 
 beforeAll(async () => {
   await enrolStores();

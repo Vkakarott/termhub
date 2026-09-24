@@ -7,7 +7,7 @@ import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { PinPromptSheet } from './pin-prompt-sheet';
 
 /** The first proof of a file signs P-256 and derives the wrap key: slow while suites share the CPU. */
-const LOAD = { timeout: 5000 };
+const LOAD = { timeout: 15_000 };
 
 async function typePin(pin: string) {
   for (const digit of pin) {

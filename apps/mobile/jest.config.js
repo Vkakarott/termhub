@@ -29,6 +29,13 @@ const uiTransformIgnore = [
 /** @type {import('jest').Config} */
 module.exports = {
   passWithNoTests: true,
+  // Global on purpose: jest ignores `testTimeout` inside a `projects` entry. The first render of a
+  // screen in a worker is cold (React Native, NativeWind and the markdown renderer are transformed
+  // on first import): ~3 s on a laptop, 5–6 s with the whole suite in parallel and more on the
+  // GitHub runner. Jest's default 5 s per-test limit made the first test of every screen file time
+  // out there, and the next test in the file failed in its wake. The screens' `LOAD` findBy
+  // timeouts (15 s) sit under this limit on purpose.
+  testTimeout: 30_000,
   projects: [
     {
       displayName: 'logic',
