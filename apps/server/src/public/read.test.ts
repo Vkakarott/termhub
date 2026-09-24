@@ -3,7 +3,7 @@ import type { Repositories } from '../db/repositories/index.js';
 
 vi.mock('../terminal/machine-exec.js', () => ({ cachedTmuxProbe: () => undefined }));
 
-const { PUBLIC_CITY_MEMO_MAX, PUBLIC_CITY_MEMO_MS, clearPublicCityMemo, readPublicCityCached, resolvePublicRooms } = await import('./read.js');
+const { PUBLIC_CITY_MEMO_MAX, PUBLIC_CITY_MEMO_MS, clearPublicCityMemo, readPublicCity, readPublicCityCached, resolvePublicCity } = await import('./read.js');
 const { publicBus } = await import('./bus.js');
 
 function stubRepos() {
@@ -12,8 +12,7 @@ function stubRepos() {
     users: { findByNickname },
     machines: { list: vi.fn(async (owner: string) => [{ id: 'm1', name: 'M', owner_id: owner }]) },
     projects: { list: vi.fn(async (q: { owner: string }) => [{ id: 'p1', name: 'P', owner_id: q.owner, is_public: true, status: 'active' }]) },
-    projectMachines: { listByProjects: vi.fn(async () => [{ project_id: 'p1', machine_id: 'm1' }]) },
-    tabs: { listByProjectsOnMachine: vi.fn(async () => []) },
+    tabs: { listByProjects: vi.fn(async () => []) },
   } as unknown as Repositories;
   return { repos, findByNickname };
 }
@@ -52,17 +51,16 @@ describe('readPublicCityCached', () => {
     expect(findByNickname).toHaveBeenCalledTimes(2);
   });
 
-  // A building leaving the street (owner reassigned, machine deleted, project unlinked) is as
-  // immediate as an unpublish.
-  it('forgets everything the moment rooms leave the street', async () => {
+  // Robots leaving the street (owner reassigned, machine deleted, project unlinked) is as immediate
+  // as an unpublish.
+  it('forgets everything the moment robots leave the street', async () => {
     const { repos, findByNickname } = stubRepos();
     await readPublicCityCached(repos, 'pedro');
-    publicBus.publishRoomsGone({ machine_id: 'm1' });
+    publicBus.publishRobotsGone({ machine_id: 'm1' });
     await readPublicCityCached(repos, 'pedro');
     expect(findByNickname).toHaveBeenCalledTimes(2);
   });
 
-  // A deleted owner takes their nickname and their city with them, at once.
   it('forgets everything the moment an owner is deleted', async () => {
     const { repos, findByNickname } = stubRepos();
     await readPublicCityCached(repos, 'pedro');
@@ -90,36 +88,70 @@ describe('readPublicCityCached', () => {
   });
 });
 
-describe('resolvePublicRooms', () => {
-  const machines = [{ id: 'm1', owner_id: 'u1' }];
-  const links = [
-    { project_id: 'p1', machine_id: 'm1' },
-    { project_id: 'pX', machine_id: 'm1' },
-  ];
-  function repos(projects: unknown[]) {
-    return {
-      projects: { list: vi.fn(async () => projects) },
-      machines: { list: vi.fn(async () => machines) },
-      projectMachines: { listByProjects: vi.fn(async (ids: string[]) => links.filter((l) => ids.includes(l.project_id))) },
-    } as unknown as Repositories;
+describe('resolvePublicCity', () => {
+  function repos(projects: unknown[], machines: unknown[] = [{ id: 'm1', owner_id: 'u1' }]) {
+    return { projects: { list: vi.fn(async () => projects) }, machines: { list: vi.fn(async () => machines) } } as unknown as Repositories;
   }
 
   // Defence in depth: `projects.list({ owner })` already filters, but a published project of
-  // somebody else must never become a room even if that filter ever slips.
+  // somebody else must never become a building even if that filter ever slips.
   it('drops a published project the owner does not own, even if the repository returns it', async () => {
     const r = repos([
       { id: 'p1', owner_id: 'u1', is_public: true, status: 'active' },
       { id: 'pX', owner_id: 'u2', is_public: true, status: 'active' },
       { id: 'pO', owner_id: null, is_public: true, status: 'active' },
     ]);
-    const rooms = await resolvePublicRooms(r, 'u1');
-    expect(rooms.map((b) => b.projects.map((p) => p.id))).toEqual([['p1']]);
+    expect((await resolvePublicCity(r, 'u1')).projects.map((p) => p.id)).toEqual(['p1']);
   });
 
-  // An empty owner id could read as "no owner filter" further down; it is refused before any read.
+  it('keeps only published, non-archived projects, in the order given', async () => {
+    const r = repos([
+      { id: 'b', owner_id: 'u1', is_public: true, status: 'active' },
+      { id: 'priv', owner_id: 'u1', is_public: false, status: 'active' },
+      { id: 'arch', owner_id: 'u1', is_public: true, status: 'archived' },
+      { id: 'a', owner_id: 'u1', is_public: true, status: 'paused' },
+    ]);
+    expect((await resolvePublicCity(r, 'u1')).projects.map((p) => p.id)).toEqual(['b', 'a']);
+  });
+
+  // the one line between a published project and somebody else's machine
+  it('keeps only the machines the owner owns, even if the repository returns another', async () => {
+    const r = repos([{ id: 'p1', owner_id: 'u1', is_public: true, status: 'active' }], [{ id: 'm1', owner_id: 'u1' }, { id: 'mX', owner_id: 'u2' }]);
+    expect((await resolvePublicCity(r, 'u1')).machines.map((m) => m.id)).toEqual(['m1']);
+  });
+
+  it('reads no machine when nothing is published', async () => {
+    const r = repos([{ id: 'p1', owner_id: 'u1', is_public: false, status: 'active' }]);
+    expect(await resolvePublicCity(r, 'u1')).toEqual({ projects: [], machines: [] });
+    expect(r.machines.list).not.toHaveBeenCalled();
+  });
+
+  // An empty id could read as "no owner filter" further down; it is refused before any read.
   it('refuses an empty owner id without reading anything', async () => {
     const r = repos([{ id: 'p1', owner_id: '', is_public: true, status: 'active' }]);
-    expect(await resolvePublicRooms(r, '')).toEqual([]);
+    expect(await resolvePublicCity(r, '')).toEqual({ projects: [], machines: [] });
     expect(r.projects.list).not.toHaveBeenCalled();
+  });
+});
+
+describe('readPublicCity', () => {
+  const tabRow = (id: string, projectId: string, machineId: string, name: string) => ({
+    id, project_id: projectId, machine_id: machineId, name, kind: 'terminal', tmux_session: `th-${id}`, simulator_udid: null, position: 0,
+    state: 'working', state_text: null, state_tool: 'claude', state_at: '2026-09-24T10:00:00.000Z', state_seen_at: null, activity: null, activity_verb: null, created_at: '',
+  });
+
+  it("reads every building's tabs in one query and keeps only those on a machine the owner owns", async () => {
+    const listByProjects = vi.fn(async () => [tabRow('t1', 'p1', 'm1', 'minha'), tabRow('t2', 'p1', 'mX', 'alheia')]);
+    const repos = {
+      users: { findByNickname: async () => ({ id: 'u1', name: 'Pedro', city_short_url_partner: null, city_short_url_custom: null }) },
+      projects: { list: async () => [{ id: 'p1', name: 'Engage', owner_id: 'u1', is_public: true, status: 'active' }, { id: 'p2', name: 'Vazio', owner_id: 'u1', is_public: true, status: 'active' }] },
+      machines: { list: async () => [{ id: 'm1', owner_id: 'u1' }] },
+      tabs: { listByProjects },
+    } as unknown as Repositories;
+    const city = (await readPublicCity(repos, 'pedro'))!;
+    expect(listByProjects).toHaveBeenCalledTimes(1);
+    expect(listByProjects).toHaveBeenCalledWith(['p1', 'p2']);
+    // a published project with no robot of its own is still a building
+    expect(city.buildings.map((b) => [b.name, b.robots.map((r) => r.name)])).toEqual([['Engage', ['minha']], ['Vazio', []]]);
   });
 });

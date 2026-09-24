@@ -1,4 +1,4 @@
-/** Shelf packing, shared by the rooms of a floor and the blocks of the city. Pure. */
+/** Shelf packing for the blocks of the city. Pure. */
 import type { Cell } from './iso';
 
 export interface Sized {

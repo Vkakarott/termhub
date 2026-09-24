@@ -63,18 +63,6 @@ const PROJECTS: { id: string; owner_id: string; name: string; status: string; is
   { id: 'p6', owner_id: 'u5', name: 'Sala do Quarto', status: 'active', is_public: true },
 ];
 
-// p1 (pedro's, published) also runs on m3, a machine u3 owns: merge ruling 2 — that link never
-// brings u3's machine into pedro's city.
-const LINKS = [
-  { project_id: 'p1', machine_id: 'm1' },
-  { project_id: 'p1', machine_id: 'm3' },
-  { project_id: 'p2', machine_id: 'm1' },
-  { project_id: 'p3', machine_id: 'm1' },
-  { project_id: 'p4', machine_id: 'm3' },
-  { project_id: 'p5', machine_id: 'm4' },
-  { project_id: 'p6', machine_id: 'm5' },
-];
-
 type TabRow = { id: string; project_id: string; machine_id: string; name: string; kind: string; tmux_session: string | null; simulator_udid: string | null; state: string | null };
 const TABS: TabRow[] = [
   { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'shell', kind: 'terminal', tmux_session: 'th-t1', simulator_udid: null, state: 'working' },
@@ -113,11 +101,8 @@ function buildApp() {
     projects: {
       list: vi.fn(async ({ owner }: { owner: string }) => PROJECTS.filter((p) => p.owner_id === owner)),
     },
-    projectMachines: {
-      listByProjects: vi.fn(async (projectIds: string[]) => LINKS.filter((l) => projectIds.includes(l.project_id))),
-    },
     tabs: {
-      listByProjectsOnMachine: vi.fn(async (projectIds: string[], machineId: string) => TABS.filter((t) => projectIds.includes(t.project_id) && t.machine_id === machineId)),
+      listByProjects: vi.fn(async (projectIds: string[]) => TABS.filter((t) => projectIds.includes(t.project_id))),
     },
   } as unknown as Repositories;
   app.register((instance) => publicCityRoutes(instance, repos), { prefix: '/public' });
@@ -143,10 +128,10 @@ describe('GET /public/city/:nickname', () => {
     const res = await app.inject({ method: 'GET', url: '/public/city/pedro' });
     expect(res.statusCode).toBe(200);
     expect(res.json().nickname).toBe('pedro');
-    expect(res.json().buildings[0].rooms.map((r: { name: string }) => r.name)).toEqual(['Engage Easy']);
+    expect(res.json().buildings.map((b: { name: string }) => b.name)).toEqual(['Engage Easy']);
   });
 
-  it('leaves out the private rooms of the same machine', async () => {
+  it('leaves out a private project', async () => {
     const { app } = buildApp();
     const body = JSON.stringify((await app.inject({ method: 'GET', url: '/public/city/pedro' })).json());
     expect(body).not.toContain('Projeto Secreto');
@@ -161,43 +146,43 @@ describe('GET /public/city/:nickname', () => {
   it('never asks for a private project\'s tabs — asserted on the repository call, not only on the body', async () => {
     const { app, repos } = buildApp();
     await app.inject({ method: 'GET', url: '/public/city/pedro' });
-    // p2 (private) and p3 (archived) must never appear in the argument, not just in the response.
-    // A regression that passed every project id through would still pass the body-only assertions
-    // above, since PROJECTS.p2's tab carries no string that collides with 'Projeto Secreto'.
-    expect(repos.tabs.listByProjectsOnMachine).toHaveBeenCalledWith(['p1'], 'm1');
-    // and never on a machine pedro does not own, even though p1 is linked to it
-    expect(repos.tabs.listByProjectsOnMachine).not.toHaveBeenCalledWith(expect.anything(), 'm3');
+    // p2 (private) and p3 (archived) must never appear in the argument, not just in the response
+    expect(repos.tabs.listByProjects).toHaveBeenCalledTimes(1);
+    expect(repos.tabs.listByProjects).toHaveBeenCalledWith(['p1']);
   });
 
-  it('leaves out a machine that belongs to somebody else, even with a public project on it', async () => {
+  it('leaves out somebody else\'s published project', async () => {
     const { app } = buildApp();
     const body = JSON.stringify((await app.inject({ method: 'GET', url: '/public/city/pedro' })).json());
     expect(body).not.toContain('Rival Room');
     expect(body).not.toContain('Rival HQ');
   });
 
-  // Merge ruling 2: p1 is published and linked to m3, which u3 owns. Pedro's city shows p1's room
-  // on his own machine only: neither m3, nor its name, nor p1's tab that runs there.
-  it('never exposes a machine the owner does not own, even one their published project is linked to', async () => {
+  // p1 is published and runs on m3 too, a machine u3 owns: its robot there is not pedro's to publish,
+  // and no machine — not even pedro's own m1 — is named anywhere
+  it('never exposes a robot on a machine the owner does not own, nor any machine name', async () => {
     const { app } = buildApp();
     const city = (await app.inject({ method: 'GET', url: '/public/city/pedro' })).json();
     expect(city.buildings).toHaveLength(1);
-    expect(city.buildings[0].name).toBe('Jarvis Office');
+    expect(city.buildings[0].name).toBe('Engage Easy');
+    expect(city.buildings[0].robots.map((r: { name: string }) => r.name)).toEqual(['shell']);
     const body = JSON.stringify(city);
-    expect(body).not.toContain('Rival HQ');
-    expect(body).not.toContain('shell na maquina alheia');
+    for (const secret of ['Rival HQ', 'shell na maquina alheia', 'Jarvis Office']) expect(body).not.toContain(secret);
   });
 
-  it('404s a nickname whose only published project runs on no machine they own', async () => {
+  // city-by-project §2.4: a published project is a building even with no agent of the owner's own
+  it("shows a published project whose agents all run on somebody else's machine as an empty building", async () => {
     const { app } = buildApp();
-    // semnada (u2) owns m2 but no project; give them a published one linked only to m3 (u3's)
-    PROJECTS.push({ id: 'p7', owner_id: 'u2', name: 'Sem Predio', status: 'active', is_public: true });
-    LINKS.push({ project_id: 'p7', machine_id: 'm3' });
+    PROJECTS.push({ id: 'p7', owner_id: 'u2', name: 'Sem Agentes Proprios', status: 'active', is_public: true });
+    TABS.push({ id: 't7', project_id: 'p7', machine_id: 'm3', name: 'aba na maquina de outro', kind: 'terminal', tmux_session: 'th-t7', simulator_udid: null, state: 'working' });
     try {
-      expect((await app.inject({ method: 'GET', url: '/public/city/semnada' })).statusCode).toBe(404);
+      const res = await app.inject({ method: 'GET', url: '/public/city/semnada' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().buildings).toEqual([expect.objectContaining({ name: 'Sem Agentes Proprios', robots: [] })]);
+      expect(res.body).not.toContain('aba na maquina de outro');
     } finally {
       PROJECTS.pop();
-      LINKS.pop();
+      TABS.pop();
     }
   });
 
@@ -229,7 +214,7 @@ describe('GET /public/city/:nickname', () => {
     const res = await app.inject({ method: 'GET', url: '/public/city/pedro' });
     expect(res.statusCode).toBe(200);
     expect(probingFn).not.toHaveBeenCalled();
-    const robots = res.json().buildings[0].rooms[0].robots;
+    const robots = res.json().buildings[0].robots;
     expect(robots).toHaveLength(1);
     // cold memo: alive falls back to the tool's own reported state, not an empty-office read
     expect(robots[0].alive).toBe(true);
@@ -270,6 +255,17 @@ describe('GET /public/city/:nickname/card.png', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/og-image.png');
     }
+  });
+
+  // city-by-project §2.5: the card takes `?building=` only; a `?room=` of an old link is not read
+  it('does not read a ?room= at all, however it is written', async () => {
+    vi.stubEnv('TERMHUB_RSVG_BIN', '/nonexistent/rsvg-convert');
+    const { app } = buildApp();
+    const res = await app.inject({ method: 'GET', url: `/public/city/pedro/card.png?room=${'x'.repeat(65)}&room=y` });
+    vi.unstubAllEnvs();
+    // the city read and the rasteriser were reached (the fallback here is the missing binary's), not a query refusal
+    expect(res.statusCode).toBe(302);
+    expect(renderCardSpy).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to the landing card when the rasteriser is unavailable', async () => {

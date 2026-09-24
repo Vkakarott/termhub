@@ -37,6 +37,10 @@ export const closedReason = z.enum(['cli_missing', 'run_failed', 'killed', 'miss
  */
 export const CAPABILITY_CLAUDE = 'claude';
 
+/** The agent forwards `append_system_prompt` from a `claude` open into the CLI's argv. An agent without
+ * it would silently drop the field, so the server requires it before running a project chat. */
+export const CAPABILITY_CLAUDE_SYSTEM_PROMPT = 'claude.system_prompt';
+
 export const helloMessage = z.object({
   type: z.literal('hello'),
   protocol: z.number().int().min(1),
@@ -85,6 +89,9 @@ export const claudeOpenParams = z.object({
   // belongs at, so there is no separate, later place to hand it over.
   token: z.string(),
   model: z.string().nullable().optional(),
+  // Project chats only: the server-composed focus text forwarded onto the CLI's argv (see
+  // `CAPABILITY_CLAUDE_SYSTEM_PROMPT`). Absent for the account-wide chat, whose argv must not change.
+  append_system_prompt: z.string().max(4000).nullable().optional(),
 });
 
 const openPty = z.object({ type: z.literal('open'), ch: channel, kind: z.literal('pty'), params: ptyOpenParams });

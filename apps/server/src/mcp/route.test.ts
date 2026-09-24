@@ -177,7 +177,7 @@ describe('POST /mcp tools', () => {
     const { app } = build({ grants: ['terminals:read'] });
     const r = await rpc(app, call('find', { query: 'mac' }));
     expect(r.json().result).toEqual({
-      content: [{ type: 'text', text: 'Este token não pode usar a ferramenta find: ela precisa do escopo `read` e da permissão de leitura de máquinas, projetos ou contas de IA na sua role' }],
+      content: [{ type: 'text', text: 'Este token não pode usar a ferramenta find: ela precisa do escopo `read` e da permissão de leitura de máquinas, projetos, tarefas ou contas de IA na sua role' }],
       isError: true,
     });
   });

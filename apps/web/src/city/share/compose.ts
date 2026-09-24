@@ -93,7 +93,7 @@ export function displayLink(url: string): string {
 /** What the page draws right now: robots drawn typing (every working robot), and raised hands. */
 export function countsOf(model: CityModel): { working: number; waiting: number } {
   let working = 0;
-  for (const machine of model.machines) for (const room of machine.floor.rooms) for (const desk of room.desks) if (desk.pose === 'type') working += 1;
+  for (const building of model.buildings) for (const desk of building.desks) if (desk.pose === 'type') working += 1;
   return { working, waiting: model.needsYou };
 }
 

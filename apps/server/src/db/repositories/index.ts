@@ -8,6 +8,7 @@ import { ProjectsRepository } from './projects.js';
 import { ProjectMachinesRepository } from './project-machines.js';
 import { TabsRepository } from './tabs.js';
 import { TasksRepository } from './tasks.js';
+import { TaskColumnsRepository } from './task-columns.js';
 import { NotesRepository } from './notes.js';
 import { IntegrationsRepository } from './integrations.js';
 import { ProjectSetupRepository } from './project-setup.js';
@@ -33,6 +34,7 @@ export interface Repositories {
   projectMachines: ProjectMachinesRepository;
   tabs: TabsRepository;
   tasks: TasksRepository;
+  taskColumns: TaskColumnsRepository;
   notes: NotesRepository;
   integrations: IntegrationsRepository;
   projectSetup: ProjectSetupRepository;
@@ -60,6 +62,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     projectMachines: new ProjectMachinesRepository(db),
     tabs: new TabsRepository(db),
     tasks: new TasksRepository(db),
+    taskColumns: new TaskColumnsRepository(db),
     notes: new NotesRepository(db),
     integrations: new IntegrationsRepository(db),
     projectSetup: new ProjectSetupRepository(db),
@@ -90,3 +93,5 @@ export { ProjectRuleError } from './projects.js';
 export type { ProjectRuleCode } from './projects.js';
 export { ProjectGroupRuleError } from './project-groups.js';
 export type { ProjectGroup, ProjectGroupRuleCode } from './project-groups.js';
+export { TaskRuleError } from './task-rules.js';
+export type { TaskRuleCode } from './task-rules.js';

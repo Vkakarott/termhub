@@ -1,11 +1,12 @@
 import type { AgentMessage, ClaudeOpenParams } from '@termhub/agent-protocol';
-import { HEADER_BYTES, MAX_FRAME } from '@termhub/agent-protocol';
+import { CAPABILITY_CLAUDE_SYSTEM_PROMPT, HEADER_BYTES, MAX_FRAME } from '@termhub/agent-protocol';
 import { buildClaudeArgs, mcpConfig } from '@termhub/claude-cli';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AgentSocket } from '../client.js';
+import { CAPABILITIES } from '../run.js';
 import { createClaudeManager } from './run.js';
 
 /**
@@ -145,6 +146,22 @@ describe('createClaudeManager', () => {
     expect(readFileSync(join(out, 'mcp.mode'), 'utf8').trim()).toBe('-rw-------');
     // …and does not outlive it.
     expect(readdirSync(runs)).toEqual([]);
+  });
+
+  it('forwards append_system_prompt from the open params onto the CLI argv, as its last flag pair', async () => {
+    const { bin, out, runs } = fakeCli(RECORDER);
+    const { socket, sendControl } = makeSocket();
+    const claude = createClaudeManager({ log: vi.fn(), env: pathEnv(bin), tmpDir: runs });
+
+    await claude.open(1, { ...baseParams, append_system_prompt: 'foco' }, socket);
+    claude.write(1, Buffer.from(PROMPT));
+    await waitForClosed(sendControl);
+
+    expect(argvOf(out).slice(-2)).toEqual(['--append-system-prompt', 'foco']);
+  });
+
+  it('declares the claude system-prompt capability, without which the server refuses a project chat', () => {
+    expect(CAPABILITIES).toContain(CAPABILITY_CLAUDE_SYSTEM_PROMPT);
   });
 
   it('does not leak this process own CLAUDE_CONFIG_DIR when config_dir is null', async () => {
@@ -294,6 +311,9 @@ exec sleep 30
     await claude.open(1, baseParams, socket);
 
     expect(sendControl).toHaveBeenCalledWith({ type: 'open_error', ch: 1, error: { code: 'invalid', message: 'channel in use' } });
+    // The first CLI must have recorded its start before the close kills it: on a busy runner the
+    // kill could land before its first line, and the count below would read 0.
+    await waitFor('the first CLI to start', () => startCount(out) >= 1);
     claude.close(1);
     await waitForClosed(sendControl);
     // Counted, not merely "a file exists": the fake appends one line per start, so a second CLI

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Project, ProjectGroup } from './types';
-import { applyDrop, buildSections, moveGroup } from './project-groups-model';
+import { applyDrop, buildSections, favoriteProjects, moveGroup } from './project-groups-model';
 
 const proj = (id: string, status: Project['status'] = 'active') => ({ id, name: id, key: id.toUpperCase(), status }) as Project;
 const P = [proj('a'), proj('b'), proj('c'), proj('z', 'archived')];
@@ -100,5 +100,16 @@ describe('moveGroup', () => {
   it('moves and renumbers positions', () => {
     const r = moveGroup(G(), 'g2', 0);
     expect(r.map((g) => [g.id, g.position])).toEqual([['g2', 0], ['fav', 1], ['g1', 2]]);
+  });
+});
+
+describe('favoriteProjects', () => {
+  it('lists Favoritos in its own order, leaving out archived and unknown projects', () => {
+    const groups: ProjectGroup[] = [{ id: 'fav', name: 'Favoritos', kind: 'favorites', position: 0, project_ids: ['c', 'z', 'gone', 'a'] }, ...G().slice(1)];
+    expect(favoriteProjects(P, groups).map((p) => p.id)).toEqual(['c', 'a']);
+  });
+
+  it('is empty while the groups have not loaded', () => {
+    expect(favoriteProjects(P, [])).toEqual([]);
   });
 });

@@ -144,13 +144,87 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
     });
   });
 
-  describe('recordEvent — the same Claude wait (Stop, then idle_prompt ~1min later) stays seen', () => {
-    it('carries the seen mark forward: seen waiting_input + a new waiting_input stays seen', async () => {
+  describe('recordEvent — the same wait (Claude: Stop, then idle_prompt ~1min later) stays seen, a new one re-arms', () => {
+    it('carries the seen mark forward: seen waiting_input + a waiting_input that continues it stays seen', async () => {
       await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'first?' });
       await repo.markSeen(tabId);
-      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null });
+      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, continuesWait: true });
       expect(needsYou(updated)).toBe(false);
       expect(updated.state_seen_at).toBe(updated.state_at);
+    });
+
+    it('re-arms on a seen waiting_input followed by a new wait (the next Codex turn, which sends no working in between)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'um' });
+      await repo.markSeen(tabId);
+      const { tab: second } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'dois' });
+      expect(needsYou(second)).toBe(true);
+      expect(second.state_text).toBe('dois');
+      await repo.markSeen(tabId);
+      const { tab: third } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'codex', text: 'tres' });
+      expect(needsYou(third)).toBe(true);
+    });
+
+    it('a continuation with no text keeps the text of the wait it continues (Cursor: an answer, then a stop that is not completed)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'dois' });
+      await repo.markSeen(tabId);
+      const { tab: seen } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(seen)).toBe(false);
+      expect(seen.state_text).toBe('dois');
+    });
+
+    it('keeps the text even while the wait is still unseen, and never re-arms nor silences it', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'dois' });
+      const { tab } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(tab)).toBe(true);
+      expect(tab.state_text).toBe('dois');
+    });
+
+    it('a continuation that brings its own text still replaces it (Claude idle_prompt)', async () => {
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Posso seguir?' });
+      const { tab } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: 'Claude is waiting for your input', continuesWait: true });
+      expect(tab.state_text).toBe('Claude is waiting for your input');
+    });
+
+    it('Esc mid-turn: the first stop opens the wait, the second one does not alert again once seen', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab: first } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(first)).toBe(true);
+      await repo.markSeen(tabId);
+      const { tab: second } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(second)).toBe(false);
+    });
+
+    it('a lost answer leaves the tab working, and the stop that follows opens the wait (Cursor)', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(tab)).toBe(true);
+      expect(tab.state_text).toBeNull();
+    });
+
+    it('inverted Cursor race: stop before afterAgentResponse ends with the answer text and still needs you', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      const { tab: stop } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      expect(needsYou(stop)).toBe(true);
+      expect(stop.state_text).toBeNull();
+      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.', continuesWait: true });
+      expect(needsYou(answer)).toBe(true);
+      expect(answer.state_text).toBe('Pronto.');
+    });
+
+    it('inverted Cursor race: opening the tab between stop and answer keeps one alert', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'cursor', text: null });
+      await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: null, continuesWait: true });
+      await repo.markSeen(tabId);
+      const { tab: answer } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'cursor', text: 'Pronto.', continuesWait: true });
+      expect(needsYou(answer)).toBe(false);
+      expect(answer.state_text).toBe('Pronto.');
+    });
+
+    it('never carries a seen mark the tab does not have, even for a continuation', async () => {
+      await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null });
+      await repo.markSeen(tabId);
+      const { tab: updated } = await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null, continuesWait: true });
+      expect(needsYou(updated)).toBe(true);
     });
 
     it('re-arms once the wait passes through another state (working) before returning to waiting_input', async () => {

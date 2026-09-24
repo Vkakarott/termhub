@@ -1,6 +1,6 @@
 import os from 'node:os';
 import type { HelloMessage } from '@termhub/agent-protocol';
-import { CAPABILITY_CLAUDE, CLOSE } from '@termhub/agent-protocol';
+import { CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT, CLOSE } from '@termhub/agent-protocol';
 import { connectOnce, runForever, RevokedError, ProtocolMismatchError, UpgradeRejectedError } from './client.js';
 import { heal } from './rpc/hooks.js';
 import type { AgentConfig } from './config.js';
@@ -28,7 +28,7 @@ export type HelloFields = Omit<HelloMessage, 'type' | 'protocol'>;
  * and only opens a `claude` channel on a machine that claims it — an agent too old to know the
  * kind sends no `capabilities` at all, which reads as `[]` (see the protocol's `helloMessage`).
  */
-export const CAPABILITIES = [CAPABILITY_CLAUDE];
+export const CAPABILITIES = [CAPABILITY_CLAUDE, CAPABILITY_CLAUDE_SYSTEM_PROMPT];
 
 /** Builds the `hello` fields, probing `tools.detect` for the tool list (empty on failure). */
 export async function buildHello(osName: SupportedOs): Promise<HelloFields> {

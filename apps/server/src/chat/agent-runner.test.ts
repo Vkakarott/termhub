@@ -94,12 +94,24 @@ it('opens a claude channel on that machine with the params derived from the inpu
     mcp_url: 'https://termhub.dev/mcp',
     token: input.token,
     model: 'sonnet',
+    append_system_prompt: null,
   });
 
   agent.send('{"type":"stream_event"}\n');
   agent.exit(0);
   await run.done;
   expect(run.lines).toEqual(['{"type":"stream_event"}']);
+});
+
+it('forwards append_system_prompt when the input carries one (a project chat)', async () => {
+  const agent = fakeHost();
+  const run = collect(agentRunner('m-1', { host: agent.host }).run({ ...input, append_system_prompt: 'foco' }));
+
+  await agent.opened;
+  expect(agent.seen.params[0]).toMatchObject({ append_system_prompt: 'foco' });
+
+  agent.exit(0);
+  await run.done;
 });
 
 it('writes the prompt as one frame after the channel is open, and never as an open parameter', async () => {

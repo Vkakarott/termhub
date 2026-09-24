@@ -24,19 +24,10 @@ export const ART_URLS: Record<string, string> = {
 };
 
 /**
- * Shared station registration — layers of a stack share one 1500 canvas transform.
+ * Shared station registration — the layers of a desk share one canvas, so one anchor places them all.
  * Foot sits near the desk legs.
  */
 export const STATION_ANCHOR = { x: 0.5, y: 0.84 };
-
-/** @deprecated kept for call sites that keyed by sprite id */
-export const ART_ANCHOR: Record<string, { x: number; y: number }> = {
-  'desk/side-v-2': STATION_ANCHOR,
-  'desk/side-h': STATION_ANCHOR,
-  'display/v-2': STATION_ANCHOR,
-  'agent/side-v': STATION_ANCHOR,
-  'chair/h': STATION_ANCHOR,
-};
 
 /** On-screen width of a station sheet (all layers share this scale). */
 export const DESK_ART_SIZE = 72 * 0.9;
@@ -83,9 +74,8 @@ export type DeskArtKeys = {
 /**
  * Occupied: desk-v-2 → display → agent (same place).
  * Empty: desk-h → chair-h on top (same place).
- * `index` is kept for call-site compatibility.
  */
-export function deskArtKeys(_index: number, showAgent: boolean): DeskArtKeys {
+export function deskArtKeys(showAgent: boolean): DeskArtKeys {
   if (showAgent) {
     return {
       desk: 'desk/side-v-2',

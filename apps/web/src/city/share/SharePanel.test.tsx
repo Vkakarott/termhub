@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PublicCity } from '../../lib/types';
 import { buildCityModel } from '../../office/model';
-import { toMachineEntries } from '../api';
+import { toBuildingEntries } from '../api';
 
 const { recordStory, canRecordVideo, captureStill, canShareFile, shareOrDownload, downloadFile } = vi.hoisted(() => ({
   recordStory: vi.fn(),
@@ -24,9 +24,9 @@ const CITY: PublicCity = {
   nickname: 'pedro',
   owner_name: 'Pedro',
   short_url: 'https://77a.it/pedro',
-  buildings: [{ id: 'b1', name: 'Jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: '2026-09-23T10:00:00.000Z', activity: 'coding', activity_verb: null, alive: true, progress: null }] }] }],
+  buildings: [{ id: 'b1', name: 'Engage Easy', robots: [{ id: 'x1', name: 'aba 1', kind: 'terminal', state: 'working', state_at: '2026-09-23T10:00:00.000Z', activity: 'coding', activity_verb: null, alive: true, progress: null }] }],
 };
-const MODEL = buildCityModel(toMachineEntries(CITY), () => undefined);
+const MODEL = buildCityModel(toBuildingEntries(CITY), () => undefined);
 
 let scene: ShareScene & { lockCamera: ReturnType<typeof vi.fn> };
 const onClose = vi.fn();

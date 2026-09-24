@@ -13,8 +13,10 @@ import {
   hookEnvFile,
   mergeClaudeSettings,
   mergeCodexConfig,
+  mergeCursorHooks,
   stripClaudeSettings,
   stripCodexConfig,
+  stripCursorHooks,
 } from '@termhub/machine-ops';
 import { discoverClaudeDirs } from '../claude-dirs.js';
 import { RpcFailure } from '../exec.js';
@@ -23,12 +25,14 @@ import { RpcFailure } from '../exec.js';
  * Monitor hooks on this machine, written with node:fs (no shell): the forwarding script under
  * ~/.termhub/bin, its env file (url + token, 0600), our entries in the settings.json of each
  * Claude config dir (~/.claude, plus the accounts' own dirs that exist here) and, when Codex
- * is installed, ~/.codex/config.toml. The merge/strip logic is the same the server uses for
+ * or the Cursor CLI is installed, ~/.codex/config.toml and ~/.cursor/hooks.json. The merge/strip logic is the same the server uses for
  * ssh machines (@termhub/machine-ops), so both paths leave the files identical.
  */
 
 const CODEX_DIR_REL = '.codex';
 const CODEX_CONFIG_REL = '.codex/config.toml';
+const CURSOR_DIR_REL = '.cursor';
+const CURSOR_HOOKS_REL = '.cursor/hooks.json';
 
 const isEnoent = (err: unknown) => (err as NodeJS.ErrnoException)?.code === 'ENOENT';
 
@@ -89,6 +93,17 @@ async function claudeTargets(dirs: string[] | undefined, home: string): Promise<
   return out;
 }
 
+/** Our entries merged into ~/.cursor/hooks.json, or null when the Cursor CLI is not here. Refuses a file it cannot parse, before anything is written. */
+async function mergedCursorHooks(home: string, scriptPath: string): Promise<string | null> {
+  if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return null;
+  try {
+    return mergeCursorHooks(await readOrEmpty(path.join(home, CURSOR_HOOKS_REL)), scriptPath, `~/${CURSOR_HOOKS_REL}`);
+  } catch (err) {
+    const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `~/${CURSOR_HOOKS_REL} não é JSON válido` : err instanceof Error ? err.message : String(err);
+    throw new RpcFailure('failed', message, CURSOR_HOOKS_REL);
+  }
+}
+
 export async function install(params: RpcParams<'hooks.install'>, home = os.homedir()): Promise<RpcResult<'hooks.install'>> {
   const scriptPath = path.join(home, HOOK_SCRIPT_REL);
   const codexFile = path.join(home, CODEX_CONFIG_REL);
@@ -98,7 +113,7 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
   const merged: { target: ClaudeTarget; body: string }[] = [];
   for (const target of targets) {
     try {
-      merged.push({ target, body: mergeClaudeSettings(await readOrEmpty(target.file), scriptPath) });
+      merged.push({ target, body: mergeClaudeSettings(await readOrEmpty(target.file), scriptPath, target.shown) });
     } catch (err) {
       // Not a JSON object (or not JSON at all): refuse rather than clobber what the user has there.
       const message = err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `${target.shown} não é JSON válido` : err instanceof Error ? err.message : String(err);
@@ -107,6 +122,7 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
   }
   const hasCodex = await isDir(path.join(home, CODEX_DIR_REL));
   const mergedCodex = hasCodex ? mergeCodexConfig(await readOrEmpty(codexFile), scriptPath) : null;
+  const mergedCursor = await mergedCursorHooks(home, scriptPath);
 
   let current = `~/${HOOK_SCRIPT_REL}`;
   try {
@@ -124,6 +140,10 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
       current = `~/${CODEX_CONFIG_REL}`;
       await writeAtomic(codexFile, mergedCodex, 0o644);
     }
+    if (mergedCursor !== null) {
+      current = `~/${CURSOR_HOOKS_REL}`;
+      await writeAtomic(path.join(home, CURSOR_HOOKS_REL), mergedCursor, 0o644);
+    }
   } catch (err) {
     throw fsFailure(err, current);
   }
@@ -131,19 +151,20 @@ export async function install(params: RpcParams<'hooks.install'>, home = os.home
     home,
     claude: 'installed',
     codex: mergedCodex !== null ? 'installed' : 'skipped',
+    cursor: mergedCursor !== null ? 'installed' : 'skipped',
     claude_dirs: merged.map(({ target }) => target.shown.replace(/\/settings\.json$/, '')),
   };
 }
 
 /**
  * Brings this machine's hooks back up to what this agent carries, reusing the url and token already
- * installed here: the forwarding script when the one on disk differs, and our entries in the config
- * dirs that do not have them yet — the agent calls it on startup and on every reconnect, so a config
- * dir created after the install (a new account, a new alias) starts notifying on its own, and a
- * script from an older agent is replaced. A machine without our hooks is left untouched: installing
- * is the server's call, not ours.
+ * installed here: the forwarding script when the one on disk differs, and our entries wherever they
+ * are missing — each Claude config dir, the Cursor CLI's hooks.json, Codex's notify. The agent calls
+ * it on startup and on every reconnect, so a config dir or a CLI that showed up after the install
+ * starts notifying on its own, and a script from an older agent is replaced. A machine without our
+ * hooks is left untouched: installing is the server's call, not ours.
  *
- * Answers the dirs it repaired.
+ * Answers the dirs it repaired ("~/.claude-x", "~/.cursor", "~/.codex").
  */
 export async function heal(home = os.homedir()): Promise<string[]> {
   const scriptPath = path.join(home, HOOK_SCRIPT_REL);
@@ -157,21 +178,93 @@ export async function heal(home = os.homedir()): Promise<string[]> {
   // a version, is what keeps every later change to the script reaching machines by itself).
   if (script !== HOOK_SCRIPT) await writeAtomic(scriptPath, HOOK_SCRIPT, 0o755);
 
+  // One failing repair must not take the others down: a settings.json on a read-only mount, or one
+  // owned by somebody else, would otherwise reject before Cursor and Codex are even looked at, and
+  // the machine would go on missing their hooks at every reconnect - what heal exists to prevent.
+  // Each step logs its own skips (deduped); the catch here is only a last resort so startup never dies.
+  const steps = [healClaudeDirs, healCursor, healCodex];
+  const healed: string[] = [];
+  for (const step of steps) {
+    try {
+      healed.push(...(await step(home, scriptPath)));
+    } catch {
+      /* steps that still throw after their own handling */
+    }
+  }
+  return healed;
+}
+
+/** Paths we already told the log about — heal runs on every reconnect (backoff ≥ 1s). */
+const healSkipLogged = new Set<string>();
+
+function logHealSkip(shown: string, err: unknown, key = shown): void {
+  if (healSkipLogged.has(key)) return;
+  healSkipLogged.add(key);
+  const code = (err as NodeJS.ErrnoException)?.code;
+  console.error(
+    `[termhub-agent] monitor hooks heal skipped ${JSON.stringify({ path: shown, error: code ?? (err instanceof Error ? err.message : String(err)) })}`,
+  );
+}
+
+/** Our entries in the Claude config dirs that lack them; answers the dirs it wrote. */
+async function healClaudeDirs(home: string, scriptPath: string): Promise<string[]> {
   const healed: string[] = [];
   for (const dir of await discoverClaudeDirs(home)) {
     const file = path.join(expandHome(dir, home), 'settings.json');
-    const current = await readOrEmpty(file);
-    let body: string;
     try {
-      body = mergeClaudeSettings(current, scriptPath);
-    } catch {
-      continue; // not a settings file we understand: leave it as the person wrote it
+      // read stays inside the try: EACCES / EISDIR on one dir must not abort the siblings
+      const current = await readOrEmpty(file);
+      const body = mergeClaudeSettings(current, scriptPath, `${dir}/settings.json`);
+      if (body === current) continue;
+      await writeAtomic(file, body, 0o644);
+    } catch (err) {
+      logHealSkip(dir, err, file);
+      continue; // not a settings file we understand, or one we cannot write: leave it where it is
     }
-    if (body === current) continue;
-    await writeAtomic(file, body, 0o644);
     healed.push(dir);
   }
   return healed;
+}
+
+/**
+ * Our entries back in ~/.cursor/hooks.json when the Cursor CLI is here and they are missing — it
+ * was installed after the hooks, or Cursor rewrote a file its own UI manages. The merge keeps the
+ * person's own hooks; a file it cannot parse is left alone.
+ */
+async function healCursor(home: string, scriptPath: string): Promise<string[]> {
+  if (!(await isDir(path.join(home, CURSOR_DIR_REL)))) return [];
+  const file = path.join(home, CURSOR_HOOKS_REL);
+  const shown = `~/${CURSOR_DIR_REL}`;
+  try {
+    const current = await readOrEmpty(file);
+    const body = mergeCursorHooks(current, scriptPath);
+    if (body === current) return [];
+    await writeAtomic(file, body, 0o644);
+  } catch (err) {
+    logHealSkip(shown, err, file);
+    return []; // a file we cannot read or write: leave it where it is
+  }
+  return [shown];
+}
+
+/**
+ * Our notify in ~/.codex/config.toml only when there is no notify at all: Codex takes a single one,
+ * so a notify the person set for something else is theirs to keep — replacing it is the install's
+ * call (the machine form), never a silent repair on every agent start.
+ */
+async function healCodex(home: string, scriptPath: string): Promise<string[]> {
+  if (!(await isDir(path.join(home, CODEX_DIR_REL)))) return [];
+  const shown = `~/${CODEX_DIR_REL}`;
+  try {
+    const file = path.join(home, CODEX_CONFIG_REL);
+    const current = await readOrEmpty(file);
+    if (/^\s*notify\s*=/m.test(current)) return [];
+    await writeAtomic(file, mergeCodexConfig(current, scriptPath), 0o644);
+    return [shown];
+  } catch (err) {
+    logHealSkip(shown, err, path.join(home, CODEX_CONFIG_REL));
+    return [];
+  }
 }
 
 export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.homedir()): Promise<RpcResult<'hooks.uninstall'>> {
@@ -188,6 +281,14 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     }
   }
   const codexConfig = (await isDir(path.join(home, CODEX_DIR_REL))) ? await readOrEmpty(codexFile) : '';
+  const cursorFile = path.join(home, CURSOR_HOOKS_REL);
+  const cursorHooks = await readOrEmpty(cursorFile);
+  let strippedCursor: string | null = null;
+  try {
+    strippedCursor = cursorHooks.includes(HOOK_MARK) ? stripCursorHooks(cursorHooks) : null;
+  } catch {
+    // unreadable JSON: leave the file alone
+  }
 
   let current = `~/${HOOK_SCRIPT_REL}`;
   try {
@@ -201,6 +302,10 @@ export async function uninstall(params: RpcParams<'hooks.uninstall'>, home = os.
     if (codexConfig.includes(HOOK_MARK)) {
       current = `~/${CODEX_CONFIG_REL}`;
       await writeAtomic(codexFile, stripCodexConfig(codexConfig), 0o644);
+    }
+    if (strippedCursor !== null) {
+      current = `~/${CURSOR_HOOKS_REL}`;
+      await writeAtomic(cursorFile, strippedCursor, 0o644);
     }
   } catch (err) {
     throw fsFailure(err, current);

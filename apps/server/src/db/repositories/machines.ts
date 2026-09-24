@@ -4,6 +4,7 @@ import { mapMachine, type Machine, type MachineType } from './types.js';
 
 export interface MachineInput {
   name: string;
+  subtitle?: string | null;
   type: MachineType;
   host?: string | null;
   ssh_user?: string | null;
@@ -73,6 +74,7 @@ export class MachinesRepository {
       data: {
         id: newId(),
         name: input.name,
+        subtitle: input.subtitle ?? null,
         type: input.type,
         host: isAgent ? null : (input.host ?? null),
         sshUser: isAgent ? null : (input.ssh_user ?? null),
@@ -93,6 +95,7 @@ export class MachinesRepository {
       where: { id },
       data: {
         name: next.name,
+        subtitle: next.subtitle ?? null,
         type: next.type,
         host: next.host ?? null,
         sshUser: next.ssh_user ?? null,

@@ -4,11 +4,12 @@ import { EventEmitter } from 'node:events';
 export interface PublicChange { project_id: string; is_public: boolean }
 
 /**
- * Rooms left the street without their project being unpublished: a machine changed owner or was
- * deleted (every room on it, `project_id` absent), or one project was unlinked from a machine (that
- * one room). The public sockets watching one of them hang up, so the page re-reads the snapshot.
+ * Robots left the street without their building being unpublished: a machine changed owner or was
+ * deleted (every robot on it, `project_id` absent), or one project was unlinked from a machine (that
+ * project's robots on it). The building stays; the public sockets that showed one of those robots
+ * hang up, so the page re-reads the snapshot without them.
  */
-export interface RoomsGone { machine_id: string; project_id?: string }
+export interface RobotsGone { machine_id: string; project_id?: string }
 
 /**
  * A user was deleted: their nickname, and with it their whole city, is gone. Their projects and
@@ -27,10 +28,10 @@ class PublicBus {
     this.emitter.on('public', listener);
     return () => this.emitter.off('public', listener);
   }
-  publishRoomsGone(gone: RoomsGone): void { this.emitter.emit('rooms-gone', gone); }
-  subscribeRoomsGone(listener: (gone: RoomsGone) => void): () => void {
-    this.emitter.on('rooms-gone', listener);
-    return () => this.emitter.off('rooms-gone', listener);
+  publishRobotsGone(gone: RobotsGone): void { this.emitter.emit('robots-gone', gone); }
+  subscribeRobotsGone(listener: (gone: RobotsGone) => void): () => void {
+    this.emitter.on('robots-gone', listener);
+    return () => this.emitter.off('robots-gone', listener);
   }
   publishOwnerGone(gone: OwnerGone): void { this.emitter.emit('owner-gone', gone); }
   subscribeOwnerGone(listener: (gone: OwnerGone) => void): () => void {

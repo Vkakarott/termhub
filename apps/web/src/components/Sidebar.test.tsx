@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Machine, MonitorItem, Project, ProjectGroup, Tab } from '../lib/types';
 
@@ -14,14 +14,22 @@ const state = vi.hoisted(() => ({
   items: [] as MonitorItem[],
 }));
 
+const auth = vi.hoisted(() => ({ canChat: true, canCreateProjects: true }));
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
     user: { id: 'u1', name: 'Pedro', avatar_url: null, email: 'pedro@example.com' },
     logout: vi.fn(),
-    can: () => true,
+    can: (resource: string, action?: string) => (resource === 'chat' ? auth.canChat : resource === 'projects' && action === 'create' ? auth.canCreateProjects : true),
     viewAs: 'self',
   }),
 }));
+const chat = vi.hoisted(() => ({
+  openProjectId: null as string | null,
+  toggle: vi.fn(),
+  close: vi.fn(),
+  status: vi.fn((_id: string) => ({ busy: false, pending: 0 })),
+}));
+vi.mock('../lib/project-chat', () => ({ useProjectChat: () => chat }));
 const groupsState = vi.hoisted(() => ({
   groups: [] as import('../lib/types').ProjectGroup[],
   error: null as string | null,
@@ -103,7 +111,11 @@ afterEach(() => {
   cleanup();
   groupsState.groups = [];
   groupsState.error = null;
+  auth.canChat = true;
+  auth.canCreateProjects = true;
+  chat.openProjectId = null;
   vi.clearAllMocks();
+  chat.status.mockImplementation(() => ({ busy: false, pending: 0 }));
 });
 
 describe('Sidebar sections', () => {
@@ -119,12 +131,34 @@ describe('Sidebar sections', () => {
     expect(within(all).queryByRole('link', { name: /omega/ })).not.toBeInTheDocument(); // archived, hidden by default
   });
 
+  it('collapses "Em execução" like any other section, and remembers it', () => {
+    renderSidebar();
+    fireEvent.click(within(section('Em execução')).getByRole('button', { name: 'Recolher Em execução' }));
+    expect(within(section('Em execução')).queryByRole('link', { name: /alpha/ })).not.toBeInTheDocument();
+    expect(within(section('Em execução')).getByRole('button', { name: 'Expandir Em execução' })).toHaveAttribute('aria-expanded', 'false');
+    // the project itself is not collapsed: Outros still lists it
+    expect(within(section('Outros')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
+
+    cleanup();
+    renderSidebar();
+    expect(within(section('Em execução')).queryByRole('link', { name: /alpha/ })).not.toBeInTheDocument();
+  });
+
   it('hides "Em execução" when nothing is running', () => {
     state.openTabs = [];
     renderSidebar();
     expect(screen.queryByRole('region', { name: 'Em execução' })).not.toBeInTheDocument();
     expect(within(section('Outros')).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
     expect(screen.getByText('Projetos')).toBeInTheDocument();
+  });
+
+  it('offers no "+ novo projeto" to a user who cannot create projects', () => {
+    state.projects = [];
+    state.openTabs = [];
+    auth.canCreateProjects = false;
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: '+ novo projeto' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ novo' })).toBeNull();
   });
 
   it('shows the empty state when there are no projects', () => {
@@ -155,11 +189,12 @@ describe('Sidebar sections', () => {
     expect(within(section('Em execução')).getByRole('link', { name: /omega/ })).toBeInTheDocument();
   });
 
-  it('keeps the project actions (edit, delete) next to the pin and the Grupos… button', () => {
+  it('keeps the project actions (chat, edit) next to the pin and the Grupos… button; delete lives in the project settings', () => {
     renderSidebar();
     const all = section('Outros');
+    expect(within(all).getAllByRole('button', { name: 'Chat do projeto' })).toHaveLength(3);
     expect(within(all).getAllByTitle('Editar projeto')).toHaveLength(3);
-    expect(within(all).getAllByTitle(/Excluir projeto/)).toHaveLength(3);
+    expect(within(all).queryByTitle(/Excluir projeto/)).toBeNull();
     expect(within(all).getAllByRole('button', { name: 'Fixar em Favoritos' })).toHaveLength(3);
     expect(within(all).getAllByTitle('Grupos…')).toHaveLength(3);
     expect(within(all).getAllByTitle('Grupos…')[0]).toHaveAttribute('aria-haspopup', 'menu');
@@ -177,6 +212,17 @@ describe('Sidebar agent rows', () => {
     const beta = agentsOf(running, 'beta')!;
     expect(within(beta).getByRole('link').textContent).toBe('Caio'); // one machine: no suffix
     expect(within(beta).queryByText(/mac/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the tab name readable next to a long machine name: the machine name gives way first', () => {
+    renderSidebar();
+    const row = within(agentsOf(section('Em execução'), 'alpha')!).getAllByRole('link')[0];
+    const name = within(row).getByText('Ana');
+    const machine = within(row).getByText(/jarvis/);
+    expect(name).toHaveClass('shrink-0', 'truncate');
+    expect(name.className).toMatch(/max-w-/);
+    expect(machine).toHaveClass('min-w-0', 'truncate');
+    expect(machine).not.toHaveClass('shrink-0');
   });
 
   it('names each agent list after its section too, so a running project\'s two lists are told apart', () => {
@@ -293,6 +339,46 @@ describe('Sidebar footer', () => {
     expect(machinesLink).toHaveAttribute('href', '/machines');
     expect(screen.getByTitle('Novo projeto')).toBeInTheDocument();
     expect(screen.queryByText('+ máquina')).not.toBeInTheDocument();
+  });
+
+  it('shows the daily menus with icons, Escritório first', () => {
+    renderSidebar();
+    const links = within(screen.getByRole('navigation', { name: 'Menu principal' })).getAllByRole('link');
+    expect(links.map((l) => l.textContent)).toEqual(['Escritório', 'Chat', 'Máquinas']);
+    expect(links[0].querySelector('svg')).not.toBeNull();
+  });
+
+  it('ends with the profile row, which opens Perfil', () => {
+    let where = '';
+    function Where() {
+      where = useLocation().pathname;
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Sidebar />
+        <Where />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /configurações e perfil/ }));
+    expect(where).toBe('/settings/profile');
+  });
+
+  it('no longer carries Ver como, Integrações, Configurações, Cookies or Sair', () => {
+    renderSidebar();
+    for (const name of [/Ver como/, /Integrações/, /^Configurações$/, /Cookies/, /^Sair$/]) {
+      expect(screen.queryByRole('link', { name })).toBeNull();
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
+  });
+
+  it('collapses with a line icon', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar onCollapse={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: 'Recolher sidebar' }).querySelector('svg')).not.toBeNull();
   });
 });
 
@@ -478,5 +564,37 @@ describe('Sidebar groups', () => {
     groupsState.error = 'Não foi possível salvar os grupos. Tente de novo.';
     renderSidebar();
     expect(screen.getByRole('alert')).toHaveTextContent('Não foi possível salvar');
+  });
+});
+
+describe('Sidebar project chat', () => {
+  const rowOf = (name: string) => within(section('Outros')).getByRole('link', { name: new RegExp(name) }).closest('li')!;
+
+  it('💬 toggles that project chat', () => {
+    renderSidebar();
+    fireEvent.click(within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' }));
+    expect(chat.toggle).toHaveBeenCalledWith('p3');
+  });
+
+  it('keeps the 💬 shown without hover, with a dot, while that chat is answering or waiting', () => {
+    chat.status.mockImplementation((id: string) => (id === 'p3' ? { busy: false, pending: 1 } : { busy: false, pending: 0 }));
+    renderSidebar();
+    const button = within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' });
+    expect(button).toHaveAttribute('data-active', 'true');
+    // outside the hover-only actions: its container is not the hidden span
+    expect(button.parentElement).not.toHaveClass('hidden');
+    expect(within(rowOf('beta')).getByRole('button', { name: 'Chat do projeto' }).parentElement).toHaveClass('hidden');
+  });
+
+  it('keeps the 💬 of the project whose chat is open shown without hover', () => {
+    chat.openProjectId = 'p3';
+    renderSidebar();
+    expect(within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' }).parentElement).not.toHaveClass('hidden');
+  });
+
+  it('has no chat button without the chat permission', () => {
+    auth.canChat = false;
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: 'Chat do projeto' })).toBeNull();
   });
 });

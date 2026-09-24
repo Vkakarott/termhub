@@ -108,6 +108,12 @@ export type MachineHook = Prisma.MachineHookModel
  */
 export type Ticket = Prisma.TicketModel
 /**
+ * Model TaskColumn
+ * A board column of a project. The user names it; `category` is what the system reasons with
+ * (todo, doing or done — never backlog, a CHECK in the migration enforces it).
+ */
+export type TaskColumn = Prisma.TaskColumnModel
+/**
  * Model Task
  * 
  */
@@ -161,18 +167,18 @@ export type ApiToken = Prisma.ApiTokenModel
 export type ApiTokenEvent = Prisma.ApiTokenEventModel
 /**
  * Model ChatConversation
- * One chat with the concierge. v1 keeps a single conversation per user; tabId stays nullable so a
- * per-tab chat can arrive without a migration (spec §7).
- * A partial unique index enforces "one account-wide conversation per user" at the database level:
- * `CREATE UNIQUE INDEX chat_conversations_one_per_user ON chat_conversations(user_id)
- * WHERE tab_id IS NULL` (see the migrations). Prisma's schema language has no partial-index syntax,
- * so it is not declared with `@@unique`/`@@index` here — doing so would require a plain
- * (non-partial) index and wrongly forbid a future per-tab row for the same user. Confirmed by hand
- * that this omission does not show up as drift: introspection-based `prisma migrate diff` silently
- * excludes partial indexes from its comparison (verified against a scratch database with the index
- * applied — no difference reported — while a control plain unique index on the same table was
- * correctly flagged).
- * machineId is *not* part of that index anymore: since the user-hosted concierge it is the host the
+ * One chat with the concierge: the account-wide one (projectId null) or one project's (spec
+ * 2026-09-23 §3). tabId stays nullable so a per-tab chat can arrive without a migration (spec §7).
+ * A partial unique index enforces "one active conversation per user per scope" at the database level:
+ * `CREATE UNIQUE INDEX chat_conversations_one_active ON chat_conversations (user_id, COALESCE(project_id, ''))
+ * WHERE tab_id IS NULL AND archived_at IS NULL` (see the migrations). Prisma's schema language has no
+ * partial-index syntax, so it is not declared with `@@unique`/`@@index` here — doing so would require a
+ * plain (non-partial) index and wrongly forbid both a future per-tab row for the same user and an
+ * archived row coexisting with the active one. Confirmed by hand that this omission does not show up
+ * as drift: introspection-based `prisma migrate diff` silently excludes partial indexes from its
+ * comparison (verified against a scratch database with the index applied — no difference reported —
+ * while a control plain unique index on the same table was correctly flagged).
+ * machineId is *not* part of that index: since the user-hosted concierge it is the host the
  * conversation runs on (one per user, spec §3), not a second conversation scope.
  */
 export type ChatConversation = Prisma.ChatConversationModel

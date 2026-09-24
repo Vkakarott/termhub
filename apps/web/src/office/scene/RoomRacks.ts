@@ -1,10 +1,10 @@
 /**
- * Wall furniture (shelves, cabinets, a server rack) against an office's two back walls. Which pieces
- * a room gets depends on its terminal count; the draw is seeded by the room id, so a room keeps its
- * furniture across rebuilds.
+ * Wall furniture (shelves, cabinets, a server rack) against a building's two back walls. Which pieces
+ * a building gets depends on its terminal count; the draw is seeded by the building id, so a building
+ * keeps its furniture across rebuilds.
  */
 import { Sprite, type Texture } from 'pixi.js';
-import type { PlacedRoom } from '../layout/floor';
+import type { PlacedFloor } from '../layout/floor';
 import { depthOf, toScreen } from '../layout/iso';
 import { ART_CANVAS, DESK_ART_SIZE, RACK_ART, sheetToTiles, type RackKey } from '../pack/art';
 import { lampPose } from './RoomLamp';
@@ -16,7 +16,7 @@ const GAP = 0.1;
 const LAMP_CLEAR = 0.25;
 const UNLIT_TINT = 0x8890a0;
 
-/** FNV-1a over the id, then a small LCG: stable pseudo-random numbers per room. */
+/** FNV-1a over the id, then a small LCG: stable pseudo-random numbers per building. */
 function seeded(id: string): () => number {
   let h = 0x811c9dc5;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0;
@@ -36,8 +36,8 @@ function shuffle<T>(items: T[], rand: () => number): T[] {
 }
 
 /** 1 terminal: none · 2: h · 3: v-2 or h-2 · 4: v + (h or h-2) · 5+: one of each, in random order. */
-export function pickRacks(roomId: string, terminals: number): RackKey[] {
-  const rand = seeded(roomId);
+export function pickRacks(buildingId: string, terminals: number): RackKey[] {
+  const rand = seeded(buildingId);
   const pick = (a: RackKey, b: RackKey): RackKey => (rand() < 0.5 ? a : b);
   if (terminals <= 1) return [];
   if (terminals === 2) return ['rack/h'];
@@ -64,16 +64,16 @@ function footprint(key: RackKey): { w: number; d: number } {
 }
 
 /** Free runs of the back wall: corner → lamp, lamp → plaque. */
-function backWallSpans(room: PlacedRoom): Span[] {
-  const lamp = lampPose(room).gx;
-  const plaque = wallPlaquePose(room);
+function backWallSpans(floor: PlacedFloor): Span[] {
+  const lamp = lampPose(floor).gx;
+  const plaque = wallPlaquePose(floor);
   return [
-    { from: room.origin.gx + GAP, to: lamp - LAMP_CLEAR },
+    { from: floor.origin.gx + GAP, to: lamp - LAMP_CLEAR },
     { from: lamp + LAMP_CLEAR, to: plaque.cx - plaque.halfW - GAP },
   ];
 }
 
-/** First span with room for `length`; the span is consumed up to the piece. */
+/** First span with floor for `length`; the span is consumed up to the piece. */
 function takeFrom(spans: Span[], length: number): number | null {
   for (const span of spans) {
     if (span.to - span.from < length) continue;
@@ -87,21 +87,21 @@ function takeFrom(spans: Span[], length: number): number | null {
 /**
  * Back pieces run along the back wall between the corner, the lamp and the plaque; side pieces run
  * down the left wall, starting past the deepest back piece so the two never meet in the corner.
- * A piece with no room left is dropped rather than drawn over the lamp, the plaque or a neighbour.
+ * A piece with no floor left is dropped rather than drawn over the lamp, the plaque or a neighbour.
  */
-export function placeRacks(room: PlacedRoom, keys: RackKey[]): RackPose[] {
-  const { gx: ox, gy: oy } = room.origin;
+export function placeRacks(floor: PlacedFloor, keys: RackKey[]): RackPose[] {
+  const { gx: ox, gy: oy } = floor.origin;
   const back = keys.filter((k) => RACK_ART[k].wall === 'back');
   const side = keys.filter((k) => RACK_ART[k].wall === 'side');
   const poses: RackPose[] = [];
-  const spans = backWallSpans(room);
+  const spans = backWallSpans(floor);
   for (const key of back) {
     const { w, d } = footprint(key);
     const at = takeFrom(spans, w);
     if (at !== null) poses.push({ key, gx: at, gy: oy + GAP / 2, w, d });
   }
   const cornerDepth = Math.max(0, ...poses.map((p) => p.d));
-  const sideSpans = [{ from: oy + (cornerDepth ? cornerDepth + GAP : GAP), to: oy + room.layout.height - GAP }];
+  const sideSpans = [{ from: oy + (cornerDepth ? cornerDepth + GAP : GAP), to: oy + floor.layout.height - GAP }];
   for (const key of side) {
     const { w, d } = footprint(key);
     const at = takeFrom(sideSpans, d);
@@ -123,14 +123,14 @@ function rackSprite(pose: RackPose, texture: Texture, minZ: number): Sprite {
 }
 
 /**
- * The wall pieces of one room. Sprites sit straight in the depth-sorted layer, like the desks, but
+ * The wall pieces of one floor. Sprites sit straight in the depth-sorted layer, like the desks, but
  * never below `minZ`: the lamp's wash is painted on the wall behind them, not over them.
  */
 export class RoomRacks {
   readonly sprites: Sprite[];
 
-  constructor(room: PlacedRoom, terminals: number, art: Record<string, Texture>, lit: boolean, minZ = -Infinity) {
-    const poses = placeRacks(room, pickRacks(room.id, terminals));
+  constructor(buildingId: string, floor: PlacedFloor, terminals: number, art: Record<string, Texture>, lit: boolean, minZ = -Infinity) {
+    const poses = placeRacks(floor, pickRacks(buildingId, terminals));
     this.sprites = poses.filter((p) => art[p.key]).map((p) => rackSprite(p, art[p.key]!, minZ));
     for (const s of this.sprites) s.eventMode = 'none';
     this.apply(lit);

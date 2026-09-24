@@ -64,6 +64,7 @@ export const ModelName = {
   TabEvent: 'TabEvent',
   MachineHook: 'MachineHook',
   Ticket: 'Ticket',
+  TaskColumn: 'TaskColumn',
   Task: 'Task',
   Note: 'Note',
   Integration: 'Integration',
@@ -178,6 +179,7 @@ export type LoginAttemptScalarFieldEnum = (typeof LoginAttemptScalarFieldEnum)[k
 export const MachineScalarFieldEnum = {
   id: 'id',
   name: 'name',
+  subtitle: 'subtitle',
   host: 'host',
   sshUser: 'sshUser',
   sshPort: 'sshPort',
@@ -207,6 +209,7 @@ export const ProjectScalarFieldEnum = {
   status: 'status',
   description: 'description',
   isPublic: 'isPublic',
+  agentColumnId: 'agentColumnId',
   lastTerminalAt: 'lastTerminalAt',
   createdAt: 'createdAt'
 } as const
@@ -292,19 +295,35 @@ export const TicketScalarFieldEnum = {
 export type TicketScalarFieldEnum = (typeof TicketScalarFieldEnum)[keyof typeof TicketScalarFieldEnum]
 
 
+export const TaskColumnScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  name: 'name',
+  category: 'category',
+  position: 'position',
+  createdAt: 'createdAt'
+} as const
+
+export type TaskColumnScalarFieldEnum = (typeof TaskColumnScalarFieldEnum)[keyof typeof TaskColumnScalarFieldEnum]
+
+
 export const TaskScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
   title: 'title',
   description: 'description',
   status: 'status',
+  type: 'type',
+  number: 'number',
   position: 'position',
   externalRef: 'externalRef',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
   externalKey: 'externalKey',
   tabId: 'tabId',
-  parentId: 'parentId'
+  parentId: 'parentId',
+  epicId: 'epicId',
+  columnId: 'columnId'
 } as const
 
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]
@@ -402,7 +421,8 @@ export const ApiTokenScalarFieldEnum = {
   lastUsedAt: 'lastUsedAt',
   revokedAt: 'revokedAt',
   createdAt: 'createdAt',
-  gated: 'gated'
+  gated: 'gated',
+  chatConversationId: 'chatConversationId'
 } as const
 
 export type ApiTokenScalarFieldEnum = (typeof ApiTokenScalarFieldEnum)[keyof typeof ApiTokenScalarFieldEnum]
@@ -432,6 +452,8 @@ export const ChatConversationScalarFieldEnum = {
   model: 'model',
   machineId: 'machineId',
   aiAccountId: 'aiAccountId',
+  projectId: 'projectId',
+  archivedAt: 'archivedAt',
   tabId: 'tabId',
   reviewMode: 'reviewMode',
   lastMessageAt: 'lastMessageAt',

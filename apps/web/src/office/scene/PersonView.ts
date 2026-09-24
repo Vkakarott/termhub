@@ -2,7 +2,7 @@
 import { AnimatedSprite, Container, Sprite, type Texture } from 'pixi.js';
 import { toScreen } from '../layout/iso';
 import type { DeskModel, Pose } from '../model';
-import { ART_ANCHOR, DESK_ART_SIZE, STATION_ANCHOR, deskArtKeys } from '../pack/art';
+import { DESK_ART_SIZE, STATION_ANCHOR, deskArtKeys } from '../pack/art';
 import type { Anim, PackManifest } from '../pack/manifest';
 
 export type Textures = Record<string, Texture[]>;
@@ -30,8 +30,7 @@ function packSprite(textures: Textures, manifest: PackManifest, key: string): An
 /** Same transform for every station layer — one canvas, one place. */
 function stationSprite(art: ArtTextures, key: string): Sprite {
   const s = new Sprite(art[key]);
-  const anchor = ART_ANCHOR[key] ?? STATION_ANCHOR;
-  s.anchor.set(anchor.x, anchor.y);
+  s.anchor.set(STATION_ANCHOR.x, STATION_ANCHOR.y);
   const scale = DESK_ART_SIZE / Math.max(s.texture.width, 1);
   s.scale.set(scale, scale);
   return s;
@@ -65,13 +64,12 @@ export class DeskView {
     private readonly textures: Textures,
     private readonly manifest: PackManifest,
     private readonly reducedMotion: boolean,
-    deskIndex: number,
     art: ArtTextures = {},
   ) {
     this.model = model;
     this.useArt = !!art['desk/side-v-2'] && !!art['desk/side-h'];
     if (this.useArt) {
-      this.head = this.buildArtStation(art, deskIndex);
+      this.head = this.buildArtStation(art);
     } else {
       this.buildPackFurniture(model);
       const seat = toScreen(SEAT.u, SEAT.v);
@@ -88,10 +86,10 @@ export class DeskView {
    * Occupied: desk-v-2 → display → agent on top.
    * Empty: desk-h → chair-h on top. All layers share one transform.
    */
-  private buildArtStation(art: ArtTextures, deskIndex: number): { x: number; y: number } {
+  private buildArtStation(art: ArtTextures): { x: number; y: number } {
     this.root.sortableChildren = true;
-    const occupied = deskArtKeys(deskIndex, true);
-    const empty = deskArtKeys(deskIndex, false);
+    const occupied = deskArtKeys(true);
+    const empty = deskArtKeys(false);
 
     if (art[empty.desk]) {
       this.emptyDeskArt = stationSprite(art, empty.desk);

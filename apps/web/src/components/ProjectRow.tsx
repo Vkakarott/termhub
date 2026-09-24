@@ -15,7 +15,8 @@ interface Props {
   waiting: number;
   expanded: boolean;
   onToggle: () => void;
-  onDelete: () => void;
+  /** the project's chat: its live state and how to open it; null when the user has no chat access */
+  chat: { status: { busy: boolean; pending: number }; open: boolean; onToggle: () => void } | null;
   /** in Favoritos: the pin is pressed and always shown */
   favorite: boolean;
   onToggleFavorite: () => void;
@@ -26,7 +27,7 @@ interface Props {
 }
 
 /** One project in the sidebar: its link and actions, and its running agents underneath. */
-export function ProjectRow({ project: p, section, agents, machines, waiting, expanded, onToggle, onDelete, favorite, onToggleFavorite, onOpenGroups, dragProps }: Props) {
+export function ProjectRow({ project: p, section, agents, machines, waiting, expanded, onToggle, chat, favorite, onToggleFavorite, onOpenGroups, dragProps }: Props) {
   const navigate = useNavigate();
   const hasAgents = agents.length > 0;
   const showMachine = machines.length > 1;
@@ -42,6 +43,23 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
       onClick={onToggleFavorite}
     >
       📌
+    </button>
+  );
+  // The 💬 stays visible without hover while that project's chat is answering, waiting on a confirmation,
+  // or open in the drawer — the same always-shown treatment a favourite's pin gets.
+  const chatActive = !!chat && (chat.status.busy || chat.status.pending > 0);
+  const chatPinned = !!chat && (chatActive || chat.open);
+  const chatButton = chat && (
+    <button
+      type="button"
+      data-active={chatActive}
+      className="relative rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg"
+      aria-label="Chat do projeto"
+      title={chat.status.pending > 0 ? 'Chat do projeto — esperando sua confirmação' : chat.status.busy ? 'Chat do projeto — respondendo' : 'Chat do projeto'}
+      onClick={chat.onToggle}
+    >
+      💬
+      {chatActive && <span className={`absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full ${chat.status.pending > 0 ? 'bg-attention' : 'animate-pulse bg-accent'}`} />}
     </button>
   );
   return (
@@ -88,8 +106,14 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
         </NavLink>
         {/* a favourite's pin stays visible; the other actions show on hover or while the row has keyboard focus
             (the Grupos… menu is the keyboard path). All outside the link so clicking them does not navigate */}
-        {favorite && <span className="flex shrink-0 items-center pr-1 group-focus-within/p:pr-0 group-hover/p:pr-0">{pin}</span>}
+        {(favorite || chatPinned) && (
+          <span className="flex shrink-0 items-center gap-0.5 pr-1 group-focus-within/p:pr-0 group-hover/p:pr-0">
+            {chatPinned && chatButton}
+            {favorite && pin}
+          </span>
+        )}
         <span className="hidden shrink-0 items-center gap-0.5 pr-1 group-focus-within/p:flex group-hover/p:flex">
+          {!chatPinned && chatButton}
           {!favorite && pin}
           <button
             type="button"
@@ -103,9 +127,6 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
           </button>
           <button type="button" className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg" title="Editar projeto" onClick={() => navigate(`/projects/${p.id}/settings`)}>
             ✎
-          </button>
-          <button type="button" className="rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-danger" title="Excluir projeto (as pastas nas máquinas não são apagadas)" onClick={onDelete}>
-            ✕
           </button>
         </span>
       </div>
@@ -121,8 +142,9 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
                 >
                   {/* an open tab is a live one here: no state = the neutral dot the tab bar shows */}
                   <span data-dot className={`h-1.5 w-1.5 shrink-0 rounded-full ${tabDotClass(true, tab)}`} title={tab.state ? TAB_STATE_LABEL[tab.state] : undefined} />
-                  <span className="truncate">{tab.name}</span>
-                  {machineName && <span className="shrink-0 truncate text-fg-dim"> · {machineName}</span>}
+                  {/* the tab's name wins the width, up to a cap; a long machine name gives way first */}
+                  <span className="max-w-[9rem] shrink-0 truncate">{tab.name}</span>
+                  {machineName && <span className="min-w-0 truncate text-fg-dim"> · {machineName}</span>}
                 </Link>
               </li>
             );

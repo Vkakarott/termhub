@@ -69,3 +69,8 @@ export function moveGroup(groups: ProjectGroup[], groupId: string, toIndex: numb
   sorted.splice(Math.max(0, Math.min(toIndex, sorted.length)), 0, g);
   return sorted.map((x, position) => ({ ...x, position }));
 }
+
+/** The Favoritos section's projects in its order, archived ones left out — what the collapsed rail shows. */
+export function favoriteProjects(projects: Project[], groups: ProjectGroup[]): Project[] {
+  return buildSections(projects, groups, new Set(), false).find((s) => s.kind === 'favorites')?.projects ?? [];
+}

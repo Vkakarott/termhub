@@ -243,3 +243,23 @@ it('only ever hosts on an agent machine: a local or ssh machine is not one of th
   const { ctx } = build({ machines: [machine('m1', 'servidor', { type: 'local' }), machine('m2', 'vps', { type: 'ssh' })] });
   expect(await resolveHost(ctx, user)).toEqual({ kind: 'no_machine' });
 });
+
+it('requires the extra capability when asked to', async () => {
+  // A project chat needs an agent that forwards its prompt (spec §4.3); the account-wide chat on the
+  // very same agent is still ready.
+  const chosen = machine('m1', 'macbook');
+  const { ctx } = build({ machines: [chosen], conversation: { machine_id: 'm1' }, online: { m1: { capabilities: ['pty', 'claude'], agent_version: '0.5.0' } } });
+
+  expect(await resolveHost(ctx, user, { requires: 'claude.system_prompt' })).toEqual({ kind: 'agent_too_old', machine: chosen, version: '0.5.0' });
+  expect((await resolveHost(ctx, user)).kind).toBe('ready');
+});
+
+it('says whether the run conversation session is at stake, not the account-wide one', async () => {
+  // The account-wide row holds a session and names no machine; the project chat that is about to run has
+  // no session at all, so picking a machine for it throws nothing away (spec §4.2).
+  const { ctx } = build({ machines: [machine('m1', 'a'), machine('m2', 'b')], conversation: { machine_id: null, cli_session_id: 'sess-account' } });
+
+  expect(await resolveHost(ctx, user, { runSessionId: null })).toMatchObject({ kind: 'not_chosen', sessionAtStake: false });
+  expect(await resolveHost(ctx, user, { runSessionId: 'sess-project' })).toMatchObject({ kind: 'not_chosen', sessionAtStake: true });
+  expect(await resolveHost(ctx, user)).toMatchObject({ kind: 'not_chosen', sessionAtStake: true });
+});

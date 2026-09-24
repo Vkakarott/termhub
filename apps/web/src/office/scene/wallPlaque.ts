@@ -1,9 +1,9 @@
 /**
- * Architectural wall nameplate on the right side of each office's back wall. Same type and colours
- * as the floating RoomSign card; skewed onto the iso wall so it reads as a hung plaque, not HUD.
+ * Architectural wall nameplate on the right side of each building's back wall. Same type and colours
+ * as the overlay's identity; skewed onto the iso wall so it reads as a hung plaque, not HUD.
  */
 import { Container, Graphics, Text } from 'pixi.js';
-import type { PlacedRoom } from '../layout/floor';
+import type { PlacedFloor } from '../layout/floor';
 import { depthOf, TILE_H, TILE_W, toScreen, type Point } from '../layout/iso';
 import { ID } from './identity';
 import { WALL_H } from './RoomView';
@@ -21,9 +21,9 @@ export type WallPlaquePose = {
 };
 
 /** Solid horizontal plaque on the right of the back wall, clear of the floor. */
-export function wallPlaquePose(room: PlacedRoom): WallPlaquePose {
-  const { gx: ox, gy: oy } = room.origin;
-  const w = room.layout.width;
+export function wallPlaquePose(floor: PlacedFloor): WallPlaquePose {
+  const { gx: ox, gy: oy } = floor.origin;
+  const w = floor.layout.width;
   const edge = 0.5;
   const halfW = Math.min(1.3, Math.max(0.95, w * 0.36), (w - edge * 2) / 2);
   const cx = ox + w - edge - halfW;
@@ -61,14 +61,14 @@ export function plaqueScreenSize(pose: WallPlaquePose): { w: number; h: number }
 
 type Inset = { gx: number; z: number };
 
-/** Framed room nameplate — matches the floating card's type, sits in the wall as architecture. */
+/** Framed floor nameplate — matches the floating card's type, sits in the wall as architecture. */
 export class RoomWallPlaque {
   readonly root = new Container();
   private readonly plate = new Graphics();
   private readonly label: Text;
 
-  constructor(room: PlacedRoom, model: { label: string; lit: boolean }) {
-    // same face as RoomSign: sans, 600, natural casing — one identity with the floating card
+  constructor(floor: PlacedFloor, model: { label: string; lit: boolean }) {
+    // the identity face (see identity.ts): sans, 600, natural casing
     this.label = new Text({
       text: '',
       style: {
@@ -82,11 +82,11 @@ export class RoomWallPlaque {
     this.label.anchor.set(0.5);
     this.root.addChild(this.plate, this.label);
     this.root.eventMode = 'none';
-    this.apply(room, model);
+    this.apply(floor, model);
   }
 
-  apply(room: PlacedRoom, model: { label: string; lit: boolean }): void {
-    const pose = wallPlaquePose(room);
+  apply(floor: PlacedFloor, model: { label: string; lit: boolean }): void {
+    const pose = wallPlaquePose(floor);
     this.root.position.set(pose.center.x, pose.center.y);
     this.root.zIndex = depthOf({ gx: pose.cx, gy: pose.gy });
     const inset = this.paintFrame(pose, model.lit);

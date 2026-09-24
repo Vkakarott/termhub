@@ -9,8 +9,8 @@ import { retryOnceOnImportFailure } from './lib/lazy-retry';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
+import { CardPage } from './pages/CardPage';
 import { ChatPage } from './pages/ChatPage';
-import { IntegrationsPage } from './pages/IntegrationsPage';
 import { MachinesPage } from './pages/MachinesPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -39,34 +39,45 @@ function RouteFailed() {
   );
 }
 
+/** The route table, apart from the router and providers so a test can mount it in a MemoryRouter. */
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<AppShell />}>
+        <Route element={<Layout />}>
+          <Route path="/" element={<HomePage />} />
+          {/* the old Integrações page and the old Início tabs are settings sections now; inside Layout so the layout (and
+              what it remembers about the page before settings) survives the redirect */}
+          <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
+          <Route path="/ai" element={<Navigate to="/settings/ai" replace />} />
+          <Route path="/hardware" element={<Navigate to="/settings/hardware" replace />} />
+          <Route path="/waitlist" element={<Navigate to="/settings/waitlist" replace />} />
+          <Route path="/machines" element={<MachinesPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/:section" element={<SettingsPage />} />
+          <Route path="/projects/:id" element={<ProjectPage />} />
+          <Route path="/projects/:id/:section" element={<ProjectPage />} />
+          {/* a card's own URL (spec §7): TER-12 = project key + card number */}
+          <Route path="/project/:ref" element={<CardPage />} />
+          <Route path="/office" element={<OfficeRoute />} />
+          <Route path="/office/:projectId" element={<OfficeRoute />} />
+        </Route>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<ChatPage />} />
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
 export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <AnalyticsGate>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route element={<AppShell />}>
-              <Route element={<Layout />}>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/ai" element={<HomePage />} />
-                <Route path="/hardware" element={<HomePage />} />
-                <Route path="/waitlist" element={<HomePage />} />
-                <Route path="/integrations" element={<IntegrationsPage />} />
-                <Route path="/machines" element={<MachinesPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/settings/:section" element={<SettingsPage />} />
-                <Route path="/projects/:id" element={<ProjectPage />} />
-                <Route path="/projects/:id/:section" element={<ProjectPage />} />
-                <Route path="/office" element={<OfficeRoute />} />
-                <Route path="/office/:machineId" element={<OfficeRoute />} />
-              </Route>
-              <Route element={<ChatLayout />}>
-                <Route path="/chat" element={<ChatPage />} />
-              </Route>
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <AppRoutes />
         </AnalyticsGate>
       </AuthProvider>
     </BrowserRouter>

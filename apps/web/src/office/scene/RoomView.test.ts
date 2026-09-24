@@ -3,8 +3,8 @@ import { layoutCity } from '../layout/city';
 import { drawBlock, tileTone } from './RoomView';
 
 describe('drawBlock', () => {
-  it('paints a tiled platform for the machine block, not a flat fill', () => {
-    const city = layoutCity([{ id: 'a', rooms: [{ id: 'r', desks: 2 }] }]);
+  it('paints a tiled platform for the building block, not a flat fill', () => {
+    const city = layoutCity([{ id: 'a', desks: 2 }]);
     const g = drawBlock(city.blocks[0]!, true);
     const b = g.getBounds();
     expect(b.isEmpty()).toBe(false);
@@ -12,8 +12,8 @@ describe('drawBlock', () => {
     expect(b.height).toBeGreaterThan(16);
   });
 
-  it('still paints when the machine is unlit', () => {
-    const city = layoutCity([{ id: 'a', rooms: [{ id: 'r', desks: 1 }] }]);
+  it('still paints when the building is unlit', () => {
+    const city = layoutCity([{ id: 'a', desks: 1 }]);
     const g = drawBlock(city.blocks[0]!, false);
     expect(g.getBounds().isEmpty()).toBe(false);
   });

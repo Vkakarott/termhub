@@ -11,8 +11,10 @@ import {
   hookEnvFile,
   mergeClaudeSettings,
   mergeCodexConfig,
+  mergeCursorHooks,
   stripClaudeSettings,
   stripCodexConfig,
+  stripCursorHooks,
 } from '@termhub/machine-ops';
 import { agentRpc, requireAgentVersion } from '../agent/errors.js';
 import type { Machine } from '../db/repositories/types.js';
@@ -20,8 +22,8 @@ import { REMOTE_PATH_PREFIX, runOnMachine, runOnMachineWithInput, shellQuote } f
 
 /**
  * Installs the monitor hooks on a machine: a small POSIX script under ~/.termhub/bin that
- * forwards the tools' hook payloads to termhub, and the entries that make Claude Code and
- * Codex call it. On ssh/local machines everything is written by one `sh -s` fed through
+ * forwards the tools' hook payloads to termhub, and the entries that make Claude Code, Codex
+ * and the Cursor CLI call it. On ssh/local machines everything is written by one `sh -s` fed through
  * stdin; the Claude settings are read first and merged here (JSON), so nothing the user
  * configured is lost. Agent machines do the same through the `hooks.install` RPC (the agent
  * merges and writes the files itself, with the shared code in @termhub/machine-ops).
@@ -36,6 +38,8 @@ export interface HookInstallReport {
   home: string;
   claude: 'installed' | 'skipped';
   codex: 'installed' | 'skipped';
+  /** `agent_outdated`: an agent older than 0.4.3 does not know the Cursor CLI yet */
+  cursor: 'installed' | 'skipped' | 'agent_outdated';
   /** the Claude config dirs that got the entries ("~/.claude", "~/.claude_work", …) */
   claude_dirs: string[];
   hooks_url: string;
@@ -57,15 +61,18 @@ interface MachineConfigs {
   claude: { dir: string; exists: boolean; settings: string }[];
   codexConfig: string;
   hasCodex: boolean;
+  cursorHooks: string;
+  hasCursor: boolean;
 }
 
-/** $HOME, the settings.json of each Claude dir and the Codex config (empty when absent), in one round trip. */
+/** $HOME, the settings.json of each Claude dir, the Codex config and the Cursor hooks.json (empty when absent), in one round trip. */
 async function readMachineConfigs(machine: Machine, claudeDirs: string[]): Promise<MachineConfigs> {
   const parts = [`printf '%s\\n' "$HOME"`];
   for (const d of claudeDirs) {
     parts.push(`printf '${SEP}\\n'; [ -d ${shDir(d)} ] && echo yes || echo no; printf '${SEP}\\n'; cat ${shDir(d)}/settings.json 2>/dev/null; printf '\\n'`);
   }
   parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.codex" ] && echo yes || echo no; printf '${SEP}\\n'; cat "$HOME/.codex/config.toml" 2>/dev/null`);
+  parts.push(`printf '${SEP}\\n'; [ -d "$HOME/.cursor" ] && echo yes || echo no; printf '${SEP}\\n'; cat "$HOME/.cursor/hooks.json" 2>/dev/null`);
   // a missing file is part of the answer, not a failure: the last `cat` must not set the exit code
   const script = `${parts.join('; ')}; true`;
   const r = await runOnMachine(machine, { file: 'sh', args: ['-c', script] }, script);
@@ -79,7 +86,14 @@ async function readMachineConfigs(machine: Machine, claudeDirs: string[]): Promi
     settings: (chunks[2 + i * 2] ?? '').replace(/\n$/, ''),
   }));
   const base = 1 + claudeDirs.length * 2;
-  return { home, claude, hasCodex: (chunks[base] ?? '').trim() === 'yes', codexConfig: chunks[base + 1] ?? '' };
+  return {
+    home,
+    claude,
+    hasCodex: (chunks[base] ?? '').trim() === 'yes',
+    codexConfig: chunks[base + 1] ?? '',
+    hasCursor: (chunks[base + 2] ?? '').trim() === 'yes',
+    cursorHooks: chunks[base + 3] ?? '',
+  };
 }
 
 /** Quoted heredoc: the body is taken literally; the delimiter never appears in what we write. */
@@ -126,6 +140,26 @@ async function discoverOnMachine(machine: Machine): Promise<string[]> {
   return [...claudeDirsFromHome(entries), ...configDirsFromRc(rc)];
 }
 
+/** Our entries merged into ~/.cursor/hooks.json, or null when the Cursor CLI is not on the machine. Refuses a file it cannot parse. */
+function mergedCursorHooks(configs: MachineConfigs, scriptPath: string): string | null {
+  if (!configs.hasCursor) return null;
+  try {
+    return mergeCursorHooks(configs.cursorHooks, scriptPath, '~/.cursor/hooks.json');
+  } catch (err) {
+    throw new Error(err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? '~/.cursor/hooks.json não é JSON válido' : err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** Our entries taken out of ~/.cursor/hooks.json, or null when there is nothing of ours to take (or the file cannot be parsed). */
+function strippedCursorHooks(configs: MachineConfigs): string | null {
+  if (!configs.hasCursor || !configs.cursorHooks.includes(HOOK_MARK)) return null;
+  try {
+    return stripCursorHooks(configs.cursorHooks);
+  } catch {
+    return null; // unreadable JSON: leave the file alone
+  }
+}
+
 /**
  * `accountDirs`: config dirs of the Claude accounts registered for this machine (CLAUDE_CONFIG_DIR);
  * they get the entries too, besides ~/.claude, when they exist on the machine.
@@ -136,20 +170,22 @@ export async function installHooks(machine: Machine, token: string, hooksUrl: st
   if (machine.type === 'agent') {
     requireAgentVersion(machine, extra.length ? HOOKS_CONFIG_DIRS_MIN_AGENT_VERSION : HOOKS_MIN_AGENT_VERSION);
     const r = await agentRpc(machine, 'hooks.install', { hooks_url: hooksUrl, token, ...(extra.length ? { claude_dirs: extra } : {}) });
-    return { home: r.home, claude: r.claude, codex: r.codex, claude_dirs: r.claude_dirs ?? [CLAUDE_DEFAULT_DIR], hooks_url: hooksUrl };
+    return { home: r.home, claude: r.claude, codex: r.codex, cursor: r.cursor ?? 'agent_outdated', claude_dirs: r.claude_dirs ?? [CLAUDE_DEFAULT_DIR], hooks_url: hooksUrl };
   }
-  const { home, claude, codexConfig, hasCodex } = await readMachineConfigs(machine, claudeConfigDirs([...accountDirs, ...(await discoverOnMachine(machine))]));
+  const configs = await readMachineConfigs(machine, claudeConfigDirs([...accountDirs, ...(await discoverOnMachine(machine))]));
+  const { home, claude, codexConfig, hasCodex } = configs;
   const scriptPath = `${home}/${HOOK_SCRIPT_REL}`;
   // ~/.claude is created when missing; an account's dir only when it is already there
   const targets = claude.filter((c) => c.dir === CLAUDE_DEFAULT_DIR || c.exists);
   const merged = targets.map((c) => {
     try {
-      return { dir: c.dir, file: `${expandHome(c.dir, home)}/settings.json`, body: mergeClaudeSettings(c.settings, scriptPath) };
+      return { dir: c.dir, file: `${expandHome(c.dir, home)}/settings.json`, body: mergeClaudeSettings(c.settings, scriptPath, `${c.dir}/settings.json`) };
     } catch (err) {
       throw new Error(err instanceof SyntaxError || (err instanceof Error && err.message.includes('não é um objeto JSON')) ? `${c.dir}/settings.json não é JSON válido` : err instanceof Error ? err.message : String(err));
     }
   });
   const mergedCodex = hasCodex ? mergeCodexConfig(codexConfig, scriptPath) : null;
+  const mergedCursor = mergedCursorHooks(configs, scriptPath);
 
   const q = shellQuote;
   const script = [
@@ -162,11 +198,19 @@ export async function installHooks(machine: Machine, token: string, hooksUrl: st
     `chmod 755 ${q(scriptPath)}`,
     ...merged.flatMap((m) => replaceFile(m.file, m.body)),
     ...(mergedCodex !== null ? replaceFile(`${home}/.codex/config.toml`, mergedCodex) : []),
+    ...(mergedCursor !== null ? replaceFile(`${home}/.cursor/hooks.json`, mergedCursor) : []),
     'echo ok',
   ].join('\n');
   const r = await shOnMachine(machine, script);
   if (r.code !== 0 || !r.stdout.includes('ok')) throw new Error(r.timedOut ? 'A máquina não respondeu a tempo' : `Instalação falhou: ${r.stderr.trim().split('\n').pop() || 'erro desconhecido'}`);
-  return { home, claude: 'installed', codex: mergedCodex !== null ? 'installed' : 'skipped', claude_dirs: merged.map((m) => m.dir), hooks_url: hooksUrl };
+  return {
+    home,
+    claude: 'installed',
+    codex: mergedCodex !== null ? 'installed' : 'skipped',
+    cursor: mergedCursor !== null ? 'installed' : 'skipped',
+    claude_dirs: merged.map((m) => m.dir),
+    hooks_url: hooksUrl,
+  };
 }
 
 export async function uninstallHooks(machine: Machine, accountDirs: string[] = []): Promise<void> {
@@ -176,7 +220,9 @@ export async function uninstallHooks(machine: Machine, accountDirs: string[] = [
     await agentRpc(machine, 'hooks.uninstall', extra.length ? { claude_dirs: extra } : {});
     return;
   }
-  const { home, claude, codexConfig, hasCodex } = await readMachineConfigs(machine, claudeConfigDirs([...accountDirs, ...(await discoverOnMachine(machine))]));
+  const configs = await readMachineConfigs(machine, claudeConfigDirs([...accountDirs, ...(await discoverOnMachine(machine))]));
+  const { home, claude, codexConfig, hasCodex } = configs;
+  const strippedCursor = strippedCursorHooks(configs);
   const stripped: { file: string; body: string }[] = [];
   for (const c of claude) {
     if (!c.settings.trim()) continue;
@@ -192,6 +238,7 @@ export async function uninstallHooks(machine: Machine, accountDirs: string[] = [
     `rm -f ${q(`${home}/${HOOK_SCRIPT_REL}`)} ${q(`${home}/${HOOK_ENV_REL}`)}`,
     ...stripped.flatMap((s) => replaceFile(s.file, s.body)),
     ...(hasCodex && codexConfig.includes(HOOK_MARK) ? replaceFile(`${home}/.codex/config.toml`, stripCodexConfig(codexConfig)) : []),
+    ...(strippedCursor !== null ? replaceFile(`${home}/.cursor/hooks.json`, strippedCursor) : []),
     'echo ok',
   ].join('\n');
   const r = await shOnMachine(machine, script);

@@ -64,6 +64,8 @@ export interface ResourcePermissions {
 export interface Machine {
   id: string;
   name: string;
+  /** optional line under the name ("MacBook do escritório"); private: the public city never carries it */
+  subtitle: string | null;
   host: string | null;
   ssh_user: string | null;
   ssh_port: number;
@@ -90,8 +92,6 @@ export interface Machine {
   /** terminal tabs on the machine, and how many of them ever reported a state to the monitor */
   tabs?: number;
   tabs_reporting?: number;
-  /** one-way id used on the public city; carrying it here costs nothing since it cannot be reversed */
-  public_id: string;
 }
 
 /** Admin data-scope switch: null = own data, "all" = everything, or the impersonated user. */
@@ -140,8 +140,12 @@ export interface Project {
   created_at: string;
   /** machines the project runs on; empty = board and notes only */
   machines: ProjectMachineLink[];
-  /** whether this project's rooms (one per machine its owner owns) are readable on the owner's public city */
+  /** whether this project is a building on its owner's public city (with its agents on the owner's own machines) */
   is_public: boolean;
+  /** this project's building id on its owner's public city (one-way, from the server): the share link is built from it */
+  public_id: string;
+  /** column a card moves to when an agent starts on it; null = automatic (first "Fazendo"). The board reads it from the tasks list. */
+  agent_column_id?: string | null;
   /** tasks em "todo" + "doing" (vem na listagem) */
   open_tasks?: number;
 }
@@ -163,30 +167,84 @@ export interface ProjectInput {
   machine_id?: string;
   cwd?: string;
   create_dir?: boolean;
-  /** edit only (a project is born private): publishes its rooms on the owner's public city */
+  /** edit only (a project is born private): publishes it on the owner's public city */
   is_public?: boolean;
 }
 
 export type TaskStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
+/** Kind of card: epics group the work; stories, tasks, bugs and spikes are the work; subtasks are a checklist inside a story or task. */
+export type TaskType = 'epic' | 'story' | 'task' | 'subtask' | 'bug' | 'spike';
+
+/** What a board column means to the system (the backlog is not a column). */
+export type ColumnCategory = 'todo' | 'doing' | 'done';
+
 export interface Task {
   id: string;
   project_id: string;
+  type: TaskType;
+  /** sequential per project */
+  number: number;
+  /** "TER-12"; the card opens at /project/<ref> */
+  ref: string;
   title: string;
   description: string | null;
+  /** backlog, or the category of its column */
   status: TaskStatus;
   position: number;
   external_ref: ExternalRef | null;
   external_key: string | null;
   tab_id: string | null;
-  /** Parent task for a subtask; null for a board task. */
+  /** Parent story/task for a subtask; null for every other card. */
   parent_id: string | null;
-  /** Only on board tasks from the list endpoint. Absent on responses from a server without subtasks. */
+  /** the epic of a story/task/bug/spike; null on epics and subtasks */
+  epic_id: string | null;
+  /** board column; null in the backlog and on subtasks */
+  column_id: string | null;
+  /** Only on top-level cards from the list endpoint. */
   subtasks?: Task[];
   subtask_counts?: { done: number; total: number };
   created_at: string;
   updated_at: string;
 }
+
+/** A board column of a project: the user's name, the system's category. */
+export interface TaskColumn {
+  id: string;
+  project_id: string;
+  name: string;
+  category: ColumnCategory;
+  position: number;
+  created_at: string;
+}
+
+/** GET /projects/:id/tasks */
+export interface BoardData {
+  tasks: Task[];
+  columns: TaskColumn[];
+  agent_column_id: string | null;
+}
+
+export interface TaskCreateInput {
+  title: string;
+  description?: string | null;
+  status?: TaskStatus;
+  type?: TaskType;
+  epic_id?: string | null;
+  column_id?: string | null;
+  parent_id?: string | null;
+}
+
+export interface TaskPatchInput {
+  title?: string;
+  description?: string | null;
+  status?: TaskStatus;
+  type?: TaskType;
+  epic_id?: string | null;
+}
+
+/** Where a move sends a card: a column, or a status (backlog, or the first column of a category). */
+export type MoveTarget = { column_id: string } | { status: TaskStatus };
 
 export interface Ticket {
   id: string;
@@ -303,6 +361,21 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   done: 'Feito',
 };
 
+export const TASK_TYPE_LABEL: Record<TaskType, string> = {
+  epic: 'Épico',
+  story: 'História',
+  task: 'Tarefa',
+  subtask: 'Subtarefa',
+  bug: 'Bug',
+  spike: 'Spike',
+};
+
+export const COLUMN_CATEGORY_LABEL: Record<ColumnCategory, string> = {
+  todo: 'A fazer',
+  doing: 'Fazendo',
+  done: 'Feito',
+};
+
 export type TabKind = 'terminal' | 'simulator';
 
 export interface Tab {
@@ -367,7 +440,7 @@ export interface MonitorItem {
   machine: Machine;
 }
 
-/** GET /office/:machineId: a machine's floor, one room per non-archived project. */
+/** Board columns that count as a project's work in the office: todo, doing, done (not the backlog). */
 export interface OfficeTaskCounts {
   todo: number;
   doing: number;
@@ -386,27 +459,37 @@ export interface OfficeTab extends Tab {
   progress: OfficeTabProgress | null;
 }
 
-export interface OfficeRoom {
+/** One building of the office (GET /office): a project and every desk (tab) it has, whatever machine each runs on. */
+export interface OfficeBuilding {
   project: Project;
-  /** this room's id on the owner's public city: one per (project, machine), used by the share link */
+  /** the building's id on the owner's public city (the same as `project.public_id`) */
   public_id: string;
   tabs: OfficeTab[];
   /** null when the board could not be read (no `tasks:read`); a project with no tasks sends zeros */
   tasks: OfficeTaskCounts | null;
 }
 
-export interface OfficeSnapshot {
-  machine: Machine;
-  /** false when the machine could not be asked which tmux sessions are alive */
-  reachable: boolean;
-  rooms: OfficeRoom[];
+/** A machine one of the city's desks runs on: a detail of the desk, never a building. */
+export interface OfficeMachine {
+  id: string;
+  name: string;
+  subtitle: string | null;
+  type: MachineType;
+  online: boolean;
+  /** the tmux probe: false = it could not ask the machine; null = not probed (no terminal desk on it) */
+  reachable: boolean | null;
+}
+
+/** GET /office: the whole city — one building per non-archived project of the scope, and the machines its desks run on. */
+export interface OfficeCity {
+  projects: OfficeBuilding[];
+  machines: OfficeMachine[];
 }
 
 /**
  * The public city, mirrored field for field from apps/server/src/public/city.ts — the only shape a
- * visitor with no account ever sees. The names follow the office snapshot's on purpose, so the same
- * model code draws both (src/city/api.ts adapts one into the other). The ids are derived from the
- * real ones by the server and are what the public surfaces join on.
+ * visitor with no account ever sees. A building is a published project; nothing about a machine is
+ * in it. The ids are derived from the real ones by the server and are what the public surfaces join on.
  */
 export interface PublicRobot {
   id: string;
@@ -422,16 +505,10 @@ export interface PublicRobot {
   progress: { done: number; total: number } | null;
 }
 
-export interface PublicRoom {
-  id: string;
-  name: string;
-  robots: PublicRobot[];
-}
-
 export interface PublicBuilding {
   id: string;
   name: string;
-  rooms: PublicRoom[];
+  robots: PublicRobot[];
 }
 
 export interface PublicCity {
@@ -583,7 +660,7 @@ export interface HardwareSnapshot {
   collected_at: string;
 }
 
-/** GET /chat: one conversation per user (v1). */
+/** GET /chat: the account-wide conversation (no project) or one project's own. */
 export interface ChatConversation {
   id: string;
   title: string | null;
@@ -593,6 +670,10 @@ export interface ChatConversation {
   machine_id?: string | null;
   /** The Claude account on that host; null = the machine's own default login. */
   ai_account_id?: string | null;
+  /** null = the account-wide chat; a project id = that project's own chat. */
+  project_id: string | null;
+  /** When this conversation was archived by a "Nova conversa" reset; null while it is the active one. */
+  archived_at: string | null;
   last_message_at: string | null;
 }
 
@@ -696,19 +777,32 @@ export interface ChatAction {
   created_at: string;
 }
 
-/** Pushed over /ws/chat for the signed-in user only; carries no history. */
+/**
+ * Pushed over /ws/chat for the signed-in user only; carries no history. The socket is per user, not
+ * per conversation — it carries the account-wide chat and every project chat together — so every
+ * member gains `conversation_id`, which is what a reader (`ChatPanel`) filters live events by.
+ * Optional, not required: an older server that predates project chats never sends it, and every event
+ * without one is treated as belonging to whichever conversation is open.
+ */
 export type ChatEvent =
-  | { type: 'message'; message: ChatMessage }
-  | { type: 'delta'; message_id: string; delta: string }
-  | { type: 'action'; message_id: string; tool: string; tool_use_id: string; args: unknown }
-  | { type: 'action_result'; message_id: string; tool_use_id: string; ok: boolean }
+  | { type: 'message'; message: ChatMessage; conversation_id?: string }
+  | { type: 'delta'; message_id: string; delta: string; conversation_id?: string }
+  | { type: 'action'; message_id: string; tool: string; tool_use_id: string; args: unknown; conversation_id?: string }
+  | { type: 'action_result'; message_id: string; tool_use_id: string; ok: boolean; conversation_id?: string }
   /** the server retried the run on a fresh CLI session: drop whatever streamed for this message so far */
-  | { type: 'reset'; message_id: string }
+  | { type: 'reset'; message_id: string; conversation_id?: string }
   /** A new pending action to show a card for, enriched exactly like `GET /api/chat`'s `actions` —
    * never resolve a name from this event, the server already did it. */
-  | ({ type: 'confirmation'; action_id: string } & Omit<ChatAction, 'id' | 'status'>)
+  | ({ type: 'confirmation'; action_id: string; conversation_id?: string } & Omit<ChatAction, 'id' | 'status'>)
   /** Someone answered a pending action (possibly in another tab): update the card by its id. */
-  | { type: 'decision'; action_id: string; status: 'approved' | 'denied' };
+  | { type: 'decision'; action_id: string; status: 'approved' | 'denied'; conversation_id?: string };
+
+/** `GET /chat/projects`: which project chats have anything going on, for a sidebar badge. */
+export interface ProjectChatStatus {
+  project_id: string;
+  busy: boolean;
+  pending_confirmations: number;
+}
 
 /** Cloud waitlist sign-up (GET /waitlist) */
 export interface WaitlistEntry {

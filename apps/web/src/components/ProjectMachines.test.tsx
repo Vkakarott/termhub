@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Machine, Project } from '../lib/types';
 
 const { linkMachine, updateProjectMachine, unlinkMachine } = vi.hoisted(() => ({ linkMachine: vi.fn(), updateProjectMachine: vi.fn(), unlinkMachine: vi.fn() }));
-const machines = [{ id: 'm1', name: 'mac' }, { id: 'm2', name: 'jarvis' }] as Machine[];
+const machines = [{ id: 'm1', name: 'mac', subtitle: null }, { id: 'm2', name: 'jarvis', subtitle: 'servidor da sala' }, { id: 'm3', name: 'mini', subtitle: null }] as Machine[];
 vi.mock('../lib/data', () => ({
   useData: () => ({
     machines,
@@ -35,7 +35,14 @@ describe('ProjectMachines', () => {
     expect(screen.getByDisplayValue('/src/p1')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Vincular máquina' }));
     const options = Array.from((screen.getByLabelText('Máquina') as HTMLSelectElement).options).map((o) => o.value).filter(Boolean);
-    expect(options).toEqual(['m2']);
+    expect(options).toEqual(['m2', 'm3']);
+  });
+
+  it('labels each machine in the "Vincular máquina" select as "nome — subtítulo"', () => {
+    render(<ProjectMachines project={project} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Vincular máquina' }));
+    const labels = Array.from((screen.getByLabelText('Máquina') as HTMLSelectElement).options).filter((o) => o.value).map((o) => o.textContent);
+    expect(labels).toEqual(['jarvis — servidor da sala', 'mini']);
   });
 
   it('links a machine with its directory', async () => {

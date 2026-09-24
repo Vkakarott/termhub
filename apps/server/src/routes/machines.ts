@@ -25,6 +25,15 @@ const idParam = z.object({ id: z.string().min(1).max(64) });
 const fsQuery = z.object({ path: z.string().max(4096).optional() });
 const mkdirBody = z.object({ parent: z.string().min(1).max(4096), name: z.string().trim().min(1).max(255) });
 
+/** Optional line under the name: trimmed, at most 80 chars, and an empty one is no subtitle at all. */
+const subtitleField = z
+  .string()
+  .trim()
+  .max(80)
+  .nullable()
+  .optional()
+  .transform((v) => (v === undefined ? undefined : v || null));
+
 /**
  * Shape of a stored machine, used to validate PATCHes. `local` and `ssh` are legacy transports:
  * existing rows keep working and can be edited, but new machines are agent-only (see POST).
@@ -33,6 +42,7 @@ const mkdirBody = z.object({ parent: z.string().min(1).max(4096), name: z.string
 const machineBody = z
   .object({
     name: z.string().trim().min(1).max(80),
+    subtitle: subtitleField,
     type: z.enum(['local', 'ssh', 'agent']),
     host: z.string().trim().min(1).max(253).optional().nullable(),
     ssh_user: z.string().trim().min(1).max(64).optional().nullable(),
@@ -60,6 +70,7 @@ const ownerPatch = z.object({ owner_id: z.string().min(1).max(64).nullable().opt
 const createBody = z
   .object({
     name: z.string().trim().min(1).max(80),
+    subtitle: subtitleField,
     type: z.enum(['local', 'ssh', 'agent']),
     /** the user's own computer; see Machine.is_local */
     is_local: z.boolean().optional(),
@@ -102,7 +113,7 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const body = createBody.parse(request.body);
     if (body.type !== 'agent') throw badRequest('Novas máquinas usam o agente; SSH e local não podem mais ser adicionados');
     const { token, hash } = newAgentToken();
-    const machine = await repos.machines.create({ ...body, host: null, ssh_user: null, owner_id: request.scope.createAs });
+    const machine = await repos.machines.create({ ...body, subtitle: body.subtitle ?? null, host: null, ssh_user: null, owner_id: request.scope.createAs });
     await repos.machines.rotateAgentToken(machine.id, hash);
     return reply.code(201).send({ machine, agent_token: token });
   });
@@ -138,12 +149,13 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
       if (owner_id && !(await repos.users.findById(owner_id))) throw badRequest('Usuário inexistente');
     }
     const machine = await repos.machines.update(id, { ...merged, ...(owner_id !== undefined ? { owner_id } : {}) });
-    // A city only ever shows machines its person owns (public/read.ts), so a transferred machine
-    // leaves the old owner's city by that rule alone — its projects stay published (they belong to
-    // their own owners now, not to the machine). Any public page showing the building drops it at once.
+    // A city only ever shows the robots on machines its person owns (public/read.ts), so a
+    // transferred machine's robots leave the old owner's city by that rule alone — the projects stay
+    // published (they belong to their owners, not to the machine). Any public page showing them
+    // hangs up and re-reads.
     if (owner_id !== undefined && owner_id !== current.owner_id) {
-      publicBus.publishRoomsGone({ machine_id: id });
-      request.log.info({ machineId: id }, 'machine transferred: left its old owner\'s public city');
+      publicBus.publishRobotsGone({ machine_id: id });
+      request.log.info({ machineId: id }, 'machine transferred: its robots left its old owner\'s public city');
       // its tabs leave the old owner's open tabs (sidebar) and join the new owner's
       for (const tab of await repos.tabs.listByMachine(id)) {
         publishTabRemoved(tab, current);
@@ -160,8 +172,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const tabs = await repos.tabs.listByMachine(id);
     await repos.machines.delete(id);
     await publishTabsRemoved(repos, tabs, [machine]);
-    // its buildings leave every public city at once (the projects, and their publish switch, stay)
-    publicBus.publishRoomsGone({ machine_id: id });
+    // its robots leave every public city at once (the projects, and their publish switch, stay)
+    publicBus.publishRobotsGone({ machine_id: id });
     agents.disconnect(id, CLOSE.UNAUTHORIZED, 'deleted');
     return { ok: true };
   });
@@ -247,8 +259,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
       throw conflict(err instanceof Error ? err.message : 'Instalação falhou');
     }
     const hook = await repos.machineHooks.upsert(machine.id, hash);
-    request.log.info({ machineId: machine.id, claude: report.claude, claudeDirs: report.claude_dirs.length, codex: report.codex }, 'monitor: hooks installed');
-    return { installed_at: hook.installed_at, hooks_url: report.hooks_url, claude: report.claude, codex: report.codex, claude_dirs: report.claude_dirs };
+    request.log.info({ machineId: machine.id, claude: report.claude, claudeDirs: report.claude_dirs.length, codex: report.codex, cursor: report.cursor }, 'monitor: hooks installed');
+    return { installed_at: hook.installed_at, hooks_url: report.hooks_url, claude: report.claude, codex: report.codex, cursor: report.cursor, claude_dirs: report.claude_dirs };
   });
 
   /** Removes the hooks from the machine and revokes its token. */

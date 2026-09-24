@@ -1,9 +1,9 @@
 /**
- * Wall lantern on each office's right back wall. Active rooms get a directional warm wash on the
- * wall and floor. At the back corner the wash turns onto the left wall instead of spilling outside.
+ * Wall lantern on each building's right back wall. A lit building gets a directional warm wash on
+ * the wall and floor. At the back corner the wash turns onto the left wall instead of spilling outside.
  */
 import { Container, Graphics } from 'pixi.js';
-import type { PlacedRoom } from '../layout/floor';
+import type { PlacedFloor } from '../layout/floor';
 import { depthOf, toScreen } from '../layout/iso';
 import { WALL_H } from './RoomView';
 
@@ -23,9 +23,9 @@ export type LampPose = {
 };
 
 /** Wall-mounted lantern on the right back wall, near the inner corner. */
-export function lampPose(room: PlacedRoom): LampPose {
-  const { gx: ox, gy: oy } = room.origin;
-  const w = room.layout.width;
+export function lampPose(floor: PlacedFloor): LampPose {
+  const { gx: ox, gy: oy } = floor.origin;
+  const w = floor.layout.width;
   const gx = ox + Math.min(1.35, Math.max(0.9, w * 0.28));
   return { gx, gy: oy + 0.04, z: WALL_H * 0.52 };
 }
@@ -55,19 +55,19 @@ export class RoomLamp {
   private readonly fixture = new Graphics();
   private lit = true;
   private pose: LampPose = { gx: 0, gy: 0, z: 0 };
-  private room: PlacedRoom;
+  private floor: PlacedFloor;
 
-  constructor(room: PlacedRoom, lit: boolean) {
-    this.room = room;
+  constructor(floor: PlacedFloor, lit: boolean) {
+    this.floor = floor;
     this.root.addChild(this.wash, this.fixture);
     this.root.eventMode = 'none';
-    this.place(room);
+    this.place(floor);
     this.apply(lit);
   }
 
-  place(room: PlacedRoom): void {
-    this.room = room;
-    this.pose = lampPose(room);
+  place(floor: PlacedFloor): void {
+    this.floor = floor;
+    this.pose = lampPose(floor);
     const at = toScreen(this.pose.gx, this.pose.gy, 0);
     this.root.position.set(at.x, at.y);
     this.root.zIndex = depthOf({ gx: this.pose.gx, gy: this.pose.gy }) - 0.15;
@@ -94,8 +94,8 @@ export class RoomLamp {
    */
   private paintWallWash(loc: Local): void {
     const { gx, gy, z } = this.pose;
-    const { gx: ox, gy: oy } = this.room.origin;
-    const gMax = ox + this.room.layout.width - 0.04;
+    const { gx: ox, gy: oy } = this.floor.origin;
+    const gMax = ox + this.floor.layout.width - 0.04;
     const zLo = z - WALL_H * 0.28;
     const zHi = Math.min(WALL_H * 0.92, z + WALL_H * 0.32);
     for (const { s, a } of [
@@ -117,7 +117,7 @@ export class RoomLamp {
       // spill past the corner → wrap onto the left wall (along +gy)
       const overflow = ox + 0.04 - (gx - s);
       if (overflow > 0.05) {
-        const gy1 = Math.min(oy + this.room.layout.height - 0.04, oy + 0.04 + overflow);
+        const gy1 = Math.min(oy + this.floor.layout.height - 0.04, oy + 0.04 + overflow);
         const wallGx = ox + 0.04;
         if (gy1 > oy + 0.08) {
           quad(this.wash, loc, [
@@ -143,10 +143,10 @@ export class RoomLamp {
 
   private paintFloorWash(loc: Local): void {
     const { gx } = this.pose;
-    const { gx: ox, gy: oy } = this.room.origin;
+    const { gx: ox, gy: oy } = this.floor.origin;
     const gMin = ox + 0.05;
-    const gMax = ox + this.room.layout.width - 0.05;
-    const gyMax = oy + this.room.layout.height - 0.05;
+    const gMax = ox + this.floor.layout.width - 0.05;
+    const gyMax = oy + this.floor.layout.height - 0.05;
     const floorGy0 = oy + 0.08;
     for (const { d, s0, s1, a } of [
       { d: 0.7, s0: 0.7, s1: 0.45, a: 0.14 },

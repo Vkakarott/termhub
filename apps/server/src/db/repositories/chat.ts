@@ -14,6 +14,10 @@ export interface ChatConversation {
   machine_id: string | null;
   /** The Claude account on that host. Null = the machine's default config dir. */
   ai_account_id: string | null;
+  /** The project this conversation is about. Null = the account-wide chat (spec 2026-09-23 §3). */
+  project_id: string | null;
+  /** Set by "Nova conversa": the row is kept, but it is no longer the scope's active conversation. */
+  archived_at: string | null;
   review_mode: boolean;
   last_message_at: string | null;
   created_at: string;
@@ -37,6 +41,8 @@ const mapConversation = (c: PrismaConversation): ChatConversation => ({
   model: c.model,
   machine_id: c.machineId,
   ai_account_id: c.aiAccountId,
+  project_id: c.projectId,
+  archived_at: c.archivedAt?.toISOString() ?? null,
   review_mode: c.reviewMode,
   last_message_at: c.lastMessageAt?.toISOString() ?? null,
   created_at: c.createdAt.toISOString(),
@@ -55,24 +61,54 @@ const mapMessage = (m: PrismaMessage): ChatMessage => ({
 export class ChatRepository {
   constructor(private db: PrismaClient) {}
 
-  /**
-   * v1 keeps one conversation per user, enforced by a partial unique index on `user_id` (see the
-   * migration) so two concurrent first loads (e.g. two browser tabs) can't both create one. The
-   * common path is a single SELECT; only a lost race falls back to create-then-re-read.
-   */
-  async getOrCreateForUser(userId: string): Promise<ChatConversation> {
-    const existing = await this.db.chatConversation.findFirst({ where: { userId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  /** The active conversation of one scope — the account-wide chat (`projectId === null`) or one
+   * project's — created on first use. The partial unique index `chat_conversations_one_active` makes
+   * two concurrent first loads converge on one row: the loser's insert is refused (P2002) and it
+   * re-reads the winner. */
+  private async getOrCreateActive(userId: string, projectId: string | null): Promise<ChatConversation> {
+    const where = { userId, projectId, tabId: null, archivedAt: null };
+    const existing = await this.db.chatConversation.findFirst({ where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
     if (existing) return mapConversation(existing);
     try {
-      const created = await this.db.chatConversation.create({ data: { id: newId(), userId } });
-      return mapConversation(created);
+      return mapConversation(await this.db.chatConversation.create({ data: { id: newId(), userId, projectId } }));
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        const winner = await this.db.chatConversation.findFirst({ where: { userId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+        const winner = await this.db.chatConversation.findFirst({ where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
         if (winner) return mapConversation(winner);
       }
       throw err;
     }
+  }
+
+  /** The account-wide conversation: the one `/chat` shows and the one that holds the host (spec §3). */
+  getOrCreateForUser(userId: string): Promise<ChatConversation> {
+    return this.getOrCreateActive(userId, null);
+  }
+
+  /** A project's active conversation. Ownership of the project is the caller's check. */
+  getOrCreateForProject(userId: string, projectId: string): Promise<ChatConversation> {
+    return this.getOrCreateActive(userId, projectId);
+  }
+
+  async findByIdForUser(id: string, userId: string): Promise<ChatConversation | undefined> {
+    const row = await this.db.chatConversation.findFirst({ where: { id, userId } });
+    return row ? mapConversation(row) : undefined;
+  }
+
+  /** "Nova conversa": the row and its transcript stay, but it stops being the scope's active one. */
+  async archive(id: string): Promise<void> {
+    await this.db.chatConversation.updateMany({ where: { id, archivedAt: null }, data: { archivedAt: new Date() } });
+  }
+
+  /** A host change moves every project conversation too: their CLI sessions live in the old host's
+   * config dir and cannot be resumed anywhere else (user-hosted spec §3). */
+  async clearProjectSessions(userId: string): Promise<void> {
+    await this.db.chatConversation.updateMany({ where: { userId, projectId: { not: null }, archivedAt: null }, data: { cliSessionId: null } });
+  }
+
+  async listActiveProjectConversations(userId: string): Promise<{ id: string; project_id: string }[]> {
+    const rows = await this.db.chatConversation.findMany({ where: { userId, projectId: { not: null }, tabId: null, archivedAt: null }, select: { id: true, projectId: true }, orderBy: { createdAt: 'asc' } });
+    return rows.map((r) => ({ id: r.id, project_id: r.projectId! }));
   }
 
   async setCliSession(id: string, sessionId: string | null): Promise<void> {
@@ -121,7 +157,13 @@ export class ChatRepository {
     await this.db.chatConversation.updateMany({ where: { id, machineId: null }, data: { machineId } });
   }
 
-  async setHost(id: string, host: { machine_id: string; ai_account_id: string | null }): Promise<ChatConversation> {
+  /**
+   * `moved` is the one true signal that the pair changed (see the doc comment above): callers that
+   * need to strand *other* rows tied to this host (the project conversations, spec §3) must branch on
+   * it and not re-derive it from the returned conversation, whose own `cli_session_id` can be null for
+   * reasons that have nothing to do with a move (a fresh "Nova conversa" row, for one).
+   */
+  async setHost(id: string, host: { machine_id: string; ai_account_id: string | null }): Promise<{ conversation: ChatConversation; moved: boolean }> {
     return this.db.$transaction(async (tx) => {
       const current = await tx.chatConversation.findUnique({ where: { id } });
       // A null stored machine is "not known to have moved", never "moved from nothing".
@@ -132,7 +174,7 @@ export class ChatRepository {
         where: { id },
         data: { machineId: host.machine_id, aiAccountId: host.ai_account_id, ...(moved ? { cliSessionId: null } : {}) },
       });
-      return mapConversation(row);
+      return { conversation: mapConversation(row), moved };
     });
   }
 

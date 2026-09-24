@@ -1,24 +1,26 @@
+import { ChevronsLeft } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type HTMLAttributes } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { canSeeSettings } from '../lib/settings-sections';
-import { ANALYTICS_ENABLED } from '../lib/analytics';
-import { openCookieBanner } from './AnalyticsGate';
 import { useData } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
 import { needsYouByProject } from '../lib/needs-you';
+import { useProjectChat } from '../lib/project-chat';
 import { applyDrop, buildSections, type DragSource, type Section, type SectionId } from '../lib/project-groups-model';
 import { useProjectGroups } from '../lib/project-groups';
 import { decodeGroupDrag, decodeProjectDrag, encodeProjectDrag, GROUP_MIME, PROJECT_MIME, slotFor } from '../lib/sidebar-dnd';
 import { loadCollapsedGroups, loadCollapsedProjects, saveCollapsedGroups, saveCollapsedProjects } from '../lib/sidebar-prefs';
 import type { Project, ProjectGroup, Tab } from '../lib/types';
 import { GroupHeader } from './GroupHeader';
+import { MainNav } from './MainNav';
+import { ProfileButton } from './ProfileButton';
 import { ProjectForm } from './ProjectForm';
 import { ProjectGroupsMenu } from './ProjectGroupsMenu';
 import { ProjectRow } from './ProjectRow';
 import { ConfirmDialog } from './Modal';
-import { ViewAsSwitch } from './ViewAsSwitch';
 
+/** a section's projects hang from its header like a project's agents hang from the project: indent plus a guide line */
+const SECTION_LIST = 'ml-4 border-l border-line pl-2';
 const SECTION_LABEL = 'px-3 pb-1 pt-1 text-[10px] uppercase tracking-wide text-fg-dim';
 
 /** Open terminal tabs ("agents") per project, in tab-bar order: position, then name. */
@@ -64,17 +66,14 @@ function sectionNames(sections: Section[]): Map<SectionId, string> {
 }
 
 export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
-  const { user, logout, can } = useAuth();
-  const { projects, machinesOf, loading, deleteProject } = useData();
-  const { items: monitorItems, openTabs, needsYou } = useMonitor();
+  const { can } = useAuth();
+  const { projects, machinesOf, loading } = useData();
+  const { items: monitorItems, openTabs } = useMonitor();
   const waiting = useMemo(() => needsYouByProject(monitorItems), [monitorItems]);
   // every open terminal tab, reported a state or not: "Em execução" means a tab is open
   const agents = useMemo(() => agentsByProject(openTabs), [openTabs]);
-  const navigate = useNavigate();
-  const location = useLocation();
+  const projectChat = useProjectChat();
   const [projectFormOpen, setProjectFormOpen] = useState(false);
-  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [collapsed, setCollapsedState] = useState<Set<string>>(loadCollapsedProjects);
   const { groups, error: groupsError, createGroup, renameGroup, deleteGroup, reorderGroups, setMemberships, isFavorite, toggleFavorite } = useProjectGroups();
@@ -252,10 +251,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         waiting={waiting.get(p.id) ?? 0}
         expanded={!collapsed.has(p.id)}
         onToggle={() => toggleProject(p.id)}
-        onDelete={() => {
-          setDeleteError(null);
-          setDeletingProject(p);
-        }}
+        chat={can('chat') ? { status: projectChat.status(p.id), open: projectChat.openProjectId === p.id, onToggle: () => projectChat.toggle(p.id) } : null}
         favorite={isFavorite(p.id)}
         onToggleFavorite={() => void toggleFavorite(p.id)}
         // the same button closes it; any other ⋯ (even the same project in another section) moves it there
@@ -267,10 +263,20 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
 
   const renderSection = (section: Section) => {
     if (section.kind === 'running') {
+      // collapsible like the groups (remembered the same way), but neither editable nor a drop target
+      const runningOpen = !collapsedGroups.has(section.id);
       return (
         <section key={section.id} aria-label={nameOf(section)} className="mb-2">
-          <p className={SECTION_LABEL}>{section.label}</p>
-          <ul>{section.projects.map(row(section))}</ul>
+          <GroupHeader
+            section={section}
+            name={nameOf(section)}
+            collapsed={!runningOpen}
+            onToggle={() => toggleGroup(section.id)}
+            editable={false}
+            onRename={() => {}}
+            onDelete={() => {}}
+          />
+          {runningOpen && <ul className={SECTION_LIST}>{section.projects.map(row(section))}</ul>}
         </section>
       );
     }
@@ -301,7 +307,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
           onDelete={() => group && setDeletingGroup(group)}
           headerDragProps={isOthers ? undefined : headerDragProps(section)}
         />
-        {open && section.projects.length > 0 && <ul>{section.projects.map(row(section))}</ul>}
+        {open && section.projects.length > 0 && <ul className={SECTION_LIST}>{section.projects.map(row(section))}</ul>}
         {open && !isOthers && section.projects.length === 0 && (
           <p className={`mx-3 my-1 rounded border border-dashed px-2 py-1.5 text-center text-[11px] ${over ? 'border-accent text-fg' : 'border-line text-fg-dim'}`}>
             arraste projetos para cá
@@ -329,8 +335,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             </button>
           )}
           {onCollapse && (
-            <button className="rounded px-1.5 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onCollapse} title="Recolher sidebar" aria-label="Recolher sidebar">
-              «
+            <button className="rounded p-1 text-fg-dim hover:bg-bg-3 hover:text-fg" onClick={onCollapse} title="Recolher sidebar" aria-label="Recolher sidebar">
+              <ChevronsLeft size={16} aria-hidden="true" />
             </button>
           )}
         </span>
@@ -362,7 +368,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             {groupsError}
           </p>
         )}
-        {!loading && visibleProjects.length === 0 && (
+        {!loading && visibleProjects.length === 0 && can('projects', 'create') && (
           <button className="px-3 py-1 text-xs text-fg-dim hover:text-fg" onClick={() => setProjectFormOpen(true)}>
             + novo projeto
           </button>
@@ -371,60 +377,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         {sections.map(renderSection)}
       </nav>
 
-      <ViewAsSwitch />
-      <div className="border-t border-line px-3 py-1.5">
-        {can('machines') && (
-          <NavLink to="/machines" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            🖥 Máquinas
-          </NavLink>
-        )}
-        {can('projects', 'read') && can('terminals', 'read') && (
-          <NavLink to="/office" className={({ isActive }) => `flex items-center justify-between rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            Escritório
-            {needsYou.length > 0 && <i className="h-1.5 w-1.5 rounded-full bg-attention" aria-label="alguém precisa de você" />}
-          </NavLink>
-        )}
-        {can('chat') && (
-          <NavLink to="/chat" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            💬 Chat
-          </NavLink>
-        )}
-        {can('integrations') && (
-          <NavLink to="/integrations" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            ⚙ Integrações
-          </NavLink>
-        )}
-        {canSeeSettings(can) && (
-          <NavLink to="/settings" className={({ isActive }) => `block rounded px-2 py-1 text-xs ${isActive ? 'bg-bg-4 text-fg' : 'text-fg-muted hover:bg-bg-3 hover:text-fg'}`}>
-            ⚙ Configurações
-          </NavLink>
-        )}
-      </div>
-      <div className="flex items-center gap-2 border-t border-line px-3 py-2">
-        {user?.avatar_url ? (
-          <img src={user.avatar_url} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />
-        ) : (
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-bg-4 text-xs font-semibold">
-            {user?.name?.[0]?.toUpperCase() ?? '?'}
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-xs text-fg-muted" title={user?.email}>
-          {user?.name}
-        </span>
-        {ANALYTICS_ENABLED && (
-          <button className="text-xs text-fg-dim hover:text-fg" onClick={openCookieBanner} title="Alterar a escolha sobre cookies">
-            Cookies
-          </button>
-        )}
-        <button
-          className="text-xs text-fg-dim hover:text-fg"
-          onClick={() => {
-            void logout().then(() => navigate('/login'));
-          }}
-        >
-          Sair
-        </button>
-      </div>
+      <MainNav variant="list" />
+      <ProfileButton variant="row" />
 
       {projectFormOpen && <ProjectForm open onClose={() => setProjectFormOpen(false)} />}
       {menuFor && <ProjectGroupsMenu key={menuFor.key} projectId={menuFor.projectId} anchor={menuFor.anchor} onClose={() => setMenuFor(null)} />}
@@ -445,31 +399,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
             setCollapsedGroups(next);
           }
           await deleteGroup(id);
-        }}
-      />
-      <ConfirmDialog
-        open={!!deletingProject}
-        title="Remover projeto"
-        message={
-          <>
-            Remover <strong>{deletingProject?.name}</strong>? As tarefas, notas e tickets do projeto são apagados e as sessões tmux das tabs são encerradas nas
-            máquinas vinculadas. As pastas nas máquinas continuam intactas.
-            {deleteError && <p className="mt-2 text-danger">{deleteError}</p>}
-          </>
-        }
-        confirmLabel="Remover"
-        danger
-        onCancel={() => setDeletingProject(null)}
-        onConfirm={async () => {
-          if (!deletingProject) return;
-          try {
-            const wasOpen = location.pathname.startsWith(`/projects/${deletingProject.id}`);
-            await deleteProject(deletingProject.id);
-            setDeletingProject(null);
-            if (wasOpen) navigate('/');
-          } catch (e) {
-            setDeleteError((e as Error).message || 'Erro ao remover');
-          }
         }}
       />
     </aside>

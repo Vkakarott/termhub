@@ -9,7 +9,7 @@ const { deleteMachine, canMock } = vi.hoisted(() => ({ deleteMachine: vi.fn(), c
 vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: canMock, viewAs: 'self' }) }));
 vi.mock('../lib/data', () => {
   const machines = [
-    { id: 'm1', name: 'mac', type: 'agent', capabilities: [], is_local: false, os: null, owner_name: null, hooks_installed_at: new Date().toISOString() },
+    { id: 'm1', name: 'mac', subtitle: 'MacBook do escritório', type: 'agent', capabilities: [], is_local: false, os: null, owner_name: null, hooks_installed_at: new Date().toISOString() },
     { id: 'm2', name: 'jarvis', type: 'agent', capabilities: [], is_local: false, os: null, owner_name: null, hooks_installed_at: new Date().toISOString() },
   ];
   const projects = [
@@ -56,6 +56,14 @@ describe('MachinesPage', () => {
     expect(macRow).toHaveTextContent('alpha');
   });
 
+  it('shows a machine\'s subtitle on its card, and nothing for one without', () => {
+    mount();
+    const macRow = screen.getByText('mac').closest('li')!;
+    expect(within(macRow).getByText('MacBook do escritório')).toBeInTheDocument();
+    const jarvisRow = screen.getByText('jarvis').closest('li')!;
+    expect(jarvisRow).not.toHaveTextContent('MacBook do escritório');
+  });
+
   it('"+ máquina" opens the machine form', () => {
     mount();
     expect(screen.queryByText('machine-form-marker')).not.toBeInTheDocument();
@@ -71,5 +79,11 @@ describe('MachinesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
     await Promise.resolve();
     expect(deleteMachine).toHaveBeenCalledWith('m1');
+  });
+
+  it('uses the shared page header: one title, "+ máquina" among its actions', () => {
+    mount();
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Máquinas']);
+    expect(screen.getByRole('button', { name: '+ máquina' }).closest('header')).not.toBeNull();
   });
 });

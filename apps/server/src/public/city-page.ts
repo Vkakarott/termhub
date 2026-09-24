@@ -3,10 +3,9 @@ import { normalizeNickname } from './nickname.js';
 import { readPublicCityCached } from './read.js';
 import type { PublicCity } from './city.js';
 
-/** Where along `/city/@nick[/building][?room=]` a link points. */
+/** Where along `/city/@nick[/building]` a link points. A `?room=` from the links of the city by machine is not read. */
 export interface CityDepth {
   building?: string;
-  room?: string;
 }
 
 interface CityMeta {
@@ -19,7 +18,7 @@ interface CityMeta {
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-/** Every value spliced into the document — an owner's, a machine's or a project's name — was written by someone else: never trust it as markup. */
+/** Every value spliced into the document — an owner's or a project's name — was written by someone else: never trust it as markup. */
 function attr(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ESCAPES[c]!);
 }
@@ -35,48 +34,33 @@ const FALLBACK_DESCRIPTION = 'Cada tab é uma sessão tmux que sobrevive ao nave
  */
 const originOf = (base: string) => new URL(base).origin;
 
-/** The card this depth's link unfurls to — same nickname and `?building=`/`?room=` the page itself carries (Task 9's route). */
+/** The card this depth's link unfurls to — the same nickname and `?building=` the page itself carries. */
 function cardImageUrl(base: string, nickname: string, depth: CityDepth): string {
-  const params = new URLSearchParams();
-  if (depth.building) params.set('building', depth.building);
-  if (depth.room) params.set('room', depth.room);
-  const qs = params.toString();
-  return `${originOf(base)}/api/public/city/${encodeURIComponent(nickname)}/card.png${qs ? `?${qs}` : ''}`;
+  const qs = depth.building ? `?${new URLSearchParams({ building: depth.building }).toString()}` : '';
+  return `${originOf(base)}/api/public/city/${encodeURIComponent(nickname)}/card.png${qs}`;
 }
 
 /** The canonical address of this depth of the city: the same shape the app's share button copies. */
 function cityPageUrl(base: string, nickname: string, depth: CityDepth): string {
-  let url = `${base}/@${encodeURIComponent(nickname)}`;
-  if (depth.building) url += `/${encodeURIComponent(depth.building)}`;
-  if (depth.building && depth.room) url += `?room=${encodeURIComponent(depth.room)}`;
-  return url;
+  return `${base}/@${encodeURIComponent(nickname)}${depth.building ? `/${encodeURIComponent(depth.building)}` : ''}`;
 }
 
 /**
- * The link preview's text for the depth a `/city/@nick[/building][?room=]` URL points at: the city,
- * one of its buildings, or one of a building's rooms. A depth id that matches nothing in the city
- * (stale link, wrong id) resolves one level up, the same forgiving rule `buildCardSvg` uses — never
- * a broken page over a slightly-too-shallow one.
+ * The link preview's text for the depth a `/city/@nick[/building]` URL points at: the city, or one
+ * of its buildings (a published project). A building id that matches nothing in the city — a stale
+ * link, or a machine id from the links of the city by machine — resolves to the city, the same
+ * forgiving rule `buildCardSvg` uses: never a broken page over a slightly-too-shallow one.
  */
 export function cityMetaFor(city: PublicCity | undefined, depth: CityDepth, base: string): CityMeta {
   if (!city) return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION, image: `${originOf(base)}/og-image.png` };
   const building = depth.building ? city.buildings.find((b) => b.id === depth.building) : undefined;
-  const room = building && depth.room ? building.rooms.find((r) => r.id === depth.room) : undefined;
-  const resolved = { building: building?.id, room: room?.id };
+  const resolved: CityDepth = { building: building?.id };
   const image = cardImageUrl(base, city.nickname, resolved);
   const url = cityPageUrl(base, city.nickname, resolved);
-  if (room) {
-    return {
-      title: `${room.name} — a cidade de ${city.owner_name}`,
-      description: `${room.name}, em ${building!.name}: um projeto publicado na cidade de ${city.owner_name} no termhub.`,
-      image,
-      url,
-    };
-  }
   if (building) {
     return {
       title: `${building.name} — a cidade de ${city.owner_name}`,
-      description: `${building.name}, uma das máquinas publicadas na cidade de ${city.owner_name} no termhub.`,
+      description: `${building.name}, um dos projetos publicados de ${city.owner_name} no termhub.`,
       image,
       url,
     };
@@ -115,12 +99,12 @@ function segment(raw: string | undefined): string | undefined {
   }
 }
 
-/** The nickname and the depth of a `/city/@nick[/building]?room=` request URL — the server-side mirror of `apps/web/src/city/url.ts`. */
+/** The nickname and the building of a `/city/@nick[/building]` request URL — the server-side mirror of `apps/web/src/city/url.ts`. Any query string (an old `?room=`) is ignored. */
 export function depthFromCityUrl(url: string): { nickname: string; depth: CityDepth } {
-  const [pathname = '', search = ''] = url.split('?');
+  const [pathname = ''] = url.split('?');
   const parts = pathname.split('/').filter(Boolean); // ['city', '@nick', 'building'?]
   const nickname = (segment(parts[1]) ?? '').replace(/^@/, '');
-  return { nickname, depth: { building: segment(parts[2]), room: new URLSearchParams(search).get('room') ?? undefined } };
+  return { nickname, depth: { building: segment(parts[2]) } };
 }
 
 /**

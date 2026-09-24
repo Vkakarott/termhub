@@ -1,14 +1,14 @@
-/** The ground of one machine's block, and the floor and two back walls of one placed room. Colours only — no art needed. */
+/** The ground of one building's block, and the floor and two back walls of its one floor. Colours only — no art needed. */
 import { Graphics } from 'pixi.js';
 import { BLOCK_MARGIN, type PlacedBlock } from '../layout/city';
-import type { PlacedRoom } from '../layout/floor';
+import type { PlacedFloor } from '../layout/floor';
 import { toScreen } from '../layout/iso';
 
-/** Office partitions, not full walls: high enough to read as a room, low enough not to hide the one behind. */
+/** Office walls: high enough to read as a building, low enough not to hide the block behind. */
 export const WALL_H = 56;
 /** Wall thickness in tiles — enough to read a top and an outer face, without crowding the desks. */
 const WALL_THICK = 0.22;
-/** Hairline only — the grid should whisper, not compete with the rooms. */
+/** Hairline only — the grid should whisper, not compete with the walls. */
 const SEAM_WIDTH = 0.5;
 const SEAM_ALPHA = 0.28;
 /** In world units, so that at city zoom the outline lands on about one pixel. */
@@ -16,7 +16,7 @@ const BLOCK_LINE = 3;
 /** Pixels of wall base trim above the floor — finishes the wall/floor join. */
 const WALL_TRIM = 3;
 
-type RoomColors = {
+type FloorColors = {
   a: number;
   b: number;
   c: number;
@@ -31,7 +31,7 @@ type RoomColors = {
   trimR: number;
 };
 
-const LIT: RoomColors = {
+const LIT: FloorColors = {
   // near-neighbours: variation is broad and soft, never tile-flip contrast
   a: 0x3f4758,
   b: 0x3b4354,
@@ -48,7 +48,7 @@ const LIT: RoomColors = {
 };
 
 /** Same layout as lit — only a cooler, lower exposure. The lamp carries the on/off story. */
-function dimmed(c: RoomColors): RoomColors {
+function dimmed(c: FloorColors): FloorColors {
   const d = (n: number) => {
     const r = ((n >> 16) & 0xff) * 0.62;
     const g = ((n >> 8) & 0xff) * 0.62;
@@ -71,10 +71,9 @@ function dimmed(c: RoomColors): RoomColors {
   };
 }
 /**
- * A dark block still needs a silhouette. Filled alone, an offline machine's ground was four values
- * per channel away from the page background: its footprint, and the street around it, were simply
- * not there — the machine people are waiting on became the least visible thing in the city. So
- * every block is outlined, which also tells two neighbouring blocks apart.
+ * A dark block still needs a silhouette. Filled alone, an unlit building's ground was four values per
+ * channel away from the page background: its footprint, and the street around it, were simply not
+ * there. So every block is outlined, which also tells two neighbouring blocks apart.
  */
 const BLOCK = {
   lit: { a: 0x131820, b: 0x11161e, c: 0x161c26, seam: 0x0c1018, line: 0x2c3342 },
@@ -112,9 +111,8 @@ function paintFloorField(g: Graphics, x0: number, y0: number, x1: number, y1: nu
 }
 
 /**
- * One machine's ground: the tiled platform under that machine's rooms (circulation inside the
- * block). Also the machine's click target — it is what is left uncovered around its rooms.
- * Pass `into` to repaint it in place, like `drawRoom`.
+ * One building's ground: the tiled pavement around its floor. Also the building's click target — it
+ * is what is left uncovered around the floor. Pass `into` to repaint it in place, like `drawFloor`.
  */
 export function drawBlock(block: PlacedBlock, lit: boolean, into?: Graphics): Graphics {
   const c = lit ? BLOCK.lit : BLOCK.dark;
@@ -178,8 +176,8 @@ function paintThickWall(
   wallFace(g, ix0, iy0, ix1, iy1, inner);
 }
 
-/** Outer corner post where the two thick walls meet (outside the room). */
-function paintWallCorner(g: Graphics, ox: number, oy: number, c: RoomColors): void {
+/** Outer corner post where the two thick walls meet (outside the floor). */
+function paintWallCorner(g: Graphics, ox: number, oy: number, c: FloorColors): void {
   const t = WALL_THICK;
   wallFace(g, ox - t, oy - t, ox, oy - t, c.wallROuter);
   wallFace(g, ox - t, oy - t, ox - t, oy, c.wallLOuter);
@@ -190,7 +188,7 @@ function paintWallCorner(g: Graphics, ox: number, oy: number, c: RoomColors): vo
   g.poly([a.x, a.y, b.x, b.y, d.x, d.y, e.x, e.y]).fill(c.wallTop);
 }
 
-function paintRoomWalls(g: Graphics, ox: number, oy: number, width: number, height: number, c: RoomColors): void {
+function paintWalls(g: Graphics, ox: number, oy: number, width: number, height: number, c: FloorColors): void {
   const t = WALL_THICK;
   // Corner first (farthest), then each run: outer → end → top → inner.
   paintWallCorner(g, ox, oy, c);
@@ -198,12 +196,12 @@ function paintRoomWalls(g: Graphics, ox: number, oy: number, width: number, heig
   paintThickWall(g, ox, oy, ox, oy + height, ox - t, oy, ox - t, oy + height, c.wallL, c.wallLOuter, c.wallTop, c.wallEnd);
 }
 
-function paintRoomFloor(g: Graphics, ox: number, oy: number, width: number, height: number, c: RoomColors): void {
+function paintTiles(g: Graphics, ox: number, oy: number, width: number, height: number, c: FloorColors): void {
   paintFloorField(g, ox, oy, ox + width, oy + height, c.a, c.b, c.c, c.seam);
 }
 
 /** Dark strip along each back wall at floor level — finishes the wall/floor join. */
-function paintWallTrim(g: Graphics, ox: number, oy: number, width: number, height: number, c: RoomColors): void {
+function paintWallTrim(g: Graphics, ox: number, oy: number, width: number, height: number, c: FloorColors): void {
   const o = toScreen(ox, oy);
   const r = toScreen(ox + width, oy);
   const l = toScreen(ox, oy + height);
@@ -212,18 +210,18 @@ function paintWallTrim(g: Graphics, ox: number, oy: number, width: number, heigh
 }
 
 /**
- * Tiles and the two back walls; nothing in front, so people are never covered. Also the room's
- * click target. Unlit keeps the same shapes — only a dimmer exposure; the corner lamp is the
- * on/off cue. Pass `into` to repaint a room in place.
+ * Tiles and the two back walls of a building's floor; nothing in front, so people are never covered.
+ * Also a click target for the building. Unlit keeps the same shapes — only a dimmer exposure; the
+ * wall lamp is the on/off cue. Pass `into` to repaint it in place — a light going out keeps its handlers.
  */
-export function drawRoom(room: PlacedRoom, lit: boolean, into?: Graphics): Graphics {
+export function drawFloor(floor: PlacedFloor, lit: boolean, into?: Graphics): Graphics {
   const c = lit ? LIT : dimmed(LIT);
-  const { gx: ox, gy: oy } = room.origin;
-  const { width, height } = room.layout;
+  const { gx: ox, gy: oy } = floor.origin;
+  const { width, height } = floor.layout;
   const g = into ?? new Graphics();
   g.clear();
-  paintRoomWalls(g, ox, oy, width, height, c);
-  paintRoomFloor(g, ox, oy, width, height, c);
+  paintWalls(g, ox, oy, width, height, c);
+  paintTiles(g, ox, oy, width, height, c);
   paintWallTrim(g, ox, oy, width, height, c);
   g.eventMode = 'static';
   g.cursor = 'pointer';

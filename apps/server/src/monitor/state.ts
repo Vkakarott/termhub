@@ -3,7 +3,7 @@ import type { Tab, TabActivity, TabState } from '../db/repositories/types.js';
 import { activityOf } from './activity.js';
 
 /** Tools whose hooks we understand (the hook script names itself). */
-export const HOOK_TOOLS = ['claude', 'codex'] as const;
+export const HOOK_TOOLS = ['claude', 'codex', 'cursor'] as const;
 export type HookTool = (typeof HOOK_TOOLS)[number];
 
 /** The tool's own message (question, permission prompt, last answer) is kept, capped; nothing else. */
@@ -17,6 +17,13 @@ export interface Interpreted {
   activity?: TabActivity;
   /** Claude Code's spinner verb ("Moonwalking"), with `activity`; null when none was sent or it was not a plain word */
   verb?: string | null;
+  /**
+   * The event is a late echo of the wait already open, not a new one: a person who saw that wait
+   * must not be alerted again, and one with no text of its own keeps the wait's text. Only the
+   * tool's interpreter can tell — Claude's idle_prompt follows its own Stop, Cursor's stop follows
+   * its answer, while every Codex turn ends the same way with no working state in between.
+   */
+  continuesWait?: true;
 }
 
 /**
@@ -53,7 +60,9 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
       const type = str(ev.notification_type);
       const message = cap(str(ev.message));
       if (type === 'permission_prompt') return { kind: 'waiting_permission', text: message, meta: { event: name, type } };
-      if (type === 'idle_prompt' || type === 'elicitation_dialog') return { kind: 'waiting_input', text: message, meta: { event: name, type } };
+      // idle_prompt comes ~1 min after the Stop of the same turn: the same wait, still unanswered
+      if (type === 'idle_prompt') return { kind: 'waiting_input', text: message, meta: { event: name, type }, continuesWait: true };
+      if (type === 'elicitation_dialog') return { kind: 'waiting_input', text: message, meta: { event: name, type } };
       return null; // auth_success and friends: nothing the user has to act on
     }
     case 'Stop':
@@ -67,6 +76,30 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
   }
 }
 
+/** How Codex's own naming prompt begins; the person's request is appended after it. */
+const CODEX_TITLE_PROMPT = 'Generate a concise, single-line task title';
+
+/**
+ * On a conversation's first turn the Codex TUI runs a second turn on a side thread to name it, and
+ * `notify` fires for that one too, in the same second: its only input is Codex's naming prompt and
+ * its answer is `{"title": "…"}`. Recording it would alert twice for one turn and replace the real
+ * answer with the title. Both signals are required: a person can ask for a title-shaped JSON, and
+ * dropping that answer would hide that Codex finished; if Codex ever rewords the prompt, the title
+ * turn gets through again — a duplicate alert, never a missed one.
+ */
+function isTitleTurn(ev: Record<string, unknown>): boolean {
+  const input = ev['input-messages'];
+  if (!Array.isArray(input) || input.length !== 1 || typeof input[0] !== 'string' || !input[0].startsWith(CODEX_TITLE_PROMPT)) return false;
+  const answer = str(ev['last-assistant-message']);
+  if (!answer?.startsWith('{')) return false;
+  try {
+    const parsed: unknown = JSON.parse(answer);
+    return isObj(parsed) && Object.keys(parsed).length === 1 && typeof parsed.title === 'string';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Codex CLI `notify` payload (argv JSON): `{ type: "agent-turn-complete", "last-assistant-message": ... }`.
  * Codex has no idle/permission notification, so a finished turn is its "needs you" signal:
@@ -74,11 +107,50 @@ function interpretClaude(ev: Record<string, unknown>): Interpreted | null {
  */
 function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
   const type = str(ev.type);
-  if (type === 'agent-turn-complete') {
+  if (type === 'agent-turn-complete' && !isTitleTurn(ev)) {
     return { kind: 'waiting_input', text: cap(str(ev['last-assistant-message'])), meta: { event: type } };
   }
   return null;
 }
+
+/**
+ * Cursor CLI hook payloads (stdin JSON, `hook_event_name` in camelCase). A turn is
+ * `beforeSubmitPrompt` → `afterAgentResponse` (the whole answer, once, at the end) → `stop`
+ * (`completed`); an Esc sends `stop` with `error` and `aborted` and no answer. Cursor has no hook
+ * for "waiting for your approval": the `before*` hooks fire for every command, approved or not,
+ * so a permission prompt cannot be told apart and is left out.
+ */
+function interpretCursor(ev: Record<string, unknown>): Interpreted | null {
+  const name = str(ev.hook_event_name);
+  switch (name) {
+    case 'sessionStart':
+    case 'beforeSubmitPrompt':
+      // the prompt is the user's content: only the fact that it is busy is kept
+      return { kind: 'working', text: null, meta: { event: name } };
+    case 'afterAgentResponse':
+      // Same wait as `stop`: when stop arrived first (inverted race) and the person already saw
+      // the tab, this must carry the seen mark and only fill in the answer — not open a second alert.
+      // From `working` it is still a new wait (`continuesWait` only continues an open waiting_input).
+      return { kind: 'waiting_input', text: cap(str(ev.text)), meta: { event: name }, continuesWait: true };
+    case 'stop':
+      // Whatever the status (completed, or the error then aborted an Esc sends), the turn ended, so the
+      // tab is waiting — always as a continuation: when afterAgentResponse already opened this wait,
+      // recordEvent keeps its answer as the text and the seen mark, so nothing alerts twice in one
+      // turn; when that POST never arrived (a timed-out curl, a body over the route's limit), this is
+      // what takes the tab out of working and tells the person the turn is over.
+      return { kind: 'waiting_input', text: null, meta: { event: name, status: str(ev.status) }, continuesWait: true };
+    case 'sessionEnd':
+      return { kind: 'idle', text: null, meta: { event: name, reason: str(ev.reason) } };
+    default:
+      return null;
+  }
+}
+
+const INTERPRETERS: Record<HookTool, (ev: Record<string, unknown>) => Interpreted | null> = {
+  claude: interpretClaude,
+  codex: interpretCodex,
+  cursor: interpretCursor,
+};
 
 /**
  * Maps a raw hook payload to a tab state, or null when the event carries nothing worth showing.
@@ -86,7 +158,7 @@ function interpretCodex(ev: Record<string, unknown>): Interpreted | null {
  */
 export function interpretHookEvent(tool: HookTool, raw: unknown): Interpreted | null {
   if (!isObj(raw)) return null;
-  return tool === 'claude' ? interpretClaude(raw) : interpretCodex(raw);
+  return INTERPRETERS[tool](raw);
 }
 
 /** States in which the tool is waiting for the person (the "needs you" list). */

@@ -56,15 +56,19 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
   };
 
   return (
-    <li className={`rounded-lg border bg-bg-2 p-3 ${waiting ? 'border-accent/50' : 'border-line'}`}>
-      <div className="flex items-center gap-2 text-sm">
-        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${stateStyle(tab.state)}`}>{tab.state ? TAB_STATE_LABEL[tab.state] : '—'}</span>
-        <Link to={`/projects/${project.id}`} className="truncate font-medium hover:underline">
-          {project.name}
-        </Link>
-        <span className="truncate text-fg-dim">
-          › {tab.name}
-          {tab.state_tool ? ` · ${tab.state_tool}` : ''}
+    <li className={`rounded-lg border bg-bg-2 p-2.5 sm:p-3 ${waiting ? 'border-accent/50' : 'border-line'}`}>
+      {/* narrow: the state and the time on the first line, project › tab on a line of its own;
+          from sm up, everything on one line as before */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+        <span className={`shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold ${stateStyle(tab.state)}`}>{tab.state ? TAB_STATE_LABEL[tab.state] : '—'}</span>
+        <span data-testid="needs-you-where" className="order-last flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto sm:flex-1">
+          <Link to={`/projects/${project.id}`} className="max-w-[60%] shrink-0 truncate font-medium hover:underline">
+            {project.name}
+          </Link>
+          <span className="min-w-0 truncate text-fg-dim">
+            › {tab.name}
+            {tab.state_tool ? ` · ${tab.state_tool}` : ''}
+          </span>
         </span>
         <span className="ml-auto shrink-0 text-[11px] text-fg-dim">{since(tab.state_at, now)}</span>
       </div>
@@ -73,7 +77,8 @@ function Item({ item, now }: { item: MonitorItem; now: number }) {
         <form className="mt-2 flex items-center gap-2" onSubmit={send}>
           <input
             className="min-w-0 flex-1 rounded border border-line bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
-            placeholder={tab.state === 'waiting_permission' ? 'Resposta (ou só Enter para aceitar)…' : 'Responder no terminal…'}
+            placeholder={tab.state === 'waiting_permission' ? 'Resposta (Enter aceita)…' : 'Responder…'}
+            aria-label={tab.state === 'waiting_permission' ? 'Resposta (ou só Enter para aceitar)' : 'Responder no terminal'}
             value={text}
             disabled={sending}
             onChange={(e) => setText(e.target.value)}
@@ -152,14 +157,19 @@ function MachineSection({ group, now, open, onToggle }: { group: MachineGroup; n
   const hasContent = waiting.length > 0 || seen.length > 0 || finished.length > 0;
   return (
     <li className={`rounded-lg border bg-bg-2 ${waiting.length ? 'border-accent/50' : 'border-line'}`}>
-      <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-bg-3" onClick={onToggle} aria-expanded={open}>
+      <button type="button" className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2 text-left text-sm hover:bg-bg-3" onClick={onToggle} aria-expanded={open}>
         <span className={`text-[10px] text-fg-dim transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
           ▶
         </span>
         <span className={`h-2 w-2 shrink-0 rounded-full ${st === 'online' ? 'bg-ok' : st === 'offline' ? 'bg-danger' : 'bg-warn'}`} title={st} />
-        <span className="font-medium">{machine.name}</span>
-        {waiting.length > 0 && <span className="rounded bg-accent/15 px-1.5 text-[11px] font-semibold text-accent">{waiting.length}</span>}
-        <span className="ml-auto truncate text-xs text-fg-dim">{summary || 'sem atividade'}</span>
+        <span className="min-w-0 flex-1 truncate font-medium sm:flex-none" title={machine.name}>
+          {machine.name}
+        </span>
+        {waiting.length > 0 && <span className="shrink-0 rounded bg-accent/15 px-1.5 text-[11px] font-semibold text-accent">{waiting.length}</span>}
+        {/* narrow: under the name, aligned with it; from sm up, on the right as before */}
+        <span data-testid="needs-you-summary" className="w-full truncate pl-8 text-xs text-fg-dim sm:ml-auto sm:w-auto sm:pl-0">
+          {summary || 'sem atividade'}
+        </span>
       </button>
       {open && hasContent && (
         <ul className="space-y-2 border-t border-line p-2">

@@ -42,8 +42,7 @@ function stubRepos(opts: { fail?: boolean } = {}): Repositories {
     },
     machines: { list: vi.fn(async () => [{ id: 'm1', name: 'Jarvis', owner_id: 'u1' }]) },
     projects: { list: vi.fn(async () => [{ id: 'p1', owner_id: 'u1', name: 'Sala', status: 'active', is_public: true }]) },
-    projectMachines: { listByProjects: vi.fn(async () => [{ project_id: 'p1', machine_id: 'm1' }]) },
-    tabs: { listByProjectsOnMachine: vi.fn(async () => []) },
+    tabs: { listByProjects: vi.fn(async () => []) },
   } as unknown as Repositories;
 }
 
@@ -160,7 +159,10 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('buildApp serving the fron
     const spa = await app.fastify.inject({ method: 'GET', url: '/office' });
     expect(spa.body).toContain(APP_MARKER);
     const snapshot = await app.fastify.inject({ method: 'GET', url: `/api/public/city/${nick}` });
-    const { publicRoomId } = await import('./public/public-id.js');
-    expect(snapshot.json().buildings[0].rooms[0].id).toBe(publicRoomId(project.id, machine.id));
+    const { publicId } = await import('./public/public-id.js');
+    // the building is the project, under its project's public id, and the machine is named nowhere
+    expect(snapshot.json().buildings[0].id).toBe(publicId('project', project.id));
+    expect(snapshot.json().buildings[0].name).toBe('Fixture Room');
+    expect(snapshot.body).not.toContain('Fixture HQ');
   });
 });

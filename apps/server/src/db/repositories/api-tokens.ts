@@ -16,6 +16,9 @@ export interface ApiToken {
   /** True when the token's writes pass the chat's confirmation gate — the concierge's, never a
    * person's own. */
   gated: boolean;
+  /** The conversation this token was minted for — null for a person's own token, and for a
+   * concierge token minted before tokens named their conversation. */
+  chat_conversation_id: string | null;
 }
 
 /** One MCP tool call: metadata only (never typed text, screen content or prompts). */
@@ -42,6 +45,7 @@ const mapApiToken = (t: PrismaApiToken): ApiToken => ({
   revoked_at: t.revokedAt?.toISOString() ?? null,
   created_at: t.createdAt.toISOString(),
   gated: t.gated,
+  chat_conversation_id: t.chatConversationId,
 });
 
 const activeWhere = (now: Date) => ({ revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] });
@@ -54,13 +58,28 @@ export class ApiTokensRepository {
     return rows.map(mapApiToken);
   }
 
+  // The concierge mints its own token per conversation (one for the account-wide chat, one per
+  // project chat, all live at once) — they must never count against the person's own token cap.
   async countActive(userId: string, now = new Date()): Promise<number> {
-    return this.db.apiToken.count({ where: { userId, ...activeWhere(now) } });
+    return this.db.apiToken.count({ where: { userId, gated: false, ...activeWhere(now) } });
   }
 
-  async create(userId: string, input: { name: string; scopes: ApiTokenScope[]; expiresAt: Date | null; gated?: boolean }, tokenHash: string): Promise<ApiToken> {
+  async create(
+    userId: string,
+    input: { name: string; scopes: ApiTokenScope[]; expiresAt: Date | null; gated?: boolean; chatConversationId?: string | null },
+    tokenHash: string,
+  ): Promise<ApiToken> {
     const t = await this.db.apiToken.create({
-      data: { id: newId(), userId, name: input.name, scopes: input.scopes, expiresAt: input.expiresAt, tokenHash, gated: input.gated ?? false },
+      data: {
+        id: newId(),
+        userId,
+        name: input.name,
+        scopes: input.scopes,
+        expiresAt: input.expiresAt,
+        tokenHash,
+        gated: input.gated ?? false,
+        chatConversationId: input.chatConversationId ?? null,
+      },
     });
     return mapApiToken(t);
   }
@@ -70,6 +89,12 @@ export class ApiTokensRepository {
     await this.db.apiToken.updateMany({ where: { id, userId, revokedAt: null }, data: { revokedAt: new Date() } });
     const t = await this.db.apiToken.findFirst({ where: { id, userId } });
     return t ? mapApiToken(t) : undefined;
+  }
+
+  /** Revokes every live concierge token of a conversation — used when "Nova conversa" archives it. */
+  async revokeForConversation(conversationId: string): Promise<number> {
+    const { count } = await this.db.apiToken.updateMany({ where: { chatConversationId: conversationId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return count;
   }
 
   /** The token for a presented secret's hash, when it is neither revoked nor expired. */

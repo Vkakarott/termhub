@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { layoutFloor } from '../layout/floor';
+import { layoutFloor, type PlacedFloor } from '../layout/floor';
 import { depthOf } from '../layout/iso';
 import { lampPose } from './RoomLamp';
 import { pickRacks, placeRacks, type RackPose } from './RoomRacks';
 import { wallPlaquePose } from './wallPlaque';
 
 const ids = Array.from({ length: 40 }, (_, i) => `room-${i}`);
-const room = (desks: number) => layoutFloor([{ id: 'r', desks }]).rooms[0]!;
+const room = (desks: number): PlacedFloor => ({ origin: { gx: 0, gy: 0 }, layout: layoutFloor(desks) });
 const overlap = (a: RackPose, b: RackPose) => a.gx < b.gx + b.w && b.gx < a.gx + a.w && a.gy < b.gy + b.d && b.gy < a.gy + a.d;
 
 describe('pickRacks', () => {
@@ -37,7 +37,7 @@ describe('placeRacks', () => {
   it('fits every piece in the room without overlaps, clear of the lamp and the plaque', () => {
     for (const desks of [2, 3, 4, 5, 9]) {
       for (const id of ids.slice(0, 10)) {
-        const r = { ...room(desks), id };
+        const r = room(desks);
         const keys = pickRacks(id, desks);
         const poses = placeRacks(r, keys);
         expect(poses).toHaveLength(keys.length);

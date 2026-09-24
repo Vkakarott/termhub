@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { monitorHealthNote } from './MonitorHooksCard';
+import { hooksInstallNote, monitorHealthNote } from './MonitorHooksCard';
 
 describe('monitorHealthNote', () => {
   it('warns when the machine has tabs but none of them ever reported a state', () => {
@@ -20,5 +20,17 @@ describe('monitorHealthNote', () => {
 
   it('says nothing alarming when the machine has no tabs', () => {
     expect(monitorHealthNote({ tabs: 0, tabs_reporting: 0 }, true).warn).toBe(false);
+  });
+});
+
+describe('hooksInstallNote', () => {
+  it('names every tool it hooked, including the Cursor CLI', () => {
+    const note = hooksInstallNote({ claude: 'installed', claude_dirs: ['~/.claude', '~/.claude_work'], codex: 'installed', cursor: 'installed' });
+    expect(note).toBe('Claude Code: ok (~/.claude, ~/.claude_work) · Codex: ok · Cursor CLI: ok. Vale para sessões abertas a partir de agora.');
+  });
+
+  it('says a tool was not found, and asks for an agent update when the agent does not know Cursor yet', () => {
+    expect(hooksInstallNote({ claude: 'installed', codex: 'skipped', cursor: 'skipped' })).toContain('Codex: não encontrado · Cursor CLI: não encontrado');
+    expect(hooksInstallNote({ claude: 'installed', codex: 'skipped', cursor: 'agent_outdated' })).toContain('Cursor CLI: atualize o agente (0.4.3 ou mais novo)');
   });
 });

@@ -41,7 +41,15 @@ export async function ingestHookEvent(
 
 /** Records the event for the tab, updates its state and publishes the change. */
 export async function applyState(repos: Repositories, log: FastifyBaseLogger, tab: Tab, tool: string, next: Interpreted): Promise<Tab> {
-  const { tab: updated } = await repos.tabs.recordEvent(tab.id, { kind: next.kind, tool, text: next.text, meta: next.meta, activity: next.activity, activityVerb: next.verb });
+  const { tab: updated } = await repos.tabs.recordEvent(tab.id, {
+    kind: next.kind,
+    tool,
+    text: next.text,
+    meta: next.meta,
+    activity: next.activity,
+    activityVerb: next.verb,
+    ...(next.continuesWait ? { continuesWait: true } : {}),
+  });
   const machine = await repos.machines.findById(tab.machine_id);
   log.info({ tabId: tab.id, machineId: machine?.id, tool, kind: next.kind, textLen: next.text?.length ?? 0 }, 'monitor: tab state');
   publishTabChange(updated, tab.project_id, machine);

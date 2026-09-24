@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
 import { useData } from '../lib/data';
+import { machineLabel } from '../lib/machine-labels';
 import {
   APPROVAL_LABEL,
   PROVIDER_LABEL,
@@ -154,7 +155,7 @@ export function SetupForm({ project }: Props) {
         )}
       </Card>
 
-      <Card title="Tickets" hint="Fonte das tarefas: sincroniza para a coluna correspondente do kanban.">
+      <Card title="Tickets" hint="Fonte das tarefas: os tickets que você escolher em Tickets entram no backlog do épico padrão.">
         <Row label="Fonte">
           <select
             className="input"
@@ -223,7 +224,7 @@ export function SetupForm({ project }: Props) {
             <option value="">— a mesma do projeto —</option>
             {machines.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.name}
+                {machineLabel(m)}
                 {m.os ? ` (${m.os})` : ''}
               </option>
             ))}

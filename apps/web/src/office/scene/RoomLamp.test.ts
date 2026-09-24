@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { layoutFloor } from '../layout/floor';
+import { layoutFloor, type PlacedFloor } from '../layout/floor';
 import { WALL_H } from './RoomView';
 import { lampPose } from './RoomLamp';
 
+const placed = (desks: number): PlacedFloor => ({ origin: { gx: 0, gy: 0 }, layout: layoutFloor(desks) });
+
 describe('lampPose', () => {
   it('mounts a wall lantern on the right back wall, mid-height', () => {
-    const room = layoutFloor([{ id: 'a', desks: 4 }]).rooms[0]!;
+    const room = placed(4);
     const pose = lampPose(room);
     expect(pose.gy).toBeCloseTo(room.origin.gy + 0.04);
     expect(pose.gx).toBeGreaterThan(room.origin.gx);
@@ -15,7 +17,7 @@ describe('lampPose', () => {
   });
 
   it('sits close enough to the corner that wash must wrap onto the left wall', () => {
-    const room = layoutFloor([{ id: 'a', desks: 2 }]).rooms[0]!;
+    const room = placed(2);
     const pose = lampPose(room);
     // widest layer reach 2.25 — without wrap this would spill past ox
     expect(pose.gx - 2.25).toBeLessThan(room.origin.gx);

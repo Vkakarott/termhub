@@ -18,23 +18,22 @@ const desk = (over: Partial<DeskModel> = {}): DeskModel => ({
   verb: null,
   progress: null,
   look: 0,
+  machine: null,
   ...over,
 });
 
 describe('deskArtKeys', () => {
-  it('uses the v-2 desk/display/agent crop for every occupied seat', () => {
-    for (const i of [0, 1, 2, 3]) {
-      expect(deskArtKeys(i, true)).toEqual({
-        desk: 'desk/side-v-2',
-        agent: 'agent/side-v',
-        chair: null,
-        display: 'display/v-2',
-      });
-    }
+  it('uses the v-2 desk/display/agent stack for an occupied seat', () => {
+    expect(deskArtKeys(true)).toEqual({
+      desk: 'desk/side-v-2',
+      agent: 'agent/side-v',
+      chair: null,
+      display: 'display/v-2',
+    });
   });
 
   it('uses desk-h + chair-h (no display) when the seat is free', () => {
-    expect(deskArtKeys(0, false)).toEqual({
+    expect(deskArtKeys(false)).toEqual({
       desk: 'desk/side-h',
       agent: null,
       chair: 'chair/h',
