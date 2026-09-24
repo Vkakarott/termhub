@@ -111,6 +111,25 @@ describe('createTcpManager', () => {
     expect(socket.sendControl.mock.calls.filter((c) => c[0].type === 'closed')).toHaveLength(1);
   });
 
+  it('reports closed reason: reset (not open_error) when the local socket errors after connecting', async () => {
+    const { port, server, sockets } = await echoServer();
+    servers.push(server);
+    const socket = makeSocket();
+    const tcp = createTcpManager({ log: vi.fn(), allowPort: () => true });
+    await tcp.open(9, { port }, socket);
+    expect(socket.sendControl).toHaveBeenCalledWith({ type: 'opened', ch: 9 });
+    socket.sendControl.mockClear();
+
+    await waitFor(() => sockets.length > 0);
+    sockets[0].resetAndDestroy();
+
+    await waitFor(() => socket.sendControl.mock.calls.some((c) => c[0].type === 'closed'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(socket.sendControl.mock.calls.filter((c) => c[0].type === 'closed')).toHaveLength(1);
+    expect(socket.sendControl).toHaveBeenCalledWith({ type: 'closed', ch: 9, code: null, reason: 'reset' });
+    expect(socket.sendControl).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'open_error' }));
+  });
+
   it('pauses the local socket while the websocket buffer is above the high-water mark and resumes below the low-water mark', async () => {
     const { port, server, sockets } = await echoServer();
     servers.push(server);

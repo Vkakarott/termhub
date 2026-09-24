@@ -103,7 +103,7 @@ export function createTcpManager(deps: TcpManagerDeps): TcpManager & { isPaused(
           resolve();
         });
         sock.once('error', (err: NodeJS.ErrnoException) => {
-          if (sock.connecting || !sock.remoteAddress) {
+          if (!opened) {
             // Failed before connecting: the server never sees `opened`, so it gets open_error, not closed.
             channels.delete(ch);
             stopResumeTimer(entry);
