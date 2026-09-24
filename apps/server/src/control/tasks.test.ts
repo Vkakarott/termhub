@@ -168,7 +168,7 @@ describe('moveTask', () => {
     const { c, repos } = ctx();
     repos.tasks.move.mockResolvedValue({ ...k2, status: 'doing', position: 0 });
     const r = await moveTask(c, { task_id: 'k2', status: 'doing' });
-    expect(repos.tasks.move).toHaveBeenCalledWith('k2', 'doing', 0);
+    expect(repos.tasks.move).toHaveBeenCalledWith('k2', { status: 'doing' }, 0);
     expect(r.task).toMatchObject({ id: 'k2', status: 'doing', position: 0 });
   });
 
@@ -176,7 +176,7 @@ describe('moveTask', () => {
     const { c, repos } = ctx();
     repos.tasks.move.mockResolvedValue({ ...k2, status: 'done', position: 3 });
     await moveTask(c, { task_id: 'k2', status: 'done', position: 3 });
-    expect(repos.tasks.move).toHaveBeenCalledWith('k2', 'done', 3);
+    expect(repos.tasks.move).toHaveBeenCalledWith('k2', { status: 'done' }, 3);
   });
 
   it('refuses a subtask with the repository message', async () => {

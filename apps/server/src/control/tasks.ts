@@ -95,7 +95,7 @@ export async function updateTask(
 /** Top-level tasks only: the repository refuses a subtask (they have no column of their own). */
 export async function moveTask(ctx: ControlContext, input: { task_id: string; status: TaskStatus; position?: number }): Promise<{ task: TaskOut; board_url: string }> {
   const { task } = await ctx.scoped.task(input.task_id);
-  const moved = await rules(() => ctx.repos.tasks.move(task.id, input.status, input.position ?? 0));
+  const moved = await rules(() => ctx.repos.tasks.move(task.id, { status: input.status }, input.position ?? 0));
   if (!moved) throw new ControlError('NOT_FOUND', 'Tarefa não encontrada');
   return { task: out(moved), board_url: boardUrl(task.project_id) };
 }

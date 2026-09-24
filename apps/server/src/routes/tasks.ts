@@ -64,7 +64,7 @@ export async function taskRoutes(app: FastifyInstance, repos: Repositories) {
     const { id } = idParam.parse(request.params);
     const body = moveBody.parse(request.body);
     await scoped(repos, request).task(id);
-    const task = await rules(() => repos.tasks.move(id, body.status, body.position));
+    const task = await rules(() => repos.tasks.move(id, { status: body.status }, body.position));
     if (!task) throw notFound('Task não encontrada');
     return { task };
   });
