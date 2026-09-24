@@ -46,12 +46,12 @@ export function AppRoutes() {
       <Route element={<AppShell />}>
         <Route element={<Layout />}>
           <Route path="/" element={<HomePage />} />
-          <Route path="/ai" element={<HomePage />} />
-          <Route path="/hardware" element={<HomePage />} />
-          <Route path="/waitlist" element={<HomePage />} />
-          {/* the old Integrações page is a settings section now; inside Layout so the layout (and
+          {/* the old Integrações page and the old Início tabs are settings sections now; inside Layout so the layout (and
               what it remembers about the page before settings) survives the redirect */}
           <Route path="/integrations" element={<Navigate to="/settings/integrations" replace />} />
+          <Route path="/ai" element={<Navigate to="/settings/ai" replace />} />
+          <Route path="/hardware" element={<Navigate to="/settings/hardware" replace />} />
+          <Route path="/waitlist" element={<Navigate to="/settings/waitlist" replace />} />
           <Route path="/machines" element={<MachinesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/:section" element={<SettingsPage />} />

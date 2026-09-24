@@ -10,6 +10,9 @@ import { ApiTokensView } from '../components/ApiTokensView';
 import { MyCityView } from '../components/MyCityView';
 import { ProfileView } from '../components/ProfileView';
 import { IntegrationsView } from '../components/IntegrationsView';
+import { AiAccountsView } from '../components/AiAccountsView';
+import { HardwareView } from '../components/HardwareView';
+import { WaitlistView } from '../components/WaitlistView';
 import { PageFrame } from '../components/PageHeader';
 
 /**
@@ -37,6 +40,24 @@ export function SettingsPage() {
       return <RolesSection />;
     case 'integrations':
       return <IntegrationsView />;
+    case 'ai':
+      return (
+        <PageFrame title={current.label}>
+          <AiAccountsView />
+        </PageFrame>
+      );
+    case 'hardware':
+      return (
+        <PageFrame title={current.label}>
+          <HardwareView />
+        </PageFrame>
+      );
+    case 'waitlist':
+      return (
+        <PageFrame title={current.label}>
+          <WaitlistView />
+        </PageFrame>
+      );
     case 'permissions':
       return (
         <PageFrame title={current.label}>

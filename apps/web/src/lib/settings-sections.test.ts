@@ -10,7 +10,10 @@ describe('settings sections', () => {
       'account:city',
       'account:integrations',
       'account:api-tokens',
+      'account:ai',
+      'account:hardware',
       'admin:users',
+      'admin:waitlist',
       'admin:roles',
       'admin:permissions',
       'admin:uploads',
@@ -22,6 +25,17 @@ describe('settings sections', () => {
     expect(SETTINGS_SECTIONS.find((s) => s.key === 'profile')).toEqual({ key: 'profile', label: 'Perfil', resource: null, group: 'account' });
     expect(visibleSettingsSections(() => false).map((s) => s.key)).toEqual(['profile', 'city']);
     expect(visibleSettingsSections(() => true)[0]?.key).toBe('profile');
+  });
+
+  it('puts Contas de IA and Hardware under Conta, gated by their resources', () => {
+    expect(SETTINGS_SECTIONS.find((s) => s.key === 'ai')).toEqual({ key: 'ai', label: 'Contas de IA', resource: 'ai_accounts', group: 'account' });
+    expect(SETTINGS_SECTIONS.find((s) => s.key === 'hardware')).toEqual({ key: 'hardware', label: 'Hardware', resource: 'hardware', group: 'account' });
+    expect(visibleSettingsSections((r) => r === 'hardware').map((s) => s.key)).toEqual(['profile', 'city', 'hardware']);
+  });
+
+  it('puts the Waitlist under Administração, gated by its resource', () => {
+    expect(SETTINGS_SECTIONS.find((s) => s.key === 'waitlist')).toEqual({ key: 'waitlist', label: 'Waitlist', resource: 'waitlist', group: 'admin' });
+    expect(visibleSettingsSections((r) => r === 'waitlist').map((s) => s.key)).toEqual(['profile', 'city', 'waitlist']);
   });
 
   it('gates Integrações and Tokens de API by their resource', () => {

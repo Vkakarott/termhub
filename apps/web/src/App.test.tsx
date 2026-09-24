@@ -29,6 +29,22 @@ function Where() {
 afterEach(cleanup);
 
 describe('AppRoutes', () => {
+  it.each([
+    ['/waitlist', '/settings/waitlist'],
+    ['/ai', '/settings/ai'],
+    ['/hardware', '/settings/hardware'],
+  ])('sends the old %s tab to its settings section', (from, to) => {
+    render(
+      <MemoryRouter initialEntries={[from]}>
+        <AppRoutes />
+        <Where />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('where').textContent).toBe(to);
+    expect(screen.getByText('settings-page')).toBeTruthy();
+  });
+
+
   it('sends the old /integrations address to the Integrações settings section', () => {
     render(
       <MemoryRouter initialEntries={['/integrations']}>

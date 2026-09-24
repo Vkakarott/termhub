@@ -36,9 +36,12 @@ describe('SettingsSidebar', () => {
       ['Minha cidade', '/settings/city'],
       ['Integrações', '/settings/integrations'],
       ['Tokens de API', '/settings/api-tokens'],
+      ['Contas de IA', '/settings/ai'],
+      ['Hardware', '/settings/hardware'],
     ]);
     expect(linksOf('Administração')).toEqual([
       ['Usuários', '/settings/users'],
+      ['Waitlist', '/settings/waitlist'],
       ['Roles', '/settings/roles'],
       ['Permissões', '/settings/permissions'],
       ['Arquivos', '/settings/uploads'],
