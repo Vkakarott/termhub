@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { auth, setNicknameMock } = vi.hoisted(() => ({
@@ -13,6 +15,13 @@ vi.mock('../lib/auth', () => ({
 
 import { NicknamePrompt } from './NicknamePrompt';
 
+/** a page other than Início, where the prompt opens as it always did */
+const at = (path: string) =>
+  function Router({ children }: { children: ReactNode }) {
+    return <MemoryRouter initialEntries={[path]}>{children}</MemoryRouter>;
+  };
+const elsewhere = { wrapper: at('/projects/p1') };
+
 beforeEach(() => {
   localStorage.clear();
   setNicknameMock.mockReset().mockResolvedValue(undefined);
@@ -23,36 +32,36 @@ describe('NicknamePrompt', () => {
   // Spec §4 / plan Task 7: the nickname is asked at the first sign-in, not only when publishing.
   it('asks an account with no nickname yet for one', () => {
     auth.user = { id: 'u1', nickname: null };
-    render(<NicknamePrompt />);
+    render(<NicknamePrompt />, elsewhere);
     expect(screen.getByLabelText(/apelido/i)).toBeTruthy();
   });
 
   it('stays out of the way of an account that already has one', () => {
     auth.user = { id: 'u1', nickname: 'pedro' };
-    render(<NicknamePrompt />);
+    render(<NicknamePrompt />, elsewhere);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   // Dismissible: the publish flow still asks later, so declining here must not nag on every load.
   it('once dismissed, is not shown again to that account', () => {
     auth.user = { id: 'u1', nickname: null };
-    const { unmount } = render(<NicknamePrompt />);
+    const { unmount } = render(<NicknamePrompt />, elsewhere);
     fireEvent.click(screen.getByRole('button', { name: /cancelar/i }));
     expect(screen.queryByRole('dialog')).toBeNull();
     unmount();
 
-    render(<NicknamePrompt />);
+    render(<NicknamePrompt />, elsewhere);
     expect(screen.queryByRole('dialog')).toBeNull();
     cleanup();
 
     auth.user = { id: 'u2', nickname: null };
-    render(<NicknamePrompt />);
+    render(<NicknamePrompt />, elsewhere);
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
   it('closes once the nickname is claimed', async () => {
     auth.user = { id: 'u1', nickname: null };
-    render(<NicknamePrompt />);
+    render(<NicknamePrompt />, elsewhere);
     fireEvent.change(screen.getByLabelText(/apelido/i), { target: { value: 'pedro' } });
     fireEvent.click(screen.getByRole('button', { name: /salvar/i }));
     await waitFor(() => expect(setNicknameMock).toHaveBeenCalledWith('pedro'));
@@ -68,12 +77,19 @@ describe('NicknamePrompt', () => {
       throw new Error('blocked');
     });
     try {
-      render(<NicknamePrompt />);
+      render(<NicknamePrompt />, elsewhere);
       fireEvent.click(screen.getByRole('button', { name: /cancelar/i }));
       expect(screen.queryByRole('dialog')).toBeNull();
     } finally {
       get.mockRestore();
       set.mockRestore();
     }
+  });
+
+  // Início suggests the nickname in its own "Próximos passos": the prompt would only duplicate it there
+  it('does not open over Início', () => {
+    auth.user = { id: 'u1', nickname: null };
+    render(<NicknamePrompt />, { wrapper: at('/') });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
