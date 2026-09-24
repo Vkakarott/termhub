@@ -31,6 +31,11 @@ epic mandatory, orphans go to a default epic; filterable board; custom columns w
 agent column setting with the `doing` fallback; subtasks stay a checklist inside the parent card;
 card URL `/project/KEY-N`; the three tasks in production may be discarded.
 
+Decided by the owner on 2026-09-24, on the draft: subtasks consume card numbers (their ref opens
+the parent card); the agent column must be a `doing` column; opening a card navigates to
+`/project/KEY-N` even though the board remounts; card order left odd by the old release during the
+switch is acceptable (few cards exist).
+
 Out of scope, deliberately: moving project URLs to the key (`/projects/:id/...` stays; only cards get
 key URLs), sharing a board with other users, WIP limits, swimlanes, sprints, story points,
 reordering epics by hand, moving a card to another project, and new ticket-provider mappings.
@@ -125,7 +130,8 @@ works on the category, which is still `status`).
 - Deleting a column moves its cards to the end of the first other column of the same category.
   Deleting or re-categorizing the last column of a category is refused (`COLUMN_LAST_OF_CATEGORY`).
 - Changing a column's category updates `status` of its cards in the same transaction.
-- If the agent column is deleted, `agent_column_id` falls back to null (automatic).
+- The agent column must be a `doing` column (`COLUMN_NOT_DOING` otherwise). If it is deleted, or
+  its category changes away from `doing`, `agent_column_id` falls back to null (automatic).
 
 ### Healing rows from the previous release
 
@@ -158,7 +164,8 @@ New `apps/server/src/db/repositories/task-columns.ts`: `list(projectId)`, `ensur
 §3. `ProjectsRepository.create` calls `ensureDefaults` in its transaction.
 
 Rule errors extend `TaskRuleCode`: `EPIC_REQUIRED`, `EPIC_NOT_FOUND`, `PARENT_TYPE`, `HAS_SUBTASKS`,
-`TYPE_LOCKED`, `EPIC_HAS_CHILDREN`, `COLUMN_NOT_FOUND`, `COLUMN_LAST_OF_CATEGORY`, `TOO_MANY_COLUMNS`.
+`TYPE_LOCKED`, `EPIC_HAS_CHILDREN`, `COLUMN_NOT_FOUND`, `COLUMN_NOT_DOING`, `COLUMN_LAST_OF_CATEGORY`,
+`TOO_MANY_COLUMNS`.
 
 ## 5. API
 
@@ -246,7 +253,7 @@ All routes stay under the `tasks` resource, loaded through `scoped(...)`.
 
 `ProjectSettings` gains a "Colunas do board" block: list in order with rename, category select
 ("A fazer", "Fazendo", "Feito"), up/down, delete (confirm tells how many cards move and where), "+
-coluna", and "Coluna do agente" (select: "Automática (primeira Fazendo)" + every column).
+coluna", and "Coluna do agente" (select: "Automática (primeira Fazendo)" + the `doing` columns only).
 
 ### Elsewhere
 
@@ -275,8 +282,8 @@ show the "Geral" epics as ordinary backlog cards for the switch window; harmless
 `TaskRuleError` → 400, except `EPIC_HAS_CHILDREN` and `COLUMN_LAST_OF_CATEGORY` → 409. pt-BR messages:
 "Escolha um épico", "Épico não encontrado", "Subtarefa só pode ficar em uma história ou tarefa",
 "Tire as subtarefas antes de mudar para bug ou spike", "Épico e subtarefa não mudam de tipo",
-"Este épico ainda tem cards", "Coluna não encontrada", "O board precisa de ao menos uma coluna de
-cada tipo", "Limite de 12 colunas".
+"Este épico ainda tem cards", "Coluna não encontrada", "A coluna do agente precisa ser do tipo
+Fazendo", "O board precisa de ao menos uma coluna de cada tipo", "Limite de 12 colunas".
 
 ## 10. Testing (vitest)
 

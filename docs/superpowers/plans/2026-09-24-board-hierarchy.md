@@ -58,7 +58,7 @@ sleep 3 && thdb 'npm ci --no-audit --no-fund >/dev/null && cd apps/server && npx
 - **`epic_id` on an epic or a subtask is ignored** by `PATCH /tasks/:id` and `update_task` (neither has an epic). A type change on a subtask or an epic is refused with `TYPE_LOCKED`, as the spec says.
 - **Moving a backlog item to another epic** (changing `epic_id` while it is in the backlog) puts it at the top of the new epic's backlog. A board card keeps its column and position.
 - **`start_agent` on a subtask** marks the subtask `doing` (checklist semantics, as today); the agent column applies to top-level cards only.
-- **The agent column may be any column** (spec: "select: … + every column"). "Already in a doing column" is read from `status = 'doing'`.
+- **The agent column must be a `doing` column** (owner decision, 2026-09-24): `setAgentColumn` refuses others with `COLUMN_NOT_DOING`, `setCategory` clears the setting when the agent column leaves `doing`, and the settings select lists `doing` columns only. "Already in a doing column" is read from `status = 'doing'`.
 - **Every inserted row is numbered by the trigger, subtasks included**, so a subtask has a ref too. `GET /tasks/by-ref/<a subtask's ref>` returns the subtask; the web opens its parent card (subtasks have no editor of their own).
 - **Response shapes the spec leaves open:** `POST /columns/:id/move` → `{ columns }` (the new order); `PATCH /columns/:id` → `{ column }`; `PUT /projects/:id/agent-column` → `{ agent_column_id }`. Column positions are kept compact (`0..n-1`) after a move or delete.
 - **MCP:** the `column` object (`{ id, name, category }`) is added to `list_tasks` items only; the other task tools return `column_id`. `find` searches kind `task` by default and only when the query parses as a ref.
@@ -424,7 +424,7 @@ git commit -m "Prisma: card types, numbers, epics and per-project board columns"
 - Produces (types.ts): `type TaskType = 'epic' | 'story' | 'task' | 'subtask' | 'bug' | 'spike'`, `type ColumnCategory = Exclude<TaskStatus, 'backlog'>`.
 - Produces (task-rules.ts):
   ```ts
-  type TaskRuleCode = 'PARENT_NOT_FOUND' | 'PARENT_IS_SUBTASK' | 'SUBTASK_CANNOT_MOVE' | 'NOT_A_SUBTASK' | 'TOO_MANY_SUBTASKS' | 'EPIC_REQUIRED' | 'EPIC_NOT_FOUND' | 'PARENT_TYPE' | 'HAS_SUBTASKS' | 'TYPE_LOCKED' | 'EPIC_HAS_CHILDREN' | 'COLUMN_NOT_FOUND' | 'COLUMN_LAST_OF_CATEGORY' | 'TOO_MANY_COLUMNS'
+  type TaskRuleCode = 'PARENT_NOT_FOUND' | 'PARENT_IS_SUBTASK' | 'SUBTASK_CANNOT_MOVE' | 'NOT_A_SUBTASK' | 'TOO_MANY_SUBTASKS' | 'EPIC_REQUIRED' | 'EPIC_NOT_FOUND' | 'PARENT_TYPE' | 'HAS_SUBTASKS' | 'TYPE_LOCKED' | 'EPIC_HAS_CHILDREN' | 'COLUMN_NOT_FOUND' | 'COLUMN_NOT_DOING' | 'COLUMN_LAST_OF_CATEGORY' | 'TOO_MANY_COLUMNS'
   const MAX_SUBTASKS_PER_CALL = 50, MAX_COLUMNS = 12, COLUMN_NAME_MAX = 40
   class TaskRuleError extends Error { code: TaskRuleCode; constructor(code, message = <pt-BR default>) }
   const WORK_TYPES: TaskType[]   // story, task, bug, spike
@@ -541,6 +541,7 @@ export type TaskRuleCode =
   | 'TYPE_LOCKED'
   | 'EPIC_HAS_CHILDREN'
   | 'COLUMN_NOT_FOUND'
+  | 'COLUMN_NOT_DOING'
   | 'COLUMN_LAST_OF_CATEGORY'
   | 'TOO_MANY_COLUMNS';
 
@@ -562,6 +563,7 @@ const MESSAGES: Record<TaskRuleCode, string> = {
   TYPE_LOCKED: 'Épico e subtarefa não mudam de tipo',
   EPIC_HAS_CHILDREN: 'Este épico ainda tem cards',
   COLUMN_NOT_FOUND: 'Coluna não encontrada',
+  COLUMN_NOT_DOING: 'A coluna do agente precisa ser do tipo Fazendo',
   COLUMN_LAST_OF_CATEGORY: 'O board precisa de ao menos uma coluna de cada tipo',
   TOO_MANY_COLUMNS: 'Limite de 12 colunas',
 };
@@ -1776,10 +1778,10 @@ git commit -m "Tasks: types, mandatory epics, numbers, per-column positions" -m 
   ensureDefaults(projectId): Promise<void>
   create(projectId, { name, category }): Promise<TaskColumn>    // appended; TOO_MANY_COLUMNS at 12
   rename(id, name): Promise<TaskColumn | undefined>
-  setCategory(id, category): Promise<TaskColumn | undefined>    // cards' status follows; COLUMN_LAST_OF_CATEGORY
+  setCategory(id, category): Promise<TaskColumn | undefined>    // cards' status follows; COLUMN_LAST_OF_CATEGORY; clears the agent column when it leaves doing
   move(id, position): Promise<TaskColumn[] | undefined>         // the new order
   delete(id): Promise<{ moved_tasks: number } | undefined>      // cards → end of first other column of the category; COLUMN_LAST_OF_CATEGORY
-  setAgentColumn(projectId, columnId | null): Promise<void>     // COLUMN_NOT_FOUND
+  setAgentColumn(projectId, columnId | null): Promise<void>     // COLUMN_NOT_FOUND; COLUMN_NOT_DOING unless category = doing
   ```
   and `Repositories.taskColumns`. `ProjectsRepository.create` creates the default columns in the same transaction.
 
@@ -1871,6 +1873,10 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TaskColumnsRepository (Po
     expect((await db.task.findUniqueOrThrow({ where: { id: c } })).status).toBe('doing');
     await expect(repo.setCategory(todo.id, 'done')).rejects.toMatchObject({ code: 'COLUMN_LAST_OF_CATEGORY', message: 'O board precisa de ao menos uma coluna de cada tipo' });
     expect((await repo.findById(doing.id))?.category).toBe('doing');
+    // the agent column stops being one when it leaves doing
+    await repo.setAgentColumn(projectId, review.id);
+    expect(await repo.setCategory(review.id, 'done')).toMatchObject({ category: 'done' });
+    expect((await db.project.findUniqueOrThrow({ where: { id: projectId } })).agentColumnId).toBeNull();
   });
 
   it('deleting a column moves its cards to the end of the first other column of that category', async () => {
@@ -1894,14 +1900,16 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TaskColumnsRepository (Po
     expect(await repo.list(projectId)).toHaveLength(3);
   });
 
-  it('the agent column falls back to automatic when it is deleted, and must belong to the project', async () => {
+  it('the agent column must be a doing column of the project, and falls back to automatic when it is deleted', async () => {
     await repo.ensureDefaults(projectId);
+    const [todo] = await repo.list(projectId);
     const qa = await repo.create(projectId, { name: 'QA', category: 'doing' });
     await repo.setAgentColumn(projectId, qa.id);
     expect((await db.project.findUniqueOrThrow({ where: { id: projectId } })).agentColumnId).toBe(qa.id);
     await repo.delete(qa.id);
     expect((await db.project.findUniqueOrThrow({ where: { id: projectId } })).agentColumnId).toBeNull();
     await expect(repo.setAgentColumn(projectId, 'nope')).rejects.toMatchObject({ code: 'COLUMN_NOT_FOUND' });
+    await expect(repo.setAgentColumn(projectId, todo.id)).rejects.toMatchObject({ code: 'COLUMN_NOT_DOING', message: 'A coluna do agente precisa ser do tipo Fazendo' });
     await repo.setAgentColumn(projectId, null);
   });
 
@@ -1985,6 +1993,8 @@ export class TaskColumnsRepository {
         await this.refuseLastOfCategory(tx, col);
         await tx.taskColumn.update({ where: { id }, data: { category } });
         await tx.task.updateMany({ where: { columnId: id }, data: { status: category } });
+        // the agent column must stay a doing column; otherwise the project goes back to automatic
+        if (category !== 'doing') await tx.project.updateMany({ where: { id: col.projectId, agentColumnId: id }, data: { agentColumnId: null } });
       }
       return mapTaskColumn(await tx.taskColumn.findUniqueOrThrow({ where: { id } }));
     });
@@ -2026,10 +2036,14 @@ export class TaskColumnsRepository {
     });
   }
 
-  /** null = automatic (the first `doing` column). */
+  /** null = automatic (the first `doing` column). A set column must be one of the project's `doing` columns. */
   async setAgentColumn(projectId: string, columnId: string | null): Promise<void> {
     await this.db.$transaction(async (tx) => {
-      if (columnId && !(await tx.taskColumn.findFirst({ where: { id: columnId, projectId }, select: { id: true } }))) throw new TaskRuleError('COLUMN_NOT_FOUND');
+      if (columnId) {
+        const col = await tx.taskColumn.findFirst({ where: { id: columnId, projectId }, select: { category: true } });
+        if (!col) throw new TaskRuleError('COLUMN_NOT_FOUND');
+        if (col.category !== 'doing') throw new TaskRuleError('COLUMN_NOT_DOING');
+      }
       await tx.project.update({ where: { id: projectId }, data: { agentColumnId: columnId } });
     });
   }
@@ -5884,6 +5898,8 @@ describe('BoardColumnsSettings', () => {
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith('p1', { name: 'Bloqueado', category: 'doing' }));
     const agent = screen.getByLabelText('Coluna do agente') as HTMLSelectElement;
     expect(agent.options[0].textContent).toBe('Automática (primeira Fazendo)');
+    // only doing columns are offered
+    expect(Array.from(agent.options).map((o) => o.textContent)).toEqual(['Automática (primeira Fazendo)', 'Fazendo', 'QA']);
     fireEvent.change(agent, { target: { value: 'c4' } });
     await waitFor(() => expect(mocks.setAgent).toHaveBeenCalledWith('p1', 'c4'));
   });
@@ -6024,11 +6040,13 @@ export function BoardColumnsSettings({ project }: { project: Project }) {
           }}
         >
           <option value="">Automática (primeira Fazendo)</option>
-          {columns.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
+          {columns
+            .filter((c) => c.category === 'doing')
+            .map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
         </select>
         <p className="mt-1 text-xs text-fg-dim">Para onde o card vai quando um agente começa a trabalhar nele.</p>
       </div>
