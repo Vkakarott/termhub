@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
+import { applyMove, cardsIn, dropPosition, epicsOf, FILTER_TYPES, nextColumn, openCount, readBoardFilter, visible, writeBoardFilter, type BoardFilter } from '../lib/board';
 import { useData } from '../lib/data';
 import { readLastMachine, writeLastMachine } from '../lib/last-machine';
-import { PROVIDER_LABEL, TASK_STATUS_LABEL, type Task, type TaskStatus } from '../lib/types';
+import { COLUMN_CATEGORY_LABEL, PROVIDER_LABEL, TASK_TYPE_LABEL, type ColumnCategory, type Task, type TaskColumn, type TaskPatchInput, type TaskType } from '../lib/types';
 import { MachinePicker } from './MachinePicker';
-import { Modal } from './Modal';
-import { SubtaskList } from './SubtaskList';
+import { TaskEditor, type PlaceTarget } from './TaskEditor';
+import { TypeBadge } from './TypeBadge';
 
-const COLUMNS: TaskStatus[] = ['backlog', 'todo', 'doing', 'done'];
-const NEXT: Partial<Record<TaskStatus, TaskStatus>> = { backlog: 'todo', todo: 'doing', doing: 'done' };
+const CATEGORY_DOT: Record<ColumnCategory, string> = { todo: 'bg-fg-dim', doing: 'bg-accent', done: 'bg-ok' };
 
 interface Props {
   projectId: string;
@@ -17,18 +17,21 @@ interface Props {
 
 interface DragState {
   taskId: string;
-  overStatus: TaskStatus | null;
+  overColumn: string | null;
   overIndex: number | null;
 }
 
+/** The project's Board (spec §7): its own columns, a type/epic filter, cards with type, ref and epic. */
 export function TasksBoard({ projectId }: Props) {
   const { projects, machinesOf, setOpenTasks } = useData();
   const navigate = useNavigate();
   const project = projects.find((p) => p.id === projectId);
   const projectMachines = project ? machinesOf(project) : [];
   const [tasks, setTasks] = useState<Task[] | null>(null);
+  const [columns, setColumns] = useState<TaskColumn[]>([]);
+  const [filter, setFilter] = useState<BoardFilter>(() => readBoardFilter(projectId));
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Task | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [pickingMachineFor, setPickingMachineFor] = useState<string | null>(null);
 
@@ -36,8 +39,9 @@ export function TasksBoard({ projectId }: Props) {
     try {
       const r = await api.tasks.list(projectId);
       setTasks(r.tasks);
+      setColumns([...r.columns].sort((a, b) => a.position - b.position));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Erro ao carregar tasks');
+      setError(e instanceof ApiError ? e.message : 'Erro ao carregar o board');
     }
   }, [projectId]);
 
@@ -46,53 +50,84 @@ export function TasksBoard({ projectId }: Props) {
   }, [load]);
 
   useEffect(() => {
-    if (tasks) setOpenTasks(projectId, tasks.filter((t) => t.status === 'todo' || t.status === 'doing').length);
+    if (tasks) setOpenTasks(projectId, openCount(tasks));
   }, [tasks, projectId, setOpenTasks]);
 
-  const byStatus = (s: TaskStatus) => (tasks ?? []).filter((t) => t.status === s).sort((a, b) => a.position - b.position);
+  const epics = useMemo(() => epicsOf(tasks ?? []), [tasks]);
+  const epicTitle = useMemo(() => new Map(epics.map((e) => [e.id, e.title])), [epics]);
+  const editing = editingId ? ((tasks ?? []).find((t) => t.id === editingId) ?? null) : null;
+
+  const changeFilter = (next: BoardFilter) => {
+    setFilter(next);
+    writeBoardFilter(projectId, next);
+  };
 
   const fail = (e: unknown, fallback: string) => {
     setError(e instanceof ApiError ? e.message : fallback);
     void load();
   };
 
-  const create = async (status: TaskStatus, title: string) => {
-    try {
-      const { task } = await api.tasks.create(projectId, { title, status });
-      setTasks((t) => [...(t ?? []).map((x) => (x.status === status ? { ...x, position: x.position + 1 } : x)), task]);
-    } catch (e) {
-      fail(e, 'Erro ao criar task');
-    }
-  };
-
-  const update = async (id: string, patch: { title?: string; description?: string | null }) => {
-    setTasks((t) => (t ?? []).map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    try {
-      await api.tasks.update(id, patch);
-    } catch (e) {
-      fail(e, 'Erro ao salvar task');
-    }
-  };
-
-  // PATCH/move answer with the bare task: keep the subtasks the list endpoint gave us
+  // PATCH/move answer with the bare card: keep the subtasks the list endpoint gave us
   const replaceTask = (task: Task) => setTasks((t) => (t ?? []).map((x) => (x.id === task.id ? { ...task, subtasks: task.subtasks ?? x.subtasks } : x)));
 
   const setSubtasks = (parentId: string, v: Task[] | ((prev: Task[]) => Task[])) =>
     setTasks((t) => (t ?? []).map((x) => (x.id === parentId ? { ...x, subtasks: typeof v === 'function' ? v(x.subtasks ?? []) : v } : x)));
+
+  const create = async (column: TaskColumn, title: string) => {
+    try {
+      const { task } = await api.tasks.create(projectId, { title, column_id: column.id });
+      setTasks((t) => [...(t ?? []).map((x) => (!x.parent_id && x.column_id === column.id ? { ...x, position: x.position + 1 } : x)), { ...task, subtasks: [] }]);
+      // the first card of a project also creates its default epic: fetch it for the names and the filter
+      if (task.epic_id && !epicTitle.has(task.epic_id)) void load();
+    } catch (e) {
+      fail(e, 'Erro ao criar o card');
+    }
+  };
+
+  const update = async (id: string, patch: TaskPatchInput) => {
+    setTasks((t) => (t ?? []).map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    try {
+      replaceTask((await api.tasks.update(id, patch)).task);
+    } catch (e) {
+      fail(e, 'Erro ao salvar o card');
+    }
+  };
+
+  /** Moves locally (reindexing both columns) and persists. `position` is the server position. */
+  const move = async (id: string, columnId: string, position: number) => {
+    const column = columns.find((c) => c.id === columnId);
+    if (!column) return;
+    setTasks((t) => applyMove(t ?? [], id, column, position));
+    try {
+      replaceTask((await api.tasks.move(id, { column_id: columnId }, position)).task);
+    } catch (e) {
+      fail(e, 'Erro ao mover o card');
+    }
+  };
+
+  const place = async (id: string, target: PlaceTarget) => {
+    if ('column_id' in target) return move(id, target.column_id, 0);
+    try {
+      await api.tasks.move(id, target, 0);
+      await load(); // it left the board: the column it was in closes its gap
+    } catch (e) {
+      fail(e, 'Erro ao mover o card');
+    }
+  };
 
   const openTerminal = async (id: string, machineId?: string) => {
     try {
       const r = await api.tasks.openTerminal(id, machineId);
       if (machineId) writeLastMachine(projectId, machineId);
       replaceTask(r.task);
-      setEditing(null);
+      setEditingId(null);
       navigate(`/projects/${projectId}?tab=${r.tab.id}`);
     } catch (e) {
       fail(e, 'Erro ao abrir terminal');
     }
   };
 
-  /** Resolves which machine to open the task's terminal on before calling the API. */
+  /** Resolves which machine to open the card's terminal on before calling the API. */
   const chooseTerminal = (id: string) => {
     if (projectMachines.length === 0) {
       setError('Vincule uma máquina ao projeto em Setup → Máquinas para abrir terminais.');
@@ -121,57 +156,39 @@ export function TasksBoard({ projectId }: Props) {
     }
   };
 
+  /** Not optimistic: an epic that still has cards is refused (409) and must stay on screen. */
   const remove = async (id: string) => {
-    setTasks((t) => (t ?? []).filter((x) => x.id !== id));
-    setEditing(null);
+    setEditingId(null);
     try {
       await api.tasks.remove(id);
+      setTasks((t) => (t ?? []).filter((x) => x.id !== id));
     } catch (e) {
-      fail(e, 'Erro ao excluir task');
+      fail(e, 'Erro ao excluir o card');
     }
   };
 
-  /** Move localmente (reindexando as colunas) e persiste. */
-  const move = async (id: string, status: TaskStatus, index: number) => {
-    const current = (tasks ?? []).find((t) => t.id === id);
-    if (!current) return;
-    const others = (tasks ?? []).filter((t) => t.id !== id);
-    const target = others.filter((t) => t.status === status).sort((a, b) => a.position - b.position);
-    const pos = Math.max(0, Math.min(index, target.length));
-    target.splice(pos, 0, { ...current, status });
-    const source = status === current.status ? [] : others.filter((t) => t.status === current.status).sort((a, b) => a.position - b.position);
-    const rest = others.filter((t) => t.status !== status && t.status !== current.status);
-    setTasks([
-      ...rest,
-      ...source.map((t, i) => ({ ...t, position: i })),
-      ...target.map((t, i) => ({ ...t, position: i })),
-    ]);
-    try {
-      await api.tasks.move(id, { status }, pos);
-    } catch (e) {
-      fail(e, 'Erro ao mover task');
-    }
-  };
-
-  // --- drag and drop nativo ---
+  // --- native drag and drop, keyed by column ---
   const onDragStart = (e: DragEvent, task: Task) => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', task.id);
-    setDrag({ taskId: task.id, overStatus: null, overIndex: null });
+    setDrag({ taskId: task.id, overColumn: null, overIndex: null });
   };
-  const onDragOverColumn = (e: DragEvent, status: TaskStatus, index: number) => {
+  const onDragOverColumn = (e: DragEvent, columnId: string, index: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDrag((d) => (d && (d.overStatus !== status || d.overIndex !== index) ? { ...d, overStatus: status, overIndex: index } : d));
+    setDrag((d) => (d && (d.overColumn !== columnId || d.overIndex !== index) ? { ...d, overColumn: columnId, overIndex: index } : d));
   };
-  const onDrop = (e: DragEvent, status: TaskStatus, index: number) => {
+  const onDrop = (e: DragEvent, column: TaskColumn, index: number) => {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain') || drag?.taskId;
     setDrag(null);
-    if (id) void move(id, status, index);
+    if (!id || !tasks) return;
+    const all = cardsIn(tasks, column.id);
+    void move(id, column.id, dropPosition(all, visible(all, filter), index, id));
   };
 
-  if (tasks === null) return <div className="flex h-full items-center justify-center text-sm text-fg-dim">Carregando tasks…</div>;
+  if (tasks === null) return <div className="flex h-full items-center justify-center text-sm text-fg-dim">{error ?? 'Carregando o board…'}</div>;
+  const loaded = tasks;
 
   return (
     <div className="flex h-full flex-col">
@@ -183,56 +200,60 @@ export function TasksBoard({ projectId }: Props) {
           </button>
         </div>
       )}
-      <div className="grid min-h-0 flex-1 grid-cols-4 gap-3 overflow-x-auto p-3">
-        {COLUMNS.map((status) => {
-          const items = byStatus(status);
-          const isOver = drag?.overStatus === status;
+      <BoardToolbar filter={filter} epics={epics} onChange={changeFilter} />
+      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
+        {columns.map((column) => {
+          const shown = visible(cardsIn(loaded, column.id), filter);
+          const isOver = drag?.overColumn === column.id;
+          const next = nextColumn(columns, column.id);
           return (
             <section
-              key={status}
-              className={`flex min-h-0 min-w-[220px] flex-col rounded-lg border bg-bg-2 ${isOver ? 'border-accent/60' : 'border-line'}`}
-              onDragOver={(e) => onDragOverColumn(e, status, items.length)}
-              onDrop={(e) => onDrop(e, status, drag?.overIndex ?? items.length)}
+              key={column.id}
+              aria-label={column.name}
+              className={`flex min-h-0 w-[260px] shrink-0 flex-col rounded-lg border bg-bg-2 ${isOver ? 'border-accent/60' : 'border-line'}`}
+              onDragOver={(e) => onDragOverColumn(e, column.id, shown.length)}
+              onDrop={(e) => onDrop(e, column, drag?.overIndex ?? shown.length)}
               onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag((d) => (d ? { ...d, overStatus: null, overIndex: null } : d));
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag((d) => (d ? { ...d, overColumn: null, overIndex: null } : d));
               }}
             >
-              <header className="flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-                <span className={`h-2 w-2 rounded-full ${status === 'backlog' ? 'bg-bg-4' : status === 'todo' ? 'bg-fg-dim' : status === 'doing' ? 'bg-accent' : 'bg-ok'}`} />
-                {TASK_STATUS_LABEL[status]}
-                <span className="ml-auto rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums">{items.length}</span>
+              <header className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-fg-muted">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_DOT[column.category]}`} title={COLUMN_CATEGORY_LABEL[column.category]} />
+                <span className="truncate">{column.name}</span>
+                <span className="ml-auto rounded-full bg-bg-4 px-1.5 text-[10px] tabular-nums">{shown.length}</span>
               </header>
-              <QuickAdd onAdd={(title) => void create(status, title)} />
+              <QuickAdd onAdd={(title) => void create(column, title)} />
               <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-2">
-                {items.map((task, i) => (
+                {shown.map((task, i) => (
                   <li
                     key={task.id}
                     onDragOver={(e) => {
                       e.stopPropagation();
                       const rect = e.currentTarget.getBoundingClientRect();
-                      const before = e.clientY < rect.top + rect.height / 2;
-                      onDragOverColumn(e, status, before ? i : i + 1);
+                      onDragOverColumn(e, column.id, e.clientY < rect.top + rect.height / 2 ? i : i + 1);
                     }}
                     onDrop={(e) => {
                       e.stopPropagation();
-                      onDrop(e, status, drag?.overIndex ?? i);
+                      onDrop(e, column, drag?.overIndex ?? i);
                     }}
                   >
                     {isOver && drag?.overIndex === i && drag.taskId !== task.id && <DropLine />}
                     <TaskCard
                       task={task}
+                      epicTitle={task.epic_id ? (epicTitle.get(task.epic_id) ?? null) : null}
                       dragging={drag?.taskId === task.id}
                       onDragStart={(e) => onDragStart(e, task)}
                       onDragEnd={() => setDrag(null)}
-                      onOpen={() => setEditing(task)}
+                      onOpen={() => setEditingId(task.id)}
                       onRename={(title) => void update(task.id, { title })}
-                      onMoveNext={NEXT[status] ? () => void move(task.id, NEXT[status]!, 0) : undefined}
+                      next={next}
+                      onMoveNext={next ? () => void move(task.id, next.id, 0) : undefined}
                       terminalHref={task.tab_id ? `/projects/${projectId}?tab=${task.tab_id}` : null}
                     />
                   </li>
                 ))}
-                {isOver && drag && drag.overIndex === items.length && <DropLine />}
-                {items.length === 0 && !isOver && <li className="px-1 py-6 text-center text-xs text-fg-dim">vazio</li>}
+                {isOver && drag && drag.overIndex === shown.length && <DropLine />}
+                {shown.length === 0 && !isOver && <li className="px-1 py-6 text-center text-xs text-fg-dim">vazio</li>}
               </ul>
             </section>
           );
@@ -241,14 +262,17 @@ export function TasksBoard({ projectId }: Props) {
 
       {editing && (
         <TaskEditor
-          task={tasks.find((t) => t.id === editing.id) ?? editing}
-          onClose={() => setEditing(null)}
+          key={editing.id}
+          task={editing}
+          columns={columns}
+          epics={epics}
+          terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
+          onClose={() => setEditingId(null)}
           onSave={(patch) => void update(editing.id, patch)}
-          onStatus={(s) => void move(editing.id, s, 0)}
+          onPlace={(target) => void place(editing.id, target)}
           onDelete={() => void remove(editing.id)}
           onOpenTerminal={() => chooseTerminal(editing.id)}
           onPushStatus={() => pushStatus(editing.id)}
-          terminalHref={editing.tab_id ? `/projects/${projectId}?tab=${editing.tab_id}` : null}
           onSubtasks={(subtasks) => setSubtasks(editing.id, subtasks)}
           onError={(message) => {
             setError(message);
@@ -273,6 +297,40 @@ export function TasksBoard({ projectId }: Props) {
   );
 }
 
+function BoardToolbar({ filter, epics, onChange }: { filter: BoardFilter; epics: Task[]; onChange: (next: BoardFilter) => void }) {
+  const toggle = (type: TaskType) =>
+    onChange({ ...filter, types: FILTER_TYPES.filter((t) => (t === type ? !filter.types.includes(t) : filter.types.includes(t))) });
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2 text-xs">
+      <span className="text-fg-dim">Mostrar:</span>
+      {FILTER_TYPES.map((t) => (
+        <button
+          key={t}
+          type="button"
+          aria-pressed={filter.types.includes(t)}
+          onClick={() => toggle(t)}
+          className={`rounded-full border px-2 py-0.5 ${filter.types.includes(t) ? 'border-accent bg-accent/15 text-fg' : 'border-line text-fg-muted hover:bg-bg-3'}`}
+        >
+          {TASK_TYPE_LABEL[t]}
+        </button>
+      ))}
+      <select
+        aria-label="Filtrar por épico"
+        className="input ml-auto w-auto py-1 text-xs"
+        value={filter.epicId ?? ''}
+        onChange={(e) => onChange({ ...filter, epicId: e.target.value || null })}
+      >
+        <option value="">Todos os épicos</option>
+        {epics.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.ref} {e.title}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function DropLine() {
   return <div className="my-1 h-0.5 rounded bg-accent" />;
 }
@@ -290,7 +348,7 @@ function QuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
     <form onSubmit={submit} className="px-2 pb-2">
       <input
         className="input py-1.5 text-xs"
-        placeholder="+ nova task (Enter)"
+        placeholder="+ novo card (Enter)"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
@@ -303,16 +361,18 @@ function QuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
 
 interface CardProps {
   task: Task;
+  epicTitle: string | null;
   dragging: boolean;
   onDragStart: (e: DragEvent) => void;
   onDragEnd: () => void;
   onOpen: () => void;
   onRename: (title: string) => void;
+  next?: TaskColumn;
   onMoveNext?: () => void;
   terminalHref: string | null;
 }
 
-function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, onMoveNext, terminalHref }: CardProps) {
+function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, onRename, next, onMoveNext, terminalHref }: CardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -327,6 +387,9 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
     if (v && v !== task.title) onRename(v);
     else setDraft(task.title);
   };
+
+  const done = task.subtasks?.filter((s) => s.status === 'done').length ?? 0;
+  const total = task.subtasks?.length ?? 0;
 
   return (
     <div
@@ -359,8 +422,10 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <div className="flex items-start gap-1">
+        <div className="flex items-start gap-1.5">
+          <TypeBadge type={task.type} />
           <span className="flex-1 break-words">
+            <span className="mr-1.5 font-mono text-[10px] text-fg-dim">{task.ref}</span>
             {task.external_ref && (
               <a
                 href={task.external_ref.url}
@@ -375,27 +440,19 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
             )}
             {task.external_ref ? task.title.replace(task.external_ref.identifier, '').trim() : task.title}
           </span>
-          {(task.subtasks?.length ?? 0) > 0 && (
-            <span
-              className="shrink-0 rounded bg-bg-4 px-1 text-[10px] tabular-nums text-fg-muted"
-              title={`${task.subtasks!.filter((s) => s.status === 'done').length} de ${task.subtasks!.length} subtarefas concluídas`}
-            >
-              ✓ {task.subtasks!.filter((s) => s.status === 'done').length}/{task.subtasks!.length}
+          {total > 0 && (
+            <span className="shrink-0 rounded bg-bg-4 px-1 text-[10px] tabular-nums text-fg-muted" title={`${done} de ${total} subtarefas concluídas`}>
+              ✓ {done}/{total}
             </span>
           )}
           {terminalHref && (
-            <Link
-              to={terminalHref}
-              onClick={(e) => e.stopPropagation()}
-              className="shrink-0 rounded px-1 font-mono text-[11px] text-ok hover:bg-bg-4"
-              title="Terminal desta task (ir para a tab)"
-            >
+            <Link to={terminalHref} onClick={(e) => e.stopPropagation()} className="shrink-0 rounded px-1 font-mono text-[11px] text-ok hover:bg-bg-4" title="Terminal deste card (ir para a tab)">
               ▮_
             </Link>
           )}
           <button
             className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
-            title="Detalhes (descrição, status, excluir)"
+            title="Abrir card"
             onClick={(e) => {
               e.stopPropagation();
               onOpen();
@@ -403,22 +460,27 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
           >
             ⋯
           </button>
-          {onMoveNext && (
+          {onMoveNext && next && (
             <button
               className="invisible shrink-0 rounded px-1 text-xs text-fg-dim hover:bg-bg-4 hover:text-fg group-hover:visible"
-              title={task.status === 'todo' ? 'Mover para Fazendo' : 'Concluir'}
+              title={`Mover para ${next.name}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onMoveNext();
               }}
             >
-              {task.status === 'todo' ? '→' : '✓'}
+              →
             </button>
           )}
         </div>
       )}
+      {epicTitle && !editing && (
+        <p className="mt-0.5 truncate text-[10px] text-fg-dim" title={`Épico: ${epicTitle}`}>
+          {epicTitle}
+        </p>
+      )}
       {task.external_ref && !editing && task.external_ref.status !== task.status && (
-        <p className="mt-1 text-[10px] text-warn" title="Estado no provedor difere da coluna; use ⋯ → Atualizar para sincronizar">
+        <p className="mt-1 text-[10px] text-warn" title="Estado no provedor difere da coluna; abra o card → Atualizar para sincronizar">
           {PROVIDER_LABEL[task.external_ref.provider]}: {task.external_ref.state}
         </p>
       )}
@@ -434,128 +496,5 @@ function TaskCard({ task, dragging, onDragStart, onDragEnd, onOpen, onRename, on
         </p>
       )}
     </div>
-  );
-}
-
-interface EditorProps {
-  task: Task;
-  onClose: () => void;
-  onSave: (patch: { title?: string; description?: string | null }) => void;
-  onStatus: (s: TaskStatus) => void;
-  onDelete: () => void;
-  onOpenTerminal: () => void;
-  onPushStatus: () => Promise<string | null>;
-  terminalHref: string | null;
-  onSubtasks: (subtasks: Task[] | ((prev: Task[]) => Task[])) => void;
-  onError: (message: string) => void;
-}
-
-function TaskEditor({ task, onClose, onSave, onStatus, onDelete, onOpenTerminal, onPushStatus, terminalHref, onSubtasks, onError }: EditorProps) {
-  const [title, setTitle] = useState(task.title);
-  const [description, setDescription] = useState(task.description ?? '');
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [pushing, setPushing] = useState<'idle' | 'busy' | string>('idle');
-  const ref = task.external_ref;
-
-  const save = () => {
-    const patch: { title?: string; description?: string | null } = {};
-    if (title.trim() && title.trim() !== task.title) patch.title = title.trim();
-    if ((description.trim() || null) !== (task.description ?? null)) patch.description = description.trim() || null;
-    if (Object.keys(patch).length) onSave(patch);
-    onClose();
-  };
-
-  return (
-    <Modal title="Task" open onClose={onClose} width="max-w-lg">
-      <div className="space-y-3">
-        <div>
-          <label className="label">Título</label>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        </div>
-        <div>
-          <label className="label">Descrição</label>
-          <textarea className="input min-h-[120px] font-mono text-xs" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes, links, contexto…" />
-        </div>
-        <div>
-          <label className="label">Status</label>
-          <div className="flex gap-2">
-            {COLUMNS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => task.status !== s && onStatus(s)}
-                className={`btn flex-1 border ${task.status === s ? 'border-accent bg-accent/15 text-fg' : 'border-line text-fg-muted hover:bg-bg-3'}`}
-              >
-                {TASK_STATUS_LABEL[s]}
-              </button>
-            ))}
-          </div>
-        </div>
-        <SubtaskList parent={task} onChange={onSubtasks} onError={onError} />
-        {ref && (
-          <div className="rounded-md border border-line bg-bg p-3 text-xs">
-            <div className="flex items-center gap-2">
-              <a href={ref.url} target="_blank" rel="noreferrer" className="rounded bg-accent/15 px-1 font-mono text-accent hover:bg-accent/25">
-                {ref.identifier}
-              </a>
-              <span className="text-fg-muted">
-                {PROVIDER_LABEL[ref.provider]}: <strong className="text-fg">{ref.state}</strong>
-              </span>
-              {ref.status !== task.status && <span className="text-warn">≠ {TASK_STATUS_LABEL[task.status]} aqui</span>}
-              <button
-                type="button"
-                className="btn-ghost ml-auto border border-line px-2 py-0.5 text-[11px]"
-                disabled={pushing === 'busy'}
-                onClick={async () => {
-                  setPushing('busy');
-                  const st = await onPushStatus();
-                  setPushing(st ? `atualizado: ${st}` : 'idle');
-                }}
-                title="Muda o estado no provedor para refletir a coluna atual. Nada é enviado sem este clique."
-              >
-                {pushing === 'busy' ? 'atualizando…' : `Atualizar no ${PROVIDER_LABEL[ref.provider]}`}
-              </button>
-            </div>
-            {pushing !== 'idle' && pushing !== 'busy' && <p className="mt-1 text-ok">{pushing}</p>}
-            {ref.pushed_at && <p className="mt-1 text-fg-dim">último envio: {new Date(ref.pushed_at).toLocaleString('pt-BR')}</p>}
-          </div>
-        )}
-        <div className="flex items-center gap-2 text-xs">
-          {terminalHref ? (
-            <Link to={terminalHref} className="btn-ghost border border-line text-ok">
-              ▮_ Ir para o terminal
-            </Link>
-          ) : (
-            <button type="button" className="btn-ghost border border-line" onClick={onOpenTerminal}>
-              ▮_ Abrir terminal para esta task
-            </button>
-          )}
-          <span className="text-fg-dim">a tab fica ligada à task e aparece no card</span>
-        </div>
-        <div className="flex items-center justify-between pt-2 text-xs text-fg-dim">
-          <span>criada em {new Date(task.created_at).toLocaleDateString('pt-BR')}</span>
-          <div className="flex gap-2">
-            {confirmDelete ? (
-              <>
-                <span className="self-center">{(task.subtasks?.length ?? 0) > 0 ? `Excluir com ${task.subtasks!.length} subtarefa(s)?` : 'Excluir?'}</span>
-                <button className="btn-danger" onClick={onDelete}>
-                  Sim, excluir
-                </button>
-                <button className="btn-ghost" onClick={() => setConfirmDelete(false)}>
-                  Não
-                </button>
-              </>
-            ) : (
-              <button className="btn-ghost text-danger" onClick={() => setConfirmDelete(true)}>
-                Excluir
-              </button>
-            )}
-            <button className="btn-primary" onClick={save}>
-              Salvar
-            </button>
-          </div>
-        </div>
-      </div>
-    </Modal>
   );
 }
