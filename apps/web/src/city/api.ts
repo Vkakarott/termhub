@@ -4,7 +4,7 @@
  * client. Both surfaces are open to anyone with the link (apps/server/src/routes/public-city.ts).
  */
 import type { ModelCity } from '../office/model';
-import type { PublicCity, PublicRobot } from '../lib/types';
+import type { PublicBuilding, PublicCity, PublicRobot } from '../lib/types';
 
 /** One change of one robot of a published building, as /ws/public sends it. `building` is a snapshot id: they join. */
 export interface RobotFrame {
@@ -94,13 +94,16 @@ export function openCitySocket(nickname: string, handlers: { onRobot: (frame: Ci
  * machine line.
  */
 export function toBuildingEntries(city: PublicCity): ModelCity {
+  // a payload of a shape this bundle does not know (a deploy in between) reads as an empty street
+  // rather than throwing: missing arrays are empty, and what is not a building is left out
+  const buildings = (Array.isArray(city?.buildings) ? city.buildings : []).filter((b): b is PublicBuilding => !!b && typeof b === 'object' && typeof b.id === 'string');
   return {
     machines: [],
-    projects: city.buildings.map((building) => ({
+    projects: buildings.map((building) => ({
       project: { id: building.id, name: building.name, status: 'active' as const },
       // the board is not published: a building sign on the street carries a name, never a task count
       tasks: null,
-      tabs: building.robots.map((robot, i) => ({
+      tabs: robotsOf(building).map((robot, i) => ({
         id: robot.id,
         project_id: building.id,
         name: robot.name,
@@ -121,4 +124,9 @@ export function toBuildingEntries(city: PublicCity): ModelCity {
       })),
     })),
   };
+}
+
+/** A building's robots, or none when the payload has no array there (see toBuildingEntries). */
+export function robotsOf(building: PublicBuilding): PublicRobot[] {
+  return Array.isArray(building.robots) ? building.robots : [];
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildCityModel, resolveFocus, sameFocus, type CityModel, type FocusTarget } from '../office/model';
 import { OfficeScene } from '../office/scene/OfficeScene';
 import type { PublicCity } from '../lib/types';
-import { fetchCity, openCitySocket, toBuildingEntries, type CityFrame } from './api';
+import { fetchCity, openCitySocket, robotsOf, toBuildingEntries, type CityFrame } from './api';
 import { BetaCard, LANDING_URL, useBetaCard } from './BetaCard';
 import { CopyLinkButton } from './share/CopyLinkButton';
 import { SharePanel } from './share/SharePanel';
@@ -22,13 +22,14 @@ const readRest = (): Rest => restFromUrl(location.pathname);
 function applyRobot(city: PublicCity | null, frame: CityFrame): PublicCity | null {
   if (!city) return city;
   let landed = false;
-  const buildings = city.buildings.map((building) => {
-    if (building.id !== frame.building) return building;
+  // tolerant of a snapshot of an unexpected shape, like toBuildingEntries: a frame never throws
+  const buildings = (Array.isArray(city.buildings) ? city.buildings : []).map((building) => {
+    if (building?.id !== frame.building) return building;
     landed = true;
     // a tab closed or deleted while somebody watches leaves its desk at once
-    if (frame.type === 'robot_gone') return { ...building, robots: building.robots.filter((r) => r.id !== frame.robot) };
-    const i = building.robots.findIndex((r) => r.id === frame.robot.id);
-    const robots = building.robots.slice();
+    if (frame.type === 'robot_gone') return { ...building, robots: robotsOf(building).filter((r) => r.id !== frame.robot) };
+    const i = robotsOf(building).findIndex((r) => r.id === frame.robot.id);
+    const robots = robotsOf(building).slice();
     // a tab opened while somebody is watching joins the building instead of waiting for a reload
     if (i === -1) robots.push(frame.robot);
     else robots[i] = frame.robot;

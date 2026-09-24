@@ -49,3 +49,16 @@ describe('the public city as the office model', () => {
     }
   });
 });
+
+// review fix: a snapshot of a shape this bundle does not know (a deploy in between, the old
+// machine-and-rooms payload) must draw as an empty street, never throw and blank the page
+describe('toBuildingEntries on an unexpected shape', () => {
+  it('reads missing arrays as empty instead of throwing', () => {
+    const old = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [{ id: 'm1', name: 'jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [ROBOT] }] }] } as unknown as PublicCity;
+    const entries = toBuildingEntries(old);
+    expect(entries.projects.map((b) => [b.project.id, b.tabs])).toEqual([['m1', []]]);
+    expect(() => buildCityModel(entries, () => undefined)).not.toThrow();
+    expect(toBuildingEntries({ nickname: 'pedro' } as unknown as PublicCity)).toEqual({ machines: [], projects: [] });
+    expect(toBuildingEntries({ ...CITY, buildings: [null, { id: 'b1', name: 'Engage Easy' }] } as unknown as PublicCity).projects.map((b) => b.project.id)).toEqual(['b1']);
+  });
+});

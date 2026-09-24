@@ -103,6 +103,18 @@ describe('CityPage', () => {
     expect(screen.getByRole('button', { name: /participar do beta grátis/i })).toBeTruthy();
   });
 
+  // review fix: the snapshot of a deploy this bundle does not know (the old machine-and-rooms
+  // payload) draws as buildings with nobody in them, and a frame for one of them does not throw
+  it('draws a snapshot of an unexpected shape instead of blanking the page', async () => {
+    const old = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [{ id: 'b1', name: 'jarvis', rooms: [{ id: 'r1', name: 'Engage Easy', robots: [] }] }] };
+    fetchMock.mockResolvedValueOnce(json(old));
+    render(<CityPage nickname="pedro" />);
+    expect(await screen.findByText(/Cidade de Pedro/)).toBeTruthy();
+    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining({ buildings: [expect.objectContaining({ id: 'b1', desks: [] })] }));
+    act(() => socket.emit({ type: 'robot', building: 'b1', robot: CITY.buildings[0].robots[0] }));
+    await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ id: 'x1' }))));
+  });
+
   it('opens the beta card on a first visit, naming whose agents these are', async () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
