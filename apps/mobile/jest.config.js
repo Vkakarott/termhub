@@ -5,6 +5,10 @@ const moduleNameMapper = {
   // babel-preset-expo rewrites `process.env.EXPO_PUBLIC_*` to `expo/virtual/env` (ESM); the plain
   // Node `logic` project cannot load that module, so it gets a stub.
   '^expo/virtual/env$': '<rootDir>/test/expo-env-stub.js',
+  // The contract copied from `packages/mobile-api` (TS project, `moduleResolution: bundler`) imports
+  // its siblings with an explicit `.js` extension, as ESM requires; Jest's resolver looks for a
+  // literal `.js` file, so it is stripped here to fall back to the `.ts` source.
+  '^(\\.{1,2}/.*)\\.js$': '$1',
 };
 
 // The `ui` project renders NativeWind-styled components: nativewind and react-native-css-interop
