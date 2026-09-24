@@ -109,18 +109,24 @@ describe('ReviewAccountPanel', () => {
   it('when review is on, shows "ligado até <data> por <nome>", Desligar agora and Desligar e revogar os aparelhos (through a ConfirmDialog)', async () => {
     listMock.mockResolvedValue({ users: [adminUser({ id: 'admin1', name: 'Pedro' })] });
     setReviewMock.mockResolvedValue({ user: targetUser() });
+    devicesMock.mockResolvedValue({ devices: [dev({ id: 'd1' })], events: [], can_enrol: true });
     const until = '2026-10-05T12:00:00.000Z';
     render(<ReviewAccountPanel user={targetUser({ review_enabled_until: until, review_enabled_by: 'admin1' })} onChange={() => {}} />);
 
     expect(await screen.findByText(`ligado até ${new Date(until).toLocaleString('pt-BR')} por Pedro`)).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Revogar' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Desligar agora' }));
     await waitFor(() => expect(setReviewMock).toHaveBeenCalledWith('u2', { days: null, revoke_devices: false }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Desligar e revogar os aparelhos' }));
     const dialog = await screen.findByRole('dialog');
+    // The server revokes the devices: the reload that follows must show them without Revogar.
+    devicesMock.mockResolvedValue({ devices: [dev({ id: 'd1', status: 'revoked', revoked_reason: 'review' })], events: [], can_enrol: true });
     fireEvent.click(within(dialog).getByRole('button', { name: /Desligar/ }));
     await waitFor(() => expect(setReviewMock).toHaveBeenCalledWith('u2', { days: null, revoke_devices: true }));
+    await waitFor(() => expect(screen.getByText(/iPhone de Ana/)).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Revogar' })).toBeNull();
   });
 
   it('shows "A conta de revisão não pode ser admin." and no switch for an admin target', async () => {

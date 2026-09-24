@@ -52,7 +52,7 @@ export function ReviewAccountPanel({ user, onChange }: { user: User; onChange: (
     void load();
   }, [load]);
 
-  const adminName = (id: string | null): string => {
+  const adminName = (id: string | null | undefined): string => {
     if (!id) return '';
     return admins.find((a) => a.id === id)?.name ?? id;
   };
@@ -65,6 +65,9 @@ export function ReviewAccountPanel({ user, onChange }: { user: User; onChange: (
       onChange(r.user);
       setTurningOn(false);
       setConfirmingOff(false);
+      // "Desligar e revogar os aparelhos" revoked them server-side: reload, so those rows lose
+      // their Revogar button and the trail shows the change.
+      if (input.revoke_devices) await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao alterar o modo revisão');
     } finally {

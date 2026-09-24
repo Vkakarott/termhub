@@ -245,6 +245,8 @@ describe('POST /api/users/:id/review', () => {
     const after = Date.now();
     expect(res.statusCode).toBe(200);
     const returned = res.json().user.review_enabled_until as string;
+    // The admin view keeps who turned it on (toPublicUser, used by /auth/me, strips it).
+    expect(res.json().user.review_enabled_by).toBe('admin');
     const untilMs = new Date(returned).getTime();
     // The route computes `now` itself (no injectable clock), so pin it to a window around the call
     // instead of a single instant: still tight enough to catch a wrong offset (hours, days, sign).

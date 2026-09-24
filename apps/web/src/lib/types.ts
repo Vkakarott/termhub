@@ -28,8 +28,8 @@ export interface User {
   nickname: string | null;
   /** store-review mode: while in the future, this account's mobile device requests auto-approve */
   review_enabled_until: string | null;
-  /** the admin who last set review_enabled_until */
-  review_enabled_by: string | null;
+  /** the admin who last set review_enabled_until; only the user-admin routes (/api/users) send it */
+  review_enabled_by?: string | null;
 }
 
 /** Side effects of an invite (the user row is created regardless). */

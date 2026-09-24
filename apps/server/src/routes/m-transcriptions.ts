@@ -36,9 +36,11 @@ export async function mobileTranscriptionRoutes(app: FastifyInstance, deps: { tr
     if (!request.user || !request.mobile || !('device' in request.mobile)) throw unauthorized();
     const mime = String(request.headers['content-type'] ?? '').split(';')[0].trim();
     if (!MOBILE_AUDIO_TYPES.has(mime)) throw badRequest('Formato de áudio não aceito');
+    // Checked before the limiter, so an empty upload never spends one of the device's slots.
+    if (!Buffer.isBuffer(request.body) || request.body.length === 0) throw badRequest('Áudio vazio');
     const { seconds } = createQuery.parse(request.query);
     if (!uploadLimiter.take(request.mobile.device.id)) throw tooManyUploads();
-    const job = deps.transcriptions.start(request.user.id, request.body as Buffer, mime, seconds, { maxSeconds: MOBILE_TOO_LONG_SECONDS });
+    const job = deps.transcriptions.start(request.user.id, request.body, mime, seconds, { maxSeconds: MOBILE_TOO_LONG_SECONDS });
     return reply.code(202).send({ transcription: deps.transcriptions.view(job) });
   });
 

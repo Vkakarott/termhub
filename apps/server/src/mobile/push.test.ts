@@ -271,6 +271,29 @@ describe('ExpoPushSender', () => {
     expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain('authorization');
   });
 
+  it('gives each request a 10 s timeout signal', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [{ status: 'ok' }] }), { status: 200 }));
+    await new ExpoPushSender(null, fetchImpl as never).send([msg(1)]);
+    expect(timeout).toHaveBeenCalledWith(10_000);
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, { signal: AbortSignal }])[1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    timeout.mockRestore();
+  });
+
+  it('a timed-out fetch (AbortError) is a send failure: logged by the service, never thrown', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'AbortError');
+    });
+    const t = setup();
+    const log = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() };
+    const service = new MobilePushService({ repos: t.repos as unknown as Repositories, sender: new ExpoPushSender(null, fetchImpl as never), sockets: t.sockets as never, log: log as never });
+    await expect(service.deviceRequest(user, { id: 'r1', model: 'Pixel 8', city: null, country: null } as unknown as DeviceRequest)).resolves.toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(t.repos.userNotifications.create).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith(expect.objectContaining({ err: 'AbortError' }), 'mobile push send failed');
+  });
+
   it('throws on a non-2xx answer', async () => {
     const fetchImpl = vi.fn(async () => new Response('bad', { status: 500 }));
     await expect(new ExpoPushSender(null, fetchImpl as never).send([msg(1)])).rejects.toThrow();

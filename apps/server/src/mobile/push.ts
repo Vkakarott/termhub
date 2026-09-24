@@ -31,7 +31,13 @@ interface ExpoTicket {
   details?: { error?: string };
 }
 
-/** Sends through the Expo Push Service over HTTPS, in chunks of 100 (Expo's per-request limit). */
+/** How long one chunk may take before it is abandoned (a hung Expo must not pin a background task). */
+const EXPO_TIMEOUT_MS = 10_000;
+
+/**
+ * Sends through the Expo Push Service over HTTPS, in chunks of 100 (Expo's per-request limit), each
+ * with a 10 s timeout; a timeout rejects like any other failure and the caller logs it.
+ */
 export class ExpoPushSender implements PushSender {
   constructor(
     private readonly accessToken: string | null,
@@ -47,6 +53,7 @@ export class ExpoPushSender implements PushSender {
       const res = await this.fetchImpl(EXPO_PUSH_URL, {
         method: 'POST',
         headers,
+        signal: AbortSignal.timeout(EXPO_TIMEOUT_MS),
         body: JSON.stringify(
           chunk.map((m) => ({ to: m.to, title: m.title, body: m.body, data: m.data, sound: 'default', priority: 'high', ...(m.collapseId ? { collapseId: m.collapseId } : {}) })),
         ),

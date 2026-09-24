@@ -53,8 +53,9 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** The user-admin view of an account: the public user plus its role and who turned review mode on. */
 function withRoleInfo(u: User, role: Role | undefined) {
-  return { ...toPublicUser(u), role_info: role ? { id: role.id, name: role.name, label: role.label, is_admin: role.is_admin } : null };
+  return { ...toPublicUser(u), review_enabled_by: u.review_enabled_by, role_info: role ? { id: role.id, name: role.name, label: role.label, is_admin: role.is_admin } : null };
 }
 
 /** User administration. Guarded as resource "users" (see app.ts). */

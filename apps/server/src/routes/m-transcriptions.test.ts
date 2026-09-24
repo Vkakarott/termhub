@@ -104,6 +104,20 @@ describe('POST /api/m/v1/transcriptions', () => {
     expect(service.start).not.toHaveBeenCalled();
   });
 
+  it('rejects an empty body with "Áudio vazio", like the web', async () => {
+    const service = fakeService();
+    const app = buildApp(service);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/m/v1/transcriptions?seconds=1',
+      headers: { 'content-type': 'audio/mp4' },
+      payload: Buffer.alloc(0),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('Áudio vazio');
+    expect(service.start).not.toHaveBeenCalled();
+  });
+
   it('requires seconds', async () => {
     const service = fakeService();
     const app = buildApp(service);
