@@ -7,6 +7,7 @@ import type { AgentConfig } from './config.js';
 import { createClaudeManager } from './claude/run.js';
 import { createDispatcher } from './dispatch.js';
 import { createPtyManager } from './pty.js';
+import { createTcpManager } from './tcp.js';
 import { ensureSpawnHelperExecutable } from './pty-health.js';
 import { handlers } from './rpc/index.js';
 import { stopRestartLoop } from './service/launchd.js';
@@ -138,7 +139,8 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
   else if (!helper.executable) opts.log('spawn-helper is not executable and could not be fixed', { path: helper.path, error: helper.error });
   const pty = createPtyManager({ log: opts.log });
   const claude = createClaudeManager({ log: opts.log });
-  const dispatch = createDispatcher({ handlers, pty, claude, log: opts.log });
+  const tcp = createTcpManager({ log: opts.log });
+  const dispatch = createDispatcher({ handlers, pty, claude, tcp, log: opts.log });
 
   /**
    * Config dirs come and go on a machine (a new account, a new CLAUDE_CONFIG_DIR alias), and a dir
@@ -165,12 +167,13 @@ export async function runAgent(config: AgentConfig, opts: RunAgentOptions): Prom
         // A frame belongs to whichever manager holds that channel: the claude one says so, and
         // anything it does not own is a terminal's.
         onStream: (ch, data) => {
-          if (!claude.write(ch, data)) pty.write(ch, data);
+          if (!claude.write(ch, data) && !tcp.write(ch, data)) pty.write(ch, data);
         },
         onConnect: healHooks,
         onDisconnect: () => {
           pty.closeAll();
           claude.closeAll();
+          tcp.closeAll();
         },
         log: opts.log,
       },

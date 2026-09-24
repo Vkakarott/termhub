@@ -1,4 +1,4 @@
-import type { ClaudeOpenParams, PtyOpenParams, RpcMethod, ServerMessage } from '@termhub/agent-protocol';
+import type { ClaudeOpenParams, PtyOpenParams, RpcMethod, ServerMessage, TcpOpenParams } from '@termhub/agent-protocol';
 import { RPC } from '@termhub/agent-protocol';
 import type { AgentSocket } from './client.js';
 import { RpcFailure } from './exec.js';
@@ -31,10 +31,20 @@ export interface ClaudeManager {
   closeAll(): void;
 }
 
+/** Raw TCP pipes to the WDA ports (`src/tcp.ts`). Same contract as the Claude manager: `write` says
+ *  whether the channel is its own, and it reports its own open/close outcomes to the server. */
+export interface TcpManager {
+  open(ch: number, params: TcpOpenParams, socket: AgentSocket): Promise<void>;
+  write(ch: number, data: Buffer): boolean;
+  close(ch: number): void;
+  closeAll(): void;
+}
+
 export interface DispatcherDeps {
   handlers: Handlers;
   pty: PtyManager;
   claude: ClaudeManager;
+  tcp: TcpManager;
   log: (msg: string, meta?: object) => void;
 }
 
@@ -93,16 +103,13 @@ export function createDispatcher(deps: DispatcherDeps): (msg: ServerMessage, soc
         void handleRpc(msg, socket, deps.handlers, deps.log);
         break;
       case 'open': {
-        // The kind is the only thing this dispatcher knows about either channel. Errors are
-        // reported to the server by the manager itself (open_error / closed); this catch only
+        // The kind is the only thing this dispatcher knows about any of the three channels. Errors
+        // are reported to the server by the manager itself (open_error / closed); this catch only
         // guards against an unexpected rejection leaking as an unhandled promise.
-        if (msg.kind === 'tcp') {
-          // Temporary until Task 3 adds the tcp channel manager (protocol-only in this task):
-          // refuse cleanly rather than route tcp-shaped params into the pty manager.
-          socket.sendControl({ type: 'open_error', ch: msg.ch, error: { code: 'internal', message: 'tcp channels not implemented yet' } });
-          break;
-        }
-        const opened = msg.kind === 'claude' ? deps.claude.open(msg.ch, msg.params, socket) : deps.pty.open(msg.ch, msg.params, socket);
+        const opened =
+          msg.kind === 'claude' ? deps.claude.open(msg.ch, msg.params, socket)
+          : msg.kind === 'tcp' ? deps.tcp.open(msg.ch, msg.params, socket)
+          : deps.pty.open(msg.ch, msg.params, socket);
         opened.catch((err) => {
           deps.log(`${msg.kind}.open rejected unexpectedly`, { ch: msg.ch, error: err instanceof Error ? err.message : String(err) });
         });
@@ -114,9 +121,10 @@ export function createDispatcher(deps: DispatcherDeps): (msg: ServerMessage, soc
         break;
       case 'close':
         // `close` carries no kind. The server numbers channels globally, so at most one manager owns
-        // this one and the other ignores a channel it never opened.
+        // this one and the others ignore a channel they never opened.
         deps.pty.close(msg.ch);
         deps.claude.close(msg.ch);
+        deps.tcp.close(msg.ch);
         break;
     }
   };

@@ -3,6 +3,8 @@ import type { RawData } from 'ws';
 import {
   CLOSE,
   CONTROL_CHANNEL,
+  HEADER_BYTES,
+  MAX_FRAME,
   PROTOCOL_VERSION,
   decodeFrame,
   encodeFrame,
@@ -39,8 +41,16 @@ export interface ClientOptions {
 
 export interface AgentSocket {
   sendControl(msg: AgentMessage): void;
+  /** Sends `data` on channel `ch`, sliced so no single frame exceeds MAX_FRAME (the server closes the
+   *  whole socket with 1009 above that, taking every terminal on the machine with it). */
   sendStream(ch: number, data: Buffer): void;
+  /** Bytes queued on the WebSocket and not yet handed to the kernel; the tcp manager's flow control
+   *  reads it. Optional so test doubles built before it existed keep compiling (they read as 0). */
+  bufferedAmount?(): number;
 }
+
+/** Largest stream payload one frame may carry: the frame limit minus the channel header. */
+export const MAX_STREAM_PAYLOAD = MAX_FRAME - HEADER_BYTES;
 
 export interface CloseInfo {
   code: number;
@@ -172,7 +182,14 @@ export function connectOnce(
       }, opts.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS);
       socket = {
         sendControl: (msg) => ws.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify(msg))),
-        sendStream: (ch, data) => ws.send(encodeFrame(ch, data)),
+        sendStream: (ch, data) => {
+          if (data.length <= MAX_STREAM_PAYLOAD) {
+            ws.send(encodeFrame(ch, data));
+            return;
+          }
+          for (let off = 0; off < data.length; off += MAX_STREAM_PAYLOAD) ws.send(encodeFrame(ch, data.subarray(off, off + MAX_STREAM_PAYLOAD)));
+        },
+        bufferedAmount: () => ws.bufferedAmount,
       };
       const hello: HelloMessage = { type: 'hello', protocol: PROTOCOL_VERSION, ...opts.hello };
       socket.sendControl(hello);
