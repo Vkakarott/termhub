@@ -104,7 +104,7 @@ export const LOOK_VARIANTS = 6;
 const DESK_LABEL_MAX = 18;
 const BUILDING_LABEL_MAX = 28;
 /** The desk's machine line: name and subtitle together stay this short, or the subtitle goes. */
-export const SUBTITLE_CAP = 28;
+export const SUBTITLE_CAP = 30;
 
 const POSE: Record<TabState, Pose> = { working: 'type', waiting_input: 'raise', waiting_permission: 'raise', idle: 'sleep', error: 'shake' };
 
