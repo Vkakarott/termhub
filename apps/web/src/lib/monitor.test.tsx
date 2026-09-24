@@ -113,3 +113,20 @@ describe('MonitorProvider open tabs vs a snapshot in flight', () => {
     expect(m().openTabs.map((t) => t.id)).toEqual(['t1', 't2']);
   });
 });
+
+describe('MonitorProvider openTabsLoaded', () => {
+  it('is false until the first open-tabs snapshot arrives, then true', async () => {
+    let resolve!: (v: { items: MonitorItem[] }) => void;
+    api.openTabs.mockReturnValue(new Promise((r) => (resolve = r)));
+    const m = mount();
+    expect(m().openTabsLoaded).toBe(false);
+    await act(async () => resolve({ items: [] }));
+    await waitFor(() => expect(m().openTabsLoaded).toBe(true));
+  });
+
+  it('turns true even when the first snapshot fails, so the home never waits forever', async () => {
+    api.openTabs.mockRejectedValue(new Error('offline'));
+    const m = mount();
+    await waitFor(() => expect(m().openTabsLoaded).toBe(true));
+  });
+});

@@ -15,6 +15,8 @@ interface MonitorState {
   needsYou: MonitorItem[];
   /** every open terminal tab in the scope, reported a state or not (the sidebar's agents); live */
   openTabs: Tab[];
+  /** false until the first open-tabs snapshot settled (loaded or failed): an empty list before then means "not known yet" */
+  openTabsLoaded: boolean;
   /** monitor state of one tab (live), or undefined when it never reported */
   tabState: (tabId: string) => Tab | undefined;
   /** types the text into the tab (Enter included) and marks it working */
@@ -40,6 +42,7 @@ const RESYNC_MS = 3 * 60_000;
 export function MonitorProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<MonitorItem[]>([]);
   const [openTabs, setOpenTabs] = useState<Tab[]>([]);
+  const [openTabsLoaded, setOpenTabsLoaded] = useState(false);
   const [connected, setConnected] = useState(false);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -74,6 +77,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
         const later = f.log.filter((e) => e.seq > startedAt).map((e) => e.frame);
         setOpenTabs(later.reduce(applyOpenTabFrame, open.value.items.map((i) => i.tab)));
       }
+      setOpenTabsLoaded(true);
     } finally {
       f.inFlight -= 1;
       if (f.inFlight === 0) f.log = [];
@@ -153,6 +157,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       items,
       needsYou: items.filter((i) => tabNeedsYou(i.tab)),
       openTabs,
+      openTabsLoaded,
       tabState: (tabId) => itemsRef.current.find((i) => i.tab.id === tabId)?.tab,
       async reply(tabId, text) {
         const r = await api.tabs.input(tabId, text, true);
@@ -175,7 +180,7 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
       connected,
       onNeedsYou,
     }),
-    [items, openTabs, reload, connected, onNeedsYou],
+    [items, openTabs, openTabsLoaded, reload, connected, onNeedsYou],
   );
 
   return <MonitorContext.Provider value={value}>{children}</MonitorContext.Provider>;
