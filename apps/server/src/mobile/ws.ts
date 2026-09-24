@@ -38,11 +38,17 @@ export function registerMobileChatWs(router: ReturnType<typeof createUpgradeRout
     if (!MOBILE_TOKEN_RE.test(raw)) return rejectUpgrade(socket, 401, 'Unauthorized');
     const found = await deps.repos.deviceSessions.findValidToken(hashToken(raw), new Date());
     if (!found) return rejectUpgrade(socket, 401, 'Unauthorized');
+    let publicKeyJwk: JsonWebKey;
+    try {
+      publicKeyJwk = JSON.parse(found.device.public_key) as JsonWebKey;
+    } catch {
+      return rejectUpgrade(socket, 401, 'Unauthorized');
+    }
     const proof = await verifyProof({
       proof: String(req.headers.dpop ?? ''),
       htm: 'GET',
       htu: canonicalHtu(deps.publicUrl, url.pathname),
-      publicKeyJwk: JSON.parse(found.device.public_key) as JsonWebKey,
+      publicKeyJwk,
       accessToken: raw,
     });
     // The jti is claimed only once the signature has verified, so garbage cannot fill the cache.
@@ -51,7 +57,7 @@ export function registerMobileChatWs(router: ReturnType<typeof createUpgradeRout
     if (!user || !(await canAccess(deps.repos, user, 'chat', 'read'))) return rejectUpgrade(socket, 403, 'Forbidden');
 
     const deviceId = found.device.id;
-    wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.handleUpgrade(req, socket, head, async (ws) => {
       // Closed after the upgrade so the app reads a close code, not an opaque HTTP failure.
       if (url.searchParams.get('v') !== String(MOBILE_API_VERSION)) return ws.close(4400, 'protocol');
       wss.emit('connection', ws, req);
@@ -59,14 +65,13 @@ export function registerMobileChatWs(router: ReturnType<typeof createUpgradeRout
       w.isAlive = true;
       ws.on('pong', () => (w.isAlive = true));
 
+      // Register first, then re-check the device: a revoke that lands after `add` is closed by
+      // `closeDevice`, one that landed during the awaits above is caught by the re-check below.
       const release = deps.sockets.add(deviceId, ws, user.id);
-      ws.send(JSON.stringify({ type: 'hello', protocol: MOBILE_API_VERSION, server_time: new Date().toISOString() }));
-      const unsubscribe = chatBus.subscribe((event) => {
-        if (event.user_id !== user.id) return;
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event));
-      });
-      log.info({ userId: user.id, deviceId }, 'mobile chat connected');
+      let closed = false;
+      let unsubscribe = () => {};
       const done = () => {
+        closed = true;
         unsubscribe();
         release();
       };
@@ -75,6 +80,23 @@ export function registerMobileChatWs(router: ReturnType<typeof createUpgradeRout
         log.info({ userId: user.id, deviceId, code }, 'mobile chat disconnected');
       });
       ws.on('error', done);
+
+      let active: unknown;
+      try {
+        active = await deps.repos.devices.findActiveById(deviceId);
+      } catch (err) {
+        log.warn({ err: err instanceof Error ? err.name : typeof err, deviceId }, 'mobile chat device re-check failed');
+        return ws.close(1011, 'server error');
+      }
+      if (closed) return;
+      if (!active) return ws.close(4401, 'device revoked');
+
+      ws.send(JSON.stringify({ type: 'hello', protocol: MOBILE_API_VERSION, server_time: new Date().toISOString() }));
+      unsubscribe = chatBus.subscribe((event) => {
+        if (event.user_id !== user.id) return;
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event));
+      });
+      log.info({ userId: user.id, deviceId }, 'mobile chat connected');
     });
   });
 

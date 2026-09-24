@@ -28,15 +28,19 @@ let sockets: MobileSocketRegistry;
 let jtis: JtiCache;
 let port: number;
 let sign: (claims: Record<string, unknown>) => Promise<string>;
+let device: { id: string; user_id: string; public_key: string; status: string };
+let findActiveById: ReturnType<typeof vi.fn>;
 const clients: WebSocket[] = [];
 
 async function start() {
   const { privateKey, publicKey } = await generateKeyPair('ES256');
   const jwk = await exportJWK(publicKey);
   sign = (claims) => new SignJWT({ iat: Math.floor(Date.now() / 1000), jti: randomUUID(), ...claims }).setProtectedHeader({ alg: 'ES256', typ: 'dpop+jwt', jwk }).sign(privateKey);
-  const device = { id: 'd1', user_id: user.id, public_key: JSON.stringify(jwk), status: 'active' };
+  device = { id: 'd1', user_id: user.id, public_key: JSON.stringify(jwk), status: 'active' };
+  findActiveById = vi.fn(async (id: string) => (id === device.id ? device : undefined));
   const repos = {
     users: { findById: vi.fn(async (id: string) => (id === user.id ? user : undefined)) },
+    devices: { findActiveById: (id: string) => findActiveById(id) },
     deviceSessions: { findValidToken: vi.fn(async (hash: string) => (hash === hashToken(TOKEN) ? { device } : undefined)) },
   } as unknown as Repositories;
   server = createServer();
@@ -146,4 +150,19 @@ it('terminates a client that stops answering pings', async () => {
   vi.advanceTimersByTime(30_000);
   expect((await c.closed).code).toBe(1006);
   await waitFor(() => !sockets.hasLive('d1'));
+});
+
+it('closes with 4401 a device revoked between the token check and the registration', async () => {
+  findActiveById.mockResolvedValueOnce(undefined);
+  const c = open(await headers());
+  await c.opened;
+  expect(await c.closed).toEqual({ code: 4401, reason: 'device revoked' });
+  expect(c.frames).toEqual([]);
+  expect(findActiveById).toHaveBeenCalledWith('d1');
+  await waitFor(() => !sockets.hasLive('d1'));
+});
+
+it('refuses a device whose stored key is not JSON with 401', async () => {
+  device.public_key = 'not json';
+  expect(await open(await headers()).status).toBe(401);
 });
