@@ -13,7 +13,8 @@ export interface MockContext {
   query: Record<string, string>;
   /** The request's pathname, no query string. */
   path: string;
-  /** `canonicalHtu(MOCK_BASE_URL, path)` — what every DPoP proof in this request must have signed. */
+  /** `canonicalHtu(request URL's origin, path)` — what every DPoP proof in this request must have
+   * signed, derived from the request's own origin rather than a fixed host. */
   htu: string;
 }
 

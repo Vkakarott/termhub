@@ -2,7 +2,7 @@
 // `devices/self/revoke`, `push-token`. All go through `verifyAuth`.
 import { pushTokenBody } from '../../contract';
 import type { MockRouter } from '../router';
-import { type MockDevice, type MockState, verifyAuth } from '../state';
+import { revokeDevice, type MockDevice, type MockState, verifyAuth } from '../state';
 
 /** P§6's fixed permission list for the mobile role (ruling 7). */
 const PERMISSIONS = [
@@ -47,8 +47,9 @@ export function registerMeRoutes(router: MockRouter, state: MockState): void {
 
   router.route('POST', '/api/m/v1/devices/self/revoke', (ctx) => {
     const { device } = verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
-    device.status = 'revoked';
-    device.revokedReason = 'user';
+    // Same path as the brute-force lockout and `controls.revokeNow` (P§5.7): tokens deleted,
+    // sockets closed with `4401` — not just a status flip.
+    revokeDevice(state, device, 'user');
     return { status: 200, body: {} };
   });
 

@@ -11,10 +11,6 @@ import { registerSessionRoutes } from './handlers/session';
 import { createRouter } from './router';
 import { createMockState, WireError } from './state';
 
-/** Fixed regardless of the URL's actual host — the app under test always points its client at
- * `https://termhub.dev` (ruling 6), so DPoP proofs are verified against that canonical base. */
-const MOCK_BASE_URL = 'https://termhub.dev';
-
 export interface CreateMockTransportOptions {
   /** Milliseconds, uniform random per `fetch` call. Defaults to `[150, 400]` (design spec §4.2).
    * `[0, 0]` still resolves asynchronously — a resolved promise, never a timer (ruling 3). */
@@ -81,7 +77,11 @@ export function createMockTransport(opts: CreateMockTransportOptions = {}): Tran
         params: matched.params,
         query,
         path: url.pathname,
-        htu: canonicalHtu(MOCK_BASE_URL, url.pathname),
+        // Derived from the request's own origin, not a fixed host (ruling revision): the client
+        // always signs its DPoP proof with the same base it calls, so this is the only base that
+        // agrees with it regardless of what `EXPO_PUBLIC_TERMHUB_URL` (e.g. `http://localhost:3000`
+        // in `.env.example`) points at.
+        htu: canonicalHtu(url.origin, url.pathname),
       });
       return respond(result.status, result.body);
     } catch (err) {

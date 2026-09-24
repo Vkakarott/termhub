@@ -4,6 +4,7 @@ import { fromB64url } from '../../crypto/encoding';
 import { pinProof } from '../../crypto/pin';
 import { SoftwareDeviceKey } from '../../key/software';
 import type { P256Jwk } from '../../key/types';
+import type { VaultKey } from '../../vault';
 import { createHttpMobileApi } from '../client';
 import { createMockTransport } from './transport';
 
@@ -213,6 +214,62 @@ it('a wrong request_secret on activate is 401 and an activation after activate_u
     status: 401,
     code: 'REQUEST_INVALID',
   });
+});
+
+it('revokeSelf goes through revokeDevice: the old token is rejected and a fresh session answers DEVICE_REVOKED', async () => {
+  const clock = { value: START };
+  const { transport, api, key } = makeApi(clock);
+  const jwk = await key.create();
+  const act = await enrolAndActivate(api, transport, jwk, 'self-revoke@x.com');
+  const secret = fromB64url(act.pin_secret);
+
+  await api.revokeSelf({ accessToken: act.access_token });
+
+  // Tokens are deleted (not just flagged), so the old one no longer resolves at all — still a
+  // straightforward 401 either way.
+  await expect(api.me({ accessToken: act.access_token })).rejects.toMatchObject({ status: 401 });
+
+  // A fresh challenge + a correctly-signed proof needs no old token, and still answers
+  // DEVICE_REVOKED — proving the device itself, not just its tokens, was revoked.
+  const c = await api.challenge({ device_id: act.device_id, purpose: 'refresh' });
+  await expect(
+    api.token({ device_id: act.device_id, challenge: c.challenge, pin_proof: pinProof(secret, c.challenge) }),
+  ).rejects.toMatchObject({ status: 401, code: 'DEVICE_REVOKED' });
+});
+
+it('controls.revokeNow revokes through the same path as revokeSelf: the old token is rejected and a fresh session answers DEVICE_REVOKED', async () => {
+  const clock = { value: START };
+  const { transport, api, key } = makeApi(clock);
+  const jwk = await key.create();
+  const act = await enrolAndActivate(api, transport, jwk, 'revoke-now@x.com');
+  const secret = fromB64url(act.pin_secret);
+
+  transport.controls.revokeNow();
+
+  await expect(api.me({ accessToken: act.access_token })).rejects.toMatchObject({ status: 401 });
+  const c = await api.challenge({ device_id: act.device_id, purpose: 'refresh' });
+  await expect(
+    api.token({ device_id: act.device_id, challenge: c.challenge, pin_proof: pinProof(secret, c.challenge) }),
+  ).rejects.toMatchObject({ status: 401, code: 'DEVICE_REVOKED' });
+});
+
+it('completes activation for a client whose baseUrl is not https://termhub.dev (e.g. http://localhost:3000)', async () => {
+  const clock = { value: START };
+  const transport = createMockTransport({ latency: [0, 0], now: () => clock.value });
+  const key = new SoftwareDeviceKey('pin.salt' as VaultKey);
+  const api = createHttpMobileApi({
+    transport,
+    baseUrl: 'http://localhost:3000',
+    app: APP,
+    key,
+    onTokenExpired: async () => null,
+    now: () => clock.value,
+  });
+  const jwk = await key.create();
+
+  const act = await enrolAndActivate(api, transport, jwk, 'localhost@x.com');
+  expect(act.expires_in).toBe(900);
+  expect((await api.me({ accessToken: act.access_token })).device.id).toBe(act.device_id);
 });
 
 it('the response to requestDevice has the same shape for any e-mail', async () => {
