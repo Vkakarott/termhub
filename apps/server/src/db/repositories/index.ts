@@ -8,6 +8,7 @@ import { ProjectsRepository } from './projects.js';
 import { ProjectMachinesRepository } from './project-machines.js';
 import { TabsRepository } from './tabs.js';
 import { TasksRepository } from './tasks.js';
+import { TaskColumnsRepository } from './task-columns.js';
 import { NotesRepository } from './notes.js';
 import { IntegrationsRepository } from './integrations.js';
 import { ProjectSetupRepository } from './project-setup.js';
@@ -22,6 +23,11 @@ import { ChatRepository } from './chat.js';
 import { ChatActionsRepository } from './chat-actions.js';
 import { InstanceSecretsRepository } from './instance-secrets.js';
 import { ProjectGroupsRepository } from './project-groups.js';
+import { DeviceRequestsRepository } from './device-requests.js';
+import { DevicesRepository } from './devices.js';
+import { DeviceSessionsRepository } from './device-sessions.js';
+import { DeviceEventsRepository } from './device-events.js';
+import { UserNotificationsRepository } from './user-notifications.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -33,6 +39,7 @@ export interface Repositories {
   projectMachines: ProjectMachinesRepository;
   tabs: TabsRepository;
   tasks: TasksRepository;
+  taskColumns: TaskColumnsRepository;
   notes: NotesRepository;
   integrations: IntegrationsRepository;
   projectSetup: ProjectSetupRepository;
@@ -47,6 +54,11 @@ export interface Repositories {
   chatActions: ChatActionsRepository;
   instanceSecrets: InstanceSecretsRepository;
   projectGroups: ProjectGroupsRepository;
+  deviceRequests: DeviceRequestsRepository;
+  devices: DevicesRepository;
+  deviceSessions: DeviceSessionsRepository;
+  deviceEvents: DeviceEventsRepository;
+  userNotifications: UserNotificationsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -60,6 +72,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     projectMachines: new ProjectMachinesRepository(db),
     tabs: new TabsRepository(db),
     tasks: new TasksRepository(db),
+    taskColumns: new TaskColumnsRepository(db),
     notes: new NotesRepository(db),
     integrations: new IntegrationsRepository(db),
     projectSetup: new ProjectSetupRepository(db),
@@ -74,6 +87,11 @@ export function createRepositories(db: PrismaClient): Repositories {
     chatActions: new ChatActionsRepository(db),
     instanceSecrets: new InstanceSecretsRepository(db),
     projectGroups: new ProjectGroupsRepository(db),
+    deviceRequests: new DeviceRequestsRepository(db),
+    devices: new DevicesRepository(db),
+    deviceSessions: new DeviceSessionsRepository(db),
+    deviceEvents: new DeviceEventsRepository(db),
+    userNotifications: new UserNotificationsRepository(db),
   };
 }
 
@@ -90,3 +108,10 @@ export { ProjectRuleError } from './projects.js';
 export type { ProjectRuleCode } from './projects.js';
 export { ProjectGroupRuleError } from './project-groups.js';
 export type { ProjectGroup, ProjectGroupRuleCode } from './project-groups.js';
+export { TaskRuleError } from './task-rules.js';
+export type { TaskRuleCode } from './task-rules.js';
+export type { DeviceRequest, DeviceRequestStatus, DeviceRequestCreateInput } from './device-requests.js';
+export type { Device, DeviceStatus, DeviceCreateInput } from './devices.js';
+export type { DeviceChallengePurpose } from './device-sessions.js';
+export type { DeviceEvent, DeviceEventKind, DeviceEventInput } from './device-events.js';
+export type { UserNotification, UserNotificationCreateInput } from './user-notifications.js';

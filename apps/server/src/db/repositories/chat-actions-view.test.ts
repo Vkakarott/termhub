@@ -30,7 +30,7 @@ const action = (over: Partial<ChatAction>): ChatAction => ({
 const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 2' };
 const project = { id: 'p1', name: 'reactivando' };
 const machine = { id: 'm1', name: 'macbook m3' };
-const task = { id: 'tk1', project_id: 'p1', title: 'Corrigir o build' };
+const task = { id: 'tk1', project_id: 'p1', title: 'Corrigir o build', ref: 'REA-7' };
 
 // Another user's rows — a proposed action naming one of these ids must never surface its name,
 // title, or existence on this owner's card (the cross-tenant disclosure this fix closes).
@@ -99,19 +99,19 @@ it('names an unrecognised tool inside a sentence rather than showing it bare', a
 it('names a delete_task card by the task\'s title and the project it belongs to — no machine: a task/project has no single one', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ tool: 'delete_task', args: { task_id: 'tk1', confirm: true }, class: 'irreversible' })], OWNER);
-  expect(card.summary).toBe('apagar a tarefa "Corrigir o build" no projeto reactivando');
+  expect(card.summary).toBe('apagar a tarefa REA-7 "Corrigir o build" no projeto reactivando');
 });
 
 it('names every other task tool by the task\'s title too', async () => {
   const repos = fakeRepos();
   const [addSubtasks] = await describeActions(repos, [action({ tool: 'add_subtasks', args: { task_id: 'tk1', subtasks: [{ title: 'x' }] } })], OWNER);
-  expect(addSubtasks.summary).toBe('adicionar subtarefas à tarefa "Corrigir o build" no projeto reactivando');
+  expect(addSubtasks.summary).toBe('adicionar subtarefas à tarefa REA-7 "Corrigir o build" no projeto reactivando');
 
   const [updateTask] = await describeActions(repos, [action({ tool: 'update_task', args: { task_id: 'tk1', title: 'y' } })], OWNER);
-  expect(updateTask.summary).toBe('atualizar a tarefa "Corrigir o build" no projeto reactivando');
+  expect(updateTask.summary).toBe('atualizar a tarefa REA-7 "Corrigir o build" no projeto reactivando');
 
   const [moveTask] = await describeActions(repos, [action({ tool: 'move_task', args: { task_id: 'tk1', status: 'done' } })], OWNER);
-  expect(moveTask.summary).toBe('mover a tarefa "Corrigir o build" no projeto reactivando');
+  expect(moveTask.summary).toBe('mover a tarefa REA-7 "Corrigir o build" no projeto reactivando');
 });
 
 it('says plainly that a deleted task no longer exists, rather than falling back to its bare id — itself useful for deciding', async () => {

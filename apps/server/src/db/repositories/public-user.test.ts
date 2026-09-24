@@ -5,14 +5,15 @@ const user: User = {
   id: 'u1', email: 'p@x.dev', name: 'Pedro', avatar_url: null, nickname: 'pedro', password_hash: 'hash', google_id: 'g1',
   role: 'member', role_id: null, invited_at: null, last_login_at: null, created_at: '2026-09-23T00:00:00.000Z',
   city_short_url_partner: 'https://77a.it/pedro', city_short_url_custom: 'https://77a.it/meu',
+  review_enabled_until: '2026-10-01T00:00:00.000Z', review_enabled_by: 'admin1',
 };
 
 // /auth/me and the user lists are built from this: the short links are read through
 // /auth/me/city-link (and the public city snapshot), never through the account payload.
 describe('toPublicUser', () => {
-  it('drops the secrets and the city short links', () => {
+  it('drops the secrets, the city short links and who enabled review mode', () => {
     const out = toPublicUser(user) as unknown as Record<string, unknown>;
-    for (const k of ['password_hash', 'google_id', 'city_short_url_partner', 'city_short_url_custom']) expect(k in out).toBe(false);
-    expect(out).toMatchObject({ id: 'u1', nickname: 'pedro', has_password: true, has_google: true });
+    for (const k of ['password_hash', 'google_id', 'city_short_url_partner', 'city_short_url_custom', 'review_enabled_by']) expect(k in out).toBe(false);
+    expect(out).toMatchObject({ id: 'u1', nickname: 'pedro', has_password: true, has_google: true, review_enabled_until: '2026-10-01T00:00:00.000Z' });
   });
 });

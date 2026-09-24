@@ -36,6 +36,7 @@ describe('SettingsSidebar', () => {
       ['Minha cidade', '/settings/city'],
       ['Integrações', '/settings/integrations'],
       ['Tokens de API', '/settings/api-tokens'],
+      ['Aparelhos', '/settings/devices'],
       ['Contas de IA', '/settings/ai'],
       ['Hardware', '/settings/hardware'],
     ]);

@@ -6,6 +6,7 @@ import { PROJECT_STATUS_LABEL, type Project, type ProjectStatus } from '../lib/t
 import { ConfirmDialog } from './Modal';
 import { SetupForm } from './SetupForm';
 import { ProjectMachines } from './ProjectMachines';
+import { BoardColumnsSettings } from './BoardColumnsSettings';
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'archived'];
 
@@ -78,6 +79,8 @@ export function ProjectSettings({ project }: { project: Project }) {
       </form>
 
       <ProjectMachines project={project} />
+
+      <BoardColumnsSettings project={project} />
 
       <SetupForm project={project} />
 

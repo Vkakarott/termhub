@@ -1,6 +1,7 @@
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
 import { isValidProjectKey } from '../../lib/project-key.js';
+import { ensureDefaultColumns } from './task-board.js';
 import { mapProject, type Project, type ProjectStatus } from './types.js';
 
 export interface ProjectInput {
@@ -73,18 +74,22 @@ export class ProjectsRepository {
   async create(input: ProjectInput): Promise<Project> {
     if (!isValidProjectKey(input.key)) throw new ProjectRuleError('KEY_INVALID', 'Chave inválida: 2 a 10 letras maiúsculas ou dígitos, começando com letra');
     if ((await this.db.project.count({ where: { key: input.key } })) > 0) throw new ProjectRuleError('KEY_TAKEN', `A chave ${input.key} já está em uso`);
-    const p = await this.db.project.create({
-      data: {
-        id: newId(),
-        ownerId: input.owner_id,
-        key: input.key,
-        name: input.name,
-        status: input.status ?? 'active',
-        description: input.description ?? null,
-        isPublic: input.is_public ?? false,
-      },
+    return this.db.$transaction(async (tx) => {
+      const p = await tx.project.create({
+        data: {
+          id: newId(),
+          ownerId: input.owner_id,
+          key: input.key,
+          name: input.name,
+          status: input.status ?? 'active',
+          description: input.description ?? null,
+          isPublic: input.is_public ?? false,
+        },
+      });
+      // Every board starts with "A fazer", "Fazendo", "Feito" (spec §2).
+      await ensureDefaultColumns(tx, p.id);
+      return mapProject(p);
     });
-    return mapProject(p);
   }
 
   async update(id: string, patch: ProjectPatch): Promise<Project | undefined> {

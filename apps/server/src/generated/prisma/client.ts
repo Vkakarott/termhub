@@ -108,6 +108,12 @@ export type MachineHook = Prisma.MachineHookModel
  */
 export type Ticket = Prisma.TicketModel
 /**
+ * Model TaskColumn
+ * A board column of a project. The user names it; `category` is what the system reasons with
+ * (todo, doing or done — never backlog, a CHECK in the migration enforces it).
+ */
+export type TaskColumn = Prisma.TaskColumnModel
+/**
  * Model Task
  * 
  */
@@ -207,3 +213,34 @@ export type ProjectGroup = Prisma.ProjectGroupModel
  * 
  */
 export type ProjectGroupItem = Prisma.ProjectGroupItemModel
+/**
+ * Model DeviceRequest
+ * A phone asking to join an account (spec §4). `userId` null = a decoy row: unknown e-mail or an
+ * account that cannot enrol devices; never shown, never approvable, expires like the rest.
+ */
+export type DeviceRequest = Prisma.DeviceRequestModel
+/**
+ * Model Device
+ * An enrolled phone (spec §8). Revoked rows stay for the list and the trail.
+ */
+export type Device = Prisma.DeviceModel
+/**
+ * Model DeviceToken
+ * 
+ */
+export type DeviceToken = Prisma.DeviceTokenModel
+/**
+ * Model DeviceChallenge
+ * 
+ */
+export type DeviceChallenge = Prisma.DeviceChallengeModel
+/**
+ * Model DeviceEvent
+ * The device trail (spec §8). `meta` holds ids and names, never secrets. Kept 90 days.
+ */
+export type DeviceEvent = Prisma.DeviceEventModel
+/**
+ * Model UserNotification
+ * Everything ever pushed to a person, for the app's Notificações tab (spec §9). Kept 30 days.
+ */
+export type UserNotification = Prisma.UserNotificationModel

@@ -1,43 +1,42 @@
 import type { PrismaClient } from '../prisma.js';
+import type { Task as PrismaTask } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
+import { closeGap, defaultEpicId, endOf, ensureDefaultColumns, firstColumnId, lockProject, openSlot, placementFor, placementOf, requireEpic, type Tx } from './task-board.js';
+import { checkSubtaskParent, checkTypeChange, MAX_SUBTASKS_PER_CALL, PARENT_TYPES, TaskRuleError, WORK_TYPES } from './task-rules.js';
 import { nestTasks } from './task-tree.js';
-import { mapTask, type OfficeProgress, type Task, type TaskStatus, type TaskWithSubtasks } from './types.js';
+import { mapTask, type OfficeProgress, type Task, type TaskStatus, type TaskType, type TaskWithSubtasks } from './types.js';
 
-/** JSON com chaves ordenadas (JSONB do Postgres reordena as chaves). */
-function stableStringify(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
-  if (v && typeof v === 'object') {
-    const o = v as Record<string, unknown>;
-    return `{${Object.keys(o)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(v);
-}
+export { MAX_SUBTASKS_PER_CALL, TaskRuleError, type TaskRuleCode } from './task-rules.js';
 
-export type TaskRuleCode = 'PARENT_NOT_FOUND' | 'PARENT_IS_SUBTASK' | 'SUBTASK_CANNOT_MOVE' | 'NOT_A_SUBTASK' | 'TOO_MANY_SUBTASKS';
+/** Every query that maps a task loads its project's key, for `ref`. */
+const KEY = { project: { select: { key: true } } } as const;
+const toTask = (t: PrismaTask & { project: { key: string } }): Task => mapTask(t, t.project.key);
 
-/** Enforced both here and in the route's zod schema (which uses this constant too). */
-export const MAX_SUBTASKS_PER_CALL = 50;
-
-/** A subtask rule was broken. `message` is pt-BR and safe to show to the user. */
-export class TaskRuleError extends Error {
-  constructor(
-    readonly code: TaskRuleCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'TaskRuleError';
-  }
-}
+/** The work the counters count: top-level stories, tasks, bugs and spikes (epics group, subtasks are checklist items). */
+const WORK = { parentId: null, type: { in: WORK_TYPES } };
 
 export interface TaskInput {
   title: string;
   description?: string | null;
+  /** backlog, or a category (the card lands in the first column of it); default todo, backlog for an epic */
   status?: TaskStatus;
-  /** Creates a subtask of this task. Ignored by `update` (no reparenting). */
+  /** default task; a subtask needs parent_id */
+  type?: TaskType;
+  /** story/task/bug/spike: its epic; absent or null = the project's default epic. Ignored for an epic. */
+  epic_id?: string | null;
+  /** a board column of the project; wins over status */
+  column_id?: string | null;
+  /** creates a subtask of this story or task */
   parent_id?: string | null;
+}
+
+/** What `update` changes. `epic_id` is ignored on epics and subtasks (they have none). */
+export interface TaskPatch {
+  title?: string;
+  description?: string | null;
+  status?: TaskStatus;
+  type?: TaskType;
+  epic_id?: string | null;
 }
 
 export interface SubtaskInput {
@@ -46,92 +45,169 @@ export interface SubtaskInput {
   status?: TaskStatus;
 }
 
+/** Where `move` sends a card: a column of its project, or a status (backlog, or the first column of a category). */
+export type MoveTarget = { column_id: string } | { status: TaskStatus };
+
 export class TasksRepository {
   constructor(private db: PrismaClient) {}
 
-  /** Top-level tasks with their subtasks nested. */
+  /** Every card of the project, subtasks nested under their parent (epics included: the backlog needs them). Heals legacy rows first. */
   async listByProject(projectId: string): Promise<TaskWithSubtasks[]> {
+    await this.normalize(projectId);
+    const project = await this.db.project.findUnique({ where: { id: projectId }, select: { key: true } });
+    if (!project) return [];
     const rows = await this.db.task.findMany({ where: { projectId }, orderBy: [{ status: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }] });
-    return nestTasks(rows.map(mapTask));
+    return nestTasks(rows.map((t) => mapTask(t, project.key)));
+  }
+
+  /**
+   * Heals what the previous release writes during a blue/green switch (spec §3): a project without
+   * columns gets the defaults; a row with a parent becomes a subtask; a top-level non-epic card with
+   * no epic joins the default epic (appended to its backlog when it is in the backlog); a non-backlog
+   * top-level card whose column disagrees with its status — no column at all, or a column of another
+   * category (the old release's move only ever changes status/position) — is appended to the first
+   * column of its status's category; a backlog card that kept a column from before the move is
+   * stripped of it and appended to its epic's backlog. Trust `status`: it holds the person's latest
+   * action. Cheap counts decide; a healthy board is not written to.
+   */
+  async normalize(projectId: string): Promise<void> {
+    const legacySubtasks = { projectId, parentId: { not: null }, type: { not: 'subtask' as const } };
+    const orphans = { projectId, parentId: null, epicId: null, type: { notIn: ['epic' as const, 'subtask' as const] } };
+    const backlogWithColumn = { projectId, parentId: null, status: 'backlog' as const, columnId: { not: null } };
+    const wrongColumnFor = (category: 'todo' | 'doing' | 'done') => ({
+      projectId,
+      parentId: null,
+      status: category,
+      OR: [{ columnId: null }, { column: { category: { not: category } } }],
+    });
+    const wrongColumnAny = { projectId, parentId: null, OR: (['todo', 'doing', 'done'] as const).map((c) => wrongColumnFor(c)) };
+    const [columns, subs, noEpic, noBacklogColumn, noColumn] = await Promise.all([
+      this.db.taskColumn.count({ where: { projectId } }),
+      this.db.task.count({ where: legacySubtasks }),
+      this.db.task.count({ where: orphans }),
+      this.db.task.count({ where: backlogWithColumn }),
+      this.db.task.count({ where: wrongColumnAny }),
+    ]);
+    if (columns > 0 && subs + noEpic + noBacklogColumn + noColumn === 0) return;
+    await this.db.$transaction(async (tx) => {
+      await lockProject(tx, projectId);
+      await ensureDefaultColumns(tx, projectId);
+      await tx.task.updateMany({ where: legacySubtasks, data: { type: 'subtask', epicId: null, columnId: null } });
+      const noEpicRows = await tx.task.findMany({ where: orphans, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+      if (noEpicRows.length > 0) {
+        const epicId = await defaultEpicId(tx, projectId);
+        let next = await endOf(tx, projectId, { status: 'backlog', columnId: null, epicId, type: 'task' });
+        for (const t of noEpicRows) await tx.task.update({ where: { id: t.id }, data: { epicId, ...(t.status === 'backlog' ? { position: next++ } : {}) } });
+      }
+      // an old-release move to backlog keeps the columnId it had on the board: strip it and append
+      // to the (by now resolved) epic's backlog, grouping so several rows of one epic each get a slot.
+      const backlogRows = await tx.task.findMany({ where: backlogWithColumn, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+      const byEpic = new Map<string, typeof backlogRows>();
+      for (const t of backlogRows) {
+        const key = t.epicId ?? '';
+        const bucket = byEpic.get(key) ?? [];
+        bucket.push(t);
+        byEpic.set(key, bucket);
+      }
+      for (const [epicKey, rows] of byEpic) {
+        const epicId = epicKey || (await defaultEpicId(tx, projectId));
+        let next = await endOf(tx, projectId, { status: 'backlog', columnId: null, epicId, type: 'task' });
+        for (const t of rows) await tx.task.update({ where: { id: t.id }, data: { columnId: null, epicId, position: next++ } });
+      }
+      // an old-release move within a category (e.g. todo→doing) keeps the old columnId: `status` wins.
+      for (const category of ['todo', 'doing', 'done'] as const) {
+        const rows = await tx.task.findMany({ where: wrongColumnFor(category), orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+        if (rows.length === 0) continue;
+        const columnId = await firstColumnId(tx, projectId, category);
+        let next = await endOf(tx, projectId, { status: category, columnId, epicId: null, type: 'task' });
+        for (const t of rows) await tx.task.update({ where: { id: t.id }, data: { columnId, position: next++ } });
+      }
+    });
   }
 
   async findById(id: string): Promise<Task | undefined> {
-    const t = await this.db.task.findUnique({ where: { id } });
-    return t ? mapTask(t) : undefined;
+    const t = await this.db.task.findUnique({ where: { id }, include: KEY });
+    return t ? toTask(t) : undefined;
+  }
+
+  /** The card numbered `number` in the project (the `N` of `KEY-N`). */
+  async findByRef(projectId: string, number: number): Promise<Task | undefined> {
+    const t = await this.db.task.findUnique({ where: { projectId_number: { projectId, number } }, include: KEY });
+    return t ? toTask(t) : undefined;
   }
 
   /**
    * Batched by id, one query regardless of how many ids are asked for, filtered to one owner's tasks
    * through their project — never "no filter": a caller that resolves names for one
    * person's screen (e.g. the chat action trail) must not be able to pass `null` and see everyone's.
-   * Another owner's task id is simply absent from the result, like a row that does not exist. The
-   * owner filter is a join condition, not a reason to query per row.
+   * Another owner's task id is simply absent from the result, like a row that does not exist.
    */
   async findByIdsForOwner(ids: string[], ownerId: string): Promise<Task[]> {
     if (ids.length === 0) return [];
-    return (await this.db.task.findMany({ where: { id: { in: ids }, project: { ownerId } } })).map(mapTask);
+    return (await this.db.task.findMany({ where: { id: { in: ids }, project: { ownerId } }, include: KEY })).map(toTask);
   }
 
-  /** Top-level: created at the top of its column (position 0), pushing the others down. Subtask: appended last. */
+  /** A top-level card lands at the top of its column (or of its epic's backlog); a subtask is appended to its parent. */
   async create(projectId: string, input: TaskInput): Promise<Task> {
-    if (input.parent_id) {
+    if (input.parent_id || input.type === 'subtask') {
+      if (!input.parent_id) throw new TaskRuleError('PARENT_NOT_FOUND');
       const [subtask] = await this.createSubtasks(input.parent_id, [{ title: input.title, description: input.description, status: input.status }], projectId);
       return subtask;
     }
-    const status = input.status ?? 'todo';
-    return this.db.$transaction(async (tx) => {
-      await tx.task.updateMany({ where: { projectId, status, parentId: null }, data: { position: { increment: 1 } } });
-      const t = await tx.task.create({
-        data: { id: newId(), projectId, title: input.title, description: input.description ?? null, status, position: 0 },
-      });
-      return mapTask(t);
-    });
+    return this.db.$transaction(async (tx) => toTask(await this.insertCard(tx, projectId, input)));
   }
 
   /**
-   * A top-level task and its subtasks in one transaction (the MCP `create_task` tool): the task
-   * lands at the top of its column, the subtasks in call order. All or nothing — a cap violation
-   * is rejected before anything is written.
+   * A top-level card and its subtasks in one transaction (the MCP `create_task` tool): the card lands
+   * at the top of its column, the subtasks in call order. All or nothing — every rule is checked
+   * before anything is written.
    */
-  async createWithSubtasks(projectId: string, input: { title: string; description?: string | null; status?: TaskStatus }, subtasks: SubtaskInput[]): Promise<TaskWithSubtasks> {
-    if (subtasks.length > MAX_SUBTASKS_PER_CALL) {
-      throw new TaskRuleError('TOO_MANY_SUBTASKS', 'No máximo 50 subtarefas por vez');
-    }
-    const status = input.status ?? 'todo';
+  async createWithSubtasks(projectId: string, input: Omit<TaskInput, 'parent_id'>, subtasks: SubtaskInput[]): Promise<TaskWithSubtasks> {
+    if (subtasks.length > MAX_SUBTASKS_PER_CALL) throw new TaskRuleError('TOO_MANY_SUBTASKS');
+    if (input.type === 'subtask') throw new TaskRuleError('PARENT_NOT_FOUND');
+    if (subtasks.length > 0 && !PARENT_TYPES.includes(input.type ?? 'task')) throw new TaskRuleError('PARENT_TYPE');
     return this.db.$transaction(async (tx) => {
-      await tx.task.updateMany({ where: { projectId, status, parentId: null }, data: { position: { increment: 1 } } });
-      const parent = await tx.task.create({
-        data: { id: newId(), projectId, title: input.title, description: input.description ?? null, status, position: 0 },
-      });
-      const rows = [mapTask(parent)];
-      // The parent is new and invisible to other writers until commit: no row lock needed here.
+      const parent = await this.insertCard(tx, projectId, input);
+      const rows = [toTask(parent)];
       for (const [position, item] of subtasks.entries()) {
         const t = await tx.task.create({
-          data: { id: newId(), projectId, parentId: parent.id, title: item.title, description: item.description ?? null, status: item.status ?? 'todo', position },
+          data: { id: newId(), projectId, parentId: parent.id, type: 'subtask', title: item.title, description: item.description ?? null, status: item.status ?? 'todo', position },
+          include: KEY,
         });
-        rows.push(mapTask(t));
+        rows.push(toTask(t));
       }
       return nestTasks(rows)[0];
     });
   }
 
+  /** Validates type, epic and column, then writes a top-level card at slot 0 of its place. */
+  private async insertCard(tx: Tx, projectId: string, input: Omit<TaskInput, 'parent_id'>) {
+    await lockProject(tx, projectId);
+    await ensureDefaultColumns(tx, projectId);
+    const type = input.type ?? 'task';
+    const epicId = type === 'epic' ? null : input.epic_id ? await requireEpic(tx, projectId, input.epic_id) : await defaultEpicId(tx, projectId);
+    const to = await placementFor(tx, projectId, { type, epicId }, { column_id: input.column_id, status: input.status ?? (type === 'epic' ? 'backlog' : 'todo') });
+    const position = await openSlot(tx, projectId, to, 0);
+    return tx.task.create({
+      data: { id: newId(), projectId, type, title: input.title, description: input.description ?? null, status: to.status, columnId: to.columnId, epicId, position },
+      include: KEY,
+    });
+  }
+
   /**
-   * Appends subtasks to `parentId` in one transaction. One level only: the parent must be a
-   * top-level task (of `expectProjectId`, when given). Subtasks inherit the parent's project.
+   * Appends subtasks to `parentId` in one transaction. The parent must be a top-level story or task
+   * (of `expectProjectId`, when given). Subtasks inherit the parent's project and have no epic or column.
    */
   async createSubtasks(parentId: string, items: SubtaskInput[], expectProjectId?: string): Promise<Task[]> {
-    if (items.length > MAX_SUBTASKS_PER_CALL) {
-      throw new TaskRuleError('TOO_MANY_SUBTASKS', 'No máximo 50 subtarefas por vez');
-    }
+    if (items.length > MAX_SUBTASKS_PER_CALL) throw new TaskRuleError('TOO_MANY_SUBTASKS');
+    const found = await this.db.task.findUnique({ where: { id: parentId }, select: { projectId: true } });
+    if (!found || (expectProjectId && found.projectId !== expectProjectId)) throw new TaskRuleError('PARENT_NOT_FOUND');
     return this.db.$transaction(async (tx) => {
-      // Lock the parent row so concurrent writers appending to the same parent (e.g. an MCP tool
-      // and the web board) serialize instead of both reading the same max sibling position.
-      await tx.$queryRaw`SELECT id FROM "tasks" WHERE id = ${parentId} FOR UPDATE`;
+      // The project lock serializes every writer of this board, concurrent appends to one parent included.
+      await lockProject(tx, found.projectId);
       const parent = await tx.task.findUnique({ where: { id: parentId } });
-      if (!parent || (expectProjectId && parent.projectId !== expectProjectId)) {
-        throw new TaskRuleError('PARENT_NOT_FOUND', 'Tarefa pai não encontrada neste projeto');
-      }
-      if (parent.parentId) throw new TaskRuleError('PARENT_IS_SUBTASK', 'Uma subtarefa não pode ter subtarefas');
+      if (!parent) throw new TaskRuleError('PARENT_NOT_FOUND');
+      checkSubtaskParent(parent);
       const agg = await tx.task.aggregate({ where: { parentId }, _max: { position: true } });
       let position = (agg._max.position ?? -1) + 1;
       const created: Task[] = [];
@@ -141,13 +217,15 @@ export class TasksRepository {
             id: newId(),
             projectId: parent.projectId,
             parentId,
+            type: 'subtask',
             title: item.title,
             description: item.description ?? null,
             status: item.status ?? 'todo',
             position: position++,
           },
+          include: KEY,
         });
-        created.push(mapTask(t));
+        created.push(toTask(t));
       }
       return created;
     });
@@ -159,106 +237,139 @@ export class TasksRepository {
     return rows.map((r) => r.id);
   }
 
-  async update(id: string, patch: Partial<TaskInput>): Promise<Task | undefined> {
-    const current = await this.findById(id);
-    if (!current) return undefined;
-    if (!current.parent_id && patch.status && patch.status !== current.status) {
-      return this.move(id, patch.status, 0, { title: patch.title, description: patch.description });
-    }
-    const t = await this.db.task.update({
-      where: { id },
-      data: {
+  /**
+   * Title, description, type, epic and status. A subtask's status changes in place (the checklist);
+   * a top-level card's status change is a move to the top of the first column of that category (or of
+   * its epic's backlog). A backlog item that changes epic goes to the top of the new epic's backlog.
+   */
+  async update(id: string, patch: TaskPatch): Promise<Task | undefined> {
+    return this.db.$transaction(async (tx) => {
+      const found = await tx.task.findUnique({ where: { id }, select: { projectId: true } });
+      if (!found) return undefined;
+      await lockProject(tx, found.projectId);
+      const cur = await tx.task.findUnique({ where: { id } });
+      if (!cur) return undefined;
+      const text = {
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.description !== undefined ? { description: patch.description } : {}),
-        ...(current.parent_id && patch.status ? { status: patch.status } : {}),
-      },
+      };
+      if (cur.parentId) {
+        if (patch.type && patch.type !== cur.type) throw new TaskRuleError('TYPE_LOCKED');
+        return toTask(await tx.task.update({ where: { id }, data: { ...text, ...(patch.status ? { status: patch.status } : {}) }, include: KEY }));
+      }
+      const type = patch.type ?? cur.type;
+      if (type !== cur.type) checkTypeChange(cur.type, type, await tx.task.count({ where: { parentId: id } }));
+      let epicId = cur.epicId;
+      if (type !== 'epic' && patch.epic_id !== undefined) {
+        if (!patch.epic_id) throw new TaskRuleError('EPIC_REQUIRED');
+        epicId = await requireEpic(tx, cur.projectId, patch.epic_id);
+      }
+      if (type !== 'epic' && !epicId) epicId = await defaultEpicId(tx, cur.projectId);
+
+      const statusChanges = patch.status !== undefined && patch.status !== cur.status;
+      const backlogEpicChanges = !statusChanges && cur.status === 'backlog' && epicId !== cur.epicId;
+      let place = { status: cur.status as TaskStatus, columnId: cur.columnId, position: cur.position };
+      if (statusChanges || backlogEpicChanges) {
+        const to = await placementFor(tx, cur.projectId, { type, epicId }, { status: statusChanges ? patch.status : 'backlog' });
+        await closeGap(tx, cur.projectId, placementOf(cur), cur.position, id);
+        place = { status: to.status, columnId: to.columnId, position: await openSlot(tx, cur.projectId, to, 0, id) };
+      }
+      const t = await tx.task.update({ where: { id }, data: { ...text, type, epicId, status: place.status, columnId: place.columnId, position: place.position }, include: KEY });
+      return toTask(t);
     });
-    return mapTask(t);
   }
 
-  /** Move para (status, position) reordenando as colunas de origem e destino. */
-  async move(id: string, status: TaskStatus, position: number, extra?: { title?: string; description?: string | null }): Promise<Task | undefined> {
-    const current = await this.findById(id);
-    if (!current) return undefined;
-    if (current.parent_id) throw new TaskRuleError('SUBTASK_CANNOT_MOVE', 'Subtarefas não ficam em colunas; mude o status ou reordene');
+  /** Moves a top-level card to a column (or a status) at `position` (clamped), closing its old gap. */
+  async move(id: string, target: MoveTarget, position: number): Promise<Task | undefined> {
     return this.db.$transaction(async (tx) => {
-      // remove da coluna de origem
-      await tx.task.updateMany({
-        where: { projectId: current.project_id, status: current.status, parentId: null, position: { gt: current.position } },
-        data: { position: { decrement: 1 } },
-      });
-      const count = await tx.task.count({ where: { projectId: current.project_id, status, parentId: null, id: { not: id } } });
-      const pos = Math.max(0, Math.min(position, count));
-      // abre espaço na coluna de destino
-      await tx.task.updateMany({
-        where: { projectId: current.project_id, status, parentId: null, position: { gte: pos }, id: { not: id } },
-        data: { position: { increment: 1 } },
-      });
-      const t = await tx.task.update({
-        where: { id },
-        data: {
-          status,
-          position: pos,
-          ...(extra?.title !== undefined ? { title: extra.title } : {}),
-          ...(extra?.description !== undefined ? { description: extra.description } : {}),
-        },
-      });
-      return mapTask(t);
+      const found = await tx.task.findUnique({ where: { id }, select: { projectId: true, parentId: true } });
+      if (!found) return undefined;
+      if (found.parentId) throw new TaskRuleError('SUBTASK_CANNOT_MOVE');
+      await lockProject(tx, found.projectId);
+      const cur = await tx.task.findUniqueOrThrow({ where: { id } });
+      const epicId = cur.type === 'epic' ? null : (cur.epicId ?? (await defaultEpicId(tx, cur.projectId)));
+      const to = await placementFor(tx, cur.projectId, { type: cur.type, epicId }, 'column_id' in target ? { column_id: target.column_id } : { status: target.status });
+      await closeGap(tx, cur.projectId, placementOf(cur), cur.position, id);
+      const slot = await openSlot(tx, cur.projectId, to, position, id);
+      return toTask(await tx.task.update({ where: { id }, data: { status: to.status, columnId: to.columnId, epicId, position: slot }, include: KEY }));
     });
+  }
+
+  /**
+   * An agent starts on the card (start_agent): a top-level card goes to the top of the project's agent
+   * column — else the first `doing` column — unless it already sits in a doing column; a subtask is
+   * marked doing.
+   */
+  async startWork(id: string): Promise<Task | undefined> {
+    const cur = await this.findById(id);
+    if (!cur) return undefined;
+    if (cur.status === 'doing') return cur;
+    if (cur.parent_id) return this.update(id, { status: 'doing' });
+    const project = await this.db.project.findUnique({ where: { id: cur.project_id }, select: { agentColumnId: true } });
+    return this.move(id, project?.agentColumnId ? { column_id: project.agentColumnId } : { status: 'doing' }, 0);
   }
 
   /** Moves a subtask to `position` among its siblings (clamped), reindexing them 0..n-1. */
   async reorder(id: string, position: number): Promise<Task | undefined> {
     const current = await this.findById(id);
     if (!current) return undefined;
-    if (!current.parent_id) throw new TaskRuleError('NOT_A_SUBTASK', 'Só subtarefas são reordenadas aqui; use mover para tarefas do quadro');
+    if (!current.parent_id) throw new TaskRuleError('NOT_A_SUBTASK');
     return this.db.$transaction(async (tx) => {
-      // Lock the parent row so a concurrent createSubtasks/reorder on the same parent serializes
-      // instead of both reading the same sibling snapshot.
-      await tx.$queryRaw`SELECT id FROM "tasks" WHERE id = ${current.parent_id} FOR UPDATE`;
+      await lockProject(tx, current.project_id);
       const siblings = await tx.task.findMany({ where: { parentId: current.parent_id }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true, position: true } });
       const ids = siblings.map((s) => s.id).filter((s) => s !== id);
       ids.splice(Math.max(0, Math.min(Math.trunc(position), ids.length)), 0, id);
       for (const [i, siblingId] of ids.entries()) {
         if (siblings.find((s) => s.id === siblingId)?.position !== i) await tx.task.update({ where: { id: siblingId }, data: { position: i } });
       }
-      const t = await tx.task.findUnique({ where: { id } });
-      return t ? mapTask(t) : undefined;
+      const t = await tx.task.findUnique({ where: { id }, include: KEY });
+      return t ? toTask(t) : undefined;
     });
   }
 
-  /** Deletes the task (its subtasks cascade) and closes the gap: in its column, or among its siblings. */
+  /** Deletes the card (its subtasks cascade) and closes the gap it leaves. An epic with cards is refused. */
   async delete(id: string): Promise<boolean> {
-    const current = await this.findById(id);
-    if (!current) return false;
-    await this.db.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
+      const found = await tx.task.findUnique({ where: { id }, select: { projectId: true } });
+      if (!found) return false;
+      await lockProject(tx, found.projectId);
+      const cur = await tx.task.findUnique({ where: { id } });
+      if (!cur) return false;
+      if (cur.type === 'epic' && (await tx.task.count({ where: { epicId: id } })) > 0) throw new TaskRuleError('EPIC_HAS_CHILDREN');
       await tx.task.delete({ where: { id } });
-      await tx.task.updateMany({
-        where: current.parent_id
-          ? { parentId: current.parent_id, position: { gt: current.position } }
-          : { projectId: current.project_id, status: current.status, parentId: null, position: { gt: current.position } },
-        data: { position: { decrement: 1 } },
-      });
+      if (cur.parentId) {
+        await tx.task.updateMany({ where: { parentId: cur.parentId, position: { gt: cur.position } }, data: { position: { decrement: 1 } } });
+      } else {
+        await closeGap(tx, cur.projectId, placementOf(cur), cur.position);
+      }
+      return true;
     });
-    return true;
   }
 
-  /** Cria a task a partir de um ticket sincronizado (vai para o fim do backlog). */
+  /** A synced ticket becomes a task at the end of the default epic's backlog (spec §5). */
   async createFromTicket(projectId: string, ticket: { key: string; title: string; description: string | null; ref: Record<string, unknown> }): Promise<Task> {
-    const agg = await this.db.task.aggregate({ where: { projectId, status: 'backlog', parentId: null }, _max: { position: true } });
-    const t = await this.db.task.create({
-      data: {
-        id: newId(),
-        projectId,
-        title: ticket.title,
-        description: ticket.description,
-        status: 'backlog',
-        position: (agg._max.position ?? -1) + 1,
-        externalKey: ticket.key,
-        externalRef: ticket.ref as object,
-      },
+    return this.db.$transaction(async (tx) => {
+      await lockProject(tx, projectId);
+      await ensureDefaultColumns(tx, projectId);
+      const epicId = await defaultEpicId(tx, projectId);
+      const position = await endOf(tx, projectId, { status: 'backlog', columnId: null, epicId, type: 'task' });
+      const t = await tx.task.create({
+        data: {
+          id: newId(),
+          projectId,
+          type: 'task',
+          epicId,
+          title: ticket.title,
+          description: ticket.description,
+          status: 'backlog',
+          position,
+          externalKey: ticket.key,
+          externalRef: ticket.ref as object,
+        },
+        include: KEY,
+      });
+      return toTask(t);
     });
-    return mapTask(t);
   }
 
   /** Atualiza só o espelho do ticket externo (estado/meta), sem mexer em título, coluna ou descrição. */
@@ -267,23 +378,24 @@ export class TasksRepository {
   }
 
   async setTab(id: string, tabId: string | null): Promise<Task | undefined> {
-    const t = await this.db.task.update({ where: { id }, data: { tabId } });
-    return mapTask(t);
+    const t = await this.db.task.update({ where: { id }, data: { tabId }, include: KEY });
+    return toTask(t);
   }
 
-  /** Contagem de tasks abertas (todo + doing) por projeto. */
+  /** Open work (todo + doing) per project: stories, tasks, bugs and spikes. */
   async openCountByProject(): Promise<Record<string, number>> {
-    const rows = await this.db.task.groupBy({ by: ['projectId'], where: { status: { in: ['todo', 'doing'] }, parentId: null }, _count: { _all: true } });
+    const rows = await this.db.task.groupBy({ by: ['projectId'], where: { status: { in: ['todo', 'doing'] }, ...WORK }, _count: { _all: true } });
     return Object.fromEntries(rows.map((r) => [r.projectId, r._count._all]));
   }
 
-  /** `owner`: only tasks of that user's projects (null = all). */
+  /** `owner`: only tasks of that user's projects (null = all). Work types only. */
   async listDoing(owner: string | null = null): Promise<Task[]> {
     const rows = await this.db.task.findMany({
-      where: { status: 'doing', parentId: null, ...(owner ? { project: { ownerId: owner } } : {}) },
+      where: { status: 'doing', ...WORK, ...(owner ? { project: { ownerId: owner } } : {}) },
       orderBy: [{ projectId: 'asc' }, { position: 'asc' }],
+      include: KEY,
     });
-    return rows.map(mapTask);
+    return rows.map(toTask);
   }
 
   /**
@@ -296,11 +408,11 @@ export class TasksRepository {
     const [groups, bound] = await Promise.all([
       this.db.task.groupBy({
         by: ['projectId', 'status'],
-        where: { projectId: { in: projectIds }, parentId: null, status: { in: ['todo', 'doing', 'done'] } },
+        where: { projectId: { in: projectIds }, ...WORK, status: { in: ['todo', 'doing', 'done'] } },
         _count: { _all: true },
       }),
       this.db.task.findMany({
-        where: { projectId: { in: projectIds }, parentId: null, status: 'doing', tabId: { not: null } },
+        where: { projectId: { in: projectIds }, ...WORK, status: 'doing', tabId: { not: null } },
         orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
         select: { id: true, title: true, tabId: true, subtasks: { select: { status: true } } },
       }),

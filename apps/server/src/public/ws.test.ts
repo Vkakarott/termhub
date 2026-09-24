@@ -9,7 +9,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { Project, Tab, User } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import { publicBus } from './bus.js';
-import { publicId, publicRoomId } from './public-id.js';
+import { publicId } from './public-id.js';
 
 // The tmux memo both public surfaces read (never probe). Cold by default, like a fresh process.
 const { memo } = vi.hoisted(() => ({ memo: { current: undefined as { reachable: boolean; sessions: Set<string> } | undefined } }));
@@ -26,19 +26,12 @@ const p1 = { id: 'p1', owner_id: 'u1', is_public: true, status: 'active' } as Pr
 const p2 = { id: 'p2', owner_id: 'u1', is_public: false, status: 'active' } as Project;
 const p3 = { id: 'p3', owner_id: 'u1', is_public: true, status: 'archived' } as Project;
 
-// Pedro owns m1 and m3; mB is somebody else's machine that p1 happens to be linked to (merge
-// ruling 2: it must never show). p1 runs on all three, so it has a room on m1 and one on m3.
+// Pedro owns m1 and m3; mB is somebody else's machine that p1 also runs on (city-by-project §2.4:
+// a robot there is never shown, whatever owner a change claims).
 const machinesOfPedro = [
   // m1 carries a subtitle: the owner's own note about the machine, never on the street
   { id: 'm1', name: 'M1', subtitle: 'MacBook do escritório secreto', owner_id: 'u1' },
   { id: 'm3', name: 'M3', subtitle: null, owner_id: 'u1' },
-];
-const links = [
-  { project_id: 'p1', machine_id: 'm1' },
-  { project_id: 'p1', machine_id: 'm3' },
-  { project_id: 'p1', machine_id: 'mB' },
-  { project_id: 'p2', machine_id: 'm1' },
-  { project_id: 'p3', machine_id: 'm1' },
 ];
 
 const tab = (over: Partial<Tab> = {}): Tab =>
@@ -96,7 +89,6 @@ describe('registerPublicWs', () => {
     users: { findByNickname: ReturnType<typeof vi.fn> };
     projects: { list: ReturnType<typeof vi.fn> };
     machines: { list: ReturnType<typeof vi.fn> };
-    projectMachines: { listByProjects: ReturnType<typeof vi.fn> };
   };
   let port: number;
 
@@ -124,7 +116,7 @@ describe('registerPublicWs', () => {
     });
   }
 
-  function nextMessage(client: WebSocket, opts: { timeoutMs?: number } = {}): Promise<{ type: string; building: string; room: string; robot: Record<string, unknown> }> {
+  function nextMessage(client: WebSocket, opts: { timeoutMs?: number } = {}): Promise<{ type: string; building: string; robot: Record<string, unknown> }> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('timeout waiting for message')), opts.timeoutMs ?? 500);
       client.once('message', (data) => {
@@ -145,7 +137,6 @@ describe('registerPublicWs', () => {
       users: { findByNickname: vi.fn(async (nickname: string) => (nickname === 'pedro' ? pedro : undefined)) },
       projects: { list: vi.fn(async () => [p1, p2, p3]) },
       machines: { list: vi.fn(async () => machinesOfPedro) },
-      projectMachines: { listByProjects: vi.fn(async (ids: string[]) => links.filter((l) => ids.includes(l.project_id))) },
     };
     await start();
   });
@@ -164,13 +155,15 @@ describe('registerPublicWs', () => {
     if (server) await shutdown(server);
   });
 
-  it('sends a change on a published room', async () => {
+  it('sends a change of a published building', async () => {
     const client = await connect('/ws/public/pedro');
     monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const frame = await nextMessage(client);
     expect(frame.type).toBe('robot');
     expect(frame.robot.activity).toBe('reading');
     expect(frame.robot.id).toBe(publicId('tab', 't1'));
+    expect(frame.building).toBe(publicId('project', 'p1'));
+    expect(Object.keys(frame).sort()).toEqual(['building', 'robot', 'type']);
     expect(JSON.stringify(frame)).not.toContain('th-t1');
     client.terminate();
   });
@@ -182,68 +175,77 @@ describe('registerPublicWs', () => {
     expect(JSON.stringify(frame)).not.toContain('subtitle');
     expect(JSON.stringify(frame)).not.toContain('MacBook do escritório secreto');
     client.terminate();
-    const snapRepos = { ...repos, tabs: { listByProjectsOnMachine: async () => [tab()] } } as unknown as Repositories;
+    const snapRepos = { ...repos, tabs: { listByProjects: async () => [tab()] } } as unknown as Repositories;
     const city = (await readPublicCity(snapRepos, 'pedro'))!;
-    expect(city.buildings.map((b) => b.id)).toContain(publicId('machine', 'm1'));
+    expect(city.buildings.map((b) => b.id)).toContain(publicId('project', 'p1'));
     expect(JSON.stringify(city)).not.toContain('subtitle');
     expect(JSON.stringify(city)).not.toContain('MacBook do escritório secreto');
   });
 
-  it('never sends a change on a private room of the same machine', async () => {
+  it('never sends a change of a private project on the same machine', async () => {
     const client = await connect('/ws/public/pedro');
     monitorBus.publish({ tab: tab({ id: 't9', project_id: 'p9' }), project_id: 'p9', machine_id: 'm1', owner_id: 'u1' });
     await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
     client.terminate();
   });
 
-  it('closes the socket when the room is unpublished', async () => {
+  it('closes the socket when a building is unpublished', async () => {
     const client = await connect('/ws/public/pedro');
     publicBus.publish({ project_id: 'p1', is_public: false });
     await expect(closed(client)).resolves.toBe(true);
   });
 
-  // Merge ruling 2: a room is (published project, machine the owner owns); the robots of one
-  // project on two machines are two rooms, each frame naming its own.
-  it('splits one project\'s robots per (project, machine) room', async () => {
+  // Review focus 5: a building leaves the street at once, not only when it is the last one — the
+  // page re-reads the snapshot on the hang-up, and that is how the building disappears from it.
+  it('closes the socket when one of several buildings is unpublished', async () => {
+    repos.projects.list.mockResolvedValue([p1, { ...p1, id: 'p4' }, p2, p3]);
+    const client = await connect('/ws/public/pedro');
+    const wentClosed = closed(client);
+    publicBus.publish({ project_id: 'p4', is_public: false });
+    await expect(wentClosed).resolves.toBe(true);
+  });
+
+  // city-by-project §1: a project's robots on each of the owner's machines are one building
+  it("sends a project's robots from each of the owner's machines under its one building", async () => {
     const client = await connect('/ws/public/pedro');
     monitorBus.publish({ tab: tab({ id: 't1', machine_id: 'm1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const onM1 = await nextMessage(client);
     monitorBus.publish({ tab: tab({ id: 't7', machine_id: 'm3' }), project_id: 'p1', machine_id: 'm3', owner_id: 'u1' });
     const onM3 = await nextMessage(client);
-    expect(onM1).toMatchObject({ building: publicId('machine', 'm1'), room: publicRoomId('p1', 'm1') });
-    expect(onM3).toMatchObject({ building: publicId('machine', 'm3'), room: publicRoomId('p1', 'm3') });
-    expect(onM1.room).not.toBe(onM3.room);
+    expect(onM1.building).toBe(publicId('project', 'p1'));
+    expect(onM3.building).toBe(onM1.building);
+    expect(onM3.robot.id).toBe(publicId('tab', 't7'));
     client.terminate();
   });
 
   it('never sends a published project\'s robot that runs on a machine its owner does not own', async () => {
     const client = await connect('/ws/public/pedro');
     // as the monitor would publish it (the machine's owner), and even as if it claimed pedro's:
-    // the pair (p1, mB) is not a room of this city
+    // a tab of p1 on mB is not a robot of this city
     monitorBus.publish({ tab: tab({ id: 't8', machine_id: 'mB' }), project_id: 'p1', machine_id: 'mB', owner_id: 'u2' });
     monitorBus.publish({ tab: tab({ id: 't8', machine_id: 'mB' }), project_id: 'p1', machine_id: 'mB', owner_id: 'u1' });
     await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
     client.terminate();
   });
 
-  // Merge ruling 4: a machine that changes owner (or is deleted) leaves the city without anything
-  // being unpublished; the page watching it is hung up so it re-reads a snapshot without it.
-  it('closes the socket when a building of this city leaves the street, not when another does', async () => {
+  // A machine that changes owner or is deleted takes its robots off the street; the building stays,
+  // and the page watching it is hung up so it re-reads the snapshot without them.
+  it("hangs up when a machine of this owner leaves the street, not when somebody else's does", async () => {
     const client = await connect('/ws/public/pedro');
     let isClosed = false;
     client.on('close', () => (isClosed = true));
-    publicBus.publishRoomsGone({ machine_id: 'mB' }); // never a building of this city
-    publicBus.publishRoomsGone({ machine_id: 'm1', project_id: 'p2' }); // a private project unlinked
+    publicBus.publishRobotsGone({ machine_id: 'mB' }); // never pedro's
+    publicBus.publishRobotsGone({ machine_id: 'm1', project_id: 'p2' }); // a private project unlinked
     await new Promise((r) => setTimeout(r, 100));
     expect(isClosed).toBe(false);
-    publicBus.publishRoomsGone({ machine_id: 'm3' });
+    publicBus.publishRobotsGone({ machine_id: 'm3' });
     await vi.waitFor(() => expect(isClosed).toBe(true));
   });
 
-  it('closes the socket when a published project is unlinked from one of its buildings', async () => {
+  it("hangs up when a published project is unlinked from one of the owner's machines", async () => {
     const client = await connect('/ws/public/pedro');
     const wentClosed = closed(client);
-    publicBus.publishRoomsGone({ machine_id: 'm3', project_id: 'p1' });
+    publicBus.publishRobotsGone({ machine_id: 'm3', project_id: 'p1' });
     await expect(wentClosed).resolves.toBe(true);
   });
 
@@ -258,17 +260,18 @@ describe('registerPublicWs', () => {
     await vi.waitFor(() => expect(isClosed).toBe(true));
   });
 
-  // The rooms are resolved before the socket exists: an unpublish that lands while those reads are
-  // in flight must not be lost, or the visitor keeps streaming a room that is already private.
-  for (const event of ['unpublish', 'rooms-gone', 'owner-gone'] as const) {
-    it(`never streams a room that stopped being public (${event}) while the rooms were being resolved`, async () => {
+  // The city (published projects, owned machines) is resolved before the socket exists: an unpublish
+  // that lands while those reads are in flight must not be lost, or the visitor keeps streaming a
+  // building that is already private.
+  for (const event of ['unpublish', 'robots-gone', 'owner-gone'] as const) {
+    it(`never streams what stopped being public (${event}) while the city was being resolved`, async () => {
       let calls = 0;
       repos.projects.list.mockImplementation(async () => {
         calls++;
         if (calls === 1) {
           // the read already happened (stale: p1 still public), then the change lands before admission ends
           if (event === 'unpublish') publicBus.publish({ project_id: 'p1', is_public: false });
-          else if (event === 'rooms-gone') publicBus.publishRoomsGone({ machine_id: 'm1' });
+          else if (event === 'robots-gone') publicBus.publishRobotsGone({ machine_id: 'm1' });
           else publicBus.publishOwnerGone({ owner_id: 'u1' });
           return [p1, p2, p3];
         }
@@ -290,6 +293,33 @@ describe('registerPublicWs', () => {
     });
   }
 
+  // Review fix: the real robots-gone race. The building stays published; only the machine leaves
+  // the owner (transferred or deleted) while admission reads the city. The re-read drops it from
+  // `owned`, so the socket is admitted, its robots never stream, and the owner's other machines do.
+  it('drops the robots of a machine that left the owner during admission, and streams the rest', async () => {
+    let calls = 0;
+    repos.machines.list.mockImplementation(async () => {
+      calls++;
+      if (calls === 1) {
+        // the read already happened (stale: m1 still pedro's), then the machine leaves before admission ends
+        publicBus.publishRobotsGone({ machine_id: 'm1' });
+        return machinesOfPedro;
+      }
+      return machinesOfPedro.filter((m) => m.id !== 'm1');
+    });
+    const client = await connect('/ws/public/pedro');
+    let isClosed = false;
+    client.on('close', () => (isClosed = true));
+    expect(calls).toBe(2);
+    monitorBus.publish({ tab: tab({ id: 't1', machine_id: 'm1' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
+    await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
+    monitorBus.publish({ tab: tab({ id: 't7', machine_id: 'm3' }), project_id: 'p1', machine_id: 'm3', owner_id: 'u1' });
+    const onM3 = await nextMessage(client);
+    expect([onM3.type, onM3.building, onM3.robot.id]).toEqual(['robot', publicId('project', 'p1'), publicId('tab', 't7')]);
+    expect(isClosed).toBe(false);
+    client.terminate();
+  });
+
   it('admits a visitor normally when an unrelated project changes during admission', async () => {
     let calls = 0;
     repos.projects.list.mockImplementation(async () => {
@@ -303,8 +333,18 @@ describe('registerPublicWs', () => {
     client.terminate();
   });
 
-  it('refuses a nickname whose published projects sit only on other people\'s machines', async () => {
-    repos.projectMachines.listByProjects.mockImplementation(async () => [{ project_id: 'p1', machine_id: 'mB' }]);
+  // city-by-project §2.4: a published project is a building even when none of its agents runs on a
+  // machine its owner owns — and none of those agents is ever sent
+  it("admits a city whose published project runs only on other people's machines, and sends none of those robots", async () => {
+    repos.machines.list.mockResolvedValue([]);
+    const client = await connect('/ws/public/pedro');
+    monitorBus.publish({ tab: tab({ id: 't8', machine_id: 'mB' }), project_id: 'p1', machine_id: 'mB', owner_id: 'u1' });
+    await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
+    client.terminate();
+  });
+
+  it('refuses a nickname that published nothing', async () => {
+    repos.projects.list.mockResolvedValue([p2, p3]);
     await expect(connect('/ws/public/pedro')).rejects.toThrow(/404/);
   });
 
@@ -324,7 +364,7 @@ describe('registerPublicWs', () => {
     monitorBus.publish({ tab: tab({ id: 't3', project_id: 'p3' }), project_id: 'p3', machine_id: 'm1', owner_id: 'u1' });
     monitorBus.publish({ tab: tab({ activity: 'reading' }), project_id: 'p1', machine_id: 'm1', owner_id: 'u1' });
     const frame = await nextMessage(client);
-    expect(frame.room).toBe(publicRoomId('p1', 'm1'));
+    expect(frame.building).toBe(publicId('project', 'p1'));
     expect(frame.robot.id).toBe(publicId('tab', 't1'));
     await expect(nextMessage(client, { timeoutMs: 300 })).rejects.toThrow(/timeout/);
     client.terminate();
@@ -349,10 +389,9 @@ describe('registerPublicWs', () => {
         users: { findByNickname: async () => pedro },
         machines: { list: async () => [{ id: 'm1', name: 'M', owner_id: 'u1' }] },
         projects: { list: async () => [p1] },
-        projectMachines: { listByProjects: async () => [{ project_id: 'p1', machine_id: 'm1' }] },
-        tabs: { listByProjectsOnMachine: async () => [t] },
+        tabs: { listByProjects: async () => [t] },
       } as unknown as Repositories;
-      return (await readPublicCity(snapRepos, 'pedro'))!.buildings[0]!.rooms[0]!.robots[0]!.alive;
+      return (await readPublicCity(snapRepos, 'pedro'))!.buildings[0]!.robots[0]!.alive;
     };
     const client = await connect('/ws/public/pedro');
     const cases: [typeof memo.current, Tab][] = [
@@ -434,12 +473,13 @@ describe('registerPublicWs', () => {
     a.terminate();
   });
 
-  it('tells the visitor a tab of a published room is gone, by its public id only', async () => {
+  it('tells the visitor a tab of a published building is gone, by its public id only', async () => {
     const client = await connect('/ws/public/pedro');
-    publicBus.publishTabRemoved({ tab_id: 't9', project_id: 'p2', machine_id: 'm1' }); // a private room: nothing
+    publicBus.publishTabRemoved({ tab_id: 't9', project_id: 'p2', machine_id: 'm1' }); // a private project: nothing
+    publicBus.publishTabRemoved({ tab_id: 't8', project_id: 'p1', machine_id: 'mB' }); // not pedro's machine: nothing
     publicBus.publishTabRemoved({ tab_id: 't1', project_id: 'p1', machine_id: 'm1' });
     const frame = await nextMessage(client);
-    expect(frame).toEqual({ type: 'robot_gone', building: publicId('machine', 'm1'), room: publicRoomId('p1', 'm1'), robot: publicId('tab', 't1') });
+    expect(frame).toEqual({ type: 'robot_gone', building: publicId('project', 'p1'), robot: publicId('tab', 't1') });
     await expect(nextMessage(client, { timeoutMs: 200 })).rejects.toThrow(/timeout/);
     client.terminate();
   });

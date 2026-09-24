@@ -81,7 +81,7 @@ describe('the words', () => {
 
 describe('shareInfoFor', () => {
   const desk = (id: string, pose: DeskModel['pose']) => ({ id, pose }) as DeskModel;
-  const model = { needsYou: 2, machines: [{ id: 'b1', floor: { rooms: [{ id: 'r1', desks: [desk('a', 'type'), desk('b', 'type'), desk('c', 'raise'), desk('d', 'sleep')] }] } }] } as unknown as CityModel;
+  const model = { needsYou: 2, buildings: [{ id: 'b1', desks: [desk('a', 'type'), desk('b', 'type'), desk('c', 'raise'), desk('d', 'sleep')] }] } as unknown as CityModel;
   const city: PublicCity = { nickname: 'pedro', owner_name: 'Pedro', short_url: null, buildings: [] };
 
   it('counts robots drawn typing, and the raised hands the model already counts', () => {

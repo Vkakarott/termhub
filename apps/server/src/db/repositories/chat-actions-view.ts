@@ -42,6 +42,9 @@ const taskIdOf = (action: ChatAction): string => asString((action.args as Record
  * since the absence is itself useful information for deciding, and the two causes are deliberately
  * indistinguishable from here: this view must never confirm that a foreign id exists at all.
  */
+/** A task as the sentence names it: its ref, then its title — `TER-12 "Corrigir o build"`. */
+const named = (task: Task) => `${task.ref} "${task.title}"`;
+
 function verbPhrase(action: ChatAction, task: Task | undefined): string {
   const args = (action.args ?? {}) as Record<string, unknown>;
   switch (action.tool) {
@@ -60,13 +63,13 @@ function verbPhrase(action: ChatAction, task: Task | undefined): string {
     case 'create_task':
       return `criar a tarefa "${asString(args.title)}"`;
     case 'add_subtasks':
-      return task ? `adicionar subtarefas à tarefa "${task.title}"` : 'adicionar subtarefas a uma tarefa que não existe mais';
+      return task ? `adicionar subtarefas à tarefa ${named(task)}` : 'adicionar subtarefas a uma tarefa que não existe mais';
     case 'update_task':
-      return task ? `atualizar a tarefa "${task.title}"` : 'atualizar uma tarefa que não existe mais';
+      return task ? `atualizar a tarefa ${named(task)}` : 'atualizar uma tarefa que não existe mais';
     case 'move_task':
-      return task ? `mover a tarefa "${task.title}"` : 'mover uma tarefa que não existe mais';
+      return task ? `mover a tarefa ${named(task)}` : 'mover uma tarefa que não existe mais';
     case 'delete_task':
-      return task ? `apagar a tarefa "${task.title}"` : 'apagar uma tarefa que não existe mais';
+      return task ? `apagar a tarefa ${named(task)}` : 'apagar uma tarefa que não existe mais';
     default:
       return `usar a ferramenta ${action.tool}`;
   }

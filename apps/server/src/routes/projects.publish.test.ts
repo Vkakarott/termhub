@@ -182,7 +182,7 @@ describe('DELETE /projects/:id', () => {
 });
 
 describe('machine links of a published project', () => {
-  const gone = vi.spyOn(publicBus, 'publishRoomsGone');
+  const gone = vi.spyOn(publicBus, 'publishRobotsGone');
 
   function buildLinkApp() {
     const app = Fastify();
@@ -213,7 +213,7 @@ describe('machine links of a published project', () => {
 
   // Merge ruling 2: a room is (published project, machine); unlinking takes that one room off the
   // street at once, without unpublishing the project (it keeps its rooms on its other machines).
-  it('unlinking a machine drops that one room from open public pages, and unpublishes nothing', async () => {
+  it("unlinking a machine drops that project's robots on it from open public pages, and unpublishes nothing", async () => {
     const res = await buildLinkApp().inject({ method: 'DELETE', url: '/projects/p3/machines/m1' });
     expect(res.statusCode).toBe(200);
     expect(gone).toHaveBeenCalledWith({ machine_id: 'm1', project_id: 'p3' });

@@ -15,13 +15,14 @@ COPY apps/concierge/package.json apps/concierge/
 COPY apps/mobile/package.json apps/mobile/
 COPY packages/agent-protocol/package.json packages/agent-protocol/
 COPY packages/machine-ops/package.json packages/machine-ops/
+COPY packages/mobile-api/package.json packages/mobile-api/
 COPY scripts/postinstall.mjs scripts/
 # Only the workspaces the server image needs: @termhub/mobile (Expo / React Native) shares the
 # lockfile but never runs here, and its dependency tree would inflate node_modules for nothing.
 # Add a new workspace to this list only if the server or web build imports it.
 RUN npm ci --include-workspace-root \
     -w @termhub/server -w @termhub/web -w @termhub/landing -w @termhub/agent -w @termhub/concierge \
-    -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli
+    -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli -w @termhub/mobile-api
 
 # Build
 FROM deps AS build
@@ -54,7 +55,7 @@ RUN npm run build:city -w @termhub/web
 # `npm prune` re-reads the whole lockfile and would bring @termhub/mobile's tree back in.
 RUN npm prune --omit=dev --include-workspace-root \
     -w @termhub/server -w @termhub/web -w @termhub/landing -w @termhub/agent -w @termhub/concierge \
-    -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli
+    -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli -w @termhub/mobile-api
 
 # Runtime
 FROM node:22-alpine AS runner
@@ -81,6 +82,8 @@ COPY --from=build --chown=app:app /app/packages/agent-protocol/package.json ./pa
 COPY --from=build --chown=app:app /app/packages/agent-protocol/dist ./packages/agent-protocol/dist
 COPY --from=build --chown=app:app /app/packages/machine-ops/package.json ./packages/machine-ops/
 COPY --from=build --chown=app:app /app/packages/machine-ops/dist ./packages/machine-ops/dist
+COPY --from=build --chown=app:app /app/packages/mobile-api/package.json ./packages/mobile-api/
+COPY --from=build --chown=app:app /app/packages/mobile-api/dist ./packages/mobile-api/dist
 COPY --chown=app:app docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod +x /app/docker/entrypoint.sh
 USER app
