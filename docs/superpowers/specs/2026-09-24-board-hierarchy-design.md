@@ -140,7 +140,9 @@ During the blue/green switch the old container may insert a top-level task with 
 `normalize(projectId)` first, in one transaction: create the default columns if the project has none;
 attach non-epic top-level cards with no epic to the default epic; give non-backlog top-level cards
 with no column the first column of their category (appended). The same normalization makes a
-`SET NULL` from a deleted column harmless.
+`SET NULL` from a deleted column harmless. A top-level card whose `status` disagrees with its
+column's category (an old-release move) goes to the first column of its status's category, or to
+its epic's backlog when `status` is `backlog`.
 
 ## 4. Repositories
 
@@ -303,4 +305,7 @@ Fazendo", "O board precisa de ao menos uma coluna de cada tipo", "Limite de 12 c
 The migration is additive and the old release keeps working, so the normal blue/green deploy
 applies. The three existing production tasks are migrated, not dropped (it is cheap). After deploy:
 check that every project has three columns, `next_task_number` is above the highest number, and
-that creating a card from the board and from MCP returns a `ref`.
+that creating a card from the board and from MCP returns a `ref`. If a rollback runs the old
+release on the new schema, the next deploy heals the board on first load through `normalize`; while
+both releases write to one project at the same moment, a rare deadlock can abort one request
+(Postgres `deadlock_timeout`).

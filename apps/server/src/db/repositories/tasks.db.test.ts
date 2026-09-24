@@ -473,6 +473,32 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
       expect(list.find((t) => t.id === todo.id)?.ref).toBe(`${key}-${todo.number}`);
     });
 
+    it('heals a move the old release wrote: status/column mismatch, and a stray column on a backlog card', async () => {
+      // the old container only ever changes status/position: a todo→doing move leaves columnId on the todo
+      // column, and a move to backlog leaves the columnId it had on the board.
+      await repo.create(projectId, { title: 'healthy in doing', status: 'doing' });
+      const todoColumn = await column('todo');
+      const doingColumn = await column('doing');
+      const movedToDoing = await db.task.create({ data: { id: newId(), projectId, title: 'old move', status: 'doing', columnId: todoColumn.id, position: 5 } });
+      const movedToBacklog = await db.task.create({ data: { id: newId(), projectId, title: 'old backlog move', status: 'backlog', columnId: doingColumn.id, position: 5 } });
+
+      await repo.listByProject(projectId);
+
+      const [epic] = await epics();
+      expect(await db.task.findUniqueOrThrow({ where: { id: movedToDoing.id } })).toMatchObject({ status: 'doing', columnId: doingColumn.id, position: 1 });
+      expect(await db.task.findUniqueOrThrow({ where: { id: movedToBacklog.id } })).toMatchObject({ status: 'backlog', columnId: null, epicId: epic.id });
+      expect(await inColumn(doingColumn.id)).toEqual(['healthy in doing', 'old move']);
+      expect(await inBacklog(epic.id)).toEqual(['old backlog move']);
+
+      // heal, then heal again: nothing should move a second time
+      const before = await db.task.findMany({ where: { projectId }, orderBy: { id: 'asc' } });
+      const columnCount = await db.taskColumn.count({ where: { projectId } });
+      await repo.normalize(projectId);
+      const after = await db.task.findMany({ where: { projectId }, orderBy: { id: 'asc' } });
+      expect(after.map((t) => t.updatedAt)).toEqual(before.map((t) => t.updatedAt));
+      expect(await db.taskColumn.count({ where: { projectId } })).toBe(columnCount);
+    });
+
     it('appends a card that lost its column to the end of the first column of its category', async () => {
       await repo.create(projectId, { title: 'a', status: 'doing' });
       const qa = await addColumn('QA', 'doing', 3);

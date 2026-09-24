@@ -64,20 +64,31 @@ export class TasksRepository {
    * Heals what the previous release writes during a blue/green switch (spec §3): a project without
    * columns gets the defaults; a row with a parent becomes a subtask; a top-level non-epic card with
    * no epic joins the default epic (appended to its backlog when it is in the backlog); a non-backlog
-   * top-level card with no column is appended to the first column of its category. Four cheap counts
-   * decide; a healthy board is not written to.
+   * top-level card whose column disagrees with its status — no column at all, or a column of another
+   * category (the old release's move only ever changes status/position) — is appended to the first
+   * column of its status's category; a backlog card that kept a column from before the move is
+   * stripped of it and appended to its epic's backlog. Trust `status`: it holds the person's latest
+   * action. Cheap counts decide; a healthy board is not written to.
    */
   async normalize(projectId: string): Promise<void> {
     const legacySubtasks = { projectId, parentId: { not: null }, type: { not: 'subtask' as const } };
     const orphans = { projectId, parentId: null, epicId: null, type: { notIn: ['epic' as const, 'subtask' as const] } };
-    const homeless = { projectId, parentId: null, columnId: null, status: { not: 'backlog' as const } };
-    const [columns, subs, noEpic, noColumn] = await Promise.all([
+    const backlogWithColumn = { projectId, parentId: null, status: 'backlog' as const, columnId: { not: null } };
+    const wrongColumnFor = (category: 'todo' | 'doing' | 'done') => ({
+      projectId,
+      parentId: null,
+      status: category,
+      OR: [{ columnId: null }, { column: { category: { not: category } } }],
+    });
+    const wrongColumnAny = { projectId, parentId: null, OR: (['todo', 'doing', 'done'] as const).map((c) => wrongColumnFor(c)) };
+    const [columns, subs, noEpic, noBacklogColumn, noColumn] = await Promise.all([
       this.db.taskColumn.count({ where: { projectId } }),
       this.db.task.count({ where: legacySubtasks }),
       this.db.task.count({ where: orphans }),
-      this.db.task.count({ where: homeless }),
+      this.db.task.count({ where: backlogWithColumn }),
+      this.db.task.count({ where: wrongColumnAny }),
     ]);
-    if (columns > 0 && subs + noEpic + noColumn === 0) return;
+    if (columns > 0 && subs + noEpic + noBacklogColumn + noColumn === 0) return;
     await this.db.$transaction(async (tx) => {
       await lockProject(tx, projectId);
       await ensureDefaultColumns(tx, projectId);
@@ -88,8 +99,24 @@ export class TasksRepository {
         let next = await endOf(tx, projectId, { status: 'backlog', columnId: null, epicId, type: 'task' });
         for (const t of noEpicRows) await tx.task.update({ where: { id: t.id }, data: { epicId, ...(t.status === 'backlog' ? { position: next++ } : {}) } });
       }
+      // an old-release move to backlog keeps the columnId it had on the board: strip it and append
+      // to the (by now resolved) epic's backlog, grouping so several rows of one epic each get a slot.
+      const backlogRows = await tx.task.findMany({ where: backlogWithColumn, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+      const byEpic = new Map<string, typeof backlogRows>();
+      for (const t of backlogRows) {
+        const key = t.epicId ?? '';
+        const bucket = byEpic.get(key) ?? [];
+        bucket.push(t);
+        byEpic.set(key, bucket);
+      }
+      for (const [epicKey, rows] of byEpic) {
+        const epicId = epicKey || (await defaultEpicId(tx, projectId));
+        let next = await endOf(tx, projectId, { status: 'backlog', columnId: null, epicId, type: 'task' });
+        for (const t of rows) await tx.task.update({ where: { id: t.id }, data: { columnId: null, epicId, position: next++ } });
+      }
+      // an old-release move within a category (e.g. todo→doing) keeps the old columnId: `status` wins.
       for (const category of ['todo', 'doing', 'done'] as const) {
-        const rows = await tx.task.findMany({ where: { ...homeless, status: category }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
+        const rows = await tx.task.findMany({ where: wrongColumnFor(category), orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] });
         if (rows.length === 0) continue;
         const columnId = await firstColumnId(tx, projectId, category);
         let next = await endOf(tx, projectId, { status: category, columnId, epicId: null, type: 'task' });
