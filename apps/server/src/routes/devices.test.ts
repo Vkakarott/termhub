@@ -237,7 +237,11 @@ describe('device routes', () => {
     ['pin_locked', {}, 'PIN errado 3 vezes, aparelho bloqueado por 15 min'],
     ['device_revoked', { reason: 'pin_bruteforce' }, 'Aparelho revogado por tentativas de PIN'],
     ['device_revoked', { reason: 'user' }, 'Aparelho revogado por você'],
+    ['device_revoked', { reason: 'admin' }, 'Aparelho revogado por um administrador'],
+    ['device_revoked', { reason: 'review' }, 'Aparelho revogado ao desligar o modo revisão'],
     ['review_auto_approved', {}, 'Aprovado automaticamente (conta de revisão)'],
+    ['review_changed', { until: '2026-09-30T18:45:00.000Z' }, 'Modo revisão ligado até 30/09/2026 15:45'],
+    ['review_changed', { until: null }, 'Modo revisão desligado'],
     ['token_refreshed', {}, 'Sessão renovada'],
   ] as const)('describeDeviceEvent(%s) -> %s', (kind, meta, text) => {
     expect(describeDeviceEvent(deviceEvent({ id: 'e1', kind, meta }))).toBe(text);

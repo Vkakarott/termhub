@@ -23,14 +23,17 @@ export function ReviewAccountPanel({ user, onChange }: { user: User; onChange: (
   const [admins, setAdmins] = useState<User[]>([]);
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [events, setEvents] = useState<DeviceEventView[]>([]);
+  // null while unknown (still loading): the note is server-driven (`can_enrol`, from the target's
+  // actual role grants), never guessed from a role name or a permissions list this panel never reads.
+  const [canEnrol, setCanEnrol] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [turningOn, setTurningOn] = useState(false);
   const [days, setDays] = useState<ReviewDays>(1);
   const [busy, setBusy] = useState(false);
   const [confirmingOff, setConfirmingOff] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const isAdminTarget = !!user.role_info?.is_admin;
-  const lacksDevices = !isAdminTarget && !(user.permissions ?? []).some((p) => p.startsWith('devices:'));
   const active = !!user.review_enabled_until && new Date(user.review_enabled_until) > new Date();
 
   const load = useCallback(async () => {
@@ -38,6 +41,7 @@ export function ReviewAccountPanel({ user, onChange }: { user: User; onChange: (
       const [d, u] = await Promise.all([api.users.devices(user.id), api.users.list()]);
       setDevices(d.devices);
       setEvents(d.events);
+      setCanEnrol(d.can_enrol);
       setAdmins(u.users);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao carregar');
@@ -69,12 +73,16 @@ export function ReviewAccountPanel({ user, onChange }: { user: User; onChange: (
   };
 
   const revokeDevice = async (d: Device) => {
+    if (revokingId) return;
     setError(null);
+    setRevokingId(d.id);
     try {
       const r = await api.users.revokeDevice(user.id, d.id);
       setDevices((list) => (list ?? []).map((x) => (x.id === d.id ? r.device : x)));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Erro ao revogar o aparelho');
+    } finally {
+      setRevokingId(null);
     }
   };
 
@@ -104,7 +112,7 @@ export function ReviewAccountPanel({ user, onChange }: { user: User; onChange: (
             <span className="text-sm">Modo revisão</span>
           </div>
 
-          {lacksDevices && (
+          {canEnrol === false && (
             <p className="text-xs text-warn">Essa conta precisa estar no role que tem Chat e Aparelhos (BETA); caso contrário os pedidos do app são ignorados.</p>
           )}
 
@@ -159,8 +167,13 @@ export function ReviewAccountPanel({ user, onChange }: { user: User; onChange: (
                   {d.name} · {d.model}
                 </span>
                 {d.status === 'active' && (
-                  <button type="button" className="btn-ghost px-2 py-0.5 text-xs text-danger" onClick={() => void revokeDevice(d)}>
-                    Revogar
+                  <button
+                    type="button"
+                    className="btn-ghost px-2 py-0.5 text-xs text-danger disabled:opacity-50"
+                    disabled={revokingId === d.id}
+                    onClick={() => void revokeDevice(d)}
+                  >
+                    {revokingId === d.id ? '…' : 'Revogar'}
                   </button>
                 )}
               </li>

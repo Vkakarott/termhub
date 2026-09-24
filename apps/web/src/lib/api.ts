@@ -273,11 +273,14 @@ export const api = {
     setRole: (id: string, role_id: string) => request<{ user: User }>('PATCH', `/users/${id}`, { role_id }),
     remove: (id: string) => request<{ ok: true; access_removed: boolean }>('DELETE', `/users/${id}`),
     /** Store-review switch (Settings → Usuários → Revisão). `days: null` turns it off. 400 REVIEW_ADMIN
-     *  ("A conta de revisão não pode ser admin.") when the target is an admin. */
-    setReview: (id: string, input: { days: 1 | 3 | 7 | null; revoke_devices?: boolean }) => request<{ user: User }>('POST', `/users/${id}/review`, input),
-    /** The target user's own devices and device trail, for the review panel. 503 MOBILE_DISABLED when
-     *  this server has no mobile app configured. */
-    devices: (id: string) => request<{ devices: Device[]; events: DeviceEventView[] }>('GET', `/users/${id}/devices`),
+     *  ("A conta de revisão não pode ser admin.") when the target is an admin. `revoked_devices` is how
+     *  many of the target's active devices were actually revoked (a failing one is skipped, not fatal). */
+    setReview: (id: string, input: { days: 1 | 3 | 7 | null; revoke_devices?: boolean }) => request<{ user: User; revoked_devices: number }>('POST', `/users/${id}/review`, input),
+    /** The target user's own devices and device trail, for the review panel. `can_enrol` is the
+     *  server's own read of the target's role grants (`devices:create`) — the BETA-role note follows
+     *  it instead of guessing from a role name or a permissions list this endpoint never sent. 503
+     *  MOBILE_DISABLED when this server has no mobile app configured. */
+    devices: (id: string) => request<{ devices: Device[]; events: DeviceEventView[]; can_enrol: boolean }>('GET', `/users/${id}/devices`),
     revokeDevice: (id: string, deviceId: string) => request<{ device: Device }>('DELETE', `/users/${id}/devices/${deviceId}`),
   },
   apiTokens: {

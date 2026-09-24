@@ -37,7 +37,9 @@ function targetUser(over: Partial<User> = {}): User {
     avatar_url: null,
     role: 'member',
     role_info: { id: 'r-beta', name: 'BETA', label: 'Beta', is_admin: false },
-    permissions: ['devices:create', 'devices:read', 'chat:read'],
+    // Not read by the panel any more (finding 2 of the review): the BETA-role note follows the
+    // server's own `can_enrol` (GET /users/:id/devices), never this list.
+    permissions: [],
     has_password: false,
     has_google: true,
     invited_at: null,
@@ -73,7 +75,7 @@ function dev(over: Partial<Device> & { id: string }): Device {
 }
 
 beforeEach(() => {
-  devicesMock.mockResolvedValue({ devices: [], events: [] });
+  devicesMock.mockResolvedValue({ devices: [], events: [], can_enrol: true });
   listMock.mockResolvedValue({ users: [] });
 });
 
@@ -128,7 +130,7 @@ describe('ReviewAccountPanel', () => {
   });
 
   it("lists the target's devices with Revogar", async () => {
-    devicesMock.mockResolvedValue({ devices: [dev({ id: 'd1' })], events: [] });
+    devicesMock.mockResolvedValue({ devices: [dev({ id: 'd1' })], events: [], can_enrol: true });
     revokeDeviceMock.mockResolvedValue({ device: dev({ id: 'd1', status: 'revoked', revoked_reason: 'admin' }) });
     render(<ReviewAccountPanel user={targetUser()} onChange={() => {}} />);
     expect(await screen.findByText(/iPhone de Ana/)).toBeTruthy();
@@ -136,12 +138,27 @@ describe('ReviewAccountPanel', () => {
     await waitFor(() => expect(revokeDeviceMock).toHaveBeenCalledWith('u2', 'd1'));
   });
 
-  it('renders the BETA-role note when the target role lacks devices', async () => {
-    render(<ReviewAccountPanel user={targetUser({ permissions: ['machines:read'] })} onChange={() => {}} />);
+  it('disables the clicked device\'s Revogar while the request is in flight, so a second click makes no second call', async () => {
+    devicesMock.mockResolvedValue({ devices: [dev({ id: 'd1' })], events: [], can_enrol: true });
+    let resolveRevoke!: (v: { device: Device }) => void;
+    revokeDeviceMock.mockReturnValue(new Promise<{ device: Device }>((resolve) => (resolveRevoke = resolve)));
+    render(<ReviewAccountPanel user={targetUser()} onChange={() => {}} />);
+    const btn = await screen.findByRole('button', { name: 'Revogar' });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(revokeDeviceMock).toHaveBeenCalledTimes(1);
+    resolveRevoke({ device: dev({ id: 'd1', status: 'revoked', revoked_reason: 'admin' }) });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Revogar' })).toBeNull());
+  });
+
+  it('renders the BETA-role note when the server answers can_enrol: false', async () => {
+    devicesMock.mockResolvedValue({ devices: [], events: [], can_enrol: false });
+    render(<ReviewAccountPanel user={targetUser()} onChange={() => {}} />);
     expect(await screen.findByText('Essa conta precisa estar no role que tem Chat e Aparelhos (BETA); caso contrário os pedidos do app são ignorados.')).toBeTruthy();
   });
 
-  it('does not render the BETA-role note when the target role has devices', async () => {
+  it('does not render the BETA-role note when the server answers can_enrol: true', async () => {
+    devicesMock.mockResolvedValue({ devices: [], events: [], can_enrol: true });
     render(<ReviewAccountPanel user={targetUser()} onChange={() => {}} />);
     await screen.findByRole('switch', { name: 'Modo revisão' });
     expect(screen.queryByText(/Essa conta precisa estar no role/)).toBeNull();

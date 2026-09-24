@@ -10,7 +10,8 @@ import { alphaInviteMail, inviteMail, type AlphaLocale } from '../email/template
 import type { Mail } from '../email/mailer.js';
 import type { AccessAllowlist } from '../cloudflare/access.js';
 import type { RevokeInput } from '../mobile/revocation.js';
-import { isAdmin } from '../auth/permissions.js';
+import { canAccess, isAdmin } from '../auth/permissions.js';
+import { failureLabel } from '../chat/service.js';
 import { config } from '../config.js';
 import { publicBus } from '../public/bus.js';
 import { describeDeviceEvent } from './devices.js';
@@ -226,22 +227,37 @@ export async function userRoutes(app: FastifyInstance, repos: Repositories, deps
     const until = days ? new Date(Date.now() + days * DAY_MS) : null;
     const updated = await repos.users.setReview(id, until, request.user!.id);
     await repos.deviceEvents.record({ user_id: target.id, kind: 'review_changed', actor: `admin:${request.user!.id}`, meta: { until: until ? until.toISOString() : null } });
+    // Each revoke runs independently: one failing device (a stale row, a DB hiccup) must neither stop
+    // the rest nor turn the flag change already written above into a 500 the admin cannot explain.
+    let revokedDevices = 0;
     if (revoke_devices && deps.revoke) {
       const active = (await repos.devices.listByUser(id)).filter((d) => d.status === 'active');
-      for (const d of active) await deps.revoke(d.id, { reason: 'review', actor: `admin:${request.user!.id}` });
+      for (const d of active) {
+        try {
+          if (await deps.revoke(d.id, { reason: 'review', actor: `admin:${request.user!.id}` })) revokedDevices++;
+        } catch (err) {
+          request.log.warn({ err: failureLabel(err), deviceId: d.id }, 'review: device revoke failed');
+        }
+      }
     }
     const role = updated.role_id ? await repos.roles.findById(updated.role_id) : undefined;
-    return { user: withRoleInfo(updated, role) };
+    return { user: withRoleInfo(updated, role), revoked_devices: revokedDevices };
   });
 
-  /** The target user's own devices and device trail, for the review panel (Settings → Usuários). */
+  /** The target user's own devices and device trail, for the review panel (Settings → Usuários).
+   *  `can_enrol` is the server-side answer to "does this account's role even let its app enrol
+   *  devices" — the web panel's BETA-role note follows it instead of guessing from a role name. */
   app.get('/:id/devices', async (request) => {
     if (!deps.revoke) throw mobileDisabled();
     const { id } = idParam.parse(request.params);
     const target = await repos.users.findById(id);
     if (!target) throw notFound('Usuário não encontrado');
-    const [devices, events] = await Promise.all([repos.devices.listByUser(id), repos.deviceEvents.listForUser(id, 50)]);
-    return { devices, events: events.map((e) => ({ ...e, text: describeDeviceEvent(e) })) };
+    const [devices, events, can_enrol] = await Promise.all([
+      repos.devices.listByUser(id),
+      repos.deviceEvents.listForUser(id, 50),
+      canAccess(repos, target, 'devices', 'create'),
+    ]);
+    return { devices, events: events.map((e) => ({ ...e, text: describeDeviceEvent(e) })), can_enrol };
   });
 
   /** Admin revoke of one of the target's devices; 404 unless that device really belongs to `:id`. */

@@ -34,7 +34,7 @@ const toRequestView = (r: DeviceRequest) => ({
 
 /**
  * The pt-BR text shown next to a device trail row (spec §8). A pure function so it can be tested
- * without a database; unknown kinds — and `device_revoked` reasons outside the two below — fall
+ * without a database; unknown kinds — and `device_revoked` reasons outside the ones below — fall
  * back to the kind itself rather than guessing at a sentence.
  */
 export function describeDeviceEvent(e: DeviceEvent): string {
@@ -47,14 +47,33 @@ export function describeDeviceEvent(e: DeviceEvent): string {
     case 'device_revoked':
       if (meta.reason === 'pin_bruteforce') return 'Aparelho revogado por tentativas de PIN';
       if (meta.reason === 'user') return 'Aparelho revogado por você';
+      if (meta.reason === 'admin') return 'Aparelho revogado por um administrador';
+      if (meta.reason === 'review') return 'Aparelho revogado ao desligar o modo revisão';
       return e.kind;
     case 'review_auto_approved':
       return 'Aprovado automaticamente (conta de revisão)';
+    case 'review_changed':
+      return typeof meta.until === 'string' ? `Modo revisão ligado até ${formatBrDateTime(meta.until)}` : 'Modo revisão desligado';
     case 'token_refreshed':
       return 'Sessão renovada';
     default:
       return e.kind;
   }
+}
+
+/** `dd/mm/yyyy HH:MM` in the Brazil timezone, for the store-review trail (Task 17 review, finding 1). */
+function formatBrDateTime(iso: string): string {
+  const parts = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`;
 }
 
 /**

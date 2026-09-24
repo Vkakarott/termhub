@@ -182,6 +182,10 @@ interface ReviewAppOpts {
   events?: DeviceEvent[];
   /** null simulates config.mobile unset (app.ts passes `revoke: null` in that case). */
   revoke?: ReturnType<typeof vi.fn> | null;
+  /** overrides the default stub, e.g. to make one call reject while others still succeed. */
+  revokeImpl?: (id: string) => Promise<Device | undefined>;
+  /** role id -> its grants, for `canAccess`'s `devices:create` check (GET .../devices' `can_enrol`). */
+  rolePermissions?: Record<string, Array<{ resource: string; action: string }>>;
 }
 
 function buildReviewApp(opts: ReviewAppOpts = {}) {
@@ -200,14 +204,11 @@ function buildReviewApp(opts: ReviewAppOpts = {}) {
     return updated;
   });
   const recordEvent = vi.fn(async () => {});
-  const revoke =
-    opts.revoke === null
-      ? null
-      : (opts.revoke ??
-        vi.fn(async (id: string) => {
-          const d = devices.find((x) => x.id === id);
-          return d ? { ...d, status: 'revoked' as const, revoked_reason: 'review' } : undefined;
-        }));
+  const defaultRevokeImpl = async (id: string) => {
+    const d = devices.find((x) => x.id === id);
+    return d ? { ...d, status: 'revoked' as const, revoked_reason: 'review' } : undefined;
+  };
+  const revoke = opts.revoke === null ? null : (opts.revoke ?? vi.fn(opts.revokeImpl ?? defaultRevokeImpl));
   const repos = {
     users: {
       findById: async (id: string) => users.find((u) => u.id === id),
@@ -215,7 +216,7 @@ function buildReviewApp(opts: ReviewAppOpts = {}) {
     },
     roles: {
       findById: async (id: string) => (id === role.id ? role : id === adminRole.id ? adminRole : undefined),
-      permissionsOf: async () => [],
+      permissionsOf: async (roleId: string) => opts.rolePermissions?.[roleId] ?? [],
     },
     devices: {
       listByUser: async (userId: string) => devices.filter((d) => d.user_id === userId),
@@ -281,6 +282,25 @@ describe('POST /api/users/:id/review', () => {
     expect(res.statusCode).toBe(200);
     expect(revoke).toHaveBeenCalledTimes(1);
     expect(revoke).toHaveBeenCalledWith('d1', { reason: 'review', actor: 'admin:admin' });
+    expect(res.json().revoked_devices).toBe(1);
+  });
+
+  it('with revoke_devices, one failing revoke does not abort the rest nor the response, and only successes are counted', async () => {
+    const devices = [
+      device({ id: 'd1', user_id: 'u-target', status: 'active' }),
+      device({ id: 'd2', user_id: 'u-target', status: 'active' }),
+    ];
+    const revokeImpl = vi.fn(async (id: string) => {
+      if (id === 'd1') throw new Error('boom');
+      return { ...devices.find((d) => d.id === id)!, status: 'revoked' as const, revoked_reason: 'review' };
+    });
+    const { app } = buildReviewApp({ devices, revokeImpl });
+    const res = await app.inject({ method: 'POST', url: '/api/users/u-target/review', payload: { days: 7, revoke_devices: true } });
+    expect(res.statusCode).toBe(200);
+    expect(revokeImpl).toHaveBeenCalledTimes(2);
+    expect(revokeImpl).toHaveBeenCalledWith('d1', { reason: 'review', actor: 'admin:admin' });
+    expect(revokeImpl).toHaveBeenCalledWith('d2', { reason: 'review', actor: 'admin:admin' });
+    expect(res.json().revoked_devices).toBe(1);
   });
 
   it('answers 404 for an unknown user', async () => {
@@ -291,6 +311,10 @@ describe('POST /api/users/:id/review', () => {
 });
 
 describe('GET /api/users/:id/devices', () => {
+  beforeEach(() => {
+    invalidatePermissionCache();
+  });
+
   it("answers the target's devices and events, each event carrying its pt-BR text", async () => {
     const devices = [device({ id: 'd1', user_id: 'u-target' })];
     const events = [deviceEvent({ id: 'e1', user_id: 'u-target', kind: 'request_approved', meta: { model: 'iPhone 15' } })];
@@ -300,6 +324,28 @@ describe('GET /api/users/:id/devices', () => {
     const body = res.json();
     expect(body.devices).toEqual([expect.objectContaining({ id: 'd1' })]);
     expect(body.events).toEqual([expect.objectContaining({ id: 'e1', text: 'Pedido aprovado de iPhone 15' })]);
+  });
+
+  it("carries a review_changed event's text among the target's events", async () => {
+    const events = [deviceEvent({ id: 'e1', user_id: 'u-target', kind: 'review_changed', meta: { until: '2026-09-30T18:45:00.000Z' } })];
+    const { app } = buildReviewApp({ events });
+    const res = await app.inject({ method: 'GET', url: '/api/users/u-target/devices' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().events).toEqual([expect.objectContaining({ id: 'e1', text: 'Modo revisão ligado até 30/09/2026 15:45' })]);
+  });
+
+  it("answers can_enrol true when the target's role has devices:create", async () => {
+    const { app } = buildReviewApp({ rolePermissions: { [role.id]: [{ resource: 'devices', action: 'create' }] } });
+    const res = await app.inject({ method: 'GET', url: '/api/users/u-target/devices' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().can_enrol).toBe(true);
+  });
+
+  it("answers can_enrol false when the target's role lacks devices:create", async () => {
+    const { app } = buildReviewApp({ rolePermissions: { [role.id]: [] } });
+    const res = await app.inject({ method: 'GET', url: '/api/users/u-target/devices' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().can_enrol).toBe(false);
   });
 
   it('answers 503 MOBILE_DISABLED when the server has no revoke closure (mobile not configured)', async () => {
