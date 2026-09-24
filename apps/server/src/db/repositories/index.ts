@@ -22,6 +22,11 @@ import { ChatRepository } from './chat.js';
 import { ChatActionsRepository } from './chat-actions.js';
 import { InstanceSecretsRepository } from './instance-secrets.js';
 import { ProjectGroupsRepository } from './project-groups.js';
+import { DeviceRequestsRepository } from './device-requests.js';
+import { DevicesRepository } from './devices.js';
+import { DeviceSessionsRepository } from './device-sessions.js';
+import { DeviceEventsRepository } from './device-events.js';
+import { UserNotificationsRepository } from './user-notifications.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -47,6 +52,11 @@ export interface Repositories {
   chatActions: ChatActionsRepository;
   instanceSecrets: InstanceSecretsRepository;
   projectGroups: ProjectGroupsRepository;
+  deviceRequests: DeviceRequestsRepository;
+  devices: DevicesRepository;
+  deviceSessions: DeviceSessionsRepository;
+  deviceEvents: DeviceEventsRepository;
+  userNotifications: UserNotificationsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -74,6 +84,11 @@ export function createRepositories(db: PrismaClient): Repositories {
     chatActions: new ChatActionsRepository(db),
     instanceSecrets: new InstanceSecretsRepository(db),
     projectGroups: new ProjectGroupsRepository(db),
+    deviceRequests: new DeviceRequestsRepository(db),
+    devices: new DevicesRepository(db),
+    deviceSessions: new DeviceSessionsRepository(db),
+    deviceEvents: new DeviceEventsRepository(db),
+    userNotifications: new UserNotificationsRepository(db),
   };
 }
 
@@ -90,3 +105,8 @@ export { ProjectRuleError } from './projects.js';
 export type { ProjectRuleCode } from './projects.js';
 export { ProjectGroupRuleError } from './project-groups.js';
 export type { ProjectGroup, ProjectGroupRuleCode } from './project-groups.js';
+export type { DeviceRequest, DeviceRequestStatus, DeviceRequestCreateInput } from './device-requests.js';
+export type { Device, DeviceStatus, DeviceCreateInput } from './devices.js';
+export type { DeviceChallengePurpose } from './device-sessions.js';
+export type { DeviceEvent, DeviceEventKind, DeviceEventInput } from './device-events.js';
+export type { UserNotification, UserNotificationCreateInput } from './user-notifications.js';
