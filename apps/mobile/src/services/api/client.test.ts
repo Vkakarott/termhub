@@ -47,6 +47,7 @@ it('sends the app header, bearer and a DPoP proof bound to method, canonical url
 it('corrects iat by the skew learned from the Date header', async () => {
   const { transport, calls } = scripted([
     { status: 200, headers: { date: new Date((NOW + 180) * 1000).toUTCString() }, body: { projects: [] } },
+    { status: 200, headers: { date: new Date((NOW + 180) * 1000).toUTCString() }, body: { projects: [] } },
     { status: 200, body: { projects: [] } },
   ]);
   const api = make(transport);
@@ -55,6 +56,10 @@ it('corrects iat by the skew learned from the Date header', async () => {
   const second = dpopPayload(calls[1]!.headers.DPoP!);
   expect(second.iat).toBe(NOW + 180);
   expect(api.skewSeconds).toBe(180);
+  // The latest response wins: a later reply carrying the device's own (unskewed) time brings the
+  // estimate back down, rather than being pinned to the largest correction ever observed.
+  await api.chatProjects({ accessToken: 'tok' });
+  expect(api.skewSeconds).toBe(0);
 });
 
 it('renews once on TOKEN_EXPIRED and retries with the new token; a second 401 surfaces', async () => {

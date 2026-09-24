@@ -66,9 +66,11 @@ type CallOptions = {
 };
 
 export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & { readonly skewSeconds: number } {
-  // Server seconds minus device seconds. Kept as the largest-magnitude estimate observed: once a
-  // real skew is learned, a later response that happens to imply zero skew (jitter, a proxy that
-  // does not forward the origin's clock, ...) must not silently discard it.
+  // Server seconds minus device seconds. The latest response wins: `learn` overwrites `skew`
+  // unconditionally from every answer's `Date` header, rather than keeping whichever estimate has
+  // the largest magnitude — pinning to a single past reading would let one bad or stale response
+  // poison `iat` forever, which is worse than the server's own ±60 s tolerance window is meant to
+  // absorb.
   let skew = 0;
   const deviceNowS = () => Math.floor((o.now ?? Date.now)() / 1000);
   const nowS = () => deviceNowS() + skew;
@@ -78,8 +80,7 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
     if (!raw) return;
     const parsed = Date.parse(raw);
     if (Number.isNaN(parsed)) return;
-    const candidate = Math.round(parsed / 1000) - deviceNowS();
-    if (Math.abs(candidate) > Math.abs(skew)) skew = candidate;
+    skew = Math.round(parsed / 1000) - deviceNowS();
   };
 
   const proofFor = async (htm: string, path: string, token: string | null, chal?: string) =>
