@@ -3,15 +3,21 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { toPublicUser, type User } from '../db/repositories/types.js';
 import type { Role } from '../db/repositories/roles.js';
-import { badRequest, conflict, notFound } from '../lib/errors.js';
+import type { Device } from '../db/repositories/devices.js';
+import { badRequest, conflict, HttpError, notFound } from '../lib/errors.js';
 import type { Mailer } from '../email/mailer.js';
 import { alphaInviteMail, inviteMail, type AlphaLocale } from '../email/templates.js';
 import type { Mail } from '../email/mailer.js';
 import type { AccessAllowlist } from '../cloudflare/access.js';
+import type { RevokeInput } from '../mobile/revocation.js';
+import { canAccess, isAdmin } from '../auth/permissions.js';
+import { failureLabel } from '../chat/service.js';
 import { config } from '../config.js';
 import { publicBus } from '../public/bus.js';
+import { describeDeviceEvent } from './devices.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
+const deviceParams = z.object({ id: z.string().min(1).max(64), deviceId: z.string().min(1).max(64) });
 const patchBody = z.object({ role_id: z.string().min(1).max(64) });
 const inviteBody = z.object({
   email: z.string().trim().toLowerCase().email().max(200),
@@ -22,10 +28,19 @@ const inviteFromWaitlistBody = z.object({
   ids: z.array(z.string().min(1).max(64)).min(1).max(200),
   role_id: z.string().min(1).max(64),
 });
+const reviewBody = z.object({
+  days: z.union([z.literal(1), z.literal(3), z.literal(7)]).nullable(),
+  revoke_devices: z.boolean().default(false),
+});
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const mobileDisabled = () => new HttpError(503, 'O app mobile não está habilitado neste servidor', 'MOBILE_DISABLED');
 
 export interface UserRouteDeps {
   mailer: Mailer;
   access: AccessAllowlist;
+  /** null when this server has no mobile app configured (config.mobile unset) — see app.ts. */
+  revoke: ((deviceId: string, input: RevokeInput) => Promise<Device | undefined>) | null;
 }
 
 /** Outcome of the two side effects of an invite; the user row itself is never rolled back. */
@@ -38,8 +53,9 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** The user-admin view of an account: the public user plus its role and who turned review mode on. */
 function withRoleInfo(u: User, role: Role | undefined) {
-  return { ...toPublicUser(u), role_info: role ? { id: role.id, name: role.name, label: role.label, is_admin: role.is_admin } : null };
+  return { ...toPublicUser(u), review_enabled_by: u.review_enabled_by, role_info: role ? { id: role.id, name: role.name, label: role.label, is_admin: role.is_admin } : null };
 }
 
 /** User administration. Guarded as resource "users" (see app.ts). */
@@ -193,5 +209,66 @@ export async function userRoutes(app: FastifyInstance, repos: Repositories, deps
       request.log.warn({ err, userId: id }, 'user delete: cloudflare access allowlist removal failed');
     }
     return { ok: true, access_removed: accessRemoved };
+  });
+
+  /**
+   * The store-review switch (spec: Apple/Google reviewers sign in with one ordinary account whose
+   * device requests auto-approve while `review_enabled_until` is in the future — see
+   * mobile/enrolment.ts). `days: null` turns it off. Refused on an admin target: an admin bypasses
+   * every grant already, so auto-approving its device requests would hand a reviewer more than a
+   * store review needs. The refusal is checked before any write.
+   */
+  app.post('/:id/review', { config: { action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const { days, revoke_devices } = reviewBody.parse(request.body);
+    const target = await repos.users.findById(id);
+    if (!target) throw notFound('Usuário não encontrado');
+    if (await isAdmin(repos, target)) throw new HttpError(400, 'A conta de revisão não pode ser admin.', 'REVIEW_ADMIN');
+
+    const until = days ? new Date(Date.now() + days * DAY_MS) : null;
+    const updated = await repos.users.setReview(id, until, request.user!.id);
+    await repos.deviceEvents.record({ user_id: target.id, kind: 'review_changed', actor: `admin:${request.user!.id}`, meta: { until: until ? until.toISOString() : null } });
+    // Each revoke runs independently: one failing device (a stale row, a DB hiccup) must neither stop
+    // the rest nor turn the flag change already written above into a 500 the admin cannot explain.
+    let revokedDevices = 0;
+    if (revoke_devices && deps.revoke) {
+      const active = (await repos.devices.listByUser(id)).filter((d) => d.status === 'active');
+      for (const d of active) {
+        try {
+          if (await deps.revoke(d.id, { reason: 'review', actor: `admin:${request.user!.id}` })) revokedDevices++;
+        } catch (err) {
+          request.log.warn({ err: failureLabel(err), deviceId: d.id }, 'review: device revoke failed');
+        }
+      }
+    }
+    const role = updated.role_id ? await repos.roles.findById(updated.role_id) : undefined;
+    return { user: withRoleInfo(updated, role), revoked_devices: revokedDevices };
+  });
+
+  /** The target user's own devices and device trail, for the review panel (Settings → Usuários).
+   *  `can_enrol` is the server-side answer to "does this account's role even let its app enrol
+   *  devices" — the web panel's BETA-role note follows it instead of guessing from a role name. */
+  app.get('/:id/devices', async (request) => {
+    if (!deps.revoke) throw mobileDisabled();
+    const { id } = idParam.parse(request.params);
+    const target = await repos.users.findById(id);
+    if (!target) throw notFound('Usuário não encontrado');
+    const [devices, events, can_enrol] = await Promise.all([
+      repos.devices.listByUser(id),
+      repos.deviceEvents.listForUser(id, 50),
+      canAccess(repos, target, 'devices', 'create'),
+    ]);
+    return { devices, events: events.map((e) => ({ ...e, text: describeDeviceEvent(e) })), can_enrol };
+  });
+
+  /** Admin revoke of one of the target's devices; 404 unless that device really belongs to `:id`. */
+  app.delete('/:id/devices/:deviceId', async (request) => {
+    if (!deps.revoke) throw mobileDisabled();
+    const { id, deviceId } = deviceParams.parse(request.params);
+    const existing = await repos.devices.findById(deviceId);
+    if (!existing || existing.user_id !== id) throw notFound('Aparelho não encontrado');
+    const device = await deps.revoke(deviceId, { reason: 'admin', actor: `admin:${request.user!.id}` });
+    if (!device) throw notFound('Aparelho não encontrado');
+    return { device };
   });
 }

@@ -26,6 +26,10 @@ export interface User {
   last_login_at: string | null;
   /** the address of this user's public city (`/city/@<nickname>`); null until claimed */
   nickname: string | null;
+  /** store-review mode: while in the future, this account's mobile device requests auto-approve */
+  review_enabled_until: string | null;
+  /** the admin who last set review_enabled_until; only the user-admin routes (/api/users) send it */
+  review_enabled_by?: string | null;
 }
 
 /** Side effects of an invite (the user row is created regardless). */
@@ -827,6 +831,56 @@ export interface WaitlistEntry {
 export type WaitlistInviteResult =
   | { id: string; error: string }
   | { id: string; user_id: string; existing: boolean; access: InviteResult['access']; mail: InviteResult['mail'] };
+
+/** Settings → Aparelhos: a phone's pending enrolment request, awaiting approve/deny. */
+export interface DeviceRequestView {
+  id: string;
+  device_name: string;
+  model: string;
+  platform: string;
+  os_version: string;
+  country: string | null;
+  city: string | null;
+  ip: string;
+  /** already formatted as 'XXX-XXX' */
+  verification_code: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export type DeviceStatus = 'active' | 'revoked';
+
+/** An enrolled phone as Settings → Aparelhos shows it. */
+export interface Device {
+  id: string;
+  user_id: string;
+  name: string;
+  platform: string;
+  model: string;
+  os_version: string;
+  app_version: string;
+  status: DeviceStatus;
+  revoked_at: string | null;
+  /** 'user' | 'admin' | 'pin_bruteforce' | 'review' | null */
+  revoked_reason: string | null;
+  pin_locked_until: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+}
+
+/** One row of the device trail (GET /devices/events), already carrying its pt-BR sentence. */
+export interface DeviceEventView {
+  id: string;
+  kind: string;
+  text: string;
+  created_at: string;
+}
+
+/** GET /devices/summary: feeds the global banner without listing every request/device. */
+export interface DevicesSummary {
+  pending_requests: number;
+  active_devices: number;
+}
 
 export type ApiTokenScope = 'read' | 'tasks' | 'terminals';
 

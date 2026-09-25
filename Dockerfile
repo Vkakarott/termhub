@@ -12,10 +12,17 @@ COPY apps/web/package.json apps/web/
 COPY apps/landing/package.json apps/landing/
 COPY apps/agent/package.json apps/agent/
 COPY apps/concierge/package.json apps/concierge/
+COPY apps/mobile/package.json apps/mobile/
 COPY packages/agent-protocol/package.json packages/agent-protocol/
 COPY packages/machine-ops/package.json packages/machine-ops/
+COPY packages/mobile-api/package.json packages/mobile-api/
 COPY scripts/postinstall.mjs scripts/
-RUN npm ci
+# Only the workspaces the server image needs: @termhub/mobile (Expo / React Native) shares the
+# lockfile but never runs here, and its dependency tree would inflate node_modules for nothing.
+# Add a new workspace to this list only if the server or web build imports it.
+RUN npm ci --include-workspace-root \
+    -w @termhub/server -w @termhub/web -w @termhub/landing -w @termhub/agent -w @termhub/concierge \
+    -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli -w @termhub/mobile-api
 
 # Build
 FROM deps AS build
@@ -44,8 +51,11 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
 RUN npm run prisma:generate && npm run build
 # The public city, built on its own with base /city/ so it never shares an asset path with the app bundle above.
 RUN npm run build:city -w @termhub/web
-# Só dependências de produção na imagem final
-RUN npm prune --omit=dev
+# Só dependências de produção na imagem final. The same workspace list as the deps stage: a bare
+# `npm prune` re-reads the whole lockfile and would bring @termhub/mobile's tree back in.
+RUN npm prune --omit=dev --include-workspace-root \
+    -w @termhub/server -w @termhub/web -w @termhub/landing -w @termhub/agent -w @termhub/concierge \
+    -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli -w @termhub/mobile-api
 
 # Runtime
 FROM node:22-alpine AS runner
@@ -72,6 +82,8 @@ COPY --from=build --chown=app:app /app/packages/agent-protocol/package.json ./pa
 COPY --from=build --chown=app:app /app/packages/agent-protocol/dist ./packages/agent-protocol/dist
 COPY --from=build --chown=app:app /app/packages/machine-ops/package.json ./packages/machine-ops/
 COPY --from=build --chown=app:app /app/packages/machine-ops/dist ./packages/machine-ops/dist
+COPY --from=build --chown=app:app /app/packages/mobile-api/package.json ./packages/mobile-api/
+COPY --from=build --chown=app:app /app/packages/mobile-api/dist ./packages/mobile-api/dist
 COPY --chown=app:app docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod +x /app/docker/entrypoint.sh
 USER app

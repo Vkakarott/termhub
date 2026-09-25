@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
-  "description": "Terminais das suas m\u00e1quinas no navegador, organizados em M\u00e1quinas > Projetos > Tabs",
+  "description": "Terminais das suas máquinas no navegador, organizados em Máquinas > Projetos > Tabs",
   "workspaces": [
     "apps/server",
     "apps/web",
     "apps/landing",
     "apps/agent",
     "apps/concierge",
+    "apps/mobile",
     "packages/*"
   ],
   "scripts": {
@@ -17,11 +18,11 @@
     "dev:server": "npm run dev -w @termhub/server",
     "dev:web": "npm run dev -w @termhub/web",
     "build": "npm run build:packages && npm run prisma:generate && npm run build -w @termhub/web && npm run build -w @termhub/server",
-    "build:packages": "npm run build -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli",
+    "build:packages": "npm run build -w @termhub/agent-protocol -w @termhub/machine-ops -w @termhub/claude-cli -w @termhub/mobile-api",
     "build:landing": "npm run build -w @termhub/landing",
     "dev:landing": "npm run dev -w @termhub/landing",
     "start": "npm run start -w @termhub/server",
-    "test": "npm test -w @termhub/agent-protocol && npm test -w @termhub/machine-ops && npm test -w @termhub/claude-cli && npm test -w @termhub/server && npm test -w @termhub/web && npm test -w @termhub/agent",
+    "test": "npm test -w @termhub/agent-protocol && npm test -w @termhub/machine-ops && npm test -w @termhub/claude-cli && npm test -w @termhub/mobile-api && npm test -w @termhub/server && npm test -w @termhub/web && npm test -w @termhub/mobile && npm test -w @termhub/agent",
     "prisma:generate": "npm run prisma:generate -w @termhub/server",
     "prisma:migrate": "npm run prisma:migrate -w @termhub/server --",
     "prisma:migrate:deploy": "npm run prisma:migrate:deploy -w @termhub/server",
@@ -36,5 +37,11 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "@types/react": "~19.2.2",
+    "@types/react-dom": "~19.2.2"
   }
 }

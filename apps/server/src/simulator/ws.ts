@@ -6,6 +6,7 @@ import { rejectUpgrade, type createUpgradeRouter } from '../ws/router.js';
 import { Scoped } from '../auth/scope.js';
 import { dragActions, tapActions } from './actions.js';
 import { specialKeyToWda } from './keys.js';
+import { simGateMessage } from './sim-gate.js';
 import type { SessionHandle, SimulatorSessionManager, Viewer } from './session-manager.js';
 import { WdaError } from './wda-client.js';
 import { clientMessageSchema } from './ws-messages.js';
@@ -80,6 +81,16 @@ async function handleConnection(ws: WebSocket, tab: Tab, machine: Parameters<Sim
     return;
   }
   const udid = tab.simulator_udid;
+
+  const gate = simGateMessage(machine);
+  if (gate) {
+    log.info({ tabId: tab.id, machineId: machine.id }, 'simulador indisponível na máquina');
+    send({ type: 'status', state: 'error', message: gate });
+    ws.on('message', (raw, isBinary) => {
+      if (!isBinary && String(raw) === '{"type":"ping"}') send({ type: 'pong' });
+    });
+    return;
+  }
 
   // Controle de fluxo: guarda só o último frame; envia quando o buffer do socket tem espaço.
   let paused = false;

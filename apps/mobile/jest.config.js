@@ -1,0 +1,61 @@
+const expoPreset = require('jest-expo/jest-preset');
+
+const moduleNameMapper = {
+  '^@/(.*)$': '<rootDir>/src/$1',
+  // babel-preset-expo rewrites `process.env.EXPO_PUBLIC_*` to `expo/virtual/env` (ESM); the plain
+  // Node `logic` project cannot load that module, so it gets a stub.
+  '^expo/virtual/env$': '<rootDir>/test/expo-env-stub.js',
+  // `@termhub/mobile-api`'s built ESM (and any TS source written for `moduleResolution: bundler`)
+  // imports its siblings with an explicit `.js` extension; stripping it lets Jest's resolver try
+  // every extension, so the `.js` file in `dist/` (or a `.ts` source) is still found.
+  '^(\\.{1,2}/.*)\\.js$': '$1',
+};
+
+// The `ui` project renders NativeWind-styled components: nativewind and react-native-css-interop
+// ship untransformed ESM, so jest-expo's own ignore list is extended to transform them too.
+// @noble is added the same way, for a screen that imports a store that signs DPoP proofs, and
+// @termhub for the contract package (`@termhub/mobile-api` ships ESM in `dist/`).
+const [expoIgnore, ...restIgnore] = expoPreset.transformIgnorePatterns;
+const uiTransformIgnore = [
+  expoIgnore.replace('))', '|nativewind|react-native-css-interop|react-native-markdown-display|@noble|@termhub))'),
+  ...restIgnore,
+];
+
+/**
+ * Two projects keep the pure logic apart from the screens (spec §14):
+ * - `logic` (*.test.ts): `src/lib` runs in plain Node — no jest-expo preset, no React Native.
+ *   A module that pulls in RN fails here, which is the point.
+ * - `ui` (*.test.tsx): screens and components under jest-expo + @testing-library/react-native.
+ */
+/** @type {import('jest').Config} */
+module.exports = {
+  passWithNoTests: true,
+  // Global on purpose: jest ignores `testTimeout` inside a `projects` entry. The first render of a
+  // screen in a worker is cold (React Native, NativeWind and the markdown renderer are transformed
+  // on first import): ~3 s on a laptop, 5–6 s with the whole suite in parallel and more on the
+  // GitHub runner. Jest's default 5 s per-test limit made the first test of every screen file time
+  // out there, and the next test in the file failed in its wake. The screens' `LOAD` findBy
+  // timeouts (15 s) sit under this limit on purpose.
+  testTimeout: 30_000,
+  projects: [
+    {
+      displayName: 'logic',
+      testEnvironment: 'node',
+      testMatch: ['<rootDir>/src/**/*.test.ts'],
+      transform: { '\\.[jt]sx?$': 'babel-jest' },
+      // @noble/hashes and @termhub/mobile-api ship ESM-only (`"type": "module"`); transform them too so
+      // plain `require` doesn't choke on `import`.
+      transformIgnorePatterns: ['/node_modules/(?!(@noble|@termhub)/)'],
+      moduleNameMapper,
+      setupFiles: ['<rootDir>/test/logic-setup.js'],
+    },
+    {
+      displayName: 'ui',
+      preset: 'jest-expo',
+      testMatch: ['<rootDir>/(app|src)/**/*.test.tsx'],
+      setupFiles: ['<rootDir>/test/ui-setup.js'],
+      transformIgnorePatterns: uiTransformIgnore,
+      moduleNameMapper: { ...moduleNameMapper, '\\.css$': '<rootDir>/test/css-stub.js' },
+    },
+  ],
+};

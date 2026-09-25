@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
+import { requireSimCapable } from '../agent/errors.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { PASTE_MAX_BYTES, saveFileOnMachine } from '../terminal/paste-file.js';
@@ -34,6 +35,7 @@ export async function tabRoutes(
     const { tab, machine } = await scoped(repos, request).tab(id);
     const body = patchBody.parse(request.body);
     if (body.simulator_udid !== undefined && tab.kind !== 'simulator') throw badRequest('Só tabs de simulador têm aparelho');
+    if (body.simulator_udid !== undefined) requireSimCapable(machine);
     const updated = await repos.tabs.update(id, body);
     if (updated) publishTabOpened(updated, machine);
     if (body.simulator_udid !== undefined && body.simulator_udid !== tab.simulator_udid) deps.closeSimulatorTab(id);

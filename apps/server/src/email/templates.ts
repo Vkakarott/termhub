@@ -1,3 +1,4 @@
+import { formatVerificationCode } from '@termhub/mobile-api';
 import type { Mail } from './mailer.js';
 
 function esc(s: string): string {
@@ -24,6 +25,73 @@ export function loginCodeMail(to: string, code: string, ttlMinutes: number): Mai
         <tr><td style="padding:16px 32px 28px;text-align:center;font-size:12px;color:#6b7280;line-height:1.6;">
           Expira em ${ttlMinutes} minutos.<br/>Se você não pediu este código, ignore este e-mail.
         </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+  return { to, subject, html, text };
+}
+
+/** A phone asked to enrol on this account: the same facts as the web card, so the owner can
+ * compare the code with the phone's screen before approving. */
+export function deviceRequestMail(to: string, opts: { deviceLabel: string; code: string; place: string; ip: string; appUrl: string }): Mail {
+  const subject = 'Um aparelho pede acesso à sua conta';
+  const code = formatVerificationCode(opts.code);
+  const link = `${opts.appUrl}/settings/devices`;
+  const check = 'Confira o código na tela do celular antes de aprovar. Se você não pediu isso, recuse.';
+  const text = `${subject}\n\nAparelho: ${opts.deviceLabel}\nLocal: ${opts.place} (IP ${opts.ip})\nCódigo: ${code}\n\n${check}\n\nVer pedido: ${link}`;
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:0;background:#0f1115;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f1115;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background:#161920;border:1px solid #2a2f3a;border-radius:14px;">
+        <tr><td style="padding:28px 32px 4px;text-align:center;font-size:18px;font-weight:700;color:#e6e8ee;"><span style="color:#4f8cff;">&#9646;</span> termhub</td></tr>
+        <tr><td style="padding:12px 32px 8px;text-align:center;font-size:16px;font-weight:600;color:#e6e8ee;">${esc(subject)}</td></tr>
+        <tr><td style="padding:0 32px 16px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">
+          ${esc(opts.deviceLabel)}<br/>${esc(opts.place)} · IP ${esc(opts.ip)}
+        </td></tr>
+        <tr><td style="padding:0 32px;">
+          <div style="background:rgba(79,140,255,0.08);border:1px solid rgba(79,140,255,0.25);border-radius:10px;padding:20px;text-align:center;">
+            <span style="font-size:36px;font-weight:800;letter-spacing:6px;color:#4f8cff;font-family:'SF Mono',Menlo,Consolas,monospace;">${esc(code)}</span>
+          </div>
+        </td></tr>
+        <tr><td style="padding:16px 32px 8px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">${esc(check)}</td></tr>
+        <tr><td style="padding:12px 32px 28px;text-align:center;">
+          <a href="${esc(link)}" style="display:inline-block;background:#4f8cff;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:10px;">Ver pedido</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+  return { to, subject, html, text };
+}
+
+/** A device was revoked after too many wrong PIN attempts (spec §6): which device, when, and that
+ * nothing else on the account changed. Sent only for `pin_bruteforce` revocations. */
+export function deviceRevokedMail(to: string, opts: { deviceLabel: string; at?: Date }): Mail {
+  const subject = 'Um aparelho foi removido da sua conta por tentativas de PIN';
+  const when = (opts.at ?? new Date()).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+  const what = 'O PIN foi digitado errado vezes demais, então o aparelho foi desconectado e precisa ser cadastrado de novo para voltar a acessar.';
+  const rest = 'Nada mais foi alterado na sua conta: suas máquinas, projetos e os outros aparelhos continuam como estavam.';
+  const text = `${subject}\n\nAparelho: ${opts.deviceLabel}\nQuando: ${when}\n\n${what}\n\n${rest}`;
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:0;background:#0f1115;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f1115;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background:#161920;border:1px solid #2a2f3a;border-radius:14px;">
+        <tr><td style="padding:28px 32px 4px;text-align:center;font-size:18px;font-weight:700;color:#e6e8ee;"><span style="color:#4f8cff;">&#9646;</span> termhub</td></tr>
+        <tr><td style="padding:12px 32px 8px;text-align:center;font-size:16px;font-weight:600;color:#e6e8ee;">${esc(subject)}</td></tr>
+        <tr><td style="padding:0 32px 16px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">
+          ${esc(opts.deviceLabel)}<br/>${esc(when)}
+        </td></tr>
+        <tr><td style="padding:0 32px 8px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">${esc(what)}</td></tr>
+        <tr><td style="padding:8px 32px 28px;text-align:center;font-size:13px;color:#9aa1b1;line-height:1.6;">${esc(rest)}</td></tr>
       </table>
     </td></tr>
   </table>

@@ -1,0 +1,71 @@
+// The settings store (design spec §7): just `device` (`GET devices/self`) — biometrics, the
+// host and the theme each already live in their own store (session, chat, theme); Ajustes reads
+// those directly, this one only fills what nothing else holds. A factory over injected services,
+// same shape as the other feature stores; `useSettingsStore.ts` builds the app's one instance.
+import { create } from 'zustand';
+import { sessionEnded } from '@/features/shared/signals';
+import type { TDeviceSelf } from '@/services/api/contract';
+import { TERMHUB_URL } from '@/services/api/config';
+import { ApiError } from '@/services/api/errors';
+import type { Auth, MobileApi } from '@/services/api/types';
+import { serverLabel } from '../model/server-label';
+
+export interface SessionApi {
+  auth(): Auth;
+  handleApiError(err: unknown): boolean;
+}
+
+export interface SettingsDeps {
+  api: MobileApi;
+  session: () => SessionApi;
+  /** The server's base URL; defaults to `TERMHUB_URL`. */
+  baseUrl?: string;
+}
+
+export interface SettingsState {
+  /** The api singleton's own mode (design spec §2): `Ajustes`'s "Versão" section reads this,
+   * not the global `api` module, so a screen test can inject a mock instance and see it. */
+  mode: 'mock' | 'http';
+  /** "Servidor: mock" or "Servidor: <host of TERMHUB_URL>", from `mode` above. */
+  server: string;
+  device: TDeviceSelf | null;
+  loadingDevice: boolean;
+  error: string | null;
+  loadDevice(): Promise<void>;
+}
+
+const NETWORK_MSG = 'Não foi possível falar com o servidor. Tente de novo.';
+
+export function createSettingsStore(deps: SettingsDeps) {
+  const { api, session } = deps;
+  let generation = 0;
+
+  const store = create<SettingsState>()((set) => ({
+    mode: api.mode,
+    server: serverLabel(api.mode, deps.baseUrl ?? TERMHUB_URL),
+    device: null,
+    loadingDevice: false,
+    error: null,
+
+    async loadDevice() {
+      const gen = generation;
+      set({ loadingDevice: true, error: null });
+      try {
+        const device = await api.deviceSelf(session().auth());
+        if (gen !== generation) return;
+        set({ device, loadingDevice: false });
+      } catch (e) {
+        if (gen !== generation) return;
+        if (session().handleApiError(e)) return;
+        set({ loadingDevice: false, error: e instanceof ApiError ? e.message : NETWORK_MSG });
+      }
+    },
+  }));
+
+  sessionEnded.subscribe(() => {
+    generation++;
+    store.setState({ device: null, loadingDevice: false, error: null });
+  });
+
+  return store;
+}

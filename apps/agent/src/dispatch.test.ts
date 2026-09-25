@@ -1,7 +1,7 @@
 import type { ServerMessage } from '@termhub/agent-protocol';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentSocket } from './client.js';
-import { createDispatcher, type ClaudeManager, type PtyManager } from './dispatch.js';
+import { createDispatcher, type ClaudeManager, type PtyManager, type TcpManager } from './dispatch.js';
 import { RpcFailure } from './exec.js';
 import type { Handlers } from './rpc/index.js';
 
@@ -16,6 +16,10 @@ function makePty(): PtyManager {
 }
 
 function makeClaude(): ClaudeManager {
+  return { open: vi.fn().mockResolvedValue(undefined), write: vi.fn().mockReturnValue(false), close: vi.fn(), closeAll: vi.fn() };
+}
+
+function makeTcp(): TcpManager {
   return { open: vi.fn().mockResolvedValue(undefined), write: vi.fn().mockReturnValue(false), close: vi.fn(), closeAll: vi.fn() };
 }
 
@@ -45,7 +49,7 @@ function flush(): Promise<void> {
 describe('createDispatcher', () => {
   it('replies rpc_result ok:false code:invalid on bad params, echoing the id', async () => {
     const { socket, sendControl } = makeSocket();
-    const dispatch = createDispatcher({ handlers: makeHandlers(), pty: makePty(), claude: makeClaude(), log: vi.fn() });
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty: makePty(), claude: makeClaude(), tcp: makeTcp(), log: vi.fn() });
 
     // `session` fails the sessionName regex (empty string).
     dispatch({ type: 'rpc', id: 'r1', method: 'tmux.kill', params: { session: '' } }, socket);
@@ -62,7 +66,7 @@ describe('createDispatcher', () => {
         throw new Error('boom');
       },
     });
-    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), log });
+    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), tcp: makeTcp(), log });
 
     dispatch({ type: 'rpc', id: 'r2', method: 'tmux.kill', params: { session: 'th-a' } }, socket);
     await flush();
@@ -82,7 +86,7 @@ describe('createDispatcher', () => {
         throw new RpcFailure('eperm', 'permission denied', '/root');
       },
     });
-    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), log: vi.fn() });
+    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), tcp: makeTcp(), log: vi.fn() });
 
     dispatch({ type: 'rpc', id: 'r3', method: 'fs.list', params: { path: '/root' } }, socket);
     await flush();
@@ -98,7 +102,7 @@ describe('createDispatcher', () => {
   it('maps a result that violates its own zod schema to internal', async () => {
     const { socket, sendControl } = makeSocket();
     const handlers = makeHandlers({ 'tmux.list': async () => ({ sessions: [123] }) as never });
-    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), log: vi.fn() });
+    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), tcp: makeTcp(), log: vi.fn() });
 
     dispatch({ type: 'rpc', id: 'r4', method: 'tmux.list', params: {} }, socket);
     await flush();
@@ -109,7 +113,7 @@ describe('createDispatcher', () => {
   it('replies ok:true with the parsed handler result on success', async () => {
     const { socket, sendControl } = makeSocket();
     const handlers = makeHandlers({ 'tmux.list': async () => ({ sessions: ['th-a'] }) });
-    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), log: vi.fn() });
+    const dispatch = createDispatcher({ handlers, pty: makePty(), claude: makeClaude(), tcp: makeTcp(), log: vi.fn() });
 
     dispatch({ type: 'rpc', id: 'r5', method: 'tmux.list', params: {} }, socket);
     await flush();
@@ -120,7 +124,7 @@ describe('createDispatcher', () => {
   it('routes open/resize/close to the pty manager with the same channel', async () => {
     const { socket } = makeSocket();
     const pty = makePty();
-    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude: makeClaude(), log: vi.fn() });
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude: makeClaude(), tcp: makeTcp(), log: vi.fn() });
     const openParams = { session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 };
 
     const openMsg: ServerMessage = { type: 'open', ch: 3, kind: 'pty', params: openParams };
@@ -139,7 +143,7 @@ describe('createDispatcher', () => {
     const log = vi.fn();
     const pty = makePty();
     (pty.open as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('pty crashed'));
-    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude: makeClaude(), log });
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude: makeClaude(), tcp: makeTcp(), log });
 
     const openParams = { session: 'th-a', cwd: '/tmp', cols: 80, rows: 24 };
     dispatch({ type: 'open', ch: 1, kind: 'pty', params: openParams }, socket);
@@ -152,7 +156,7 @@ describe('createDispatcher', () => {
     const { socket } = makeSocket();
     const pty = makePty();
     const claude = makeClaude();
-    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude, log: vi.fn() });
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude, tcp: makeTcp(), log: vi.fn() });
     const claudeParams = {
       session_id: '3f1e9b1e-0000-4000-8000-000000000001',
       resume: false,
@@ -173,7 +177,7 @@ describe('createDispatcher', () => {
     const { socket } = makeSocket();
     const pty = makePty();
     const claude = makeClaude();
-    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude, log: vi.fn() });
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty, claude, tcp: makeTcp(), log: vi.fn() });
 
     dispatch({ type: 'close', ch: 7 }, socket);
     await flush();
@@ -188,7 +192,7 @@ describe('createDispatcher', () => {
     const log = vi.fn();
     const claude = makeClaude();
     (claude.open as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('claude crashed'));
-    const dispatch = createDispatcher({ handlers: makeHandlers(), pty: makePty(), claude, log });
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty: makePty(), claude, tcp: makeTcp(), log });
 
     dispatch(
       {
@@ -203,5 +207,20 @@ describe('createDispatcher', () => {
 
     expect(log).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ ch: 2 }));
     expect(sendControl).not.toHaveBeenCalled();
+  });
+
+  it('routes open kind: tcp to the tcp manager', () => {
+    const { socket } = makeSocket();
+    const tcp = makeTcp();
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty: makePty(), claude: makeClaude(), tcp, log: vi.fn() });
+    dispatch({ type: 'open', ch: 9, kind: 'tcp', params: { port: 8137 } }, socket);
+    expect(tcp.open).toHaveBeenCalledWith(9, { port: 8137 }, socket);
+  });
+  it('close reaches the tcp manager too', () => {
+    const { socket } = makeSocket();
+    const tcp = makeTcp();
+    const dispatch = createDispatcher({ handlers: makeHandlers(), pty: makePty(), claude: makeClaude(), tcp, log: vi.fn() });
+    dispatch({ type: 'close', ch: 9 }, socket);
+    expect(tcp.close).toHaveBeenCalledWith(9);
   });
 });

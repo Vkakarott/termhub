@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 /**
@@ -24,4 +24,7 @@ export default defineConfig({
     },
   },
   build: { outDir: 'dist', sourcemap: false },
+  // Tests: the environment stays per file (`// @vitest-environment jsdom` on the screen tests);
+  // the setup only widens testing-library's waitFor/findBy timeout (see src/test-setup.ts).
+  test: { setupFiles: ['./src/test-setup.ts'] },
 });

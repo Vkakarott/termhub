@@ -234,7 +234,16 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
 
   it('lists active project conversations only', async () => {
     const p = await repo.getOrCreateForProject(userId, projectId);
-    expect(await repo.listActiveProjectConversations(userId)).toEqual([{ id: p.id, project_id: projectId }]);
+    expect(await repo.listActiveProjectConversations(userId)).toEqual([{ id: p.id, project_id: projectId, last_message_at: null }]);
+  });
+
+  it('lists each active project conversation with when it last saw a message', async () => {
+    const p = await repo.getOrCreateForProject(userId, projectId);
+    await repo.addMessage({ conversation_id: p.id, role: 'user', text: 'oi' });
+    const [row] = await repo.listActiveProjectConversations(userId);
+    expect(row.id).toBe(p.id);
+    expect(row.last_message_at).toBe((await repo.findByIdForUser(p.id, userId))?.last_message_at);
+    expect(row.last_message_at).not.toBeNull();
   });
 
   it('deleting the project deletes its conversations', async () => {

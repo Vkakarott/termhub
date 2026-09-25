@@ -1,5 +1,13 @@
 import { EventEmitter } from 'node:events';
-import { CLOSE, type ClaudeOpenParams, type PtyOpenParams, type RpcMethod, type RpcParams, type RpcResult } from '@termhub/agent-protocol';
+import {
+  CLOSE,
+  type ClaudeOpenParams,
+  type PtyOpenParams,
+  type RpcMethod,
+  type RpcParams,
+  type RpcResult,
+  type TcpOpenParams,
+} from '@termhub/agent-protocol';
 import type { AgentChannel, AgentConnection, AgentPtyChannel, ChannelHandlers, PtyHandlers } from './connection.js';
 
 export class AgentOfflineError extends Error {}
@@ -76,6 +84,15 @@ export class AgentRegistry extends EventEmitter {
       return Promise.reject(new AgentOfflineError(`agent offline: ${machineId}`));
     }
     return conn.openClaude(params, handlers);
+  }
+
+  /** A tcp pipe to a WDA port on that machine (the simulator's agent tunnel). */
+  openTcp(machineId: string, params: TcpOpenParams, handlers: ChannelHandlers): Promise<AgentChannel> {
+    const conn = this.conns.get(machineId);
+    if (!conn) {
+      return Promise.reject(new AgentOfflineError(`agent offline: ${machineId}`));
+    }
+    return conn.openTcp(params, handlers);
   }
 
   /**

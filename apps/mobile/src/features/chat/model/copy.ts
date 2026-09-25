@@ -1,0 +1,102 @@
+// Ported from apps/web/src/components/chat/ChatTurn.tsx (the `FAILURE_LINE` table, ~lines 10-36)
+// and apps/web/src/components/chat/ChatHost.tsx (the per-state sentences, design spec §6): the
+// pt-BR sentences a person reads under a stopped answer, or above the thread, kept verbatim from the
+// web so a person who uses both never reads two different explanations of the same thing.
+import type { ChatErrorCode, ChatHostState } from './types';
+
+/** What an answer that stopped says when nothing was said about why — also the fallback for a code
+ * this bundle does not know (a server newer than the app). */
+const GENERIC_FAILURE = 'A resposta não terminou — tente de novo.';
+
+/**
+ * One sentence per stored failure, transcribed verbatim from `ChatTurn.tsx`'s `FAILURE_LINE`.
+ * `RUNNER_FAILED` is deliberately absent here: it falls back to `GENERIC_FAILURE` below, exactly as
+ * an unknown code does.
+ */
+const FAILURE_LINE: Partial<Record<ChatErrorCode, string>> = {
+  TOKEN_FAILED: 'O servidor não conseguiu criar a credencial do concierge. Tente de novo.',
+  CLI_MISSING: 'Essa máquina não tem o Claude Code instalado. Instale o claude nela e mande a mensagem de novo.',
+  CLI_REJECTED: 'O Claude Code dessa máquina recusou os parâmetros do chat. Atualize o claude nela e tente de novo.',
+  MISSING_SESSION: 'A sessão do Claude nessa máquina não existe mais. Mande a mensagem de novo para começar uma nova.',
+  RUN_FAILED: 'O Claude parou no meio da resposta. Mande a mensagem de novo.',
+  // Unreachable on a stored row today, and kept anyway: the agent only ever sends `killed` in answer
+  // to the server's own `close`, and the connection layer swallows that ack (a locally closed
+  // channel reports no exit), so nothing writes KILLED. The sentence stays because the label is the
+  // protocol's and a future path may store it.
+  KILLED: 'A resposta foi interrompida antes de terminar. Mande a mensagem de novo.',
+  HOST_GONE: 'A máquina do chat saiu do ar no meio da resposta. Ligue-a e mande a mensagem de novo.',
+  // Not a machine that went away: it is up, and this sentence must not send anyone looking for a
+  // problem with it. What unblocks the chat is closing a few terminals, and nothing else.
+  HOST_BUSY: 'A máquina do chat está com terminais demais abertos e não sobrou espaço para a conversa. Feche algumas abas e mande a mensagem de novo.',
+  AGENT_TOO_OLD: 'O agente dessa máquina ainda não sabe rodar o chat. Atualize o agente e tente de novo.',
+};
+
+/** The sentence a stopped answer shows, one per `ChatErrorCode` (`ChatTurn.tsx`'s `FAILURE_LINE`). */
+export function errorSentence(code: ChatErrorCode): string {
+  return FAILURE_LINE[code] ?? GENERIC_FAILURE;
+}
+
+/** Every `ChatErrorCode`, keyed so the compiler flags a code added to the union but not here. */
+const KNOWN_CODES: Record<ChatErrorCode, true> = {
+  RUNNER_FAILED: true,
+  TOKEN_FAILED: true,
+  CLI_MISSING: true,
+  CLI_REJECTED: true,
+  MISSING_SESSION: true,
+  RUN_FAILED: true,
+  KILLED: true,
+  HOST_GONE: true,
+  AGENT_TOO_OLD: true,
+  HOST_BUSY: true,
+};
+
+/** Narrows the contract's `error_code: string` (a newer server may send a code this bundle does
+ * not know) to the union `errorSentence` takes. */
+export function isChatErrorCode(code: string): code is ChatErrorCode {
+  return Object.prototype.hasOwnProperty.call(KNOWN_CODES, code);
+}
+
+/** The sentence under a stopped answer for whatever `error_code` the wire carried — the generic
+ * line for an unknown code, or for an answer left empty with no code at all. */
+export function failureSentence(code: string | null): string {
+  return code !== null && isChatErrorCode(code) ? errorSentence(code) : GENERIC_FAILURE;
+}
+
+/** Which login runs the conversation, in the clause `hostLine`'s `ready` sentence ends with
+ * (`ChatHost.tsx`'s `accountClause`). `lost` reads as the default login too, same as the web: the
+ * chosen account no longer applies to this machine, and the default is what is actually running —
+ * the separate sentence about the account being lost is not part of this line. */
+function accountClause(account: Extract<ChatHostState, { kind: 'ready' }>['account']): string {
+  return account.kind === 'chosen' ? `na conta ${account.label}` : 'na conta padrão do Claude dela';
+}
+
+export interface HostLine {
+  text: string;
+  tone: 'ok' | 'warn' | 'info';
+}
+
+/**
+ * The line above the thread that says where the conversation runs, or why it cannot — ported from
+ * `ChatHost.tsx`'s five states, one sentence per state (the two-paragraph states on the web,
+ * `agent_too_old`, are folded into one sentence here).
+ *
+ * `tone` is this port's own addition — the web renders each state with its own layout instead of a
+ * single line, so nothing there names a tone directly: `ok` for the one state that can actually
+ * send a message, `warn` for the two that name an actual problem with a machine already on file
+ * (offline, an agent to update), and `info` for the two that are not failures at all — no machine
+ * registered yet, or more than one to choose between.
+ */
+export function hostLine(host: ChatHostState): HostLine {
+  switch (host.kind) {
+    case 'ready':
+      return { text: `Esta conversa roda na máquina ${host.machine.name}, ${accountClause(host.account)}.`, tone: 'ok' };
+    case 'offline':
+      return { text: `A máquina ${host.machine.name} está offline agora.`, tone: 'warn' };
+    case 'not_chosen':
+      return { text: 'Você tem mais de uma máquina: escolha em qual o chat vai rodar.', tone: 'info' };
+    case 'no_machine':
+      return { text: 'O chat roda em uma máquina sua, e você ainda não cadastrou nenhuma.', tone: 'info' };
+    case 'agent_too_old':
+      return { text: `O agente da máquina ${host.machine.name} ainda não sabe rodar o chat. Atualize o agente dessa máquina para conversar por aqui.`, tone: 'warn' };
+  }
+}

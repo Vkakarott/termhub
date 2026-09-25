@@ -52,6 +52,10 @@ export interface User {
   invited_at: string | null;
   /** last successful sign-in; null = never signed in */
   last_login_at: string | null;
+  /** store-review mode: while in the future, this account's device requests are auto-approved */
+  review_enabled_until: string | null;
+  /** the admin who last set review_enabled_until */
+  review_enabled_by: string | null;
   created_at: string;
 }
 
@@ -268,6 +272,8 @@ export const mapUser = (u: PrismaUser): User => ({
   role_id: u.roleId,
   invited_at: u.invitedAt?.toISOString() ?? null,
   last_login_at: u.lastLoginAt?.toISOString() ?? null,
+  review_enabled_until: u.reviewEnabledUntil?.toISOString() ?? null,
+  review_enabled_by: u.reviewEnabledBy,
   created_at: u.createdAt.toISOString(),
 });
 
@@ -409,11 +415,12 @@ export const mapNote = (n: PrismaNote): Note => ({
 });
 
 /** Remove campos sensíveis antes de enviar ao cliente. */
-export type PublicUser = Omit<User, 'password_hash' | 'google_id' | 'city_short_url_partner' | 'city_short_url_custom'> & { has_password: boolean; has_google: boolean };
+export type PublicUser = Omit<User, 'password_hash' | 'google_id' | 'city_short_url_partner' | 'city_short_url_custom' | 'review_enabled_by'> & { has_password: boolean; has_google: boolean };
 
 export function toPublicUser(u: User): PublicUser {
-  // the city short links are served by /auth/me/city-link and the public snapshot, not the account payload
-  const { password_hash, google_id, city_short_url_partner, city_short_url_custom, ...rest } = u;
+  // the city short links are served by /auth/me/city-link and the public snapshot, not the account payload;
+  // who switched store-review mode on is admin information, added back only by the user-admin routes
+  const { password_hash, google_id, city_short_url_partner, city_short_url_custom, review_enabled_by, ...rest } = u;
   return { ...rest, has_password: !!password_hash, has_google: !!google_id };
 }
 

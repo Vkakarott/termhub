@@ -269,29 +269,62 @@ describe('SimulatorSessionManager', () => {
     expect(b.backend.startRunner).toHaveBeenCalledTimes(2);
   });
 
-  it('runnerAlive rejeitando na recuperação conta como runner morto (sem unhandled rejection)', async () => {
+  it('runnerAlive rejeitando em toda tentativa de recuperação: tenta RECOVER_ATTEMPTS vezes e descarta com a mensagem da rejeição (sem unhandled rejection)', async () => {
     // 1ª chamada (start inicial): resolve false, manda iniciar o runner normalmente.
-    // Da 2ª chamada em diante (checagem da recuperação): rejeita, simulando a máquina inacessível.
+    // Da 2ª chamada em diante (checagem da recuperação): rejeita sempre, simulando a máquina
+    // inacessível (ex.: um agente reconectando) — não é prova de que o runner morreu, então cada
+    // rejeição soma uma tentativa em vez de descartar a sessão na primeira.
     let calls = 0;
-    const b = makeBackend({
-      runnerAlive: vi.fn(async () => {
-        calls++;
-        if (calls === 1) return false;
-        throw new Error('máquina inacessível');
-      }),
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return false;
+      throw new Error('Agente desconectado');
     });
+    const b = makeBackend({ runnerAlive });
     const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
     const v = makeViewer();
     await mgr.acquire(machine, UDID, v);
     const openTunnelCallsBefore = (b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    const callsBeforeRecover = runnerAlive.mock.calls.length;
     b.dropTunnel(new Error('túnel caiu'));
     await vi.runAllTimersAsync();
+    // exatamente RECOVER_ATTEMPTS chamadas de runnerAlive durante a recuperação (todas rejeitadas)
+    expect(runnerAlive.mock.calls.length - callsBeforeRecover).toBe(3);
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
     expect(v.statuses.at(-1)).toBe('error');
-    expect(v.fullStatuses.at(-1)?.message).toBe('Runner do WDA encerrou na máquina');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Agente desconectado');
+    // uma máquina inalcançável não é prova de runner morto: nunca tenta reabrir o túnel
     expect((b.backend.openTunnel as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(openTunnelCallsBefore);
     expect(mgr.isReady('m1', UDID)).toBe(false);
     // se a rejeição escapasse de doRecover (chamado via "void this.recover(...)"), o vitest reportaria
     // um unhandled rejection e este teste (ou a suíte) falharia sozinho.
+  });
+
+  it('runnerAlive rejeita uma vez e depois resolve true: recupera normalmente reabrindo o túnel', async () => {
+    // 1ª chamada (start inicial): resolve true (runner já vivo, não inicia de novo).
+    // 2ª chamada (1ª tentativa de recuperação): rejeita, simulando uma reconexão do agente em curso.
+    // Da 3ª em diante: resolve true — a máquina voltou a responder.
+    let calls = 0;
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 2) throw new Error('Agente desconectado');
+      return true;
+    });
+    const b = makeBackend({ runnerAlive });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    expect(b.backend.startRunner).not.toHaveBeenCalled();
+    const startRunnerCallsBefore = (b.backend.startRunner as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    const bootCallsBefore = (b.backend.boot as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.statuses.at(-1)).toBe('ready');
+    expect(mgr.isReady('m1', UDID)).toBe(true);
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(2);
+    // nem o boot nem o startRunner rodam de novo: a sessão WDA continua a mesma de antes
+    expect((b.backend.boot as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(bootCallsBefore);
+    expect((b.backend.startRunner as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(startRunnerCallsBefore);
   });
 
   it('recuperação com runner vivo mas /status nunca pronto usa recoverReadyTimeoutMs, não readyTimeoutMs', async () => {
@@ -321,6 +354,94 @@ describe('SimulatorSessionManager', () => {
     expect(elapsed).toBeLessThan(3 * 5000 + 2 * 2000 + 3000);
     expect(v.fullStatuses.at(-1)?.message).toMatch(/perdida/);
     expect(mgr.isReady('m1', UDID)).toBe(false);
+  });
+
+  it('túnel fechando durante o start (sem canais livres) falha na hora com a mensagem do túnel, sem recuperação concorrente', async () => {
+    // /status nunca pronto: sem o fail-fast o start ficaria pollando a porta morta até readyTimeoutMs
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ value: { ready: false } }))) as unknown as typeof fetch;
+    const b = makeBackend({ createClient: (baseUrl) => new WdaClient(baseUrl, fetchFn) });
+    const mgr = new SimulatorSessionManager(b.backend, { readyTimeoutMs: 90_000, pollMs: 1000 });
+    const v = makeViewer();
+    const p = mgr.acquire(machine, UDID, v);
+    const rejected = expect(p).rejects.toThrow('Máquina sem canais livres');
+    await vi.advanceTimersByTimeAsync(2000);
+    const start = Date.now();
+    b.dropTunnel(new Error('Máquina sem canais livres'));
+    await vi.advanceTimersByTimeAsync(1500);
+    await rejected;
+    expect(Date.now() - start).toBeLessThan(5000);
+    expect(v.statuses.at(-1)).toBe('error');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Máquina sem canais livres');
+    // nenhuma recuperação correu em paralelo: um único túnel aberto, nenhum "Reconectando…"
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(1);
+    expect(v.fullStatuses.some((st) => st.message === 'Reconectando ao simulador…')).toBe(false);
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
+    expect(b.tunnelCloses[0]).toHaveBeenCalled();
+    expect(mgr.isReady('m1', UDID)).toBe(false);
+  });
+
+  it('agente cai depois de pronto e todo túnel da recuperação morre igual → error "Agente desconectado"', async () => {
+    const b = makeBackend();
+    let tunnels = 0;
+    // o túnel do start fica de pé; cada túnel reaberto na recuperação morre assim que alguém escuta o onClose
+    b.backend.openTunnel = vi.fn(async () => {
+      const n = tunnels++;
+      const close = vi.fn();
+      b.tunnelCloses.push(close);
+      return {
+        wdaPort: 20000 + n,
+        mjpegPort: 21000 + n,
+        close,
+        onClose(cb: (err?: Error) => void) {
+          if (n === 0) first = cb;
+          else cb(new Error('Agente desconectado'));
+        },
+      };
+    });
+    let first: ((err?: Error) => void) | null = null;
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    first!(new Error('Agente desconectado'));
+    await vi.runAllTimersAsync();
+    expect(b.backend.openTunnel).toHaveBeenCalledTimes(4);
+    expect(v.statuses.at(-1)).toBe('error');
+    expect(v.fullStatuses.at(-1)?.message).toBe('Agente desconectado');
+    expect(b.backend.stopRunner).not.toHaveBeenCalled();
+    expect(mgr.isReady('m1', UDID)).toBe(false);
+  });
+
+  it('recuperação que falha com mensagem não destinada ao usuário (inglês, do agente) mostra a mensagem genérica', async () => {
+    let calls = 0;
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return false;
+      throw new Error('connect failed: internal');
+    });
+    const b = makeBackend({ runnerAlive });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.fullStatuses.at(-1)).toMatchObject({ state: 'error', message: 'Conexão com o simulador perdida' });
+  });
+
+  it('rejeição antiga de runnerAlive não vira a mensagem final quando a máquina voltou a responder', async () => {
+    let calls = 0;
+    const runnerAlive = vi.fn(async () => {
+      calls++;
+      if (calls === 2) throw new Error('Agente desconectado');
+      return true;
+    });
+    const b = makeBackend({ runnerAlive });
+    const mgr = new SimulatorSessionManager(b.backend, { pollMs: 10 });
+    const v = makeViewer();
+    await mgr.acquire(machine, UDID, v);
+    b.failTunnelsFrom(1);
+    b.dropTunnel(new Error('túnel caiu'));
+    await vi.runAllTimersAsync();
+    expect(v.fullStatuses.at(-1)).toMatchObject({ state: 'error', message: 'Conexão com o simulador perdida' });
   });
 
   it('acquire durante recover espera a recuperação e devolve client apontando para o túnel novo', async () => {

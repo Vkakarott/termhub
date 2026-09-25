@@ -379,13 +379,14 @@ describe('GET /api/machines/:id/status', () => {
 });
 
 describe('GET /api/machines/:id/simulators', () => {
-  it('answers 409 for an agent machine, before the "is this a Mac" check', async () => {
+  it('answers 503 AGENT_OFFLINE for an agent machine, before the "is this a Mac" check', async () => {
     // No os/capabilities set (a freshly enrolled agent machine): the agent guard must run
     // before requireMac, or this would 400 with "Esta máquina não é um Mac com Xcode" instead.
     store.m1 = makeMachine({ id: 'm1', type: 'agent' });
     ({ app } = buildApp(store));
     const res = await app.inject({ method: 'GET', url: '/api/machines/m1/simulators' });
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
+    expect(res.json().code).toBe('AGENT_OFFLINE');
     expect(execFile).not.toHaveBeenCalled();
   });
 });
