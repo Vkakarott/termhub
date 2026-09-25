@@ -1,6 +1,6 @@
 # @termhub/mobile
 
-The termhub chat as a native app (iOS and Android), built with Expo and `expo-router`, against an in-memory mock of the server (see "Mock mode" below) while the real one is built in parallel. Design: `docs/superpowers/specs/2026-09-24-mobile-chat-app-design.md` (the *product* spec — §11 is the app, §9 push and notifications) and `docs/superpowers/specs/2026-09-24-mobile-app-mock-design.md` (the *app* architecture this workspace implements — the folder layout, the mock and everything below is delivered against it). The server side (`/api/m/v1`, `/ws/m/chat`, device enrolment, push) is delivered separately, by `docs/superpowers/plans/2026-09-24-mobile-chat-server.md`.
+The termhub chat as a native app (iOS and Android), built with Expo and `expo-router`, against the real server (`/api/m/v1`, see "Against the real server" below) or an in-memory mock of it (see "Mock mode"). Design: `docs/superpowers/specs/2026-09-24-mobile-chat-app-design.md` (the *product* spec — §11 is the app, §9 push and notifications) and `docs/superpowers/specs/2026-09-24-mobile-app-mock-design.md` (the *app* architecture this workspace implements — the folder layout, the mock and everything below is delivered against it). The server side (`/api/m/v1`, `/ws/m/chat`, device enrolment, push) is delivered separately, by `docs/superpowers/plans/2026-09-24-mobile-chat-server.md`.
 
 ## Architecture
 
@@ -49,7 +49,7 @@ test/         jest setup, fakes for MMKV/SecureStore/expo-device/expo-local-auth
 
 ### Mock mode
 
-`EXPO_PUBLIC_API_MODE=mock` (the default — see `.env.example`) makes `src/services/api/index.ts` build the app's one `MobileApi` over `MockTransport` instead of `FetchTransport`: an in-memory implementation of the exact same contract (`src/services/api/contract/`), answering the same URLs with the same status codes, bodies and socket frames a real server would. Nothing else in the app knows the difference — the same `HttpMobileApi` client builds DPoP proofs, retries once on a renewed token and so on, whether the transport underneath is real or not. This is how the app runs on the simulator, on a phone with no server, and in every Jest test.
+`EXPO_PUBLIC_API_MODE=mock` (the fallback when the variable is unset) makes `src/services/api/index.ts` build the app's one `MobileApi` over `MockTransport` instead of `FetchTransport`: an in-memory implementation of the exact same contract (`src/services/api/contract/`), answering the same URLs with the same status codes, bodies and socket frames a real server would. Nothing else in the app knows the difference — the same `HttpMobileApi` client builds DPoP proofs, retries once on a renewed token and so on, whether the transport underneath is real or not. This is how the app runs on the simulator, on a phone with no server, and in every Jest test.
 
 Two things exist only under `mock`: the *Aguardando aprovação* screen's "Simular aprovação na web" / "Simular recusa" buttons (`mockControls`, `null` in `http` mode — nothing approves a request by itself otherwise), and the fake `ExponentPushToken[mock-…]` registered after each unlock. The "Diagnóstico da chave" row in Ajustes (`src/features/settings/model/key-diagnostic.ts`) is *not* mode-dependent: on any build it always runs on `HardwareDeviceKey`, under its own tag `dev.termhub.diagnostic` (never the enrolled device key), so it exercises the Secure Enclave / Keystore even in mock mode, with no server; only Jest swaps in `SoftwareDeviceKey` (vault key `key.diagnostic`).
 
@@ -59,11 +59,18 @@ Enrolment (P§4): `requestDevice(email)` generates the device key, shows the ver
 
 ### Env vars
 
-See `.env.example`. `EXPO_PUBLIC_API_MODE` (`mock` | `http`, default `mock`) and `EXPO_PUBLIC_TERMHUB_URL` (the server `http` mode talks to, and the host Ajustes shows as "Servidor", e.g. from `expo start`). `eas.json` sets both per build profile: `production` bakes in `EXPO_PUBLIC_API_MODE=http` and `https://termhub.dev`; `development` pins `mock` — there is no server picker in the app, spec §11.1.
+See `.env.example`. `EXPO_PUBLIC_API_MODE` (`mock` | `http`; the code falls back to `mock` when it is unset, `.env.example` sets `http`) and `EXPO_PUBLIC_TERMHUB_URL` (the server `http` mode talks to, and the host Ajustes shows as "Servidor", e.g. from `expo start`). `eas.json` sets both per build profile: `development` and `production` both use `http` and `https://termhub.dev` — there is no server picker in the app, spec §11.1. Set `EXPO_PUBLIC_API_MODE=mock` in `.env` to run with no server at all.
 
-### Switching to a real server
+### Against the real server
 
-Nothing in the app changes: once `docs/superpowers/plans/2026-09-24-mobile-chat-server.md` ships `/api/m/v1` and `/ws/m/chat`, set `EXPO_PUBLIC_API_MODE=http` (and, for a local/staging server, `EXPO_PUBLIC_TERMHUB_URL`) and `FetchTransport` takes over from `MockTransport` behind the same `MobileApi` — `HttpMobileApi`, the contract and every screen are already written against the real routes, not the mock's. This mode is untested against an actual server until one exists (design spec §11 "out of scope"); the mock only verifies the client speaks the contract correctly to itself.
+`HttpMobileApi` over `FetchTransport` talks to `/api/m/v1` and `/ws/m/chat` on `EXPO_PUBLIC_TERMHUB_URL`; the contract comes from the `@termhub/mobile-api` workspace package, the same one the server validates with. The flow:
+
+1. Início: enter the e-mail of a termhub account and note the verification code.
+2. On the web, as that account's owner, approve the request in Configurações → Aparelhos; the code shown there must match the phone's.
+3. Criar PIN on the phone; the app unlocks into the tabs.
+4. Chat as usual; actions the chat proposes are approved with the PIN.
+
+The server refuses an app whose `X-Termhub-App` version is below `MOBILE_MIN_APP_VERSION` (when set) with `426 APP_TOO_OLD`. A socket upgrade with an expired token is refused with HTTP 401 before it opens; the client renews its token before the next attempt.
 
 ## Running
 
@@ -83,7 +90,7 @@ npx eas build --profile development --platform ios      # or android; installs o
 npm start                         # Metro; the development build connects to it
 ```
 
-Copy `.env.example` to `.env` to set `EXPO_PUBLIC_API_MODE` / `EXPO_PUBLIC_TERMHUB_URL` for `expo start`; with no `.env` at all the app runs in mock mode by default, with no server needed. Production builds bake `http` mode and `https://termhub.dev` in through the `production` profile of `eas.json`; development builds are pinned to `mock` by the `development` profile.
+Copy `.env.example` to `.env` for `expo start`: it points the app at `https://termhub.dev` in `http` mode; with no `.env` at all the app runs in mock mode, with no server needed. Development and production builds bake `http` mode and `https://termhub.dev` in through `eas.json`.
 
 Before a production build: APNs key and FCM v1 service account in EAS credentials (`npx eas credentials`), store listings, and the reviewer notes of spec §12.3.
 

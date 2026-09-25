@@ -68,7 +68,7 @@ npm start -w @termhub/mobile                    # Metro for a development build 
 npx eas build --profile development -w @termhub/mobile   # one-off; builds are manual, never on push
 ```
 
-The server URL is a constant (`https://termhub.dev`); a test build points elsewhere through `EXPO_PUBLIC_TERMHUB_URL` in `eas.json`, and `expo start` reads it from `apps/mobile/.env` (see `.env.example`). Before the first build, run `npx eas init` inside `apps/mobile` once (it writes the EAS project id into `app.json`) and register the APNs key and the FCM service account in EAS credentials. `apps/mobile/README.md` has the details.
+In `http` mode (the default in `.env.example` and in every `eas.json` profile) the app talks to `/api/m/v1` and `/ws/m/chat` on the server; in `mock` mode it talks to an in-memory mock inside the app, with no server. The server URL is a constant (`https://termhub.dev`); a test build points elsewhere through `EXPO_PUBLIC_TERMHUB_URL` in `eas.json`, and `expo start` reads it from `apps/mobile/.env` (see `.env.example`). Before the first build, run `npx eas init` inside `apps/mobile` once (it writes the EAS project id into `app.json`) and register the APNs key and the FCM service account in EAS credentials. `apps/mobile/README.md` has the details.
 
 ## Production (Docker)
 
