@@ -8,9 +8,25 @@ import { b64url, utf8 } from './encoding';
 
 export const PIN_RE = /^\d{6}$/;
 
+const PRODUCTION_LOG2N = 14;
+
+/**
+ * scrypt's cost exponent: 14 in the app, always. Only the `ui` Jest project lowers it (through
+ * `TERMHUB_SCRYPT_LOG2N`, set in `test/ui-setup.js`), because every screen suite enrols and
+ * unlocks for real and N = 2^14 made them time out on a slow CI runner. The mock server verifies
+ * HMACs over the unwrapped secret, never the scrypt output, so the flows stay the same. The
+ * `logic` project keeps the production cost, so `pin.test.ts` exercises the real parameters.
+ */
+export function scryptLog2N(): number {
+  // `process` is guarded: nothing promises a `process.env` object in a React Native bundle.
+  const raw = typeof process === 'undefined' ? undefined : process.env?.TERMHUB_SCRYPT_LOG2N;
+  const n = raw === undefined ? NaN : Number(raw);
+  return Number.isInteger(n) && n >= 1 && n <= PRODUCTION_LOG2N ? n : PRODUCTION_LOG2N;
+}
+
 /** Derives the PIN's wrap key with scrypt (params fixed; the strength is on the server, P§5.4). */
 export const deriveWrapKey = (pin: string, salt: Uint8Array): Promise<Uint8Array> =>
-  scryptAsync(utf8(pin), salt, { N: 2 ** 14, r: 8, p: 1, dkLen: 32 });
+  scryptAsync(utf8(pin), salt, { N: 2 ** scryptLog2N(), r: 8, p: 1, dkLen: 32 });
 
 /** XORs `secret` with `key`, byte by byte. */
 export const wrapSecret = (secret: Uint8Array, key: Uint8Array): Uint8Array => secret.map((b, i) => b ^ (key[i] ?? 0));

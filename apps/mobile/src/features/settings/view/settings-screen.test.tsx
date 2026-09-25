@@ -45,8 +45,11 @@ describe('Ajustes', () => {
     const disable = jest.fn(async () => undefined);
     useSessionStore.setState({ enableBiometrics: enable, disableBiometrics: disable, biometricsEnabled: false });
     await render(<SettingsScreen />);
+    // Waits for this render's own device load, so no request of it is still in flight (or left
+    // for the next test) whichever test ran before.
+    await screen.findByText('iPhone de teste', undefined, LOAD);
 
-    const toggle = await screen.findByRole('switch', {}, LOAD);
+    const toggle = screen.getByRole('switch');
     await act(async () => fireEvent(toggle, 'valueChange', true));
     expect(enable).toHaveBeenCalledTimes(1);
 

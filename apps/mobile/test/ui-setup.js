@@ -2,6 +2,10 @@
 // The `ui` jest project renders screens under jest-expo. Native modules touched at import time
 // are replaced here, so a test only mocks what it is about.
 
+// Every screen suite enrols and unlocks for real: scrypt at the production N = 2^14 made them
+// time out on a slow CI runner. 2^10 keeps the derivation real but cheap (see `scryptLog2N`).
+process.env.TERMHUB_SCRYPT_LOG2N = '10';
+
 // Safe-area insets have no native side under jest.
 jest.mock('react-native-safe-area-context', () => {
   const { View } = require('react-native');
