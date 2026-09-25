@@ -50,3 +50,12 @@ it('a decision only settles a pending card: a card that already ran is never mov
   const ran: EventSlice = { ...empty, actions: [action('a1', 'executed')] };
   expect(applyEvent(ran, { type: 'decision', ...base, action_id: 'a1', status: 'approved' }).slice.actions).toBe(ran.actions);
 });
+
+it('a run_finished event neither crashes nor changes the thread', () => {
+  const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: [delta('m1', 'oi')] };
+  const finished: ChatEvent = { type: 'run_finished', ...base, message_id: 'm1', ok: true, error_code: null };
+  const failed: ChatEvent = { type: 'run_finished', ...base, message_id: null, ok: false, error_code: 'HOST_GONE' };
+  expect(applyEvent(thread, finished)).toEqual({ slice: thread, reread: false });
+  expect(applyEvent(thread, finished).slice).toBe(thread);
+  expect(applyEvent(thread, failed).slice).toBe(thread);
+});

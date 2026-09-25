@@ -9,7 +9,7 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
-        "EXPO_PUBLIC_API_MODE": "mock",
+        "EXPO_PUBLIC_API_MODE": "http",
         "EXPO_PUBLIC_TERMHUB_URL": "https://termhub.dev"
       }
     },

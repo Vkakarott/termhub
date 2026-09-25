@@ -213,8 +213,10 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
 
     events: (a, handlers) => {
       const current = typeof a === 'function' ? a : () => a;
-      // A `1008` close is the server refusing the token (expired) or the proof: the next attempt
-      // first runs the same single-flighted renewal as an HTTP `TOKEN_EXPIRED`. When it yields
+      // A refused upgrade (the server's HTTP 401 before switching protocols, seen as a close that
+      // never opened) or a `1008` close is the server refusing the token (expired) or the proof:
+      // the next attempt first runs the same single-flighted renewal as an HTTP `TOKEN_EXPIRED`
+      // — once per attempt, so a failed renewal backs off with the socket. When it yields
       // nothing (locked), the attempt goes on with whatever `current()` gives — or throws, which
       // the socket treats as a dropped connection — and keeps backing off; never final.
       let renewBeforeNext = false;
@@ -233,6 +235,9 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
         headers,
         onEvent: handlers.onEvent,
         onReconnect: handlers.onReconnect,
+        onRefused: () => {
+          renewBeforeNext = true;
+        },
         onClose: (code, final) => {
           if (code === 1008) renewBeforeNext = true;
           handlers.onClose(code, final);

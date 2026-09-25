@@ -5,6 +5,9 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
+    "build:contract": "npm run build -w @termhub/mobile-api",
+    "prestart": "npm run build:contract",
+    "eas-build-post-install": "npm run build:contract",
     "start": "expo start --dev-client",
     "prebuild": "expo prebuild",
     "ios": "expo run:ios",
@@ -18,6 +21,7 @@
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@pagopa/io-react-native-crypto": "^1.2.5",
+    "@termhub/mobile-api": "*",
     "expo": "~57.0.23",
     "expo-application": "~57.0.3",
     "expo-audio": "~57.0.5",

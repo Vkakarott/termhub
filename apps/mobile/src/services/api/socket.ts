@@ -20,6 +20,11 @@ export interface CreateChatSocketOptions {
    * reopened. Any other code — `1008` included, an expired token or a bad proof — reconnects
    * with backoff, building fresh `headers()` for the attempt. */
   onClose(code: number, final: boolean): void;
+  /** A non-final close of a connection that never opened: the server refused the upgrade. The
+   * real server answers an expired token, a bad proof or a revoked device with an HTTP 401
+   * before switching protocols, which React Native reports as a `1006` close with no open.
+   * Fires just before `onClose`. */
+  onRefused?(): void;
   /** `hello.server_time` (ISO), fed into the client's clock-skew correction exactly like a
    * `Date` response header — the latest reading wins. */
   onServerTime(iso: string): void;
@@ -75,6 +80,7 @@ export function createChatSocket(o: CreateChatSocketOptions): { close(): void } 
     if (stopped) return;
 
     let helloSeen = false;
+    let opened = false;
     // Own to this one connection attempt, independent of `stopped`/`socket`: a real WebSocket's
     // `.close()` always fires that same socket's `onclose` again, later — including when *this*
     // module is the one calling `.close()` (the hello-violation branch below). Without this guard
@@ -94,6 +100,7 @@ export function createChatSocket(o: CreateChatSocketOptions): { close(): void } 
     socket = o.transport.connect(o.url, headers, {
       onOpen: () => {
         if (abandoned || stopped) return;
+        opened = true;
         // A successful open resets the backoff, whether or not `hello` follows.
         attempt = 0;
         o.onReconnect();
@@ -137,6 +144,7 @@ export function createChatSocket(o: CreateChatSocketOptions): { close(): void } 
           o.onClose(code, true);
           return;
         }
+        if (!opened) o.onRefused?.();
         o.onClose(code, false);
         scheduleReconnect();
       },

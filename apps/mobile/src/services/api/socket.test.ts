@@ -223,6 +223,45 @@ it('a 1008 close (expired token or bad proof) is not final: the next attempt bui
   socket.close();
 });
 
+it('a close before the connection ever opened reports onRefused, then onClose, and reconnects', async () => {
+  // The real server refuses a bad upgrade with an HTTP status (401/403) before switching
+  // protocols; React Native reports that as a 1006 close with no open.
+  const onRefused = jest.fn();
+  const { connections, onClose, socket } = harness({ onRefused });
+  await flush();
+  connections[0]!.handlers.onClose(1006);
+
+  expect(onRefused).toHaveBeenCalledTimes(1);
+  expect(onClose).toHaveBeenCalledWith(1006, false);
+  expect(onRefused.mock.invocationCallOrder[0]!).toBeLessThan(onClose.mock.invocationCallOrder[0]!);
+  await jest.advanceTimersByTimeAsync(1000);
+  expect(connections).toHaveLength(2);
+  socket.close();
+});
+
+it('a close after the connection opened is not a refusal', async () => {
+  const onRefused = jest.fn();
+  const { connections, onClose, socket } = harness({ onRefused });
+  await flush();
+  connections[0]!.handlers.onOpen();
+  connections[0]!.handlers.onClose(1006);
+
+  expect(onClose).toHaveBeenCalledWith(1006, false);
+  expect(onRefused).not.toHaveBeenCalled();
+  socket.close();
+});
+
+it('a final close before open (4400, 4401) is not a refusal either', async () => {
+  const onRefused = jest.fn();
+  const { connections, onClose, socket } = harness({ onRefused });
+  await flush();
+  connections[0]!.handlers.onClose(4401);
+
+  expect(onClose).toHaveBeenCalledWith(4401, true);
+  expect(onRefused).not.toHaveBeenCalled();
+  socket.close();
+});
+
 it('a non-terminal close reports onClose(code, false) before scheduling a reconnect', async () => {
   const { connections, onClose, socket } = harness();
   await flush();
