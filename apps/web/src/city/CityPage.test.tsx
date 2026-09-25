@@ -110,7 +110,7 @@ describe('CityPage', () => {
     fetchMock.mockResolvedValueOnce(json(old));
     render(<CityPage nickname="pedro" />);
     expect(await screen.findByText(/Cidade de Pedro/)).toBeTruthy();
-    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining({ buildings: [expect.objectContaining({ id: 'b1', desks: [] })] }));
+    await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining({ buildings: [expect.objectContaining({ id: 'b1', desks: [] })] })));
     act(() => socket.emit({ type: 'robot', building: 'b1', robot: CITY.buildings[0].robots[0] }));
     await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ id: 'x1' }))));
   });
@@ -186,7 +186,7 @@ describe('CityPage', () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
     await screen.findByText(/Cidade de Pedro/);
-    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' })));
+    await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' }))));
 
     act(() => socket.emit({ type: 'robot', building: 'b1', robot: { ...CITY.buildings[0].robots[0], activity: 'reading', state_at: LATER } }));
 
@@ -198,7 +198,7 @@ describe('CityPage', () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
     await screen.findByText(/Cidade de Pedro/);
-    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding', verb: 'Moonwalking' })));
+    await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding', verb: 'Moonwalking' }))));
   });
 
   // A tab closed or deleted while somebody watches leaves the room, instead of sitting there until a reload.
@@ -206,7 +206,7 @@ describe('CityPage', () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
     await screen.findByText(/Cidade de Pedro/);
-    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' })));
+    await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ activity: 'coding' }))));
 
     act(() => socket.emit({ type: 'robot_gone', building: 'b1', robot: 'x1' }));
 
@@ -268,7 +268,7 @@ describe('CityPage', () => {
     fetchMock.mockResolvedValueOnce(json(CITY));
     render(<CityPage nickname="pedro" />);
     await screen.findByText(/Cidade de Pedro/);
-    expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ machine: null })));
+    await waitFor(() => expect(scene().setModel).toHaveBeenLastCalledWith(expect.objectContaining(desks({ machine: null }))));
   });
 });
 

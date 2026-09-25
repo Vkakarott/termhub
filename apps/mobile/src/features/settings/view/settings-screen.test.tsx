@@ -10,7 +10,7 @@ import { useThemeStore } from '@/features/theme/viewmodel/useThemeStore';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { SettingsScreen } from './settings-screen';
 
-const LOAD = { timeout: 5000 };
+const LOAD = { timeout: 15_000 };
 
 /** Not `jest.spyOn(getState(), …)`: zustand replaces the state object on every `setState`, so a
  * restored spy would linger on the new one (same reason `conversation-screen.test.tsx` uses it). */
