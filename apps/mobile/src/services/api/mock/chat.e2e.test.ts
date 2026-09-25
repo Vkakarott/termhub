@@ -2,7 +2,7 @@
 // notifications (this task) — chat, streaming, decisions and their notifications, exactly as
 // design spec §4.2's "Chat"/"Events"/"Controls" bullets describe them.
 import { fromB64url } from '../../crypto/encoding';
-import { decisionProof } from '../../crypto/pin';
+import { decisionProof, pinProof } from '../../crypto/pin';
 import { SoftwareDeviceKey } from '../../key/software';
 import { createHttpMobileApi } from '../client';
 import type { TChatEvent } from '../contract';
@@ -320,20 +320,50 @@ it('controls.dropSocket closes with 1006 and is not final; controls.revokeNow cl
   collected.close();
 });
 
-it('an upgrade with an expired token closes 1008 (not final); a revoked device closes 4401 (final)', async () => {
+it('an upgrade with an expired token, or from a revoked device, is refused before opening: 1006, not final', async () => {
+  // Mirrors the server, which answers a bad upgrade with HTTP 401 before switching protocols.
   const clock = { value: START };
   const { api, auth, transport } = await enrol(clock);
 
   clock.value += 15 * 60_000 + 1; // past the access token's lifetime
   const expired = collectEvents(api, auth);
   await jest.advanceTimersByTimeAsync(0);
-  expect(expired.closes).toEqual([{ code: 1008, final: false }]);
+  expect(expired.closes).toEqual([{ code: 1006, final: false }]);
+  expect(expired.reconnectCount()).toBe(0);
   expired.close();
 
   clock.value = START; // the token is live again: only the device's status can refuse it now
   transport.controls.revokeNow();
   const revoked = collectEvents(api, auth);
   await jest.advanceTimersByTimeAsync(0);
-  expect(revoked.closes).toEqual([{ code: 4401, final: true }]);
+  expect(revoked.closes).toEqual([{ code: 1006, final: false }]);
+  expect(revoked.reconnectCount()).toBe(0);
   revoked.close();
+});
+
+it('a refused upgrade renews the token and the next attempt opens', async () => {
+  const clock = { value: START };
+  const { transport, key } = makeApi(clock);
+  let renew: () => Promise<string | null> = async () => null;
+  const api = createHttpMobileApi({ transport, baseUrl: 'https://termhub.dev', app: APP, key, onTokenExpired: () => renew(), now: () => clock.value });
+  const jwk = await key.create();
+  const req = await api.requestDevice({ email: 'chat@x.com', public_key: jwk, device: DEVICE, app_version: APP_VERSION });
+  transport.controls.approve(req.request_id);
+  const act = await api.activate({ request_id: req.request_id, request_secret: req.request_secret });
+  const secret = fromB64url(act.pin_secret);
+  renew = async () => {
+    const { challenge } = await api.challenge({ device_id: act.device_id, purpose: 'refresh' });
+    return (await api.token({ device_id: act.device_id, challenge, pin_proof: pinProof(secret, challenge) })).access_token;
+  };
+
+  clock.value += 15 * 60_000 + 1;
+  const collected = collectEvents(api, { accessToken: act.access_token });
+  await jest.advanceTimersByTimeAsync(0);
+  expect(collected.closes).toEqual([{ code: 1006, final: false }]);
+
+  // The backoff, then the renewal's two mock round trips and the new upgrade, each on a timer.
+  for (let i = 0; i < 20 && collected.reconnectCount() === 0; i++) await jest.advanceTimersByTimeAsync(500);
+  expect(collected.reconnectCount()).toBe(1);
+  expect(collected.closes).toEqual([{ code: 1006, final: false }]);
+  collected.close();
 });
