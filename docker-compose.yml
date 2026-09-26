@@ -51,7 +51,8 @@ x-app: &app
     # voice input: the whisper service below (same compose network); unset to turn the mic off
     WHISPER_URL: ${WHISPER_URL:-http://whisper:8000}
     WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
-    # chat decision memory: the embed service below (same compose network); unset to turn suggestions off
+    # chat decision memory: the embed service below (same compose network). EMBED_URL falls back to it
+    # when unset, so an empty EMBED_SECRET is what turns suggestions off.
     EMBED_URL: ${EMBED_URL:-http://embed:8000}
     EMBED_SECRET: ${EMBED_SECRET:-}
   extra_hosts:

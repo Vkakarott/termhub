@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { config } from '../config.js';
 import { applyErrorHandler } from '../lib/errors.js';
 
 const { chatRoutes } = await import('./chat.js');
@@ -124,6 +125,22 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(res.statusCode).toBe(200);
     expect(repos.users.setChatSuggestions).toHaveBeenCalledWith('u1', false);
     expect(res.json()).toEqual({ enabled: false, available: false, count: 3 });
+  });
+
+  it('GET and PATCH /memory answer available: true when embeddings are configured', async () => {
+    const saved = config.embeddings;
+    config.embeddings = { url: 'http://embed:8000', secret: 's' };
+    try {
+      const repos = fakeRepos();
+      const app = build(kind, repos);
+      const got = await app.inject({ method: 'GET', url: '/chat/memory' });
+      expect(got.json()).toMatchObject({ available: true });
+      const patched = await app.inject({ method: 'PATCH', url: '/chat/memory', payload: { enabled: true } });
+      expect(patched.statusCode).toBe(200);
+      expect(patched.json()).toMatchObject({ available: true });
+    } finally {
+      config.embeddings = saved;
+    }
   });
 
   it('PATCH /memory refuses a non-boolean enabled', async () => {

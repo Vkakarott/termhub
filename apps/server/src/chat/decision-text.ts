@@ -61,6 +61,7 @@ export function answerToDecision(item: ChoiceItem, a: ItemAnswer): DecisionAnswe
  * - any label doesn't match any option by labelKey
  * - single-select gets more than one label
  * - answer is empty (no labels and no text)
+ * A past answer with both labels and text maps to the labels only.
  */
 export function mapAnswer(past: DecisionAnswer, item: ChoiceItem): ItemAnswer | null {
   // If there's free text and no labels, just return it.
@@ -94,7 +95,9 @@ export function mapAnswer(past: DecisionAnswer, item: ChoiceItem): ItemAnswer | 
       return null;
     }
 
-    return { selected, text: past.text };
+    // Labels win over any free text: the card sends one or the other, so a suggestion carrying both
+    // could never equal what the person sends and would never count as accepted.
+    return { selected };
   }
 
   // Empty answer (no labels, no text).

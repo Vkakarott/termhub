@@ -58,7 +58,9 @@ recommendations below without further questions.
   compose network. The app reads `EMBED_URL` (default `http://embed:8000` in compose) and
   `EMBED_SECRET`. CI's deploy job gets an `embed` step like `whisper` (recreated only when its image
   or config changes).
-- Unset `EMBED_URL`, a down service or a timeout (2 s) → no suggestion and no embedding for now;
+- Unset `EMBED_URL` or `EMBED_SECRET` (in compose `EMBED_URL` falls back to `http://embed:8000`, so
+  there it is an empty `EMBED_SECRET` that turns the memory off), a down service or a timeout (2 s)
+  → no suggestion and no embedding for now;
   nothing else changes. The server client lives in `apps/server/src/chat/embeddings.ts`.
 
 ### 3.3 Table `chat_decisions`
@@ -312,3 +314,8 @@ Answered/closed cards show no suggestion line.
 - **Search covers the project name and the answer's values.** `q` matches header, question,
   `projects.name` and the answer's `labels[]`/`text` values; it no longer matches the raw
   `answer::text`, where the jsonb keys "labels"/"text" matched every row.
+- **Labels win over text when mapping a past answer** (§4.2 step 4). A past answer holding both
+  labels and free text maps to the labels only: the card sends one or the other, so a suggestion
+  carrying both could never equal what the person sends and would never count as accepted.
+- **Compose comment corrected.** `EMBED_URL` falls back to the embed service when unset, so an empty
+  `EMBED_SECRET` (not an unset `EMBED_URL`) is what turns suggestions off in compose.

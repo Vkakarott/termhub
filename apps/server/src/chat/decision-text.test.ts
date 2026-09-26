@@ -40,6 +40,10 @@ describe('mapAnswer', () => {
   it('free text maps as text', () => {
     expect(mapAnswer({ labels: [], text: 'usar a main' }, item(['Sim', 'Não']))).toEqual({ selected: [], text: 'usar a main' });
   });
+  it('labels win over text: the card sends one or the other, so a mix could never count as accepted', () => {
+    const mapped = mapAnswer({ labels: ['Sim'], text: 'e também isto' }, item(['Sim', 'Não']));
+    expect(mapped).toStrictEqual({ selected: [0] });
+  });
   it('an empty answer maps to nothing', () => {
     expect(mapAnswer({ labels: [] }, item(['Sim', 'Não']))).toBeNull();
   });
