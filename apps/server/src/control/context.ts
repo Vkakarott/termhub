@@ -1,3 +1,4 @@
+import type { FastifyRequest } from 'fastify';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import type { ApiTokenScope } from '../auth/api-tokens.js';
@@ -18,6 +19,12 @@ export interface ControlContext {
 export function controlContextFor(repos: Repositories, user: User, token?: { id: string; scopes: readonly ApiTokenScope[] }): ControlContext {
   const scope: Scope = { user, viewAs: { kind: 'self' }, ownerId: user.id, createAs: user.id };
   return { repos, scope, scoped: new Scoped(repos, scope), can: (resource, action) => canAccess(repos, user, resource, action), token };
+}
+
+/** A route's control context: the request's own scope, "view as" included (routes, unlike tokens, honour it). */
+export function controlContextForRequest(repos: Repositories, request: FastifyRequest): ControlContext {
+  const scope = request.scope;
+  return { repos, scope, scoped: new Scoped(repos, scope), can: (resource, action) => canAccess(repos, scope.user, resource, action) };
 }
 
 /** An expected failure the caller should see (pt-BR, actionable). */
