@@ -57,4 +57,21 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TicketsRepository (Postgr
     await db.ticket.create({ data: { id: newId(), projectId, integrationId: integ, provider: 'github', syncKey: 'github:old#9', key: '#9', title: 'old', url: 'u', state: 'open', status: 'backlog' } });
     expect(await repo.pruneMissing(projectId, { integration_id: integ, scope: 'acme/api' }, ['github:acme/api#1'], true)).toBe(1);
   });
+
+  it('findByIdsForOwner resolves only tickets whose project belongs to that owner', async () => {
+    const [mine] = await repo.listByProject(projectId);
+    const otherOwnerId = newId();
+    const otherProjectId = newId();
+    await db.user.create({ data: { id: otherOwnerId, email: `${otherOwnerId}@test.local`, name: 'other' } });
+    await db.project.create({ data: { id: otherProjectId, name: 'other', key: `O${Date.now() % 100000}`, ownerId: otherOwnerId } });
+    await repo.upsertMany(otherProjectId, [t(1, 'other/repo')]);
+    const [theirs] = await repo.listByProject(otherProjectId);
+
+    expect((await repo.findByIdsForOwner([mine.id, theirs.id], userId)).map((x) => x.id)).toEqual([mine.id]);
+    expect(await repo.findByIdsForOwner([theirs.id], userId)).toEqual([]);
+    expect(await repo.findByIdsForOwner([], userId)).toEqual([]);
+
+    await db.project.deleteMany({ where: { id: otherProjectId } });
+    await db.user.deleteMany({ where: { id: otherOwnerId } });
+  });
 });

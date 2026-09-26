@@ -43,6 +43,13 @@ export class TicketsRepository {
     return row ? mapTicket(row) : undefined;
   }
 
+  /** Owner-scoped batch lookup, like the other repositories' `findByIdsForOwner` — another owner's
+   * ticket (or one whose project belongs to someone else) is simply absent from the result. */
+  async findByIdsForOwner(ids: string[], ownerId: string): Promise<Ticket[]> {
+    if (ids.length === 0) return [];
+    return (await this.db.ticket.findMany({ where: { id: { in: ids }, project: { ownerId } } })).map(mapTicket);
+  }
+
   /** Exact key or URL (case-insensitive), or a key suffix ("/repo#12", "#12"), within these projects. */
   async findByKeyish(projectIds: string[], q: { key?: string; url?: string; suffix?: string }): Promise<Ticket[]> {
     if (projectIds.length === 0) return [];

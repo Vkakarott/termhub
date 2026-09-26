@@ -2,7 +2,7 @@ import { readTicketLink } from '../../integrations/ticket-link.js';
 import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
-import type { Task } from './types.js';
+import type { Task, Ticket } from './types.js';
 
 /**
  * The trimmed, human-facing shape of a chat action: what the card needs to read like a sentence
@@ -31,6 +31,13 @@ const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
  * does store): the sentence has to read it straight from `args`. */
 const taskIdOf = (action: ChatAction): string => asString((action.args as Record<string, unknown> | null)?.task_id);
 
+/** The `ticket_ids` an import_tickets action names, if any — same idea as `taskIdOf`: never copied
+ * onto the row, so the sentence has to read it straight from `args`. */
+const ticketIdsOf = (action: ChatAction): string[] => {
+  const raw = (action.args as Record<string, unknown> | null)?.ticket_ids;
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
+};
+
 /**
  * What the sentence says was proposed, before naming where. Unknown tools (the gate classifies
  * anything it does not recognise as irreversible rather than silently allowing it) still read as a
@@ -50,6 +57,11 @@ const named = (task: Task) => `${task.ref} "${task.title}"`;
 
 const PROVIDER_NAME = { github: 'GitHub', linear: 'Linear', jira: 'Jira' } as const;
 
+/** At most 10 keys named, then "e mais N" for the rest — never a wall of keys in one sentence. */
+function formatKeys(keys: string[]): string {
+  return keys.length <= 10 ? keys.join(', ') : `${keys.slice(0, 10).join(', ')} e mais ${keys.length - 10}`;
+}
+
 /** The only tools whose row carries both a project_id and a machine_id where the machine is the key
  * fact being approved (which machine is being linked/re-pointed/unlinked) — for these three alone,
  * `describeActions` resolves and names both, rather than letting the project_id branch win the way it
@@ -57,7 +69,7 @@ const PROVIDER_NAME = { github: 'GitHub', linear: 'Linear', jira: 'Jira' } as co
  * no single machine and naming one would be misleading. */
 const MACHINE_LINK_TOOLS = new Set(['link_project_machine', 'set_project_machine_cwd', 'unlink_project_machine']);
 
-function verbPhrase(action: ChatAction, task: Task | undefined): string {
+function verbPhrase(action: ChatAction, task: Task | undefined, ticketById: Map<string, Ticket>): string {
   const args = (action.args ?? {}) as Record<string, unknown>;
   switch (action.tool) {
     case 'send_input':
@@ -92,9 +104,13 @@ function verbPhrase(action: ChatAction, task: Task | undefined): string {
       return 'sincronizar os tickets de todas as fontes';
     case 'import_tickets': {
       const keys = Array.isArray(args.keys) ? args.keys.filter((k): k is string => typeof k === 'string') : [];
-      const ids = Array.isArray(args.ticket_ids) ? args.ticket_ids.length : 0;
-      const n = keys.length || ids;
-      return `importar ${n} ${n === 1 ? 'ticket' : 'tickets'} para o backlog${keys.length ? `: ${keys.join(', ')}` : ''}`;
+      const ids = ticketIdsOf(action);
+      // keys named directly are used as-is; ticket_ids are resolved through the owner-scoped batch —
+      // a foreign or gone id simply does not resolve (never leaked), and the count still reflects
+      // what was asked even when some keys stay unnamed.
+      const resolvedKeys = keys.length ? keys : ids.map((id) => ticketById.get(id)?.key).filter((k): k is string => k !== undefined);
+      const n = keys.length || ids.length;
+      return `importar ${n} ${n === 1 ? 'ticket' : 'tickets'} para o backlog${resolvedKeys.length ? `: ${formatKeys(resolvedKeys)}` : ''}`;
     }
     case 'push_ticket_status': {
       const link = task ? readTicketLink(task.external_ref) : null;
@@ -141,8 +157,8 @@ function targetPhrase(loc: Location): string {
   return place ? `${place}, no ${loc.machine}` : `no ${loc.machine}`;
 }
 
-function summarize(action: ChatAction, task: Task | undefined, loc: Location): string {
-  const verb = verbPhrase(action, task);
+function summarize(action: ChatAction, task: Task | undefined, loc: Location, ticketById: Map<string, Ticket>): string {
+  const verb = verbPhrase(action, task, ticketById);
   const where = targetPhrase(loc);
   return where ? `${verb} ${where}` : verb;
 }
@@ -182,17 +198,23 @@ const toCard = (action: ChatAction, summary: string): ChatActionCard => ({
  * belong to `ownerId`, by construction of the join). A task tool (whose args carry a task_id the gate
  * never copies onto the row) is resolved the same way: the task is looked up alongside the tabs, and
  * its project_id feeds the same project batch a tab's would — but a task/project has no single
- * machine any more (a project can link to 0–N), so only a tab's action names one.
+ * machine any more (a project can link to 0–N), so only a tab's action names one. `import_tickets`
+ * with `ticket_ids` (no `keys`) is resolved the same way too, in the same batch: without it the card
+ * would say "importar N tickets" with nothing naming which ones, and approving that is approving
+ * blind — exactly the gap `delete_task` above is careful never to leave for a task.
  */
 export async function describeActions(repos: Repositories, actions: ChatAction[], ownerId: string): Promise<ChatActionCard[]> {
   const tabIds = [...new Set(actions.map((a) => a.tab_id).filter((v): v is string => v !== null))];
   const taskIds = [...new Set(actions.map(taskIdOf).filter((v) => v.length > 0))];
-  const [tabs, tasks] = await Promise.all([
+  const ticketIds = [...new Set(actions.flatMap(ticketIdsOf))];
+  const [tabs, tasks, tickets] = await Promise.all([
     tabIds.length ? repos.tabs.findByIdsForOwner(tabIds, ownerId) : [],
     taskIds.length ? repos.tasks.findByIdsForOwner(taskIds, ownerId) : [],
+    ticketIds.length ? repos.tickets.findByIdsForOwner(ticketIds, ownerId) : [],
   ]);
   const tabById = new Map(tabs.map((t) => [t.id, t]));
   const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const ticketById = new Map(tickets.map((t) => [t.id, t]));
 
   const projectIds = new Set<string>();
   for (const a of actions) if (a.project_id) projectIds.add(a.project_id);
@@ -255,7 +277,7 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
       loc = {};
     }
 
-    const summary = summarize(action, task, loc);
+    const summary = summarize(action, task, loc, ticketById);
     return toCard(action, summary);
   });
 }
