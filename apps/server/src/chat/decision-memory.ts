@@ -15,11 +15,15 @@ export interface MemoryDeps {
   log: Pick<FastifyBaseLogger, 'info' | 'warn'>;
 }
 
-/** Rejects with `EmbedError('SUGGEST_TIMEOUT')` if `p` has not settled within `ms`; `p` itself keeps
- *  running (there is no cancelling an in-flight fetch or query from here), but the caller stops waiting. */
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+/** Rejects with `EmbedError('SUGGEST_TIMEOUT')` if `p` has not settled within `ms`, calling `onTimeout`
+ *  right before doing so; `p` itself keeps running (there is no cancelling an in-flight fetch or query
+ *  from here), but the caller stops waiting — `onTimeout` is how it tells `p`'s continuation that. */
+function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new EmbedError('SUGGEST_TIMEOUT')), ms);
+    const timer = setTimeout(() => {
+      onTimeout();
+      reject(new EmbedError('SUGGEST_TIMEOUT'));
+    }, ms);
     p.then(
       (v) => {
         clearTimeout(timer);
@@ -53,10 +57,16 @@ function memoryCode(err: unknown): string {
 export async function suggestFor(repos: Pick<Repositories, 'users' | 'chatDecisions'>, row: TabQuestion, deps: MemoryDeps): Promise<TabQuestionSuggestion | null> {
   if (row.kind !== 'choice' || !deps.embedder) return null;
   const embedder = deps.embedder;
+  const items = (row.payload as ChoicePayload).questions;
+  if (items.length === 0) return null;
+
+  // Set once the caller has stopped waiting (the timeout fired): `work()` below keeps running past
+  // that point (nothing here cancels an in-flight embed or query), and must not bump counters or log
+  // a "found" line for a suggestion the card was already published without.
+  let abandoned = false;
 
   const work = async (): Promise<TabQuestionSuggestion | null> => {
     if (!(await repos.users.chatSuggestions(row.user_id))) return null;
-    const items = (row.payload as ChoicePayload).questions;
     const { vectors } = await embedder.embed(items.map(decisionText));
     const found: SuggestionItem[] = [];
     for (const [i, item] of items.entries()) {
@@ -70,7 +80,7 @@ export async function suggestFor(repos: Pick<Repositories, 'users' | 'chatDecisi
         break;
       }
     }
-    if (found.length === 0) return null;
+    if (found.length === 0 || abandoned) return null;
     await repos.chatDecisions.bumpSuggested(found.map((f) => f.decision_id));
     const best = Math.round(Math.max(...found.map((f) => f.similarity)) * 1000) / 1000;
     deps.log.info({ tabQuestionId: row.id, items: found.length, best }, 'decision suggestion found');
@@ -78,7 +88,9 @@ export async function suggestFor(repos: Pick<Repositories, 'users' | 'chatDecisi
   };
 
   try {
-    return await withTimeout(work(), deps.timeoutMs ?? EMBED_TIMEOUT_MS);
+    return await withTimeout(work(), deps.timeoutMs ?? EMBED_TIMEOUT_MS, () => {
+      abandoned = true;
+    });
   } catch (err) {
     deps.log.warn({ tabQuestionId: row.id, code: memoryCode(err) }, 'decision suggestion skipped');
     return null;

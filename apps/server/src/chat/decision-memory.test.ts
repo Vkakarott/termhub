@@ -88,6 +88,12 @@ describe('suggestFor', () => {
     expect(e.embed).not.toHaveBeenCalled();
   });
 
+  it('gives null without calling the embedder for a payload with no questions', async () => {
+    const e = embedder();
+    expect(await suggestFor(fakeRepos() as never, row({ payload: { questions: [] } }), { embedder: e, threshold: 0.85, log: log() })).toBeNull();
+    expect(e.embed).not.toHaveBeenCalled();
+  });
+
   it('logs a warning and returns null when the embedder rejects', async () => {
     const repos = fakeRepos();
     const l = log();
@@ -105,6 +111,19 @@ describe('suggestFor', () => {
     const result = await suggestFor(repos as never, row(), { embedder: hanging, threshold: 0.85, timeoutMs: 20, log: log() });
     expect(result).toBeNull();
     expect(Date.now() - start).toBeLessThan(500);
+  });
+
+  it('never bumps or logs a suggestion found only after the timeout already gave up on it', async () => {
+    const match = neighbour({ id: 'd-late', similarity: 0.9, answer: { labels: ['Sim'] } });
+    const repos = fakeRepos({ nearest: async () => [match] });
+    const slow = { embed: vi.fn(() => new Promise<{ model: string; vectors: number[][] }>((resolve) => setTimeout(() => resolve({ model: 'm', vectors: [[1, 0]] }), 40))) };
+    const l = log();
+    const result = await suggestFor(repos as never, row(), { embedder: slow, threshold: 0.85, timeoutMs: 20, log: l });
+    expect(result).toBeNull();
+    // Let the abandoned `work()` run to completion (it would otherwise find `match` and act on it).
+    await new Promise((r) => setTimeout(r, 60));
+    expect(repos.chatDecisions.bumpSuggested).not.toHaveBeenCalled();
+    expect(l.info).not.toHaveBeenCalled();
   });
 
   it('logs a warning and returns null when nearest rejects', async () => {

@@ -66,10 +66,24 @@ export async function closeTabQuestions(repos: Repositories, tabId: string, stat
  * or kept exactly as with a card. A permission queued behind an open one opens nothing either.
  *
  * A fresh `choice` card is offered a suggestion from the person's past decisions (spec 2026-09-26 §4)
- * before it is announced — best effort, and never blocks the card on it: a suggestion that fails to
- * attach (the row raced closed, a DB hiccup) still announces the plain question. `deps` lets tests and
- * the ingest path (`noteHookEvent`) pass their own embedder/logger; left out, it is `defaultEmbedder()`
+ * before it is announced — best effort, and never blocks the card on it. `deps` lets tests and the
+ * ingest path (`noteHookEvent`) pass their own embedder/logger; left out, it is `defaultEmbedder()`
  * (null without EMBED_URL) and a no-op logger.
+ *
+ * The suggestion step takes long enough (an embed round trip, a vector query) that the card can move
+ * on underneath it, so the three outcomes are handled on purpose rather than always falling back to
+ * the question as first opened:
+ *  - a suggestion attaches (`setSuggestion`) and is shown on the row it actually landed on;
+ *  - `setSuggestion` finds the row no longer `open` (closed or answered meanwhile): nothing is shown —
+ *    republishing a closed card as if it were still open would be wrong — and `openTabQuestion` itself
+ *    resolves `null`, exactly as if nothing had opened;
+ *  - `setSuggestion` itself fails (a DB hiccup): the plain question is still shown, with the suggestion
+ *    folded in only for that one published view (the brief's fallback: best effort must not lose the
+ *    card over a write it cannot retry here);
+ *  - an embedder ran and found nothing (or timed out, or failed): the row is re-checked
+ *    (`findOpenForTab`) before announcing it, since by then it may already have moved on; with no
+ *    embedder configured at all, `suggestFor` returned instantly and nothing has had time to change, so
+ *    that extra read is skipped.
  */
 export async function openTabQuestion(
   repos: Repositories,
@@ -85,12 +99,18 @@ export async function openTabQuestion(
   await publishTabQuestions(repos, 'tab_question_closed', closed);
   let shown = question;
   if (question?.kind === 'choice') {
-    const suggestion = await suggestFor(repos, question, {
-      embedder: deps?.embedder !== undefined ? deps.embedder : defaultEmbedder(),
-      threshold: config.decisionSuggestThreshold,
-      log: deps?.log ?? silentLog,
-    });
-    if (suggestion) shown = (await repos.tabQuestions.setSuggestion(question.id, suggestion).catch(() => undefined)) ?? { ...question, suggestion };
+    const embedder = deps?.embedder !== undefined ? deps.embedder : defaultEmbedder();
+    const suggestion = await suggestFor(repos, question, { embedder, threshold: config.decisionSuggestThreshold, log: deps?.log ?? silentLog });
+    if (suggestion) {
+      try {
+        shown = (await repos.tabQuestions.setSuggestion(question.id, suggestion)) ?? null;
+      } catch {
+        shown = { ...question, suggestion };
+      }
+    } else if (embedder) {
+      const stillOpen = await repos.tabQuestions.findOpenForTab(tab.id);
+      if (stillOpen?.id !== question.id) shown = null;
+    }
   }
   if (shown) await publishTabQuestions(repos, 'tab_question', [shown]);
   return shown;
