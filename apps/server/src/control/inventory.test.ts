@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../terminal/machine-exec.js', () => ({ listTmuxSessions: vi.fn() }));
 vi.mock('../agent/registry.js', () => ({ agents: { isOnline: vi.fn() } }));
+// inventory -> tickets.ts -> tasks.ts -> config.js (same pattern as control/tasks.test.ts)
+vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
 
 import { agents } from '../agent/registry.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -67,6 +69,11 @@ function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:re
       listByProject: vi.fn(async (pid: string) => (pid === 'p1' ? [{ id: 'k1', title: 'XPTO', status: 'doing', tab_id: 't1', subtasks: [] }] : [])),
       findByRef: vi.fn(async (pid: string, n: number) =>
         pid === 'p1' && n === 12 ? { id: 'k12', project_id: 'p1', ref: 'P1-12', title: 'Checkout' } : pid === 'px' && n === 1 ? { id: 'kx1', project_id: 'px', ref: 'PX-1', title: 'Deles' } : undefined,
+      ),
+    },
+    tickets: {
+      findByKeyish: vi.fn(async (pids: string[], q: { key?: string; url?: string; suffix?: string }) =>
+        q.key && q.key.toLowerCase() === 'ei-5' && pids.includes('p1') ? [{ id: 'tk-ei5', key: 'EI-5', title: 'Corrigir bug' }] : [],
       ),
     },
   } as unknown as Repositories;
@@ -199,5 +206,14 @@ describe('find', () => {
     expect((await find(ctx(grants), { query: 'PX-1', kinds: ['task'] })).matches).toEqual([]); // another user's project
     expect((await find(ctx(grants), { query: 'P1-99', kinds: ['task'] })).matches).toEqual([]);
     expect((await find(ctx(), { query: 'P1-12', kinds: ['task'] })).matches).toEqual([]); // no tasks:read
+  });
+
+  it('finds an external ticket by its exact key, only with kinds: ["ticket"] and the tickets:read grant', async () => {
+    const grants = ['machines:read', 'projects:read', 'ai_accounts:read', 'tasks:read', 'tickets:read'];
+    expect((await find(ctx(grants), { query: 'EI-5', kinds: ['ticket'] })).matches).toEqual([
+      { kind: 'ticket', id: 'tk-ei5', name: 'EI-5 Corrigir bug', machine_id: null, machine_name: null, score: 3 },
+    ]);
+    // no tickets:read grant: no ticket match, even asking for it explicitly
+    expect((await find(ctx(), { query: 'EI-5', kinds: ['ticket'] })).matches).toEqual([]);
   });
 });

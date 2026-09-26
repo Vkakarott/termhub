@@ -13,6 +13,8 @@ const readTools = new Set([
   'read_screen',
   'wait_for_state',
   'list_tasks',
+  'list_tickets',
+  'get_ticket',
 ]);
 
 const writeTools = new Set([
@@ -26,9 +28,11 @@ const writeTools = new Set([
   'move_task',
   'link_project_machine',
   'set_project_machine_cwd',
+  'sync_tickets',
+  'import_tickets',
 ]);
 
-const irreversibleTools = new Set(['close_tab', 'delete_task']);
+const irreversibleTools = new Set(['close_tab', 'delete_task', 'push_ticket_status']);
 
 // Keys that interrupt the running process and cannot be undone
 const interruptingKeys = new Set(['C-c', 'Escape']);

@@ -8,7 +8,7 @@ import type { Project, Task, TaskWithSubtasks } from '../db/repositories/types.j
 import { Scoped } from '../auth/scope.js';
 import type { ControlContext } from './context.js';
 import { ControlError } from './context.js';
-import { addSubtasks, boardUrl, createTask, deleteTask, listTasks, moveTask, updateTask } from './tasks.js';
+import { addSubtasks, boardUrl, createTask, deleteTask, listTasks, moveTask, taskOut, updateTask } from './tasks.js';
 
 const project = (over: Partial<Project> & { id: string; owner_id: string }): Project => ({
   key: over.id.toUpperCase(), next_task_number: 1, name: over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
@@ -67,9 +67,18 @@ describe('listTasks', () => {
     const r = await listTasks(c, { project_id: 'p1' });
     expect(r.board_url).toBe('https://app.test/projects/p1/tasks');
     expect(r.tasks.map((t) => t.id)).toEqual(['k1', 'k2']);
-    expect(r.tasks[0]).toMatchObject({ id: 'k1', project_id: 'p1', title: 'Spec', status: 'doing', external_key: 'LIN-1', subtask_counts: { done: 1, total: 1 } });
+    expect(r.tasks[0]).toMatchObject({ id: 'k1', project_id: 'p1', title: 'Spec', status: 'doing', ticket: null, subtask_counts: { done: 1, total: 1 } });
     expect(r.tasks[0].subtasks[0]).toMatchObject({ id: 's1', parent_id: 'k1', status: 'done' });
     expect(r.tasks[0]).not.toHaveProperty('external_ref');
+    expect(r.tasks[0]).not.toHaveProperty('external_key');
+  });
+
+  it('carries the ticket link when the card came from an external ticket, replacing external_key', async () => {
+    const linked = task({
+      id: 'k9', project_id: 'p1',
+      external_ref: { provider: 'linear', key: 'LIN-1', provider_id: 'u', url: 'x', state: 'Todo', status: 'todo' },
+    });
+    expect(taskOut(linked).ticket).toEqual({ key: 'LIN-1', url: 'x', state: 'Todo', provider: 'linear' });
   });
 
   it('filters top-level tasks by status, keeping their subtasks', async () => {

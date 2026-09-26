@@ -41,3 +41,16 @@ it('unlink_project_machine takes project_id, machine_id and an optional confirm'
   expect(parseArgs(unlink, { project_id: 'p1', machine_id: 'm1', confirm: true }).ok).toBe(true);
   expect(parseArgs(unlink, { machine_id: 'm1' }).ok).toBe(false);
 });
+
+it('ticket tools carry the right scope, grant and inputs', () => {
+  const by = (n: string) => TOOLS.find((t) => t.name === n)!;
+  expect([by('list_tickets').scope, by('list_tickets').resource, by('list_tickets').action]).toEqual(['read', 'tickets', 'read']);
+  expect([by('get_ticket').scope, by('get_ticket').resource, by('get_ticket').action]).toEqual(['read', 'tickets', 'read']);
+  expect([by('sync_tickets').scope, by('sync_tickets').resource, by('sync_tickets').action]).toEqual(['tasks', 'tickets', 'update']);
+  expect([by('import_tickets').scope, by('import_tickets').resource, by('import_tickets').action]).toEqual(['tasks', 'tasks', 'create']);
+  expect([by('push_ticket_status').scope, by('push_ticket_status').resource, by('push_ticket_status').action]).toEqual(['tasks', 'tasks', 'update']);
+  expect(parseArgs(by('list_tickets'), { project_id: 'p', limit: 201 }).ok).toBe(false);
+  expect(parseArgs(by('import_tickets'), { project_id: 'p', keys: ['EI-1'] }).ok).toBe(true);
+  expect(parseArgs(by('get_ticket'), { key: 'EI-1' }).ok).toBe(true);
+  expect(parseArgs(by('find'), { query: 'EI-1', kinds: ['ticket'] }).ok).toBe(true);
+});

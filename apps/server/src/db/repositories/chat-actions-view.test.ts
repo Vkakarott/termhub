@@ -33,6 +33,7 @@ const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 2' }
 const project = { id: 'p1', name: 'reactivando' };
 const machine = { id: 'm1', name: 'macbook m3' };
 const task = { id: 'tk1', project_id: 'p1', title: 'Corrigir o build', ref: 'REA-7' };
+const linkedTask = { id: 'tk2', project_id: 'p1', title: 'Ajustar layout', ref: 'REA-8', external_ref: { provider: 'linear', key: 'EI-1', provider_id: 'u', status: 'done' } };
 
 // Another user's rows — a proposed action naming one of these ids must never surface its name,
 // title, or existence on this owner's card (the cross-tenant disclosure this fix closes).
@@ -49,7 +50,12 @@ function fakeRepos() {
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(tab.id) ? [tab] : [])) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(project.id) ? [project] : [])) },
     machines: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(machine.id) ? [machine] : [])) },
-    tasks: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(task.id) ? [task] : [])) },
+    tasks: {
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => {
+        if (ownerId !== OWNER) return [];
+        return [task, linkedTask].filter((t) => ids.includes(t.id));
+      }),
+    },
   } as never;
 }
 
@@ -196,6 +202,25 @@ it('names every other task tool by the task\'s title too', async () => {
 
   const [moveTask] = await describeActions(repos, [action({ tool: 'move_task', args: { task_id: 'tk1', status: 'done' } })], OWNER);
   expect(moveTask.summary).toBe('mover a tarefa REA-7 "Corrigir o build" no projeto reactivando');
+});
+
+it('sync_tickets reads as fetching every source, no task or location involved', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'sync_tickets', args: { project_id: 'p1' } })], OWNER);
+  expect(card.summary.startsWith('sincronizar os tickets de todas as fontes')).toBe(true);
+});
+
+it('import_tickets names the keys and how many, pluralizing the noun', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'import_tickets', args: { project_id: 'p1', keys: ['EI-1', 'EI-2'] } })], OWNER);
+  expect(card.summary.startsWith('importar 2 tickets para o backlog: EI-1, EI-2')).toBe(true);
+});
+
+it('push_ticket_status names the card and the ticket key on its provider', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'push_ticket_status', args: { task_id: 'tk2' } })], OWNER);
+  expect(card.summary).toContain('levar a coluna da tarefa');
+  expect(card.summary).toContain('para o EI-1 no Linear');
 });
 
 it('says plainly that a deleted task no longer exists, rather than falling back to its bare id — itself useful for deciding', async () => {

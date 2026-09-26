@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { TaskRuleError } from '../db/repositories/tasks.js';
 import type { ColumnCategory, Task, TaskColumn, TaskStatus, TaskType, TaskWithSubtasks } from '../db/repositories/types.js';
+import { readTicketLink } from '../integrations/ticket-link.js';
 import { ControlError, type ControlContext } from './context.js';
 
 /** Field limits, the same the REST routes enforce (`routes/tasks.ts`). */
@@ -34,7 +35,8 @@ export interface TaskOut {
   epic_id: string | null;
   column_id: string | null;
   tab_id: string | null;
-  external_key: string | null;
+  /** the external ticket this card came from (Linear/Jira/GitHub), or null */
+  ticket: { key: string; url: string; state: string; provider: string } | null;
   created_at: string;
   updated_at: string;
 }
@@ -68,7 +70,8 @@ export function boardUrl(projectId: string): string {
 
 export const taskOut = (t: Task): TaskOut => ({
   id: t.id, project_id: t.project_id, type: t.type, ref: t.ref, url: cardUrl(t.ref), title: t.title, description: t.description, status: t.status,
-  position: t.position, parent_id: t.parent_id, epic_id: t.epic_id, column_id: t.column_id, tab_id: t.tab_id, external_key: t.external_key,
+  position: t.position, parent_id: t.parent_id, epic_id: t.epic_id, column_id: t.column_id, tab_id: t.tab_id,
+  ticket: (() => { const l = readTicketLink(t.external_ref); return l ? { key: l.key, url: l.url, state: l.state, provider: l.provider } : null; })(),
   created_at: t.created_at, updated_at: t.updated_at,
 });
 const outTree = (t: TaskWithSubtasks): TaskTreeOut => ({ ...taskOut(t), subtasks: t.subtasks.map(taskOut), subtask_counts: t.subtask_counts });

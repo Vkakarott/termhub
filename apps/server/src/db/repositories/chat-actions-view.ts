@@ -1,3 +1,4 @@
+import { readTicketLink } from '../../integrations/ticket-link.js';
 import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
@@ -47,6 +48,8 @@ const taskIdOf = (action: ChatAction): string => asString((action.args as Record
 /** A task as the sentence names it: its ref, then its title — `TER-12 "Corrigir o build"`. */
 const named = (task: Task) => `${task.ref} "${task.title}"`;
 
+const PROVIDER_NAME = { github: 'GitHub', linear: 'Linear', jira: 'Jira' } as const;
+
 /** The only tools whose row carries both a project_id and a machine_id where the machine is the key
  * fact being approved (which machine is being linked/re-pointed/unlinked) — for these three alone,
  * `describeActions` resolves and names both, rather than letting the project_id branch win the way it
@@ -85,6 +88,21 @@ function verbPhrase(action: ChatAction, task: Task | undefined): string {
       return task ? `mover a tarefa ${named(task)}` : 'mover uma tarefa que não existe mais';
     case 'delete_task':
       return task ? `apagar a tarefa ${named(task)}` : 'apagar uma tarefa que não existe mais';
+    case 'sync_tickets':
+      return 'sincronizar os tickets de todas as fontes';
+    case 'import_tickets': {
+      const keys = Array.isArray(args.keys) ? args.keys.filter((k): k is string => typeof k === 'string') : [];
+      const ids = Array.isArray(args.ticket_ids) ? args.ticket_ids.length : 0;
+      const n = keys.length || ids;
+      return `importar ${n} ${n === 1 ? 'ticket' : 'tickets'} para o backlog${keys.length ? `: ${keys.join(', ')}` : ''}`;
+    }
+    case 'push_ticket_status': {
+      const link = task ? readTicketLink(task.external_ref) : null;
+      if (!task) return 'atualizar o ticket de uma tarefa que não existe mais';
+      return link
+        ? `levar a coluna da tarefa ${named(task)} para o ${link.key} no ${PROVIDER_NAME[link.provider]}`
+        : `atualizar o ticket da tarefa ${named(task)}`;
+    }
     default:
       return `usar a ferramenta ${action.tool}`;
   }
