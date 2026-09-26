@@ -112,6 +112,13 @@ const envSchema = z.object({
   /** Per-user cap on stored attachment bytes; an upload past it answers 413 ATTACHMENT_QUOTA. Default 2 GB. */
   CHAT_FILES_QUOTA_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024 * 1024),
 
+  // Embeddings service for semantic search. Unset = feature off.
+  EMBED_URL: z.string().url().optional(),
+  /** bearer token for embeddings service authentication */
+  EMBED_SECRET: z.string().optional(),
+  /** similarity threshold for suggesting past decisions (0..1) */
+  DECISION_SUGGEST_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
+
   // Chat concierge (docker/concierge): the container runner. Since the chat moved onto the user's own
   // machine (spec §6, `chat/agent-runner.ts`) these two reach that container alone, and nothing calls
   // it — `httpRunner` has had no caller since `app.ts` switched to `agentRunner`. The chat's only
@@ -209,6 +216,8 @@ export const config = {
   encryptionKey: env.ENCRYPTION_KEY ?? null,
   transcription: env.WHISPER_URL ? { url: env.WHISPER_URL.replace(/\/$/, ''), language: env.WHISPER_LANGUAGE } : null,
   chatFiles: { dir: env.CHAT_FILES_DIR, quotaBytes: env.CHAT_FILES_QUOTA_BYTES },
+  embeddings: env.EMBED_URL && env.EMBED_SECRET ? { url: env.EMBED_URL.replace(/\/$/, ''), secret: env.EMBED_SECRET } : null,
+  decisionSuggestThreshold: env.DECISION_SUGGEST_THRESHOLD,
   /**
    * Settings for the container runner (`httpRunner`) and nothing else: the chat itself no longer reads
    * this, and no code path builds that runner any more (spec §6). What the chat needs is `mcpUrl`
