@@ -35,7 +35,7 @@ it('names the suggestion\'s source (an option, or free text) in pt-BR', () => {
   ).toBe('Sugestão da memória: você respondeu «Verde» a «Qual cor prefere?» em termhub, 20/09/2026');
   expect(
     suggestionLine(item, { question_index: 0, decision_id: 'd2', similarity: 0.9, selected: [], text: 'Roxo', source: { question: 'Qual cor prefere?', project_name: null, answered_at: '2026-09-20T10:00:00.000Z' } }),
-  ).toBe('Sugestão da memória: você respondeu «Roxo» a «Qual cor prefere?» em outro projeto, 20/09/2026');
+  ).toBe('Sugestão da memória: você respondeu «Roxo» a «Qual cor prefere?» em sem projeto, 20/09/2026');
 });
 
 it('upserts by id, appending a new one', () => {

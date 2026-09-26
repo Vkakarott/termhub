@@ -25,25 +25,43 @@ export function ChatMemoryPage() {
   const [switching, setSwitching] = useState(false);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
 
+  /**
+   * Guards against two hazards that both come from state updates arriving after the request that
+   * produced them stopped mattering: (1) a slow, superseded search resolving after a newer one and
+   * overwriting its results — the debounce below only ever cancels the *timer*, never a request
+   * already in flight; (2) any update landing after the page unmounted. Every "first page" load bumps
+   * this to a fresh value and only applies its result if it is still the current one; unmounting bumps
+   * it too, which invalidates every load (first page or "more") still in flight. `loadMore`, `toggle`
+   * and `forget` each snapshot the value before their own request and re-check it after, so any of
+   * them landing after a newer search started, or after unmount, is silently dropped.
+   */
+  const genRef = useRef(0);
+  useEffect(() => () => {
+    genRef.current += 1;
+  }, []);
+
   /** Re-reads both halves from the first page: the switch/count line and the (possibly filtered) list. */
   const loadFirstPage = useCallback(async (query: string) => {
+    const myGen = ++genRef.current;
     setError(null);
     try {
       const [mem, page] = await Promise.all([api.chatMemory(), api.chatDecisions(query || undefined)]);
+      if (genRef.current !== myGen) return; // superseded by a newer search, or unmounted meanwhile
       setMemory(mem);
       setDecisions(page.decisions);
       setCursor(page.next_cursor);
     } catch (e) {
+      if (genRef.current !== myGen) return;
       setError(e instanceof ApiError ? e.message : 'Não foi possível carregar a memória do chat');
     }
   }, []);
 
   // The first read runs at once; every change to `q` after that is debounced (~300ms) so typing does
   // not fire a request per keystroke.
-  const mounted = useRef(false);
+  const didMount = useRef(false);
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
+    if (!didMount.current) {
+      didMount.current = true;
       void loadFirstPage(q);
       return;
     }
@@ -53,43 +71,53 @@ export function ChatMemoryPage() {
 
   const loadMore = async () => {
     if (!cursor) return;
+    const myGen = genRef.current;
     setLoadingMore(true);
     setError(null);
     try {
       const page = await api.chatDecisions(q || undefined, cursor);
+      if (genRef.current !== myGen) return; // a newer search started, or unmounted, while this ran
       setDecisions((prev) => [...(prev ?? []), ...page.decisions]);
       setCursor(page.next_cursor);
     } catch (e) {
+      if (genRef.current !== myGen) return;
       setError(e instanceof ApiError ? e.message : 'Não foi possível carregar mais decisões');
     } finally {
-      setLoadingMore(false);
+      if (genRef.current === myGen) setLoadingMore(false);
     }
   };
 
   const toggle = async () => {
     if (!memory) return;
+    const myGen = genRef.current;
     setSwitching(true);
     setError(null);
     try {
-      setMemory(await api.setChatMemory(!memory.enabled));
+      const next = await api.setChatMemory(!memory.enabled);
+      if (genRef.current !== myGen) return; // unmounted meanwhile
+      setMemory(next);
     } catch (e) {
+      if (genRef.current !== myGen) return;
       setError(e instanceof ApiError ? e.message : 'Não foi possível alterar a sugestão de respostas');
     } finally {
-      setSwitching(false);
+      if (genRef.current === myGen) setSwitching(false);
     }
   };
 
   const forget = async (d: ChatDecision) => {
     if (!window.confirm(`Esquecer a decisão sobre «${d.question}»?`)) return;
+    const myGen = genRef.current;
     setForgettingId(d.id);
     setError(null);
     try {
       await api.forgetChatDecision(d.id);
+      if (genRef.current !== myGen) return; // unmounted meanwhile
       setDecisions((prev) => (prev ?? []).filter((x) => x.id !== d.id));
     } catch (e) {
+      if (genRef.current !== myGen) return;
       setError(e instanceof ApiError ? e.message : 'Não foi possível esquecer a decisão');
     } finally {
-      setForgettingId(null);
+      if (genRef.current === myGen) setForgettingId(null);
     }
   };
 

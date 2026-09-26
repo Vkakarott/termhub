@@ -46,7 +46,7 @@ export function answerSummary(q: TabQuestion): string[] {
 export function suggestionLine(item: TabQuestionItem, hint: TabQuestionSuggestionItem): string {
   const answer = hint.text ?? hint.selected.map((i) => item.options[i]?.label ?? '?').join(', ');
   const date = new Date(hint.source.answered_at).toLocaleDateString('pt-BR');
-  const project = hint.source.project_name ?? 'outro projeto';
+  const project = hint.source.project_name ?? 'sem projeto';
   return `Sugestão da memória: você respondeu «${answer}» a «${hint.source.question}» em ${project}, ${date}`;
 }
 

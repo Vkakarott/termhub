@@ -136,6 +136,23 @@ it('"Esquecer esta decisão" forgets the decision and clears the pre-selection',
   expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked();
 });
 
+it("forgetting one question's suggestion keeps another question's pre-selection", async () => {
+  const onForget = vi.fn(async () => {});
+  const suggestionFruits = { question_index: 1, decision_id: 'd2', similarity: 0.9, selected: [0, 2], source: { question: 'Quais frutas você gosta?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00Z' } };
+  render(<TabQuestionCard question={choice({ suggestion: { items: [suggestion, suggestionFruits] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} onForget={onForget} />);
+  expect(screen.getByRole('radio', { name: /Green/ })).toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: 'Esquecer esta decisão' }));
+  expect(onForget).toHaveBeenCalledWith('d1');
+  await waitFor(() => expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked());
+
+  // Question 1's own suggestion (a different decision) is untouched by forgetting question 0's.
+  fireEvent.click(screen.getByRole('tab', { name: 'Fruits' }));
+  expect(screen.getByRole('checkbox', { name: /Apple/ })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /Mango/ })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /Banana/ })).not.toBeChecked();
+  expect(screen.getByText('Sugestão da memória: você respondeu «Apple, Mango» a «Quais frutas você gosta?» em termhub, 20/09/2026')).toBeInTheDocument();
+});
+
 it('an answered card shows no suggestion line', () => {
   render(<TabQuestionCard question={choice({ status: 'answered', answer: { answers: [{ selected: [1] }] }, suggestion: { items: [suggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
   expect(screen.queryByText(/Sugestão da memória/)).toBeNull();
