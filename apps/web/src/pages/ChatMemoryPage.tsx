@@ -26,19 +26,29 @@ export function ChatMemoryPage() {
   const [forgettingId, setForgettingId] = useState<string | null>(null);
 
   /**
-   * Guards against two hazards that both come from state updates arriving after the request that
-   * produced them stopped mattering: (1) a slow, superseded search resolving after a newer one and
-   * overwriting its results — the debounce below only ever cancels the *timer*, never a request
-   * already in flight; (2) any update landing after the page unmounted. Every "first page" load bumps
-   * this to a fresh value and only applies its result if it is still the current one; unmounting bumps
-   * it too, which invalidates every load (first page or "more") still in flight. `loadMore`, `toggle`
-   * and `forget` each snapshot the value before their own request and re-check it after, so any of
-   * them landing after a newer search started, or after unmount, is silently dropped.
+   * `genRef` guards against a slow, superseded search resolving after a newer one and overwriting its
+   * results — the debounce below only ever cancels the *timer*, never a request already in flight.
+   * Every "first page" load bumps it to a fresh value and only applies its result (`loadFirstPage`) or
+   * appends its page (`loadMore`) if it is still the current one; unmounting also bumps it, so a load
+   * still in flight at that point is dropped too.
+   *
+   * `toggle` and `forget` do *not* use `genRef`: a search starting (and even finishing) while their own
+   * PATCH/DELETE is in flight must never make them drop their own successful result — that read the
+   * switch back to its old value after a real toggle, or left a forgotten row still listed. They only
+   * need to guard against the one hazard that is actually theirs: the page having unmounted by the time
+   * they resolve. `mountedRef` is exactly that — true until the cleanup effect below turns it off.
+   * Forgetting is safe to apply unconditionally otherwise: filtering a row out of whatever `decisions`
+   * holds by then is a no-op if a newer search already replaced the list without that row in it.
    */
   const genRef = useRef(0);
-  useEffect(() => () => {
-    genRef.current += 1;
-  }, []);
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      genRef.current += 1;
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   /** Re-reads both halves from the first page: the switch/count line and the (possibly filtered) list. */
   const loadFirstPage = useCallback(async (query: string) => {
@@ -89,35 +99,33 @@ export function ChatMemoryPage() {
 
   const toggle = async () => {
     if (!memory) return;
-    const myGen = genRef.current;
     setSwitching(true);
     setError(null);
     try {
       const next = await api.setChatMemory(!memory.enabled);
-      if (genRef.current !== myGen) return; // unmounted meanwhile
+      if (!mountedRef.current) return;
       setMemory(next);
     } catch (e) {
-      if (genRef.current !== myGen) return;
+      if (!mountedRef.current) return;
       setError(e instanceof ApiError ? e.message : 'Não foi possível alterar a sugestão de respostas');
     } finally {
-      if (genRef.current === myGen) setSwitching(false);
+      if (mountedRef.current) setSwitching(false);
     }
   };
 
   const forget = async (d: ChatDecision) => {
     if (!window.confirm(`Esquecer a decisão sobre «${d.question}»?`)) return;
-    const myGen = genRef.current;
     setForgettingId(d.id);
     setError(null);
     try {
       await api.forgetChatDecision(d.id);
-      if (genRef.current !== myGen) return; // unmounted meanwhile
+      if (!mountedRef.current) return;
       setDecisions((prev) => (prev ?? []).filter((x) => x.id !== d.id));
     } catch (e) {
-      if (genRef.current !== myGen) return;
+      if (!mountedRef.current) return;
       setError(e instanceof ApiError ? e.message : 'Não foi possível esquecer a decisão');
     } finally {
-      if (genRef.current === myGen) setForgettingId(null);
+      if (mountedRef.current) setForgettingId(null);
     }
   };
 

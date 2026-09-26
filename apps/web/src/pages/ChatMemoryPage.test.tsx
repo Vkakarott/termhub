@@ -174,6 +174,55 @@ it('never updates state after unmounting while a search is still in flight', asy
   expect(consoleError).not.toHaveBeenCalled();
 });
 
+it("toggling, then a search that completes before the PATCH does, still shows the toggle's own result", async () => {
+  // Regression: toggle/forget must not share the search's request-generation guard — a concurrent
+  // search finishing first must never make the switch fall back to its pre-toggle value.
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0 });
+  chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
+  let resolveToggle!: (v: { enabled: boolean; available: boolean; count: number }) => void;
+  setChatMemoryMock.mockImplementationOnce(() => new Promise((resolve) => (resolveToggle = resolve)));
+  render(<ChatMemoryPage />);
+
+  fireEvent.click(await screen.findByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' }));
+  expect(setChatMemoryMock).toHaveBeenCalledWith(false); // PATCH in flight, not yet resolved
+
+  // A search starts and fully completes while the toggle's PATCH is still pending.
+  vi.useFakeTimers();
+  fireEvent.change(screen.getByLabelText('Buscar'), { target: { value: 'worktree' } });
+  await vi.advanceTimersByTimeAsync(300);
+  vi.useRealTimers();
+  expect(chatDecisionsMock).toHaveBeenLastCalledWith('worktree');
+
+  // Only now does the toggle's own PATCH resolve; the switch must reflect it, not the search's read.
+  await act(async () => resolveToggle({ enabled: false, available: true, count: 0 }));
+  expect(screen.getByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' })).toHaveAttribute('aria-checked', 'false');
+});
+
+it('forgetting, then a search that completes before the DELETE does, still removes the row', async () => {
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1 });
+  chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: null }); // initial load
+  let resolveForget!: () => void;
+  forgetChatDecisionMock.mockImplementationOnce(() => new Promise<void>((resolve) => (resolveForget = resolve)));
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<ChatMemoryPage />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Esquecer' })); // DELETE in flight
+  expect(forgetChatDecisionMock).toHaveBeenCalledWith('d1');
+
+  // A search starts and fully completes — bringing the same row right back — while the DELETE is
+  // still pending.
+  chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: null });
+  vi.useFakeTimers();
+  fireEvent.change(screen.getByLabelText('Buscar'), { target: { value: 'worktree' } });
+  await vi.advanceTimersByTimeAsync(300);
+  vi.useRealTimers();
+  expect(await screen.findByText('Usar worktree?')).toBeInTheDocument();
+
+  // Only now does the forget's own DELETE resolve; the row must disappear regardless of the search.
+  await act(async () => resolveForget());
+  await waitFor(() => expect(screen.queryByText('Usar worktree?')).toBeNull());
+});
+
 it('"Carregar mais" appears with next_cursor and appends the next page', async () => {
   chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 2 });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: 'c2' });
