@@ -68,10 +68,10 @@ CI; nothing here was executed by this delivery):
 4. Merge. The new color runs `prisma migrate deploy`, which creates the extension and the table.
 
 **Recovery if the migration ever runs without the extension:** `CREATE EXTENSION vector` fails,
-Prisma records `20260926120000_chat_decisions` as failed, the new color never becomes healthy (the
+Prisma records `20260926230000_chat_decisions` as failed, the new color never becomes healthy (the
 old one keeps serving), and every later deploy stops with `P3009` (failed migration found). Fix the
 image first (steps 1–2), then, in the app container, run
-`npx prisma migrate resolve --rolled-back 20260926120000_chat_decisions` (from `apps/server`) and
+`npx prisma migrate resolve --rolled-back 20260926230000_chat_decisions` (from `apps/server`) and
 re-run the deploy. The migration fails on its first statement, so nothing of it was applied and
 re-running it is safe.
 
@@ -366,3 +366,7 @@ Answered/closed cards show no suggestion line.
 - **README and `.env.example`** document the feature, `EMBED_URL`, `EMBED_SECRET`,
   `DECISION_SUGGEST_THRESHOLD` (default `0.98`) and the pgvector-enabled `postgres:16-alpine` db
   image (`docker/db`).
+- **Migration renamed to `20260926230000_chat_decisions`** (was `20260926120000_…`). Rebased onto a
+  `main` whose `20260926120000_tab_questions_indexes` and `20260926150000_chat_attachments` are already
+  applied in production; Prisma applies migrations in name order, so this one must sort after them.
+  It touches `tab_questions` only with an added nullable column, no clash with that index migration.

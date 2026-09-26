@@ -42,7 +42,7 @@
 - Create: `docker/db/Dockerfile`
 - Modify: `docker-compose.yml` (service `db`), `.github/workflows/deploy.yml` (check job's `services.postgres.image`)
 - Modify: `apps/server/prisma/schema.prisma` (new model `ChatDecision`, `TabQuestion.suggestion`, `User.chatSuggestions`, relations)
-- Create: `apps/server/prisma/migrations/20260926120000_chat_decisions/migration.sql`
+- Create: `apps/server/prisma/migrations/20260926230000_chat_decisions/migration.sql`
 - Create: `apps/server/src/db/repositories/chat-decisions.ts`
 - Modify: `apps/server/src/db/repositories/index.ts` (register `chatDecisions`)
 - Modify: `apps/server/src/db/repositories/users.ts` (`chatSuggestions`, `setChatSuggestions`)
