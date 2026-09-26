@@ -89,7 +89,7 @@ export function mapAnswer(past: DecisionAnswer, item: ChoiceItem): ItemAnswer | 
     // Sort indexes for consistency.
     selected.sort((a, b) => a - b);
 
-    // Check for duplicates (shouldn't happen, but be safe).
+    // Check for duplicates: reachable if two labels normalise to the same key.
     if (new Set(selected).size !== selected.length) {
       return null;
     }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { config } from '../config.js';
 
 export const EMBED_TIMEOUT_MS = 2000;
 
@@ -105,9 +106,6 @@ let cachedEmbedder: Embedder | null | undefined;
 
 export function defaultEmbedder(): Embedder | null {
   if (cachedEmbedder === undefined) {
-    // Lazy import to avoid circular dependencies.
-    const { config } = require('../config.js') as typeof import('../config.js');
-
     if (config.embeddings) {
       cachedEmbedder = httpEmbedder(config.embeddings.url, config.embeddings.secret);
     } else {

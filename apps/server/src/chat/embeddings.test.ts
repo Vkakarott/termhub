@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EmbedError, httpEmbedder } from './embeddings.js';
+import { EmbedError, httpEmbedder, defaultEmbedder } from './embeddings.js';
 
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 
@@ -28,5 +28,11 @@ describe('httpEmbedder', () => {
     const fetchImpl = vi.fn();
     await expect(httpEmbedder('http://e', 's', fetchImpl as unknown as typeof fetch).embed([])).resolves.toEqual({ model: '', vectors: [] });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('defaultEmbedder', () => {
+  it('returns null when embeddings config is unset', () => {
+    expect(defaultEmbedder()).toBeNull();
   });
 });
