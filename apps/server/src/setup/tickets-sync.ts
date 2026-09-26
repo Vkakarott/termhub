@@ -42,28 +42,32 @@ export async function syncSource(repos: Repositories, projectId: string, source:
     return { ...base, error: `Falha ao consultar ${source.provider}: ${(e as Error).message}` };
   }
   const where = { integration_id: source.integration_id, scope: source.scope };
-  const r = await repos.tickets.upsertMany(
-    projectId,
-    page.tickets.map((t) => ({
-      ...where,
-      provider: t.provider,
-      sync_key: t.sync_key,
-      key: t.key,
-      title: t.title,
-      description: t.description,
-      url: t.url,
-      state: t.state,
-      status: t.status,
-      meta: { ...(t.meta ?? {}), updated_at: t.updatedAt, scope: source.scope },
-    })),
-  );
-  for (const linked of r.linked) {
-    const t = page.tickets.find((x) => x.sync_key === linked.sync_key);
-    if (t && linked.task_id) await repos.tasks.setExternalRef(linked.task_id, ticketLinkJson({ ...t, updated_at: t.updatedAt }, where));
+  try {
+    const r = await repos.tickets.upsertMany(
+      projectId,
+      page.tickets.map((t) => ({
+        ...where,
+        provider: t.provider,
+        sync_key: t.sync_key,
+        key: t.key,
+        title: t.title,
+        description: t.description,
+        url: t.url,
+        state: t.state,
+        status: t.status,
+        meta: { ...(t.meta ?? {}), updated_at: t.updatedAt, scope: source.scope },
+      })),
+    );
+    for (const linked of r.linked) {
+      const t = page.tickets.find((x) => x.sync_key === linked.sync_key);
+      if (t && linked.task_id) await repos.tasks.setExternalRef(linked.task_id, ticketLinkJson({ ...t, updated_at: t.updatedAt }, where));
+    }
+    // tickets that left the source (filter, closed) and were never imported leave the list
+    const removed = await repos.tickets.pruneMissing(projectId, where, page.tickets.map((t) => t.sync_key), legacyNullScope);
+    return { ...base, fetched: page.tickets.length, created: r.created, updated: r.updated, removed, truncated: page.truncated };
+  } catch (e) {
+    return { ...base, error: `Falha ao gravar os tickets: ${(e as Error).message}` };
   }
-  // tickets that left the source (filter, closed) and were never imported leave the list
-  const removed = await repos.tickets.pruneMissing(projectId, where, page.tickets.map((t) => t.sync_key), legacyNullScope);
-  return { ...base, fetched: page.tickets.length, created: r.created, updated: r.updated, removed, truncated: page.truncated };
 }
 
 /** Every source of the project, one after the other; one failing source does not stop the rest. */

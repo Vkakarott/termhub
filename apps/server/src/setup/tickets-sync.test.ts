@@ -63,4 +63,13 @@ describe('syncProjectTickets', () => {
     await syncProjectTickets(repos, 'p1', [src('acme/api')]);
     expect(setExternalRef).toHaveBeenCalledWith('task1', expect.objectContaining({ key: 'acme/api#1', integration_id: 'g', scope: 'acme/api' }));
   });
+
+  it('a write failure after fetching does not stop the other sources either', async () => {
+    listTickets.mockResolvedValue({ tickets: [ext('acme/web', 1)], truncated: false });
+    const { repos, upsertMany } = makeRepos();
+    upsertMany.mockRejectedValueOnce(new Error('write failed'));
+    const r = await syncProjectTickets(repos, 'p1', [src('acme/api'), src('acme/web')]);
+    expect(r.sources[0]).toMatchObject({ scope: 'acme/api', error: 'Falha ao gravar os tickets: write failed' });
+    expect(r.sources[1]).toMatchObject({ scope: 'acme/web', fetched: 1 });
+  });
 });
