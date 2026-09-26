@@ -54,7 +54,8 @@ function toOut(t: Ticket, card: Task | undefined, full: boolean): TicketOut {
   };
 }
 
-async function cardsOf(ctx: ControlContext, tickets: Ticket[]): Promise<Map<string, Task>> {
+/** The cards of these tickets (imported ones), by task id. */
+export async function cardsOf(ctx: ControlContext, tickets: Ticket[]): Promise<Map<string, Task>> {
   const ids = tickets.map((t) => t.task_id).filter((v): v is string => v !== null);
   return new Map((await ctx.repos.tasks.findByIds(ids)).map((t) => [t.id, t]));
 }

@@ -4,7 +4,7 @@ import { listTmuxSessions } from '../terminal/machine-exec.js';
 import { parseRef } from '../db/repositories/task-rules.js';
 import { HttpError } from '../lib/errors.js';
 import { ControlError, type ControlContext } from './context.js';
-import { resolveTickets } from './tickets.js';
+import { cardsOf, resolveTickets } from './tickets.js';
 
 export interface MachineSummary {
   id: string;
@@ -135,6 +135,10 @@ export interface FindMatch {
   machine_id: string | null;
   machine_name: string | null;
   score: number;
+  /** ticket matches only: the project it belongs to (what import_tickets needs) */
+  project_id?: string;
+  /** ticket matches only: its card when imported, null when not yet */
+  card?: { id: string; ref: string } | null;
 }
 
 const FIND_LIMIT = 10;
@@ -174,8 +178,11 @@ export async function find(ctx: ControlContext, input: { query: string; kinds?: 
   // A ticket only by its exact key or URL ("EI-123", "owner/repo#12"), across the user's projects.
   if (kinds.has('ticket') && canTickets) {
     const projectIds = (await ctx.repos.projects.list({ owner: ctx.scope.ownerId })).map((p) => p.id);
-    for (const t of await resolveTickets(ctx, input.query, projectIds, false)) {
-      matches.push({ kind: 'ticket', id: t.id, name: `${t.key} ${t.title}`, machine_id: null, machine_name: null, score: 3 });
+    const found = await resolveTickets(ctx, input.query, projectIds, false);
+    const cards = await cardsOf(ctx, found);
+    for (const t of found) {
+      const card = t.task_id ? cards.get(t.task_id) : undefined;
+      matches.push({ kind: 'ticket', id: t.id, name: `${t.key} ${t.title}`, machine_id: null, machine_name: null, score: 3, project_id: t.project_id, card: card ? { id: card.id, ref: card.ref } : null });
     }
   }
   matches.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));

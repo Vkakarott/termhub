@@ -80,7 +80,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'find',
     description:
-      'Resolve names to ids in one call — e.g. "MacBook Pro M4", "Hub Community", "pedrogoiania", "TER-12" — across machines, projects (name or key), AI accounts and cards (exact ref only), and external tickets by exact key or URL (kinds: [\'ticket\']) (case- and accent-insensitive, best matches first).',
+      'Resolve names to ids in one call — e.g. "MacBook Pro M4", "Hub Community", "pedrogoiania", "TER-12" — across machines, projects (name or key), AI accounts and cards (exact ref only), and external tickets by exact key or URL (kinds: [\'ticket\']) (case- and accent-insensitive, best matches first). A ticket match also carries its project_id (what import_tickets needs) and card ({ id, ref } once imported — the id is the task_id for start_agent — or null); get_ticket gives its full description.',
     // find narrows the kinds it searches to what the user can read, so any one of them is enough
     scope: 'read', resource: 'projects', action: 'read',
     allowedIf: async (ctx) =>
@@ -240,14 +240,21 @@ export const TOOLS: ToolDef[] = [
     description: `Send external tickets to the project backlog as cards linked to them (default epic). keys (same forms as get_ticket) or ticket_ids — exactly one — max ${TICKET_IMPORT_MAX}. A ticket already imported returns its card with created: false.`,
     scope: 'tasks', resource: 'tasks', action: 'create',
     input: { project_id: id, keys: z.array(z.string().trim().min(1).max(300)).min(1).max(TICKET_IMPORT_MAX).optional(), ticket_ids: z.array(id).min(1).max(TICKET_IMPORT_MAX).optional() },
-    run: (ctx, a) => importTickets(ctx, a as { project_id: string; keys?: string[]; ticket_ids?: string[] }),
+    // the raw `task` (sync key, raw link meta) is for the REST route; the model gets the card
+    run: async (ctx, a) => {
+      const r = await importTickets(ctx, a as { project_id: string; keys?: string[]; ticket_ids?: string[] });
+      return { cards: r.cards.map(({ ticket_key, card, created }) => ({ ticket_key, card, created })) };
+    },
   },
   {
     name: 'push_ticket_status',
     description: "Change the external ticket's state (Linear/Jira/GitHub) to match its card's current column. It writes to a third-party system and notifies people there: the person always confirms it.",
     scope: 'tasks', resource: 'tasks', action: 'update',
     input: { task_id: id },
-    run: (ctx, a) => pushTicketStatus(ctx, a as { task_id: string }),
+    run: async (ctx, a) => {
+      const { card, ticket_key, state } = await pushTicketStatus(ctx, a as { task_id: string });
+      return { card, ticket_key, state };
+    },
   },
 ];
 
