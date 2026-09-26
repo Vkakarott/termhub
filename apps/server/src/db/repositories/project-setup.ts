@@ -1,5 +1,5 @@
 import type { PrismaClient } from '../prisma.js';
-import { normalizeSetup, SETUP_VERSION, type ProjectSetupData } from '../../setup/schema.js';
+import { normalizeSetup, SETUP_VERSION, withLegacyMirror, type ProjectSetupData, type TicketSource } from '../../setup/schema.js';
 
 export interface ProjectSetup {
   project_id: string;
@@ -22,19 +22,20 @@ export class ProjectSetupRepository {
   }
 
   async save(projectId: string, data: ProjectSetupData): Promise<ProjectSetup> {
+    const withMirror = withLegacyMirror(data);
     const row = await this.db.projectSetup.upsert({
       where: { projectId },
-      create: { projectId, version: SETUP_VERSION, data: data as object },
-      update: { version: SETUP_VERSION, data: data as object },
+      create: { projectId, version: SETUP_VERSION, data: withMirror as object },
+      update: { version: SETUP_VERSION, data: withMirror as object },
     });
     return { project_id: projectId, version: row.version, data: normalizeSetup(row.data, row.version), updated_at: row.updatedAt.toISOString() };
   }
 
-  /** Projetos com sync automático de tickets configurado. */
-  async listWithAutoSync(): Promise<{ project_id: string; data: ProjectSetupData }[]> {
+  /** Projects with at least one source on automatic sync, and those sources. */
+  async listWithAutoSync(): Promise<{ project_id: string; sources: TicketSource[] }[]> {
     const rows = await this.db.projectSetup.findMany();
     return rows
-      .map((r) => ({ project_id: r.projectId, data: normalizeSetup(r.data, r.version) }))
-      .filter((r) => r.data.tickets && r.data.tickets.sync_minutes > 0);
+      .map((r) => ({ project_id: r.projectId, sources: normalizeSetup(r.data, r.version).ticket_sources.filter((s) => s.sync_minutes > 0) }))
+      .filter((r) => r.sources.length > 0);
   }
 }
