@@ -11,7 +11,7 @@
     "backgroundColor": "#0B0F19",
     "ios": {
       "supportsTablet": false,
-      "buildNumber": "2026092601",
+      "buildNumber": "202609261624",
       "bundleIdentifier": "dev.termhub.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
