@@ -28,3 +28,13 @@ def authorized(header: str | None, secret: str) -> bool:
     if not secret or not header or not header.startswith("Bearer "):
         return False
     return hmac.compare_digest(header[len("Bearer "):], secret)
+
+
+LOAD_RETRY_FIRST_S = 30
+LOAD_RETRY_MAX_S = 900
+
+
+def load_retry_delay(attempt: int) -> int:
+    """Seconds to wait before retrying the model load after `attempt` failures (0-based): doubles
+    from 30 s up to 15 min. Hugging Face rate-limits anonymous downloads (429) by fixed windows."""
+    return min(LOAD_RETRY_FIRST_S * 2 ** min(attempt, 10), LOAD_RETRY_MAX_S)
