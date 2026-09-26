@@ -353,7 +353,8 @@ export class TasksRepository {
   }
 
   /** A synced ticket becomes a task at the end of the default epic's backlog (spec §5). */
-  async createFromTicket(projectId: string, ticket: { key: string; title: string; description: string | null; ref: Record<string, unknown> }): Promise<Task> {
+  /** With `ticketId`, that staging ticket is linked to the new card in the same transaction (no card without its link). */
+  async createFromTicket(projectId: string, ticket: { key: string; title: string; description: string | null; ref: Record<string, unknown>; ticketId?: string }): Promise<Task> {
     return this.db.$transaction(async (tx) => {
       await lockProject(tx, projectId);
       await ensureDefaultColumns(tx, projectId);
@@ -374,6 +375,7 @@ export class TasksRepository {
         },
         include: KEY,
       });
+      if (ticket.ticketId) await tx.ticket.update({ where: { id: ticket.ticketId, projectId }, data: { taskId: t.id } });
       return toTask(t);
     });
   }

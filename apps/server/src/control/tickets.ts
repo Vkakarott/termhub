@@ -30,7 +30,7 @@ export interface TicketOut {
   labels: string[];
   assignee: string | null;
   synced_at: string;
-  card: { ref: string; url: string } | null;
+  card: { id: string; ref: string; url: string } | null;
 }
 
 const cut = (s: string | null, full: boolean) => (s && !full && s.length > TICKET_DESCRIPTION_CUT ? `${s.slice(0, TICKET_DESCRIPTION_CUT)}…` : s);
@@ -50,7 +50,7 @@ function toOut(t: Ticket, card: Task | undefined, full: boolean): TicketOut {
     labels,
     assignee: typeof t.meta.assignee === 'string' ? t.meta.assignee : null,
     synced_at: t.synced_at,
-    card: card ? { ref: card.ref, url: cardUrl(card.ref) } : null,
+    card: card ? { id: card.id, ref: card.ref, url: cardUrl(card.ref) } : null,
   };
 }
 
@@ -141,9 +141,13 @@ export async function importTickets(ctx: ControlContext, input: { project_id: st
   const { project } = await ctx.scoped.project(input.project_id);
   if (!input.keys === !input.ticket_ids) throw new HttpError(400, 'Informe keys ou ticket_ids (um dos dois)', 'BAD_REQUEST');
   const names = new Map([[project.id, project.name]]);
-  const resolved: Ticket[] = input.ticket_ids
-    ? await ctx.repos.tickets.findByIds(project.id, input.ticket_ids.slice(0, TICKET_IMPORT_MAX))
-    : await Promise.all(input.keys!.slice(0, TICKET_IMPORT_MAX).map(async (k) => one(k, await resolveTickets(ctx, k, [project.id], true), names)));
+  let resolved: Ticket[];
+  if (input.ticket_ids) resolved = await ctx.repos.tickets.findByIds(project.id, input.ticket_ids.slice(0, TICKET_IMPORT_MAX));
+  else {
+    // one after the other: up to 200 keys must not become 200 concurrent queries
+    resolved = [];
+    for (const k of input.keys!.slice(0, TICKET_IMPORT_MAX)) resolved.push(one(k, await resolveTickets(ctx, k, [project.id], true), names));
+  }
   // Two keys (case, short vs. full form) or two ids can name the same ticket: keep the first occurrence,
   // or the second createFromTicket would hit the unique (project_id, external_key) constraint.
   const seen = new Set<string>();
@@ -160,8 +164,7 @@ export async function importTickets(ctx: ControlContext, input: { project_id: st
       { provider: t.provider, provider_id: providerIdOf(t), key: t.key, url: t.url, state: t.state, status: t.status, updated_at: String(t.meta.updated_at ?? ''), meta: t.meta },
       { integration_id: t.integration_id, scope: t.scope ?? String(t.meta.scope ?? '') },
     );
-    const task = await ctx.repos.tasks.createFromTicket(project.id, { key: t.sync_key, title: t.title, description: t.description, ref: link });
-    await ctx.repos.tickets.linkTask(t.id, task.id);
+    const task = await ctx.repos.tasks.createFromTicket(project.id, { key: t.sync_key, title: t.title, description: t.description, ref: link, ticketId: t.id });
     cards.push({ ticket_key: t.key, card: taskOut(task), task, created: true });
   }
   return { cards };

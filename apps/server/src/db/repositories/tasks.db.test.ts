@@ -406,6 +406,17 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
     expect(imported).toMatchObject({ type: 'task', status: 'backlog', column_id: null, epic_id: parent.epic_id, position: 1, parent_id: null, external_key: 'linear:1' });
   });
 
+  it('links the ticket to the imported card in the same transaction', async () => {
+    const integrationId = newId();
+    const ticketId = newId();
+    await db.ticket.create({ data: { id: ticketId, projectId, integrationId, provider: 'linear', syncKey: 'linear:2', key: 'EI-2', title: 'T', url: 'u', state: 'Todo', status: 'backlog' } });
+    const imported = await repo.createFromTicket(projectId, { key: 'linear:2', title: 'T', description: null, ref: {}, ticketId });
+    expect((await db.ticket.findUnique({ where: { id: ticketId } }))?.taskId).toBe(imported.id);
+    // a ticket that is not there rolls the card back: no card without its link
+    await expect(repo.createFromTicket(projectId, { key: 'linear:3', title: 'T', description: null, ref: {}, ticketId: newId() })).rejects.toThrow();
+    expect(await db.task.count({ where: { projectId, externalKey: 'linear:3' } })).toBe(0);
+  });
+
   it('keeps subtasks out of open counts and the dashboard "doing" list', async () => {
     const parent = await repo.create(projectId, { title: 'parent', status: 'doing' });
     const [s1] = await repo.createSubtasks(parent.id, [{ title: 's1' }, { title: 's2' }]);

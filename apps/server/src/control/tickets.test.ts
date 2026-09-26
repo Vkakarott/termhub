@@ -44,7 +44,12 @@ function ctxFor(user = 'u1'): ControlContext {
     tasks: {
       findById: vi.fn(async (id: string) => tasks.find((t) => t.id === id)),
       findByIds: vi.fn(async (ids: string[]) => tasks.filter((t) => ids.includes(t.id))),
-      createFromTicket: vi.fn(async (pid: string, input: { title: string; ref: Record<string, unknown> }) => { const t = task({ id: `new-${tasks.length}`, project_id: pid, title: input.title, external_ref: input.ref }); tasks.push(t); return t; }),
+      createFromTicket: vi.fn(async (pid: string, input: { title: string; ref: Record<string, unknown>; ticketId?: string }) => {
+        const t = task({ id: `new-${tasks.length}`, project_id: pid, title: input.title, external_ref: input.ref });
+        tasks.push(t);
+        tickets = tickets.map((x) => (x.id === input.ticketId ? { ...x, task_id: t.id } : x));
+        return t;
+      }),
       setExternalRef: vi.fn(async () => undefined),
     },
     integrations: { findById: vi.fn(async () => ({ id: 'g', owner_id: 'u1', provider: 'github', config: {} })), getSecret: vi.fn(async () => 'tok') },
@@ -70,7 +75,7 @@ describe('listTickets', () => {
   it('filters by imported and query, cuts descriptions, names the card', async () => {
     const r = await listTickets(ctxFor(), { project_id: 'p1', imported: true });
     expect(r.tickets.map((t) => t.key)).toEqual(['acme/api#13']);
-    expect(r.tickets[0].card).toEqual({ ref: 'P1-7', url: 'https://app.test/project/P1-7' });
+    expect(r.tickets[0].card).toEqual({ id: 'k1', ref: 'P1-7', url: 'https://app.test/project/P1-7' });
     expect(r.tickets[0].description).toHaveLength(501); // 500 + "…"
     expect(r.tickets[0]).toMatchObject({ labels: ['bug'], assignee: 'ana', source: { provider: 'github', scope: 'acme/api' } });
     expect((await listTickets(ctxFor(), { project_id: 'p1', query: 'WEB#12' })).tickets.map((t) => t.key)).toEqual(['acme/web#12']);
@@ -139,7 +144,25 @@ describe('importTickets', () => {
     const ctx = ctxFor();
     const r = await importTickets(ctx, { project_id: 'p1', keys: ['acme/api#12', 'acme/api#13'] });
     expect(r.cards.map((c) => [c.ticket_key, c.created])).toEqual([['acme/api#12', true], ['acme/api#13', false]]);
-    expect(ctx.repos.tasks.createFromTicket).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'T a', key: 's-a', ref: expect.objectContaining({ key: 'acme/api#12', integration_id: 'g' }) }));
+    expect(ctx.repos.tasks.createFromTicket).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'T a', key: 's-a', ticketId: 'a', ref: expect.objectContaining({ key: 'acme/api#12', integration_id: 'g' }) }));
+    // the link is written inside createFromTicket's transaction, never as a second step
+    expect(ctx.repos.tickets.linkTask).not.toHaveBeenCalled();
+  });
+
+  it('resolves keys one after the other', async () => {
+    const ctx = ctxFor();
+    const find = ctx.repos.tickets.findByKeyish as ReturnType<typeof vi.fn>;
+    let inFlight = 0;
+    let peak = 0;
+    const impl = find.getMockImplementation()!;
+    find.mockImplementation(async (...args: unknown[]) => {
+      peak = Math.max(peak, ++inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      return impl(...args);
+    });
+    await importTickets(ctx, { project_id: 'p1', keys: ['acme/api#12', 'acme/web#12', 'acme/api#13'] });
+    expect(peak).toBe(1);
   });
 
   it('importing the same ticket twice in one call creates one card and returns it once', async () => {
