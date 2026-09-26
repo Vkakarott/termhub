@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatGrant, ChatGrantListItem, ChatHostState, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -261,6 +261,19 @@ export const api = {
   sendTabSuggestion: (id: string, text: string) => request<{ tab_suggestion: TabSuggestion }>('POST', `/chat/tab-suggestions/${encodeURIComponent(id)}/send`, { text }),
   /** "Dispensar": closes the card; the tab is not touched. */
   dismissTabSuggestion: (id: string) => request<{ tab_suggestion: TabSuggestion }>('POST', `/chat/tab-suggestions/${encodeURIComponent(id)}/dismiss`, {}),
+  /** "Memória do chat" (spec 2026-09-26 §4.6/§5.2): newest first, 50 per page; `q` is a
+   *  case-insensitive substring search over header/question/answer text; `cursor` is opaque. */
+  chatDecisions: (q?: string, cursor?: string | null) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString();
+    return request<{ decisions: ChatDecision[]; next_cursor: string | null }>('GET', `/chat/decisions${qs ? `?${qs}` : ''}`);
+  },
+  /** "Esquecer esta decisão": hard delete, 204 even if it was already gone. */
+  forgetChatDecision: (id: string) => request<void>('DELETE', `/chat/decisions/${encodeURIComponent(id)}`),
+  chatMemory: () => request<ChatMemory>('GET', '/chat/memory'),
+  setChatMemory: (enabled: boolean) => request<ChatMemory>('PATCH', '/chat/memory', { enabled }),
   monitor: {
     tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
     /** every open terminal tab of the scope, reported a state or not (the sidebar's agents) */

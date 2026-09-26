@@ -52,6 +52,12 @@ describe('ChatLayout', () => {
     expect(back.getAttribute('href')).toBe('/');
   });
 
+  it('links to "Memória do chat"', () => {
+    mount();
+    const link = screen.getByRole('link', { name: 'Memória' });
+    expect(link.getAttribute('href')).toBe('/chat/memoria');
+  });
+
 it('locks the document while it is mounted, and gives it back on the way out', () => {
   // On iOS a drag that starts on a child which cannot scroll — the message box — is handed to the
   // document, which is the "press and drag the box and it scrolls for ever" report. The class is

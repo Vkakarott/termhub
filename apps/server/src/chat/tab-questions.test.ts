@@ -5,26 +5,54 @@ import type { Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import type { Interpreted } from '../monitor/state.js';
 import { chatBus, type ChatEvent } from './bus.js';
+import { suggestFor } from './decision-memory.js';
+import type { TabQuestionSuggestion } from './decision-text.js';
+import type { Embedder } from './embeddings.js';
 import { closesOpenQuestion, expireOrphanTabQuestions, noteHookEvent, openTabQuestion, publishTabQuestions, startTabQuestionExpiry } from './tab-questions.js';
+
+vi.mock('./decision-memory.js', () => ({ suggestFor: vi.fn(async () => null) }));
 
 const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'api' } as Tab;
 const payload = { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] };
 const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload, tool_use_id: 'toolu_1',
-  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', ...over,
+  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
 });
 const choice: Interpreted = { kind: 'working', text: null, activity: 'planning', verb: null, meta: { event: 'PreToolUse', tool: 'AskUserQuestion' }, question: { kind: 'choice', payload, tool_use_id: 'toolu_1' } };
 const log = () => ({ info: vi.fn(), warn: vi.fn() });
+/** A stand-in `Embedder`: `suggestFor` is mocked in this file, so nothing here ever calls `embed` — it
+ * only has to be non-null, to exercise `openTabQuestion`'s "an embedder ran" branch. */
+const someEmbedder: Embedder = { embed: vi.fn(async () => ({ model: 'm', vectors: [] })) };
 
-function fakeRepos(opts: { conversation?: { id: string; user_id: string } | null; closed?: TabQuestion[]; opened?: TabQuestion | null; owner?: string | null } = {}) {
+function fakeRepos(
+  opts: {
+    conversation?: { id: string; user_id: string } | null;
+    closed?: TabQuestion[];
+    opened?: TabQuestion | null;
+    owner?: string | null;
+    /** `setSuggestion`'s outcome: attaches it ('ok', default), finds the row no longer open
+     *  ('not-open'), or fails outright ('throws'). */
+    setSuggestion?: 'ok' | 'not-open' | 'throws';
+    /** What `findOpenForTab` reports back when `openTabQuestion` re-checks a stale `null` suggestion.
+     *  Defaults to the row it just opened, i.e. "still the same open question". */
+    stillOpen?: TabQuestion | undefined;
+  } = {},
+) {
   const conversation = opts.conversation === undefined ? { id: 'c1', user_id: 'u1' } : (opts.conversation ?? undefined);
   const owner = opts.owner === undefined ? 'u1' : opts.owner;
+  const opened = opts.opened === undefined ? row() : opts.opened;
   return {
     projects: { findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', owner_id: owner } : undefined)) },
     chat: { findLatestActiveForProject: vi.fn(async () => conversation) },
     tabQuestions: {
-      open: vi.fn(async () => ({ question: opts.opened === undefined ? row() : opts.opened, closed: opts.closed ?? [] })),
+      open: vi.fn(async () => ({ question: opened, closed: opts.closed ?? [] })),
       closeForTab: vi.fn(async () => opts.closed ?? []),
+      setSuggestion: vi.fn(async (_id: string, s: TabQuestionSuggestion) => {
+        if (opts.setSuggestion === 'not-open') return undefined;
+        if (opts.setSuggestion === 'throws') throw Object.assign(new Error('db down'), { code: 'P2024' });
+        return { ...(opened ?? row()), suggestion: s };
+      }),
+      findOpenForTab: vi.fn(async () => ('stillOpen' in opts ? opts.stillOpen : opened)),
     },
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], owner: string) => (owner === 'u1' && ids.includes('t1') ? [tab] : [])) },
   };
@@ -93,6 +121,75 @@ describe('openTabQuestion', () => {
     expect(await openTabQuestion(asRepos(repos), tab, { kind: 'permission', payload: { tool_name: 'Edit' }, tool_use_id: null })).toBeNull();
     expect(events.map((e) => [e.type, 'question' in e ? e.question.id : null])).toEqual([['tab_question_closed', 'q0']]);
   });
+
+  it('attaches the suggestion before announcing the card', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.9, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q).toEqual({ ...opened, suggestion });
+    expect(repos.tabQuestions.setSuggestion).toHaveBeenCalledWith('q1', suggestion);
+    const tqEvent = events.find((e) => e.type === 'tab_question');
+    expect(tqEvent && 'question' in tqEvent ? tqEvent.question.suggestion : undefined).toEqual(suggestion);
+  });
+
+  it('publishes without a suggestion when suggestFor gives null, and does not re-check the tab with no embedder configured', async () => {
+    vi.mocked(suggestFor).mockResolvedValueOnce(null);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q).toEqual(opened);
+    expect(repos.tabQuestions.setSuggestion).not.toHaveBeenCalled();
+    expect(repos.tabQuestions.findOpenForTab).not.toHaveBeenCalled();
+    const tqEvent = events.find((e) => e.type === 'tab_question');
+    expect(tqEvent && 'question' in tqEvent ? tqEvent.question.suggestion : undefined).toBeNull();
+  });
+
+  it('setSuggestion finding the row no longer open: nothing is announced and openTabQuestion resolves null', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.9, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const repos = fakeRepos({ opened: row({ id: 'q1' }), setSuggestion: 'not-open' });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q).toBeNull();
+    expect(events.some((e) => e.type === 'tab_question')).toBe(false);
+  });
+
+  it('setSuggestion itself failing still announces the plain card, suggestion folded in for that one view', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.9, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened, setSuggestion: 'throws' });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q).toEqual({ ...opened, suggestion });
+    const tqEvent = events.find((e) => e.type === 'tab_question');
+    expect(tqEvent && 'question' in tqEvent ? tqEvent.question.suggestion : undefined).toEqual(suggestion);
+  });
+
+  it('an embedder that ran and found nothing re-checks the tab: a card that moved on announces nothing', async () => {
+    vi.mocked(suggestFor).mockResolvedValueOnce(null);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened, stillOpen: row({ id: 'q9' }) }); // a newer question is open now
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' }, { embedder: someEmbedder, log: log() });
+    expect(q).toBeNull();
+    expect(repos.tabQuestions.findOpenForTab).toHaveBeenCalledWith('t1');
+    expect(events.some((e) => e.type === 'tab_question')).toBe(false);
+  });
+
+  it('an embedder that ran and found nothing, but the row is still the open one, announces it as usual', async () => {
+    vi.mocked(suggestFor).mockResolvedValueOnce(null);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened, stillOpen: opened });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' }, { embedder: someEmbedder, log: log() });
+    expect(q).toEqual(opened);
+    expect(events.some((e) => e.type === 'tab_question')).toBe(true);
+  });
 });
 
 describe('noteHookEvent', () => {
@@ -144,6 +241,12 @@ describe('noteHookEvent', () => {
     await expect(noteHookEvent(asRepos(repos), l, tab, choice)).resolves.toBeUndefined();
     expect(repos.tabQuestions.open).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: null }));
     expect(l.warn).toHaveBeenCalledWith({ tabId: 't1', code: 'P2034' }, 'tab question bookkeeping failed');
+  });
+
+  it('passes its own logger into the suggestion step', async () => {
+    const l = log();
+    await noteHookEvent(asRepos(fakeRepos()), l, tab, choice);
+    expect(vi.mocked(suggestFor)).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'q1' }), expect.objectContaining({ log: l }));
   });
 });
 

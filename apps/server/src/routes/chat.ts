@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { chatGrantListQuery, MAX_ATTACHMENTS_PER_MESSAGE } from '@termhub/mobile-api';
 import type { Repositories } from '../db/repositories/index.js';
+import { chatMemoryRoutes } from './chat-memory.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions, splitTabRows } from '../db/repositories/tab-questions-view.js';
 import { controlContextFor } from '../control/context.js';
@@ -51,6 +52,9 @@ const QUEUED_NOTE = 'A decisão foi registrada e será aplicada assim que a resp
 /** REST surface for the concierge chat: the conversation, its history and sending a message.
  * Live updates (deltas, actions) travel over `/ws/chat`, not here. */
 export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps: { service: ChatService }) {
+  // "Memória do chat" (spec 2026-09-26 §4.6): list/forget decisions, read/set the suggestion switch.
+  await chatMemoryRoutes(app, repos);
+
   app.get('/', async (request) => {
     const { project } = scopeQuery.parse(request.query);
     const projectId = project ?? null;

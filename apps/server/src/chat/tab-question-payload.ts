@@ -37,6 +37,29 @@ export interface TabQuestionItem {
 export interface ChoicePayload {
   questions: TabQuestionItem[];
 }
+/**
+ * The stored shape of `ChoicePayload` (spec 2026-09-26 §5, backfill): already normalised by
+ * `parseAskUserQuestion` when the question was opened — a different shape from `rawInput` above (which
+ * parses Claude Code's raw `AskUserQuestion` tool input instead: `multiSelect`, no `recommended` split
+ * out of the label). Used by the sweeper to validate a `tab_questions.payload` column read back as
+ * `unknown` before trusting it.
+ */
+export const choicePayload = z.object({
+  questions: z
+    .array(
+      z.object({
+        question: z.string().min(1).max(QUESTION_MAX),
+        header: z.string().max(HEADER_MAX),
+        multi_select: z.boolean(),
+        options: z
+          .array(z.object({ label: z.string().min(1).max(LABEL_MAX), description: z.string().max(DESCRIPTION_MAX), recommended: z.boolean() }))
+          .min(2)
+          .max(4),
+      }),
+    )
+    .min(1)
+    .max(4),
+});
 /** A permission prompt: the tool's name only, never its input (spec §4.1). */
 export interface PermissionPayload {
   tool_name: string;

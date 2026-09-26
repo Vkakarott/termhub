@@ -20,7 +20,7 @@ const screens = { suggestion: fx('screen-suggestion.ansi'), typed: fx('screen-ty
 
 const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 's1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'suggestion', payload: { text: 'commit it' }, tool_use_id: null,
-  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', ...over,
+  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
 });
 
 function ctxFor(current: TabQuestion | undefined, opts: { latest?: TabQuestion | undefined; claimLoses?: boolean; denied?: string[]; outOfScope?: boolean } = {}) {

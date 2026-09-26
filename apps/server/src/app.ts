@@ -43,6 +43,7 @@ import { extract } from './chat/attachments/extract.js';
 import { REQUEUE_MIN_AGE_MS, createExtractionQueue, requeuePending } from './chat/attachments/queue.js';
 import { toPublicAttachment } from './db/repositories/chat-attachments.js';
 import { ChatService, failureLabel, purgeExpiredActions } from './chat/service.js';
+import { startDecisionSweeper } from './chat/decision-memory.js';
 import { agentRunner } from './chat/runner.js';
 import { expireOrphanTabQuestions, startTabQuestionExpiry } from './chat/tab-questions.js';
 import { stopTabSuggestions } from './chat/tab-suggestions.js';
@@ -271,11 +272,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   const stopAgentUpdates = startAgentUpdateScheduler(repos, fastify.log);
   const stopTabQuestionExpiry = startTabQuestionExpiry(repos, fastify.log);
   void expireOrphanTabQuestions(repos, fastify.log);
+  const stopDecisionSweeper = startDecisionSweeper(repos, fastify.log);
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
     stopSync();
     stopAgentUpdates();
     stopTabQuestionExpiry();
+    stopDecisionSweeper();
     stopTabSuggestions();
     await simulators.shutdownAll();
     await closePrisma();

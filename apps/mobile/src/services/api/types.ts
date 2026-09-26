@@ -7,8 +7,10 @@ import type {
   TChatAttachment,
   TChatEvent,
   TChatGrantListResponse,
+  TChatMemory,
   TChatProjectsResponse,
   TChatResponse,
+  TDecisionsResponse,
   TDeviceActivateBody,
   TDeviceActivateResponse,
   TDevicePollResponse,
@@ -104,6 +106,15 @@ export interface MobileApi {
    * 429 past 10 uploads per 10 min. */
   transcribe(auth: Auth, fileUri: string, mime: string, seconds: number, onProgress?: (fraction: number) => void): Promise<TTranscription>;
   transcription(auth: Auth, id: string): Promise<TTranscription>;
+
+  // "Memória do chat" (spec 2026-09-26 §4.6/§5.2): the twin of the web's `chatDecisions` /
+  // `forgetChatDecision` / `chatMemory` / `setChatMemory`. No PIN.
+  /** Newest first, 50 per page; `q` filters question/answer/project, `cursor` is `next_cursor`. */
+  chatDecisions(auth: Auth, q?: string, cursor?: string | null): Promise<TDecisionsResponse>;
+  /** Idempotent and silent about whether `id` ever existed or was someone else's — always 204. */
+  forgetChatDecision(auth: Auth, id: string): Promise<void>;
+  chatMemory(auth: Auth): Promise<TChatMemory>;
+  setChatMemory(auth: Auth, enabled: boolean): Promise<TChatMemory>;
 
   // notifications (P§9)
   notifications(auth: Auth, before?: string): Promise<TNotificationsResponse>;

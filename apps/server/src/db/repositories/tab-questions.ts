@@ -1,6 +1,7 @@
 import type { PrismaClient } from '../prisma.js';
 import type { Prisma, TabQuestion as PrismaTabQuestion } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
+import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import type { ChoiceAnswer, ChoicePayload, PermissionAnswer, PermissionPayload, SuggestionAnswer, SuggestionPayload, TabRowKind } from '../../chat/tab-question-payload.js';
 
 export type TabQuestionStatus = 'open' | 'answered' | 'answered_in_tab' | 'expired' | 'failed' | 'dismissed';
@@ -28,6 +29,9 @@ export interface TabQuestion {
   closed_at: string | null;
   injected_at: string | null;
   created_at: string;
+  /** A suggested answer from a similar past decision, offered before the person picks (spec
+   * 2026-09-26 §4); never set on a `permission` or `suggestion` row. */
+  suggestion: TabQuestionSuggestion | null;
 }
 
 export interface OpenTabQuestionInput {
@@ -75,6 +79,7 @@ const mapQuestion = (q: Row): TabQuestion => ({
   closed_at: iso(q.closedAt),
   injected_at: iso(q.injectedAt),
   created_at: q.createdAt.toISOString(),
+  suggestion: (q.suggestion ?? null) as unknown as TabQuestionSuggestion | null,
 });
 
 /**
@@ -255,6 +260,19 @@ export class TabQuestionsRepository {
          SET "status" = CASE WHEN "status" = 'open' THEN 'expired' ELSE "status" END,
              "closed_at" = ${now}
        WHERE "id" = ${id} AND "closed_at" IS NULL`;
+    if (count === 0) return undefined;
+    const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
+    return row ? mapQuestion(row) : undefined;
+  }
+
+  /**
+   * Attaches a decision-memory suggestion to a still-open `choice` question, before its card is
+   * announced (spec 2026-09-26 §4). Conditional on `status: 'open'`, like `closeOne`: a card the tab
+   * already closed (raced by another hook event) gets no suggestion, and the caller falls back to
+   * showing the question without one rather than failing the whole open.
+   */
+  async setSuggestion(id: string, suggestion: TabQuestionSuggestion): Promise<TabQuestion | undefined> {
+    const { count } = await this.db.tabQuestion.updateMany({ where: { id, status: 'open' }, data: { suggestion: suggestion as never } });
     if (count === 0) return undefined;
     const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
     return row ? mapQuestion(row) : undefined;

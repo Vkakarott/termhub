@@ -1,3 +1,4 @@
+import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import type { SuggestionPayload, TabRowKind } from '../../chat/tab-question-payload.js';
 import type { Repositories } from './index.js';
 import { PERMISSION_QUEUED, type TabQuestion, type TabQuestionStatus, type TabRowAnswer, type TabRowPayload } from './tab-questions.js';
@@ -16,6 +17,9 @@ export interface TabQuestionView {
   created_at: string;
   answered_at: string | null;
   closed_at: string | null;
+  /** Only while the card is still `open` (spec 2026-09-26 §4): answering, closing or the tab moving
+   * on drops it, so a screen that reads the row later never resurfaces a stale suggestion. */
+  suggestion: TabQuestionSuggestion | null;
 }
 
 /** Names resolved owner-scoped, in one batched read: a tab the user cannot see names nothing. */
@@ -43,6 +47,7 @@ export function toTabQuestionView(r: TabQuestion, tabName: string | null): TabQu
     created_at: r.created_at,
     answered_at: r.answered_at,
     closed_at: r.closed_at,
+    suggestion: r.status === 'open' ? r.suggestion : null,
   };
 }
 

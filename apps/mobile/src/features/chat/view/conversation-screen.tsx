@@ -73,6 +73,7 @@ export function ConversationScreen() {
   const loadTabQuestionScreen = useChatStore((s) => s.loadTabQuestionScreen);
   const busySuggestionIds = useChatStore((s) => s.busySuggestionIds);
   const suggestionErrors = useChatStore((s) => s.suggestionErrors);
+  const forgetDecision = useChatStore((s) => s.forgetDecision);
   const sendTabSuggestion = useChatStore((s) => s.sendTabSuggestion);
   const dismissTabSuggestion = useChatStore((s) => s.dismissTabSuggestion);
   const reset = useChatStore((s) => s.reset);
@@ -109,6 +110,7 @@ export function ConversationScreen() {
   const onDecideMany = useCallback((d: { id: string; decision: 'approve' | 'deny' }[]) => void decideMany(d), [decideMany]);
   const onRevoke = useCallback((grantId: string) => void revokeGrant(grantId), [revokeGrant]);
   const onAnswer = useCallback((id: string, body: TTabQuestionAnswerBody) => void answerTabQuestion(id, body), [answerTabQuestion]);
+  const onForget = useCallback((decisionId: string) => forgetDecision(decisionId), [forgetDecision]);
   const onSendSuggestion = useCallback((id: string, text: string) => void sendTabSuggestion(id, text), [sendTabSuggestion]);
   const onDismissSuggestion = useCallback((id: string) => void dismissTabSuggestion(id), [dismissTabSuggestion]);
   const timeline = useMemo(() => chatTimeline(messages ?? [], actions ?? [], tabQuestions ?? [], tabSuggestions ?? []), [messages, actions, tabQuestions, tabSuggestions]);
@@ -141,6 +143,7 @@ export function ConversationScreen() {
           error={questionErrors[item.question.id] ?? null}
           onAnswer={onAnswer}
           loadScreen={loadTabQuestionScreen}
+          onForget={onForget}
         />
       ) : item.kind === 'message' ? (
         <MessageRow message={item.message} />
@@ -149,7 +152,7 @@ export function ConversationScreen() {
       ) : (
         <ActionCard action={item.action} busy={decidingId !== null} onDecide={onDecide} grant={grantIndex.get(item.action.id)} revoking={revokingId !== null} onRevoke={onRevoke} />
       ),
-    [answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, decidingId, grantIndex, loadTabQuestionScreen, onAnswer, onDecide, onDecideMany, onShowSeparately, onDismissSuggestion, onRevoke, onSendSuggestion, revokingId],
+    [answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, decidingId, grantIndex, loadTabQuestionScreen, onAnswer, onDecide, onForget, onDecideMany, onShowSeparately, onDismissSuggestion, onRevoke, onSendSuggestion, revokingId],
   );
   const extra = useMemo(
     () => ({ decidingId, grantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors }),

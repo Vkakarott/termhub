@@ -6,6 +6,7 @@ import { decisionProof } from '../../../crypto/pin';
 import { randomId } from '../../../crypto/random';
 import {
   chatGrantListQuery,
+  chatMemoryPatchBody,
   isTabGrantable,
   kindFromNameAndMime,
   mobileBatchDecisionBody,
@@ -20,11 +21,12 @@ import {
   type TChatGrant,
   type TChatGrantListItem,
   type TChatHostState,
+  type TChatMemory,
   type TTabQuestion,
   type TTabSuggestion,
 } from '../../contract';
 import type { MockRouter } from '../router';
-import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDevice, type MockGrant, type MockMessage, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
+import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
 import { pushConfirmationNotification, pushReplyNotification } from './notifications';
 
 const USER_ID = 'u1';
@@ -415,6 +417,25 @@ function grantListItem(state: MockState, g: MockGrant, now: number): TChatGrantL
   };
 }
 
+// --- chat memory (spec 2026-09-26 §4.6) -----------------------------------------------------
+
+/** 50 per page, same as the server's `DECISIONS_PAGE` (`apps/server/src/routes/chat-memory.ts`). */
+const DECISIONS_PAGE = 50;
+
+/** `q` matches the question, the header, the answer (labels or free text) or the project name —
+ * mirrors `repos.chatDecisions.listForUser`'s `ILIKE` over the same columns. */
+function matchesDecisionQuery(d: MockDecision, q: string): boolean {
+  const needle = q.toLowerCase();
+  const answer = d.answer.text ?? d.answer.labels.join(' ');
+  return [d.question, d.header, answer, d.project_name ?? ''].some((s) => s.toLowerCase().includes(needle));
+}
+
+function chatMemoryView(state: MockState): TChatMemory {
+  // `available` has no fixture for "false" (no server config to mirror in the mock) — every mock
+  // run behaves as if embeddings were configured, like a dev server normally would be.
+  return { enabled: state.chatMemoryEnabled, available: true, count: state.decisions.length };
+}
+
 // --- routes ---------------------------------------------------------------------------------
 
 /** An approval's PIN check, shared by the single and the batch decision routes. It submits a PIN
@@ -782,5 +803,40 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       broadcast(state, { type: 'tab_suggestion_closed', user_id: USER_ID, conversation_id: suggestion.conversation_id, suggestion: tabSuggestionView(suggestion) });
     }
     return { status: 200, body: { tab_suggestion: tabSuggestionView(suggestion) } };
+  });
+
+  // --- "Memória do chat" (spec 2026-09-26 §4.6/§5.2) --------------------------------------------
+
+  router.route('GET', '/api/m/v1/chat/decisions', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
+    const q = ctx.query.q?.trim();
+    let list = [...state.decisions].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)); // newest first
+    if (q) list = list.filter((d) => matchesDecisionQuery(d, q));
+    const cursor = ctx.query.cursor;
+    const start = cursor ? Math.max(0, list.findIndex((d) => d.id === cursor) + 1) : 0;
+    const decisions = list.slice(start, start + DECISIONS_PAGE);
+    const next_cursor = start + DECISIONS_PAGE < list.length ? (decisions[decisions.length - 1]?.id ?? null) : null;
+    return { status: 200, body: { decisions, next_cursor } };
+  });
+
+  /** Idempotent and silent about whether `id` ever existed (the server scopes the delete to the
+   * requester in SQL, so there is nothing left to distinguish there either): always 204. */
+  router.route('DELETE', '/api/m/v1/chat/decisions/:id', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'DELETE', htu: ctx.htu, now: ctx.now() });
+    const idx = state.decisions.findIndex((d) => d.id === ctx.params.id);
+    if (idx !== -1) state.decisions.splice(idx, 1);
+    return { status: 204, body: {} };
+  });
+
+  router.route('GET', '/api/m/v1/chat/memory', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
+    return { status: 200, body: chatMemoryView(state) };
+  });
+
+  router.route('PATCH', '/api/m/v1/chat/memory', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'PATCH', htu: ctx.htu, now: ctx.now() });
+    const body = chatMemoryPatchBody.parse(ctx.body);
+    state.chatMemoryEnabled = body.enabled;
+    return { status: 200, body: chatMemoryView(state) };
   });
 }

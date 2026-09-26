@@ -857,6 +857,22 @@ export interface PermissionAnswer {
   text?: string;
 }
 export type TabQuestionAnswer = ChoiceAnswer | PermissionAnswer;
+
+/** One past decision offered as a pre-selected answer to a similar new question (spec 2026-09-26 chat
+ * decision memory §4.2/§5.1). `selected` is already expressed in the *new* question's own option
+ * indexes (the mapping is done server-side); `text` is set instead for a free-text past answer. */
+export interface TabQuestionSuggestionItem {
+  question_index: number;
+  decision_id: string;
+  similarity: number;
+  selected: number[];
+  text?: string;
+  source: { question: string; project_name: string | null; answered_at: string };
+}
+export interface TabQuestionSuggestion {
+  items: TabQuestionSuggestionItem[];
+}
+
 interface TabQuestionBase {
   id: string;
   tab_id: string;
@@ -867,6 +883,8 @@ interface TabQuestionBase {
   created_at: string;
   answered_at: string | null;
   closed_at: string | null;
+  /** Only while the card is `open`; absent from a server that predates it, so treat undefined as null. */
+  suggestion?: TabQuestionSuggestion | null;
 }
 export type TabQuestionChoice = TabQuestionBase & { kind: 'choice'; payload: { questions: TabQuestionItem[] }; answer: ChoiceAnswer | null };
 export type TabQuestionPermission = TabQuestionBase & { kind: 'permission'; payload: { tool_name: string }; answer: PermissionAnswer | null };
@@ -875,6 +893,38 @@ export type TabQuestionPermission = TabQuestionBase & { kind: 'permission'; payl
  * answered from there. Plain text only — never render any of it as HTML: it is what an agent wrote.
  */
 export type TabQuestion = TabQuestionChoice | TabQuestionPermission;
+
+/** "Memória do chat" (spec 2026-09-26 §4.6/§5.2): one remembered decision, as the list shows it — never
+ * the embedding, the owning user, the conversation or the tab question it came from. */
+export interface ChatDecisionOption {
+  label: string;
+  description: string;
+}
+export interface ChatDecisionAnswer {
+  labels: string[];
+  text?: string;
+}
+export interface ChatDecision {
+  id: string;
+  project_id: string | null;
+  project_name: string | null;
+  header: string;
+  question: string;
+  options: ChatDecisionOption[];
+  multi_select: boolean;
+  answer: ChatDecisionAnswer;
+  suggested_count: number;
+  accepted_count: number;
+  created_at: string;
+}
+/** `GET /chat/memory`: the suggestion switch, whether embeddings are configured on this server at all
+ * (`available: false` hides the switch rather than offering one that can never do anything), and how
+ * many decisions are remembered. */
+export interface ChatMemory {
+  enabled: boolean;
+  available: boolean;
+  count: number;
+}
 
 export type TabSuggestionStatus = TabQuestionStatus | 'dismissed';
 /**
