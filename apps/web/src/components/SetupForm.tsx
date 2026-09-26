@@ -10,6 +10,7 @@ import {
   type IntegrationProvider,
   type Project,
   type ProjectSetupData,
+  type TicketSource,
 } from '../lib/types';
 
 interface Props {
@@ -86,7 +87,10 @@ export function SetupForm({ project }: Props) {
     setSyncMsg('sincronizando…');
     try {
       const r = await api.setup.syncTickets(project.id);
-      setSyncMsg(`${r.fetched} ticket(s): ${r.created} novo(s), ${r.updated} atualizado(s)`);
+      const ok = r.sources.filter((s) => !s.error);
+      const sum = (k: 'fetched' | 'created' | 'updated' | 'removed') => ok.reduce((n, s) => n + (s[k] ?? 0), 0);
+      const errors = r.sources.filter((s) => s.error).map((s) => `${s.scope}: ${s.error}`);
+      setSyncMsg([`${sum('fetched')} ticket(s) nas fontes · ${sum('created')} novo(s) · ${sum('updated')} atualizado(s) · ${sum('removed')} removido(s)`, ...errors].join(' · '));
       void refresh();
     } catch (e) {
       setSyncMsg(e instanceof ApiError ? e.message : 'falha no sync');
@@ -94,10 +98,14 @@ export function SetupForm({ project }: Props) {
   };
 
   const byProvider = (p: IntegrationProvider) => integrations.filter((i) => i.provider === p);
-  const ticketsProv = data.tickets?.provider;
-  const ticketOptions = data.tickets && conn[data.tickets.integration_id];
-  const scopeDef = ticketsProv ? SCOPE_LABEL[ticketsProv] : null;
   const caps = runnerMachine?.capabilities ?? [];
+
+  const sources = data.ticket_sources;
+  const setSources = (next: TicketSource[]) => patch('ticket_sources', next);
+  const updateSource = (i: number, p: Partial<TicketSource>) => setSources(sources.map((s, j) => (j === i ? { ...s, ...p } : s)));
+  const identity = (s: TicketSource) => `${s.integration_id}\u0000${s.scope.trim()}`;
+  const duplicate = (i: number) => sources.some((s, j) => j < i && identity(s) === identity(sources[i]) && sources[i].scope.trim() !== '');
+  const anyDuplicate = sources.some((_, i) => duplicate(i));
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -155,66 +163,92 @@ export function SetupForm({ project }: Props) {
         )}
       </Card>
 
-      <Card title="Tickets" hint="Fonte das tarefas: os tickets que você escolher em Tickets entram no backlog do épico padrão.">
-        <Row label="Fonte">
-          <select
-            className="input"
-            value={data.tickets ? data.tickets.integration_id : ''}
-            onChange={(e) => {
-              const i = integrations.find((x) => x.id === e.target.value);
-              patch('tickets', i ? { provider: i.provider, integration_id: i.id, scope: '', filter: null, include_done: false, sync_minutes: 0 } : null);
-            }}
-          >
-            <option value="">— manual (sem sync) —</option>
-            {integrations.map((i) => (
-              <option key={i.id} value={i.id}>
-                {PROVIDER_LABEL[i.provider]} · {i.name}
-              </option>
-            ))}
-          </select>
-        </Row>
-        {data.tickets && scopeDef && (
-          <>
-            <Row label={scopeDef.label}>
-              <div className="flex gap-2">
-                <input className="input font-mono" list={`scope-${project.id}`} value={data.tickets.scope} onChange={(e) => patch('tickets', { ...data.tickets!, scope: e.target.value })} placeholder={scopeDef.placeholder} />
-                <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => void loadOptions(data.tickets!.integration_id)}>
-                  {ticketOptions === 'loading' ? '…' : 'listar'}
+      <Card title="Tickets" hint="Fontes das tarefas: tickets abertos de cada fonte aparecem em Tickets; os que você escolher entram no backlog do épico padrão.">
+        {sources.map((s, i) => {
+          const scopeDef = SCOPE_LABEL[s.provider];
+          const scopeOptions = conn[s.integration_id];
+          return (
+            <div key={i} className="space-y-2 rounded-md border border-line p-3">
+              <Row label="Integração">
+                <select
+                  className="input"
+                  value={s.integration_id}
+                  onChange={(e) => {
+                    const integ = integrations.find((x) => x.id === e.target.value);
+                    if (integ) updateSource(i, { provider: integ.provider, integration_id: integ.id, scope: '' });
+                  }}
+                >
+                  {integrations.map((integ) => (
+                    <option key={integ.id} value={integ.id}>
+                      {PROVIDER_LABEL[integ.provider]} · {integ.name}
+                    </option>
+                  ))}
+                </select>
+              </Row>
+              <Row label={scopeDef.label}>
+                <div className="flex gap-2">
+                  <input
+                    className="input font-mono"
+                    list={`scope-${project.id}-${i}`}
+                    value={s.scope}
+                    onChange={(e) => updateSource(i, { scope: e.target.value })}
+                    placeholder={scopeDef.placeholder}
+                  />
+                  <button type="button" className="btn-ghost shrink-0 text-xs" onClick={() => void loadOptions(s.integration_id)}>
+                    {scopeOptions === 'loading' ? '…' : 'listar'}
+                  </button>
+                </div>
+                <datalist id={`scope-${project.id}-${i}`}>
+                  {scopeOptions && scopeOptions !== 'loading' && scopeOptions.ok
+                    ? scopeOptions.options?.[scopeDef.optionsKey]?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)
+                    : null}
+                </datalist>
+                {scopeOptions && scopeOptions !== 'loading' && !scopeOptions.ok && <p className="mt-1 text-xs text-danger">{scopeOptions.error}</p>}
+                {duplicate(i) && <p className="mt-1 text-xs text-danger">Fonte repetida</p>}
+              </Row>
+              <Row label={scopeDef.filterLabel} hint={scopeDef.filterHint}>
+                <input className="input" value={s.filter ?? ''} onChange={(e) => updateSource(i, { filter: e.target.value || null })} />
+              </Row>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-fg-muted">
+                  Sync automático a cada
+                  <input
+                    className="input w-16 py-1 text-center"
+                    inputMode="numeric"
+                    value={s.sync_minutes}
+                    onChange={(e) => updateSource(i, { sync_minutes: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                  min <span className="text-fg-dim">(0 = manual)</span>
+                </label>
+                <button type="button" className="btn-ghost text-xs text-danger" onClick={() => setSources(sources.filter((_, j) => j !== i))}>
+                  Remover
                 </button>
               </div>
-              <datalist id={`scope-${project.id}`}>
-                {ticketOptions && ticketOptions !== 'loading' && ticketOptions.ok
-                  ? ticketOptions.options?.[scopeDef.optionsKey]?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)
-                  : null}
-              </datalist>
-              {ticketOptions && ticketOptions !== 'loading' && !ticketOptions.ok && <p className="mt-1 text-xs text-danger">{ticketOptions.error}</p>}
-            </Row>
-            <Row label={scopeDef.filterLabel} hint={scopeDef.filterHint}>
-              <input className="input" value={data.tickets.filter ?? ''} onChange={(e) => patch('tickets', { ...data.tickets!, filter: e.target.value || null })} />
-            </Row>
-            <div className="flex flex-wrap items-center gap-4">
-              <Check checked={data.tickets.include_done} onChange={(v) => patch('tickets', { ...data.tickets!, include_done: v })}>
-                Incluir concluídos
-              </Check>
-              <label className="flex items-center gap-2 text-sm text-fg-muted">
-                Sync automático a cada
-                <input
-                  className="input w-16 py-1 text-center"
-                  inputMode="numeric"
-                  value={data.tickets.sync_minutes}
-                  onChange={(e) => patch('tickets', { ...data.tickets!, sync_minutes: Math.max(0, Number(e.target.value) || 0) })}
-                />
-                min <span className="text-fg-dim">(0 = manual)</span>
-              </label>
             </div>
-            <div className="flex items-center gap-3">
-              <button type="button" className="btn-ghost border border-line text-xs" onClick={() => void sync()} disabled={dirty}>
-                Sincronizar agora
-              </button>
-              {dirty && <span className="text-xs text-fg-dim">salve o setup antes de sincronizar</span>}
-              {syncMsg && <span className="text-xs text-fg-muted">{syncMsg}</span>}
-            </div>
-          </>
+          );
+        })}
+        {integrations.length === 0 ? (
+          <Empty>Cadastre uma integração em Integrações.</Empty>
+        ) : (
+          <button
+            type="button"
+            className="btn-ghost border border-line text-xs"
+            disabled={integrations.length === 0}
+            onClick={() =>
+              setSources([...sources, { provider: integrations[0].provider, integration_id: integrations[0].id, scope: '', filter: null, sync_minutes: 0 }])
+            }
+          >
+            Adicionar fonte
+          </button>
+        )}
+        {sources.length > 0 && (
+          <div className="flex items-center gap-3">
+            <button type="button" className="btn-ghost border border-line text-xs" onClick={() => void sync()} disabled={dirty}>
+              Sincronizar agora
+            </button>
+            {dirty && <span className="text-xs text-fg-dim">salve o setup antes de sincronizar</span>}
+            {syncMsg && <span className="text-xs text-fg-muted">{syncMsg}</span>}
+          </div>
         )}
       </Card>
 
@@ -324,7 +358,7 @@ export function SetupForm({ project }: Props) {
       </Card>
 
       <div className="sticky bottom-0 flex items-center gap-3 border-t border-line bg-bg pb-6 pt-3">
-        <button type="button" className="btn-primary" onClick={() => void save()} disabled={busy || !dirty}>
+        <button type="button" className="btn-primary" onClick={() => void save()} disabled={busy || !dirty || anyDuplicate}>
           Salvar setup
         </button>
         {dirty && !msg && <span className="text-xs text-fg-dim">alterações não salvas</span>}

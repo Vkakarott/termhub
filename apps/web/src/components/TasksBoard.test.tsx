@@ -136,6 +136,19 @@ describe('TasksBoard — columns, cards and filter', () => {
     await waitFor(() => expect(moveMock).toHaveBeenCalledWith('t1', { column_id: 'c2' }, 0));
     expect(within(screen.getByRole('region', { name: 'Em revisão' })).getByText('t1')).toBeInTheDocument();
   });
+
+  it('shows a legacy GitHub link\'s key as a subtitle under the title, without repeating it in the title', async () => {
+    listMock.mockResolvedValue(
+      board([
+        epic('e1', 'Geral', 1),
+        task({ id: 'a', title: 'Login quebra', external_ref: { provider: 'github', id: '4', identifier: '#4', url: 'https://x', state: 'open', status: 'todo', scope: 'acme/api' } }),
+      ]),
+    );
+    mount();
+    expect(await screen.findByText('Login quebra')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'acme/api#4' });
+    expect(link).toHaveAttribute('href', 'https://x');
+  });
 });
 
 describe('TasksBoard — drag and drop', () => {

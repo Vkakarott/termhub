@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { canHaveSubtasks, cardPath, typeOptions } from '../lib/board';
+import { ticketKey } from '../lib/ticket-link';
 import { PROVIDER_LABEL, TASK_STATUS_LABEL, TASK_TYPE_LABEL, type Task, type TaskColumn, type TaskPatchInput, type TaskType } from '../lib/types';
 import { Modal } from './Modal';
 import { SubtaskList } from './SubtaskList';
@@ -128,7 +129,7 @@ export function TaskEditor({ task, columns, epics, terminalHref, onClose, onSave
           <div className="rounded-md border border-line bg-bg p-3 text-xs">
             <div className="flex items-center gap-2">
               <a href={ref.url} target="_blank" rel="noreferrer" className="rounded bg-accent/15 px-1 font-mono text-accent hover:bg-accent/25">
-                {ref.identifier}
+                {ticketKey(ref)}
               </a>
               <span className="text-fg-muted">
                 {PROVIDER_LABEL[ref.provider]}: <strong className="text-fg">{ref.state}</strong>

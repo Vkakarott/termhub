@@ -255,8 +255,9 @@ export interface Ticket {
   project_id: string;
   integration_id: string;
   provider: IntegrationProvider;
-  external_key: string;
-  identifier: string;
+  sync_key: string;
+  key: string;
+  scope: string | null;
   title: string;
   description: string | null;
   url: string;
@@ -266,6 +267,28 @@ export interface Ticket {
   task_id: string | null;
   synced_at: string;
   created_at: string;
+}
+
+/** One ticket source of a project's setup: identity is (integration_id, scope). Open tickets only. */
+export interface TicketSource {
+  provider: IntegrationProvider;
+  integration_id: string;
+  scope: string;
+  filter: string | null;
+  sync_minutes: number;
+}
+
+/** One source's outcome of POST /projects/:id/tickets/sync; absent counters/flags mean "not applicable". */
+export interface SourceSync {
+  provider: IntegrationProvider;
+  integration_id: string;
+  scope: string;
+  fetched?: number;
+  created?: number;
+  updated?: number;
+  removed?: number;
+  truncated?: boolean;
+  error?: string;
 }
 
 export interface ExternalRef {
@@ -281,6 +304,10 @@ export interface ExternalRef {
   priority?: unknown;
   assignee?: string | null;
   labels?: string[];
+  /** New links carry the ticket key directly; legacy GitHub links rebuild it from `identifier` + `scope`. */
+  key?: string;
+  provider_id?: string;
+  integration_id?: string;
 }
 
 export type IntegrationProvider = 'github' | 'linear' | 'jira';
@@ -312,6 +339,7 @@ export interface ProjectSetupData {
     branch_pattern: string;
     draft_pr: boolean;
   } | null;
+  /** server-owned mirror of ticket_sources[0] (with include_done: false), or null; send it back as received */
   tickets: {
     provider: IntegrationProvider;
     integration_id: string;
@@ -320,6 +348,7 @@ export interface ProjectSetupData {
     include_done: boolean;
     sync_minutes: number;
   } | null;
+  ticket_sources: TicketSource[];
   runner: { machine_id: string | null; cwd: string | null; setup_command: string | null; worktree: boolean };
   agent: { command: string; plugins: string[]; model: string | null; extra_args: string | null };
   verify: { type: 'none' | 'ios-simulator' | 'web-screenshot' | 'command'; target: string | null; build_command: string | null };
