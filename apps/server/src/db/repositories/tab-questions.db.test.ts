@@ -1,5 +1,6 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { ChatRepository } from './chat.js';
@@ -81,6 +82,19 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect(await repo.markFailed(question.id, 'MACHINE_OFFLINE')).toBeUndefined();
     await repo.claim(question.id, userId, { answers: [{ selected: [0] }] });
     expect(await repo.markFailed(question.id, 'MACHINE_OFFLINE')).toMatchObject({ status: 'failed', error_code: 'MACHINE_OFFLINE' });
+  });
+
+  it('attaches a suggestion to a still-open question, and only to one still open', async () => {
+    const { question } = await open('t14');
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: newId(), similarity: 0.9, selected: [0], source: { question: 'Qual cor?', project_name: 'proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    const withSuggestion = await repo.setSuggestion(question.id, suggestion);
+    expect(withSuggestion).toMatchObject({ id: question.id, suggestion });
+    expect((await repo.findByIdForUser(question.id, userId))?.suggestion).toEqual(suggestion);
+
+    await repo.claim(question.id, userId, { answers: [{ selected: [0] }] });
+    expect(await repo.setSuggestion(question.id, suggestion)).toBeUndefined(); // no longer open
   });
 
   it('closing a tab: an open question expires, an answered one keeps its status and gets closed_at', async () => {

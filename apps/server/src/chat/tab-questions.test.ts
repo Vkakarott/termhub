@@ -5,13 +5,17 @@ import type { Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import type { Interpreted } from '../monitor/state.js';
 import { chatBus, type ChatEvent } from './bus.js';
+import type { TabQuestionSuggestion } from './decision-text.js';
+import { suggestFor } from './decision-memory.js';
 import { closesOpenQuestion, expireOrphanTabQuestions, noteHookEvent, openTabQuestion, publishTabQuestions, startTabQuestionExpiry } from './tab-questions.js';
+
+vi.mock('./decision-memory.js', () => ({ suggestFor: vi.fn(async () => null) }));
 
 const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'api' } as Tab;
 const payload = { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] };
 const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload, tool_use_id: 'toolu_1',
-  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', ...over,
+  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
 });
 const choice: Interpreted = { kind: 'working', text: null, activity: 'planning', verb: null, meta: { event: 'PreToolUse', tool: 'AskUserQuestion' }, question: { kind: 'choice', payload, tool_use_id: 'toolu_1' } };
 const log = () => ({ info: vi.fn(), warn: vi.fn() });
@@ -25,6 +29,7 @@ function fakeRepos(opts: { conversation?: { id: string; user_id: string } | null
     tabQuestions: {
       open: vi.fn(async () => ({ question: opts.opened === undefined ? row() : opts.opened, closed: opts.closed ?? [] })),
       closeForTab: vi.fn(async () => opts.closed ?? []),
+      setSuggestion: vi.fn(async (_id: string, s: TabQuestionSuggestion) => ({ ...(opts.opened ?? row()), suggestion: s })),
     },
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], owner: string) => (owner === 'u1' && ids.includes('t1') ? [tab] : [])) },
   };
@@ -92,6 +97,31 @@ describe('openTabQuestion', () => {
     const repos = fakeRepos({ opened: null, closed: [row({ id: 'q0', kind: 'permission', payload: { tool_name: 'Bash' }, status: 'answered_in_tab' })] });
     expect(await openTabQuestion(asRepos(repos), tab, { kind: 'permission', payload: { tool_name: 'Edit' }, tool_use_id: null })).toBeNull();
     expect(events.map((e) => [e.type, 'question' in e ? e.question.id : null])).toEqual([['tab_question_closed', 'q0']]);
+  });
+
+  it('attaches the suggestion before announcing the card', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.9, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q).toEqual({ ...opened, suggestion });
+    expect(repos.tabQuestions.setSuggestion).toHaveBeenCalledWith('q1', suggestion);
+    const tqEvent = events.find((e) => e.type === 'tab_question');
+    expect(tqEvent && 'question' in tqEvent ? tqEvent.question.suggestion : undefined).toEqual(suggestion);
+  });
+
+  it('publishes without a suggestion when suggestFor gives null', async () => {
+    vi.mocked(suggestFor).mockResolvedValueOnce(null);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q).toEqual(opened);
+    expect(repos.tabQuestions.setSuggestion).not.toHaveBeenCalled();
+    const tqEvent = events.find((e) => e.type === 'tab_question');
+    expect(tqEvent && 'question' in tqEvent ? tqEvent.question.suggestion : undefined).toBeNull();
   });
 });
 

@@ -901,7 +901,7 @@ it('resumeAfterDecision appends the grant note once when any approval of a batch
 const answeredQuestion = (): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice',
   payload: { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] },
-  tool_use_id: 'toolu_1', status: 'answered', answer: { answers: [{ selected: [1] }] }, error_code: null, answered_by: 'u1', answered_at: '2026-09-25T12:01:00.000Z', closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z',
+  tool_use_id: 'toolu_1', status: 'answered', answer: { answers: [{ selected: [1] }] }, error_code: null, answered_by: 'u1', answered_at: '2026-09-25T12:01:00.000Z', closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null,
 });
 
 it('tells the next run what the chat answered in the tabs, once, without storing it as the person\'s message', async () => {

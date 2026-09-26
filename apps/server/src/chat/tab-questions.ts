@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { TabQuestion, TabQuestionCloseStatus } from '../db/repositories/tab-questions.js';
 import { describeTabQuestions, type TabQuestionView } from '../db/repositories/tab-questions-view.js';
@@ -6,8 +7,13 @@ import type { Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import type { Interpreted } from '../monitor/state.js';
 import { chatBus } from './bus.js';
+import { suggestFor } from './decision-memory.js';
+import { defaultEmbedder, type Embedder } from './embeddings.js';
 import { failureLabel } from './service.js';
 import type { ChoicePayload, TabQuestionInput } from './tab-question-payload.js';
+
+/** Never fails to open a card over a logging concern: the default when a caller has none of its own. */
+const silentLog: Pick<FastifyBaseLogger, 'info' | 'warn'> = { info() {}, warn() {} };
 
 export type TabQuestionEventType = 'tab_question' | 'tab_question_answered' | 'tab_question_closed';
 
@@ -58,17 +64,36 @@ export async function closeTabQuestions(repos: Repositories, tabId: string, stat
  * question stays in the tab, as before — but the same `open` runs with no conversation (spec 2026-09-26
  * §4.1): under the tab's lock, whatever the tab had open still closes, and a permission queue is marked
  * or kept exactly as with a card. A permission queued behind an open one opens nothing either.
+ *
+ * A fresh `choice` card is offered a suggestion from the person's past decisions (spec 2026-09-26 §4)
+ * before it is announced — best effort, and never blocks the card on it: a suggestion that fails to
+ * attach (the row raced closed, a DB hiccup) still announces the plain question. `deps` lets tests and
+ * the ingest path (`noteHookEvent`) pass their own embedder/logger; left out, it is `defaultEmbedder()`
+ * (null without EMBED_URL) and a no-op logger.
  */
-export async function openTabQuestion(repos: Repositories, tab: Pick<Tab, 'id' | 'project_id'>, input: TabQuestionInput): Promise<TabQuestion | null> {
+export async function openTabQuestion(
+  repos: Repositories,
+  tab: Pick<Tab, 'id' | 'project_id'>,
+  input: TabQuestionInput,
+  deps?: { embedder?: Embedder | null; log?: Pick<FastifyBaseLogger, 'info' | 'warn'> },
+): Promise<TabQuestion | null> {
   // Only the owner's chat: another user's conversation left on the project (a former owner, or an
   // admin's) must not receive the card, which would let them answer a tab they no longer own.
   const owner = (await repos.projects.findById(tab.project_id))?.owner_id;
   const conversation = owner ? await repos.chat.findLatestActiveForProject(tab.project_id, owner) : undefined;
   const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation?.id ?? null, kind: input.kind, payload: input.payload, tool_use_id: input.tool_use_id });
   await publishTabQuestions(repos, 'tab_question_closed', closed);
-  if (!question) return null;
-  await publishTabQuestions(repos, 'tab_question', [question]);
-  return question;
+  let shown = question;
+  if (question?.kind === 'choice') {
+    const suggestion = await suggestFor(repos, question, {
+      embedder: deps?.embedder !== undefined ? deps.embedder : defaultEmbedder(),
+      threshold: config.decisionSuggestThreshold,
+      log: deps?.log ?? silentLog,
+    });
+    if (suggestion) shown = (await repos.tabQuestions.setSuggestion(question.id, suggestion).catch(() => undefined)) ?? { ...question, suggestion };
+  }
+  if (shown) await publishTabQuestions(repos, 'tab_question', [shown]);
+  return shown;
 }
 
 /**
@@ -79,7 +104,7 @@ export async function openTabQuestion(repos: Repositories, tab: Pick<Tab, 'id' |
 export async function noteHookEvent(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>, tab: Tab, next: Interpreted): Promise<void> {
   try {
     if (next.question) {
-      const q = await openTabQuestion(repos, tab, next.question);
+      const q = await openTabQuestion(repos, tab, next.question, { log });
       if (q) log.info({ tabId: tab.id, tabQuestionId: q.id, kind: q.kind, questions: q.kind === 'choice' ? (q.payload as ChoicePayload).questions.length : 1 }, 'tab question opened');
     } else if (closesOpenQuestion(next)) {
       await closeTabQuestions(repos, tab.id, 'answered_in_tab');

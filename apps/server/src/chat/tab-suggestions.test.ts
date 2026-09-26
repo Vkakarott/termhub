@@ -19,7 +19,7 @@ const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'api', kind: '
 const machine = { id: 'm1', type: 'agent', owner_id: 'u1' };
 const opened = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 's1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'suggestion', payload: { text: 'commit it' }, tool_use_id: null,
-  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', ...over,
+  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
 });
 
 function fakeRepos(opts: { tab?: object | undefined; conversation?: object | null } = {}) {

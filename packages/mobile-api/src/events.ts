@@ -75,6 +75,23 @@ export const chatGrantListQuery = z.object({
 export const tabQuestionOption = z.object({ label: z.string(), description: z.string(), recommended: z.boolean() });
 export const tabQuestionItem = z.object({ question: z.string(), header: z.string(), multi_select: z.boolean(), options: z.array(tabQuestionOption) });
 export const tabQuestionStatus = z.enum(['open', 'answered', 'answered_in_tab', 'expired', 'failed']);
+
+/** Mirrors `TabQuestionSuggestion` (apps/server/src/chat/decision-text.ts): a pre-selected answer from
+ * a similar past decision, offered before the person picks (spec 2026-09-26 §4) — suggest only, never
+ * sent on its own. */
+export const tabQuestionSuggestionSchema = z.object({
+  items: z.array(
+    z.object({
+      question_index: z.number().int(),
+      decision_id: z.string(),
+      similarity: z.number(),
+      selected: z.array(z.number().int()),
+      text: z.string().optional(),
+      source: z.object({ question: z.string(), project_name: z.string().nullable(), answered_at: z.string() }),
+    }),
+  ),
+});
+
 const tabQuestionCommon = {
   id: z.string(),
   tab_id: z.string(),
@@ -84,6 +101,8 @@ const tabQuestionCommon = {
   created_at: z.string(),
   answered_at: z.string().nullable(),
   closed_at: z.string().nullable(),
+  /** Only while the card is `open`; absent from an older server. */
+  suggestion: tabQuestionSuggestionSchema.nullable().optional(),
 };
 export const tabQuestionSchema = z.discriminatedUnion('kind', [
   z.object({
