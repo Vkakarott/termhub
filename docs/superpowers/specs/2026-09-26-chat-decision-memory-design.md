@@ -145,8 +145,8 @@ start and every 10 minutes:
 
 - **Backfill:** answered `choice` rows of `tab_questions` with no decision yet → decisions (same
   code as §4.3 step 1).
-- **Embed:** decisions with `embedding IS NULL` (or another `embed_model` than the service reports),
-  in batches of 32.
+- **Embed:** decisions with `embedding IS NULL`, in batches of 32. (Re-embedding after a model change
+  is out of scope; every row records its `embed_model` so it can be done later.)
 
 Skipped entirely without embeddings; errors are logged by count.
 
@@ -197,8 +197,8 @@ Answered/closed cards show no suggestion line.
   com base nas minhas decisões", a note when embeddings are unavailable ("Sugestões indisponíveis
   neste servidor"), a search field, and the list (question, answer, project, date,
   "sugerida N× · aceita M×", "Esquecer" with confirm), paginated.
-- Mobile: the same screen reached from the chat screen's header menu, same content, "Esquecer" with
-  a native confirm. No PIN (consistent with TER-56 cards).
+- Mobile: the same screen (route `/chat-memory`) reached from a "Memória do chat" row in the Ajustes
+  tab, same content, "Esquecer" with a native confirm. No PIN (consistent with TER-56 cards).
 
 ## 6. Testing
 
