@@ -1,4 +1,5 @@
 import type { ConnectionInfo, ExternalTicket, TicketProvider, TicketSourceConfig } from './types.js';
+import { collectPages } from './paginate.js';
 
 /** Jira Cloud: config = { baseUrl: "https://xxx.atlassian.net", email }, secret = API token. */
 function auth(config: Record<string, unknown>, token: string) {
@@ -57,52 +58,44 @@ export const jiraProvider: TicketProvider = {
   },
 
   async listTickets(secret, config, source: TicketSourceConfig) {
-    const parts = [`project = "${source.scope}"`];
-    if (!source.include_done) parts.push('statusCategory != Done');
+    const parts = [`project = "${source.scope}"`, 'statusCategory != Done'];
     if (source.filter) parts.push(`(${source.filter})`);
     const jql = parts.join(' AND ') + ' ORDER BY updated DESC';
-    const data = await jira<{
-      issues: {
-        id: string;
-        key: string;
-        fields: {
-          summary: string;
-          description: unknown;
-          updated: string;
-          status: { name: string; statusCategory: { key: string } };
-          priority?: { name: string } | null;
-          assignee?: { displayName: string } | null;
-          labels?: string[];
-        };
-      }[];
-    }>(config, secret, '/rest/api/3/search/jql', {
-      method: 'POST',
-      body: JSON.stringify({ jql, maxResults: 100, fields: ['summary', 'description', 'updated', 'status', 'priority', 'assignee', 'labels'] }),
+    type Issue = { id: string; key: string; fields: { summary: string; description: unknown; updated: string; status: { name: string; statusCategory: { key: string } }; priority?: { name: string } | null; assignee?: { displayName: string } | null; labels?: string[] } };
+    const { items, truncated } = await collectPages<Issue, string>(async (token) => {
+      const data = await jira<{ issues: Issue[]; nextPageToken?: string; isLast?: boolean }>(config, secret, '/rest/api/3/search/jql', {
+        method: 'POST',
+        body: JSON.stringify({ jql, maxResults: 100, ...(token ? { nextPageToken: token } : {}), fields: ['summary', 'description', 'updated', 'status', 'priority', 'assignee', 'labels'] }),
+      });
+      return { items: data.issues, next: data.isLast === true ? null : (data.nextPageToken ?? null) };
     });
-    return data.issues.map<ExternalTicket>((i) => ({
-      key: `jira:${i.key}`,
-      provider: 'jira',
-      id: i.id,
-      identifier: i.key,
-      title: i.fields.summary,
-      description: i.fields.description ? adfToText(i.fields.description).trim() || null : null,
-      url: `${base(config)}/browse/${i.key}`,
-      state: i.fields.status.name,
-      status: mapCategory(i.fields.status.statusCategory.key),
-      updatedAt: i.fields.updated,
-      meta: { priority: i.fields.priority?.name ?? null, assignee: i.fields.assignee?.displayName ?? null, labels: i.fields.labels ?? [] },
-    }));
+    return {
+      truncated,
+      tickets: items.map<ExternalTicket>((i) => ({
+        sync_key: `jira:${i.key}`,
+        provider: 'jira',
+        provider_id: i.id,
+        key: i.key,
+        title: i.fields.summary,
+        description: i.fields.description ? adfToText(i.fields.description).trim() || null : null,
+        url: `${base(config)}/browse/${i.key}`,
+        state: i.fields.status.name,
+        status: mapCategory(i.fields.status.statusCategory.key),
+        updatedAt: i.fields.updated,
+        meta: { priority: i.fields.priority?.name ?? null, assignee: i.fields.assignee?.displayName ?? null, labels: i.fields.labels ?? [] },
+      })),
+    };
   },
 
   async updateStatus(secret, config, ticket, status) {
     const { transitions } = await jira<{ transitions: { id: string; name: string; to: { name: string; statusCategory: { key: string } } }[] }>(
       config,
       secret,
-      `/rest/api/3/issue/${ticket.identifier}/transitions`,
+      `/rest/api/3/issue/${ticket.key}/transitions`,
     );
     const t = transitions.find((x) => x.to.statusCategory.key === CATEGORY[status]);
     if (!t) throw new Error(`Jira: nenhuma transição disponível para a categoria ${CATEGORY[status]} (${transitions.map((x) => x.to.name).join(', ')})`);
-    const res = await fetch(`${base(config)}/rest/api/3/issue/${ticket.identifier}/transitions`, {
+    const res = await fetch(`${base(config)}/rest/api/3/issue/${ticket.key}/transitions`, {
       method: 'POST',
       headers: { authorization: auth(config, secret), 'content-type': 'application/json' },
       body: JSON.stringify({ transition: { id: t.id } }),
