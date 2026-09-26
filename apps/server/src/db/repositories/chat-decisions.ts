@@ -178,7 +178,9 @@ export class ChatDecisionsRepository {
   }
 
   /** The `k` nearest decisions of this user, same `multi_select` shape, best (highest cosine similarity)
-   *  first. Never another user's rows, never the other `multi_select` shape, never an unembedded row. */
+   *  first. Never another user's rows, never the other `multi_select` shape, never an unembedded row.
+   *  An exact scan over the user's rows, on purpose: no ANN index, so no row of this user is ever lost to
+   *  an approximate index's post-filtering, and one person's decisions are few enough to scan. */
   async nearest(userId: string, vector: number[], opts: { multiSelect: boolean; k: number }): Promise<DecisionNeighbour[]> {
     const v = toVector(vector);
     const rows = await this.db.$queryRaw<(RawRow & { similarity: number | string })[]>`
@@ -202,8 +204,9 @@ export class ChatDecisionsRepository {
     await this.db.chatDecision.updateMany({ where: { id: { in: ids } }, data: { acceptedCount: { increment: 1 } } });
   }
 
-  /** Newest first, for the "Memória do chat" list: `q` searches header, question and answer text
-   *  (case-insensitive, substring), and the cursor is a keyset over `(created_at, id)`. */
+  /** Newest first, for the "Memória do chat" list: `q` searches header, question, project name and the
+   *  answer's label/text values — never the raw jsonb, whose keys ("labels", "text") would match every
+   *  row — case-insensitive, substring; the cursor is a keyset over `(created_at, id)`. */
   async listForUser(userId: string, opts: { q?: string; cursor?: string; limit: number }): Promise<{ items: ChatDecision[]; next_cursor: string | null }> {
     const q = opts.q?.trim();
     const like = q ? `%${escapeLike(q)}%` : null;
@@ -213,7 +216,10 @@ export class ChatDecisionsRepository {
              d.header, d.question, d.options, d.multi_select, d.answer, d.embed_model, d.suggested_count, d.accepted_count, d.created_at
       FROM "chat_decisions" d LEFT JOIN "projects" p ON p.id = d.project_id
       WHERE d.user_id = ${userId}
-        AND (${like}::text IS NULL OR d.header ILIKE ${like} ESCAPE '\\' OR d.question ILIKE ${like} ESCAPE '\\' OR d.answer::text ILIKE ${like} ESCAPE '\\')
+        AND (${like}::text IS NULL
+          OR d.header ILIKE ${like} ESCAPE '\\' OR d.question ILIKE ${like} ESCAPE '\\' OR p.name ILIKE ${like} ESCAPE '\\'
+          OR d.answer->>'text' ILIKE ${like} ESCAPE '\\'
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(d.answer->'labels') = 'array' THEN d.answer->'labels' ELSE '[]'::jsonb END) AS l(label) WHERE l.label ILIKE ${like} ESCAPE '\\'))
         AND (${cur === null}::boolean OR (d.created_at, d.id) < (${cur?.createdAt ?? new Date(0)}, ${cur?.id ?? ''}))
       ORDER BY d.created_at DESC, d.id DESC
       LIMIT ${opts.limit + 1}`;

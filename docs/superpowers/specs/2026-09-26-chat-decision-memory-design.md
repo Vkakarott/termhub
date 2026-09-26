@@ -24,7 +24,7 @@ recommendations below without further questions.
 | Permissions | **Never** remembered nor suggested: the row carries only the tool name, far too little context to decide on (and a wrong "yes" is the dangerous direction). |
 | Behaviour on a match | **Suggest only.** The card opens with the past answer pre-selected, says where it came from, and the user's click still answers. Nothing is ever sent to a tab without a click. |
 | Scope of the search | **Global per user**: every decision of the same user, any project, one threshold. The card names the source project. |
-| Similarity | Local embeddings container (the whisper pattern) + **pgvector** in Postgres (HNSW, cosine). |
+| Similarity | Local embeddings container (the whisper pattern) + **pgvector** in Postgres (exact cosine scan over the user's rows, no ANN index — §3.3). |
 | DB image | A termhub image `FROM postgres:16-alpine` with pgvector compiled in, not the Debian `pgvector/pgvector:pg16`: same Postgres binary and libc (musl) as today, so collations do not change and no `REINDEX` is needed on the prod volume. |
 | Management | A "Memória do chat" screen on **web and mobile** (list, search, forget, on/off switch), plus "Esquecer esta decisão" on the card. |
 | Free-text relays by the concierge | Not captured. A tab question that reaches the chat is a card now; the concierge relays text only for machines on the old hook script, where there is no structured question to pair it with. |
@@ -81,11 +81,16 @@ recommendations below without further questions.
 | `suggested_count`, `accepted_count` | int, default 0 | |
 | `created_at` | timestamp(3) | |
 
-Indexes: HNSW on `embedding vector_cosine_ops`; `(user_id, created_at)`; unique
+Indexes: `(user_id, created_at)`; unique
 `(tab_question_id, question_index)` where `tab_question_id` is not null (recording is idempotent,
 and the backfill can run any number of times). Prisma declares `embedding` as
 `Unsupported("vector(384)")?`; reads and writes of it are raw SQL in the repository
 `db/repositories/chat-decisions.ts`.
+
+No index on `embedding`: `nearest` is an exact cosine scan of the requesting user's rows (filtered by
+`user_id`). One person's decisions are few (hundreds to low thousands), so the scan is cheap, and it
+never loses a true match the way an HNSW index does when it post-filters by user. It also keeps the
+schema expressible in Prisma, which the CI drift check (`prisma migrate diff --exit-code`) requires.
 
 ### 3.4 Other columns
 
@@ -165,7 +170,7 @@ All under the `chat` resource (`guarded('chat', …)`), all scoped to the reques
 
 | Web | Mobile | |
 |---|---|---|
-| `GET /api/chat/decisions?q=&cursor=` | `GET /api/m/v1/chat/decisions?q=&cursor=` | newest first, 50 per page; `q` is a case-insensitive substring over header/question/answer text |
+| `GET /api/chat/decisions?q=&cursor=` | `GET /api/m/v1/chat/decisions?q=&cursor=` | newest first, 50 per page; `q` is a case-insensitive substring over header, question, project name and the answer's labels/text |
 | `DELETE /api/chat/decisions/:id` | `DELETE /api/m/v1/chat/decisions/:id` | 204 |
 | `GET /api/chat/memory` | `GET /api/m/v1/chat/memory` | `{ enabled, available, count }` (`available` = embeddings configured) |
 | `PATCH /api/chat/memory` | `PATCH /api/m/v1/chat/memory` | `{ enabled: boolean }` |
@@ -297,3 +302,13 @@ Answered/closed cards show no suggestion line.
   forget or switch.
 - **Mobile:** the store owns the search debounce and it is cancelled when the screen unmounts; a
   failed forget shows "Não foi possível esquecer a decisão".
+- **No HNSW index on `embedding`** (§3.3). Prisma cannot express it, so the CI drift check
+  (`prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code`) exited
+  2 with "Removed index on columns (embedding)" and would have blocked every deploy. The index was
+  dropped from the (not yet deployed) migration: `nearest` is an exact cosine scan filtered by
+  `user_id`, cheap at one person's scale, and it removes a recall problem too — HNSW with the default
+  `ef_search = 40` post-filters by user and can drop a user's true matches. Verified on a fresh
+  pgvector DB: `migrate deploy`, then the CI drift command exits 0 ("No difference detected").
+- **Search covers the project name and the answer's values.** `q` matches header, question,
+  `projects.name` and the answer's `labels[]`/`text` values; it no longer matches the raw
+  `answer::text`, where the jsonb keys "labels"/"text" matched every row.

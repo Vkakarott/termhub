@@ -191,6 +191,28 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
     expect(garbage.items.map((d) => d.id)).toEqual([rowC.id]);
   });
 
+  it('listForUser: q searches the project name and the answer\'s label/text values, never the raw jsonb keys', async () => {
+    const otherProjectId = newId();
+    await db.project.create({ data: { id: otherProjectId, key: `Z${otherProjectId.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'Zebrafino', ownerId: userId } });
+    try {
+      const base = { userId, conversationId, questionIndex: 0, header: 'Busca', question: 'Qual busca?', options, multiSelect: false };
+      const inOther = { ...base, id: newId(), projectId: otherProjectId, answer: { labels: ['Azul'] } };
+      const byLabel = { ...base, id: newId(), projectId, answer: { labels: ['Magentado'] } };
+      const byText = { ...base, id: newId(), projectId, answer: { labels: [], text: 'resposta livrestranha' } };
+      await db.chatDecision.createMany({ data: [inOther, byLabel, byText] });
+
+      const ids = async (q: string) => (await repo.listForUser(userId, { q, limit: 1000 })).items.map((d) => d.id);
+      expect(await ids('zebrafino')).toEqual([inOther.id]);
+      expect(await ids('magentad')).toEqual([byLabel.id]);
+      expect(await ids('LIVRESTRANHA')).toEqual([byText.id]);
+      // The jsonb keys are not content: every answer holds "labels", none of them should match it.
+      expect(await ids('labels')).toEqual([]);
+      expect(await ids('text')).toEqual([]);
+    } finally {
+      await db.project.deleteMany({ where: { id: otherProjectId } });
+    }
+  });
+
   it('deleteForUser: true for the owner\'s row, false for another user\'s or a missing id', async () => {
     const [row] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Layout', question: 'Qual layout?' })]);
     expect(await repo.deleteForUser(row!.id, otherUserId)).toBe(false);

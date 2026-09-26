@@ -26,7 +26,6 @@ CREATE TABLE "chat_decisions" (
 CREATE INDEX "chat_decisions_user_id_created_at_idx" ON "chat_decisions"("user_id", "created_at");
 -- One decision per question of a tab question: recording and the backfill are idempotent.
 CREATE UNIQUE INDEX "chat_decisions_tab_question_id_question_index_key" ON "chat_decisions"("tab_question_id", "question_index") WHERE "tab_question_id" IS NOT NULL;
-CREATE INDEX "chat_decisions_embedding_idx" ON "chat_decisions" USING hnsw ("embedding" vector_cosine_ops);
 ALTER TABLE "chat_decisions" ADD CONSTRAINT "chat_decisions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "chat_decisions" ADD CONSTRAINT "chat_decisions_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "chat_decisions" ADD CONSTRAINT "chat_decisions_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "chat_conversations"("id") ON DELETE SET NULL ON UPDATE CASCADE;
