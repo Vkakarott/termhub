@@ -29,8 +29,9 @@ export type TicketMinAggregateOutputType = {
   projectId: string | null
   integrationId: string | null
   provider: $Enums.IntegrationProvider | null
-  externalKey: string | null
-  identifier: string | null
+  syncKey: string | null
+  key: string | null
+  scope: string | null
   title: string | null
   description: string | null
   url: string | null
@@ -46,8 +47,9 @@ export type TicketMaxAggregateOutputType = {
   projectId: string | null
   integrationId: string | null
   provider: $Enums.IntegrationProvider | null
-  externalKey: string | null
-  identifier: string | null
+  syncKey: string | null
+  key: string | null
+  scope: string | null
   title: string | null
   description: string | null
   url: string | null
@@ -63,8 +65,9 @@ export type TicketCountAggregateOutputType = {
   projectId: number
   integrationId: number
   provider: number
-  externalKey: number
-  identifier: number
+  syncKey: number
+  key: number
+  scope: number
   title: number
   description: number
   url: number
@@ -83,8 +86,9 @@ export type TicketMinAggregateInputType = {
   projectId?: true
   integrationId?: true
   provider?: true
-  externalKey?: true
-  identifier?: true
+  syncKey?: true
+  key?: true
+  scope?: true
   title?: true
   description?: true
   url?: true
@@ -100,8 +104,9 @@ export type TicketMaxAggregateInputType = {
   projectId?: true
   integrationId?: true
   provider?: true
-  externalKey?: true
-  identifier?: true
+  syncKey?: true
+  key?: true
+  scope?: true
   title?: true
   description?: true
   url?: true
@@ -117,8 +122,9 @@ export type TicketCountAggregateInputType = {
   projectId?: true
   integrationId?: true
   provider?: true
-  externalKey?: true
-  identifier?: true
+  syncKey?: true
+  key?: true
+  scope?: true
   title?: true
   description?: true
   url?: true
@@ -208,8 +214,9 @@ export type TicketGroupByOutputType = {
   projectId: string
   integrationId: string
   provider: $Enums.IntegrationProvider
-  externalKey: string
-  identifier: string
+  syncKey: string
+  key: string
+  scope: string | null
   title: string
   description: string | null
   url: string
@@ -247,8 +254,9 @@ export type TicketWhereInput = {
   projectId?: Prisma.StringFilter<"Ticket"> | string
   integrationId?: Prisma.StringFilter<"Ticket"> | string
   provider?: Prisma.EnumIntegrationProviderFilter<"Ticket"> | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFilter<"Ticket"> | string
-  identifier?: Prisma.StringFilter<"Ticket"> | string
+  syncKey?: Prisma.StringFilter<"Ticket"> | string
+  key?: Prisma.StringFilter<"Ticket"> | string
+  scope?: Prisma.StringNullableFilter<"Ticket"> | string | null
   title?: Prisma.StringFilter<"Ticket"> | string
   description?: Prisma.StringNullableFilter<"Ticket"> | string | null
   url?: Prisma.StringFilter<"Ticket"> | string
@@ -266,8 +274,9 @@ export type TicketOrderByWithRelationInput = {
   projectId?: Prisma.SortOrder
   integrationId?: Prisma.SortOrder
   provider?: Prisma.SortOrder
-  externalKey?: Prisma.SortOrder
-  identifier?: Prisma.SortOrder
+  syncKey?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  scope?: Prisma.SortOrderInput | Prisma.SortOrder
   title?: Prisma.SortOrder
   description?: Prisma.SortOrderInput | Prisma.SortOrder
   url?: Prisma.SortOrder
@@ -283,15 +292,16 @@ export type TicketOrderByWithRelationInput = {
 export type TicketWhereUniqueInput = Prisma.AtLeast<{
   id?: string
   taskId?: string
-  projectId_externalKey?: Prisma.TicketProjectIdExternalKeyCompoundUniqueInput
+  projectId_syncKey?: Prisma.TicketProjectIdSyncKeyCompoundUniqueInput
   AND?: Prisma.TicketWhereInput | Prisma.TicketWhereInput[]
   OR?: Prisma.TicketWhereInput[]
   NOT?: Prisma.TicketWhereInput | Prisma.TicketWhereInput[]
   projectId?: Prisma.StringFilter<"Ticket"> | string
   integrationId?: Prisma.StringFilter<"Ticket"> | string
   provider?: Prisma.EnumIntegrationProviderFilter<"Ticket"> | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFilter<"Ticket"> | string
-  identifier?: Prisma.StringFilter<"Ticket"> | string
+  syncKey?: Prisma.StringFilter<"Ticket"> | string
+  key?: Prisma.StringFilter<"Ticket"> | string
+  scope?: Prisma.StringNullableFilter<"Ticket"> | string | null
   title?: Prisma.StringFilter<"Ticket"> | string
   description?: Prisma.StringNullableFilter<"Ticket"> | string | null
   url?: Prisma.StringFilter<"Ticket"> | string
@@ -301,15 +311,16 @@ export type TicketWhereUniqueInput = Prisma.AtLeast<{
   syncedAt?: Prisma.DateTimeFilter<"Ticket"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"Ticket"> | Date | string
   project?: Prisma.XOR<Prisma.ProjectScalarRelationFilter, Prisma.ProjectWhereInput>
-}, "id" | "taskId" | "projectId_externalKey">
+}, "id" | "taskId" | "projectId_syncKey">
 
 export type TicketOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   integrationId?: Prisma.SortOrder
   provider?: Prisma.SortOrder
-  externalKey?: Prisma.SortOrder
-  identifier?: Prisma.SortOrder
+  syncKey?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  scope?: Prisma.SortOrderInput | Prisma.SortOrder
   title?: Prisma.SortOrder
   description?: Prisma.SortOrderInput | Prisma.SortOrder
   url?: Prisma.SortOrder
@@ -332,8 +343,9 @@ export type TicketScalarWhereWithAggregatesInput = {
   projectId?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
   integrationId?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
   provider?: Prisma.EnumIntegrationProviderWithAggregatesFilter<"Ticket"> | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
-  identifier?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
+  syncKey?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
+  key?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
+  scope?: Prisma.StringNullableWithAggregatesFilter<"Ticket"> | string | null
   title?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
   description?: Prisma.StringNullableWithAggregatesFilter<"Ticket"> | string | null
   url?: Prisma.StringWithAggregatesFilter<"Ticket"> | string
@@ -349,8 +361,9 @@ export type TicketCreateInput = {
   id: string
   integrationId: string
   provider: $Enums.IntegrationProvider
-  externalKey: string
-  identifier: string
+  syncKey: string
+  key: string
+  scope?: string | null
   title: string
   description?: string | null
   url: string
@@ -368,8 +381,9 @@ export type TicketUncheckedCreateInput = {
   projectId: string
   integrationId: string
   provider: $Enums.IntegrationProvider
-  externalKey: string
-  identifier: string
+  syncKey: string
+  key: string
+  scope?: string | null
   title: string
   description?: string | null
   url: string
@@ -385,8 +399,9 @@ export type TicketUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   integrationId?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFieldUpdateOperationsInput | string
-  identifier?: Prisma.StringFieldUpdateOperationsInput | string
+  syncKey?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   url?: Prisma.StringFieldUpdateOperationsInput | string
@@ -404,8 +419,9 @@ export type TicketUncheckedUpdateInput = {
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
   integrationId?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFieldUpdateOperationsInput | string
-  identifier?: Prisma.StringFieldUpdateOperationsInput | string
+  syncKey?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   url?: Prisma.StringFieldUpdateOperationsInput | string
@@ -422,8 +438,9 @@ export type TicketCreateManyInput = {
   projectId: string
   integrationId: string
   provider: $Enums.IntegrationProvider
-  externalKey: string
-  identifier: string
+  syncKey: string
+  key: string
+  scope?: string | null
   title: string
   description?: string | null
   url: string
@@ -439,8 +456,9 @@ export type TicketUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   integrationId?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFieldUpdateOperationsInput | string
-  identifier?: Prisma.StringFieldUpdateOperationsInput | string
+  syncKey?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   url?: Prisma.StringFieldUpdateOperationsInput | string
@@ -457,8 +475,9 @@ export type TicketUncheckedUpdateManyInput = {
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
   integrationId?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFieldUpdateOperationsInput | string
-  identifier?: Prisma.StringFieldUpdateOperationsInput | string
+  syncKey?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   url?: Prisma.StringFieldUpdateOperationsInput | string
@@ -480,9 +499,9 @@ export type TicketOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
-export type TicketProjectIdExternalKeyCompoundUniqueInput = {
+export type TicketProjectIdSyncKeyCompoundUniqueInput = {
   projectId: string
-  externalKey: string
+  syncKey: string
 }
 
 export type TicketCountOrderByAggregateInput = {
@@ -490,8 +509,9 @@ export type TicketCountOrderByAggregateInput = {
   projectId?: Prisma.SortOrder
   integrationId?: Prisma.SortOrder
   provider?: Prisma.SortOrder
-  externalKey?: Prisma.SortOrder
-  identifier?: Prisma.SortOrder
+  syncKey?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   title?: Prisma.SortOrder
   description?: Prisma.SortOrder
   url?: Prisma.SortOrder
@@ -508,8 +528,9 @@ export type TicketMaxOrderByAggregateInput = {
   projectId?: Prisma.SortOrder
   integrationId?: Prisma.SortOrder
   provider?: Prisma.SortOrder
-  externalKey?: Prisma.SortOrder
-  identifier?: Prisma.SortOrder
+  syncKey?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   title?: Prisma.SortOrder
   description?: Prisma.SortOrder
   url?: Prisma.SortOrder
@@ -525,8 +546,9 @@ export type TicketMinOrderByAggregateInput = {
   projectId?: Prisma.SortOrder
   integrationId?: Prisma.SortOrder
   provider?: Prisma.SortOrder
-  externalKey?: Prisma.SortOrder
-  identifier?: Prisma.SortOrder
+  syncKey?: Prisma.SortOrder
+  key?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   title?: Prisma.SortOrder
   description?: Prisma.SortOrder
   url?: Prisma.SortOrder
@@ -591,8 +613,9 @@ export type TicketCreateWithoutProjectInput = {
   id: string
   integrationId: string
   provider: $Enums.IntegrationProvider
-  externalKey: string
-  identifier: string
+  syncKey: string
+  key: string
+  scope?: string | null
   title: string
   description?: string | null
   url: string
@@ -608,8 +631,9 @@ export type TicketUncheckedCreateWithoutProjectInput = {
   id: string
   integrationId: string
   provider: $Enums.IntegrationProvider
-  externalKey: string
-  identifier: string
+  syncKey: string
+  key: string
+  scope?: string | null
   title: string
   description?: string | null
   url: string
@@ -655,8 +679,9 @@ export type TicketScalarWhereInput = {
   projectId?: Prisma.StringFilter<"Ticket"> | string
   integrationId?: Prisma.StringFilter<"Ticket"> | string
   provider?: Prisma.EnumIntegrationProviderFilter<"Ticket"> | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFilter<"Ticket"> | string
-  identifier?: Prisma.StringFilter<"Ticket"> | string
+  syncKey?: Prisma.StringFilter<"Ticket"> | string
+  key?: Prisma.StringFilter<"Ticket"> | string
+  scope?: Prisma.StringNullableFilter<"Ticket"> | string | null
   title?: Prisma.StringFilter<"Ticket"> | string
   description?: Prisma.StringNullableFilter<"Ticket"> | string | null
   url?: Prisma.StringFilter<"Ticket"> | string
@@ -672,8 +697,9 @@ export type TicketCreateManyProjectInput = {
   id: string
   integrationId: string
   provider: $Enums.IntegrationProvider
-  externalKey: string
-  identifier: string
+  syncKey: string
+  key: string
+  scope?: string | null
   title: string
   description?: string | null
   url: string
@@ -689,8 +715,9 @@ export type TicketUpdateWithoutProjectInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   integrationId?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFieldUpdateOperationsInput | string
-  identifier?: Prisma.StringFieldUpdateOperationsInput | string
+  syncKey?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   url?: Prisma.StringFieldUpdateOperationsInput | string
@@ -706,8 +733,9 @@ export type TicketUncheckedUpdateWithoutProjectInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   integrationId?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFieldUpdateOperationsInput | string
-  identifier?: Prisma.StringFieldUpdateOperationsInput | string
+  syncKey?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   url?: Prisma.StringFieldUpdateOperationsInput | string
@@ -723,8 +751,9 @@ export type TicketUncheckedUpdateManyWithoutProjectInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   integrationId?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.EnumIntegrationProviderFieldUpdateOperationsInput | $Enums.IntegrationProvider
-  externalKey?: Prisma.StringFieldUpdateOperationsInput | string
-  identifier?: Prisma.StringFieldUpdateOperationsInput | string
+  syncKey?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   url?: Prisma.StringFieldUpdateOperationsInput | string
@@ -743,8 +772,9 @@ export type TicketSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   projectId?: boolean
   integrationId?: boolean
   provider?: boolean
-  externalKey?: boolean
-  identifier?: boolean
+  syncKey?: boolean
+  key?: boolean
+  scope?: boolean
   title?: boolean
   description?: boolean
   url?: boolean
@@ -762,8 +792,9 @@ export type TicketSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extens
   projectId?: boolean
   integrationId?: boolean
   provider?: boolean
-  externalKey?: boolean
-  identifier?: boolean
+  syncKey?: boolean
+  key?: boolean
+  scope?: boolean
   title?: boolean
   description?: boolean
   url?: boolean
@@ -781,8 +812,9 @@ export type TicketSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extens
   projectId?: boolean
   integrationId?: boolean
   provider?: boolean
-  externalKey?: boolean
-  identifier?: boolean
+  syncKey?: boolean
+  key?: boolean
+  scope?: boolean
   title?: boolean
   description?: boolean
   url?: boolean
@@ -800,8 +832,9 @@ export type TicketSelectScalar = {
   projectId?: boolean
   integrationId?: boolean
   provider?: boolean
-  externalKey?: boolean
-  identifier?: boolean
+  syncKey?: boolean
+  key?: boolean
+  scope?: boolean
   title?: boolean
   description?: boolean
   url?: boolean
@@ -813,7 +846,7 @@ export type TicketSelectScalar = {
   createdAt?: boolean
 }
 
-export type TicketOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "integrationId" | "provider" | "externalKey" | "identifier" | "title" | "description" | "url" | "state" | "status" | "meta" | "taskId" | "syncedAt" | "createdAt", ExtArgs["result"]["ticket"]>
+export type TicketOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "integrationId" | "provider" | "syncKey" | "key" | "scope" | "title" | "description" | "url" | "state" | "status" | "meta" | "taskId" | "syncedAt" | "createdAt", ExtArgs["result"]["ticket"]>
 export type TicketInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
 }
@@ -835,10 +868,18 @@ export type $TicketPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs
     integrationId: string
     provider: $Enums.IntegrationProvider
     /**
-     * "linear:<id>" | "jira:<KEY>" | "github:<owner/repo>#<n>"
+     * "linear:<id>" | "jira:<KEY>" | "github:<owner/repo>#<n>" — the sync's dedup key, never shown
      */
-    externalKey: string
-    identifier: string
+    syncKey: string
+    /**
+     * what people type and see: EI-123, PROJ-45, owner/repo#12
+     */
+    key: string
+    /**
+     * the setup source it came from (Linear team, Jira project, GitHub owner/repo); null only on rows
+     * written before 2026-09-26 whose meta lacked it
+     */
+    scope: string | null
     title: string
     description: string | null
     url: string
@@ -1282,8 +1323,9 @@ export interface TicketFieldRefs {
   readonly projectId: Prisma.FieldRef<"Ticket", 'String'>
   readonly integrationId: Prisma.FieldRef<"Ticket", 'String'>
   readonly provider: Prisma.FieldRef<"Ticket", 'IntegrationProvider'>
-  readonly externalKey: Prisma.FieldRef<"Ticket", 'String'>
-  readonly identifier: Prisma.FieldRef<"Ticket", 'String'>
+  readonly syncKey: Prisma.FieldRef<"Ticket", 'String'>
+  readonly key: Prisma.FieldRef<"Ticket", 'String'>
+  readonly scope: Prisma.FieldRef<"Ticket", 'String'>
   readonly title: Prisma.FieldRef<"Ticket", 'String'>
   readonly description: Prisma.FieldRef<"Ticket", 'String'>
   readonly url: Prisma.FieldRef<"Ticket", 'String'>

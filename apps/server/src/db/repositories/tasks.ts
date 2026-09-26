@@ -130,6 +130,12 @@ export class TasksRepository {
     return t ? toTask(t) : undefined;
   }
 
+  async findByIds(ids: string[]): Promise<Task[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.task.findMany({ where: { id: { in: ids } }, include: KEY });
+    return rows.map(toTask);
+  }
+
   /** The card numbered `number` in the project (the `N` of `KEY-N`). */
   async findByRef(projectId: string, number: number): Promise<Task | undefined> {
     const t = await this.db.task.findUnique({ where: { projectId_number: { projectId, number } }, include: KEY });

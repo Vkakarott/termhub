@@ -235,9 +235,10 @@ export interface Ticket {
   id: string;
   project_id: string;
   integration_id: string;
+  scope: string | null;
   provider: 'github' | 'linear' | 'jira';
-  external_key: string;
-  identifier: string;
+  sync_key: string;
+  key: string;
   title: string;
   description: string | null;
   url: string;
@@ -393,9 +394,10 @@ export const mapTicket = (t: PrismaTicket): Ticket => ({
   id: t.id,
   project_id: t.projectId,
   integration_id: t.integrationId,
+  scope: t.scope,
   provider: t.provider,
-  external_key: t.externalKey,
-  identifier: t.identifier,
+  sync_key: t.syncKey,
+  key: t.key,
   title: t.title,
   description: t.description,
   url: t.url,

@@ -41,9 +41,10 @@ export async function syncProjectTickets(repos: Repositories, projectId: string,
     projectId,
     tickets.map((t) => ({
       integration_id: source.integration_id,
+      scope: source.scope,
       provider: t.provider,
-      external_key: t.key,
-      identifier: t.identifier,
+      sync_key: t.key,
+      key: t.identifier,
       title: t.title,
       description: t.description,
       url: t.url,
@@ -53,11 +54,11 @@ export async function syncProjectTickets(repos: Repositories, projectId: string,
     })),
   );
   for (const linked of r.linked) {
-    const src = tickets.find((t) => t.key === linked.external_key);
+    const src = tickets.find((t) => t.key === linked.sync_key);
     if (src && linked.task_id) await repos.tasks.setExternalRef(linked.task_id, ticketRef(src, source.scope));
   }
   // tickets que saíram do filtro/escopo e nunca foram importados somem da lista
-  const removed = await repos.tickets.pruneMissing(projectId, source.integration_id, tickets.map((t) => t.key));
+  const removed = await repos.tickets.pruneMissing(projectId, { integration_id: source.integration_id, scope: source.scope }, tickets.map((t) => t.key), true);
   return { fetched: tickets.length, created: r.created, updated: r.updated, removed, synced_at: new Date().toISOString() };
 }
 

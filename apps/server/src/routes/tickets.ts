@@ -17,7 +17,7 @@ export async function projectTicketRoutes(app: FastifyInstance, repos: Repositor
     const { id } = idParam.parse(request.params);
     await scoped(repos, request).project(id);
     const q = z.object({ integration_id: z.string().max(64).optional() }).parse(request.query);
-    return { tickets: await repos.tickets.listByProject(id, q.integration_id) };
+    return { tickets: await repos.tickets.listByProject(id, { integration_id: q.integration_id }) };
   });
 
   /** Manda tickets escolhidos para o backlog (cria tasks vinculadas). */
@@ -30,11 +30,11 @@ export async function projectTicketRoutes(app: FastifyInstance, repos: Repositor
     for (const t of tickets) {
       if (t.task_id) continue;
       const task = await repos.tasks.createFromTicket(id, {
-        key: t.external_key,
-        title: `${t.identifier} ${t.title}`.trim(),
+        key: t.sync_key,
+        title: `${t.key} ${t.title}`.trim(),
         description: t.description,
         ref: ticketRef(
-          { provider: t.provider, id: externalId(t.external_key, t.provider), identifier: t.identifier, url: t.url, state: t.state, status: t.status, updatedAt: String(t.meta.updated_at ?? ''), meta: t.meta },
+          { provider: t.provider, id: externalId(t.sync_key, t.provider), identifier: t.key, url: t.url, state: t.state, status: t.status, updatedAt: String(t.meta.updated_at ?? ''), meta: t.meta },
           String(t.meta.scope ?? ''),
         ),
       });
