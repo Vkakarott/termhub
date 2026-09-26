@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { TabQuestionCard } from './TabQuestionCard';
 import type { TabQuestion } from '../../lib/types';
@@ -108,4 +108,35 @@ it('one question: no tab list and no tab panel role', () => {
   render(<TabQuestionCard question={choice({ payload: { questions: [colors] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
   expect(screen.queryByRole('tablist')).toBeNull();
   expect(screen.queryByRole('tabpanel')).toBeNull();
+});
+
+const suggestion = { question_index: 0, decision_id: 'd1', similarity: 0.9, selected: [1], source: { question: 'Usar worktree?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00Z' } };
+
+it('a suggestion pre-selects the option, names its source and enables Responder at once', () => {
+  const onAnswer = vi.fn();
+  render(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [suggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={onAnswer} />);
+  expect(screen.getByRole('radio', { name: /Green/ })).toBeChecked();
+  expect(screen.getByText('Sugestão da memória: você respondeu «Green» a «Usar worktree?» em termhub, 20/09/2026')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Responder' })).toBeEnabled();
+});
+
+it('a text suggestion fills "Outra resposta"', () => {
+  const textSuggestion = { ...suggestion, selected: [], text: 'Usar branch' };
+  render(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [textSuggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+  expect(screen.getByLabelText('Outra resposta')).toHaveValue('Usar branch');
+  expect(screen.getByText('Sugestão da memória: você respondeu «Usar branch» a «Usar worktree?» em termhub, 20/09/2026')).toBeInTheDocument();
+});
+
+it('"Esquecer esta decisão" forgets the decision and clears the pre-selection', async () => {
+  const onForget = vi.fn(async () => {});
+  render(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [suggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} onForget={onForget} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Esquecer esta decisão' }));
+  expect(onForget).toHaveBeenCalledWith('d1');
+  await waitFor(() => expect(screen.queryByText(/Sugestão da memória/)).toBeNull());
+  expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked();
+});
+
+it('an answered card shows no suggestion line', () => {
+  render(<TabQuestionCard question={choice({ status: 'answered', answer: { answers: [{ selected: [1] }] }, suggestion: { items: [suggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+  expect(screen.queryByText(/Sugestão da memória/)).toBeNull();
 });

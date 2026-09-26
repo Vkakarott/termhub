@@ -355,6 +355,18 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   /** Stable, so the permission card's effect runs once per question. */
   const loadTabQuestionScreen = useCallback(async (id: string) => (await api.tabQuestionScreen(id)).text, []);
 
+  /** "Esquecer esta decisão" on a suggestion line: hard delete, 204 even if it is already gone — the
+   *  card clears its own pre-selection regardless (see `TabQuestionCard`), so a failure here is not
+   *  worth a card-wide error line for what is, either way, best effort. */
+  const forgetDecision = useCallback(async (decisionId: string) => {
+    try {
+      await api.forgetChatDecision(decisionId);
+    } catch {
+      // best effort: the card already cleared its pre-selection, and the memory page (if open) will
+      // show the true state on its own next read
+    }
+  }, []);
+
   /** Enviar / Dispensar on a suggestion card: one click, no confirmation, no model turn. */
   const actOnSuggestion = useCallback(async (id: string, act: () => Promise<{ tab_suggestion: TabSuggestion }>, fallback: string) => {
     setBusySuggestionId(id);
@@ -658,7 +670,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
           }
           if (entry.kind === 'tab_question') {
             const q = entry.question;
-            return <TabQuestionCard key={`q:${q.id}`} question={q} answering={answeringQuestionId === q.id} error={questionErrors[q.id]} onAnswer={answerQuestion} loadScreen={loadTabQuestionScreen} />;
+            return <TabQuestionCard key={`q:${q.id}`} question={q} answering={answeringQuestionId === q.id} error={questionErrors[q.id]} onAnswer={answerQuestion} loadScreen={loadTabQuestionScreen} onForget={forgetDecision} />;
           }
           if (entry.kind === 'action') {
             const g = grantByAction.get(entry.action.id);

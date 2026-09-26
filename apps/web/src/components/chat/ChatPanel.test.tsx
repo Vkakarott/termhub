@@ -22,6 +22,7 @@ const sendSuggestionMock = vi.fn();
 const dismissSuggestionMock = vi.fn();
 const uploadMock = vi.fn();
 const removeAttachmentMock = vi.fn();
+const forgetDecisionMock = vi.fn();
 
 vi.mock('../../lib/api', () => {
   // Same signature as the real one: the page shows `message`, so a stand-in that swallows it would
@@ -55,6 +56,7 @@ vi.mock('../../lib/api', () => {
       tabQuestionScreen: (...a: unknown[]) => screenMock(...a),
       sendTabSuggestion: (...a: unknown[]) => sendSuggestionMock(...a),
       dismissTabSuggestion: (...a: unknown[]) => dismissSuggestionMock(...a),
+      forgetChatDecision: (...a: unknown[]) => forgetDecisionMock(...a),
       machines: { list: (...a: unknown[]) => machinesMock(...a) },
       aiAccounts: { list: (...a: unknown[]) => accountsMock(...a) },
     },
@@ -120,6 +122,7 @@ beforeEach(() => {
   dismissSuggestionMock.mockReset();
   uploadMock.mockReset();
   removeAttachmentMock.mockReset();
+  forgetDecisionMock.mockReset();
   screenMock.mockResolvedValue({ text: 'Do you want to proceed?' });
   accountsMock.mockResolvedValue({ accounts: [] });
   auth.state = { user: { id: 'u1' }, viewAs: null };
@@ -480,6 +483,24 @@ it('a stale question reads "A pergunta mudou na aba"', async () => {
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Negar' }));
   expect(await screen.findByText('A pergunta mudou na aba')).toBeInTheDocument();
+});
+
+it('"Esquecer esta decisão" on a suggested answer calls the forget API', async () => {
+  const choiceQuestion = question({
+    id: 'q1',
+    kind: 'choice',
+    payload: { questions: [{ question: 'Usar worktree?', header: 'Worktree', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] }] },
+    suggestion: { items: [{ question_index: 0, decision_id: 'd1', similarity: 0.9, selected: [1], source: { question: 'Usar worktree?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00.000Z' } }] },
+  } as unknown as Partial<TabQuestion> & { id: string });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [], tab_questions: [choiceQuestion] });
+  forgetDecisionMock.mockResolvedValue(undefined);
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Esquecer esta decisão' }));
+  await waitFor(() => expect(forgetDecisionMock).toHaveBeenCalledWith('d1'));
 });
 
 it('tab question events add and update the card; another conversation\'s are ignored', async () => {

@@ -1,6 +1,6 @@
 import { memo, useEffect, useState, type KeyboardEvent } from 'react';
-import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission } from '../../lib/types';
-import { answerSummary, statusLabel, tabLabel } from './tab-question-text';
+import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
+import { answerSummary, statusLabel, suggestionLine, tabLabel } from './tab-question-text';
 
 export interface TabQuestionCardProps {
   question: TabQuestion;
@@ -12,6 +12,9 @@ export interface TabQuestionCardProps {
   onAnswer: (id: string, body: TabQuestionAnswer) => void;
   /** The tab's live excerpt, for a permission card while it is open. Stable across renders. */
   loadScreen?: (id: string) => Promise<string>;
+  /** "Esquecer esta decisão" on a suggestion line (chat decision memory spec §5.1): forgets the past
+   *  decision it came from, then the card clears that question's pre-selection. */
+  onForget?: (decisionId: string) => Promise<void>;
 }
 
 /**
@@ -29,11 +32,14 @@ export const TabQuestionCard = memo(function TabQuestionCard(props: TabQuestionC
   );
 });
 
-function ChoiceBody({ question, answering, onAnswer }: TabQuestionCardProps & { question: TabQuestionChoice }) {
+function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCardProps & { question: TabQuestionChoice }) {
   const items = question.payload.questions;
   const [current, setCurrent] = useState(0);
-  const [selected, setSelected] = useState<number[][]>(() => items.map(() => []));
-  const [texts, setTexts] = useState<string[]>(() => items.map(() => ''));
+  // Pre-selected from a similar past decision (spec 2026-09-26 §4.2/§5.1): only present while the card
+  // is `open`, and only for the questions that matched. `hint` shrinks as each is forgotten.
+  const [hint, setHint] = useState(() => question.suggestion?.items ?? []);
+  const [selected, setSelected] = useState<number[][]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.selected ?? []));
+  const [texts, setTexts] = useState<string[]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.text ?? ''));
   const title = <p className="font-medium text-fg">{`${tabLabel(question)} perguntou`}</p>;
   if (question.status !== 'open') {
     return (
@@ -66,6 +72,19 @@ function ChoiceBody({ question, answering, onAnswer }: TabQuestionCardProps & { 
     const next = (current + step + items.length) % items.length;
     setCurrent(next);
     document.getElementById(tabId(next))?.focus();
+  };
+  const currentHint = hint.find((s) => s.question_index === current);
+  /** "Esquecer esta decisão": the pre-selection it explains is cleared regardless of whether the
+   *  DELETE succeeds — the server answers 204 even for a decision already gone. */
+  const forget = (h: TabQuestionSuggestionItem) => {
+    const clear = () => {
+      setHint((prev) => prev.filter((s) => s !== h));
+      setSelected((prev) => prev.map((s, j) => (j === h.question_index ? [] : s)));
+      setTexts((prev) => prev.map((t, j) => (j === h.question_index ? '' : t)));
+    };
+    const result = onForget?.(h.decision_id);
+    if (result) void result.then(clear, clear);
+    else clear();
   };
   return (
     <>
@@ -124,6 +143,14 @@ function ChoiceBody({ question, answering, onAnswer }: TabQuestionCardProps & { 
           />
         </label>
       </fieldset>
+      {currentHint && (
+        <div className="mt-2">
+          <p className="text-xs text-fg-dim">{suggestionLine(item, currentHint)}</p>
+          <button type="button" className="btn-ghost mt-1 text-xs" disabled={answering} onClick={() => forget(currentHint)}>
+            Esquecer esta decisão
+          </button>
+        </div>
+      )}
       <button type="button" className="btn-primary mt-2" disabled={answering || !complete} onClick={() => onAnswer(question.id, { answers })}>
         Responder
       </button>
