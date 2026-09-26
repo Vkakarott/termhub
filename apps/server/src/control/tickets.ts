@@ -83,17 +83,20 @@ export async function listTickets(
   };
 }
 
-const GITHUB_SHORT = /^(?:[\w.-]+\/)?([\w.-]+)?#(\d+)$/;
+// No owner part: "wrongowner/api#12" must resolve only by exact match, never fall back to a suffix search.
+const GITHUB_SHORT = /^([\w.-]+)?#(\d+)$/;
 
 /**
- * Tickets a typed key names. Exact key or URL anywhere in `projectIds`; inside one project also
- * `repo#12` and `#12` (GitHub). Callers decide what several matches mean.
+ * Tickets a typed key names. Exact key or URL anywhere in `projectIds`. `allowShort` also accepts
+ * `repo#12` and `#12` (GitHub) when there is exactly one project — the spec allows those only when
+ * the caller named a `project_id` explicitly (import) or resolved to one project through it (get).
+ * Callers decide what several matches mean.
  */
-export async function resolveTickets(ctx: ControlContext, key: string, projectIds: string[]): Promise<Ticket[]> {
+export async function resolveTickets(ctx: ControlContext, key: string, projectIds: string[], allowShort: boolean): Promise<Ticket[]> {
   const k = key.trim();
   if (/^https?:\/\//i.test(k)) return ctx.repos.tickets.findByKeyish(projectIds, { url: k.replace(/\/$/, '') });
   const exact = await ctx.repos.tickets.findByKeyish(projectIds, { key: k });
-  if (exact.length > 0 || projectIds.length !== 1) return exact;
+  if (exact.length > 0 || !allowShort || projectIds.length !== 1) return exact;
   const m = GITHUB_SHORT.exec(k);
   if (!m) return [];
   return ctx.repos.tickets.findByKeyish(projectIds, { suffix: m[1] ? `/${m[1]}#${m[2]}` : `#${m[2]}` });
@@ -111,7 +114,7 @@ function one(key: string, found: Ticket[], projectNames: Map<string, string>): T
 
 export async function getTicket(ctx: ControlContext, input: { key: string; project_id?: string }) {
   const projects = input.project_id ? [(await ctx.scoped.project(input.project_id)).project] : await ctx.repos.projects.list({ owner: ctx.scope.ownerId });
-  const found = await resolveTickets(ctx, input.key, projects.map((p) => p.id));
+  const found = await resolveTickets(ctx, input.key, projects.map((p) => p.id), input.project_id !== undefined);
   const t = one(input.key, found, new Map(projects.map((p) => [p.id, p.name])));
   const cards = await cardsOf(ctx, [t]);
   return { ticket: toOut(t, t.task_id ? cards.get(t.task_id) : undefined, true), project_id: t.project_id };
@@ -135,9 +138,13 @@ export async function importTickets(ctx: ControlContext, input: { project_id: st
   const { project } = await ctx.scoped.project(input.project_id);
   if (!input.keys === !input.ticket_ids) throw new HttpError(400, 'Informe keys ou ticket_ids (um dos dois)', 'BAD_REQUEST');
   const names = new Map([[project.id, project.name]]);
-  const picked: Ticket[] = input.ticket_ids
+  const resolved: Ticket[] = input.ticket_ids
     ? await ctx.repos.tickets.findByIds(project.id, input.ticket_ids.slice(0, TICKET_IMPORT_MAX))
-    : await Promise.all(input.keys!.slice(0, TICKET_IMPORT_MAX).map(async (k) => one(k, await resolveTickets(ctx, k, [project.id]), names)));
+    : await Promise.all(input.keys!.slice(0, TICKET_IMPORT_MAX).map(async (k) => one(k, await resolveTickets(ctx, k, [project.id], true), names)));
+  // Two keys (case, short vs. full form) or two ids can name the same ticket: keep the first occurrence,
+  // or the second createFromTicket would hit the unique (project_id, external_key) constraint.
+  const seen = new Set<string>();
+  const picked = resolved.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
   const existing = await cardsOf(ctx, picked);
   const cards: { ticket_key: string; card: TaskOut; task: Task; created: boolean }[] = [];
   for (const t of picked) {

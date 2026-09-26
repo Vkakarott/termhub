@@ -93,9 +93,19 @@ describe('getTicket', () => {
     await expect(getTicket(ctxFor(), { project_id: 'p1', key: '#12' })).rejects.toMatchObject({ code: 'TICKET_AMBIGUOUS', message: expect.stringContaining('acme/api#12, acme/web#12') });
   });
 
+  it('a short form with an owner never falls back to a suffix match', async () => {
+    await expect(getTicket(ctxFor(), { project_id: 'p1', key: 'other/api#12' })).rejects.toMatchObject({ code: 'TICKET_NOT_FOUND' });
+  });
+
   it('without project: exact keys only, and the same key in two projects is ambiguous', async () => {
     await expect(getTicket(ctxFor(), { key: 'EI-5' })).rejects.toMatchObject({ code: 'TICKET_AMBIGUOUS' });
     await expect(getTicket(ctxFor(), { key: '#12' })).rejects.toMatchObject({ code: 'TICKET_NOT_FOUND' });
+  });
+
+  it('short forms need an explicit project_id, even when the scope resolves to exactly one project', async () => {
+    const ctx = ctxFor();
+    (ctx.repos.projects.list as ReturnType<typeof vi.fn>).mockResolvedValue([project('p1', 'u1')]);
+    await expect(getTicket(ctx, { key: '#12' })).rejects.toMatchObject({ code: 'TICKET_NOT_FOUND' });
   });
 });
 
@@ -123,6 +133,13 @@ describe('importTickets', () => {
     const r = await importTickets(ctx, { project_id: 'p1', keys: ['acme/api#12', 'acme/api#13'] });
     expect(r.cards.map((c) => [c.ticket_key, c.created])).toEqual([['acme/api#12', true], ['acme/api#13', false]]);
     expect(ctx.repos.tasks.createFromTicket).toHaveBeenCalledWith('p1', expect.objectContaining({ title: 'T a', key: 's-a', ref: expect.objectContaining({ key: 'acme/api#12', integration_id: 'g' }) }));
+  });
+
+  it('importing the same ticket twice in one call creates one card and returns it once', async () => {
+    const ctx = ctxFor();
+    const r = await importTickets(ctx, { project_id: 'p1', keys: ['acme/api#12', 'ACME/API#12'] });
+    expect(r.cards.map((c) => c.ticket_key)).toEqual(['acme/api#12']);
+    expect(ctx.repos.tasks.createFromTicket).toHaveBeenCalledTimes(1);
   });
 });
 
