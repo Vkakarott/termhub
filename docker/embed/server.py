@@ -13,7 +13,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from api import BadRequest, authorized, parse_request
+from api import BadRequest, authorized, load_retry_delay, parse_request
 
 MODEL = os.environ.get("EMBED_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 SECRET = os.environ.get("EMBED_SECRET", "")
@@ -27,13 +27,26 @@ lock = threading.Lock()
 
 
 def load() -> None:
+    """Loads the model, retrying until it succeeds: a first start downloads the weights, and a
+    failed download (Hugging Face answers 429 to anonymous bursts) must not leave the service up
+    but modelless forever — /health and /embed answer 503 until a retry gets through."""
     global model, dim
     from fastembed import TextEmbedding
-    started = time.time()
-    m = TextEmbedding(MODEL, cache_dir="/models", threads=THREADS)
-    dim = len(next(iter(m.embed(["warm up"]))))
-    model = m
-    print(f"model {MODEL} loaded (dim {dim}) in {time.time() - started:.1f}s", flush=True)
+    attempt = 0
+    while True:
+        started = time.time()
+        try:
+            m = TextEmbedding(MODEL, cache_dir="/models", threads=THREADS)
+            d = len(next(iter(m.embed(["warm up"]))))
+        except Exception as err:  # the download or the ONNX load; retried as a whole
+            delay = load_retry_delay(attempt)
+            print(f"model {MODEL} not loaded ({type(err).__name__}), retrying in {delay}s", file=sys.stderr, flush=True)
+            attempt += 1
+            time.sleep(delay)
+            continue
+        dim, model = d, m
+        print(f"model {MODEL} loaded (dim {dim}) in {time.time() - started:.1f}s", flush=True)
+        return
 
 
 class Handler(BaseHTTPRequestHandler):
