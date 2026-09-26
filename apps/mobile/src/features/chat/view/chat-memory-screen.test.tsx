@@ -72,6 +72,21 @@ describe('Memória do chat', () => {
     expect(spy).toHaveBeenLastCalledWith(expect.anything(), 'branch');
   });
 
+  it('unmounting before the debounce fires cancels the pending search: no request is made', async () => {
+    // The store is a singleton that outlives this screen (see `cancel()` in
+    // createChatMemoryStore.ts): leaving right after typing must not let the debounced search fire
+    // later and clobber whatever the next visit's own `load()` shows.
+    const spy = jest.spyOn(stores.api, 'chatDecisions');
+    const view = await render(<ChatMemoryScreen />);
+    await screen.findByText('Usar worktree para essa tarefa?', undefined, LOAD);
+    spy.mockClear();
+
+    await fireEvent.changeText(screen.getByTestId('chat-memory-search'), 'branch');
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 400)); // real wall-clock, past the 300ms debounce
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('"Esquecer" asks a native confirm and removes the row once the DELETE resolves', async () => {
     // `mockResolvedValue`, not a call-through spy: this file's mock backend is shared across every
     // test below, and a real DELETE would remove the seeded fixture for good.

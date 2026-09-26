@@ -83,6 +83,36 @@ it('a second search before the debounce fires cancels the first (only one reques
   expect(spy).toHaveBeenCalledWith(expect.anything(), 'worktree');
 });
 
+it('cancel() clears a pending debounce timer: the search never fires', async () => {
+  const { store, api } = await setup();
+  await store.getState().load();
+  const spy = jest.spyOn(api, 'chatDecisions');
+  spy.mockClear();
+
+  store.getState().search('worktree');
+  store.getState().cancel();
+  await jest.advanceTimersByTimeAsync(300);
+  expect(spy).not.toHaveBeenCalled();
+  // Nothing was touched: still the full, unfiltered list from `load()`.
+  expect(store.getState().decisions?.map((d) => d.id)).toEqual(['d-branch', 'd-worktree']);
+});
+
+it('cancel() drops a first-page response already in flight (a search fired, then the screen left)', async () => {
+  const { store, api } = await setup();
+  await store.getState().load();
+  const before = store.getState().decisions;
+  let resolveSearch!: (v: TDecisionsResponse) => void;
+  jest.spyOn(api, 'chatDecisions').mockImplementationOnce(() => new Promise((resolve) => (resolveSearch = resolve)));
+
+  store.getState().search('worktree');
+  await jest.advanceTimersByTimeAsync(300); // the debounce fires; the request is now in flight
+  store.getState().cancel();
+  resolveSearch({ decisions: [decision({ id: 'd-should-be-dropped' })], next_cursor: null });
+  await tick();
+
+  expect(store.getState().decisions).toEqual(before); // the cancelled response never landed
+});
+
 it("keeps the later search's results even if the earlier one resolves after it", async () => {
   const { store, api } = await setup();
   await store.getState().load();

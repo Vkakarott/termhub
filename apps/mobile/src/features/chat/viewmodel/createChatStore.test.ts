@@ -1033,3 +1033,10 @@ it('forgetDecision(decisionId) calls DELETE over the mock; a repeat or an unknow
   await chat.getState().forgetDecision('nope'); // never existed
   expect(chat.getState().error).toBeNull();
 });
+
+it('forgetDecision surfaces "Não foi possível esquecer a decisão" on a non-session failure (the card already cleared itself optimistically)', async () => {
+  const { chat, api } = await setup();
+  jest.spyOn(api, 'forgetChatDecision').mockRejectedValueOnce(new ApiError(500, 'INTERNAL_ERROR', 'Erro interno do servidor'));
+  await chat.getState().forgetDecision('d-worktree');
+  expect(chat.getState().error).toBe('Não foi possível esquecer a decisão');
+});

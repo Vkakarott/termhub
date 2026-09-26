@@ -48,10 +48,14 @@ export function ChatMemoryScreen() {
   const loadMore = useChatMemoryStore((s) => s.loadMore);
   const toggle = useChatMemoryStore((s) => s.toggle);
   const forget = useChatMemoryStore((s) => s.forget);
+  const cancel = useChatMemoryStore((s) => s.cancel);
 
   useEffect(() => {
     void load();
-    // Runs once, on mount: `search()` (debounced, inside the store) handles every later change to `q`.
+    // The store is a singleton that outlives this screen: leaving before a debounced search fires,
+    // or while one is already in flight, must not let it land later and clobber the next visit's
+    // own fresh `load()` — `cancel()` (createChatMemoryStore.ts) guards exactly that.
+    return () => cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -12,8 +12,15 @@
 // `toggle()`/`forget()` deliberately do NOT share that counter: sharing it would let an unrelated
 // search finishing first make the switch fall back to its pre-toggle value, or bring back a row
 // just forgotten. They apply their own result unconditionally instead — this mirrors
-// `ChatMemoryPage`'s `mountedRef` being kept apart from `genRef`; a zustand store, unlike a
-// component, is never itself "unmounted", so there is nothing else worth guarding them against.
+// `ChatMemoryPage`'s `mountedRef` being kept apart from `genRef`.
+//
+// Unlike a component, this store is never itself "unmounted" — it is a singleton that outlives the
+// screen — but the *screen* still needs a way to say "I am gone, drop whatever you were about to
+// show me": `cancel()` clears a still-pending debounce timer and bumps `gen`, so neither a search
+// typed right before leaving nor one already in flight can land later and clobber the next visit's
+// fresh `load()`. The screen calls it from its unmount cleanup; `toggle()`/`forget()` are untouched
+// by it on purpose (see above) — the store is still alive to receive their result, and the next
+// visit re-reads everything from scratch anyway.
 import { create } from 'zustand';
 import { sessionEnded } from '@/features/shared/signals';
 import type { TChatDecision, TChatMemory } from '@/services/api/contract';
@@ -58,6 +65,10 @@ export interface ChatMemoryState {
   toggle(): Promise<void>;
   /** "Esquecer": the same hard delete as a card's "Esquecer esta decisão". */
   forget(id: string): Promise<void>;
+  /** Cancels a pending debounce timer and drops any first-page/"more" response still in flight,
+   * without touching what is currently shown. Call this from the screen's unmount — see the note
+   * above `toggle()`/`forget()` for why they are not affected. */
+  cancel(): void;
 }
 
 type Data = Omit<ChatMemoryState, { [K in keyof ChatMemoryState]: ChatMemoryState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatMemoryState]>;
@@ -72,6 +83,17 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
 
   let gen = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Clears a pending debounce timer and bumps `gen`, so a first-page/"more" response already in
+   * flight is dropped by its own `gen !== myGen` check once it resolves. Shared by `cancel()` and
+   * the `sessionEnded` reset below. */
+  const cancelPending = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    gen++;
+  };
 
   const store = create<ChatMemoryState>()((set, get) => {
     const runFirstPage = async (query: string): Promise<void> => {
@@ -147,17 +169,17 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
           set({ error: isApiError(e) ? e.message : 'Não foi possível esquecer a decisão' });
         }
       },
+
+      cancel() {
+        cancelPending();
+      },
     };
   });
 
   // Design spec §5.5: the end of a session resets every store that holds per-session data, so the
   // next enrolled device never sees the previous session's decisions.
   sessionEnded.subscribe(() => {
-    gen++;
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
+    cancelPending();
     store.setState(initialData());
   });
 
