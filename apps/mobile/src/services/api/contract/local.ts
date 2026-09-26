@@ -14,9 +14,13 @@ import {
   chatGrantListItemSchema,
   chatGrantListResponse,
   chatGrantSchema,
+  chatMemoryPatchBody,
+  chatMemoryResponse,
   chatMessage,
   chatProjectItem,
   chatProjectsResponse,
+  decisionsResponse,
+  decisionViewSchema,
   deviceActivateBody,
   deviceActivateResponse,
   deviceInfo,
@@ -36,6 +40,7 @@ import {
   tabQuestionAnswerBody,
   tabQuestionSchema,
   tabQuestionScreenResponse,
+  tabQuestionSuggestionSchema,
   tabSuggestionSchema,
   tabSuggestionSendBody,
   tokenBody,
@@ -185,6 +190,14 @@ export type TChatGrantListResponse = z.infer<typeof chatGrantListResponse>;
 export type TTabQuestion = z.infer<typeof tabQuestionSchema>;
 export type TTabQuestionAnswerBody = z.infer<typeof tabQuestionAnswerBody>;
 export type TTabQuestionScreenResponse = z.infer<typeof tabQuestionScreenResponse>;
+export type TTabQuestionSuggestion = z.infer<typeof tabQuestionSuggestionSchema>;
+
+// "Memória do chat" (spec 2026-09-26 §4.6/§5.2): a remembered decision, its page and the
+// suggestion switch — mirrors `apps/web/src/lib/api.ts`'s `chatDecisions`/`chatMemory`/`setChatMemory`.
+export type TChatDecision = z.infer<typeof decisionViewSchema>;
+export type TDecisionsResponse = z.infer<typeof decisionsResponse>;
+export type TChatMemory = z.infer<typeof chatMemoryResponse>;
+export type TChatMemoryPatchBody = z.infer<typeof chatMemoryPatchBody>;
 export type TTabSuggestion = z.infer<typeof tabSuggestionSchema>;
 export type TTabSuggestionSendBody = z.infer<typeof tabSuggestionSendBody>;
 export type TChatConversation = z.infer<typeof chatConversationSchema>;

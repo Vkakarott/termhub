@@ -2,8 +2,8 @@ import { memo, useEffect, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
-import { answerSummary, statusLabel, tabLabel } from '../model/tab-question-text';
-import type { TabQuestion } from '../model/types';
+import { answerSummary, statusLabel, suggestionLine, tabLabel } from '../model/tab-question-text';
+import type { TabQuestion, TabQuestionSuggestionItem } from '../model/types';
 
 type Props = {
   question: TabQuestion;
@@ -13,6 +13,11 @@ type Props = {
   error?: string | null;
   onAnswer(questionId: string, body: TTabQuestionAnswerBody): void;
   loadScreen(questionId: string): Promise<string | null>;
+  /** "Esquecer esta decisão" on a suggestion line (chat decision memory spec 2026-09-26 §5.1):
+   *  forgets the past decision it came from, then the card clears that question's pre-selection
+   *  regardless of whether the call succeeds — the server answers 204 even for a decision already
+   *  gone. Omitted on a permission card, which never carries a suggestion. */
+  onForget?(decisionId: string): Promise<void>;
 };
 type Choice = Extract<TabQuestion, { kind: 'choice' }>;
 type Permission = Extract<TabQuestion, { kind: 'permission' }>;
@@ -35,11 +40,15 @@ export const TabQuestionCard = memo(function TabQuestionCard(props: Props) {
   );
 });
 
-function ChoiceBody({ question, busy, onAnswer }: Props & { question: Choice }) {
+function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: Choice }) {
   const items = question.payload.questions;
   const [current, setCurrent] = useState(0);
-  const [selected, setSelected] = useState<number[][]>(() => items.map(() => []));
-  const [texts, setTexts] = useState<string[]>(() => items.map(() => ''));
+  // Pre-selected from a similar past decision (chat decision memory spec 2026-09-26 §4.2/§5.1): only
+  // present while the card is `open`, and only for the questions that matched. `hint` shrinks as
+  // each is forgotten.
+  const [hint, setHint] = useState(() => question.suggestion?.items ?? []);
+  const [selected, setSelected] = useState<number[][]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.selected ?? []));
+  const [texts, setTexts] = useState<string[]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.text ?? ''));
   const title = <AppText variant="label">{`${tabLabel(question)} perguntou`}</AppText>;
   if (question.status !== 'open') {
     return (
@@ -57,6 +66,17 @@ function ChoiceBody({ question, busy, onAnswer }: Props & { question: Choice }) 
   const complete = answers.every((a) => 'text' in a || a.selected.length > 0);
   const toggle = (option: number) =>
     setSelected((prev) => prev.map((s, j) => (j !== current ? s : item.multi_select ? (s.includes(option) ? s.filter((x) => x !== option) : [...s, option]) : [option])));
+  const currentHint = hint.find((s) => s.question_index === current);
+  const forget = (h: TabQuestionSuggestionItem) => {
+    const clear = () => {
+      setHint((prev) => prev.filter((s) => s !== h));
+      setSelected((prev) => prev.map((s, j) => (j === h.question_index ? [] : s)));
+      setTexts((prev) => prev.map((t, j) => (j === h.question_index ? '' : t)));
+    };
+    const result = onForget?.(h.decision_id);
+    if (result) void result.then(clear, clear);
+    else clear();
+  };
   return (
     <View className="gap-2">
       {title}
@@ -109,6 +129,12 @@ function ChoiceBody({ question, busy, onAnswer }: Props & { question: Choice }) 
         onChangeText={(t) => setTexts((prev) => prev.map((x, j) => (j === current ? t : x)))}
         className={INPUT}
       />
+      {currentHint ? (
+        <View className="gap-1">
+          <AppText variant="muted">{suggestionLine(item, currentHint)}</AppText>
+          <Button label="Esquecer esta decisão" variant="ghost" disabled={busy} onPress={() => forget(currentHint)} />
+        </View>
+      ) : null}
       <Button label="Responder" onPress={() => onAnswer(question.id, { answers })} disabled={busy || !complete} />
     </View>
   );

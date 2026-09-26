@@ -1023,3 +1023,13 @@ describe('attachments', () => {
     expect(source.headers.DPoP).toBeTruthy();
   });
 });
+
+it('forgetDecision(decisionId) calls DELETE over the mock; a repeat or an unknown id is still fine (the server is idempotent)', async () => {
+  const { chat, api } = await setup();
+  const spy = jest.spyOn(api, 'forgetChatDecision');
+  await chat.getState().forgetDecision('d-worktree'); // one of the seeded fixtures
+  expect(spy).toHaveBeenCalledWith(expect.anything(), 'd-worktree');
+  await chat.getState().forgetDecision('d-worktree'); // already gone
+  await chat.getState().forgetDecision('nope'); // never existed
+  expect(chat.getState().error).toBeNull();
+});

@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../../crypto/encoding';
 import type { P256Jwk } from '../../key/types';
 import { verifyProof } from '../dpop';
-import type { TChatAction, TChatAttachment, TChatConversation, TChatGrant, TChatMessage, TDeviceInfo, TNotificationRow, TTabQuestion, TTabSuggestion } from '../contract';
+import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TDeviceInfo, TNotificationRow, TTabQuestion, TTabSuggestion } from '../contract';
 
 /** Every non-2xx answer the mock throws (design spec ruling): mapped to the wire shape by
  * `transport.ts`. `error` is pt-BR text; `extra` carries `attempts_left` / `retry_after`, spread
@@ -118,6 +118,11 @@ export interface MockGrant extends TChatGrant {
 /** Field-for-field the wire shape of a notification row (contract `notifications.ts`). */
 export type MockNotification = TNotificationRow;
 
+/** "Memória do chat" (spec 2026-09-26 §4.6): field-for-field the wire shape of one remembered
+ * decision (contract `chat.ts`'s `decisionViewSchema`) — the mock's single user owns every row, so
+ * there is no `user_id` to keep here either. */
+export type MockDecision = TChatDecision;
+
 /** A tab's question (spec 2026-09-25): the wire shape plus the conversation it was pushed into. */
 export type MockTabQuestion = TTabQuestion & { conversation_id: string };
 
@@ -168,6 +173,12 @@ export interface MockState {
   activeConversation: Map<string | null, string>;
   /** Projects (or `null` for the account-wide chat) with a streaming reply in flight. */
   busyProjects: Set<string | null>;
+  /** "Memória do chat" (spec 2026-09-26 §4.6): the mock's one user's remembered decisions, any
+   * order (`GET decisions` sorts newest first) — "Esquecer" (`DELETE`) removes a row from here. */
+  decisions: MockDecision[];
+  /** The mock's one user's suggestion switch (`GET`/`PATCH memory`); defaults to `true`, like the
+   * server's `chatSuggestions` column default. */
+  chatMemoryEnabled: boolean;
 }
 
 export function createMockState(): MockState {
@@ -190,6 +201,8 @@ export function createMockState(): MockState {
     notifications: [],
     activeConversation: new Map(),
     busyProjects: new Set(),
+    decisions: [],
+    chatMemoryEnabled: true,
   };
 }
 

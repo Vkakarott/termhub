@@ -94,6 +94,8 @@ export function SettingsScreen() {
           <Button label="Trocar máquina ou conta" variant="secondary" onPress={() => setPickingHost(true)} />
           <HostSheet open={pickingHost} onClose={() => setPickingHost(false)} />
           <Button label="Abas confiáveis" variant="secondary" onPress={() => router.push('/chat-grants')} />
+          {/* chat decision memory spec 2026-09-26 §5.2: "Memória do chat" is reached from here, no PIN. */}
+          <Button label="Memória do chat" variant="secondary" onPress={() => router.push('/chat-memory')} />
         </Section>
 
         <Section title="Aparência">

@@ -118,6 +118,10 @@ export interface ChatState {
   sendTabSuggestion(suggestionId: string, text: string): Promise<void>;
   /** "Dispensar": the card closes; the tab is not touched. */
   dismissTabSuggestion(suggestionId: string): Promise<void>;
+  /** "Esquecer esta decisão" on a tab question's suggestion line (chat decision memory spec
+   * 2026-09-26 §5.1): the card itself clears its own pre-selection regardless of the outcome, so a
+   * session-ending error is the only thing worth reacting to here. */
+  forgetDecision(decisionId: string): Promise<void>;
   reset(): Promise<void>;
   loadHostOptions(): Promise<void>;
   setHost(machineId: string, aiAccountId?: string): Promise<void>;
@@ -619,6 +623,16 @@ export function createChatStore(deps: ChatDeps) {
 
           attachmentSource(id) {
             return api.attachmentSource(session().auth(), id);
+          },
+
+          async forgetDecision(decisionId) {
+            try {
+              await api.forgetChatDecision(session().auth(), decisionId);
+            } catch (e) {
+              // Idempotent on the server (204 even for a decision already gone): only a
+              // session-ending error is worth acting on here.
+              session().handleApiError(e);
+            }
           },
 
           async reset() {

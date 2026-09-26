@@ -622,3 +622,37 @@ it('refuses an unknown type, deletes an unsent attachment, and refuses an id of 
   await api.deleteAttachment(auth, general.id);
   await expect(api.deleteAttachment(auth, general.id)).rejects.toMatchObject({ status: 404 });
 });
+
+// "Memória do chat" (chat decision memory spec 2026-09-26 §4.6/§5.2): the mock's own answers for
+// the four routes, so the mock mode keeps working end to end (not only through the store's own
+// unit tests, which stub `api` directly).
+describe('chat decision memory', () => {
+  it('GET decisions lists the seeded fixtures newest first, and q filters them', async () => {
+    const clock = { value: START };
+    const { api, auth } = await enrol(clock);
+    const page = await api.chatDecisions(auth);
+    expect(page.decisions.map((d) => d.id)).toEqual(['d-branch', 'd-worktree']); // newest first
+    expect(page.next_cursor).toBeNull();
+
+    const filtered = await api.chatDecisions(auth, 'worktree');
+    expect(filtered.decisions.map((d) => d.id)).toEqual(['d-worktree']);
+  });
+
+  it('DELETE decisions/:id removes the row and is idempotent (a repeat, or an unknown id, is still 204)', async () => {
+    const clock = { value: START };
+    const { api, auth } = await enrol(clock);
+    await api.forgetChatDecision(auth, 'd-worktree');
+    expect((await api.chatDecisions(auth)).decisions.map((d) => d.id)).toEqual(['d-branch']);
+    await api.forgetChatDecision(auth, 'd-worktree'); // already gone
+    await api.forgetChatDecision(auth, 'nope'); // never existed
+    expect((await api.chatMemory(auth)).count).toBe(1);
+  });
+
+  it('GET/PATCH memory reads and flips the switch, with the seeded count', async () => {
+    const clock = { value: START };
+    const { api, auth } = await enrol(clock);
+    expect(await api.chatMemory(auth)).toMatchObject({ enabled: true, available: true, count: 2 });
+    expect(await api.setChatMemory(auth, false)).toMatchObject({ enabled: false, available: true, count: 2 });
+    expect(await api.chatMemory(auth)).toMatchObject({ enabled: false });
+  });
+});

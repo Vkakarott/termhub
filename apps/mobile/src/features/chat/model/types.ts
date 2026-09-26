@@ -3,7 +3,7 @@
 // `copy.ts`) is a line-for-line copy of the web's own modules, and matching its type names is what
 // keeps that copy readable side by side with the source it was copied from. Delete this file once
 // `@termhub/mobile-api` exports these types directly (design spec §6).
-import type { TChatAction, TChatConversation, TChatEvent, TChatGrant, TChatHostState, TChatMessage, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatConversation, TChatDecision, TChatEvent, TChatGrant, TChatHostState, TChatMemory, TChatMessage, TTabQuestion, TTabQuestionSuggestion, TTabSuggestion } from '@/services/api/contract';
 
 /**
  * A message row, plus what only this device knows about a row it inserted before the server echoed
@@ -24,8 +24,19 @@ export type ChatEvent = TChatEvent;
 export type ChatGrant = TChatGrant;
 /** A question an agent in a tab asked (spec 2026-09-25). */
 export type TabQuestion = TTabQuestion;
+/** A pre-selected answer from a similar past decision (chat decision memory spec 2026-09-26 §4.2),
+ * carried on an `open` question — suggest only, never sent on its own. */
+export type TabQuestionSuggestion = TTabQuestionSuggestion;
+export type TabQuestionSuggestionItem = TabQuestionSuggestion['items'][number];
+/** One question of a choice card, as `payload.questions` holds it. */
+export type TabQuestionItem = Extract<TabQuestion, { kind: 'choice' }>['payload']['questions'][number];
 /** Claude Code's dimmed next prompt in a tab (spec 2026-09-25 tab suggestions). */
 export type TabSuggestion = TTabSuggestion;
+
+/** "Memória do chat" (spec 2026-09-26 §4.6/§5.2): one remembered decision, and the suggestion
+ * switch, as the list and the "Memória do chat" screen show them. */
+export type ChatDecision = TChatDecision;
+export type ChatMemory = TChatMemory;
 
 /**
  * Why an answer stopped, transcribed verbatim from `apps/web/src/lib/types.ts` (~lines 611-632):
