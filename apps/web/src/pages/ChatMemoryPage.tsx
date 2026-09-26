@@ -39,8 +39,13 @@ export function ChatMemoryPage() {
    * they resolve. `mountedRef` is exactly that — true until the cleanup effect below turns it off.
    * Forgetting is safe to apply unconditionally otherwise: filtering a row out of whatever `decisions`
    * holds by then is a no-op if a newer search already replaced the list without that row in it.
+   *
+   * `togglesRef` counts completed toggles: a first-page load snapshots it when it starts and drops its
+   * `mem` if a toggle completed meanwhile — that `GET /memory` may have been read before the PATCH
+   * landed, and applying it would flip the switch back. Its list still applies.
    */
   const genRef = useRef(0);
+  const togglesRef = useRef(0);
   const mountedRef = useRef(true);
   useEffect(
     () => () => {
@@ -53,11 +58,12 @@ export function ChatMemoryPage() {
   /** Re-reads both halves from the first page: the switch/count line and the (possibly filtered) list. */
   const loadFirstPage = useCallback(async (query: string) => {
     const myGen = ++genRef.current;
+    const myToggles = togglesRef.current;
     setError(null);
     try {
       const [mem, page] = await Promise.all([api.chatMemory(), api.chatDecisions(query || undefined)]);
       if (genRef.current !== myGen) return; // superseded by a newer search, or unmounted meanwhile
-      setMemory(mem);
+      if (togglesRef.current === myToggles) setMemory(mem); // else a toggle's own result is newer
       setDecisions(page.decisions);
       setCursor(page.next_cursor);
     } catch (e) {
@@ -103,6 +109,7 @@ export function ChatMemoryPage() {
     setError(null);
     try {
       const next = await api.setChatMemory(!memory.enabled);
+      togglesRef.current += 1;
       if (!mountedRef.current) return;
       setMemory(next);
     } catch (e) {

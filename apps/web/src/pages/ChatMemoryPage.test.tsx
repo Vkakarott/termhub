@@ -198,6 +198,31 @@ it("toggling, then a search that completes before the PATCH does, still shows th
   expect(screen.getByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' })).toHaveAttribute('aria-checked', 'false');
 });
 
+it('a search that started before a toggle completed never flips the switch back when it resolves later', async () => {
+  chatMemoryMock.mockResolvedValueOnce({ enabled: true, available: true, count: 0 }); // initial load
+  chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
+  render(<ChatMemoryPage />);
+  const sw = await screen.findByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' });
+
+  // A search starts; its GET /memory (read before the PATCH lands) stays in flight.
+  let resolveStaleMemory!: (v: { enabled: boolean; available: boolean; count: number }) => void;
+  chatMemoryMock.mockImplementationOnce(() => new Promise((resolve) => (resolveStaleMemory = resolve)));
+  vi.useFakeTimers();
+  fireEvent.change(screen.getByLabelText('Buscar'), { target: { value: 'worktree' } });
+  await vi.advanceTimersByTimeAsync(300);
+  vi.useRealTimers();
+  expect(chatMemoryMock).toHaveBeenCalledTimes(2);
+
+  // The toggle goes through completely meanwhile.
+  setChatMemoryMock.mockResolvedValueOnce({ enabled: false, available: true, count: 0 });
+  await act(async () => fireEvent.click(sw));
+  expect(sw).toHaveAttribute('aria-checked', 'false');
+
+  // Only now does the search's stale read arrive: it must not undo the toggle.
+  await act(async () => resolveStaleMemory({ enabled: true, available: true, count: 0 }));
+  expect(screen.getByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' })).toHaveAttribute('aria-checked', 'false');
+});
+
 it('forgetting, then a search that completes before the DELETE does, still removes the row', async () => {
   chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1 });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: null }); // initial load

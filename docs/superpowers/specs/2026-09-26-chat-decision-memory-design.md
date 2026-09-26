@@ -326,3 +326,6 @@ Answered/closed cards show no suggestion line.
   "Responder" was enabled at once and sent pre-selected answers of tabs the person never opened. Now
   each suggested tab is labelled " · sugerida" and "Responder" waits until every suggested question
   was viewed (the first one counts as viewed). Single-question cards are unchanged. Web and mobile.
+- **A stale first-page read never undoes a toggle.** A first-page load (initial or search) that
+  started before the latest toggle completed does not apply its `GET /memory` result (its list still
+  applies): that read may predate the PATCH and would flip the switch back. Web page and mobile store.

@@ -12,7 +12,10 @@
 // `toggle()`/`forget()` deliberately do NOT share that counter: sharing it would let an unrelated
 // search finishing first make the switch fall back to its pre-toggle value, or bring back a row
 // just forgotten. They apply their own result unconditionally instead — this mirrors
-// `ChatMemoryPage`'s `mountedRef` being kept apart from `genRef`.
+// `ChatMemoryPage`'s `mountedRef` being kept apart from `genRef`. A first page, in turn, counts
+// completed toggles (`toggles`) when it starts and drops its `memory` if one completed meanwhile:
+// that read may predate the PATCH and would flip the switch back (its list still applies) — the
+// same rule as `ChatMemoryPage`'s `togglesRef`.
 //
 // Unlike a component, this store is never itself "unmounted" — it is a singleton that outlives the
 // screen — but the *screen* still needs a way to say "I am gone, drop whatever you were about to
@@ -82,6 +85,7 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
   const debounceMs = deps.debounceMs ?? 300;
 
   let gen = 0;
+  let toggles = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   /** Clears a pending debounce timer and bumps `gen`, so a first-page/"more" response already in
@@ -98,11 +102,13 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
   const store = create<ChatMemoryState>()((set, get) => {
     const runFirstPage = async (query: string): Promise<void> => {
       const myGen = ++gen;
+      const myToggles = toggles;
       set({ error: null });
       try {
         const [memory, page] = await Promise.all([api.chatMemory(session().auth()), api.chatDecisions(session().auth(), query || undefined)]);
         if (gen !== myGen) return; // superseded by a newer search
-        set({ memory, decisions: page.decisions, cursor: page.next_cursor });
+        // A toggle that completed meanwhile holds the newer switch value; keep it.
+        set(toggles === myToggles ? { memory, decisions: page.decisions, cursor: page.next_cursor } : { decisions: page.decisions, cursor: page.next_cursor });
       } catch (e) {
         if (gen !== myGen) return;
         if (session().handleApiError(e)) return;
@@ -149,6 +155,7 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
         set({ switching: true, error: null });
         try {
           const next = await api.setChatMemory(session().auth(), !memory.enabled);
+          toggles++;
           set({ memory: next, switching: false });
         } catch (e) {
           set({ switching: false });

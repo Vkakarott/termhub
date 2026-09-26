@@ -201,6 +201,28 @@ it("toggling, then a search that completes before the PATCH does, still shows th
   expect(store.getState().memory?.enabled).toBe(false);
 });
 
+it('a search that started before a toggle completed never flips the switch back when it resolves later', async () => {
+  const { store, api } = await setup();
+  await store.getState().load();
+  expect(store.getState().memory?.enabled).toBe(true);
+
+  // A search fires; its GET /memory (read before the PATCH lands) stays in flight.
+  let resolveStaleMemory!: (v: TChatMemory) => void;
+  jest.spyOn(api, 'chatMemory').mockImplementationOnce(() => new Promise((resolve) => (resolveStaleMemory = resolve)));
+  store.getState().search('worktree');
+  await jest.advanceTimersByTimeAsync(300);
+
+  // The toggle goes through completely meanwhile.
+  await store.getState().toggle();
+  expect(store.getState().memory?.enabled).toBe(false);
+
+  // Only now does the search's stale read arrive: its list applies, its switch value must not.
+  resolveStaleMemory({ enabled: true, available: true, count: 2 });
+  await tick();
+  expect(store.getState().memory?.enabled).toBe(false);
+  expect(store.getState().decisions).not.toBeNull();
+});
+
 it('forgetting, then a search that completes before the DELETE does, still removes the row', async () => {
   const { store, api } = await setup();
   await store.getState().load();
