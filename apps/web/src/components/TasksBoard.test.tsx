@@ -149,6 +149,22 @@ describe('TasksBoard — columns, cards and filter', () => {
     const link = screen.getByRole('link', { name: 'acme/api#4' });
     expect(link).toHaveAttribute('href', 'https://x');
   });
+
+  it('a card imported before the change ("EI-123 Título") shows the title without the key prefix', async () => {
+    listMock.mockResolvedValue(
+      board([
+        epic('e1', 'Geral', 1),
+        task({ id: 'a', title: 'EI-123 Login quebra', external_ref: { provider: 'linear', id: 'u', identifier: 'EI-123', url: 'https://l', state: 'Todo', status: 'todo' } }),
+        task({ id: 'b', title: '#12 Safari trava', external_ref: { provider: 'github', id: '12', identifier: '#12', url: 'https://g', state: 'open', status: 'todo', scope: 'acme/api' } }),
+      ]),
+    );
+    mount();
+    expect(await screen.findByText('Login quebra')).toBeInTheDocument();
+    expect(screen.getByText('Safari trava')).toBeInTheDocument();
+    expect(screen.queryByText(/EI-123 Login quebra/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'EI-123' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'acme/api#12' })).toBeInTheDocument();
+  });
 });
 
 describe('TasksBoard — drag and drop', () => {
