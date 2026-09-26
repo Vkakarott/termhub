@@ -111,7 +111,7 @@ In `openTabQuestion`, after `repos.tabQuestions.open(...)` returns a `choice` ro
 1. Skip when the conversation's user has `chat_suggestions = false` or embeddings are unavailable.
 2. Embed every question's `decisionText` in one call.
 3. Per question, `repos.chatDecisions.nearest(userId, vector, k = 5)`: rows with an embedding, same
-   `multi_select`, cosine similarity ≥ `DECISION_SUGGEST_THRESHOLD` (env, default `0.85`).
+   `multi_select`, cosine similarity ≥ `DECISION_SUGGEST_THRESHOLD` (env, default `0.98`, measured in §9).
 4. Among those candidates, **most recent first** (a newer answer to the same question supersedes an
    older one), take the first that **maps** onto the new question: every past label equals one of
    the new options' labels (compared lowercase, letters and digits only); a past free-text answer
@@ -148,7 +148,8 @@ start and every 10 minutes:
 - **Embed:** decisions with `embedding IS NULL`, in batches of 32. (Re-embedding after a model change
   is out of scope; every row records its `embed_model` so it can be done later.)
 
-Skipped entirely without embeddings; errors are logged by count.
+Without embeddings only the embed step is skipped: the backfill still runs, since decisions are
+recorded regardless (§4.5). Errors are logged by count.
 
 ### 4.5 Forgetting and the switch
 
@@ -223,3 +224,76 @@ Answered/closed cards show no suggestion line.
 - Mining `chat_messages`; capturing concierge free-text relays.
 - A per-project scope or per-project switch.
 - Recreating the production DB container (pending item, §3.1).
+
+## 9. Adjustments found while implementing
+
+- **Mobile entry point.** The "Memória do chat" screen is reached from a row in the Ajustes tab
+  (route `/chat-memory`), as §5.2 already says; the web page is linked from the chat header.
+- **Re-embedding on a model change** stays out of scope (§4.4); `embed_model` is stored per row so
+  it can be added later.
+- **Threshold calibrated: default `0.98`, not `0.85`.** Measured with the real `th-embed` service
+  (`paraphrase-multilingual-MiniLM-L12-v2`) on `decisionText`-shaped inputs (header + question +
+  "Opções: …"), pt-BR and English:
+
+  | Kind | Pair | Cosine |
+  |---|---|---|
+  | same decision | verbatim question, options reordered | 0.995 |
+  | same decision | verbatim question, one extra option | 0.992 |
+  | same decision | skill question, punctuation changed | 0.992 |
+  | same decision | verbatim question, different header | 0.987 |
+  | same decision | "Rodar os testes agora?" / "Executar a suíte de testes agora?" | 0.964 |
+  | same decision | skill question, small wording change (en) | 0.954 |
+  | same decision | "Should I commit these changes now?" / "Commit these changes now?" | 0.953 |
+  | same decision | "Fazer commit agora?" / "Faço o commit agora?" | 0.951 |
+  | same decision | worktree vs branch, pt / en | 0.902 |
+  | same decision | "Qual abordagem seguir?" / "Como executar o plano?" | 0.875 |
+  | same decision | "Onde salvar o spec?" / "Where should the spec go?" | 0.860 |
+  | same decision | commit now or later, pt / en | 0.850 |
+  | same decision | commit now, two pt-BR phrasings | 0.819 |
+  | same decision | worktree, two pt-BR phrasings | 0.796 |
+  | same decision | push the branch, two en phrasings | 0.659 |
+  | same decision | TDD, two pt-BR phrasings | 0.640 |
+  | same decision | TDD, two en phrasings | 0.562 |
+  | **must not match** | "Adicionar testes para este caso?" / "Pular os testes deste caso?" (Sim/Não) | **0.974** |
+  | **must not match** | "Fazer merge na main?" / "Abrir um PR para a main?" (Sim/Não) | **0.959** |
+  | **must not match** | deploy to staging / to production (pt) | 0.910 |
+  | must not match | deploy to staging / to production (en) | 0.876 |
+  | must not match | install / remove the same library (Sim/Não) | 0.874 |
+  | must not match | "Commit now?" / "Push now?" (en, same header) | 0.844 |
+  | must not match | restart / stop the app container | 0.808 |
+  | must not match | "Fazer commit agora?" / "Fazer push agora?" (same header) | 0.799 |
+  | must not match | run the tests / run the lint now | 0.793 |
+  | must not match | delete the branch / delete the worktree | 0.762 |
+  | must not match | merge locally / discard the branch | 0.744 |
+  | must not match | spec location / plan location | 0.538 |
+  | must not match | commit / push, different headers | 0.504 |
+  | must not match | worktree / deploy (Sim/Não) | 0.395 |
+  | must not match | delete generated files / run the test suite | 0.306 |
+  | must not match | TDD / new migration (Sim/Não) | 0.275 |
+  | unrelated | season / database | 0.259 |
+  | unrelated | button colour / test framework | 0.159 |
+  | unrelated | worktree / button colour | 0.148 |
+
+  No threshold separates paraphrases from near-misses: short yes/no questions are dominated by the
+  shared header and "Sim | Não", so opposite actions ("adicionar"/"pular" testes) score 0.974 while
+  a true cross-language paraphrase scores 0.86–0.90 and some same-language paraphrases 0.56–0.66.
+  A wrong pre-selection is worse than none, so the default is precision-first: `0.98` catches the
+  near-verbatim repeats (≥ 0.987 — the common case, since skills and agents ask the same question
+  in the same words) and gives up paraphrases. The env variable lets an instance trade precision for
+  recall. End-to-end check against the real DB and service (repository + `httpEmbedder` +
+  `suggestFor`): a stored "Usar git worktree para isolar o trabalho?" → Sim is suggested for the
+  same question with an extra option (0.996), not for "Criar um worktree isolado para esta
+  tarefa?" (0.741, which the old `0.85` would have missed as well), and "Qual framework de testes?"
+  gets nothing (0.347).
+- **The sweeper backfills even without an embedder**; only the embed step is skipped (§4.4 fixed).
+- **Backfill guards.** It ignores rows answered in the last minute (the live recording in §4.3 is
+  still in flight for them), and rows whose payload or answer cannot be parsed or no longer fit are
+  skipped through an in-memory skip set instead of being re-selected on every run.
+- **The suggestion is published only while the row is still open.** `setSuggestion` updates open
+  rows only; when it returns nothing no card is republished, and after a slow lookup that found no
+  suggestion the row is re-read and announced only if still open.
+- **Memory routes use the default method actions** (`GET` → `chat:read`, `PATCH` → `chat:update`,
+  `DELETE` → `chat:delete`). The BETA role has chat CRUD; a custom role with only `chat:read` can list but not
+  forget or switch.
+- **Mobile:** the store owns the search debounce and it is cancelled when the screen unmounts; a
+  failed forget shows "Não foi possível esquecer a decisão".
