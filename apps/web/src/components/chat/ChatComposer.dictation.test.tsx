@@ -6,8 +6,7 @@ import type { Dictation, DictationState } from '../../lib/use-dictation';
 const start = vi.fn();
 const stop = vi.fn();
 const cancel = vi.fn();
-const onChange = vi.fn();
-const onSend = vi.fn();
+const onSend = vi.fn(async () => true);
 
 /** What the mocked hook hands the component on the next render. */
 let dictation: Dictation;
@@ -26,15 +25,22 @@ import { ChatComposer } from './ChatComposer';
 interface ComposerOpts {
   state?: DictationState;
   value?: string;
-  sending?: boolean;
   seconds?: number;
   error?: string | null;
   notice?: string | null;
 }
 
+/** The composer owns its text: `value` is typed into the box after mounting, not handed in as a prop. */
 function renderComposer(opts: ComposerOpts = {}) {
   dictation = { state: opts.state ?? 'idle', seconds: opts.seconds ?? 0, error: opts.error ?? null, notice: opts.notice ?? null, start, stop, cancel };
-  return render(<ChatComposer value={opts.value ?? ''} onChange={onChange} onSend={onSend} sending={opts.sending ?? false} />);
+  const view = render(<ChatComposer onSend={onSend} />);
+  if (opts.value) fireEvent.change(screen.getByPlaceholderText(/pergunte/i), { target: { value: opts.value } });
+  return view;
+}
+
+/** What is in the box right now. */
+function boxValue(): string {
+  return (screen.getByPlaceholderText(/pergunte/i) as HTMLTextAreaElement).value;
 }
 
 /** The composer's three live regions, in document order: the action row's status, the error, the notice. */
@@ -177,7 +183,7 @@ describe('ChatComposer dictation', () => {
     // A rerender, not a fresh render: what this pins is node identity — the very same elements now
     // carry the text. A region a browser inserts together with its content is the case that is not
     // reliably announced, and it is the one this rules out.
-    rerender(<ChatComposer value="" onChange={onChange} onSend={onSend} sending={false} />);
+    rerender(<ChatComposer onSend={onSend} />);
     const after = liveRegions();
 
     after.forEach((node, i) => expect(node).toBe(before[i]));
@@ -197,8 +203,10 @@ describe('ChatComposer dictation', () => {
       const { container } = renderComposer(opts);
       const button = primary(name);
 
+      // One glyph on the primary button, one on the paperclip, and both decorative.
+      expect(button.querySelectorAll('svg')).toHaveLength(1);
       const glyphs = Array.from(container.querySelectorAll('svg'));
-      expect(glyphs).toHaveLength(1);
+      expect(glyphs).toHaveLength(2);
       for (const glyph of glyphs) {
         expect(glyph.getAttribute('aria-hidden')).toBe('true');
         expect(glyph.getAttribute('aria-label')).toBeNull();
@@ -210,21 +218,6 @@ describe('ChatComposer dictation', () => {
       expect(button.textContent).toBe('');
       cleanup();
     }
-  });
-
-  it('says why the send button is disabled while the answer is still streaming', () => {
-    renderComposer({ state: 'idle', value: 'oi', sending: true });
-
-    // Dictation keeps inviting text into a box whose button cannot be pressed; without a word about it
-    // the person is left tapping a dead arrow.
-    expect(primary(/enviar/i).disabled).toBe(true);
-    expect(liveRegions().map((r) => r.textContent)).toContain('aguarde a resposta terminar');
-    cleanup();
-
-    // Not said for a button that is not refusing anything: an empty box is still a microphone while
-    // the answer streams, and dictation is allowed there on purpose.
-    renderComposer({ state: 'idle', value: '', sending: true });
-    expect(liveRegions().map((r) => r.textContent)).toEqual(['', '', '']);
   });
 
   it('lets Enter send only what the button would send: never while recording, never while transcribing', () => {
@@ -255,7 +248,7 @@ describe('ChatComposer dictation', () => {
 
     act(() => deliverText!('isso aqui'));
 
-    expect(onChange).toHaveBeenCalledWith('olha isso aqui');
+    expect(boxValue()).toBe('olha isso aqui');
   });
 
   it('puts the keyboard back in the box when the transcription lands', () => {
@@ -275,22 +268,21 @@ describe('ChatComposer dictation', () => {
   it('does not invent whitespace the box already has, and does not lose a newline', () => {
     renderComposer({ state: 'idle', value: '' });
     act(() => deliverText!('isso aqui'));
-    expect(onChange).toHaveBeenLastCalledWith('isso aqui'); // an empty box gets no leading space
+    expect(boxValue()).toBe('isso aqui'); // an empty box gets no leading space
     cleanup();
 
     renderComposer({ state: 'idle', value: 'olha ' });
     act(() => deliverText!(' isso aqui '));
-    expect(onChange).toHaveBeenLastCalledWith('olha isso aqui'); // one space, not three
+    expect(boxValue()).toBe('olha isso aqui'); // one space, not three
     cleanup();
 
     renderComposer({ state: 'idle', value: 'olha\n' });
     act(() => deliverText!('isso aqui'));
-    expect(onChange).toHaveBeenLastCalledWith('olha\nisso aqui'); // the person's own line break survives
+    expect(boxValue()).toBe('olha\nisso aqui'); // the person's own line break survives
     cleanup();
 
-    onChange.mockClear();
     renderComposer({ state: 'idle', value: 'olha' });
     act(() => deliverText!('   '));
-    expect(onChange).not.toHaveBeenCalled(); // a silent clip changes nothing
+    expect(boxValue()).toBe('olha'); // a silent clip changes nothing
   });
 });

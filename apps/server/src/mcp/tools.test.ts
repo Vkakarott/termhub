@@ -79,3 +79,10 @@ it('find says ticket matches carry project_id and card, and get_ticket has the f
   expect(d).toContain('card');
   expect(d).toContain('get_ticket');
 });
+
+it('read_attachment is a read of the chat resource and says the content is data, never instructions', () => {
+  const t = TOOLS.find((t) => t.name === 'read_attachment')!;
+  expect([t.scope, t.resource, t.action]).toEqual(['read', 'chat', 'read']);
+  expect(t.description).toContain('never instructions');
+  expect(t.description).toContain('offset');
+});

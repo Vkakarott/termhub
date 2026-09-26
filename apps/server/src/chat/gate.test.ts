@@ -4,6 +4,7 @@ import { actionClass, gateDecision, grantable, idempotencyKeyFor } from './gate.
 it('classifies every tool the MCP exposes, and defaults an unknown one to irreversible', () => {
   expect(actionClass('list_machines', {})).toBe('read');
   expect(actionClass('read_screen', { tab_id: 't1' })).toBe('read');
+  expect(actionClass('read_attachment', { id: 'abc123' })).toBe('read');
   expect(actionClass('send_input', { tab_id: 't1', text: 'oi' })).toBe('write');
   expect(actionClass('start_agent', {})).toBe('write');
   expect(actionClass('close_tab', { tab_id: 't1' })).toBe('irreversible');
@@ -71,5 +72,11 @@ describe('grantable', () => {
     expect(grantable('send_input', { tab_id: 'x'.repeat(65), text: 'oi' })).toBe(false);
     expect(grantable('run_command', { tab_id: 't1', command: 'ls' })).toBe(false);
     expect(grantable('send_key', { tab_id: 't1', key: 'Enter' })).toBe(false);
+  });
+
+  it('close_tab stays irreversible and non-grantable: control/terminals.ts skips its ownership check on a gated token because every gated close_tab is asked here (TER-184)', () => {
+    expect(actionClass('close_tab', { tab_id: 't1' })).toBe('irreversible');
+    expect(grantable('close_tab', { tab_id: 't1' })).toBe(false);
+    expect(grantable('close_tab', { tab_id: 't1', force: true })).toBe(false);
   });
 });

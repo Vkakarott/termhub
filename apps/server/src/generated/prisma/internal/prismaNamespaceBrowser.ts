@@ -76,6 +76,7 @@ export const ModelName = {
   ApiTokenEvent: 'ApiTokenEvent',
   ChatConversation: 'ChatConversation',
   ChatMessage: 'ChatMessage',
+  ChatAttachment: 'ChatAttachment',
   ChatAction: 'ChatAction',
   ChatGrant: 'ChatGrant',
   TabQuestion: 'TabQuestion',
@@ -202,6 +203,7 @@ export const MachineScalarFieldEnum = {
   agentVersion: 'agentVersion',
   agentLastSeenAt: 'agentLastSeenAt',
   agentAutoUpdate: 'agentAutoUpdate',
+  claudeAutoSwap: 'claudeAutoSwap',
   isLocal: 'isLocal',
   ownerId: 'ownerId',
   createdAt: 'createdAt'
@@ -255,6 +257,10 @@ export const TabScalarFieldEnum = {
   stateSeenAt: 'stateSeenAt',
   activity: 'activity',
   activityVerb: 'activityVerb',
+  agentSessionId: 'agentSessionId',
+  agentTranscriptPath: 'agentTranscriptPath',
+  aiAccountId: 'aiAccountId',
+  rateLimitedAt: 'rateLimitedAt',
   createdByTokenId: 'createdByTokenId',
   createdAt: 'createdAt'
 } as const
@@ -485,6 +491,26 @@ export const ChatMessageScalarFieldEnum = {
 } as const
 
 export type ChatMessageScalarFieldEnum = (typeof ChatMessageScalarFieldEnum)[keyof typeof ChatMessageScalarFieldEnum]
+
+
+export const ChatAttachmentScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  conversationId: 'conversationId',
+  messageId: 'messageId',
+  name: 'name',
+  mime: 'mime',
+  kind: 'kind',
+  bytes: 'bytes',
+  sha256: 'sha256',
+  status: 'status',
+  errorCode: 'errorCode',
+  extractedText: 'extractedText',
+  meta: 'meta',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatAttachmentScalarFieldEnum = (typeof ChatAttachmentScalarFieldEnum)[keyof typeof ChatAttachmentScalarFieldEnum]
 
 
 export const ChatActionScalarFieldEnum = {
