@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { chatGrantListQuery, chatGrantListResponse, chatProjectsResponse, decisionProofMessage, deviceSelf, hostOptionsResponse, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody, sendAccepted, type PinDecision } from '@termhub/mobile-api';
 import type { Device } from '../db/repositories/devices.js';
 import type { Repositories } from '../db/repositories/index.js';
+import { chatMemoryRoutes } from './chat-memory.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions, splitTabRows } from '../db/repositories/tab-questions-view.js';
 import { controlContextFor } from '../control/context.js';
@@ -72,6 +73,9 @@ const toDeviceSelf = (d: Device) => deviceSelf.parse({ id: d.id, name: d.name, p
  * Never logs chat text: a background failure is logged by its code only.
  */
 export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories, deps: MobileChatDeps) {
+  // "Memória do chat" (spec 2026-09-26 §4.6): list/forget decisions, read/set the suggestion switch.
+  await chatMemoryRoutes(app, repos);
+
   app.get('/', async (request) => {
     const { project } = scopeQuery.parse(request.query);
     const projectId = project ?? null;
