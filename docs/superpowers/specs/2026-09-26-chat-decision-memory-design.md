@@ -196,6 +196,9 @@ On an **open** choice card with a suggestion item for a question:
 - a line under it: "Sugestão da memória: você respondeu «X» a «pergunta» em <projeto>, <data>" and
   a link "Esquecer esta decisão" (calls `DELETE`, then clears the pre-selection);
 - the user can change anything before "Responder"; nothing is sent without the click.
+- on a card with several questions, each question tab that carries a suggestion is labelled
+  "<header> · sugerida", and "Responder" stays disabled until every suggested question has been
+  viewed at least once (the one shown first counts), so no pre-selected answer is sent unseen.
 
 Answered/closed cards show no suggestion line.
 
@@ -319,3 +322,7 @@ Answered/closed cards show no suggestion line.
   carrying both could never equal what the person sends and would never count as accepted.
 - **Compose comment corrected.** `EMBED_URL` falls back to the embed service when unset, so an empty
   `EMBED_SECRET` (not an unset `EMBED_URL`) is what turns suggestions off in compose.
+- **Multi-question cards: no unseen suggestion is sent** (§5.1). With several suggested questions,
+  "Responder" was enabled at once and sent pre-selected answers of tabs the person never opened. Now
+  each suggested tab is labelled " · sugerida" and "Responder" waits until every suggested question
+  was viewed (the first one counts as viewed). Single-question cards are unchanged. Web and mobile.

@@ -146,11 +146,36 @@ it("forgetting one question's suggestion keeps another question's pre-selection"
   await waitFor(() => expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked());
 
   // Question 1's own suggestion (a different decision) is untouched by forgetting question 0's.
-  fireEvent.click(screen.getByRole('tab', { name: 'Fruits' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Fruits · sugerida' }));
   expect(screen.getByRole('checkbox', { name: /Apple/ })).toBeChecked();
   expect(screen.getByRole('checkbox', { name: /Mango/ })).toBeChecked();
   expect(screen.getByRole('checkbox', { name: /Banana/ })).not.toBeChecked();
   expect(screen.getByText('Sugestão da memória: você respondeu «Apple, Mango» a «Quais frutas você gosta?» em termhub, 20/09/2026')).toBeInTheDocument();
+});
+
+it('several suggested questions: each tab says so, and Responder waits until every one was viewed', () => {
+  const onAnswer = vi.fn();
+  const suggestionFruits = { question_index: 1, decision_id: 'd2', similarity: 0.99, selected: [0, 2], source: { question: 'Quais frutas você gosta?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00Z' } };
+  render(<TabQuestionCard question={choice({ suggestion: { items: [suggestion, suggestionFruits] } } as Partial<TabQuestion>)} answering={false} onAnswer={onAnswer} />);
+  expect(screen.getByRole('tab', { name: 'Color · sugerida' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Fruits · sugerida' })).toBeInTheDocument();
+  // Every question is pre-answered, but the second one was never shown: no sending it unseen.
+  const submit = screen.getByRole('button', { name: 'Responder' });
+  expect(submit).toBeDisabled();
+  fireEvent.click(screen.getByRole('tab', { name: 'Fruits · sugerida' }));
+  expect(submit).toBeEnabled();
+  fireEvent.click(submit);
+  expect(onAnswer).toHaveBeenCalledWith('q1', { answers: [{ selected: [1] }, { selected: [0, 2] }] });
+});
+
+it('a tab without a suggestion carries no mark and does not hold Responder back', () => {
+  render(<TabQuestionCard question={choice({ suggestion: { items: [suggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+  expect(screen.getByRole('tab', { name: 'Color · sugerida' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Fruits' })).toBeInTheDocument();
+  // Fruits has no suggestion, so only an answer to it (not a visit) is missing.
+  fireEvent.click(screen.getByRole('tab', { name: 'Fruits' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: /Apple/ }));
+  expect(screen.getByRole('button', { name: 'Responder' })).toBeEnabled();
 });
 
 it('an answered card shows no suggestion line', () => {

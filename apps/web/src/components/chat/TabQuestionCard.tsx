@@ -40,6 +40,9 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
   const [hint, setHint] = useState(() => question.suggestion?.items ?? []);
   const [selected, setSelected] = useState<number[][]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.selected ?? []));
   const [texts, setTexts] = useState<string[]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.text ?? ''));
+  // Which questions the person has looked at (the first one is shown at once). A pre-selected answer on
+  // a tab never opened must not go out with "Responder", so it waits until every suggested one was seen.
+  const [viewed, setViewed] = useState<boolean[]>(() => items.map((_, i) => i === 0));
   const title = <p className="font-medium text-fg">{`${tabLabel(question)} perguntou`}</p>;
   if (question.status !== 'open') {
     return (
@@ -55,6 +58,11 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
   }
   const answers = items.map((_, i) => (texts[i]!.trim() ? { selected: [], text: texts[i]!.trim() } : { selected: [...selected[i]!].sort((a, b) => a - b) }));
   const complete = answers.every((a) => 'text' in a || a.selected.length > 0);
+  const suggestedUnseen = hint.some((h) => !viewed[h.question_index]);
+  const show = (i: number) => {
+    setCurrent(i);
+    setViewed((prev) => prev.map((v, j) => v || j === i));
+  };
   const item = items[current]!;
   const typing = texts[current]!.trim() !== '';
   const toggle = (option: number) =>
@@ -70,7 +78,7 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
     if (step === 0) return;
     e.preventDefault();
     const next = (current + step + items.length) % items.length;
-    setCurrent(next);
+    show(next);
     document.getElementById(tabId(next))?.focus();
   };
   const currentHint = hint.find((s) => s.question_index === current);
@@ -101,9 +109,9 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
               aria-controls={panelId}
               tabIndex={i === current ? 0 : -1}
               className={i === current ? 'btn-primary' : 'btn-ghost'}
-              onClick={() => setCurrent(i)}
+              onClick={() => show(i)}
             >
-              {it.header || `Pergunta ${i + 1}`}
+              {`${it.header || `Pergunta ${i + 1}`}${hint.some((h) => h.question_index === i) ? ' · sugerida' : ''}`}
             </button>
           ))}
         </div>
@@ -151,7 +159,7 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
           </button>
         </div>
       )}
-      <button type="button" className="btn-primary mt-2" disabled={answering || !complete} onClick={() => onAnswer(question.id, { answers })}>
+      <button type="button" className="btn-primary mt-2" disabled={answering || !complete || suggestedUnseen} onClick={() => onAnswer(question.id, { answers })}>
         Responder
       </button>
     </>

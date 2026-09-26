@@ -73,4 +73,43 @@ describe('TabQuestionCard: suggested answer (chat decision memory spec 2026-09-2
     expect(screen.queryByText(/Sugestão da memória/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Esquecer esta decisão' })).toBeNull();
   });
+
+  describe('several questions', () => {
+    const TWO: TabQuestion = {
+      ...BASE_QUESTION,
+      payload: {
+        questions: [
+          (BASE_QUESTION as Extract<TabQuestion, { kind: 'choice' }>).payload.questions[0]!,
+          { question: 'Rodar os testes?', header: 'Testes', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] },
+        ],
+      },
+    };
+    const BOTH: TabQuestionSuggestion = {
+      items: [SUGGESTION.items[0]!, { question_index: 1, decision_id: 'd2', similarity: 0.99, selected: [0], source: { question: 'Rodar os testes?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00.000Z' } }],
+    };
+
+    it('marks each suggested tab and keeps "Responder" off until every suggested question was viewed', async () => {
+      const onAnswer = jest.fn();
+      await render(<TabQuestionCard question={{ ...TWO, suggestion: BOTH }} busy={false} onAnswer={onAnswer} loadScreen={async () => null} onForget={jest.fn()} />);
+      expect(screen.getByRole('tab', { name: 'Worktree · sugerida' })).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'Testes · sugerida' })).toBeTruthy();
+      // Both are pre-answered, but "Testes" was never shown: its answer must not go out unseen.
+      expect(screen.getByRole('button', { name: 'Responder' }).props.accessibilityState.disabled).toBe(true);
+      await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Responder' })));
+      expect(onAnswer).not.toHaveBeenCalled();
+
+      await act(async () => fireEvent.press(screen.getByRole('tab', { name: 'Testes · sugerida' })));
+      expect(screen.getByRole('button', { name: 'Responder' }).props.accessibilityState.disabled).toBe(false);
+      await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Responder' })));
+      expect(onAnswer).toHaveBeenCalledWith('q1', { answers: [{ selected: [1] }, { selected: [0] }] });
+    });
+
+    it('a tab without a suggestion has no mark and only needs an answer', async () => {
+      await render(<TabQuestionCard question={{ ...TWO, suggestion: SUGGESTION }} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+      expect(screen.getByRole('tab', { name: 'Worktree · sugerida' })).toBeTruthy();
+      await act(async () => fireEvent.press(screen.getByRole('tab', { name: 'Testes' })));
+      await act(async () => fireEvent.press(screen.getByRole('radio', { name: 'Sim' })));
+      expect(screen.getByRole('button', { name: 'Responder' }).props.accessibilityState.disabled).toBe(false);
+    });
+  });
 });

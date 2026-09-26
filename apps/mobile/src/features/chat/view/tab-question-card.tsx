@@ -49,6 +49,9 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
   const [hint, setHint] = useState(() => question.suggestion?.items ?? []);
   const [selected, setSelected] = useState<number[][]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.selected ?? []));
   const [texts, setTexts] = useState<string[]>(() => items.map((_, i) => hint.find((s) => s.question_index === i)?.text ?? ''));
+  // Which questions the person has looked at (the first one is shown at once). A pre-selected answer on
+  // a tab never opened must not go out with "Responder", so it waits until every suggested one was seen.
+  const [viewed, setViewed] = useState<boolean[]>(() => items.map((_, i) => i === 0));
   const title = <AppText variant="label">{`${tabLabel(question)} perguntou`}</AppText>;
   if (question.status !== 'open') {
     return (
@@ -64,6 +67,11 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
   const typing = texts[current]!.trim() !== '';
   const answers = items.map((_, i) => (texts[i]!.trim() ? { selected: [], text: texts[i]!.trim() } : { selected: [...selected[i]!].sort((a, b) => a - b) }));
   const complete = answers.every((a) => 'text' in a || a.selected.length > 0);
+  const suggestedUnseen = hint.some((h) => !viewed[h.question_index]);
+  const show = (i: number) => {
+    setCurrent(i);
+    setViewed((prev) => prev.map((v, j) => v || j === i));
+  };
   const toggle = (option: number) =>
     setSelected((prev) => prev.map((s, j) => (j !== current ? s : item.multi_select ? (s.includes(option) ? s.filter((x) => x !== option) : [...s, option]) : [option])));
   const currentHint = hint.find((s) => s.question_index === current);
@@ -83,7 +91,7 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
       {items.length > 1 ? (
         <View accessibilityRole="tablist" className="flex-row flex-wrap gap-2">
           {items.map((it, i) => {
-            const label = it.header || `Pergunta ${i + 1}`;
+            const label = `${it.header || `Pergunta ${i + 1}`}${hint.some((h) => h.question_index === i) ? ' · sugerida' : ''}`;
             const selectedTab = i === current;
             return (
               <Pressable
@@ -91,7 +99,7 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
                 accessibilityRole="tab"
                 accessibilityLabel={label}
                 accessibilityState={{ selected: selectedTab }}
-                onPress={() => setCurrent(i)}
+                onPress={() => show(i)}
                 className={`rounded-xl px-4 py-3 ${selectedTab ? 'bg-app-accent' : 'border border-app-border bg-app-surface2'}`}
               >
                 <AppText className={`font-semibold ${selectedTab ? 'text-white' : 'text-app-text'}`}>{label}</AppText>
@@ -135,7 +143,7 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
           <Button label="Esquecer esta decisão" variant="ghost" disabled={busy} onPress={() => forget(currentHint)} />
         </View>
       ) : null}
-      <Button label="Responder" onPress={() => onAnswer(question.id, { answers })} disabled={busy || !complete} />
+      <Button label="Responder" onPress={() => onAnswer(question.id, { answers })} disabled={busy || !complete || suggestedUnseen} />
     </View>
   );
 }
