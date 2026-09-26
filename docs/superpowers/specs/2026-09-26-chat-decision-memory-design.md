@@ -45,6 +45,36 @@ recommendations below without further questions.
   never passes and `blue-green.sh` aborts (the old color keeps serving, but deploys are stuck). This
   is recorded as a pending item on the card. CI does not recreate `db` (it is shared by both colors).
 
+**Runbook for the pending item** (text only: done by Pedro by hand on jarvis, never by an agent or
+CI; nothing here was executed by this delivery):
+
+1. **Before merging**, from a checkout of this branch (it holds `docker/db`), recreate the prod db
+   container from the new image with the prod compose project — the compose file's fixed
+   `name: termhub` makes it the same project, and the `termhub_pgdata` volume is kept:
+   ```bash
+   docker compose --env-file /mnt/hd2tb/projetos/termhub/.env -f docker-compose.yml \
+     -f docker-compose.proxy.yml --profile prod up -d --build --no-deps db
+   ```
+   Postgres restarts once (a few seconds in which the live app's DB calls fail and reconnect).
+2. Verify the extension is available (not yet created — the migration does that):
+   ```bash
+   docker exec termhub-db-1 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+     -c "SELECT extversion FROM pg_available_extensions WHERE name='vector'"
+   ```
+   One row with a version means the image is right; no row means stop and fix the image first.
+3. Add `EMBED_SECRET` (`openssl rand -base64 32`) to the prod `.env`
+   (`/mnt/hd2tb/projetos/termhub/.env`). After the merge, CI's new "Embed" step brings the `embed`
+   service up with it; without it the service refuses every request and suggestions stay off.
+4. Merge. The new color runs `prisma migrate deploy`, which creates the extension and the table.
+
+**Recovery if the migration ever runs without the extension:** `CREATE EXTENSION vector` fails,
+Prisma records `20260926120000_chat_decisions` as failed, the new color never becomes healthy (the
+old one keeps serving), and every later deploy stops with `P3009` (failed migration found). Fix the
+image first (steps 1–2), then, in the app container, run
+`npx prisma migrate resolve --rolled-back 20260926120000_chat_decisions` (from `apps/server`) and
+re-run the deploy. The migration fails on its first statement, so nothing of it was applied and
+re-running it is safe.
+
 ### 3.2 Embeddings service
 
 - `docker/embed/` (Python 3.12-slim, `fastembed`, model
@@ -329,3 +359,10 @@ Answered/closed cards show no suggestion line.
 - **A stale first-page read never undoes a toggle.** A first-page load (initial or search) that
   started before the latest toggle completed does not apply its `GET /memory` result (its list still
   applies): that read may predate the PATCH and would flip the switch back. Web page and mobile store.
+- **Recovery runbook for the prod DB image** (§3.1): recreating `termhub-db-1` from `termhub-db`
+  before the merge, verifying `vector` is available, adding `EMBED_SECRET`, and how to clear a
+  `P3009` with `prisma migrate resolve --rolled-back` if the migration ever ran without the
+  extension. Documentation only; Pedro does it by hand.
+- **README and `.env.example`** document the feature, `EMBED_URL`, `EMBED_SECRET`,
+  `DECISION_SUGGEST_THRESHOLD` (default `0.98`) and the pgvector-enabled `postgres:16-alpine` db
+  image (`docker/db`).
