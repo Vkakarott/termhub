@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repositories } from '../db/repositories/index.js';
-import { badRequest } from '../lib/errors.js';
+import { badRequest, HttpError } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
-import { setupSchema } from '../setup/schema.js';
-import { syncProjectTickets } from '../setup/tickets-sync.js';
+import { controlContextForRequest } from '../control/context.js';
+import { syncTickets } from '../control/tickets.js';
+import { setupInputSchema, sourceIdentity } from '../setup/schema.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
@@ -19,21 +20,33 @@ export async function setupRoutes(app: FastifyInstance, repos: Repositories) {
   app.put('/:id/setup', async (request) => {
     const { id } = idParam.parse(request.params);
     await scoped(repos, request).project(id);
-    const data = setupSchema.parse(request.body);
+    const parsed = setupInputSchema.safeParse(request.body);
+    if (!parsed.success) {
+      if (parsed.error.issues.some((i) => i.message === 'Fonte de tickets repetida')) throw new HttpError(400, 'Fonte de tickets repetida', 'DUPLICATE_SOURCE');
+      throw parsed.error;
+    }
+    const data = parsed.data;
     const s = scoped(repos, request);
     const exists = (p: Promise<unknown>) => p.then(() => true, () => false);
-    if (data.tickets && !(await exists(s.integration(data.tickets.integration_id)))) throw badRequest('Integração de tickets inexistente');
+    for (const source of data.ticket_sources) {
+      if (!(await exists(s.integration(source.integration_id)))) throw badRequest('Integração de tickets inexistente');
+    }
     if (data.repo?.integration_id && !(await exists(s.integration(data.repo.integration_id)))) throw badRequest('Integração do repositório inexistente');
     if (data.runner.machine_id && !(await exists(s.machine(data.runner.machine_id)))) throw badRequest('Máquina do runner inexistente');
-    return { setup: await repos.projectSetup.save(id, data) };
+    const before = (await repos.projectSetup.get(id)).data.ticket_sources;
+    const kept = new Set(data.ticket_sources.map(sourceIdentity));
+    const saved = await repos.projectSetup.save(id, data);
+    for (const gone of before.filter((b) => !kept.has(sourceIdentity(b)))) {
+      await repos.tickets.pruneSource(id, { integration_id: gone.integration_id, scope: gone.scope });
+    }
+    return { setup: saved };
   });
 
   app.post('/:id/tickets/sync', { config: { resource: 'tickets', action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    await scoped(repos, request).project(id);
-    const setup = await repos.projectSetup.get(id);
-    if (!setup.data.tickets) throw badRequest('Configure a fonte de tickets no setup do projeto');
-    const result = await syncProjectTickets(repos, id, setup.data.tickets);
+    const result = await syncTickets(controlContextForRequest(repos, request), { project_id: id });
+    const failed = result.sources.filter((x) => x.error);
+    if (result.sources.length > 0 && failed.length === result.sources.length) throw new HttpError(502, failed[0].error!, 'PROVIDER_ERROR');
     return { ok: true, ...result };
   });
 }
