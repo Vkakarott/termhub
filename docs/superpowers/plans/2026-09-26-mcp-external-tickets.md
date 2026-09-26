@@ -1278,8 +1278,8 @@ Keep the rest of the scheduler function (the interval, the first run and the ret
     Promise<{ tickets: TicketOut[]; total: number; last_sync: { at: string; sources: { provider: string; scope: string; truncated: boolean; error: string | null }[] } | null }>;
   export function getTicket(ctx, input: { key: string; project_id?: string }): Promise<{ ticket: TicketOut; project_id: string }>;
   export function syncTickets(ctx, input: { project_id: string }, now?: number): Promise<SyncResult & { cached: boolean }>;
-  export function importTickets(ctx, input: { project_id: string; keys?: string[]; ticket_ids?: string[] }): Promise<{ cards: { ticket_key: string; card: TaskOut; created: boolean }[] }>;
-  export function pushTicketStatus(ctx, input: { task_id: string }): Promise<{ card: TaskOut; ticket_key: string; state: string }>;
+  export function importTickets(ctx, input: { project_id: string; keys?: string[]; ticket_ids?: string[] }): Promise<{ cards: { ticket_key: string; card: TaskOut; task: Task; created: boolean }[] }>;
+  export function pushTicketStatus(ctx, input: { task_id: string }): Promise<{ card: TaskOut; task: Task; ticket_key: string; state: string }>;
   export function resolveTickets(ctx, key: string, projectIds: string[]): Promise<Ticket[]>;  // used by find (Task 8)
   ```
 
@@ -1585,11 +1585,11 @@ export async function importTickets(ctx: ControlContext, input: { project_id: st
     ? await ctx.repos.tickets.findByIds(project.id, input.ticket_ids.slice(0, TICKET_IMPORT_MAX))
     : await Promise.all(input.keys!.slice(0, TICKET_IMPORT_MAX).map(async (k) => one(k, await resolveTickets(ctx, k, [project.id]), names)));
   const existing = await cardsOf(ctx, picked);
-  const cards: { ticket_key: string; card: TaskOut; created: boolean }[] = [];
+  const cards: { ticket_key: string; card: TaskOut; task: Task; created: boolean }[] = [];
   for (const t of picked) {
     const old = t.task_id ? existing.get(t.task_id) : undefined;
     if (old) {
-      cards.push({ ticket_key: t.key, card: taskOut(old), created: false });
+      cards.push({ ticket_key: t.key, card: taskOut(old), task: old, created: false });
       continue;
     }
     const link = ticketLinkJson(
@@ -1598,7 +1598,7 @@ export async function importTickets(ctx: ControlContext, input: { project_id: st
     );
     const task = await ctx.repos.tasks.createFromTicket(project.id, { key: t.sync_key, title: t.title, description: t.description, ref: link });
     await ctx.repos.tickets.linkTask(t.id, task.id);
-    cards.push({ ticket_key: t.key, card: taskOut(task), created: true });
+    cards.push({ ticket_key: t.key, card: taskOut(task), task, created: true });
   }
   return { cards };
 }
@@ -1629,7 +1629,8 @@ export async function pushTicketStatus(ctx: ControlContext, input: { task_id: st
   }
   const next = { ...(task.external_ref as object), state, status: task.status, integration_id: source.integration_id, pushed_at: new Date().toISOString() };
   await ctx.repos.tasks.setExternalRef(task.id, next);
-  return { card: taskOut({ ...task, external_ref: next }), ticket_key: link.key, state };
+  const updated = { ...task, external_ref: next };
+  return { card: taskOut(updated), task: updated, ticket_key: link.key, state };
 }
 ```
 
@@ -1787,8 +1788,8 @@ Drop the `setupSchema` and `syncProjectTickets` imports from this file.
     const { id } = idParam.parse(request.params);
     const { ticket_ids } = importBody.parse(request.body);
     const { cards } = await importTickets(controlContextForRequest(repos, request), { project_id: id, ticket_ids });
-    const created = cards.filter((c) => c.created).map((c) => c.card.id);
-    return { tasks: (await repos.tasks.findByIds(created)) };
+    // the control operation already loaded everything through the scope (CLAUDE.md: no findById in handlers)
+    return { tasks: cards.filter((c) => c.created).map((c) => c.task) };
   });
 ```
 
@@ -1797,8 +1798,8 @@ The push-status handler becomes:
 ```ts
   app.post('/:id/push-status', { config: { action: 'update' } }, async (request) => {
     const { id } = idParam.parse(request.params);
-    const { state } = await pushTicketStatus(controlContextForRequest(repos, request), { task_id: id });
-    return { task: await repos.tasks.findById(id), state };
+    const { task, state } = await pushTicketStatus(controlContextForRequest(repos, request), { task_id: id });
+    return { task, state };
   });
 ```
 
