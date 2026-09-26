@@ -1,13 +1,12 @@
 {
   "name": "@termhub/mobile",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "private": true,
   "main": "index.ts",
   "scripts": {
     "build:contract": "npm run build -w @termhub/mobile-api",
     "prestart": "npm run build:contract",
-    "eas-build-post-install": "npm run build:contract",
     "start": "expo start --dev-client",
     "prebuild": "expo prebuild",
     "ios": "expo run:ios",
@@ -15,7 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
     "test:watch": "jest --watch",
-    "doctor": "expo-doctor"
+    "doctor": "expo-doctor",
+    "release:ios": "bash scripts/ios-release.sh"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",
