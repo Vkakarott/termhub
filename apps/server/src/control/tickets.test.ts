@@ -111,10 +111,17 @@ describe('getTicket', () => {
 
 describe('syncTickets', () => {
   it('reuses a sync younger than 60 s', async () => {
-    last = { sources: [], synced_at: new Date(1_000_000).toISOString() };
+    last = { sources: [{ provider: 'github', integration_id: 'g', scope: 'acme/api', fetched: 0 }], synced_at: new Date(1_000_000).toISOString() };
     const r = await syncTickets(ctxFor(), { project_id: 'p1' }, 1_000_000 + 30_000);
     expect(r.cached).toBe(true);
     expect(syncProjectTickets).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse a recent sync that misses a source (the scheduler ran another one)', async () => {
+    syncProjectTickets.mockResolvedValue({ sources: [], synced_at: 'now' });
+    last = { sources: [{ provider: 'github', integration_id: 'g', scope: 'acme/web', fetched: 0 }], synced_at: new Date(1_000_000).toISOString() };
+    expect((await syncTickets(ctxFor(), { project_id: 'p1' }, 1_000_000 + 30_000)).cached).toBe(false);
+    expect(syncProjectTickets).toHaveBeenCalledOnce();
   });
 
   it('syncs when older, and says NO_TICKET_SOURCE without sources', async () => {

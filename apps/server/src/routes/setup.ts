@@ -5,7 +5,8 @@ import { badRequest, HttpError } from '../lib/errors.js';
 import { scoped } from '../auth/scope.js';
 import { controlContextForRequest } from '../control/context.js';
 import { syncTickets } from '../control/tickets.js';
-import { setupInputSchema, sourceIdentity } from '../setup/schema.js';
+import { setupInputSchema, sourceIdentity, withSourcesFromLegacy } from '../setup/schema.js';
+import { forgetSync } from '../setup/tickets-sync.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
@@ -25,7 +26,8 @@ export async function setupRoutes(app: FastifyInstance, repos: Repositories) {
       if (parsed.error.issues.some((i) => i.message === 'Fonte de tickets repetida')) throw new HttpError(400, 'Fonte de tickets repetida', 'DUPLICATE_SOURCE');
       throw parsed.error;
     }
-    const data = parsed.data;
+    // A setup form left open in the web app from before the deploy sends `tickets` only: keep that source.
+    const data = withSourcesFromLegacy(request.body, parsed.data);
     const s = scoped(repos, request);
     const exists = (p: Promise<unknown>) => p.then(() => true, () => false);
     for (const source of data.ticket_sources) {
@@ -39,6 +41,8 @@ export async function setupRoutes(app: FastifyInstance, repos: Repositories) {
     for (const gone of before.filter((b) => !kept.has(sourceIdentity(b)))) {
       await repos.tickets.pruneSource(id, { integration_id: gone.integration_id, scope: gone.scope });
     }
+    // the sources may have changed: "Sincronizar agora" right after saving must not answer the cached result
+    forgetSync(id);
     return { setup: saved };
   });
 

@@ -23,6 +23,17 @@ export interface SyncResult {
 /** Last full sync per project (in memory; one active container). Feeds the tool throttle and `last_sync`. */
 const lastByProject = new Map<string, SyncResult>();
 export const lastSync = (projectId: string): SyncResult | null => lastByProject.get(projectId) ?? null;
+/** Drops the project's last sync (setup saved: its sources may have changed), so the next sync is not throttled. */
+export const forgetSync = (projectId: string): void => void lastByProject.delete(projectId);
+
+/** A scheduled run of one source: replaces that source's entry in the project's last sync (or starts one). */
+function recordSource(projectId: string, r: SourceSyncResult): void {
+  const prev = lastByProject.get(projectId)?.sources ?? [];
+  const id = sourceIdentity(r);
+  const i = prev.findIndex((s) => sourceIdentity(s) === id);
+  const sources = i >= 0 ? prev.map((s, j) => (j === i ? r : s)) : [...prev, r];
+  lastByProject.set(projectId, { sources, synced_at: new Date().toISOString() });
+}
 
 /**
  * Fetches one source into the staging table. Imported cards only get their ticket link refreshed —
@@ -94,6 +105,7 @@ export function startTicketSyncScheduler(repos: Repositories, log: { info: (o: o
         lastRun.set(runKey, Date.now());
         const onIntegration = all.filter((s) => s.integration_id === source.integration_id).length;
         const r = await syncSource(repos, item.project_id, source, onIntegration === 1);
+        recordSource(item.project_id, r);
         const { error, ...counts } = r;
         if (error) log.warn({ projectId: item.project_id, provider: r.provider, scope: r.scope, err: error }, 'falha no sync de tickets');
         else log.info({ projectId: item.project_id, ...counts }, 'tickets sincronizados');

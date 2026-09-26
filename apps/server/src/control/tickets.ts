@@ -2,6 +2,7 @@ import type { Task, TaskStatus, Ticket } from '../db/repositories/types.js';
 import { getProvider, type IntegrationProvider } from '../integrations/index.js';
 import { readTicketLink, ticketLinkJson } from '../integrations/ticket-link.js';
 import { HttpError } from '../lib/errors.js';
+import { sourceIdentity } from '../setup/schema.js';
 import { lastSync, syncProjectTickets, type SyncResult } from '../setup/tickets-sync.js';
 import type { ControlContext } from './context.js';
 import { cardUrl, taskOut, type TaskOut } from './tasks.js';
@@ -130,7 +131,9 @@ export async function syncTickets(ctx: ControlContext, input: { project_id: stri
   await ctx.scoped.project(input.project_id);
   const sources = await sourcesOf(ctx, input.project_id);
   const last = lastSync(input.project_id);
-  if (last && now - Date.parse(last.synced_at) < SYNC_THROTTLE_MS) return { ...last, cached: true };
+  // The scheduler records single sources: reuse only a result that covers every source of the setup.
+  const covered = new Set(last?.sources.map(sourceIdentity) ?? []);
+  if (last && now - Date.parse(last.synced_at) < SYNC_THROTTLE_MS && sources.every((s) => covered.has(sourceIdentity(s)))) return { ...last, cached: true };
   return { ...(await syncProjectTickets(ctx.repos, input.project_id, sources)), cached: false };
 }
 

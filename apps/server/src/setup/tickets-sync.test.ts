@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ExternalTicket } from '../integrations/types.js';
 
 const listTickets = vi.fn();
 vi.mock('../integrations/index.js', () => ({ getProvider: () => ({ listTickets }) }));
 
-const { lastSync, syncProjectTickets } = await import('./tickets-sync.js');
+const { forgetSync, lastSync, startTicketSyncScheduler, syncProjectTickets } = await import('./tickets-sync.js');
 
 const ext = (scope: string, n: number): ExternalTicket => ({
   sync_key: `github:${scope}#${n}`, provider: 'github', provider_id: String(n), key: `${scope}#${n}`, title: 't', description: null,
@@ -71,5 +71,47 @@ describe('syncProjectTickets', () => {
     const r = await syncProjectTickets(repos, 'p1', [src('acme/api'), src('acme/web')]);
     expect(r.sources[0]).toMatchObject({ scope: 'acme/api', error: 'Falha ao gravar os tickets: write failed' });
     expect(r.sources[1]).toMatchObject({ scope: 'acme/web', fetched: 1 });
+  });
+});
+
+describe('forgetSync', () => {
+  it('drops the project\'s last sync, so the next sync is not throttled', async () => {
+    listTickets.mockResolvedValue({ tickets: [], truncated: false });
+    await syncProjectTickets(makeRepos().repos, 'p-forget', [src('acme/api')]);
+    expect(lastSync('p-forget')).not.toBeNull();
+    forgetSync('p-forget');
+    expect(lastSync('p-forget')).toBeNull();
+  });
+});
+
+describe('startTicketSyncScheduler', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('records each scheduled source in the last sync, replacing that source\'s entry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-26T12:00:00.000Z'));
+    listTickets.mockImplementation(async (_s: string, _c: unknown, source: { scope: string }) => ({ tickets: [ext(source.scope, 1)], truncated: source.scope === 'acme/web' }));
+    const { repos } = makeRepos();
+    // a manual sync left both sources; acme/web was not truncated then
+    listTickets.mockResolvedValueOnce({ tickets: [], truncated: false }).mockResolvedValueOnce({ tickets: [], truncated: false });
+    await syncProjectTickets(repos, 'p-sched', [src('acme/api'), src('acme/web')]);
+    const auto = { ...src('acme/web'), sync_minutes: 5 };
+    Object.assign(repos, {
+      projectSetup: {
+        listWithAutoSync: vi.fn(async () => [{ project_id: 'p-sched', sources: [auto] }, { project_id: 'p-fresh', sources: [auto] }]),
+        get: vi.fn(async () => ({ data: { ticket_sources: [src('acme/api'), auto] } })),
+      },
+    });
+    vi.setSystemTime(new Date('2026-09-26T12:10:00.000Z'));
+    const stop = startTicketSyncScheduler(repos, { info: vi.fn(), warn: vi.fn() });
+    await vi.advanceTimersByTimeAsync(5_000);
+    stop();
+    const sched = lastSync('p-sched')!;
+    expect(sched.synced_at).toBe('2026-09-26T12:10:05.000Z');
+    expect(sched.sources.map((s) => [s.scope, s.truncated])).toEqual([['acme/api', false], ['acme/web', true]]);
+    // a project only the scheduler syncs gets a last sync too, so list_tickets shows truncated
+    expect(lastSync('p-fresh')?.sources.map((s) => [s.scope, s.truncated])).toEqual([['acme/web', true]]);
   });
 });

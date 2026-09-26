@@ -114,10 +114,17 @@ export function normalizeSetup(raw: unknown, _version: number): ProjectSetupData
     }
     data = out as ProjectSetupData;
   }
-  // v1, or saved by the previous release (its zod strips ticket_sources): rebuild from tickets
-  if (!('ticket_sources' in obj) && data.tickets) {
-    const { include_done: _dropped, ...source } = data.tickets;
-    data = { ...data, ticket_sources: [source] };
-  }
-  return withLegacyMirror(data);
+  return withLegacyMirror(withSourcesFromLegacy(obj, data));
+}
+
+/**
+ * v1, saved by the previous release (its zod strips ticket_sources), or sent by a web app loaded
+ * before the deploy: `raw` has `tickets` and no `ticket_sources` key. Rebuild the sources from
+ * `tickets` (include_done dropped) instead of reading that as "no source".
+ */
+export function withSourcesFromLegacy(raw: unknown, data: ProjectSetupData): ProjectSetupData {
+  const hasKey = !!raw && typeof raw === 'object' && 'ticket_sources' in raw;
+  if (hasKey || !data.tickets) return data;
+  const { include_done: _dropped, ...source } = data.tickets;
+  return { ...data, ticket_sources: [source] };
 }
