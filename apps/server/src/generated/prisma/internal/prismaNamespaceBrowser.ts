@@ -80,6 +80,7 @@ export const ModelName = {
   ChatAction: 'ChatAction',
   ChatGrant: 'ChatGrant',
   TabQuestion: 'TabQuestion',
+  ChatDecision: 'ChatDecision',
   InstanceSecret: 'InstanceSecret',
   ProjectGroup: 'ProjectGroup',
   ProjectGroupItem: 'ProjectGroupItem',
@@ -123,7 +124,8 @@ export const UserScalarFieldEnum = {
   lastLoginAt: 'lastLoginAt',
   createdAt: 'createdAt',
   reviewEnabledUntil: 'reviewEnabledUntil',
-  reviewEnabledBy: 'reviewEnabledBy'
+  reviewEnabledBy: 'reviewEnabledBy',
+  chatSuggestions: 'chatSuggestions'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
@@ -567,10 +569,32 @@ export const TabQuestionScalarFieldEnum = {
   answeredAt: 'answeredAt',
   closedAt: 'closedAt',
   injectedAt: 'injectedAt',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  suggestion: 'suggestion'
 } as const
 
 export type TabQuestionScalarFieldEnum = (typeof TabQuestionScalarFieldEnum)[keyof typeof TabQuestionScalarFieldEnum]
+
+
+export const ChatDecisionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  projectId: 'projectId',
+  conversationId: 'conversationId',
+  tabQuestionId: 'tabQuestionId',
+  questionIndex: 'questionIndex',
+  header: 'header',
+  question: 'question',
+  options: 'options',
+  multiSelect: 'multiSelect',
+  answer: 'answer',
+  embedModel: 'embedModel',
+  suggestedCount: 'suggestedCount',
+  acceptedCount: 'acceptedCount',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatDecisionScalarFieldEnum = (typeof ChatDecisionScalarFieldEnum)[keyof typeof ChatDecisionScalarFieldEnum]
 
 
 export const InstanceSecretScalarFieldEnum = {

@@ -83,7 +83,8 @@ jobs:
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
     services:
       postgres:
-        image: postgres:16-alpine
+        # pgvector/pgvector:pg16: the check job needs the `vector` extension for the chat_decisions migration.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

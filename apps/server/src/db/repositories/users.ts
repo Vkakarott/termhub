@@ -141,4 +141,15 @@ export class UsersRepository {
   async setReview(userId: string, until: Date | null, by: string | null): Promise<User> {
     return mapUser(await this.db.user.update({ where: { id: userId }, data: { reviewEnabledUntil: until, reviewEnabledBy: by } }));
   }
+
+  /** "Memória do chat" switch (spec 2026-09-26 §7): true when the row is missing too — callers only
+   *  reach this for a real user, so a missing row just means "no reason to turn it off yet". */
+  async chatSuggestions(userId: string): Promise<boolean> {
+    const u = await this.db.user.findUnique({ where: { id: userId }, select: { chatSuggestions: true } });
+    return u?.chatSuggestions ?? true;
+  }
+
+  async setChatSuggestions(userId: string, enabled: boolean): Promise<void> {
+    await this.db.user.update({ where: { id: userId }, data: { chatSuggestions: enabled } });
+  }
 }

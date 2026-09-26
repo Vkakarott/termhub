@@ -69,7 +69,10 @@ x-app: &app
 
 services:
   db:
-    image: postgres:16-alpine
+    # postgres:16-alpine + pgvector (docker/db). Not recreated by blue-green.sh (it runs with --no-deps):
+    # switching a running server to this image is a manual step (spec 2026-09-26 §3.1).
+    build: docker/db
+    image: termhub-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-termhub}

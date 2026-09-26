@@ -70,6 +70,9 @@ model User {
   devices            Device[]
   notifications      UserNotification[]
   chatAttachments    ChatAttachment[]
+  chatDecisions      ChatDecision[]
+  /// "Memória do chat" switch (Settings): off skips recording and suggesting from this user's answers.
+  chatSuggestions    Boolean            @default(true) @map("chat_suggestions")
 
   @@index([roleId])
   @@map("users")
@@ -210,6 +213,7 @@ model Project {
   tickets        Ticket[]
   chatConversations ChatConversation[]
   tabQuestions   TabQuestion[]
+  chatDecisions  ChatDecision[]
   groupItems     ProjectGroupItem[]
   agentColumn    TaskColumn?   @relation("ProjectAgentColumn", fields: [agentColumnId], references: [id], onDelete: SetNull)
   /// The project's board columns, in `position` order.
@@ -644,6 +648,7 @@ model ChatConversation {
   grants        ChatGrant[]
   tabQuestions  TabQuestion[]
   attachments   ChatAttachment[]
+  chatDecisions ChatDecision[]
 
   @@index([userId, createdAt])
   @@index([machineId])
@@ -787,11 +792,40 @@ model TabQuestion {
   /// When the concierge was told about the answer (spec §5.5): set once, before the run.
   injectedAt     DateTime?        @map("injected_at")
   createdAt      DateTime         @default(now()) @map("created_at")
+  /// A suggested answer from a similar past decision, offered before the person picks (spec 2026-09-26 §4).
+  suggestion     Json?
 
   @@index([tabId, status])
   @@index([conversationId, createdAt])
   @@index([tabId, createdAt])
   @@map("tab_questions")
+}
+
+/// A question of a tab's AskUserQuestion answered from the chat, remembered to suggest the answer to
+/// similar questions later (spec 2026-09-26). `embedding` is pgvector, read and written in raw SQL.
+model ChatDecision {
+  id             String            @id
+  userId         String            @map("user_id")
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId      String?           @map("project_id")
+  project        Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  conversationId String?           @map("conversation_id")
+  conversation   ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  tabQuestionId  String?           @map("tab_question_id")
+  questionIndex  Int               @map("question_index")
+  header         String
+  question       String
+  options        Json
+  multiSelect    Boolean           @map("multi_select")
+  answer         Json
+  embedding      Unsupported("vector(384)")?
+  embedModel     String?           @map("embed_model")
+  suggestedCount Int               @default(0) @map("suggested_count")
+  acceptedCount  Int               @default(0) @map("accepted_count")
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@map("chat_decisions")
 }
 
 /// A secret this instance generates for itself, once, and keeps: no env var to configure, and blue
