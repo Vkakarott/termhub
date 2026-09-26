@@ -51,6 +51,9 @@ x-app: &app
     # voice input: the whisper service below (same compose network); unset to turn the mic off
     WHISPER_URL: ${WHISPER_URL:-http://whisper:8000}
     WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
+    # chat decision memory: the embed service below (same compose network); unset to turn suggestions off
+    EMBED_URL: ${EMBED_URL:-http://embed:8000}
+    EMBED_SECRET: ${EMBED_SECRET:-}
   extra_hosts:
     - "host.docker.internal:host-gateway"
   volumes:
@@ -119,6 +122,20 @@ services:
     volumes:
       - whisper-models:/models
 
+  # ── Text embeddings for the chat's decision memory (docker/embed): fastembed on CPU ──
+  # Shared by dev and the blue/green pair like whisper; the app works without it (no suggestions).
+  # Weights (~500 MB) land in the "embed-models" volume on first start.
+  embed:
+    profiles: ["dev", "prod"]
+    build: docker/embed
+    image: termhub-embed
+    restart: unless-stopped
+    environment:
+      # Empty = the service refuses every request and the chat suggests nothing. openssl rand -base64 32
+      EMBED_SECRET: ${EMBED_SECRET:-}
+    volumes:
+      - embed-models:/models
+
   # ── Headless Claude Code for the chat concierge (docker/concierge) ────────────
   # Mounts the account config dirs read-write (the CLI refreshes its own token) and holds no
   # credential in the image. Not rebuilt by a blue/green deploy, so a conversation survives one.
@@ -168,6 +185,8 @@ services:
       TZ: ${TZ:-America/Sao_Paulo}
       WHISPER_URL: ${WHISPER_URL:-http://whisper:8000}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-pt}
+      EMBED_URL: ${EMBED_URL:-http://embed:8000}
+      EMBED_SECRET: ${EMBED_SECRET:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -225,3 +244,4 @@ volumes:
   whisper-models:
   chat-files:
   chat-files-dev:
+  embed-models:

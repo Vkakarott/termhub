@@ -110,6 +110,8 @@ jobs:
         run: docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps landing
       - name: Whisper (speech-to-text service; recreated only when its image or config changes)
         run: docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps whisper
+      - name: Embed (text embeddings for the chat memory; recreated only when its image or config changes)
+        run: docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps embed
       - name: Deploy blue-green (build, healthcheck, switch nginx, retire old)
         run: bash deploy/blue-green.sh
       - name: Conferir migrations aplicadas
