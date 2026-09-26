@@ -46,13 +46,17 @@ function ctxFor(current: TabQuestion | undefined, opts: { latest?: TabQuestion |
       return { tab: { id, name: 'api', kind: 'terminal', tmux_session: 'th-t1', state: 'waiting_permission' }, machine: { id: 'm1', type: 'agent' }, project: { id: 'p1' }, cwd: '/w' };
     }),
   };
-  const repos = { tabQuestions, tabs: { findByIdsForOwner: vi.fn(async () => [{ id: 't1', name: 'api' }]) } };
+  const chatDecisions = { insertMany: vi.fn(async () => []), bumpAccepted: vi.fn(async () => {}), setEmbedding: vi.fn(async () => {}) };
+  const repos = { tabQuestions, tabs: { findByIdsForOwner: vi.fn(async () => [{ id: 't1', name: 'api' }]) }, chatDecisions };
   const can = vi.fn(async (resource: string, action: string) => !(opts.denied ?? []).includes(`${resource}:${action}`));
   const ctx = { repos, scoped, scope: { user: { id: 'u1' } }, can } as unknown as ControlContext;
-  return { ctx, tabQuestions, scoped, can };
+  return { ctx, tabQuestions, scoped, can, chatDecisions };
 }
 const log = () => ({ info: vi.fn(), warn: vi.fn() });
 const noSleep = async () => undefined;
+/** These tests never exercise the real embeddings service: `embedder: null` keeps `recordDecisions`
+ *  from calling `defaultEmbedder()` (config-dependent, and cached process-wide). */
+const noEmbed = { embedder: null as null };
 /** Every key and text sent, in the order they were sent. */
 const steps = () =>
   [
@@ -252,6 +256,40 @@ describe('answerTabQuestion', () => {
     expect(tabQuestions.claim).not.toHaveBeenCalled();
     expect(requirePinFor('permission', { allow: true })).toBe(false);
     expect(requirePinFor('choice', { answers: [{ selected: [0] }] })).toBe(false);
+  });
+});
+
+describe('decision memory recording', () => {
+  it('records one decision per question after a successful choice answer', async () => {
+    const { ctx, chatDecisions } = ctxFor(row());
+    await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [1] }, { selected: [2, 0] }] }, { log: log(), sleep: noSleep, ...noEmbed });
+    expect(chatDecisions.insertMany).toHaveBeenCalledTimes(1);
+    const inserted = chatDecisions.insertMany.mock.calls[0]![0] as { tab_question_id: string; question_index: number; user_id: string }[];
+    expect(inserted).toEqual([
+      expect.objectContaining({ tab_question_id: 'q1', question_index: 0, user_id: 'u1' }),
+      expect.objectContaining({ tab_question_id: 'q1', question_index: 1, user_id: 'u1' }),
+    ]);
+  });
+
+  it('does not record when the send fails (502)', async () => {
+    const { ctx, chatDecisions } = ctxFor(row());
+    sendKey.mockRejectedValueOnce(new ControlError('MACHINE_OFFLINE', 'A máquina está offline'));
+    await rejects(answerTabQuestion(ctx, 'q1', { answers: [{ selected: [0] }, { selected: [1] }] }, { log: log(), sleep: noSleep, ...noEmbed }), 502, 'MACHINE_OFFLINE');
+    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('never records a permission answer', async () => {
+    const { ctx, chatDecisions } = ctxFor(permission());
+    readScreen.mockResolvedValue({ tab_id: 't1', lines: 60, text: screens.permission, styled: false });
+    await answerTabQuestion(ctx, 'q2', { allow: true }, { log: log(), sleep: noSleep, ...noEmbed });
+    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('still answers 200 with the view when insertMany rejects', async () => {
+    const { ctx, chatDecisions } = ctxFor(row());
+    chatDecisions.insertMany.mockRejectedValueOnce(new Error('db down'));
+    const view = await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [0] }, { selected: [1] }] }, { log: log(), sleep: noSleep, ...noEmbed });
+    expect(view).toMatchObject({ id: 'q1', tab_name: 'api', status: 'answered' });
   });
 });
 

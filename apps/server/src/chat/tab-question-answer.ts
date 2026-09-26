@@ -5,6 +5,8 @@ import { sendInput, sendKey } from '../control/terminals.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
 import { toTabQuestionView, type TabQuestionView } from '../db/repositories/tab-questions-view.js';
 import { forbidden, HttpError, notFound } from '../lib/errors.js';
+import { recordDecisions } from './decision-memory.js';
+import { defaultEmbedder, type Embedder } from './embeddings.js';
 import { choiceKeyPlan, permissionKeyPlan, type KeyStep } from './tab-question-keys.js';
 import { checkChoiceAnswer, choiceAnswerBody, permissionAnswerBody, type ChoiceAnswer, type ChoicePayload, type PermissionAnswer, type TabQuestionKind } from './tab-question-payload.js';
 import { publishTabQuestions } from './tab-questions.js';
@@ -125,6 +127,9 @@ export interface AnswerDeps {
   sleep?: (ms: number) => Promise<void>;
   /** The mobile route's PIN hook (`requirePinFor`): runs after every check, before the claim. */
   beforeSend?: (row: QuestionRow, answer: TabAnswer) => void;
+  /** Left out resolves `defaultEmbedder()`; `null` turns off embedding for the decision this answer
+   *  records (a test seam — recording itself still happens, only unembedded). */
+  embedder?: Embedder | null;
 }
 
 /**
@@ -185,6 +190,8 @@ export async function answerTabQuestion(ctx: ControlContext, id: string, raw: un
     throw new HttpError(502, 'Não foi possível responder na aba', code);
   }
   deps.log.info({ tabQuestionId: row.id, tabId: tab.id, kind: row.kind, steps: steps.length }, 'tab question answered');
+  // Remembering the decision is best effort (spec 2026-09-26 §4.3): the keys are already in the tab.
+  if (claimed.kind === 'choice') await recordDecisions(ctx.repos, claimed, { embedder: deps.embedder !== undefined ? deps.embedder : defaultEmbedder(), log: deps.log });
   // The keys are in the tab: announcing it is best effort and can no longer turn the answer into an error.
   try {
     const [view] = await publishTabQuestions(ctx.repos, 'tab_question_answered', [claimed]);

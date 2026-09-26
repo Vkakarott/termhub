@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { DecisionNeighbour } from '../db/repositories/chat-decisions.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AnsweredChoiceRow, DecisionNeighbour, NewDecision } from '../db/repositories/chat-decisions.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
-import { suggestFor } from './decision-memory.js';
+import type { TabQuestionSuggestion } from './decision-text.js';
+import { backfillDecisions, decisionsOf, embedPending, recordDecisions, startDecisionSweeper, SWEEP_INTERVAL_MS, suggestFor } from './decision-memory.js';
 import { EmbedError } from './embeddings.js';
 import type { ChoicePayload } from './tab-question-payload.js';
 
@@ -9,6 +10,7 @@ const log = () => ({ info: vi.fn(), warn: vi.fn() });
 const embedder = () => ({ embed: vi.fn(async (texts: string[]) => ({ model: 'm', vectors: texts.map(() => [1, 0]) })) });
 
 const item = { question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] };
+const item1 = { question: 'Quais frutas?', header: 'Frutas', multi_select: true, options: [{ label: 'Maçã', description: 'fruta', recommended: false }, { label: 'Banana', description: '', recommended: false }] };
 const payload: ChoicePayload = { questions: [item] };
 const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload, tool_use_id: 'toolu_1',
@@ -137,5 +139,175 @@ describe('suggestFor', () => {
     expect(result).toBeNull();
     expect(l.warn).toHaveBeenCalledWith({ tabQuestionId: 'q1', code: 'P2024' }, expect.any(String));
     expect(JSON.stringify(l.warn.mock.calls)).not.toContain('Qual cor');
+  });
+});
+
+function fakeChatDecisions(overrides: Record<string, unknown> = {}) {
+  return {
+    insertMany: vi.fn(async (rows: NewDecision[]) =>
+      rows.map((r, i) => ({ id: `d${i + 1}`, ...r, project_name: null, embed_model: null, suggested_count: 0, accepted_count: 0, created_at: '2026-09-26T00:00:00.000Z' })),
+    ),
+    bumpAccepted: vi.fn(async () => {}),
+    setEmbedding: vi.fn(async () => {}),
+    listToEmbed: vi.fn(async () => []),
+    listAnsweredChoicesWithoutDecision: vi.fn(async () => []),
+    ...overrides,
+  };
+}
+
+describe('decisionsOf', () => {
+  it('gives one NewDecision per question, options without recommended, user from the argument', () => {
+    const twoQ: ChoicePayload = { questions: [item, item1] };
+    const answered = row({ payload: twoQ, answer: { answers: [{ selected: [0] }, { selected: [1, 0] }] } as never, answered_by: 'u2' });
+    const result = decisionsOf(answered, answered.answered_by ?? answered.user_id);
+    expect(result).toEqual<NewDecision[]>([
+      {
+        user_id: 'u2', project_id: 'p1', conversation_id: 'c1', tab_question_id: 'q1', question_index: 0,
+        header: 'Cor', question: 'Qual cor?', options: [{ label: 'Sim', description: '' }, { label: 'Não', description: '' }],
+        multi_select: false, answer: { labels: ['Sim'] },
+      },
+      {
+        user_id: 'u2', project_id: 'p1', conversation_id: 'c1', tab_question_id: 'q1', question_index: 1,
+        header: 'Frutas', question: 'Quais frutas?', options: [{ label: 'Maçã', description: 'fruta' }, { label: 'Banana', description: '' }],
+        multi_select: true, answer: { labels: ['Banana', 'Maçã'] },
+      },
+    ]);
+  });
+
+  it('keeps free text and gives an empty array for an unanswered row', () => {
+    const answered = row({ payload: { questions: [item] }, answer: { answers: [{ selected: [], text: 'Talvez' }] } as never });
+    expect(decisionsOf(answered, 'u1')[0]).toMatchObject({ answer: { labels: [], text: 'Talvez' } });
+    expect(decisionsOf(row({ answer: null }), 'u1')).toEqual([]);
+  });
+});
+
+describe('recordDecisions', () => {
+  it('inserts via insertMany, bumps accepted_count only for suggestion items matching the answer, then embeds the inserted rows', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const suggestion: TabQuestionSuggestion = {
+      items: [
+        { question_index: 0, decision_id: 'sugg-match', similarity: 0.9, selected: [0], source: { question: 'x', project_name: null, answered_at: '2026-09-01T00:00:00.000Z' } },
+      ],
+    };
+    const answered = row({ answered_by: 'u1', answer: { answers: [{ selected: [0] }] } as never, suggestion });
+    const e = embedder();
+    await recordDecisions({ chatDecisions } as never, answered, { embedder: e, log: log() });
+    expect(chatDecisions.insertMany).toHaveBeenCalledWith(decisionsOf(answered, 'u1'));
+    expect(chatDecisions.bumpAccepted).toHaveBeenCalledWith(['sugg-match']);
+    // The embed is fire-and-forget: give its microtasks a turn before checking it landed.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(chatDecisions.setEmbedding).toHaveBeenCalledWith('d1', [1, 0], 'm');
+  });
+
+  it('does not bump accepted for a suggestion item the answer does not match', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'sugg-miss', similarity: 0.9, selected: [1], source: { question: 'x', project_name: null, answered_at: '2026-09-01T00:00:00.000Z' } }],
+    };
+    const answered = row({ answered_by: 'u1', answer: { answers: [{ selected: [0] }] } as never, suggestion });
+    await recordDecisions({ chatDecisions } as never, answered, { embedder: null, log: log() });
+    expect(chatDecisions.bumpAccepted).not.toHaveBeenCalled();
+  });
+
+  it('still inserts with no embedder, leaving embedding for the sweeper', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const answered = row({ answered_by: 'u1', answer: { answers: [{ selected: [0] }] } as never });
+    await recordDecisions({ chatDecisions } as never, answered, { embedder: null, log: log() });
+    expect(chatDecisions.insertMany).toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(chatDecisions.setEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for a permission row', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const permRow = row({ kind: 'permission', payload: { tool_name: 'Bash' } as never, answer: { allow: true } as never, answered_by: 'u1' });
+    await recordDecisions({ chatDecisions } as never, permRow, { embedder: embedder(), log: log() });
+    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('warns and resolves when insertMany rejects', async () => {
+    const chatDecisions = fakeChatDecisions({
+      insertMany: vi.fn(async () => {
+        throw Object.assign(new Error('db down'), { code: 'P2024' });
+      }),
+    });
+    const l = log();
+    const answered = row({ answered_by: 'u1', answer: { answers: [{ selected: [0] }] } as never });
+    await expect(recordDecisions({ chatDecisions } as never, answered, { embedder: embedder(), log: l })).resolves.toBeUndefined();
+    expect(l.warn).toHaveBeenCalledWith({ tabQuestionId: 'q1', code: 'P2024' }, expect.any(String));
+  });
+});
+
+describe('backfillDecisions', () => {
+  it('turns answered choice rows without a decision into insertMany calls and returns the inserted count', async () => {
+    const ansRow: AnsweredChoiceRow = { id: 'tq1', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { answers: [{ selected: [0] }] } };
+    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: vi.fn(async (limit: number) => (limit > 0 ? [ansRow] : [])) });
+    const count = await backfillDecisions({ chatDecisions } as never);
+    expect(count).toBe(1);
+    expect(chatDecisions.insertMany).toHaveBeenCalledWith(
+      decisionsOf({ id: 'tq1', project_id: 'p1', conversation_id: 'c1', payload: ansRow.payload as never, answer: ansRow.answer as never }, 'u9'),
+    );
+  });
+
+  it('skips a row whose payload or answer does not parse', async () => {
+    const badPayload = { id: 'tq1', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { nope: true }, answer: { answers: [{ selected: [0] }] } };
+    const badAnswer = { id: 'tq2', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { nope: true } };
+    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: vi.fn(async () => [badPayload, badAnswer]) });
+    const count = await backfillDecisions({ chatDecisions } as never);
+    expect(count).toBe(0);
+    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('embedPending', () => {
+  it('embeds listToEmbed rows in one call and writes each', async () => {
+    const rows = [{ id: 'd1', header: 'Cor', question: 'Qual cor?', options: item.options }];
+    const chatDecisions = fakeChatDecisions({ listToEmbed: vi.fn(async () => rows) });
+    const e = embedder();
+    const n = await embedPending({ chatDecisions } as never, e, 32);
+    expect(n).toBe(1);
+    expect(chatDecisions.listToEmbed).toHaveBeenCalledWith(32);
+    expect(e.embed).toHaveBeenCalledTimes(1);
+    expect(chatDecisions.setEmbedding).toHaveBeenCalledWith('d1', [1, 0], 'm');
+  });
+
+  it('returns 0 without calling the embedder when nothing is pending', async () => {
+    const chatDecisions = fakeChatDecisions({ listToEmbed: vi.fn(async () => []) });
+    const e = embedder();
+    const n = await embedPending({ chatDecisions } as never, e);
+    expect(n).toBe(0);
+    expect(e.embed).not.toHaveBeenCalled();
+  });
+});
+
+describe('startDecisionSweeper', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('runs once immediately and again after intervalMs; the returned stop clears the timer', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const e = embedder();
+    const stop = startDecisionSweeper({ chatDecisions } as never, log(), e, 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(1);
+    expect(chatDecisions.listToEmbed).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(2);
+    stop();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(2);
+  });
+
+  it('with no embedder it only backfills', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const stop = startDecisionSweeper({ chatDecisions } as never, log(), null, 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(1);
+    expect(chatDecisions.listToEmbed).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('uses the default interval when none is given', () => {
+    expect(SWEEP_INTERVAL_MS).toBe(10 * 60 * 1000);
   });
 });
