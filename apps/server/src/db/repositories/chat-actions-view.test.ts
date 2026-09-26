@@ -33,7 +33,7 @@ const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 2' }
 const project = { id: 'p1', name: 'reactivando' };
 const machine = { id: 'm1', name: 'macbook m3' };
 const task = { id: 'tk1', project_id: 'p1', title: 'Corrigir o build', ref: 'REA-7' };
-const linkedTask = { id: 'tk2', project_id: 'p1', title: 'Ajustar layout', ref: 'REA-8', external_ref: { provider: 'linear', key: 'EI-1', provider_id: 'u', status: 'done' } };
+const linkedTask = { id: 'tk2', project_id: 'p1', title: 'Ajustar layout', ref: 'REA-8', status: 'doing', external_ref: { provider: 'linear', key: 'EI-1', provider_id: 'u', status: 'done' } };
 const ticketRows = Array.from({ length: 12 }, (_, i) => ({ id: `ticket-${i + 1}`, key: `EI-${i + 1}` }));
 
 // Another user's rows — a proposed action naming one of these ids must never surface its name,
@@ -252,11 +252,10 @@ it('a foreign or gone ticket id in ticket_ids simply does not resolve, never lea
   expect(card.summary).not.toContain('nope');
 });
 
-it('push_ticket_status names the card and the ticket key on its provider', async () => {
+it('push_ticket_status names the ticket, its provider, the target state and the card', async () => {
   const repos = fakeRepos();
   const [card] = await describeActions(repos, [action({ tool: 'push_ticket_status', args: { task_id: 'tk2' } })], OWNER);
-  expect(card.summary).toContain('levar a coluna da tarefa');
-  expect(card.summary).toContain('para o EI-1 no Linear');
+  expect(card.summary).toContain('mudar o EI-1 no Linear para "Fazendo" (como a tarefa REA-8 "Ajustar layout")');
 });
 
 it('push_ticket_status on a card without a ticket link names the card plainly', async () => {

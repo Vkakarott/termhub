@@ -57,6 +57,9 @@ const named = (task: Task) => `${task.ref} "${task.title}"`;
 
 const PROVIDER_NAME = { github: 'GitHub', linear: 'Linear', jira: 'Jira' } as const;
 
+/** The card status push_ticket_status carries over, as the board names it. */
+const STATUS_LABEL = { backlog: 'Backlog', todo: 'A fazer', doing: 'Fazendo', done: 'Feito' } as const;
+
 /** At most 10 keys named, then "e mais N" for the rest — never a wall of keys in one sentence. */
 function formatKeys(keys: string[]): string {
   return keys.length <= 10 ? keys.join(', ') : `${keys.slice(0, 10).join(', ')} e mais ${keys.length - 10}`;
@@ -116,7 +119,7 @@ function verbPhrase(action: ChatAction, task: Task | undefined, ticketById: Map<
       const link = task ? readTicketLink(task.external_ref) : null;
       if (!task) return 'atualizar o ticket de uma tarefa que não existe mais';
       return link
-        ? `levar a coluna da tarefa ${named(task)} para o ${link.key} no ${PROVIDER_NAME[link.provider]}`
+        ? `mudar o ${link.key} no ${PROVIDER_NAME[link.provider]} para "${STATUS_LABEL[task.status] ?? task.status}" (como a tarefa ${named(task)})`
         : `atualizar o ticket da tarefa ${named(task)}`;
     }
     default:
