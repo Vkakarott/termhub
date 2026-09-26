@@ -1,11 +1,10 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { z } from 'zod';
 import type { AnsweredChoiceRow, ChatDecision, NewDecision } from '../db/repositories/chat-decisions.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
 import { answerToDecision, decisionText, mapAnswer, sameAnswer, type SuggestionItem, type TabQuestionSuggestion } from './decision-text.js';
 import { defaultEmbedder, EMBED_TIMEOUT_MS, EmbedError, type Embedder } from './embeddings.js';
-import { choiceAnswerBody, DESCRIPTION_MAX, HEADER_MAX, LABEL_MAX, QUESTION_MAX, type ChoiceAnswer, type ChoicePayload } from './tab-question-payload.js';
+import { checkChoiceAnswer, choiceAnswerBody, choicePayload, type ChoiceAnswer, type ChoicePayload } from './tab-question-payload.js';
 
 /** Neighbours asked per question of a `choice` payload (spec 2026-09-26 §4). */
 export const SUGGEST_K = 5;
@@ -183,45 +182,50 @@ export async function recordDecisions(repos: Pick<Repositories, 'chatDecisions'>
   }
 }
 
-/** The stored shape of a `choice` row's `payload` column (spec §5, backfill): already normalised by
- *  `parseAskUserQuestion` when the question was opened, so validated here on its own terms rather than
- *  through that function (which parses Claude Code's raw `AskUserQuestion` tool input instead — a
- *  different shape). A row whose `payload` or `answer` fails to parse is skipped by the backfill: the
- *  sweeper never guesses at a shape it does not recognise. */
-const storedChoicePayload = z.object({
-  questions: z
-    .array(
-      z.object({
-        question: z.string().min(1).max(QUESTION_MAX),
-        header: z.string().max(HEADER_MAX),
-        multi_select: z.boolean(),
-        options: z.array(z.object({ label: z.string().min(1).max(LABEL_MAX), description: z.string().max(DESCRIPTION_MAX) })).min(2).max(4),
-      }),
-    )
-    .min(1)
-    .max(4),
-});
+/** `backfillDecisions`'s outcome for one sweep: `skipped` is every row's id the sweeper could not use
+ *  this run (bad shape, an answer that does not fit its payload, or an unexpected error inserting it) —
+ *  the caller (`startDecisionSweeper`) feeds these back as `excludeIds` so they stop sitting at the head
+ *  of the next `ORDER BY answered_at` and blocking whatever comes after them. */
+export interface BackfillResult {
+  inserted: number;
+  skipped: string[];
+}
 
 /**
  * Turns already-answered `choice` questions that predate this feature (or were answered while the
- * embeddings service was down) into decisions (spec §5): one batch of `listAnsweredChoicesWithoutDecision`,
- * each row validated against the stored shapes before use — a row that does not parse is skipped
- * rather than failing the whole sweep. Returns the number of decisions inserted (not rows visited: a
- * multi-question row gives several).
+ * embeddings service was down) into decisions (spec §5): one batch of `listAnsweredChoicesWithoutDecision`
+ * (`excludeIds` skips rows a previous run in this process already gave up on), each row validated
+ * against the stored shapes — `choicePayload` for the payload, `choiceAnswerBody` for the answer — and
+ * cross-checked with `checkChoiceAnswer` (an answer whose selected index no longer fits its own payload
+ * parses fine on its own but would otherwise throw inside `answerToDecision`). A row that fails any of
+ * that, or whose insert itself throws, is skipped rather than aborting the batch — one bad row must
+ * never stop every row behind it from being recorded. Returns the number of decisions inserted (not
+ * rows visited: a multi-question row gives several) and the skipped row ids.
  */
-export async function backfillDecisions(repos: Pick<Repositories, 'chatDecisions'>, limit = 32): Promise<number> {
-  const rows: AnsweredChoiceRow[] = await repos.chatDecisions.listAnsweredChoicesWithoutDecision(limit);
-  let count = 0;
+export async function backfillDecisions(repos: Pick<Repositories, 'chatDecisions'>, limit = 32, excludeIds: string[] = []): Promise<BackfillResult> {
+  const rows: AnsweredChoiceRow[] = await repos.chatDecisions.listAnsweredChoicesWithoutDecision(limit, excludeIds);
+  let inserted = 0;
+  const skipped: string[] = [];
   for (const row of rows) {
-    const payload = storedChoicePayload.safeParse(row.payload);
-    const answer = choiceAnswerBody.safeParse(row.answer);
-    if (!payload.success || !answer.success) continue;
-    const decisions = decisionsOf({ id: row.id, project_id: row.project_id, conversation_id: row.conversation_id, payload: payload.data as unknown as ChoicePayload, answer: answer.data }, row.answered_by);
-    if (decisions.length === 0) continue;
-    const inserted = await repos.chatDecisions.insertMany(decisions);
-    count += inserted.length;
+    try {
+      const payload = choicePayload.safeParse(row.payload);
+      const answer = choiceAnswerBody.safeParse(row.answer);
+      if (!payload.success || !answer.success || checkChoiceAnswer(payload.data, answer.data)) {
+        skipped.push(row.id);
+        continue;
+      }
+      const decisions = decisionsOf({ id: row.id, project_id: row.project_id, conversation_id: row.conversation_id, payload: payload.data, answer: answer.data }, row.answered_by);
+      if (decisions.length === 0) {
+        skipped.push(row.id);
+        continue;
+      }
+      const rowsInserted = await repos.chatDecisions.insertMany(decisions);
+      inserted += rowsInserted.length;
+    } catch {
+      skipped.push(row.id);
+    }
   }
-  return count;
+  return { inserted, skipped };
 }
 
 /**
@@ -240,31 +244,53 @@ export async function embedPending(repos: Pick<Repositories, 'chatDecisions'>, e
 /** How often the sweeper ticks (spec §5): backfill first, embed second. */
 export const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
+/** How many skipped-row ids the sweeper remembers across ticks (in-memory, this process only): enough
+ *  to keep a batch of unparseable rows from ever blocking the ones behind them, without growing without
+ *  bound if the backlog of bad rows is itself unbounded. */
+const MAX_SKIPPED_IDS = 1000;
+
 /**
  * Keeps the memory complete without holding up anything else (spec §5): backfills decisions from
  * questions answered before this feature shipped (or while the embeddings service was down), then
- * embeds whatever that backfill or a live answer left without a vector. Runs once right away and then
- * every `intervalMs`; the timer is `unref`'d so it never keeps the process (or a test run) alive, and
- * the caller must not `await` this function — its first run must not block app startup. `embedder`
- * left out entirely resolves `defaultEmbedder()` (the configured service, if any); passing `null`
- * explicitly (as opposed to leaving it out) turns embedding off on purpose — only backfill then runs.
- * Never throws out of a tick: each step logs its own outcome, counts and codes only.
+ * embeds whatever that backfill or a live answer left without a vector — this still runs with no
+ * embedder configured (spec §4.5: decisions are recorded even when suggestions/embedding are off), only
+ * the embed step itself is then skipped. Runs once right away and then every `intervalMs`; the timer is
+ * `unref`'d so it never keeps the process (or a test run) alive, and the caller must not `await` this
+ * function — its first run must not block app startup. `embedder` left out entirely resolves
+ * `defaultEmbedder()` (the configured service, if any); passing `null` explicitly (as opposed to
+ * leaving it out) turns embedding off on purpose. A `running` guard skips a tick that overlaps the
+ * previous one still in flight (a slow backfill or embed call outliving `intervalMs`). Never throws out
+ * of a tick: each step logs its own outcome, counts and codes only.
  */
 export function startDecisionSweeper(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>, embedder?: Embedder | null, intervalMs = SWEEP_INTERVAL_MS): () => void {
   const embed = embedder !== undefined ? embedder : defaultEmbedder();
+  // Rows this process already gave up on: fed back as `excludeIds` so they stop sitting at the head of
+  // every `ORDER BY answered_at` and blocking whatever comes after them (spec §5).
+  const skippedIds = new Set<string>();
+  let running = false;
   const tick = async () => {
+    if (running) return;
+    running = true;
     try {
-      const backfilled = await backfillDecisions(repos);
-      if (backfilled > 0) log.info({ backfilled }, 'chat decisions backfilled');
-    } catch (err) {
-      log.warn({ code: memoryCode(err) }, 'chat decision backfill failed');
-    }
-    if (!embed) return;
-    try {
-      const embedded = await embedPending(repos, embed);
-      if (embedded > 0) log.info({ embedded }, 'chat decisions embedded');
-    } catch (err) {
-      log.warn({ code: memoryCode(err) }, 'chat decision embed sweep failed');
+      try {
+        const { inserted, skipped } = await backfillDecisions(repos, 32, [...skippedIds]);
+        for (const id of skipped) {
+          skippedIds.add(id);
+          if (skippedIds.size > MAX_SKIPPED_IDS) skippedIds.delete(skippedIds.values().next().value!);
+        }
+        if (inserted > 0) log.info({ backfilled: inserted }, 'chat decisions backfilled');
+      } catch (err) {
+        log.warn({ code: memoryCode(err) }, 'chat decision backfill failed');
+      }
+      if (!embed) return;
+      try {
+        const embedded = await embedPending(repos, embed);
+        if (embedded > 0) log.info({ embedded }, 'chat decisions embedded');
+      } catch (err) {
+        log.warn({ code: memoryCode(err) }, 'chat decision embed sweep failed');
+      }
+    } finally {
+      running = false;
     }
   };
   const timer = setInterval(() => void tick(), intervalMs);

@@ -209,10 +209,13 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
     const answeredChoiceId = newId();
     const permissionId = newId();
     const openChoiceId = newId();
+    // Answered a couple of minutes ago: fresh enough to be well past the "answered in the last minute"
+    // guard (claim sets `status: 'answered'` before the keys are actually sent — see the next test).
+    const answeredAt = new Date(Date.now() - 2 * 60 * 1000);
     await db.tabQuestion.createMany({
       data: [
-        { id: answeredChoiceId, tabId: 'tqd1', projectId, conversationId, kind: 'choice', payload: choicePayload, status: 'answered', answer: { answers: [{ selected: [0] }] }, answeredBy: userId, answeredAt: new Date() },
-        { id: permissionId, tabId: 'tqd2', projectId, conversationId, kind: 'permission', payload: { tool_name: 'Bash' }, status: 'answered', answer: { allow: true }, answeredBy: userId, answeredAt: new Date() },
+        { id: answeredChoiceId, tabId: 'tqd1', projectId, conversationId, kind: 'choice', payload: choicePayload, status: 'answered', answer: { answers: [{ selected: [0] }] }, answeredBy: userId, answeredAt },
+        { id: permissionId, tabId: 'tqd2', projectId, conversationId, kind: 'permission', payload: { tool_name: 'Bash' }, status: 'answered', answer: { allow: true }, answeredBy: userId, answeredAt },
         { id: openChoiceId, tabId: 'tqd3', projectId, conversationId, kind: 'choice', payload: choicePayload, status: 'open' },
       ],
     });
@@ -225,10 +228,26 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
     const found = before.find((r) => r.id === answeredChoiceId)!;
     expect(found).toMatchObject({ project_id: projectId, conversation_id: conversationId, answered_by: userId });
 
+    // excludeIds: the row is skipped while listed, back once it is not.
+    const excluded = await repo.listAnsweredChoicesWithoutDecision(10_000, [answeredChoiceId]);
+    expect(excluded.map((r) => r.id)).not.toContain(answeredChoiceId);
+    const notExcluded = await repo.listAnsweredChoicesWithoutDecision(10_000, [newId()]);
+    expect(notExcluded.map((r) => r.id)).toContain(answeredChoiceId);
+
     await repo.insertMany([newDecision({ tab_question_id: answeredChoiceId, header: 'Cor', question: 'Qual cor?' })]);
 
     const after = await repo.listAnsweredChoicesWithoutDecision(10_000);
     expect(after.map((r) => r.id)).not.toContain(answeredChoiceId);
+  });
+
+  it('listAnsweredChoicesWithoutDecision: ignores a row answered in the last minute', async () => {
+    const justAnsweredId = newId();
+    await db.tabQuestion.create({
+      data: { id: justAnsweredId, tabId: 'tqd4', projectId, conversationId, kind: 'choice', payload: choicePayload, status: 'answered', answer: { answers: [{ selected: [0] }] }, answeredBy: userId, answeredAt: new Date() },
+    });
+
+    const rows = await repo.listAnsweredChoicesWithoutDecision(10_000);
+    expect(rows.map((r) => r.id)).not.toContain(justAnsweredId);
   });
 
   it('users.chatSuggestions defaults to true; setChatSuggestions(false) turns it off', async () => {

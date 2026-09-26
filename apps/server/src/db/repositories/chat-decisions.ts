@@ -233,14 +233,23 @@ export class ChatDecisionsRepository {
     return this.db.chatDecision.count({ where: { userId } });
   }
 
-  /** A `choice` question the chat answered but the sweeper has not yet turned into decisions (spec §5):
-   *  never a `permission` row, and never one still `open` (only `answered` questions are remembered). */
-  async listAnsweredChoicesWithoutDecision(limit: number): Promise<AnsweredChoiceRow[]> {
+  /**
+   * A `choice` question the chat answered but the sweeper has not yet turned into decisions (spec §5):
+   * never a `permission` row, never one still `open` (only `answered` questions are remembered), and
+   * never one answered in the last minute — `claim` sets `status: 'answered'` before the keys are sent
+   * to the tab, so a row this fresh may still fail to send and never truly count as answered. `excludeIds`
+   * lets the sweeper skip rows it already found unparseable this run (or a recent one) without them
+   * blocking every row behind them at the head of the `ORDER BY`.
+   */
+  async listAnsweredChoicesWithoutDecision(limit: number, excludeIds: string[] = []): Promise<AnsweredChoiceRow[]> {
+    const exclude = excludeIds.length > 0 ? Prisma.sql`AND q.id NOT IN (${Prisma.join(excludeIds)})` : Prisma.empty;
     return this.db.$queryRaw<AnsweredChoiceRow[]>`
       SELECT q.id, q.project_id, q.conversation_id, q.answered_by, q.payload, q.answer
       FROM "tab_questions" q
       WHERE q.kind = 'choice' AND q.status = 'answered' AND q.answered_by IS NOT NULL AND q.answer IS NOT NULL
+        AND q.answered_at < now() - interval '1 minute'
         AND NOT EXISTS (SELECT 1 FROM "chat_decisions" d WHERE d.tab_question_id = q.id)
+        ${exclude}
       ORDER BY q.answered_at ASC LIMIT ${limit}`;
   }
 }

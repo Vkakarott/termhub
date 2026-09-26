@@ -242,20 +242,52 @@ describe('backfillDecisions', () => {
   it('turns answered choice rows without a decision into insertMany calls and returns the inserted count', async () => {
     const ansRow: AnsweredChoiceRow = { id: 'tq1', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { answers: [{ selected: [0] }] } };
     const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: vi.fn(async (limit: number) => (limit > 0 ? [ansRow] : [])) });
-    const count = await backfillDecisions({ chatDecisions } as never);
-    expect(count).toBe(1);
+    const result = await backfillDecisions({ chatDecisions } as never);
+    expect(result).toEqual({ inserted: 1, skipped: [] });
     expect(chatDecisions.insertMany).toHaveBeenCalledWith(
       decisionsOf({ id: 'tq1', project_id: 'p1', conversation_id: 'c1', payload: ansRow.payload as never, answer: ansRow.answer as never }, 'u9'),
     );
   });
 
-  it('skips a row whose payload or answer does not parse', async () => {
+  it('skips a row whose payload or answer does not parse, without aborting the rest of the batch', async () => {
     const badPayload = { id: 'tq1', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { nope: true }, answer: { answers: [{ selected: [0] }] } };
     const badAnswer = { id: 'tq2', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { nope: true } };
-    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: vi.fn(async () => [badPayload, badAnswer]) });
-    const count = await backfillDecisions({ chatDecisions } as never);
-    expect(count).toBe(0);
-    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+    const good: AnsweredChoiceRow = { id: 'tq3', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { answers: [{ selected: [0] }] } };
+    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: vi.fn(async () => [badPayload, badAnswer, good]) });
+    const result = await backfillDecisions({ chatDecisions } as never);
+    expect(result).toEqual({ inserted: 1, skipped: ['tq1', 'tq2'] });
+    expect(chatDecisions.insertMany).toHaveBeenCalledTimes(1);
+    expect(chatDecisions.insertMany).toHaveBeenCalledWith(decisionsOf({ id: 'tq3', project_id: 'p1', conversation_id: 'c1', payload: good.payload as never, answer: good.answer as never }, 'u9'));
+  });
+
+  it('skips an answer that does not fit its own payload (an index out of range) instead of throwing', async () => {
+    // `item` has 2 options: index 5 does not exist. This parses fine on its own (both `choicePayload`
+    // and `choiceAnswerBody` are shape-only schemas) but `checkChoiceAnswer` catches the mismatch —
+    // without that check, `answerToDecision` would throw and abort the whole batch (the bug being fixed).
+    const misfit = { id: 'tq1', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { answers: [{ selected: [5] }] } };
+    const good: AnsweredChoiceRow = { id: 'tq2', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { answers: [{ selected: [0] }] } };
+    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: vi.fn(async () => [misfit, good]) });
+    const result = await backfillDecisions({ chatDecisions } as never);
+    expect(result).toEqual({ inserted: 1, skipped: ['tq1'] });
+    expect(chatDecisions.insertMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips a row whose insert itself throws, without aborting the rest of the batch', async () => {
+    const rowA: AnsweredChoiceRow = { id: 'tq1', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { answers: [{ selected: [0] }] } };
+    const rowB: AnsweredChoiceRow = { id: 'tq2', project_id: 'p1', conversation_id: 'c1', answered_by: 'u9', payload: { questions: [item] }, answer: { answers: [{ selected: [1] }] } };
+    const insertMany = vi.fn(async (rows: NewDecision[]) => {
+      if (rows[0]!.tab_question_id === 'tq1') throw new Error('db down');
+      return rows.map((r, i) => ({ id: `d${i + 1}`, ...r, project_name: null, embed_model: null, suggested_count: 0, accepted_count: 0, created_at: '2026-09-26T00:00:00.000Z' }));
+    });
+    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: vi.fn(async () => [rowA, rowB]), insertMany });
+    const result = await backfillDecisions({ chatDecisions } as never);
+    expect(result).toEqual({ inserted: 1, skipped: ['tq1'] });
+  });
+
+  it('passes excludeIds through to listAnsweredChoicesWithoutDecision', async () => {
+    const chatDecisions = fakeChatDecisions();
+    await backfillDecisions({ chatDecisions } as never, 32, ['already-skipped']);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledWith(32, ['already-skipped']);
   });
 });
 
@@ -298,7 +330,7 @@ describe('startDecisionSweeper', () => {
     expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(2);
   });
 
-  it('with no embedder it only backfills', async () => {
+  it('with no embedder it still backfills (spec §4.5: decisions are recorded even with suggestions/embedding off)', async () => {
     const chatDecisions = fakeChatDecisions();
     const stop = startDecisionSweeper({ chatDecisions } as never, log(), null, 1000);
     await vi.advanceTimersByTimeAsync(0);
@@ -307,7 +339,65 @@ describe('startDecisionSweeper', () => {
     stop();
   });
 
-  it('uses the default interval when none is given', () => {
-    expect(SWEEP_INTERVAL_MS).toBe(10 * 60 * 1000);
+  it('uses the default interval when none is given', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const stop = startDecisionSweeper({ chatDecisions } as never, log(), null);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(SWEEP_INTERVAL_MS - 1);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(chatDecisions.listAnsweredChoicesWithoutDecision).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it('keeps skipped ids across ticks, passed as excludeIds on the next run', async () => {
+    const badRow = { id: 'bad1', project_id: 'p1', conversation_id: 'c1', answered_by: 'u1', payload: { nope: true }, answer: {} };
+    const listFn = vi.fn(async () => [badRow]);
+    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: listFn });
+    const stop = startDecisionSweeper({ chatDecisions } as never, log(), null, 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listFn).toHaveBeenNthCalledWith(1, 32, []);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listFn).toHaveBeenNthCalledWith(2, 32, ['bad1']);
+    stop();
+  });
+
+  it('never runs two ticks at once: a slow tick blocks the next scheduled one', async () => {
+    let resolveFirst!: () => void;
+    const gate = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+    const listFn = vi.fn(async () => {
+      await gate;
+      return [];
+    });
+    const chatDecisions = fakeChatDecisions({ listAnsweredChoicesWithoutDecision: listFn });
+    const stop = startDecisionSweeper({ chatDecisions } as never, log(), null, 1000);
+    await vi.advanceTimersByTimeAsync(0); // starts tick 1, now awaiting `gate`
+    expect(listFn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000); // the interval fires while tick 1 is still in flight
+    expect(listFn).toHaveBeenCalledTimes(1); // skipped: `running` was still true
+    resolveFirst();
+    await vi.advanceTimersByTimeAsync(0); // let tick 1 finish
+    await vi.advanceTimersByTimeAsync(1000); // now a fresh tick can run
+    expect(listFn).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it('a backfill rejection still lets the embed step run, and logs only a code', async () => {
+    const chatDecisions = fakeChatDecisions({
+      listAnsweredChoicesWithoutDecision: vi.fn(async () => {
+        throw Object.assign(new Error('db down, quoting Qual cor?'), { code: 'P2024' });
+      }),
+    });
+    const e = embedder();
+    const l = log();
+    const stop = startDecisionSweeper({ chatDecisions } as never, l, e, 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chatDecisions.listToEmbed).toHaveBeenCalledTimes(1);
+    expect(l.warn).toHaveBeenCalledWith({ code: 'P2024' }, expect.any(String));
+    expect(JSON.stringify(l.warn.mock.calls)).not.toContain('Qual cor');
+    stop();
   });
 });
