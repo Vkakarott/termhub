@@ -127,6 +127,19 @@ export function grantable(tool: string, args: Record<string, unknown>): args is 
 }
 
 /**
+ * The board tools "Permitir sempre neste projeto" may cover (spec 2026-09-26 project grant §2). Closed
+ * on purpose: a board tool added later is not covered until someone decides it. `delete_task` is
+ * irreversible and never here.
+ */
+export const BOARD_GRANT_TOOLS: ReadonlySet<string> = new Set(['create_task', 'add_subtasks', 'update_task', 'move_task']);
+
+export const boardGrantable = (tool: string): boolean => BOARD_GRANT_TOOLS.has(tool);
+
+/** What one project grant covers at most: a brake on what an injected prompt could do before the user
+ * notices a card again. Past it, calls are asked as usual. */
+export const BOARD_GRANT_BUDGET = { calls: 30, windowMs: 60 * 60 * 1000 } as const;
+
+/**
  * Decides whether to allow, ask, wait, or refuse a proposed action.
  * - No row + read class → allow (reads are always safe)
  * - No row + write/irreversible → ask (needs user confirmation)
