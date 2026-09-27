@@ -6,7 +6,7 @@ import { useDialogFocus, useEscapeLayer } from '../Modal';
 
 /**
  * A sent image, full size, over the page. Escape closes it through the app's layer stack, so an open
- * viewer answers Escape before the drawer or a modal under it; so does a click anywhere but the image.
+ * viewer answers Escape before a modal under it; so does a click anywhere but the image.
  * Focus starts on "Fechar", stays inside, and goes back to the thumbnail on close (TER-199).
  */
 export function ImageViewer({ attachment, onClose }: { attachment: ChatAttachment | null; onClose: () => void }) {

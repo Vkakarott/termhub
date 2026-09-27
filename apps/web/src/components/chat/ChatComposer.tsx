@@ -246,8 +246,8 @@ function useAttachmentDrafts(projectId: string | null | undefined, statuses: Rea
     };
   }, []);
 
-  // Unmounted mid-upload (the drawer closed): nothing keeps uploading into a box that is gone. What
-  // landed and was never sent is swept by the server after 24 h.
+  // Unmounted mid-upload (the chat closed, or was pushed out of the kept-mounted chats): nothing keeps
+  // uploading into a box that is gone. What landed and was never sent is swept by the server after 24 h.
   useEffect(
     () => () => {
       for (const d of latest.current) {

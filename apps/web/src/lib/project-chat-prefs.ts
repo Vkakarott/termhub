@@ -14,7 +14,7 @@ export const CHAT_PREFS_KEY = 'termhub:project-chat';
 /** The smallest width at which the chat composer (TER-98) still fits its buttons. */
 export const CHAT_MIN_WIDTH = 320;
 export const CHAT_MAX_WIDTH = 720;
-/** The old drawer's width. */
+/** The docked chat's default width. */
 export const CHAT_DEFAULT_WIDTH = 420;
 export const DEFAULT_CHAT_PREF: ChatPref = { open: false, width: CHAT_DEFAULT_WIDTH, maximized: false };
 

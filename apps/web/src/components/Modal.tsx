@@ -1,15 +1,15 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 
-// Open layers (modals, the chat drawer), innermost last: only the top one answers Escape, so closing a
-// nested dialog never closes the one under it too.
+// Open layers (modals, an image opened from the chat), innermost last: only the top one answers Escape,
+// so closing a nested dialog never closes the one under it too.
 const openStack: symbol[] = [];
 
 /**
  * Joins the stack of open layers for as long as `open` is true: only the top one answers Escape, so a
- * dialog opened from the chat drawer closes before the drawer does. Keyed on `open` only, so a
+ * dialog opened over the chat's image viewer closes before the viewer does. Keyed on `open` only, so a
  * re-render with a new callback keeps the stack order. A `base` layer (a page's own Esc, like leaving
- * settings) goes under every other layer, whenever each opened: a dialog or the chat drawer always
- * answers first, even one opened before the page's layer joined.
+ * settings) goes under every other layer, whenever each opened: a dialog or the chat's image viewer
+ * always answers first, even one opened before the page's layer joined.
  */
 export function useEscapeLayer(open: boolean, onEscape: (e: KeyboardEvent) => void, enabled = true, options: { base?: boolean } = {}): void {
   const latest = useRef({ onEscape, enabled });

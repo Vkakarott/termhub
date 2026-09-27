@@ -30,7 +30,7 @@ export function keepsEscape(target: EventTarget | null): boolean {
  * Remembers the last location outside settings (in memory: spec 2026-09-23 app chrome §7) and returns
  * the way back to it — `/` when settings was the first page opened. Esc takes the same way while under
  * settings, as the base layer of the Escape stack (components/Modal): a dialog opened over a section,
- * or the chat drawer, closes first. Call it once, in the layout, which stays mounted while the pages under it change.
+ * or the chat's image viewer, closes first. Call it once, in the layout, which stays mounted while the pages under it change.
  */
 export function useSettingsExit(): () => void {
   const { pathname, search } = useLocation();
@@ -43,7 +43,7 @@ export function useSettingsExit(): () => void {
   const leave = useCallback(() => {
     void navigate(lastOutside.current ?? '/');
   }, [navigate]);
-  // a base layer: an open dialog or the chat drawer answers Esc before settings does
+  // a base layer: an open dialog or the chat's image viewer answers Esc before settings does
   useEscapeLayer(
     inside,
     (e) => {
