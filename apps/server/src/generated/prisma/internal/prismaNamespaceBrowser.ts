@@ -79,6 +79,7 @@ export const ModelName = {
   ChatAttachment: 'ChatAttachment',
   ChatAction: 'ChatAction',
   ChatGrant: 'ChatGrant',
+  ChatProjectGrant: 'ChatProjectGrant',
   TabQuestion: 'TabQuestion',
   ChatDecision: 'ChatDecision',
   InstanceSecret: 'InstanceSecret',
@@ -557,6 +558,21 @@ export const ChatGrantScalarFieldEnum = {
 } as const
 
 export type ChatGrantScalarFieldEnum = (typeof ChatGrantScalarFieldEnum)[keyof typeof ChatGrantScalarFieldEnum]
+
+
+export const ChatProjectGrantScalarFieldEnum = {
+  id: 'id',
+  conversationId: 'conversationId',
+  projectId: 'projectId',
+  sourceActionId: 'sourceActionId',
+  grantedBy: 'grantedBy',
+  createdAt: 'createdAt',
+  expiresAt: 'expiresAt',
+  revokedAt: 'revokedAt',
+  revokedBy: 'revokedBy'
+} as const
+
+export type ChatProjectGrantScalarFieldEnum = (typeof ChatProjectGrantScalarFieldEnum)[keyof typeof ChatProjectGrantScalarFieldEnum]
 
 
 export const TabQuestionScalarFieldEnum = {

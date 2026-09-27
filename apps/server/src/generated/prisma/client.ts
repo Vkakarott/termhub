@@ -211,6 +211,13 @@ export type ChatAction = Prisma.ChatActionModel
  */
 export type ChatGrant = Prisma.ChatGrantModel
 /**
+ * Model ChatProjectGrant
+ * "Permitir sempre neste projeto": board tools in one project, in one conversation (spec 2026-09-26
+ * project grant). Its own table so the previous release, which maps every chat_grants row with a
+ * tab, never sees one of these.
+ */
+export type ChatProjectGrant = Prisma.ChatProjectGrantModel
+/**
  * Model TabQuestion
  * A question an agent in a tab put to the person — Claude Code's AskUserQuestion (`choice`) or a
  * permission prompt (`permission`) — shown as a card in the project's chat (spec 2026-09-25 §5).
