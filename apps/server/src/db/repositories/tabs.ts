@@ -5,6 +5,9 @@ import { mapTab, mapTabEvent, type Tab, type TabActivity, type TabEvent, type Ta
 /** A flood of hook events cannot grow the log without bound: only this many are kept per tab. */
 const EVENTS_KEPT_PER_TAB = 200;
 
+/** One working interval counts at most this much agent time: bounds a hook that died mid-turn (spec 2026-09-26 progress-panel D2). */
+export const MAX_WORKING_INTERVAL_S = 7200;
+
 /** States that mean a tool is mid-task in that tab — as opposed to `idle`, `error` or never seen. */
 const BUSY_STATES: TabState[] = ['working', 'waiting_input', 'waiting_permission'];
 
@@ -145,6 +148,14 @@ export class TabsRepository {
     const at = new Date();
     const [e, t] = await this.db.$transaction(async (tx) => {
       const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true } });
+      // A working interval ends here: credit it to the card this tab works on (a subtask's parent), once.
+      const previous = await tx.tabEvent.findFirst({ where: { tabId }, orderBy: { createdAt: 'desc' }, select: { kind: true, createdAt: true } });
+      if (previous?.kind === 'working') {
+        const seconds = Math.min(MAX_WORKING_INTERVAL_S, Math.round((at.getTime() - previous.createdAt.getTime()) / 1000));
+        if (seconds > 0) {
+          await tx.$executeRaw`UPDATE "tasks" SET "active_seconds" = "active_seconds" + ${seconds} WHERE "id" IN (SELECT DISTINCT COALESCE("parent_id", "id") FROM "tasks" WHERE "tab_id" = ${tabId})`;
+        }
+      }
       const currentlySeen = !!current?.stateSeenAt && !!current.stateAt && current.stateSeenAt >= current.stateAt;
       const continuing = !!event.continuesWait && current?.state === 'waiting_input' && event.kind === 'waiting_input';
       const carrySeen = continuing && currentlySeen;

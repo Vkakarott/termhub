@@ -426,3 +426,75 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.listOpenTe
     expect((await repo.listByMachine(mine)).map((t) => t.name)).toEqual(['Ana']);
   });
 });
+
+describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.recordEvent — agent time (Postgres)', () => {
+  let db: PrismaClient;
+  let repo: TabsRepository;
+  let machineId: string;
+  let projectId: string;
+  let tabId: string;
+
+  beforeAll(() => {
+    db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+    repo = new TabsRepository(db);
+  });
+
+  beforeEach(async () => {
+    machineId = newId();
+    projectId = newId();
+    tabId = newId();
+    await db.machine.create({ data: { id: machineId, name: 'm', type: 'agent' } });
+    await db.project.create({ data: { id: projectId, key: 'A' + projectId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'p' } });
+    await db.tab.create({ data: { id: tabId, projectId, machineId, name: 'agent' } });
+    return async () => {
+      await db.project.delete({ where: { id: projectId } });
+      await db.machine.delete({ where: { id: machineId } });
+    };
+  });
+
+  const eventAgo = (kind: 'working' | 'idle', seconds: number) =>
+    db.tabEvent.create({ data: { id: newId(), tabId, kind, tool: 'claude', createdAt: new Date(Date.now() - seconds * 1000) } });
+  const task = (data: { parentId?: string; tabId?: string | null; type?: 'task' | 'subtask' }) =>
+    db.task.create({ data: { id: newId(), projectId, title: 't', type: data.type ?? 'task', parentId: data.parentId ?? null, tabId: data.tabId ?? null } });
+  const secondsOf = async (id: string) => (await db.task.findUniqueOrThrow({ where: { id } })).activeSeconds;
+
+  it('adds the closed working interval to the linked card', async () => {
+    const card = await task({ tabId });
+    await eventAgo('working', 90);
+    await repo.recordEvent(tabId, { kind: 'waiting_input', tool: 'claude', text: null });
+    expect(await secondsOf(card.id)).toBeGreaterThanOrEqual(89);
+    expect(await secondsOf(card.id)).toBeLessThanOrEqual(91);
+  });
+
+  it('adds nothing when the previous event was not working', async () => {
+    const card = await task({ tabId });
+    await eventAgo('idle', 600);
+    await repo.recordEvent(tabId, { kind: 'working', tool: 'claude', text: null });
+    expect(await secondsOf(card.id)).toBe(0);
+  });
+
+  it('caps one interval at two hours', async () => {
+    const card = await task({ tabId });
+    await eventAgo('working', 5 * 3600);
+    await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null });
+    expect(await secondsOf(card.id)).toBe(7200);
+  });
+
+  it('credits the parent card once when the tab is linked to the card and to one of its subtasks', async () => {
+    const card = await task({ tabId });
+    const sub = await task({ parentId: card.id, tabId, type: 'subtask' });
+    await eventAgo('working', 60);
+    await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null });
+    expect(await secondsOf(card.id)).toBeGreaterThanOrEqual(59);
+    expect(await secondsOf(card.id)).toBeLessThanOrEqual(61);
+    expect(await secondsOf(sub.id)).toBe(0);
+  });
+
+  it('credits the parent card when only a subtask is linked', async () => {
+    const card = await task({});
+    await task({ parentId: card.id, tabId, type: 'subtask' });
+    await eventAgo('working', 60);
+    await repo.recordEvent(tabId, { kind: 'idle', tool: 'claude', text: null });
+    expect(await secondsOf(card.id)).toBeGreaterThanOrEqual(59);
+  });
+});
