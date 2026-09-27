@@ -1,14 +1,12 @@
 import type { AttachmentKind } from '@termhub/mobile-api';
 import { ExtractError } from './errors.js';
-import { type Extracted, ZIP_EXPANDED_MAX_BYTES, capText, parseDocument } from './parsers.js';
+import { type Extracted, ZIP_EXPANDED_MAX_BYTES, capText } from './parsers.js';
+import { EXTRACT_WORKER_HEAP_MB, defaultWorkerUrl, runInWorker } from './worker-runner.js';
 
 export { ExtractError, type ExtractErrorCode } from './errors.js';
 export { type Extracted, TEXT_CAP, XLSX_MAX_COLS, XLSX_MAX_ROWS, ZIP_EXPANDED_MAX_BYTES } from './parsers.js';
 
-/**
- * Dispatches an attachment to its extractor (spec 2026-09-26 §5.4): documents to `parsers.ts`,
- * audio and video to whisper.
- */
+/** A document parse's budget, counted from the worker's spawn; the worker is terminated when it runs out. */
 export const EXTRACT_TIMEOUT_MS = 60_000;
 /** Whisper's own budget (`terminal/transcription.ts`): a long clip on the CPU model takes minutes. */
 export const WHISPER_TIMEOUT_MS = 10 * 60 * 1000;
@@ -21,18 +19,10 @@ export interface ExtractDeps {
   timeoutMs?: number;
   /** Tests only; production uses `ZIP_EXPANDED_MAX_BYTES`. */
   zipExpandedMaxBytes?: number;
-}
-
-export async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new ExtractError('ATTACHMENT_INVALID', 'extraction timed out')), ms);
-  });
-  try {
-    return await Promise.race([work, deadline]);
-  } finally {
-    clearTimeout(timer);
-  }
+  /** Tests only; production uses `defaultWorkerUrl()`. */
+  workerUrl?: URL;
+  /** Tests only; production uses `EXTRACT_WORKER_HEAP_MB`. */
+  heapMb?: number;
 }
 
 /** Width and height from the header alone; null when the header is not one we read. */
@@ -94,13 +84,13 @@ async function transcribe(file: Buffer, mime: string, deps: ExtractDeps): Promis
   return { text: c.text, meta: { duration_s: typeof body.duration === 'number' ? body.duration : null, language: typeof body.language === 'string' ? body.language : null, truncated: c.truncated } };
 }
 
-/** A parser that throws, hangs or chokes is an invalid attachment: never a crash, never a stuck queue. */
-async function parsed(work: () => Promise<Extracted>, timeoutMs: number): Promise<Extracted> {
+/** The UTF-8 decode stays on this thread: linear and bounded by the upload size. A bad byte is an invalid attachment. */
+function decodeText(file: Buffer): Extracted {
   try {
-    return await withTimeout(work(), timeoutMs);
-  } catch (err) {
-    if (err instanceof ExtractError) throw err;
-    throw new ExtractError('ATTACHMENT_INVALID', err instanceof Error ? err.name : 'parse failed');
+    const c = capText(new TextDecoder('utf-8', { fatal: true }).decode(file));
+    return { text: c.text, meta: { truncated: c.truncated } };
+  } catch {
+    throw new ExtractError('ATTACHMENT_INVALID', 'not utf-8');
   }
 }
 
@@ -113,14 +103,12 @@ export async function extract(kind: AttachmentKind, file: Buffer, mime: string, 
       return { text: null, meta: dims ? { width: dims.width, height: dims.height } : {} };
     }
     case 'text':
-      return parsed(async () => {
-        const c = capText(new TextDecoder('utf-8', { fatal: true }).decode(file));
-        return { text: c.text, meta: { truncated: c.truncated } };
-      }, timeoutMs);
+      return decodeText(file);
     case 'pdf':
     case 'docx':
     case 'xlsx':
-      return parsed(() => parseDocument(kind, file, zipBudget), timeoutMs);
+      // Off the event loop, in a worker with its own heap limit and a timeout that stops it (TER-196).
+      return runInWorker(kind, file, zipBudget, { timeoutMs, heapMb: deps.heapMb ?? EXTRACT_WORKER_HEAP_MB, workerUrl: deps.workerUrl ?? defaultWorkerUrl() });
     case 'audio':
     case 'video':
       return transcribe(file, mime, deps);

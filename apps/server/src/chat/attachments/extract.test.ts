@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { describe, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { buildZip, minimalDocx, minimalPdf, withUnlistedEntry } from '../../../test/zip.js';
-import { ExtractError, TEXT_CAP, XLSX_MAX_COLS, XLSX_MAX_ROWS, extract, imageDimensions, withTimeout } from './extract.js';
+import { ExtractError, TEXT_CAP, XLSX_MAX_COLS, XLSX_MAX_ROWS, extract, imageDimensions } from './extract.js';
 
 const noWhisper = { whisperUrl: null, language: null };
 const code = async (p: Promise<unknown>): Promise<string> => {
@@ -95,7 +95,7 @@ describe('extract: pdf, docx, xlsx', () => {
     const xlsx = Buffer.from(await wb.xlsx.writeBuffer());
     expect(await code(extract('xlsx', xlsx, 'application/x', withBudget))).toBe('ATTACHMENT_INVALID');
     expect((await extract('xlsx', xlsx, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 8 * 1024 * 1024 })).meta).toMatchObject({ sheets: [{ name: 'S', rows: 1, cols: 1 }] });
-  });
+  }, 20_000);
   it('docx and xlsx: an unlisted entry or bytes the directory does not account for are an invalid attachment', async () => {
     const docx = minimalDocx(['Olá'], { deflate: true });
     expect(await code(extract('docx', withUnlistedEntry(docx, 'word/extra.xml', 'x'.repeat(100)), 'application/x', noWhisper))).toBe('ATTACHMENT_INVALID');
@@ -151,6 +151,26 @@ describe('extract: pdf, docx, xlsx', () => {
     expect(lines[1].split(' | ')).toHaveLength(XLSX_MAX_COLS);
     expect(r.text).not.toContain(`0.${XLSX_MAX_COLS}`);
   });
+  it('documents are parsed in a worker: a parser that never answers is stopped by the timeout', async () => {
+    const spin = new URL('../../../test/workers/spin.ts', import.meta.url);
+    const started = Date.now();
+    const err = await extract('pdf', Buffer.from('%PDF-1.4'), 'application/pdf', { ...noWhisper, workerUrl: spin, timeoutMs: 1_000 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExtractError);
+    expect((err as ExtractError).code).toBe('ATTACHMENT_INVALID');
+    // Only the worker path says this: the in-thread unpdf would fail at once with its own error name.
+    expect((err as ExtractError).message).toBe('extraction timed out');
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 20_000);
+  it('a file that is a view into a larger buffer is extracted, and the caller’s buffer is left intact', async () => {
+    const doc = minimalDocx(['Olá mundo'], { deflate: true });
+    const slab = Buffer.alloc(doc.length + 64, 7);
+    doc.copy(slab, 32);
+    const view = slab.subarray(32, 32 + doc.length);
+    expect((await extract('docx', view, 'application/x', noWhisper)).text).toBe('Olá mundo');
+    expect(slab.byteLength).toBe(doc.length + 64);
+    expect(slab[0]).toBe(7);
+    expect(view.equals(doc)).toBe(true);
+  }, 20_000);
 });
 
 describe('extract: audio and video go to whisper', () => {
@@ -182,9 +202,4 @@ describe('extract: audio and video go to whisper', () => {
     expect(await code(extract('audio', Buffer.from('x'), 'audio/ogg', w(ok({ error: 'bad audio' }, 422))))).toBe('TRANSCRIPTION_FAILED');
     expect(await code(extract('audio', Buffer.from('x'), 'audio/ogg', w(ok({ nope: 1 }))))).toBe('TRANSCRIPTION_FAILED');
   });
-});
-
-it('withTimeout turns a parser that never answers into an invalid attachment', async () => {
-  expect(await code(withTimeout(new Promise(() => undefined), 5))).toBe('ATTACHMENT_INVALID');
-  expect(await withTimeout(Promise.resolve(1), 5)).toBe(1);
 });
