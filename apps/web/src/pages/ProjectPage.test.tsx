@@ -32,6 +32,7 @@ vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
 vi.mock('../components/TerminalsView', () => ({ TerminalsView: () => null }));
 vi.mock('../components/TasksBoard', () => ({ TasksBoard: ({ openTaskId }: { openTaskId?: string }) => <div>board {openTaskId ?? ''}</div> }));
 vi.mock('../components/BacklogView', () => ({ BacklogView: () => null }));
+vi.mock('../components/ProgressPanel', () => ({ ProgressPanel: () => <div>progress-panel</div> }));
 vi.mock('../components/TicketsView', () => ({ TicketsView: () => null }));
 vi.mock('../components/NotesEditor', () => ({ NotesEditor: () => null }));
 vi.mock('../components/ProjectSettings', () => ({ ProjectSettings: () => null }));
@@ -203,6 +204,7 @@ describe('ProjectPage header', () => {
       '/projects/p1',
       '/projects/p1/tasks',
       '/projects/p1/backlog',
+      '/projects/p1/progress',
       '/projects/p1/tickets',
       '/projects/p1/notes',
       '/projects/p1/settings',
@@ -210,6 +212,22 @@ describe('ProjectPage header', () => {
     expect(within(tabs).getByRole('link', { name: /Board/ }).textContent).toBe('Board3');
     expect(within(tabs).getByRole('link', { name: 'Terminais' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('switch', { name: /publicar/i }).closest('header')).not.toBeNull();
+  });
+});
+
+describe('ProjectPage progress section', () => {
+  it('shows the Progresso panel at its own route, with a nav link to it', () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    render(
+      <MemoryRouter initialEntries={[`/projects/${proj.id}/progress`]}>
+        <Routes>
+          <Route path="/projects/:id/:section" element={<ProjectPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('progress-panel')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Progresso' }).getAttribute('href')).toBe('/projects/p1/progress');
   });
 });
 
