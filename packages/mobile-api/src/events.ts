@@ -160,6 +160,20 @@ export const tabSuggestionSchema = z.object({
   closed_at: z.string().nullable(),
 });
 
+/** A concierge subagent's lifecycle (spec 2026-09-26 panel §4). */
+export const subagentStatusSchema = z.enum(['running', 'stopping', 'completed', 'failed', 'stopped', 'interrupted']);
+
+/** One row of the subagents panel: its description and type, never its prompt nor its work. */
+export const subagentViewSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  subagent_type: z.string().nullable(),
+  status: subagentStatusSchema,
+  started_at: z.string(),
+  ended_at: z.string().nullable(),
+});
+export type TSubagentView = z.infer<typeof subagentViewSchema>;
+
 // Mirrors the `ChatEvent` union in `apps/server/src/chat/bus.ts`, plus the `hello` variant the
 // mobile socket sends first (there is no browser-side equivalent: the app has no other way to
 // learn the protocol version and the server's clock before its first real event).
@@ -198,6 +212,10 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('tab_suggestion_closed'), user_id: z.string(), conversation_id: z.string(), suggestion: tabSuggestionSchema }),
   /** An attachment finished extracting, or failed (spec 2026-09-26 §5.5): the chip updates its status. */
   z.object({ type: z.literal('attachment_status'), user_id: z.string(), conversation_id: z.string(), attachment: chatAttachment }),
+  /** A subagent started, changed status or was interrupted: the panel's row. */
+  z.object({ type: z.literal('subagent'), user_id: z.string(), conversation_id: z.string(), subagent: subagentViewSchema }),
+  /** A cancel did not happen: the row is running again ("Não foi possível cancelar"). */
+  z.object({ type: z.literal('subagent_cancel_failed'), user_id: z.string(), conversation_id: z.string(), subagent_id: z.string() }),
   z.object({
     type: z.literal('run_finished'),
     user_id: z.string(),

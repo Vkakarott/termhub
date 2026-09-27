@@ -75,6 +75,12 @@ const samples: { [K in ChatEvent['type']]: Extract<ChatEvent, { type: K }> } = {
     ...base,
     attachment: { id: 'at1', name: 'relatorio.pdf', mime: 'application/pdf', kind: 'pdf', bytes: 1234, status: 'ready', error_code: null, meta: { pages: 12, truncated: false }, created_at: '2026-09-26T12:00:00.000Z' },
   },
+  subagent: {
+    type: 'subagent',
+    ...base,
+    subagent: { id: 'sub1', description: 'Buscar CI', subagent_type: 'general-purpose', status: 'completed', started_at: '2026-09-26T12:00:00.000Z', ended_at: '2026-09-26T12:03:00.000Z' },
+  },
+  subagent_cancel_failed: { type: 'subagent_cancel_failed', ...base, subagent_id: 'sub1' },
 };
 
 describe('ChatEvent / chatEventSchema parity', () => {

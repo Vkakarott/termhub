@@ -3,6 +3,7 @@ import type { ChatMessage } from '../db/repositories/chat.js';
 import type { ChatActionClass } from '../db/repositories/chat-actions.js';
 import type { ChatActionCard, ChatGrantView, ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
 import type { TabQuestionView } from '../db/repositories/tab-questions-view.js';
+import type { SubagentView } from './subagent-view.js';
 import type { ChatAttachment } from '@termhub/mobile-api';
 
 /** What the browser is told while an answer is being written. Terminal content never travels here:
@@ -72,7 +73,13 @@ export type ChatEvent =
   /** It was sent (`answered`, or `failed`), dismissed, or left the tab's screen. */
   | { type: 'tab_suggestion_closed'; user_id: string; conversation_id: string; suggestion: TabQuestionView }
   /** An attachment's extraction finished or failed (spec 2026-09-26 §5.5): the public row, never its text. */
-  | { type: 'attachment_status'; user_id: string; conversation_id: string; attachment: ChatAttachment };
+  | { type: 'attachment_status'; user_id: string; conversation_id: string; attachment: ChatAttachment }
+  /** A subagent of the conversation started, changed status or was interrupted (spec 2026-09-26 panel
+   * §5.3): the panel's row. Its description and type only, never its prompt nor its work. */
+  | { type: 'subagent'; user_id: string; conversation_id: string; subagent: SubagentView }
+  /** A cancel the person asked for did not happen (the CLI refused it, or never answered): the row is
+   * running again, and every open screen says "Não foi possível cancelar". */
+  | { type: 'subagent_cancel_failed'; user_id: string; conversation_id: string; subagent_id: string };
 
 class ChatBus {
   private emitter = new EventEmitter();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { chatActionSchema, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, tabQuestionSchema, tabSuggestionSchema } from './events.js';
+import { chatActionSchema, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, subagentViewSchema, tabQuestionSchema, tabSuggestionSchema } from './events.js';
 
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', tab_name: 'api' };
@@ -116,4 +116,23 @@ it('parses attachment_status, and a message that carries attachments', () => {
   const message = { id: 'm1', conversation_id: 'c1', role: 'user', text: '', usage: null, error_code: null, created_at: '2026-09-26T12:00:00.000Z', attachments: [attachment] };
   expect(chatEventSchema.safeParse({ type: 'message', ...base, message }).success).toBe(true);
   expect(chatEventSchema.safeParse({ type: 'attachment_status', ...base, attachment: { ...attachment, kind: 'exe' } }).success).toBe(false);
+});
+
+// The subagents panel (spec 2026-09-26 panel §4): a row per subagent, and the failed-cancel notice.
+describe('chatEventSchema: subagents', () => {
+  const subagent = { id: 'sub1', description: 'Buscar CI', subagent_type: null, status: 'running', started_at: '2026-09-26T12:00:00.000Z', ended_at: null };
+  it.each([
+    ['subagent', { type: 'subagent', ...base, subagent }],
+    ['subagent (ended)', { type: 'subagent', ...base, subagent: { ...subagent, subagent_type: 'general-purpose', status: 'interrupted', ended_at: '2026-09-26T12:04:00.000Z' } }],
+    ['subagent_cancel_failed', { type: 'subagent_cancel_failed', ...base, subagent_id: 'sub1' }],
+  ])('accepts %s', (_t, e) => {
+    const r = chatEventSchema.safeParse(e);
+    expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
+  });
+  it('refuses a status the server never sends', () => {
+    expect(subagentViewSchema.safeParse({ ...subagent, status: 'paused' }).success).toBe(false);
+  });
+  it('requires the subagent id on a failed cancel', () => {
+    expect(chatEventSchema.safeParse({ type: 'subagent_cancel_failed', ...base }).success).toBe(false);
+  });
 });

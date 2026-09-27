@@ -3,9 +3,13 @@ import { join } from 'node:path';
 import { STREAM_END_INPUT_LINE } from '@termhub/agent-protocol';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../db/repositories/chat.js';
+import type { ChatAction } from '../db/repositories/chat-actions.js';
+import type { ChatSubagent } from '../db/repositories/chat-subagents.js';
+import type { SubagentStatus } from './stream.js';
 import { chatBus, type ChatEvent } from './bus.js';
 import { LiveRun, type LiveTurn } from './live-run.js';
 import type { RunStream } from './service.js';
+import { subagentOrigins } from './subagent-origin.js';
 
 const fixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-background.ndjson'), 'utf8').split('\n').filter(Boolean);
 const midTurn = readFileSync(join(import.meta.dirname, 'fixtures/stream-mid-turn-injection.ndjson'), 'utf8').split('\n').filter(Boolean);
@@ -29,7 +33,35 @@ function harness(sessionId: string | null = null) {
     deleteMessage: vi.fn(async (id: string) => void rows.splice(rows.findIndex((r) => r.id === id), 1)),
     setCliSession: vi.fn(async () => undefined),
   };
-  const live = new LiveRun({ userId: 'u1', conversationId: 'c1', sessionId, chat });
+  /** Subagent rows as the repository keeps them: one per task, `sa-<task_id>`. */
+  const subagentRows = new Map<string, ChatSubagent>();
+  const subagentRow = (id: string, status: SubagentStatus, extra: Partial<ChatSubagent> = {}): ChatSubagent => ({
+    id, conversation_id: 'c1', task_id: 't?', tool_use_id: 'u?', description: '', subagent_type: null, status, started_at: '2026-09-26T12:00:00.000Z', ended_at: null, ...extra,
+  });
+  const subagents = {
+    start: vi.fn(async (i: { conversation_id: string; task_id: string; tool_use_id: string; description: string; subagent_type: string | null }) => {
+      const row = subagentRow(`sa-${i.task_id}`, 'running', { task_id: i.task_id, tool_use_id: i.tool_use_id, description: i.description, subagent_type: i.subagent_type });
+      subagentRows.set(row.id, row);
+      return row;
+    }),
+    setStatus: vi.fn(async (id: string, status: SubagentStatus) => {
+      const row = { ...(subagentRows.get(id) ?? subagentRow(id, status)), status };
+      subagentRows.set(id, row);
+      return row;
+    }),
+    interruptRunning: vi.fn(async (_conversationId: string) => {
+      const open = [...subagentRows.values()].filter((r) => r.status === 'running' || r.status === 'stopping');
+      return open.map((r) => {
+        const row = { ...r, status: 'interrupted' as const, ended_at: '2026-09-26T12:05:00.000Z' };
+        subagentRows.set(r.id, row);
+        return row;
+      });
+    }),
+  };
+  const chatActions = { setSubagentByToolUse: vi.fn(async (_c: string, _t: string, _s: string): Promise<ChatAction[]> => []) };
+  const describeLate = vi.fn(async (_actions: ChatAction[]) => undefined);
+  const onTurnsChanged = vi.fn();
+  const live = new LiveRun({ userId: 'u1', conversationId: 'c1', sessionId, chat, subagents, chatActions, describeLate, onTurnsChanged });
   const events: ChatEvent[] = [];
   const off = chatBus.subscribe((e) => events.push(e));
   /** A turn as the service builds it: question and empty answer already stored. */
@@ -42,7 +74,7 @@ function harness(sessionId: string | null = null) {
     const t: LiveTurn = { uuid, text, question, answer, settle: { resolve, reject } };
     return { t, done };
   };
-  return { live, chat, rows, events, off, turn };
+  return { live, chat, rows, events, off, turn, subagents, chatActions, describeLate, onTurnsChanged };
 }
 
 /** A hand-driven stream: `push` a CLI line, `end()` the process; `written` is what the driver wrote. */
@@ -433,4 +465,252 @@ it('keeps waiting turns waiting at a result once the CLI has replayed in this pr
   s.end();
   await consumed;
   expect((await b.done).text).toBe('B');
+});
+
+// Subagents (spec 2026-09-26 panel §5.3): what the stream says about them is kept, published, and
+// never allowed to break the answer.
+const taskStarted = (task: string, toolUse: string, description: string) => JSON.stringify({ type: 'system', subtype: 'task_started', task_id: task, tool_use_id: toolUse, description, subagent_type: 'general-purpose' });
+const taskUpdated = (task: string, status: string) => JSON.stringify({ type: 'system', subtype: 'task_updated', task_id: task, patch: { status } });
+const subagentTool = (parent: string, id: string, tool: string) => JSON.stringify({ type: 'assistant', parent_tool_use_id: parent, message: { content: [{ type: 'tool_use', id, name: `mcp__termhub__${tool}`, input: {} }] } });
+const controlResponse = (requestId: string, ok: boolean) => JSON.stringify({ type: 'control_response', response: ok ? { subtype: 'success', request_id: requestId } : { subtype: 'error', request_id: requestId, error: 'nope' } });
+const subagentEvents = () => h.events.filter((e): e is Extract<ChatEvent, { type: 'subagent' }> => e.type === 'subagent');
+
+/** A run with one turn replayed and answered, the stream left open for more. */
+async function running() {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1)); s.push(background(1)); s.push(delta('disparei'));
+  await settle();
+  return { a, s, consumed };
+}
+
+it('registers a started subagent, updates its status and publishes both', async () => {
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI')); s.push(result());
+  await settle();
+  s.push(taskUpdated('t1', 'completed'));
+  await settle();
+  s.end();
+  await consumed;
+  expect(h.subagents.start).toHaveBeenCalledWith({ conversation_id: 'c1', task_id: 't1', tool_use_id: 'u1', description: 'Buscar CI', subagent_type: 'general-purpose' });
+  expect(h.subagents.setStatus).toHaveBeenCalledWith('sa-t1', 'completed');
+  expect(subagentEvents().map((e) => [e.user_id, e.conversation_id, e.subagent.id, e.subagent.status])).toEqual([
+    ['u1', 'c1', 'sa-t1', 'running'],
+    ['u1', 'c1', 'sa-t1', 'completed'],
+  ]);
+  expect(subagentEvents()[0].subagent).toEqual({ id: 'sa-t1', description: 'Buscar CI', subagent_type: 'general-purpose', status: 'running', started_at: '2026-09-26T12:00:00.000Z', ended_at: null });
+  // Nothing was left running: the end of the stream interrupts nothing.
+  expect(subagentEvents().some((e) => e.subagent.status === 'interrupted')).toBe(false);
+});
+
+it('ignores a status for a task it never saw start', async () => {
+  const { s, consumed } = await running();
+  s.push(taskUpdated('t9', 'completed'));
+  await settle();
+  s.end();
+  await consumed;
+  expect(h.subagents.setStatus).not.toHaveBeenCalled();
+});
+
+it('interrupts running subagents when the stream ends', async () => {
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI')); s.push(taskStarted('t2', 'u2', 'Rodar testes')); s.push(result());
+  await settle();
+  s.end();
+  await consumed;
+  expect(h.subagents.interruptRunning).toHaveBeenCalledWith('c1');
+  expect(subagentEvents().filter((e) => e.subagent.status === 'interrupted').map((e) => e.subagent.id)).toEqual(['sa-t1', 'sa-t2']);
+});
+
+it('a subagent bookkeeping failure never breaks the answer', async () => {
+  const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  h.subagents.start.mockRejectedValueOnce(Object.assign(new Error('secret text'), { code: 'P1001' }));
+  h.subagents.interruptRunning.mockRejectedValueOnce(new Error('db down'));
+  const { a, s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI')); s.push(result());
+  await settle();
+  s.end();
+  expect(await consumed).toEqual({ code: null, missingSession: false });
+  expect(await a.done).toMatchObject({ text: 'disparei', error_code: null });
+  expect(err).toHaveBeenCalledWith(expect.stringMatching(/^chat: /), { conversation_id: 'c1', error: 'P1001' });
+  expect(JSON.stringify(err.mock.calls)).not.toContain('secret text');
+  err.mockRestore();
+});
+
+it('remembers the origin of a subagent termhub tool call and binds a late action', async () => {
+  const action = { id: 'act1', subagent_id: 'sa-t1' } as unknown as ChatAction;
+  h.chatActions.setSubagentByToolUse.mockResolvedValueOnce([action]);
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI'));
+  s.push(subagentTool('u1', 'toolu_B', 'send_input'));
+  await settle();
+  expect(subagentOrigins.originOf('toolu_B')).toEqual({ conversationId: 'c1', subagentId: 'sa-t1' });
+  expect(h.chatActions.setSubagentByToolUse).toHaveBeenCalledWith('c1', 'toolu_B', 'sa-t1');
+  expect(h.describeLate).toHaveBeenCalledWith([action]);
+  s.end();
+  await consumed;
+});
+
+it('does not look up actions for a subagent read tool', async () => {
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI'));
+  s.push(subagentTool('u1', 'toolu_R', 'list_tabs'));
+  await settle();
+  expect(subagentOrigins.originOf('toolu_R')).toEqual({ conversationId: 'c1', subagentId: 'sa-t1' });
+  expect(h.chatActions.setSubagentByToolUse).not.toHaveBeenCalled();
+  expect(h.describeLate).not.toHaveBeenCalled();
+  s.end();
+  await consumed;
+});
+
+it('does not describe anything when no action was waiting for the call', async () => {
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI'));
+  s.push(subagentTool('u1', 'toolu_C', 'run_command'));
+  s.push(subagentTool('u9', 'toolu_D', 'run_command')); // a parent it never saw start
+  await settle();
+  expect(h.chatActions.setSubagentByToolUse).toHaveBeenCalledTimes(1);
+  expect(h.describeLate).not.toHaveBeenCalled();
+  expect(subagentOrigins.originOf('toolu_D')).toBeUndefined();
+  s.end();
+  await consumed;
+});
+
+it('writes a stop_task control line', async () => {
+  const { s, consumed } = await running();
+  expect(h.live.stopTask('t1', 'sa1')).toBe(true);
+  expect(JSON.parse(s.written.at(-1)!)).toEqual({ type: 'control_request', request_id: 'stop-sa1', request: { subtype: 'stop_task', task_id: 't1' } });
+  // The status and its event are the caller's (ChatService): stopTask stays synchronous.
+  expect(h.subagents.setStatus).not.toHaveBeenCalled();
+  s.end();
+  await consumed;
+});
+
+it('refuses to stop once input is closed', async () => {
+  const { s, consumed } = await running();
+  s.push(result()); s.push(background(0));
+  await settle();
+  expect(h.live.accepting).toBe(false);
+  const before = s.written.length;
+  expect(h.live.stopTask('t1', 'sa1')).toBe(false);
+  expect(s.written).toHaveLength(before);
+  s.end();
+  await consumed;
+  // …and with no process at all.
+  expect(h.live.stopTask('t1', 'sa1')).toBe(false);
+});
+
+it('rolls a failed stop back to running and says so', async () => {
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI'));
+  await settle();
+  expect(h.live.stopTask('t1', 'sa-t1')).toBe(true);
+  s.push(controlResponse('stop-sa-t1', false));
+  await settle();
+  expect(h.subagents.setStatus).toHaveBeenCalledWith('sa-t1', 'running');
+  expect(h.events.filter((e) => e.type === 'subagent_cancel_failed')).toEqual([{ type: 'subagent_cancel_failed', user_id: 'u1', conversation_id: 'c1', subagent_id: 'sa-t1' }]);
+  expect(subagentEvents().at(-1)!.subagent.status).toBe('running');
+  // Rolled back once: a second rollback (the timeout) finds nothing to undo.
+  await h.live.rollbackStop('sa-t1');
+  expect(h.events.filter((e) => e.type === 'subagent_cancel_failed')).toHaveLength(1);
+  s.end();
+  await consumed;
+});
+
+it('a successful stop waits for the status frame', async () => {
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI'));
+  await settle();
+  h.live.stopTask('t1', 'sa-t1');
+  s.push(controlResponse('stop-sa-t1', true)); s.push(taskUpdated('t1', 'killed'));
+  await settle();
+  expect(h.subagents.setStatus.mock.calls).toEqual([['sa-t1', 'stopped']]);
+  // The stop settled: the timeout's rollback does nothing now.
+  await h.live.rollbackStop('sa-t1');
+  expect(h.events.some((e) => e.type === 'subagent_cancel_failed')).toBe(false);
+  s.end();
+  await consumed;
+});
+
+it('ignores control responses it did not ask for', async () => {
+  const { s, consumed } = await running();
+  s.push(controlResponse('other', false)); s.push(controlResponse('stop-sa-nobody', false));
+  await settle();
+  expect(h.subagents.setStatus).not.toHaveBeenCalled();
+  expect(h.events.some((e) => e.type === 'subagent_cancel_failed')).toBe(false);
+  s.end();
+  await consumed;
+});
+
+it('a note line is pending until its replay and its answer is a message of its own', async () => {
+  const { a, s, consumed } = await running();
+  s.push(result());
+  await settle();
+  expect(await a.done).toMatchObject({ text: 'disparei' });
+  expect(h.live.addNote('nota')).toBe(true);
+  const line = JSON.parse(s.written.at(-1)!);
+  expect(line).toMatchObject({ type: 'user', message: { role: 'user', content: 'nota' } });
+  expect(line.uuid).toMatch(/^[0-9a-f-]{36}$/);
+  // Nothing running in the background, but the note was not replayed yet: the input stays open.
+  s.push(background(0));
+  await settle();
+  expect(h.live.accepting).toBe(true);
+  const before = h.rows.filter((r) => r.role === 'assistant').length;
+  s.push(replay(line.uuid)); s.push(delta('anotado')); s.push(result());
+  await settle();
+  const assistants = h.rows.filter((r) => r.role === 'assistant');
+  expect(assistants).toHaveLength(before + 1);
+  expect(assistants.at(-1)).toMatchObject({ text: 'anotado', error_code: null });
+  expect(h.live.accepting).toBe(false);
+  expect(s.written.at(-1)).toBe(STREAM_END_INPUT_LINE);
+  s.end();
+  await consumed;
+});
+
+it('a note taken before the process starts is written first', async () => {
+  h.live.add((await h.turn(U1, 'a')).t);
+  expect(h.live.addNote('nota')).toBe(true);
+  const lines = h.live.initialText().trim().split('\n').map((l) => JSON.parse(l));
+  expect(lines.map((l) => l.message.content)).toEqual(['nota', 'a']);
+  expect(lines[1].uuid).toBe(U1);
+});
+
+it('reports stored turns on every change', async () => {
+  const a = await h.turn(U1, 'a');
+  const b = await h.turn(U2, 'b');
+  h.live.add(a.t);
+  expect(h.onTurnsChanged).toHaveBeenLastCalledWith([{ question_id: a.t.question!.id, answer_id: a.t.answer.id, text: 'a' }]);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  h.live.add(b.t);
+  const both = [
+    { question_id: a.t.question!.id, answer_id: a.t.answer.id, text: 'a' },
+    { question_id: b.t.question!.id, answer_id: b.t.answer.id, text: 'b' },
+  ];
+  expect(h.onTurnsChanged).toHaveBeenLastCalledWith(both);
+  const calls = h.onTurnsChanged.mock.calls.length;
+  s.push(replay(U1));
+  await settle();
+  expect(h.onTurnsChanged.mock.calls.length).toBeGreaterThan(calls);
+  expect(h.live.storedTurns()).toEqual(both);
+  s.push(delta('A')); s.push(result());
+  await settle();
+  expect(h.onTurnsChanged).toHaveBeenLastCalledWith([both[1]]);
+  s.push(replay(U2)); s.push(delta('B')); s.push(result());
+  await settle();
+  expect(h.onTurnsChanged).toHaveBeenLastCalledWith([]);
+  s.end();
+  await consumed;
+});
+
+it('a turn with no question (resumed after a restart) still gets its answer', async () => {
+  const a = await h.turn(U1, 'a');
+  a.t.question = null;
+  h.live.add(a.t);
+  expect(h.live.storedTurns()).toEqual([{ question_id: null, answer_id: a.t.answer.id, text: 'a' }]);
+  const err = new Error('setup');
+  await h.live.abandon(err);
+  await expect(a.done).rejects.toBe(err);
 });

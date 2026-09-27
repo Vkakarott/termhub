@@ -119,6 +119,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     listToInject: vi.fn(async (conversationId: string, excludeIds: string[] = [], limit = 20) => toInjectOf(conversationId, excludeIds).slice(0, limit)),
     expireOpenForConversation: vi.fn(async () => 0),
     countPendingByConversation: vi.fn(async () => new Map([['c_p1', 2]])),
+    setSubagentByToolUse: vi.fn(async () => []),
   };
   // What `describeActions` resolves the approved proposal's sentence from, owner-scoped exactly like
   // the real repositories: another user's id is simply absent from the batch.
@@ -171,6 +172,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatProjectGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatAttachments,
+    chatSubagents: { start: vi.fn(), setStatus: vi.fn(async () => undefined), interruptRunning: vi.fn(async () => []) },
   } as unknown as Repositories;
   const agents = {
     capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude', 'claude.system_prompt', ...(opts.streaming ? ['claude.stream_input'] : [])])),

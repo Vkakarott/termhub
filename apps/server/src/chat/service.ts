@@ -865,7 +865,14 @@ export class ChatService {
    * retry on a fresh session when the resumed one is missing, exactly as `finishRun` does.
    */
   private async runLive(user: User, conversation: ChatConversation, runner: RunnerClient, configDir: string | null, appendSystemPrompt: string, turns: LiveTurn[]): Promise<void> {
-    const live = new LiveRun({ userId: user.id, conversationId: conversation.id, sessionId: conversation.cli_session_id, chat: this.deps.repos.chat });
+    const live = new LiveRun({
+      userId: user.id,
+      conversationId: conversation.id,
+      sessionId: conversation.cli_session_id,
+      chat: this.deps.repos.chat,
+      subagents: this.deps.repos.chatSubagents,
+      chatActions: this.deps.repos.chatActions,
+    });
     for (const t of turns) live.add(t);
     this.live.set(conversation.id, live);
     try {
@@ -948,11 +955,13 @@ export class ChatService {
       taken = streamed ? queue.splice(0) : queue.splice(0, 1);
       const turns: LiveTurn[] = [];
       for (const q of taken) turns.push({ uuid: randomUUID(), text: q.runText ?? (await this.runTextFor(user, conversationId, q.text, q.attachments)), question: q.question, answer: q.answer, settle: q.settle });
+      // A one-shot run takes a single queued turn, whose question row always exists.
+      const oneShot = taken[0];
       // From here the run owns the lock and releases it itself, and settles the turns.
       locked = false;
       taken = [];
       if (streamed) void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt), turns);
-      else this.finishRun(user, conversation, turns[0].text, turns[0].question, turns[0].answer, runner, host.configDir, appendSystemPrompt).then(turns[0].settle.resolve, turns[0].settle.reject);
+      else this.finishRun(user, conversation, turns[0].text, oneShot.question, turns[0].answer, runner, host.configDir, appendSystemPrompt).then(turns[0].settle.resolve, turns[0].settle.reject);
     } catch (err) {
       console.error('chat: queued messages could not be started', { conversation_id: conversationId, error: failureLabel(err) });
       await this.closeAllQueued(user, conversationId, [...taken.splice(0), ...(this.queued.get(conversationId) ?? []).splice(0)], 'RUNNER_FAILED');
