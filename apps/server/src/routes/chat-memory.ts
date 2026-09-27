@@ -4,6 +4,7 @@ import type { ChatDecision } from '../db/repositories/chat-decisions.js';
 import type { MemoryItem } from '../db/repositories/memory-items.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { config } from '../config.js';
+import { publishTabQuestions } from '../chat/tab-questions.js';
 
 const listQuery = z.object({ q: z.string().trim().max(200).optional(), cursor: z.string().max(500).optional() });
 const notesQuery = z.object({ cursor: z.string().max(500).optional() });
@@ -103,6 +104,14 @@ export async function chatMemoryRoutes(app: FastifyInstance, repos: Repositories
     const userId = request.scope.user.id;
     if (body.enabled !== undefined) await repos.users.setChatSuggestions(userId, body.enabled);
     if (body.autodecide !== undefined) await repos.users.setChatAutodecide(userId, body.autodecide);
+    if (body.autodecide === false) {
+      // Turning "Responder sozinho" off also stops what it already started: every countdown still
+      // `scheduled` becomes `cancelled` (the card keeps its proposed answer as a pre-selection), and
+      // every open screen hears it. After the switch is stored, so nothing new is scheduled behind it;
+      // one already claimed (`sent`) is the sender's, which re-reads the switch and fails AUTODECIDE_OFF.
+      const cancelled = await repos.tabQuestions.cancelScheduledForUser(userId);
+      if (cancelled.length > 0) await publishTabQuestions(repos, 'tab_question', cancelled);
+    }
     return memory(userId);
   });
 

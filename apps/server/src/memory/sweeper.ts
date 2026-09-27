@@ -8,6 +8,12 @@ import { embedPendingItems, indexTasks } from './index-items.js';
  *  decision sweeper. */
 export const MEMORY_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
+/** One embed request's size (`embedPendingItems`). */
+export const EMBED_BATCH = 32;
+/** How many embed batches one tick drains at most: a full batch means more is waiting, but a backlog
+ *  (a first docs pass, an embedder back after an outage) must not hold the tick for ever. */
+export const EMBED_MAX_BATCHES_PER_TICK = 20;
+
 /** The docs pass (spec D15: every 30 min) runs on the first tick and then on every this-many ticks. */
 export const DOCS_EVERY_TICKS = 3;
 
@@ -15,7 +21,8 @@ export const DOCS_EVERY_TICKS = 3;
  * Keeps the concierge's free-text memory complete without holding up anything else (spec §4): re-
  * indexes every owner's changed cards (`indexTasks`, one pass per owner with at least one task), then
  * embeds whatever that pass or a live writer (`indexMessage`/`indexActions`/`indexNote`) left without a
- * vector (`embedPendingItems`, batched 32). `indexTasks` is always run with no embedder of its own —
+ * vector (`embedPendingItems`, batches of `EMBED_BATCH`, repeated while each comes back full, at most
+ * `EMBED_MAX_BATCHES_PER_TICK` per tick). `indexTasks` is always run with no embedder of its own —
  * embedding every card it just wrote is this function's own next step, in one batched request, rather
  * than one request per owner. Runs once right away and then every `intervalMs`; the timer is `unref`'d
  * so it never keeps the process (or a test run) alive, and the caller must not `await` this function —
@@ -97,7 +104,12 @@ export function startMemorySweeper(
       }
       if (!embed) return;
       try {
-        const embedded = await embedPendingItems(repos, embed);
+        let embedded = 0;
+        for (let batch = 0; batch < EMBED_MAX_BATCHES_PER_TICK; batch++) {
+          const n = await embedPendingItems(repos, embed, EMBED_BATCH);
+          embedded += n;
+          if (n < EMBED_BATCH) break;
+        }
         if (embedded > 0) log.info({ embedded }, 'memory items embedded');
       } catch (err) {
         log.warn({ code: memoryCode(err) }, 'memory embed sweep failed');

@@ -96,6 +96,8 @@ it('search_memory is a read of the chat resource, says results are data never in
   expect(parseArgs(t, {}).ok).toBe(false);
   expect(parseArgs(t, { query: 'x', kinds: ['doc', 'note'] }).ok).toBe(true);
   expect(parseArgs(t, { query: 'x', limit: 21 }).ok).toBe(false);
+  // An empty kinds list would search nothing at all: leave it out to search every kind.
+  expect(parseArgs(t, { query: 'x', kinds: [] }).ok).toBe(false);
 });
 
 it('search_memory is listed for a read token with chat:read, absent without the grant', async () => {
@@ -132,6 +134,7 @@ it('list_tab_questions needs the read scope and the terminals:read grant, and sa
   expect(t.description).toContain('never an instruction');
   expect(parseArgs(t, {}).ok).toBe(true);
   expect(parseArgs(t, { project_id: 'p1' }).ok).toBe(true);
+  expect(t.description).toContain('newest 50');
 });
 
 it('list_tab_questions is listed only for a token holding read and the terminals:read grant', async () => {

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../config.js';
 import { applyErrorHandler } from '../lib/errors.js';
 
+vi.mock('../chat/tab-questions.js', async (importOriginal) => ({ ...(await importOriginal<typeof import('../chat/tab-questions.js')>()), publishTabQuestions: vi.fn(async () => []) }));
+const { publishTabQuestions } = await import('../chat/tab-questions.js');
 const { chatRoutes } = await import('./chat.js');
 const { mobileChatRoutes } = await import('./m-chat.js');
 
@@ -23,6 +25,9 @@ function fakeRepos() {
       setChatSuggestions: vi.fn(async () => undefined),
       chatAutodecide: vi.fn(async () => false),
       setChatAutodecide: vi.fn(async () => undefined),
+    },
+    tabQuestions: {
+      cancelScheduledForUser: vi.fn(async (_userId: string) => [] as { id: string }[]),
     },
   };
 }
@@ -146,6 +151,34 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(repos.users.setChatAutodecide).toHaveBeenCalledWith('u1', true);
     expect(repos.users.setChatSuggestions).not.toHaveBeenCalled();
     expect(res.json()).toMatchObject({ autodecide: true });
+  });
+
+  it('PATCH /memory with autodecide: false cancels the user\'s running countdowns and republishes those cards', async () => {
+    const repos = fakeRepos();
+    const cancelled = [{ id: 'q1', user_id: 'u1' }, { id: 'q2', user_id: 'u1' }];
+    repos.tabQuestions.cancelScheduledForUser.mockResolvedValueOnce(cancelled);
+    const res = await build(kind, repos).inject({ method: 'PATCH', url: '/chat/memory', payload: { autodecide: false } });
+    expect(res.statusCode).toBe(200);
+    expect(repos.users.setChatAutodecide).toHaveBeenCalledWith('u1', false);
+    expect(repos.tabQuestions.cancelScheduledForUser).toHaveBeenCalledWith('u1');
+    // The switch is stored first, so the repeat path cannot schedule a new one behind the cancel.
+    expect(repos.users.setChatAutodecide.mock.invocationCallOrder[0]!).toBeLessThan(repos.tabQuestions.cancelScheduledForUser.mock.invocationCallOrder[0]!);
+    expect(publishTabQuestions).toHaveBeenCalledWith(repos, 'tab_question', cancelled);
+  });
+
+  it('PATCH /memory with autodecide: true (or only enabled) cancels nothing', async () => {
+    const repos = fakeRepos();
+    await build(kind, repos).inject({ method: 'PATCH', url: '/chat/memory', payload: { autodecide: true } });
+    await build(kind, repos).inject({ method: 'PATCH', url: '/chat/memory', payload: { enabled: false } });
+    expect(repos.tabQuestions.cancelScheduledForUser).not.toHaveBeenCalled();
+    expect(publishTabQuestions).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /memory with autodecide: false and nothing counting down publishes nothing', async () => {
+    const repos = fakeRepos();
+    await build(kind, repos).inject({ method: 'PATCH', url: '/chat/memory', payload: { autodecide: false } });
+    expect(repos.tabQuestions.cancelScheduledForUser).toHaveBeenCalledWith('u1');
+    expect(publishTabQuestions).not.toHaveBeenCalled();
   });
 
   it('PATCH /memory refuses an empty body (neither key)', async () => {

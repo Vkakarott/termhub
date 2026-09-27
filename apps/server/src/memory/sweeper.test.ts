@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startMemorySweeper } from './sweeper.js';
+import { EMBED_BATCH, EMBED_MAX_BATCHES_PER_TICK, startMemorySweeper } from './sweeper.js';
 
 const log = () => ({ info: vi.fn(), warn: vi.fn() });
 const embedder = () => ({ embed: vi.fn(async (texts: string[]) => ({ model: 'm', vectors: texts.map(() => [1, 0]) })) });
@@ -45,6 +45,31 @@ describe('startMemorySweeper', () => {
     expect(repos.memoryItems.listToEmbed).toHaveBeenCalledWith(32);
     expect(e.embed).toHaveBeenCalledTimes(1);
     expect(repos.memoryItems.setEmbedding).toHaveBeenCalledWith('m1', [1, 0], 'm');
+    stop();
+  });
+
+  it('drains the embed backlog batch after batch while each comes back full, then stops', async () => {
+    const repos = fakeRepos();
+    const full = Array.from({ length: EMBED_BATCH }, (_, i) => ({ id: `m${i}`, title: 't', text: 'x' }));
+    repos.memoryItems.listToEmbed.mockResolvedValueOnce(full).mockResolvedValueOnce(full).mockResolvedValueOnce([full[0]!]);
+    const built = { tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock }, memoryItems: repos.memoryItems };
+    const l = log();
+    const stop = startMemorySweeper(built as never, l, embedder(), 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(repos.memoryItems.listToEmbed).toHaveBeenCalledTimes(3);
+    expect(l.info).toHaveBeenCalledWith({ embedded: 2 * EMBED_BATCH + 1 }, 'memory items embedded');
+    stop();
+  });
+
+  it('a backlog that never ends is bounded: at most EMBED_MAX_BATCHES_PER_TICK batches per tick', async () => {
+    const repos = fakeRepos();
+    const full = Array.from({ length: EMBED_BATCH }, (_, i) => ({ id: `m${i}`, title: 't', text: 'x' }));
+    repos.memoryItems.listToEmbed.mockResolvedValue(full);
+    const built = { tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock }, memoryItems: repos.memoryItems };
+    const stop = startMemorySweeper(built as never, log(), embedder(), 60_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(EMBED_MAX_BATCHES_PER_TICK).toBe(20);
+    expect(repos.memoryItems.listToEmbed).toHaveBeenCalledTimes(EMBED_MAX_BATCHES_PER_TICK);
     stop();
   });
 
