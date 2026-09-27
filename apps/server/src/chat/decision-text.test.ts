@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { answerToDecision, decisionText, embedTag, embedText, EMBED_TEXT_VERSION, labelKey, mapAnswer, sameAnswer } from './decision-text.js';
+import { answerToDecision, embedTag, embedText, EMBED_TEXT_VERSION, labelKey, mapAnswer, sameAnswer } from './decision-text.js';
 
 const item = (labels: string[], multi = false) => ({ question: 'Usar worktree?', header: 'Isolamento', multi_select: multi, options: labels.map((label) => ({ label, description: 'longa descrição', recommended: false })) });
-
-describe('decisionText', () => {
-  it('header, question and option labels — never descriptions', () => {
-    expect(decisionText(item(['Sim', 'Não']))).toBe('Isolamento\nUsar worktree?\nOpções: Sim | Não');
-  });
-});
 
 describe('labelKey', () => {
   it('ignores case, accents, spaces and punctuation', () => {

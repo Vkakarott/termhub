@@ -370,3 +370,14 @@ Answered/closed cards show no suggestion line.
   `main` whose `20260926120000_tab_questions_indexes` and `20260926150000_chat_attachments` are already
   applied in production; Prisma applies migrations in name order, so this one must sort after them.
   It touches `tab_questions` only with an added nullable column, no clash with that index migration.
+- **Question-only embeddings (TER-204).** A decision is now embedded from `embedText` — the question
+  alone, lower-cased, whitespace collapsed, trailing `?!.:;` stripped — instead of header + question +
+  "Opções: …"; `embed_model` stores `<model>#q1` (`embedTag`/`EMBED_TEXT_VERSION`) and `nearest` only
+  ever compares vectors with an exact tag match, so a row embedded under another model or text version
+  is invisible to it until the sweeper (`embedPending`/`listToEmbed`) re-embeds it. Measured on the
+  held-out set: the worst opposite-meaning pair dropped from 0.989 (old header+question+options text)
+  to 0.948 (question alone), and real near-verbatim repeats passing the 0.98 threshold rose from 71%
+  to 86%; paraphrases still are not suggested. Larger models (mpnet, e5-large, embeddinggemma,
+  Qwen3-Embedding, jina-v3) and cross-encoder rerankers were also tried and reached at most 33%
+  paraphrase recall at zero false positives, at 2–55× the latency and 768/1024 dimensions, so switching
+  the embedding model was not worth it (table in TER-204).

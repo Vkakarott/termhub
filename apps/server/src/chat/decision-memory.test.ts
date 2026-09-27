@@ -78,8 +78,17 @@ describe('suggestFor', () => {
     expect(e.embed).toHaveBeenCalledTimes(1);
     expect(e.embed.mock.calls[0]![0]).toHaveLength(2);
     expect(result?.items).toEqual([{ question_index: 0, decision_id: 'd-match', similarity: 0.9, selected: [0], source: { question: match.question, project_name: match.project_name, answered_at: match.created_at } }]);
-    expect(nearest).toHaveBeenCalledWith('u1', [1, 0], { multiSelect: false, k: 5 });
-    expect(nearest).toHaveBeenCalledWith('u1', [1, 0], { multiSelect: true, k: 5 });
+    expect(nearest).toHaveBeenCalledWith('u1', [1, 0], { multiSelect: false, k: 5, embedModel: 'm#q1' });
+    expect(nearest).toHaveBeenCalledWith('u1', [1, 0], { multiSelect: true, k: 5, embedModel: 'm#q1' });
+  });
+
+  it('embeds the normalised question only and searches vectors of the same model and text version', async () => {
+    const nearest = vi.fn(async () => []);
+    const repos = { users: { chatSuggestions: vi.fn(async () => true) }, chatDecisions: { nearest, bumpSuggested: vi.fn(async () => {}) } };
+    const e = embedder();
+    await suggestFor(repos as never, row(), { embedder: e, threshold: 0.85, log: log() });
+    expect(e.embed).toHaveBeenCalledWith(['qual cor']);
+    expect(nearest).toHaveBeenCalledWith('u1', [1, 0], { multiSelect: false, k: 5, embedModel: 'm#q1' });
   });
 
   it('gives null without calling the embedder for a non-choice row, no embedder, or suggestions off', async () => {
@@ -196,7 +205,8 @@ describe('recordDecisions', () => {
     expect(chatDecisions.bumpAccepted).toHaveBeenCalledWith(['sugg-match']);
     // The embed is fire-and-forget: give its microtasks a turn before checking it landed.
     await new Promise((r) => setTimeout(r, 0));
-    expect(chatDecisions.setEmbedding).toHaveBeenCalledWith('d1', [1, 0], 'm');
+    expect(e.embed).toHaveBeenCalledWith(['qual cor']);
+    expect(chatDecisions.setEmbedding).toHaveBeenCalledWith('d1', [1, 0], 'm#q1');
   });
 
   it('does not bump accepted for a suggestion item the answer does not match', async () => {
@@ -298,9 +308,10 @@ describe('embedPending', () => {
     const e = embedder();
     const n = await embedPending({ chatDecisions } as never, e, 32);
     expect(n).toBe(1);
-    expect(chatDecisions.listToEmbed).toHaveBeenCalledWith(32);
+    expect(chatDecisions.listToEmbed).toHaveBeenCalledWith(32, '#q1');
     expect(e.embed).toHaveBeenCalledTimes(1);
-    expect(chatDecisions.setEmbedding).toHaveBeenCalledWith('d1', [1, 0], 'm');
+    expect(e.embed).toHaveBeenCalledWith(['qual cor']);
+    expect(chatDecisions.setEmbedding).toHaveBeenCalledWith('d1', [1, 0], 'm#q1');
   });
 
   it('returns 0 without calling the embedder when nothing is pending', async () => {
