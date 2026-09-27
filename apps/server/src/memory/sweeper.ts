@@ -30,7 +30,8 @@ export const DOCS_EVERY_TICKS = 3;
  * On the first tick and every `DOCS_EVERY_TICKS`th tick after (30 min at the default interval, spec
  * D15), a docs pass runs between the card pass and the embed step: `indexDocsForLink` for every project
  * link, one after the other (a machine is never asked for two links' docs at once), through `docsExec`
- * (`machineDocsExec` by default). A link whose machine is off is skipped by `indexDocsForLink` itself; a
+ * (`machineDocsExec` by default), right after deleting the doc items of every link that no longer exists
+ * (`deleteDocsNotInLinks` — only when the listing succeeded). A link whose machine is off is skipped by `indexDocsForLink` itself; a
  * repository failure on one link is logged `{ linkId, code }` and the next link still runs. The docs
  * pass shares the tick's `running` guard, so a slow pass (many ssh machines timing out) delays the next
  * tick instead of overlapping it.
@@ -61,6 +62,8 @@ export function startMemorySweeper(
 
   const indexAllDocs = async (): Promise<void> => {
     const links = await repos.projectMachines.listAllWithOwner();
+    // Only after a successful listing (an empty one included: no link left means no doc stays).
+    const stale = await repos.memoryItems.deleteDocsNotInLinks(links.map((l) => l.id));
     let read = 0;
     let removed = 0;
     for (const link of links) {
@@ -72,7 +75,7 @@ export function startMemorySweeper(
         log.warn({ linkId: link.id, code: memoryCode(err) }, 'memory docs indexing failed for a link');
       }
     }
-    if (read > 0 || removed > 0) log.info({ links: links.length, read, removed }, 'memory docs indexed');
+    if (read > 0 || removed > 0 || stale > 0) log.info({ links: links.length, read, removed, stale }, 'memory docs indexed');
   };
 
   const tick = async () => {

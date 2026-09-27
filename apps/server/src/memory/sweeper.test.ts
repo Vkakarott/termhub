@@ -162,7 +162,7 @@ describe('startMemorySweeper', () => {
     ]);
     const built = {
       tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
-      memoryItems: { ...repos.memoryItems, listSourceHashes: vi.fn(async () => new Map()), deleteChunksFrom: vi.fn(async () => 0) },
+      memoryItems: { ...repos.memoryItems, listSourceHashes: vi.fn(async () => new Map()), deleteDocsNotInLinks: vi.fn(async () => 0) },
       projectMachines: { listAllWithOwner },
     };
     const exec = { scan: vi.fn(async () => ''), read: vi.fn(async () => '') };
@@ -170,6 +170,9 @@ describe('startMemorySweeper', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(listAllWithOwner).toHaveBeenCalledTimes(1);
     expect(exec.scan.mock.calls.map((c) => (c[0] as { id: string }).id)).toEqual(['m1', 'm2']);
+    // Doc items of links that no longer exist (unlinked, machine deleted) go once per pass.
+    expect(built.memoryItems.deleteDocsNotInLinks).toHaveBeenCalledTimes(1);
+    expect(built.memoryItems.deleteDocsNotInLinks).toHaveBeenCalledWith(['L1', 'L2']);
     await vi.advanceTimersByTimeAsync(1000);
     await vi.advanceTimersByTimeAsync(1000);
     expect(listAllWithOwner).toHaveBeenCalledTimes(1);
@@ -187,7 +190,7 @@ describe('startMemorySweeper', () => {
     });
     const built = {
       tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
-      memoryItems: { ...repos.memoryItems, listSourceHashes, deleteChunksFrom: vi.fn(async () => 0) },
+      memoryItems: { ...repos.memoryItems, listSourceHashes, deleteDocsNotInLinks: vi.fn(async () => 0) },
       projectMachines: {
         listAllWithOwner: vi.fn(async () => [
           { id: 'L1', project_id: 'p1', owner_id: 'u1', cwd: '/a', machine: { id: 'm1', type: 'agent' } },
@@ -208,7 +211,7 @@ describe('startMemorySweeper', () => {
     const repos = fakeRepos({ toEmbed: [{ id: 'm1', title: 'Mensagem', text: 'oi' }] });
     const built = {
       tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
-      memoryItems: repos.memoryItems,
+      memoryItems: { ...repos.memoryItems, deleteDocsNotInLinks: vi.fn(async () => 0) },
       projectMachines: { listAllWithOwner: vi.fn(async () => Promise.reject(Object.assign(new Error('x'), { code: 'P1001' }))) },
     };
     const e = embedder();
@@ -216,7 +219,23 @@ describe('startMemorySweeper', () => {
     const stop = startMemorySweeper(built as never, l, e, 1000);
     await vi.advanceTimersByTimeAsync(0);
     expect(l.warn).toHaveBeenCalledWith({ code: 'P1001' }, expect.any(String));
+    // Never the stale-link cleanup when the listing itself failed: an empty set would wipe every doc.
+    expect(built.memoryItems.deleteDocsNotInLinks).not.toHaveBeenCalled();
     expect(e.embed).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('no links at all: the cleanup runs with an empty set (every doc item goes)', async () => {
+    const repos = fakeRepos();
+    const deleteDocsNotInLinks = vi.fn(async () => 0);
+    const built = {
+      tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
+      memoryItems: { ...repos.memoryItems, deleteDocsNotInLinks },
+      projectMachines: { listAllWithOwner: vi.fn(async () => []) },
+    };
+    const stop = startMemorySweeper(built as never, log(), null, 1000, { scan: vi.fn(), read: vi.fn() });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(deleteDocsNotInLinks).toHaveBeenCalledWith([]);
     stop();
   });
 });

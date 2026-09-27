@@ -33,6 +33,7 @@ const toRow = (it: NewMemoryItem): MemoryItem => ({ ...it, id: `mem-${it.source_
 function fakeRepos(known: Record<string, string> = {}) {
   const memoryItems = {
     listSourceHashes: vi.fn(async () => new Map(Object.entries(known))),
+    replaceSourceChunks: vi.fn(async (_kind: string, _sourceId: string, items: NewMemoryItem[]) => items.map(toRow)),
     upsertMany: vi.fn(async (items: NewMemoryItem[]) => items.map(toRow)),
     deleteChunksFrom: vi.fn(async () => 0),
     deleteBySource: vi.fn(async () => 0),
@@ -61,7 +62,7 @@ describe('indexDocsForLink', () => {
     expect(repos.memoryItems.listSourceHashes).toHaveBeenCalledWith('doc', 'L1:');
     expect(exec.read).toHaveBeenCalledTimes(1);
     expect(exec.read.mock.calls[0]![2]).toEqual([spec('a'), plan('b')]);
-    const items = repos.memoryItems.upsertMany.mock.calls.flatMap((c) => c[0]);
+    const items = repos.memoryItems.replaceSourceChunks.mock.calls.flatMap((c) => c[2]);
     expect(items).toEqual([
       expect.objectContaining({ kind: 'doc', trust: 'derived', project_id: 'p1', owner_id: 'u1', source_id: `L1:${spec('a')}`, chunk_index: 0, title: `${spec('a')} › Título`, text: 'corpo', source_hash: sha('a') }),
       expect.objectContaining({ kind: 'doc', trust: 'derived', source_id: `L1:${plan('b')}`, chunk_index: 0, title: plan('b'), text: 'sem título', source_hash: sha('b') }),
@@ -75,8 +76,7 @@ describe('indexDocsForLink', () => {
     const exec = fakeExec({ [spec('a')]: { sha: sha('a'), text: 'x' } });
     const r = await indexDocsForLink(repos as never, link(), deps(exec));
     expect(exec.read).not.toHaveBeenCalled();
-    expect(repos.memoryItems.upsertMany).not.toHaveBeenCalled();
-    expect(repos.memoryItems.deleteChunksFrom).not.toHaveBeenCalled();
+    expect(repos.memoryItems.replaceSourceChunks).not.toHaveBeenCalled();
     expect(r).toEqual({ read: 0, removed: 0 });
   });
 
@@ -85,8 +85,12 @@ describe('indexDocsForLink', () => {
     const exec = fakeExec({ [spec('a')]: { sha: sha('a'), text: threeSections }, [spec('b')]: { sha: sha('2'), text: '# Só um\n\ntexto' } });
     const r = await indexDocsForLink(repos as never, link(), deps(exec));
     expect(exec.read.mock.calls.map((c) => c[2])).toEqual([[spec('b')]]);
-    expect(repos.memoryItems.upsertMany.mock.calls.flatMap((c) => c[0]).map((i) => [i.source_id, i.chunk_index])).toEqual([[`L1:${spec('b')}`, 0]]);
-    expect(repos.memoryItems.deleteChunksFrom).toHaveBeenCalledWith('doc', `L1:${spec('b')}`, 1);
+    expect(repos.memoryItems.replaceSourceChunks.mock.calls.flatMap((c) => c[2]).map((i) => [i.source_id, i.chunk_index])).toEqual([[`L1:${spec('b')}`, 0]]);
+    // Tail trim and upsert are one repository call (one transaction): never a separate delete that a
+    // crash could split from the write.
+    expect(repos.memoryItems.replaceSourceChunks).toHaveBeenCalledWith('doc', `L1:${spec('b')}`, [expect.objectContaining({ chunk_index: 0 })]);
+    expect(repos.memoryItems.deleteChunksFrom).not.toHaveBeenCalled();
+    expect(repos.memoryItems.upsertMany).not.toHaveBeenCalled();
     expect(r).toEqual({ read: 1, removed: 0 });
   });
 
@@ -94,8 +98,27 @@ describe('indexDocsForLink', () => {
     const repos = fakeRepos();
     const exec = fakeExec({ [spec('a')]: { sha: sha('a'), text: threeSections } });
     await indexDocsForLink(repos as never, link(), deps(exec));
-    expect(repos.memoryItems.upsertMany.mock.calls.flatMap((c) => c[0]).map((i) => i.chunk_index)).toEqual([0, 1, 2]);
-    expect(repos.memoryItems.deleteChunksFrom).toHaveBeenCalledWith('doc', `L1:${spec('a')}`, 3);
+    expect(repos.memoryItems.replaceSourceChunks.mock.calls.flatMap((c) => c[2]).map((i) => i.chunk_index)).toEqual([0, 1, 2]);
+    expect(repos.memoryItems.replaceSourceChunks).toHaveBeenCalledTimes(1);
+  });
+
+  it('a successful scan with zero entries while the link has stored docs deletes nothing (DOCS_EMPTY)', async () => {
+    const repos = fakeRepos({ [`L1:${spec('a')}`]: sha('a') });
+    const l = log();
+    const exec = { scan: vi.fn(async () => ''), read: vi.fn(async () => '') };
+    const r = await indexDocsForLink(repos as never, link(), deps(exec, l));
+    expect(r).toEqual({ read: 0, removed: 0 });
+    expect(repos.memoryItems.deleteBySource).not.toHaveBeenCalled();
+    expect(repos.memoryItems.replaceSourceChunks).not.toHaveBeenCalled();
+    expect(l.info).toHaveBeenCalledWith({ linkId: 'L1', code: 'DOCS_EMPTY' }, expect.any(String));
+  });
+
+  it('an empty scan with nothing stored is simply nothing to do', async () => {
+    const repos = fakeRepos();
+    const l = log();
+    const r = await indexDocsForLink(repos as never, link(), deps({ scan: vi.fn(async () => ''), read: vi.fn() }, l));
+    expect(r).toEqual({ read: 0, removed: 0 });
+    expect(l.info).not.toHaveBeenCalled();
   });
 
   it('a file no longer listed, or now over the size limit, has its items deleted', async () => {
@@ -129,7 +152,7 @@ describe('indexDocsForLink', () => {
     };
     const r = await indexDocsForLink(repos as never, link(), deps(exec));
     expect(exec.read.mock.calls.map((c) => c[2])).toEqual([[spec('a'), spec('b'), spec('c'), spec('d')], [spec('c'), spec('d')]]);
-    expect(repos.memoryItems.upsertMany.mock.calls.flatMap((c) => c[0]).map((i) => i.source_id).sort()).toEqual([`L1:${spec('b')}`, `L1:${spec('c')}`, `L1:${spec('d')}`]);
+    expect(repos.memoryItems.replaceSourceChunks.mock.calls.flatMap((c) => c[2]).map((i) => i.source_id).sort()).toEqual([`L1:${spec('b')}`, `L1:${spec('c')}`, `L1:${spec('d')}`]);
     expect(r).toEqual({ read: 3, removed: 0 });
   });
 
@@ -138,7 +161,7 @@ describe('indexDocsForLink', () => {
     const exec = { scan: vi.fn(async () => scanOut([{ path: spec('a'), sha: sha('a') }])), read: vi.fn(async () => '') };
     const r = await indexDocsForLink(repos as never, link(), deps(exec));
     expect(exec.read).toHaveBeenCalledTimes(1);
-    expect(repos.memoryItems.upsertMany).not.toHaveBeenCalled();
+    expect(repos.memoryItems.replaceSourceChunks).not.toHaveBeenCalled();
     expect(r).toEqual({ read: 0, removed: 0 });
   });
 
@@ -161,6 +184,7 @@ describe('indexDocsForLink', () => {
         expect(repos.memoryItems.deleteBySource).not.toHaveBeenCalled();
         expect(repos.memoryItems.deleteChunksFrom).not.toHaveBeenCalled();
         expect(repos.memoryItems.upsertMany).not.toHaveBeenCalled();
+        expect(repos.memoryItems.replaceSourceChunks).not.toHaveBeenCalled();
         expect(l.info).toHaveBeenCalledWith({ linkId: 'L1', code }, expect.any(String));
       });
     }

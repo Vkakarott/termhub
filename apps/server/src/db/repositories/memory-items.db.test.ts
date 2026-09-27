@@ -121,6 +121,62 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MemoryItemsRepository (Po
     expect(await db.memoryItem.count({ where: { sourceId: { in: [sourceId, otherSourceId] } } })).toBe(0);
   });
 
+  it('replaceSourceChunks trims the tail and upserts in one transaction: a failing write leaves the old chunks intact', async () => {
+    const sourceId = `${newId()}:docs/superpowers/specs/r.md`;
+    const doc = (i: number, over: Partial<NewMemoryItem> = {}) => item({ kind: 'doc', source_id: sourceId, chunk_index: i, title: `r.md #${i}`, text: `v1 ${i}`, source_hash: 'a'.repeat(64), ...over });
+    await repo.upsertMany([0, 1, 2].map((i) => doc(i)));
+    const indexes = async () => (await db.memoryItem.findMany({ where: { kind: 'doc', sourceId }, orderBy: { chunkIndex: 'asc' }, select: { chunkIndex: true, text: true } })).map((r) => [r.chunkIndex, r.text]);
+
+    // A write that fails mid-way (project_id violates the FK) rolls back the tail delete too.
+    await expect(repo.replaceSourceChunks('doc', sourceId, [doc(0, { text: 'v2 0', project_id: 'no-such-project' })])).rejects.toBeTruthy();
+    expect(await indexes()).toEqual([[0, 'v1 0'], [1, 'v1 1'], [2, 'v1 2']]);
+
+    const inserted = await repo.replaceSourceChunks('doc', sourceId, [doc(0, { text: 'v2 0' })]);
+    expect(inserted.map((r) => r.chunk_index)).toEqual([0]);
+    expect(await indexes()).toEqual([[0, 'v2 0']]);
+
+    // No chunks at all: every chunk of the source goes.
+    await repo.replaceSourceChunks('doc', sourceId, []);
+    expect(await indexes()).toEqual([]);
+  });
+
+  /** Runs `fn` against a repository bound to a transaction that is always rolled back, so a global
+   *  delete never touches rows other test files are writing at the same time. */
+  const inRolledBackTx = async (fn: (r: MemoryItemsRepository) => Promise<void>) => {
+    const rollback = new Error('rollback');
+    await expect(
+      db.$transaction(async (tx) => {
+        await fn(new MemoryItemsRepository(tx as unknown as PrismaClient));
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+  };
+
+  it('deleteDocsNotInLinks keeps doc rows of live links, deletes those of gone links, never other kinds', async () => {
+    const live = newId();
+    const gone = newId();
+    const noteSource = newId();
+    await repo.upsertMany([
+      item({ kind: 'doc', source_id: `${live}:docs/superpowers/specs/a.md`, title: 'a', text: 'a' }),
+      item({ kind: 'doc', source_id: `${gone}:docs/superpowers/specs/b.md`, title: 'b', text: 'b' }),
+      item({ kind: 'note', source_id: noteSource, title: 'n', text: 'n' }),
+    ]);
+    await inRolledBackTx(async (r) => {
+      const keep = (await db.memoryItem.findMany({ where: { kind: 'doc' }, select: { sourceId: true } })).map((x) => x.sourceId.split(':')[0]!).filter((id) => id !== gone);
+      expect(await r.deleteDocsNotInLinks([...new Set([live, ...keep])])).toBeGreaterThanOrEqual(1);
+      const txDb = (r as unknown as { db: PrismaClient }).db;
+      const left = (src: string) => txDb.memoryItem.count({ where: { kind: 'doc', sourceId: { startsWith: `${src}:` } } });
+      expect(await left(live)).toBeGreaterThan(0);
+      expect(await left(gone)).toBe(0);
+    });
+    await inRolledBackTx(async (r) => {
+      const txDb = (r as unknown as { db: PrismaClient }).db;
+      await r.deleteDocsNotInLinks([]);
+      expect(await txDb.memoryItem.count({ where: { kind: 'doc' } })).toBe(0);
+      expect(await txDb.memoryItem.count({ where: { kind: 'note', sourceId: noteSource } })).toBe(1);
+    });
+  });
+
   it('listSourceHashes: source_id → source_hash of chunk 0, only under the given prefix, only rows with a hash', async () => {
     await repo.upsertMany([
       item({ kind: 'doc', source_id: 'pm1:docs/a.md', chunk_index: 0, title: 'a', text: 'a', source_hash: 'hash-a' }),

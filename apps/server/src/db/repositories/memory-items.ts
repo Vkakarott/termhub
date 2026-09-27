@@ -130,6 +130,30 @@ const decodeCursor = (cursor: string): { createdAt: Date; id: string } | null =>
   }
 };
 
+/** What `upsertIn` needs from a client: a plain one or a transaction's. */
+type RawClient = Pick<PrismaClient, '$queryRaw'>;
+
+/** `upsertMany`'s body, run inside the caller's transaction (see `upsertMany` for the semantics). */
+async function upsertIn(tx: RawClient, items: NewMemoryItem[]): Promise<MemoryItem[]> {
+  const out: MemoryItem[] = [];
+  for (const it of items) {
+    const hash = contentHash(it.title, it.text);
+    const [row] = await tx.$queryRaw<(RawItem & { needs_embedding: boolean })[]>`
+      INSERT INTO "memory_items" ("id","owner_id","project_id","kind","source_id","chunk_index","title","text","trust","content_hash","source_hash","source_at","updated_at")
+      VALUES (${it.id ?? newId()}, ${it.owner_id}, ${it.project_id}, ${it.kind}, ${it.source_id}, ${it.chunk_index}, ${it.title}, ${it.text}, ${it.trust}, ${hash}, ${it.source_hash ?? null}, ${it.source_at}, now())
+      ON CONFLICT ("kind","source_id","chunk_index") DO UPDATE SET
+        "title" = EXCLUDED."title", "text" = EXCLUDED."text", "trust" = EXCLUDED."trust", "owner_id" = EXCLUDED."owner_id", "project_id" = EXCLUDED."project_id",
+        "source_at" = EXCLUDED."source_at", "updated_at" = now(), "content_hash" = EXCLUDED."content_hash", "source_hash" = EXCLUDED."source_hash",
+        "embedding" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embedding" ELSE NULL END,
+        "embed_model" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embed_model" ELSE NULL END
+      RETURNING id, owner_id, project_id, (SELECT name FROM "projects" WHERE id = "project_id") AS project_name,
+                kind, source_id, chunk_index, title, text, trust, content_hash, source_hash, embed_model, source_at, created_at, updated_at,
+                (embedding IS NULL) AS needs_embedding`;
+    if (row!.needs_embedding) out.push(mapRaw(row!));
+  }
+  return out;
+}
+
 /**
  * Concierge memory (spec 2026-09-26 concierge memory): free-text chunks from cards, the person's chat
  * messages, gate decisions, project specs/plans and notes, embedded for similarity search alongside
@@ -148,25 +172,33 @@ export class MemoryItemsRepository {
    */
   async upsertMany(items: NewMemoryItem[]): Promise<MemoryItem[]> {
     if (items.length === 0) return [];
+    return this.db.$transaction((tx) => upsertIn(tx, items));
+  }
+
+  /**
+   * Replaces every chunk of one source in a single transaction: the chunks from `items.length` on are
+   * deleted, then `items` (chunk indexes `0..items.length-1`) are upserted exactly like `upsertMany`.
+   * The docs sweeper's re-chunk (spec §4, fix round 1): a separate trim and write could be split by a
+   * crash, leaving a stale tail next to a chunk 0 whose new hash says the file is up to date — so it
+   * would never be looked at again. Here either both happen or neither does. `items` empty deletes every
+   * chunk of the source. Returns the rows that now need an embedding, like `upsertMany`.
+   */
+  async replaceSourceChunks(kind: MemoryKind, sourceId: string, items: NewMemoryItem[]): Promise<MemoryItem[]> {
     return this.db.$transaction(async (tx) => {
-      const out: MemoryItem[] = [];
-      for (const it of items) {
-        const hash = contentHash(it.title, it.text);
-        const [row] = await tx.$queryRaw<(RawItem & { needs_embedding: boolean })[]>`
-          INSERT INTO "memory_items" ("id","owner_id","project_id","kind","source_id","chunk_index","title","text","trust","content_hash","source_hash","source_at","updated_at")
-          VALUES (${it.id ?? newId()}, ${it.owner_id}, ${it.project_id}, ${it.kind}, ${it.source_id}, ${it.chunk_index}, ${it.title}, ${it.text}, ${it.trust}, ${hash}, ${it.source_hash ?? null}, ${it.source_at}, now())
-          ON CONFLICT ("kind","source_id","chunk_index") DO UPDATE SET
-            "title" = EXCLUDED."title", "text" = EXCLUDED."text", "trust" = EXCLUDED."trust", "owner_id" = EXCLUDED."owner_id", "project_id" = EXCLUDED."project_id",
-            "source_at" = EXCLUDED."source_at", "updated_at" = now(), "content_hash" = EXCLUDED."content_hash", "source_hash" = EXCLUDED."source_hash",
-            "embedding" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embedding" ELSE NULL END,
-            "embed_model" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embed_model" ELSE NULL END
-          RETURNING id, owner_id, project_id, (SELECT name FROM "projects" WHERE id = "project_id") AS project_name,
-                    kind, source_id, chunk_index, title, text, trust, content_hash, source_hash, embed_model, source_at, created_at, updated_at,
-                    (embedding IS NULL) AS needs_embedding`;
-        if (row!.needs_embedding) out.push(mapRaw(row!));
-      }
-      return out;
+      await tx.$executeRaw`DELETE FROM "memory_items" WHERE "kind" = ${kind} AND "source_id" = ${sourceId} AND "chunk_index" >= ${items.length}`;
+      return upsertIn(tx, items);
     });
+  }
+
+  /**
+   * Deletes every `doc` row whose link id — the `source_id` part before the first `:` — is not in
+   * `linkIds` (spec D15, fix round 1): a link that was unlinked, or whose machine was deleted (the link
+   * cascades, `memory_items` has no FK to it), would otherwise stay searchable forever, and a re-link
+   * (a new link id) would index the same files a second time. **An empty `linkIds` deletes every doc
+   * row**: the caller must only pass the result of a link listing that succeeded. Never another kind.
+   */
+  async deleteDocsNotInLinks(linkIds: string[]): Promise<number> {
+    return this.db.$executeRaw`DELETE FROM "memory_items" WHERE "kind" = 'doc' AND split_part("source_id", ':', 1) <> ALL(${linkIds}::text[])`;
   }
 
   /** Removes chunks `fromIndex..` of a source (a doc re-chunked shorter): never chunk 0.. of a

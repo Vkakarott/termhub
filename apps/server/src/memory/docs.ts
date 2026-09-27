@@ -108,10 +108,12 @@ async function readAll(exec: DocsExec, link: DocsLink, paths: string[]): Promise
  * concierge memory D15, §4): `docs.scan` lists each file's sha256; a file whose sha differs from the
  * `source_hash` its chunk 0 already carries (or that has no item yet) is read and re-chunked
  * (`chunkMarkdown`) — upserted as `kind: 'doc'`, trust `derived`, `source_id` `${link.id}:${path}`,
- * every chunk carrying the file's sha — and the chunks past the new count are deleted; an unchanged
- * file is never read. A stored file that the scan no longer lists has all its items deleted. So does
- * one the scan reports **over `DOCS_MAX_BYTES`** (sha `null`): it still exists, but its content can no
- * longer be read or verified, so its old chunks would be stale text nobody can refresh.
+ * every chunk carrying the file's sha — through `replaceSourceChunks`, which trims the chunks past the
+ * new count and upserts in one transaction, so a crash never leaves a stale tail behind a fresh chunk
+ * 0. An unchanged file is never read. A stored file that the scan no longer lists has all its items
+ * deleted. So does one the scan reports **over `DOCS_MAX_BYTES`** (sha `null`): it still exists, but
+ * its content can no longer be read or verified, so its old chunks would be stale text nobody can
+ * refresh.
  *
  * A file that chunks to nothing (empty or whitespace only) ends up with no items at all, so it has no
  * stored hash and is simply read again on the next pass — cheap, and rare.
@@ -120,8 +122,9 @@ async function readAll(exec: DocsExec, link: DocsLink, paths: string[]): Promise
  * (`AGENT_OUTDATED`), unreachable ssh, a timeout, a missing cwd (`DOCS_NOTFOUND`), no sha256 tool on the
  * machine (`DOCS_NOHASH`), or a failed read call — returns `{ read: 0, removed: 0 }` with a single
  * `{ linkId, code }` log and **writes and deletes nothing**: a machine that is merely off must never
- * wipe what was indexed from it. Repository failures propagate to the caller (the sweeper logs them
- * per link). Logs never carry a path, a title or text — the link id, counts and codes only.
+ * wipe what was indexed from it. So does a scan that succeeds with no file at all while the link has
+ * docs stored (`DOCS_EMPTY`, see below). Repository failures propagate to the caller (the sweeper logs
+ * them per link). Logs never carry a path, a title or text — the link id, counts and codes only.
  * `deps.exec` defaults to `machineDocsExec`. Returns how many files were (re-)indexed and how many
  * files' items were removed.
  */
@@ -146,6 +149,10 @@ export async function indexDocsForLink(
 
   const prefix = `${link.id}:`;
   const known = await repos.memoryItems.listSourceHashes('doc', prefix);
+  // A scan that succeeds but lists nothing while this link has docs stored is far more likely a
+  // transient state (an unmounted disk, a branch switch mid-checkout) than every spec being deleted at
+  // once: keep everything this pass (fix round 1 ruling). A non-empty scan deletes gone files as usual.
+  if (scan.entries.length === 0 && known.size > 0) return skip('DOCS_EMPTY');
   const readable = new Map<string, string>(); // path → sha, only files that can still be read
   for (const e of scan.entries) if (e.sha256 !== null) readable.set(e.path, e.sha256);
   const changed = [...readable].filter(([path, sha]) => known.get(prefix + path) !== sha).map(([path]) => path);
@@ -164,6 +171,9 @@ export async function indexDocsForLink(
     const sourceId = prefix + path;
     const chunks = chunkMarkdown(path, text);
     const items: NewMemoryItem[] = chunks.map((c, i) => ({
+      // The project's owner at listing time. `ProjectsRepository` has no owner transfer today; if one is
+      // ever added, doc items must be re-owned there too — an unchanged file (same hash) is never
+      // re-upserted here, so its chunks would keep the old owner.
       owner_id: link.owner_id,
       project_id: link.project_id,
       kind: 'doc',
@@ -175,8 +185,7 @@ export async function indexDocsForLink(
       source_at: now,
       source_hash: readable.get(path)!,
     }));
-    const inserted = await repos.memoryItems.upsertMany(items);
-    await repos.memoryItems.deleteChunksFrom('doc', sourceId, items.length);
+    const inserted = await repos.memoryItems.replaceSourceChunks('doc', sourceId, items);
     if (deps.embedder) void embedInserted(repos, deps.embedder, inserted, deps.log);
   }
 
