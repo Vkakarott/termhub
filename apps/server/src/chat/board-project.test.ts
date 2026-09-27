@@ -15,7 +15,11 @@ describe('boardProjectOf', () => {
     expect(await boardProjectOf(repos, 'u2', 'move_task', { task_id: 'k1' })).toBeNull();
   });
   it('malformed ids and other tools → null, without reading', async () => {
+    vi.clearAllMocks();
     expect(await boardProjectOf(repos, 'u1', 'move_task', { task_id: 42 })).toBeNull();
     expect(await boardProjectOf(repos, 'u1', 'delete_task', { task_id: 'k1' })).toBeNull();
+    const { tasks, projects } = repos as { tasks: { findByIdsForOwner: ReturnType<typeof vi.fn> }; projects: { findByIdsForOwner: ReturnType<typeof vi.fn> } };
+    expect(tasks.findByIdsForOwner).not.toHaveBeenCalled();
+    expect(projects.findByIdsForOwner).not.toHaveBeenCalled();
   });
 });

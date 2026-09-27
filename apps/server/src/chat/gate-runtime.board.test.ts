@@ -77,6 +77,7 @@ describe('project grant in the gate', () => {
   it('another project asks', async () => {
     seedGrant('p1');
     expect(await call('create_task', { project_id: 'p2', title: 'x' })).toMatchObject({ code: 'CONFIRMATION_PENDING' });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it('foreign task asks', async () => {
@@ -89,6 +90,18 @@ describe('project grant in the gate', () => {
     seedGrant('p1', { minutes: -1 });
     seedGrant('p1', { revoked: true });
     expect(await call('move_task', { task_id: 'k1', status: 'done' })).toMatchObject({ code: 'CONFIRMATION_PENDING' });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('a pending row for the same call waits even with an active project grant', async () => {
+    seedGrant();
+    const args = { task_id: 'k1', status: 'done' };
+    await actions.insertPending({ conversation_id: C, tool: 'move_task', args, class: 'write', idempotency_key: idempotencyKeyFor(C, 'move_task', args) });
+    expect(await call('move_task', args)).toMatchObject({ ok: false, code: 'CONFIRMATION_WAITING' });
+    expect(run).not.toHaveBeenCalled();
+    expect(actions.insertApproved).not.toHaveBeenCalled();
+    expect(actions.rows).toHaveLength(1);
+    expect(actions.rows[0]).toMatchObject({ status: 'pending', grant_id: null });
   });
 
   it('31st call asks', async () => {
