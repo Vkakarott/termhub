@@ -73,9 +73,9 @@ export function chunkMarkdown(path: string, md: string, max = 1200): Chunk[] {
               }
               currentChunk = '';
             }
-          } else if (currentChunk.length + 1 + para.length <= max) {
+          } else if (currentChunk.length + 2 + para.length <= max) {
             // Add to current chunk
-            currentChunk += '\n' + para;
+            currentChunk += '\n\n' + para;
           } else {
             // Start new chunk
             const title = currentHeading ? `${path} › ${currentHeading}` : path;

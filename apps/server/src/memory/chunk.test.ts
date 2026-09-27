@@ -31,4 +31,9 @@ describe('chunkMarkdown', () => {
     const chunks = chunkMarkdown('a.md', md);
     expect(chunks[0]!.text).toContain('line1\n\nline2');
   });
+  it('packs paragraphs joined by double newline', () => {
+    const md = '# T\np1\n\np2';
+    const chunks = chunkMarkdown('a.md', md);
+    expect(chunks).toEqual([{ index: 0, title: 'a.md › T', text: 'p1\n\np2' }]);
+  });
 });

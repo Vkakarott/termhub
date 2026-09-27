@@ -25,6 +25,10 @@ describe('autoAnswerBlocked', () => {
     ['Onde salvar o spec?'],
     ['Qual abordagem?'],
     ['Qual produto usar?'],
+    ['Essa rota é pública?'],
+    ['Isso é exclusivo do admin?'],
+    ['Houve um apagão?'],
+    ['Precisamos destravar esse bloqueio?'],
   ])('allows %s', (q) => expect(autoAnswerBlocked(['Plano', q, 'Sim'])).toBe(false));
 
   it('checks the chosen labels too', () =>

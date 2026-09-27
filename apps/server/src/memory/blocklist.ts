@@ -3,7 +3,7 @@
  * chosen labels name an irreversible act is never answered automatically, only suggested. Crude on
  * purpose — it cannot tell "não fazer deploy" from "fazer deploy", and that is the safe direction.
  */
-const EXACT_ONLY = new Set(['rm', 'prod']);
+const EXACT_ONLY = new Set(['rm', 'prod', 'apaga']);
 const STEMS = [
   'deploy',
   'deplo',
@@ -15,26 +15,33 @@ const STEMS = [
   'delete',
   'deletar',
   'apagar',
-  'apag',
+  'apague',
+  'apagad',
+  'apaga',
   'remover',
   'remov',
   'remocao',
   'remove',
   'excluir',
-  'exclu',
+  'exclui',
+  'exclua',
+  'exclusao',
   'drop',
   'reset',
   'force',
   'rm',
   'publicar',
-  'publi',
+  'publicad',
+  'publicacao',
+  'publiqu',
   'publish',
   'release',
   'pagar',
   'pay',
   'destroy',
+  'destrui',
+  'destruct',
   'destruir',
-  'destr',
 ];
 
 /**
