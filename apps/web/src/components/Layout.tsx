@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth';
 import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
+import { useNarrowWindow } from '../lib/narrow-window';
 import { ProjectChatProvider } from '../lib/project-chat';
 import { ProjectGroupsProvider } from '../lib/project-groups';
 import { isSettingsPath, useSettingsExit } from '../lib/settings-nav';
@@ -68,27 +69,6 @@ export function Layout() {
       </ProjectChatProvider>
     </FocusProvider>
   );
-}
-
-/** Below Tailwind's `md` breakpoint a 16rem sidebar leaves too little room for the page. */
-const NARROW_QUERY = '(max-width: 767px)';
-
-function narrowNow(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia(NARROW_QUERY).matches;
-}
-
-/** Whether the window is phone-sized, following resizes; false where matchMedia is missing (jsdom). */
-function useNarrowWindow(): boolean {
-  const [narrow, setNarrow] = useState(narrowNow);
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia(NARROW_QUERY);
-    const update = () => setNarrow(mq.matches);
-    update();
-    mq.addEventListener?.('change', update);
-    return () => mq.removeEventListener?.('change', update);
-  }, []);
-  return narrow;
 }
 
 /**
