@@ -23,7 +23,7 @@ export interface Waker {
  */
 export function wakeText(row: TabQuestion, tabName: string | null): string {
   const qs = (row.payload as ChoicePayload).questions
-    .map((q) => `«${sanitisePromptText(q.question)}» (opções: ${q.options.map((o) => sanitisePromptText(o.label)).join(' | ')})`)
+    .map((q) => `«${sanitisePromptText(q.question)}» (opções: ${q.options.map((o) => `«${sanitisePromptText(o.label)}»`).join(' | ')})`)
     .join('; ');
   return [
     `Automático: a aba «${sanitisePromptText(tabName ?? row.tab_id)}» abriu a pergunta de id ${row.id} e o usuário ainda não respondeu.`,
@@ -56,7 +56,10 @@ export interface WakerDeps {
  * 3. the conversation's rolling-hour budget (`maxPerHour`, in-memory — a restart resets it, spec §7)
  *    still has room — checked, not yet spent;
  * 4. `markWoken` wins the persisted claim (`woken_at IS NULL`, spec §3.2) — the one thing that survives
- *    a restart or either blue/green color, so a card is never woken for twice.
+ *    a restart or either blue/green color, so a card is never woken for twice. Its own `UPDATE` also
+ *    re-checks `status = 'open'` and `auto_answer IS NULL` (fix round 1): the row can move between
+ *    check 1 above and this claim (answered from the tab, or a countdown scheduled meanwhile), and the
+ *    database is what actually decides, not the row this function read a moment earlier.
  *
  * Only once `markWoken` has actually won does the budget slot get spent: a card that loses the claim
  * (another process already woke it) must not cost the conversation's budget for nothing. Never throws:
@@ -91,7 +94,13 @@ export function createWaker(deps: WakerDeps): Waker {
         takeBudget(row.conversation_id);
         const user = await deps.repos.users.findById(row.user_id);
         if (!user) return false;
-        await deps.chat.wake(user, row.conversation_id, wakeText(row, tabName));
+        const started = await deps.chat.wake(user, row.conversation_id, wakeText(row, tabName));
+        // `wake` only awaits the run's start (question + empty answer stored), exactly like `start`'s
+        // own `wait: false` callers (routes/chat.ts, routes/m-chat.ts): `started.done` settles later,
+        // off this call entirely, and can still reject (a setup failure mid-run, a queued turn closed
+        // by `closeAllQueued`). Unattached, that rejection would be an unhandled one and kill the
+        // process — there is no request here to answer it on, so it is only ever logged, by code.
+        started.done.catch((err) => deps.log.warn({ tabQuestionId: row.id, code: failureLabel(err) }, 'concierge wake run failed'));
         return true;
       } catch (err) {
         deps.log.warn({ tabQuestionId: row.id, code: failureLabel(err) }, 'concierge wake failed');

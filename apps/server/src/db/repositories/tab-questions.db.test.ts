@@ -466,11 +466,22 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect(failed.map((r) => r.id)).toContain(question.id);
   });
 
-  it('markWoken: true for the one winner, false for every call after', async () => {
+  it('markWoken: true for the one winner, false for every call after, and false for a row not open or already carrying an auto_answer (fix round 1)', async () => {
     const { question } = await open('ta11');
     expect(await repo.markWoken(question.id)).toBe(true);
     expect(await repo.markWoken(question.id)).toBe(false);
     expect(await repo.markWoken(newId())).toBe(false); // never existed
+
+    // Answered from the tab between the card's publish and this claim: never woken for.
+    const { question: answered } = await open('ta11b');
+    await repo.claim(answered.id, userId, { answers: [{ selected: [0] }] });
+    expect(await repo.markWoken(answered.id)).toBe(false);
+
+    // The repeat path (or a prior answer_tab_question) scheduled a countdown in the same window:
+    // the row is still `open`, but already has an answer on the way — never woken for either.
+    const { question: withAuto } = await open('ta11c');
+    await repo.setAutoAnswer(withAuto.id, autoAnswer());
+    expect(await repo.markWoken(withAuto.id)).toBe(false);
   });
 
   it('claim: answered_via defaults to "card"; claim(..., \'auto\') stores "auto"', async () => {

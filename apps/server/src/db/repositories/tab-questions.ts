@@ -367,11 +367,17 @@ export class TabQuestionsRepository {
 
   /**
    * Set once, before a wake turn starts (spec §7): conditional on `woken_at IS NULL`, so one card never
-   * wakes the concierge twice, even across a restart or both blue/green colors. True for the one
-   * winner of a race, false for everyone else (including a row that never existed).
+   * wakes the concierge twice, even across a restart or both blue/green colors — and, fix round 1, also
+   * on the row still `open` with no `auto_answer` at all: a card answered from the tab, or one the
+   * repeat path (`maybeScheduleRepeat`) or a prior `answer_tab_question` scheduled a countdown on,
+   * between the card's publish and this claim, already has (or is about to have) its answer, and must
+   * not wake the concierge for one it does not need. True for the one winner of a race, false for
+   * everyone else (including a row that never existed, or no longer eligible).
    */
   async markWoken(id: string, now = new Date()): Promise<boolean> {
-    const { count } = await this.db.tabQuestion.updateMany({ where: { id, wokenAt: null }, data: { wokenAt: now } });
+    const count = await this.db.$executeRaw`
+      UPDATE "tab_questions" SET "woken_at" = ${now}
+      WHERE "id" = ${id} AND "woken_at" IS NULL AND "status" = 'open' AND "auto_answer" IS NULL`;
     return count > 0;
   }
 
