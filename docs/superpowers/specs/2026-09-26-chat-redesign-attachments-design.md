@@ -280,8 +280,12 @@ model ChatAttachment {
 ### 5.4 Extraction (`apps/server/src/chat/attachments/`)
 
 - `sniff.ts` is a pure function: bytes to `{kind, mime} | null`.
-- `extract.ts` dispatches per kind. Each extractor has a 60 s timeout and caps its output at
-  **200 000 characters**, setting `meta.truncated`.
+- `extract.ts` dispatches per kind, and every extractor caps its output at **200 000 characters**,
+  setting `meta.truncated`. pdf, docx and xlsx (ZIP guard included) run in a `worker_threads`
+  Worker, a fresh one per job, with a 512 MB heap limit and a 60 s timeout that **terminates** the
+  worker. Timing out or running out of heap is `ATTACHMENT_INVALID`, and a worker that fails to load
+  is retried by the hourly re-queue (`2026-09-26-attachment-extraction-worker-design.md`, TER-196).
+  text, image and whisper stay on the main thread.
   - **pdf.** `unpdf` `extractText` joins pages with `\n\n--- página N ---\n\n` and sets
     `meta.pages`.
   - **docx.** `mammoth.convertToMarkdown` keeps headings, lists and tables. Images inside the
