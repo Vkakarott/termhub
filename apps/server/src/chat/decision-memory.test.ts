@@ -137,6 +137,30 @@ describe('suggestFor', () => {
     expect(l.info).not.toHaveBeenCalled();
   });
 
+  it('gives null without calling nearest for a question whose normalised text is empty', async () => {
+    const blank = { question: '?!', header: 'Cor', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] };
+    const selfMatch = neighbour({ id: 'd-self', similarity: 1, answer: { labels: ['Sim'] } });
+    const nearest = vi.fn(async () => [selfMatch]);
+    const repos = { users: { chatSuggestions: vi.fn(async () => true) }, chatDecisions: { nearest, bumpSuggested: vi.fn(async () => {}) } };
+    const result = await suggestFor(repos as never, row({ payload: { questions: [blank] } }), { embedder: embedder(), threshold: 0.85, log: log() });
+    expect(result).toBeNull();
+    expect(nearest).not.toHaveBeenCalled();
+  });
+
+  it('skips nearest for an empty question but still suggests for a normal one on the same card', async () => {
+    const blank = { question: '?', header: 'Cor', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] };
+    const twoQuestions: ChoicePayload = { questions: [blank, item1] };
+    const match = neighbour({ id: 'd-match', similarity: 0.9, question_index: 1, answer: { labels: ['Maçã', 'Banana'] } });
+    const nearest = vi.fn(async () => [match]);
+    const repos = { users: { chatSuggestions: vi.fn(async () => true) }, chatDecisions: { nearest, bumpSuggested: vi.fn(async () => {}) } };
+    const result = await suggestFor(repos as never, row({ payload: twoQuestions }), { embedder: embedder(), threshold: 0.85, log: log() });
+    expect(nearest).toHaveBeenCalledTimes(1);
+    expect(nearest).toHaveBeenCalledWith('u1', [1, 0], { multiSelect: true, k: 5, embedModel: 'm#q1' });
+    expect(result?.items).toEqual([
+      { question_index: 1, decision_id: 'd-match', similarity: 0.9, selected: [0, 1], source: { question: match.question, project_name: match.project_name, answered_at: match.created_at } },
+    ]);
+  });
+
   it('logs a warning and returns null when nearest rejects', async () => {
     const repos = fakeRepos({
       nearest: async () => {

@@ -68,9 +68,14 @@ export async function suggestFor(repos: Pick<Repositories, 'users' | 'chatDecisi
 
   const work = async (): Promise<TabQuestionSuggestion | null> => {
     if (!(await repos.users.chatSuggestions(row.user_id))) return null;
-    const { model, vectors } = await embedder.embed(items.map(embedText));
+    const texts = items.map(embedText);
+    const { model, vectors } = await embedder.embed(texts);
     const found: SuggestionItem[] = [];
     for (const [i, item] of items.entries()) {
+      // A question that normalises to '' (e.g. only "?" or "...") would embed identically to every
+      // other empty question and match them at similarity 1.0 — never a real match, so it never even
+      // asks `nearest`.
+      if (texts[i] === '') continue;
       const near = await repos.chatDecisions.nearest(row.user_id, vectors[i]!, { multiSelect: item.multi_select, k: SUGGEST_K, embedModel: embedTag(model) });
       // Newest first among the ones close enough: a fresher decision beats a stronger but stale match.
       const candidates = near.filter((n) => n.similarity >= deps.threshold).sort((a, b) => b.created_at.localeCompare(a.created_at));
