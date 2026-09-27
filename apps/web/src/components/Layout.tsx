@@ -5,11 +5,11 @@ import { DataProvider } from '../lib/data';
 import { FocusProvider, useFocusMode } from '../lib/focus';
 import { MonitorProvider } from '../lib/monitor';
 import { useNarrowWindow } from '../lib/narrow-window';
-import { ProjectChatProvider } from '../lib/project-chat';
+import { ProjectChatProvider, useProjectChat } from '../lib/project-chat';
 import { ProjectGroupsProvider } from '../lib/project-groups';
 import { isSettingsPath, useSettingsExit } from '../lib/settings-nav';
 import { ToastProvider, Toaster } from '../lib/toast';
-import { ChatDrawer } from './chat/ChatDrawer';
+import { ChatDock } from './chat/ChatDock';
 import { DeviceRequestBanner } from './DeviceRequestBanner';
 import { NeedsYouToasts } from './NeedsYouToasts';
 import { SettingsSidebar } from './SettingsSidebar';
@@ -58,16 +58,32 @@ export function Layout() {
   return (
     <FocusProvider>
       <ProjectChatProvider>
-        <div className="flex h-full">
-          <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={leaveSettings} />
-          <main className="relative min-w-0 flex-1">
-            <DeviceRequestBanner />
-            <Outlet />
-          </main>
-        </div>
-        <ChatDrawer />
+        <LayoutRow collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={leaveSettings} />
       </ProjectChatProvider>
     </FocusProvider>
+  );
+}
+
+/**
+ * The app's row: sidebar, page, and the project chat dock after the page (spec 2026-09-26 project chat
+ * dock §4.5). Inside the chat provider, since it reads whether the shown chat fills the window: then
+ * the page is hidden, not unmounted, so the terminals behind it keep their sessions (TerminalsView
+ * ignores the 0×0 reading).
+ */
+function LayoutRow({ collapsed, setCollapsed, onLeaveSettings }: { collapsed: boolean; setCollapsed: (v: boolean) => void; onLeaveSettings: () => void }) {
+  const { can } = useAuth();
+  const { shownProjectId, pref } = useProjectChat();
+  const narrow = useNarrowWindow();
+  const maximized = shownProjectId !== null && !narrow && pref(shownProjectId).maximized;
+  return (
+    <div className="flex h-full">
+      <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={onLeaveSettings} />
+      <main className={`relative min-w-0 flex-1 ${maximized ? 'hidden' : ''}`}>
+        <DeviceRequestBanner />
+        <Outlet />
+      </main>
+      {can('chat') && <ChatDock />}
+    </div>
   );
 }
 

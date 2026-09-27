@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { Link, MemoryRouter, useNavigate } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./Sidebar', async () => {
@@ -32,10 +32,18 @@ vi.mock('./SidebarRail', () => ({
     </>
   ),
 }));
-vi.mock('./chat/ChatDrawer', () => ({ ChatDrawer: () => null }));
+vi.mock('./chat/ChatDock', () => ({ ChatDock: () => <aside aria-label="dock" /> }));
+const dock = vi.hoisted(() => ({ shownProjectId: null as string | null, maximized: false }));
+vi.mock('../lib/project-chat', () => ({
+  ProjectChatProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useProjectChat: () => ({ shownProjectId: dock.shownProjectId, pref: () => ({ open: true, width: 420, maximized: dock.maximized }) }),
+}));
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ can: () => true }) }));
+// The banner reads the API on mount; not this test's concern.
+vi.mock('./DeviceRequestBanner', () => ({ DeviceRequestBanner: () => null }));
 
 import { FocusProvider } from '../lib/focus';
-import { Chrome } from './Layout';
+import { Chrome, Layout } from './Layout';
 
 function mount(path: string, collapsed = false, setCollapsed: (v: boolean) => void = () => {}) {
   const onLeaveSettings = vi.fn();
@@ -228,5 +236,35 @@ describe('Chrome on a wide window', () => {
     fireEvent.click(screen.getByText('expandir'));
     expect(setCollapsed).toHaveBeenCalledWith(false);
     expect(screen.queryByRole('dialog', { name: 'Menu' })).toBeNull();
+  });
+});
+
+describe('Layout chat dock', () => {
+  const mountLayout = () =>
+    render(
+      <MemoryRouter initialEntries={['/machines']}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/machines" element={<p>página</p>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+  it('puts the dock after main, in the same row', () => {
+    mountLayout();
+    const main = screen.getByRole('main');
+    expect(main.nextElementSibling?.getAttribute('aria-label')).toBe('dock');
+    expect(main.className).not.toContain('hidden');
+  });
+
+  it('hides main (still mounted) while the shown chat is maximized', () => {
+    dock.shownProjectId = 'p1';
+    dock.maximized = true;
+    mountLayout();
+    expect(screen.getByText('página')).toBeTruthy();
+    expect(screen.getByText('página').closest('main')!.className).toContain('hidden');
+    dock.shownProjectId = null;
+    dock.maximized = false;
   });
 });
