@@ -105,7 +105,7 @@ Teardown in Task 10: `docker rm -f th-test-db-tickets && docker network rm th-ne
 | File | Responsibility |
 |---|---|
 | `apps/server/prisma/schema.prisma` | `Ticket`: `key @map("identifier")`, `syncKey @map("external_key")`, new `scope String?` |
-| `apps/server/prisma/migrations/20260926200000_tickets_scope/migration.sql` | add `tickets.scope`, backfill from `meta->>'scope'`, index |
+| `apps/server/prisma/migrations/20260927000000_tickets_scope/migration.sql` | add `tickets.scope`, backfill from `meta->>'scope'`, index |
 | `apps/server/src/db/repositories/types.ts` | `Ticket` type (`key`, `sync_key`, `scope`), `mapTicket` |
 | `apps/server/src/db/repositories/tickets.ts` | upsert with scope, prune by source, key lookup, `findByTaskId` |
 | `apps/server/src/db/repositories/tasks.ts` | `createFromTicket` unchanged signature; new `findByIds` |
@@ -136,7 +136,7 @@ Teardown in Task 10: `docker rm -f th-test-db-tickets && docker network rm th-ne
 
 **Files:**
 - Modify: `apps/server/prisma/schema.prisma` (model `Ticket`)
-- Create: `apps/server/prisma/migrations/20260926200000_tickets_scope/migration.sql`
+- Create: `apps/server/prisma/migrations/20260927000000_tickets_scope/migration.sql`
 - Regenerate: `apps/server/src/generated/prisma/**`
 - Modify: `apps/server/src/db/repositories/types.ts` (`Ticket`, `mapTicket`)
 - Modify: `apps/server/src/db/repositories/tickets.ts`
@@ -263,7 +263,7 @@ Replace the old `externalKey`/`identifier` lines, and change the unique/index li
 
 (`@@unique` on the renamed field keeps the same DB columns, so the constraint name `tickets_project_id_external_key_key` does not change.)
 
-- [ ] **Step 3: Write the migration** — `apps/server/prisma/migrations/20260926200000_tickets_scope/migration.sql`
+- [ ] **Step 3: Write the migration** — `apps/server/prisma/migrations/20260927000000_tickets_scope/migration.sql`
 
 ```sql
 -- Additive only (spec 2026-09-26 mcp-external-tickets): the previous release ignores the new column.
