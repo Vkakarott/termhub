@@ -6,6 +6,7 @@ import type { StoredTurn } from '../db/repositories/chat-live-runs.js';
 import { OPEN_STATUSES, type ChatSubagent, type ChatSubagentsRepository } from '../db/repositories/chat-subagents.js';
 import { chatBus } from './bus.js';
 import { actionClass } from './gate.js';
+import { saveContext } from './context.js';
 import { failureLabel, type RunStream } from './service.js';
 import { codeForReason, parseFrame, type ChatErrorCode } from './stream.js';
 import { subagentOrigins } from './subagent-origin.js';
@@ -44,7 +45,7 @@ export interface LiveRunDeps {
   conversationId: string;
   /** The CLI session this run resumes (or will name), updated from the CLI's own frames. */
   sessionId: string | null;
-  chat: Pick<ChatRepository, 'addMessage' | 'updateMessage' | 'deleteMessage' | 'setCliSession'>;
+  chat: Pick<ChatRepository, 'addMessage' | 'updateMessage' | 'deleteMessage' | 'setCliSession' | 'setContext'>;
   /** The conversation's subagents (spec 2026-09-26 panel §5.3), kept from the CLI's task frames. */
   subagents: Pick<ChatSubagentsRepository, 'start' | 'setStatus' | 'interruptRunning'>;
   chatActions: Pick<ChatActionsRepository, 'setSubagentByToolUse'>;
@@ -223,6 +224,7 @@ export class LiveRun {
           if (this.current) chatBus.publish({ type: 'action_result', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message_id: this.current.answer.id, tool_use_id: frame.tool_use_id, ok: frame.ok });
         } else if (frame.type === 'done') {
           await this.saveSession(frame.session_id);
+          if (frame.context) await saveContext(this.deps.chat, this.deps.userId, this.deps.conversationId, frame.context);
           if (this.current) {
             this.current.usage = frame.usage ?? null;
             await this.finish(this.current, null);

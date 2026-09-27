@@ -80,7 +80,8 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // Scoped to this request's own user: a card must never resolve a name this user cannot see.
     const actions = await describeActions(repos, rows, request.scope.user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, request.scope.user.id));
-    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents };
+    // `compacting`: a screen opened in the middle of "Compactar" (TER-315) shows it as under way.
+    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents, compacting: deps.service.isCompacting(conversation.id) };
   });
 
   /**
@@ -133,6 +134,17 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     }
     const message = await deps.service.send(request.scope.user, text, opts);
     return reply.code(201).send({ message });
+  });
+
+  /**
+   * "Compactar" (TER-315): runs `/compact` on the scope's CLI session. 202 once it has started; its end
+   * travels over `/ws/chat` (`compact`, and the new fill as `context`). A host that cannot run it, an
+   * answer being written or a conversation with no session yet is refused with its own 409.
+   */
+  app.post('/compact', { config: { action: 'update' } }, async (request, reply) => {
+    const { project_id } = resetBody.parse(request.body ?? {});
+    const started = await deps.service.compact(request.scope.user, project_id ?? null);
+    return reply.code(202).send({ conversation_id: started.conversation_id });
   });
 
   /** "Nova conversa": archives the scope's active conversation and answers the fresh, empty one. */

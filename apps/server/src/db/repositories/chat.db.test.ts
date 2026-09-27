@@ -54,6 +54,27 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     expect(reloaded.last_message_at).not.toBeNull();
   });
 
+  it('stores the context fill, keeps the window a turn did not report, and drops both with the session (TER-315)', async () => {
+    const c = await repo.getOrCreateForProject(userId, projectId);
+    expect(c.context_tokens).toBeNull();
+    await repo.setCliSession(c.id, '3f1e9b1e-0000-4000-8000-000000000002');
+    expect(await repo.setContext(c.id, { tokens: 25_000, window: 1_000_000 })).toEqual({ tokens: 25_000, window: 1_000_000 });
+    expect(await repo.setContext(c.id, { tokens: 1_950 })).toEqual({ tokens: 1_950, window: 1_000_000 });
+    const stored = await repo.findByIdForUser(c.id, userId);
+    expect([stored?.context_tokens, stored?.context_window]).toEqual([1_950, 1_000_000]);
+    // Another session id keeps the fill (a turn reports it right after); no session drops it.
+    await repo.setCliSession(c.id, '3f1e9b1e-0000-4000-8000-000000000003');
+    expect((await repo.findByIdForUser(c.id, userId))?.context_tokens).toBe(1_950);
+    await repo.setCliSession(c.id, null);
+    const cleared = await repo.findByIdForUser(c.id, userId);
+    expect([cleared?.cli_session_id, cleared?.context_tokens, cleared?.context_window]).toEqual([null, null, null]);
+    // A host move strands the project sessions, and their fill with them.
+    await repo.setCliSession(c.id, '3f1e9b1e-0000-4000-8000-000000000004');
+    await repo.setContext(c.id, { tokens: 10, window: 200_000 });
+    await repo.clearProjectSessions(userId);
+    expect((await repo.findByIdForUser(c.id, userId))?.context_tokens).toBeNull();
+  });
+
   it('keeps an assistant failure as an error code without losing the text so far', async () => {
     const c = await repo.getOrCreateForUser(userId);
     const m = await repo.addMessage({ conversation_id: c.id, role: 'assistant', text: 'comecei a olhar' });

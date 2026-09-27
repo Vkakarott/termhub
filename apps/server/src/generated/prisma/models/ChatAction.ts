@@ -729,14 +729,6 @@ export type ChatActionUncheckedUpdateManyWithoutConversationNestedInput = {
   deleteMany?: Prisma.ChatActionScalarWhereInput | Prisma.ChatActionScalarWhereInput[]
 }
 
-export type NullableIntFieldUpdateOperationsInput = {
-  set?: number | null
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
-}
-
 export type ChatActionCreateWithoutConversationInput = {
   id: string
   messageId?: string | null

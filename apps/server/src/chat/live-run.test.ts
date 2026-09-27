@@ -32,6 +32,7 @@ function harness(sessionId: string | null = null) {
     }),
     deleteMessage: vi.fn(async (id: string) => void rows.splice(rows.findIndex((r) => r.id === id), 1)),
     setCliSession: vi.fn(async () => undefined),
+    setContext: vi.fn(async (_id: string, u: { tokens: number; window?: number | null }) => ({ tokens: u.tokens, window: u.window ?? null })),
   };
   /** Subagent rows as the repository keeps them: one per task, `sa-<task_id>`. */
   const subagentRows = new Map<string, ChatSubagent>();

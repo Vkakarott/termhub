@@ -26,6 +26,8 @@ export interface ChatComposerProps {
   blockedReason?: string | null;
   /** The last send or decision error (pt-BR), shown in the status line in the danger colour. */
   status?: string | null;
+  /** Something the panel has to say that is not an error ("Compactando…"), below `status` in rank. */
+  notice?: string | null;
   /** The project whose chat this is; travels with every upload so the file lands in that conversation. */
   projectId?: string | null;
   /**
@@ -275,7 +277,7 @@ function useAttachmentDrafts(projectId: string | null | undefined, statuses: Rea
  * where Enter is how every other line got started); Shift+Enter is always a newline, on either. Either
  * way it can only send what the button itself would send.
  */
-export function ChatComposer({ onSend, blockedReason, status, projectId, attachmentStatuses }: ChatComposerProps) {
+export function ChatComposer({ onSend, blockedReason, status, notice, projectId, attachmentStatuses }: ChatComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState('');
@@ -364,8 +366,9 @@ export function ChatComposer({ onSend, blockedReason, status, projectId, attachm
   // One line, fixed height, always mounted: what appears here moves nothing. The host's own reason
   // outranks everything (it is the one that is not going to resolve on its own); a chip still on the
   // wire comes next (it is why the button is refusing); then a clip being transcribed (its text is
-  // about to land in this very box); then the last send or decision error; and last, what the box had
-  // to say about the files just added (the cap). An answer being written never locks the box, so
+  // about to land in this very box); then the last send or decision error; then the panel's own notice
+  // (a compaction under way or just done); and last, what the box had to say about the files just
+  // added (the cap). An answer being written never locks the box, so
   // nothing here says to wait for it (spec 2026-09-26).
   const line = blockedReason
     ? { text: blockedReason, danger: false }
@@ -375,7 +378,9 @@ export function ChatComposer({ onSend, blockedReason, status, projectId, attachm
         ? { text: 'transcrevendo…', danger: false }
         : status
           ? { text: status, danger: true }
-          : { text: attachments.notice ?? '', danger: false };
+          : notice
+            ? { text: notice, danger: false }
+            : { text: attachments.notice ?? '', danger: false };
 
   return (
     // `env(safe-area-inset-bottom)` resolves to 0px in every browser today, because the app-wide

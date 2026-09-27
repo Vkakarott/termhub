@@ -780,6 +780,11 @@ export interface ChatConversation {
   project_id: string | null;
   /** When this conversation was archived by a "Nova conversa" reset; null while it is the active one. */
   archived_at: string | null;
+  /** How many tokens the session's context holds, after the last answer or compaction (TER-315); null
+   *  until an answer reports it. Absent from an older server. */
+  context_tokens?: number | null;
+  /** The model's context window; null when the CLI did not report it. */
+  context_window?: number | null;
   last_message_at: string | null;
 }
 
@@ -1125,7 +1130,11 @@ export type ChatEvent =
   | { type: 'subagent'; subagent: SubagentView; conversation_id?: string }
   /** "Cancelar" timed out with no confirmation that the CLI actually stopped it (spec 2026-09-26
    * panel §5.4): the row keeps whatever status it already had, this just says the click failed. */
-  | { type: 'subagent_cancel_failed'; subagent_id: string; conversation_id?: string };
+  | { type: 'subagent_cancel_failed'; subagent_id: string; conversation_id?: string }
+  /** How full the session is now, after an answer or a compaction (TER-315). */
+  | { type: 'context'; tokens: number; window: number | null; conversation_id?: string }
+  /** "Compactar": started, done (sizes before and after, when known) or failed (with its code). */
+  | { type: 'compact'; state: 'started' | 'done' | 'failed'; tokens_before: number | null; tokens: number | null; error_code: string | null; conversation_id?: string };
 
 /** `GET /chat/projects`: which project chats have anything going on, for a sidebar badge. */
 export interface ProjectChatStatus {

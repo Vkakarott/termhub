@@ -41,7 +41,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   // The host pair every case but the host-specific ones takes for granted: one agent machine of this
   // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
   // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
-  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null as string | null, model: null, machine_id: 'm1' as string | null, ai_account_id: opts.host?.account?.id ?? null, project_id: null as string | null, archived_at: null as string | null, review_mode: false, last_message_at: null, created_at: '' };
+  const conversation = { id: 'c1', user_id: 'u1', title: null, cli_session_id: null as string | null, model: null, machine_id: 'm1' as string | null, ai_account_id: opts.host?.account?.id ?? null, project_id: null as string | null, archived_at: null as string | null, review_mode: false, context_tokens: null as number | null, context_window: null as number | null, last_message_at: null, created_at: '' };
   // Project p1's active conversation: no host of its own (the host is always the account-wide row's).
   const projectConversation = { ...conversation, id: 'c_p1', project_id: 'p1' as string | null, machine_id: null as string | null, cli_session_id: null as string | null };
   const conversations = [conversation, projectConversation];
@@ -75,6 +75,13 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     setCliSession: vi.fn(async (id: string, s: string | null) => {
       const row = conversations.find((c) => c.id === id);
       if (row) row.cli_session_id = s;
+    }),
+    // Like the repository: a turn that did not report the window keeps the stored one.
+    setContext: vi.fn(async (id: string, u: { tokens: number; window?: number | null }) => {
+      const row = conversations.find((c) => c.id === id)!;
+      row.context_tokens = u.tokens;
+      if (u.window != null) row.context_window = u.window;
+      return { tokens: row.context_tokens, window: row.context_window };
     }),
     // Same guard as the repository's `updateMany ... where machineId: null`: it fills a host that was
     // never chosen and never touches one that was.
@@ -2572,5 +2579,157 @@ describe('resume: fix round 1', () => {
     await settled();
     expect(built.runner.run).not.toHaveBeenCalled();
     expect(built.chatActions.markInjectedMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('context fill and "Compactar" (TER-315)', () => {
+  const SESSION = '3f1e9b1e-0000-4000-8000-000000000001';
+  /** A result whose last API call held 1 000 tokens, on a 200k model. */
+  const doneWithContext = (session = SESSION) =>
+    JSON.stringify({ type: 'result', session_id: session, usage: { input_tokens: 9, iterations: [{ input_tokens: 10, cache_read_input_tokens: 900, cache_creation_input_tokens: 40, output_tokens: 50 }] }, modelUsage: { 'claude-haiku-4-5': { contextWindow: 200_000 } } });
+  const compactLines = (before = 150_000, after = 12_000) => [
+    JSON.stringify({ type: 'system', subtype: 'status', status: 'compacting', session_id: SESSION }),
+    JSON.stringify({ type: 'system', subtype: 'compact_boundary', session_id: SESSION, compact_metadata: { trigger: 'manual', pre_tokens: before, post_tokens: after } }),
+    JSON.stringify({ type: 'user', isReplay: true, uuid: 'u-local', message: { role: 'user', content: '<local-command-stdout>Compacted </local-command-stdout>' } }),
+    JSON.stringify({ type: 'result', session_id: SESSION, usage: { input_tokens: 0, iterations: [] } }),
+  ];
+  const listen = () => {
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    return { events, off };
+  };
+
+  it('stores the fill a one-shot turn reports and tells the screens', async () => {
+    const { service, chat, conversation } = build([delta('ok'), doneWithContext()]);
+    const { events, off } = listen();
+    await service.send(user, 'oi');
+    off();
+    expect(chat.setContext).toHaveBeenCalledWith('c1', { tokens: 1000, window: 200_000 });
+    expect(conversation.context_tokens).toBe(1000);
+    expect(events).toContainEqual({ type: 'context', user_id: 'u1', conversation_id: 'c1', tokens: 1000, window: 200_000 });
+  });
+
+  it('stores the fill a streamed turn reports', async () => {
+    const { service, runner, chat } = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const started = await service.start(user, 'oi');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('ok'));
+    run.push(doneWithContext());
+    await started.done;
+    run.end();
+    await settled();
+    expect(chat.setContext).toHaveBeenCalledWith('c1', { tokens: 1000, window: 200_000 });
+  });
+
+  it('a fill that cannot be stored does not fail the answer', async () => {
+    const { service, chat } = build([delta('ok'), doneWithContext()]);
+    chat.setContext.mockRejectedValueOnce(new Error('db down'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const answer = await service.send(user, 'oi');
+    expect(answer.text).toBe('ok');
+    expect(answer.error_code).toBeNull();
+    err.mockRestore();
+  });
+
+  it('runs /compact on the session, stores the new fill and says so', async () => {
+    const { service, conversation, inputs, messages } = build(compactLines());
+    conversation.cli_session_id = SESSION;
+    conversation.context_window = 200_000;
+    const { events, off } = listen();
+    const started = await service.compact(user, null);
+    expect(started.conversation_id).toBe('c1');
+    expect(service.isCompacting('c1')).toBe(true);
+    await started.done;
+    off();
+    expect(inputs()).toEqual([expect.objectContaining({ session_id: SESSION, resume: true, text: '/compact', append_system_prompt: null })]);
+    // One-shot: `/compact` is a command of its own, never a line of a streamed run.
+    expect(inputs()[0].stream_input).toBeUndefined();
+    expect(service.isCompacting('c1')).toBe(false);
+    expect(conversation.context_tokens).toBe(12_000);
+    const mine = events.filter((e) => e.type === 'compact' || e.type === 'context');
+    expect(mine).toEqual([
+      { type: 'compact', user_id: 'u1', conversation_id: 'c1', state: 'started', tokens_before: null, tokens: null, error_code: null },
+      { type: 'context', user_id: 'u1', conversation_id: 'c1', tokens: 12_000, window: 200_000 },
+      { type: 'compact', user_id: 'u1', conversation_id: 'c1', state: 'done', tokens_before: 150_000, tokens: 12_000, error_code: null },
+    ]);
+    // Nothing lands in the thread.
+    expect(messages).toHaveLength(0);
+  });
+
+  it('refuses a conversation with no session yet, and leaves the lock free', async () => {
+    const { service, runner } = build([delta('ok'), done()]);
+    await expect(service.compact(user, null)).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_NOTHING_TO_COMPACT' });
+    expect(runner.run).not.toHaveBeenCalled();
+    expect((await service.send(user, 'oi')).text).toBe('ok');
+  });
+
+  it('refuses while an answer is being written', async () => {
+    const { service, runner, conversation } = build([], { streaming: true });
+    conversation.cli_session_id = SESSION;
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    await service.start(user, 'oi');
+    await runAt(lr, 0);
+    await expect(service.compact(user, null)).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+  });
+
+  it('refuses while another instance holds the run, or released it with turns still open', async () => {
+    const built = build(compactLines());
+    built.conversation.cli_session_id = SESSION;
+    const now = new Date().toISOString();
+    const row = { conversation_id: 'c1', user_id: 'u1', instance_id: 'other-instance', heartbeat_at: now, released_at: null as string | null, turns: [], created_at: now };
+    built.liveRunsStore.set('c1', row);
+    await expect(built.service.compact(user, null)).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+    row.released_at = now;
+    await expect(built.service.compact(user, null)).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+    expect(built.runner.run).not.toHaveBeenCalled();
+  });
+
+  it('refuses a host that cannot run it', async () => {
+    const { service, conversation } = build(compactLines(), { host: { machines: [] } });
+    conversation.cli_session_id = SESSION;
+    conversation.machine_id = null;
+    await expect(service.compact(user, null)).rejects.toBeInstanceOf(HttpError);
+  });
+
+  it('a run that ends without compacting is a failed compaction, and the fill stays', async () => {
+    const { service, conversation } = build([JSON.stringify({ type: 'termhub_error', code: 1, reason: 'missing_session' })]);
+    conversation.cli_session_id = SESSION;
+    conversation.context_tokens = 150_000;
+    const { events, off } = listen();
+    await (await service.compact(user, null)).done;
+    off();
+    expect(events.at(-1)).toMatchObject({ type: 'compact', state: 'failed', error_code: 'MISSING_SESSION' });
+    expect(conversation.context_tokens).toBe(150_000);
+    const quiet = build([JSON.stringify({ type: 'result', session_id: SESSION, usage: { iterations: [] } })]);
+    quiet.conversation.cli_session_id = SESSION;
+    const second = listen();
+    await (await quiet.service.compact(user, null)).done;
+    second.off();
+    expect(second.events.at(-1)).toMatchObject({ type: 'compact', state: 'failed', error_code: 'RUNNER_FAILED' });
+  });
+
+  it('a message typed while compacting waits for it, then runs on the compacted session', async () => {
+    const { service, runner, conversation, messages } = build([]);
+    conversation.cli_session_id = SESSION;
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+    const compaction = await service.compact(user, null);
+    const run = await runAt(lr, 0);
+    const started = await service.start(user, 'e agora?');
+    expect(lr.runs).toHaveLength(1);
+    for (const l of compactLines()) run.push(l);
+    run.end();
+    await compaction.done;
+    const next = await runAt(lr, 1);
+    expect(next.input).toMatchObject({ session_id: SESSION, resume: true });
+    next.push(delta('Seguindo.'));
+    next.push(done());
+    next.end();
+    expect((await started.done).text).toBe('Seguindo.');
+    expect(messages.map((m) => m.text)).toEqual(['e agora?', 'Seguindo.']);
   });
 });

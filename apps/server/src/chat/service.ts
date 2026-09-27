@@ -12,6 +12,7 @@ import type { User } from '../db/repositories/types.js';
 import { HttpError, notFound } from '../lib/errors.js';
 import { attachmentContext } from './attachments/context.js';
 import { chatBus } from './bus.js';
+import { saveContext } from './context.js';
 import { streamedSystemPrompt } from './concierge-prompt.js';
 import { hostFailure, resolveHost, type HostAgents, type HostChoice } from './host.js';
 import { LiveRun, type LiveTurn } from './live-run.js';
@@ -269,6 +270,8 @@ export class ChatService {
   private starts = new Set<Promise<void>>();
   /** Claimed rows whose hand-back failed (the database was down): retried by the next sweep. */
   private orphans = new Map<string, ChatLiveRun>();
+  /** Conversations whose session is being compacted (TER-315): `compact` holds their lock meanwhile. */
+  private compacting = new Set<string>();
 
   constructor(
     private deps: {
@@ -353,6 +356,93 @@ export class ChatService {
       return (await this.deps.repos.chat.setHost(fresh.id, { machine_id: current.machine_id, ai_account_id: current.ai_account_id })).conversation;
     }
     return fresh;
+  }
+
+  /** Whether "Compactar" is running in this conversation — what `GET /api/chat` tells a screen that
+   *  opens in the middle of one. */
+  isCompacting(conversationId: string): boolean {
+    return this.compacting.has(conversationId);
+  }
+
+  /**
+   * "Compactar" (TER-315): runs Claude Code's own `/compact` on the scope's CLI session, so the model
+   * keeps a summary of the conversation instead of all of it. A one-shot run on the host, under the
+   * conversation's lock — two processes on one session would race — and refused, like "Nova
+   * conversa", while an answer is being written: the live process would be answering from the
+   * transcript being rewritten. Nothing is stored in the thread; the screen hears `compact` (started,
+   * then done or failed) and the new fill as a `context` event. Resolves once the run has started;
+   * `done` settles when it ends and never rejects.
+   */
+  async compact(user: User, projectId: string | null): Promise<{ conversation_id: string; done: Promise<void> }> {
+    if (this.suspending) throw serverRestarting();
+    const conversation = await this.conversationFor(user, projectId);
+    // Before the lock, like `startIn`: a host that cannot run is a compaction that never started.
+    const host = await this.hostForConversation(user, conversation);
+    if (host.kind !== 'ready') throw hostFailure(host);
+    if (this.running.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo: compacte quando ele terminar', 'CHAT_BUSY');
+    this.running.add(conversation.id);
+    let handedOff = false;
+    try {
+      // Re-read under the lock: a reset or a first answer may have moved the row since.
+      const live = await this.deps.repos.chat.findByIdForUser(conversation.id, user.id);
+      if (!live || live.archived_at !== null) throw new HttpError(409, 'Esta conversa foi encerrada', 'CHAT_ARCHIVED');
+      if (live.cli_session_id === null) throw new HttpError(409, 'Ainda não há contexto para compactar nesta conversa', 'CHAT_NOTHING_TO_COMPACT');
+      // A run of this conversation another instance holds (a blue/green overlap) or released with turns
+      // still open (waiting to be resumed) is an answer being written too: its process owns the session.
+      const staleBefore = new Date(Date.now() - STALE_MS);
+      const elsewhere = (await this.deps.repos.chatLiveRuns.findLiveElsewhere(live.id, this.instanceId, staleBefore)) ?? (await this.deps.repos.chatLiveRuns.findResumable(live.id, this.instanceId, staleBefore));
+      if (elsewhere) throw new HttpError(409, 'O concierge ainda está respondendo: compacte quando ele terminar', 'CHAT_BUSY');
+      this.compacting.add(live.id);
+      chatBus.publish({ type: 'compact', user_id: user.id, conversation_id: live.id, state: 'started', tokens_before: null, tokens: null, error_code: null });
+      const done = this.runCompact(user, live, this.deps.runnerFor(host.machine.id), host.configDir, live.cli_session_id);
+      handedOff = true;
+      return { conversation_id: live.id, done };
+    } finally {
+      if (!handedOff) this.releaseLock(user, conversation.id);
+    }
+  }
+
+  /** The run `compact` started: `/compact` on stdin, read until the CLI is done. Releases the lock. */
+  private async runCompact(user: User, conversation: ChatConversation, runner: RunnerClient, configDir: string | null, sessionId: string): Promise<void> {
+    let before: number | null = null;
+    let after: number | null = null;
+    let compacted = false;
+    let errorCode: ChatErrorCode = null;
+    try {
+      // The runner writes the MCP config from a token even for a run that calls no tool; minting one
+      // revokes the conversation's previous token, which is safe here: the lock says no run holds it.
+      let token: string;
+      try {
+        token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals'], { accountWide: conversation.project_id === null });
+      } catch {
+        errorCode = 'TOKEN_FAILED';
+        return;
+      }
+      const input: RunnerInput = { session_id: sessionId, resume: true, text: '/compact', config_dir: configDir, model: conversation.model, token, append_system_prompt: null };
+      for await (const line of runner.run(input)) {
+        const frame = parseFrame(line);
+        if (frame?.type === 'compacted') {
+          compacted = true;
+          before = frame.tokens_before ?? null;
+          after = frame.tokens ?? null;
+        } else if (frame?.type === 'error') errorCode = codeForReason(frame.reason);
+      }
+      // A run that ended without compacting (a CLI that took `/compact` as plain text, a killed
+      // process) did not do what was asked, whatever it printed.
+      if (!compacted && errorCode === null) errorCode = 'RUNNER_FAILED';
+    } catch (err) {
+      console.error('chat: compaction failed', { conversation_id: conversation.id, error: failureLabel(err) });
+      errorCode ??= 'RUNNER_FAILED';
+    } finally {
+      this.compacting.delete(conversation.id);
+      try {
+        if (compacted && after !== null) await saveContext(this.deps.repos.chat, user.id, conversation.id, { tokens: after });
+        const ok = compacted && errorCode === null;
+        chatBus.publish({ type: 'compact', user_id: user.id, conversation_id: conversation.id, state: ok ? 'done' : 'failed', tokens_before: before, tokens: after, error_code: ok ? null : errorCode });
+      } finally {
+        this.releaseLock(user, conversation.id);
+      }
+    }
   }
 
   /** What the sidebar's 💬 shows per project: answering right now, and what waits on the user — pending
@@ -881,6 +971,7 @@ export class ChatService {
             sawDone = true;
             usage = frame.usage ?? null;
             if (frame.session_id && frame.session_id !== conversation.cli_session_id) await this.deps.repos.chat.setCliSession(conversation.id, frame.session_id);
+            if (frame.context) await saveContext(this.deps.repos.chat, user.id, conversation.id, frame.context);
           } else if (frame.type === 'error') {
             // The reason is the container's closed-set classification, so a failure is diagnosable
             // from the stored row alone: CLI_REJECTED means our own flags were refused, which no

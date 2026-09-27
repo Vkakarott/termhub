@@ -1,11 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, it, describe } from 'vitest';
-import { parseFrame, cliTaskStatus } from './stream.js';
+import { contextUsage, parseFrame, cliTaskStatus } from './stream.js';
 
 const fixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-basic.ndjson'), 'utf8').split('\n').filter(Boolean);
 const toolCallFixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-tool-call.ndjson'), 'utf8').split('\n').filter(Boolean);
 const backgroundFixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-background.ndjson'), 'utf8').split('\n').filter(Boolean);
+// A real `/compact` of a resumed session, written on stdin like the runner does (Claude Code 2.1.283).
+const compactFixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-compact.ndjson'), 'utf8').split('\n').filter(Boolean);
 
 it('turns a recorded run into text deltas and a final usage', () => {
   const frames = fixture.map(parseFrame).filter((f) => f !== null);
@@ -163,4 +165,36 @@ describe('subagent frames', () => {
     expect(parseFrame(JSON.stringify({ type: 'control_response', response: { subtype: 'error', request_id: 'stop-1', error: 'not supported' } }))).toEqual({ type: 'control_response', request_id: 'stop-1', ok: false });
     expect(parseFrame(JSON.stringify({ type: 'control_response', response: { subtype: 'success' } }))).toBeNull();
   });
+});
+
+// TER-315: the context fill is the turn's last API call, never the turn's total — the recorded tool
+// call made two calls, and its top-level usage counts the cache reads of both.
+it('reads the context fill from the last API call of a turn, and the model window', () => {
+  const done = toolCallFixture.map(parseFrame).find((f) => f?.type === 'done');
+  expect(done).toMatchObject({ type: 'done', context: { tokens: 2 + 25145 + 106 + 5, window: 1_000_000 } });
+});
+
+it('falls back to the total without iterations, and says nothing without tokens', () => {
+  expect(contextUsage({ usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 5 } })).toEqual({ tokens: 105, window: null });
+  expect(contextUsage({ usage: { input_tokens: 5, iterations: [] } })).toBeUndefined();
+  expect(contextUsage({ usage: { input_tokens: 0 } })).toBeUndefined();
+  expect(contextUsage({})).toBeUndefined();
+  expect(parseFrame(JSON.stringify({ type: 'result', session_id: 's', usage: { iterations: [] } }))).toEqual({ type: 'done', session_id: 's', usage: { iterations: [] } });
+});
+
+it('takes the largest window when a subagent ran on a smaller model', () => {
+  const result = { usage: { iterations: [{ input_tokens: 1, output_tokens: 1 }] }, modelUsage: { 'claude-haiku-4-5': { contextWindow: 200_000 }, 'claude-opus-5[1m]': { contextWindow: 1_000_000 } } };
+  expect(contextUsage(result)).toEqual({ tokens: 2, window: 1_000_000 });
+});
+
+it('reads a real /compact: the sizes before and after, then a result with no call', () => {
+  const frames = compactFixture.map(parseFrame).filter((f) => f !== null);
+  expect(frames.find((f) => f!.type === 'compacted')).toEqual({ type: 'compacted', tokens_before: 20693, tokens: 1951 });
+  const done = frames.find((f) => f!.type === 'done');
+  expect(done).toMatchObject({ type: 'done', session_id: '9cab042f-4d34-40d1-958c-a84eb6d193b6' });
+  expect(done).not.toHaveProperty('context');
+});
+
+it('reads a compaction that does not report its sizes', () => {
+  expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual' } }))).toEqual({ type: 'compacted', tokens_before: undefined, tokens: undefined });
 });
