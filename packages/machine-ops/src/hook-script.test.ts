@@ -88,16 +88,34 @@ beforeEach(() => {
   writeFileSync(join(bin, 'termhub-hook'), HOOK_SCRIPT);
   // capture-pane prints the fake screen (nothing, and a failure, when there is none); anything else is display-message
   writeFileSync(join(bin, 'tmux'), `#!/bin/sh\ncase "$1" in capture-pane) cat "${pane}" 2>/dev/null ;; *) echo th-abc ;; esac\n`);
-  // a synchronous fake: reads the body from stdin (--data-binary @-) and appends it as one line
-  writeFileSync(join(bin, 'curl'), `#!/bin/sh\ncat >> "${log}"; printf '\\n' >> "${log}"\n`);
+  // A synchronous fake: reads the body from stdin (--data-binary @-) and appends it as one line, in a
+  // single write. Body and newline used to be two appends: a test saw the body, finished, and the
+  // newline's append recreated the log inside the directory afterEach was removing (ENOTEMPTY on CI).
+  writeFileSync(join(bin, 'curl'), `#!/bin/sh\nbody=$(cat); printf '%s\\n' "$body" >> "${log}"\n`);
   for (const f of ['termhub-hook', 'tmux', 'curl']) chmodSync(join(bin, f), 0o755);
 });
-afterEach(() => {
-  // The script posts in the background: a fake curl from the last run may still be appending to
-  // the log while the directory is removed (ENOTEMPTY on CI), so the removal retries briefly.
-  const opts = { recursive: true, force: true, maxRetries: 20, retryDelay: 25 } as const;
-  rmSync(home, opts);
-  rmSync(tmp, opts);
+/**
+ * Removes a test's directory. The script posts in the background, and a test that never waits for a
+ * POST (it only checks stdout, say) can end while that fake curl is still starting: its append can
+ * land in the middle of the removal. So a directory that turns out not to be empty is removed again,
+ * for up to five seconds (curl's own `-m 5`), yielding to the event loop in between.
+ */
+async function removeDir(dir: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOTEMPTY' || Date.now() > deadline) throw e;
+      await sleep(25);
+    }
+  }
+}
+
+afterEach(async () => {
+  await removeDir(home);
+  await removeDir(tmp);
 });
 
 describe('termhub-hook script', () => {
