@@ -906,8 +906,11 @@ it('resumeAfterDecision appends the project grant note when the approval also tr
   await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
 
   expect(repos.chatProjectGrants.findActiveBySourceAction).toHaveBeenCalledWith('c1', 'a1');
-  expect(messages[0].text).toContain('create_task, add_subtasks, update_task ou move_task');
-  expect(messages[0].text.match(/neste projeto/g)).toHaveLength(1);
+  expect(messages[0].text).toContain('permitiu mexer no quadro do projeto app sem confirmar');
+  expect(messages[0].text).toContain('create_task, add_subtasks, update_task ou move_task nesse projeto');
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledWith(['p1'], 'u1');
+  // A card already waiting for a decision still waits: the gate only uses the grant without an open row.
+  expect(messages[0].text).toContain('Cards que já estão aguardando confirmação continuam precisando da decisão dele.');
   // Never delete_task, and text read elsewhere is data, never a reason to change the board.
   expect(messages[0].text).toContain('delete_task e start_agent continuam pedindo');
   expect(messages[0].text).toContain('só mude o que o usuário pediu.');
@@ -918,11 +921,11 @@ it('resumeAfterDecision says nothing about a project grant when none is active, 
   const { service, messages, repos } = build([delta('feito'), done()]);
 
   await service.resumeAfterDecision(user, action());
-  expect(messages[0].text).not.toContain('neste projeto');
+  expect(messages[0].text).not.toContain('mexer no quadro');
 
   vi.mocked(repos.chatProjectGrants.findActiveBySourceAction).mockResolvedValue({ id: 'pg1', project_id: 'p1' } as never);
   await service.resumeAfterDecision(user, action({ id: 'a2', status: 'denied' }));
-  expect(messages[2].text).not.toContain('neste projeto');
+  expect(messages[2].text).not.toContain('mexer no quadro');
 });
 
 it('resumeAfterDecision appends the project note once for a batch, next to the tab note', async () => {
@@ -937,8 +940,40 @@ it('resumeAfterDecision appends the project note once for a batch, next to the t
 
   await service.resumeAfterDecision(user, action());
 
-  expect(messages[0].text.match(/neste projeto/g)).toHaveLength(1);
+  expect(messages[0].text.match(/mexer no quadro/g)).toHaveLength(1);
+  expect(messages[0].text).toContain('mexer no quadro do projeto app sem confirmar');
   expect(messages[0].text.split('os próximos send_input nesta aba')).toHaveLength(2);
+});
+
+it('resumeAfterDecision names every project a batch trusted, once, in one note', async () => {
+  const waiting = [
+    action({ id: 'a2', tool: 'move_task', tab_id: null, args: { task_id: 'k2', status: 'done' }, decided_at: '2026-09-21T12:01:00.000Z' }),
+    action({ id: 'a3', tool: 'update_task', tab_id: null, args: { task_id: 'k3', title: 'x' }, decided_at: '2026-09-21T12:02:00.000Z' }),
+  ];
+  const { service, conversation, messages, repos } = build([delta('feito'), done()], { chatActions: waiting });
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+  const projectOf: Record<string, string> = { a1: 'p1', a2: 'p2', a3: 'p1' };
+  vi.mocked(repos.chatProjectGrants.findActiveBySourceAction).mockImplementation(async (_c: string, id: string) => ({ id: `pg-${id}`, project_id: projectOf[id] }) as never);
+  const rows = [{ id: 'p1', name: 'app' }, { id: 'p2', name: 'site' }];
+  vi.mocked(repos.projects.findByIdsForOwner).mockImplementation(async (ids: string[], owner: string) => (owner === 'u1' ? rows.filter((r) => ids.includes(r.id)) : []) as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
+
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledWith(['p1', 'p2'], 'u1');
+  expect(messages[0].text.match(/mexer no quadro/g)).toHaveLength(1);
+  expect(messages[0].text).toContain('mexer no quadro dos projetos app e site sem confirmar');
+  expect(messages[0].text).toContain('move_task nesses projetos');
+});
+
+it('resumeAfterDecision names a trusted project that no longer resolves as gone', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+  vi.mocked(repos.chatProjectGrants.findActiveBySourceAction).mockResolvedValueOnce({ id: 'pg1', project_id: 'p-gone' } as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
+
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledWith(['p-gone'], 'u1');
+  expect(messages[0].text).toContain('mexer no quadro de um projeto que não existe mais sem confirmar');
+  expect(messages[0].text).toContain('move_task nesse projeto');
 });
 
 const answeredQuestion = (): TabQuestion => ({
