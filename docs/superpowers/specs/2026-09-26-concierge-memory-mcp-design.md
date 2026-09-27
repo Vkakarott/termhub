@@ -60,6 +60,7 @@ All additive and nullable/defaulted: the previous release never reads them (blue
 | `text` | text | ≤ 1200 chars |
 | `trust` | text | `person` \| `derived` |
 | `content_hash` | text | sha256 of `title + text`: re-embed only on change |
+| `source_hash` | text, nullable | a doc file's sha256, so the docs sweeper re-reads only changed files |
 | `embedding` | `vector(384)`, nullable | `Unsupported` in Prisma; raw SQL in the repository |
 | `embed_model` | text, nullable | |
 | `source_at` | timestamp(3) | when the source was written/updated |
@@ -103,8 +104,7 @@ fields.
 - **Gate decisions**: after `decide`/`decideMany` stores approved/denied, the action's `summary`
   (`describeActions`, already owner-scoped) is indexed as `"Usuário aprovou: <summary>"` /
   `"Usuário negou: <summary>"`, trust `derived` (the proposal was the model's).
-- **Docs**: see D15. Per link: `docs.scan` → compare sha256 with the stored items' `content_hash` of
-  chunk 0's `source_id` group → `docs.read` for changed paths (≤ 20 per call) → re-chunk: upsert chunks,
+- **Docs**: see D15. Per link: `docs.scan` → compare each file's sha256 with the stored `source_hash` → `docs.read` for changed paths (≤ 20 per call) → re-chunk: upsert chunks,
   delete chunk indexes past the new count, delete items of files no longer listed.
 - **Embedding**: every writer inserts with `embedding = null`; the memory sweeper (every 10 min, with
   TER-57's `startDecisionSweeper` pattern: `running` guard, `unref`, never throws) embeds 32 at a time
