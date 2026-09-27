@@ -39,7 +39,9 @@ function renderDialog(onSaved = vi.fn()) {
 }
 
 function typeNickname(value: string) {
-  fireEvent.change(screen.getByLabelText(/apelido/i), { target: { value } });
+  // exact 'Apelido' (not /apelido/i): the dialog's own title ("Escolha seu apelido" / "Seu apelido") is
+  // now also findable by label text (TER-199 gave the container an aria-label), and a loose regex would match both.
+  fireEvent.change(screen.getByLabelText('Apelido'), { target: { value } });
 }
 
 describe('NicknameDialog', () => {
@@ -102,7 +104,7 @@ describe('NicknameDialog', () => {
     renderDialog();
 
     expect(screen.getByText('termhub.dev/city/@alice')).toBeTruthy();
-    expect(screen.queryByLabelText(/apelido/i)).toBeNull();
+    expect(screen.queryByLabelText('Apelido')).toBeNull();
     expect(screen.queryByRole('button', { name: /salvar/i })).toBeNull();
     expect(screen.getByText(/não pode ser trocado/i)).toBeTruthy();
   });

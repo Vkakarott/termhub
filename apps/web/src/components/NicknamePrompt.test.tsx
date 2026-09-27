@@ -33,7 +33,9 @@ describe('NicknamePrompt', () => {
   it('asks an account with no nickname yet for one', () => {
     auth.user = { id: 'u1', nickname: null };
     render(<NicknamePrompt />, elsewhere);
-    expect(screen.getByLabelText(/apelido/i)).toBeTruthy();
+    // exact 'Apelido' (not /apelido/i): the dialog's own title, "Escolha seu apelido", is now also
+    // findable by label text (TER-199 gave the container an aria-label), and a loose regex would match both.
+    expect(screen.getByLabelText('Apelido')).toBeTruthy();
   });
 
   it('stays out of the way of an account that already has one', () => {
@@ -62,7 +64,7 @@ describe('NicknamePrompt', () => {
   it('closes once the nickname is claimed', async () => {
     auth.user = { id: 'u1', nickname: null };
     render(<NicknamePrompt />, elsewhere);
-    fireEvent.change(screen.getByLabelText(/apelido/i), { target: { value: 'pedro' } });
+    fireEvent.change(screen.getByLabelText('Apelido'), { target: { value: 'pedro' } });
     fireEvent.click(screen.getByRole('button', { name: /salvar/i }));
     await waitFor(() => expect(setNicknameMock).toHaveBeenCalledWith('pedro'));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
