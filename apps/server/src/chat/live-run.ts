@@ -96,6 +96,10 @@ export class LiveRun {
   get sessionId(): string | null {
     return this.session;
   }
+  /** Whose conversation this process runs. */
+  get userId(): string {
+    return this.deps.userId;
+  }
 
   /** Takes a turn: written now to the live process, or kept for `initialText` before it starts. False
    *  when the input is closed (or the channel refused the line): the caller queues it for the next run. */
@@ -307,6 +311,15 @@ export class LiveRun {
       }
     }
     if (failure) throw failure.error;
+  }
+
+  /** The server is shutting down (spec 2026-09-26 panel §3): every open turn's `done` rejects with `err`
+   *  so no request waits on it, and no row is written — the answers stay open for the instance that
+   *  resumes them. */
+  rejectOpen(err: unknown): void {
+    this.inputOpen = false;
+    const cur = this.current;
+    for (const t of [...(cur?.turn ? [cur.turn] : []), ...(cur?.merged ?? []), ...this.waiting]) t.settle.reject(err);
   }
 
   /** Nothing ran and nothing will (a setup failure): the answers go, every open turn rejects. */

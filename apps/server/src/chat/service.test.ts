@@ -228,6 +228,16 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       Object.assign(r, { instance_id: to, released_at: null, heartbeat_at: new Date().toISOString() });
       return true;
     }),
+    findResumable: vi.fn(async (conversationId: string, instanceId: string, staleBefore: Date) => {
+      const r = liveRunsStore.get(conversationId);
+      return r && r.instance_id !== instanceId && resumable(r, staleBefore) ? { ...r } : null;
+    }),
+    handBack: vi.fn(async (conversationId: string, from: string, releasedAt: Date) => {
+      const r = liveRunsStore.get(conversationId);
+      if (!r || r.instance_id !== from) return false;
+      Object.assign(r, { instance_id: 'released', released_at: releasedAt.toISOString() });
+      return true;
+    }),
     delete: vi.fn(async (conversationId: string, instanceId: string) => {
       if (liveRunsStore.get(conversationId)?.instance_id === instanceId) liveRunsStore.delete(conversationId);
     }),
@@ -2130,7 +2140,7 @@ describe('resume (spec 2026-09-26 panel §3)', () => {
 
   it('suspendAll releases the open turns, interrupts the subagents, and the end fails nothing', async () => {
     const { service, lr, liveRunsStore, messages, subagentsStore } = streamed();
-    await service.start(user, 'um');
+    const started = await service.start(user, 'um');
     const run = await runAt(lr, 0);
     run.push(replayOf(run.input.text.trim()));
     run.push(taskStarted('task1', 'tu1', 'Buscar CI'));
@@ -2142,7 +2152,8 @@ describe('resume (spec 2026-09-26 panel §3)', () => {
     expect(subagentsStore[0].status).toBe('interrupted');
 
     run.end();
-    await settled();
+    // Whoever waits on the turn is answered now; the row and the answer stay open for the resume.
+    await expect(started.done).rejects.toMatchObject({ statusCode: 503, code: 'SERVER_RESTARTING' });
     expect(messages.find((m) => m.id === 'm2')).toMatchObject({ text: '', error_code: null });
     expect(liveRunsStore.get('c1')?.released_at).not.toBeNull();
   });
@@ -2156,9 +2167,10 @@ describe('resume (spec 2026-09-26 panel §3)', () => {
     run.push(done()); // nothing in the background: the input ends
     await first.done;
     await settled();
-    await service.start(user, 'dois'); // queued behind the closing process
+    const queued = await service.start(user, 'dois'); // queued behind the closing process
 
     await service.suspendAll();
+    await expect(queued.done).rejects.toMatchObject({ code: 'SERVER_RESTARTING' });
     expect(liveRunsStore.get('c1')).toMatchObject({ released_at: expect.any(String), turns: [{ question_id: 'm3', answer_id: 'm4', text: 'dois' }] });
 
     run.end();
@@ -2274,22 +2286,114 @@ describe('resume (spec 2026-09-26 panel §3)', () => {
   });
 });
 
-describe('resume that fails before the run starts', () => {
-  it('closes the open answers with RUNNER_FAILED and drops the row instead of keeping it for ever', async () => {
-    const built = build([], { streaming: true });
+describe('resume: fix round 1', () => {
+  function streamed(opts: Parameters<typeof build>[1] = {}) {
+    const built = build([], { streaming: true, ...opts });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    return { ...built, lr };
+  }
+  const contentOf = (line: string) => JSON.parse(line).message.content as string;
+  function seed(built: ReturnType<typeof streamed>, releasedAt: Date) {
     built.messages.push({ id: 'q1', role: 'user', text: 'primeira', error_code: null }, { id: 'a1', role: 'assistant', text: '', error_code: null });
-    const now = new Date().toISOString();
-    built.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'old-instance', heartbeat_at: now, released_at: now, turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }], created_at: now });
-    built.chatSubagents.listForPanel.mockRejectedValueOnce(Object.assign(new Error('db down'), { code: 'P1001' }));
+    built.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'old-instance', heartbeat_at: releasedAt.toISOString(), released_at: releasedAt.toISOString(), turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }], created_at: releasedAt.toISOString() });
+  }
+  const dbDown = () => Object.assign(new Error('db down'), { code: 'P1001' });
+  /** Runs `work` with console.error silenced, answering what was logged. */
+  async function quietly(work: () => Promise<void>) {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      await built.service.resumeSweep();
-      expect(errors).toHaveBeenCalledWith('chat: a live run could not be resumed', { conversation_id: 'c1', error: 'P1001' });
+      await work();
+      return errors.mock.calls.map((c) => c[0] as string);
     } finally {
       errors.mockRestore();
     }
+  }
+
+  it('a message sent before any sweep takes the released row over: note, old turns, then the new one', async () => {
+    const built = streamed({ subagents: [{ id: 'sub1', conversation_id: 'c1', task_id: 'k1', tool_use_id: 'tu1', description: 'Buscar CI', subagent_type: null, status: 'interrupted', started_at: '2026-09-26T12:00:00.000Z', ended_at: '2026-09-26T12:01:00.000Z' }] });
+    seed(built, new Date());
+    const started = await built.service.start(user, 'nova');
+    const run = await runAt(built.lr, 0);
+    const lines = run.input.text.trim().split('\n');
+    expect(lines).toHaveLength(3);
+    expect(contentOf(lines[0])).toContain('«Buscar CI»');
+    expect(contentOf(lines[0])).toContain('A mensagem a seguir');
+    expect(lines.slice(1).map(contentOf)).toEqual(['primeira', 'nova']);
+    await vi.waitFor(() =>
+      expect(built.liveRunsStore.get('c1')).toMatchObject({
+        instance_id: built.service.instanceId,
+        turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }, { question_id: started.user_message_id, answer_id: started.assistant_message_id, text: 'nova' }],
+      }),
+    );
+    run.push(replayOf(lines[1]));
+    run.push(delta('r1'));
+    run.push(done());
+    run.push(replayOf(lines[2]));
+    run.push(delta('r2'));
+    run.push(done());
+    expect((await started.done).text).toBe('r2');
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ text: 'r1', error_code: null });
+    expect(built.lr.runs).toHaveLength(1);
+    run.end();
+  });
+
+  it('a resume that fails inside the window hands the row back, and a later sweep resumes it', async () => {
+    const built = streamed();
+    const releasedAt = new Date(Date.now() - 60_000);
+    seed(built, releasedAt);
+    built.chatSubagents.listForPanel.mockRejectedValueOnce(dbDown());
+    const logged = await quietly(() => built.service.resumeSweep());
+    expect(logged).toContain('chat: a live run could not be resumed');
+    expect(built.runner.run).not.toHaveBeenCalled();
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ text: '', error_code: null });
+    // Back to every instance, with its original release time (the window is not reset).
+    expect(built.liveRunsStore.get('c1')).toMatchObject({ instance_id: 'released', released_at: releasedAt.toISOString() });
+
+    await built.service.resumeSweep(); // the same instance picks it up again
+    const run = await runAt(built.lr, 0);
+    expect(run.input.text.trim().split('\n').map(contentOf).slice(1)).toEqual(['primeira']);
+    run.end();
+  });
+
+  it('a resume that fails past the window gives up: RUNNER_FAILED, row deleted', async () => {
+    const built = streamed();
+    seed(built, new Date(Date.now() - RESUME_WINDOW_MS - 60_000));
+    built.chatSubagents.listForPanel.mockRejectedValueOnce(dbDown());
+    await quietly(() => built.service.resumeSweep());
     expect(built.runner.run).not.toHaveBeenCalled();
     expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ error_code: 'RUNNER_FAILED' });
     expect(built.liveRunsStore.has('c1')).toBe(false);
+  });
+
+  it('a give-up that fails hands the row back with its original release time', async () => {
+    const built = streamed({ host: { capabilities: null } });
+    const releasedAt = new Date(Date.now() - RESUME_WINDOW_MS - 60_000);
+    seed(built, releasedAt);
+    built.chat.findMessagesByIds.mockRejectedValueOnce(dbDown());
+    await quietly(() => built.service.resumeSweep());
+    expect(built.liveRunsStore.get('c1')).toMatchObject({ instance_id: 'released', released_at: releasedAt.toISOString() });
+    await built.service.resumeSweep(); // gives up for good this time
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ error_code: 'HOST_GONE' });
+    expect(built.liveRunsStore.has('c1')).toBe(false);
+  });
+
+  it('a message after suspendAll is refused with 503 and nothing is stored', async () => {
+    const { service, messages, chatActions } = streamed({ chatActions: [action()] });
+    await service.suspendAll();
+    await expect(service.start(user, 'oi')).rejects.toMatchObject({ statusCode: 503, code: 'SERVER_RESTARTING' });
+    await expect(service.resumeAfterDecision(user, action())).rejects.toMatchObject({ statusCode: 503, code: 'SERVER_RESTARTING' });
+    expect(messages).toHaveLength(0);
+    expect(chatActions.markInjectedMany).not.toHaveBeenCalled();
+  });
+
+  it('a lost claim neither drains a decision nor launches anything here', async () => {
+    const built = streamed({ chatActions: [action()] });
+    seed(built, new Date());
+    built.chatLiveRuns.claim.mockResolvedValueOnce(false);
+    await built.service.resumeSweep();
+    await settled();
+    expect(built.runner.run).not.toHaveBeenCalled();
+    expect(built.chatActions.markInjectedMany).not.toHaveBeenCalled();
   });
 });

@@ -22,6 +22,9 @@ export interface ChatLiveRun {
   created_at: string;
 }
 
+/** The owner of a row handed back after a failed resume: no instance ever has this id. */
+export const RELEASED_INSTANCE = 'released';
+
 export interface SaveLiveRunInput {
   conversation_id: string;
   user_id: string;
@@ -120,6 +123,33 @@ export class ChatLiveRunsRepository {
         OR: [{ releasedAt: { not: null } }, { heartbeatAt: { lt: staleBefore } }],
       },
       data: { instanceId: toInstance, releasedAt: null, heartbeatAt: new Date() },
+    });
+    return count === 1;
+  }
+
+  /** `listResumable` for one conversation: its row when another instance released it or left it stale,
+   *  else null — what a run about to start on this instance must take over instead of overwriting. */
+  async findResumable(conversationId: string, instanceId: string, staleBefore: Date): Promise<ChatLiveRun | null> {
+    const row = await this.db.chatLiveRun.findFirst({
+      where: {
+        conversationId,
+        instanceId: { not: instanceId },
+        OR: [{ releasedAt: { not: null } }, { heartbeatAt: { lt: staleBefore } }],
+      },
+    });
+    return row ? mapLiveRun(row) : null;
+  }
+
+  /**
+   * Gives a claimed row back to every instance — this one included — after its resume failed: it moves
+   * to `RELEASED_INSTANCE`, an id no live instance has, so `listResumable` lists it to all of them.
+   * `releasedAt` is the row's original release (or last heartbeat), never now: a failure must not reset
+   * the window after which its turns are given up. Conditional on still owning it; false otherwise.
+   */
+  async handBack(conversationId: string, fromInstance: string, releasedAt: Date): Promise<boolean> {
+    const { count } = await this.db.chatLiveRun.updateMany({
+      where: { conversationId, instanceId: fromInstance },
+      data: { instanceId: RELEASED_INSTANCE, releasedAt },
     });
     return count === 1;
   }

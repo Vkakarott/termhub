@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { ChatRepository } from './chat.js';
-import { ChatLiveRunsRepository } from './chat-live-runs.js';
+import { ChatLiveRunsRepository, RELEASED_INSTANCE } from './chat-live-runs.js';
 
 describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatLiveRunsRepository (Postgres)', () => {
   let db: PrismaClient;
@@ -49,5 +49,22 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatLiveRunsRepository (P
     await repo.save({ conversation_id: conv, user_id: userId, instance_id: 'A', turns: [] });
     await db.chatLiveRun.update({ where: { conversationId: conv }, data: { heartbeatAt: new Date(Date.now() - 120_000) } });
     expect(await repo.listResumable('B', new Date(Date.now() - 90_000))).toHaveLength(1);
+  });
+
+  it('finds one conversation\'s resumable row, and hands a claimed row back with its original release time', async () => {
+    await repo.save({ conversation_id: conv, user_id: userId, instance_id: 'A', turns: [] });
+    const staleBefore = new Date(Date.now() - 90_000);
+    expect(await repo.findResumable(conv, 'B', staleBefore)).toBeNull(); // fresh, not released
+    await repo.release('A');
+    const row = (await repo.findResumable(conv, 'B', staleBefore))!;
+    expect(row.instance_id).toBe('A');
+    expect(await repo.findResumable(conv, 'A', staleBefore)).toBeNull(); // never its own
+    expect(await repo.claim(conv, 'A', 'B', staleBefore)).toBe(true);
+    const original = new Date(row.released_at!);
+    expect(await repo.handBack(conv, 'C', original)).toBe(false); // not C's
+    expect(await repo.handBack(conv, 'B', original)).toBe(true);
+    const [back] = await repo.listResumable('B', staleBefore); // every instance, the one that failed included
+    expect(back).toMatchObject({ instance_id: RELEASED_INSTANCE, released_at: original.toISOString() });
+    await db.chatLiveRun.deleteMany({ where: { conversationId: conv } });
   });
 });
