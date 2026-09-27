@@ -1,5 +1,8 @@
 import type { ChannelClosedReason } from '../agent/connection.js';
 
+/** Status of a subagent task in the CLI. */
+export type SubagentStatus = 'running' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+
 /** What the chat cares about in one `stream-json` line. Everything else is ignored on purpose:
  * the CLI's frame set grows, and an unknown frame must never break a conversation. */
 export type ChatFrame =
@@ -24,7 +27,15 @@ export type ChatFrame =
    *  `uuid` the server gave it, which is how an answer is matched to its question. */
   | { type: 'turn_started'; uuid: string }
   /** How many background subagents the session has now (`background_tasks_changed`). */
-  | { type: 'background'; count: number };
+  | { type: 'background'; count: number }
+  /** A subagent task was started. Carries the description the subagent's launcher provided, capped at 200 chars. */
+  | { type: 'subagent_started'; task_id: string; tool_use_id: string; description: string; subagent_type: string | null }
+  /** A subagent task's status changed to a terminal state. */
+  | { type: 'subagent_status'; task_id: string; status: 'completed' | 'failed' | 'stopped' }
+  /** A subagent used a termhub MCP tool (how a gated proposal is traced back to the subagent that made it). */
+  | { type: 'subagent_tool'; parent_tool_use_id: string; tool_use_id: string; tool: string }
+  /** A control request completed or failed. */
+  | { type: 'control_response'; request_id: string; ok: boolean };
 
 /**
  * Every label a runner may end a failed run with: the container's `FailureReason`, the protocol's
@@ -56,6 +67,13 @@ export type ChatFailureReason = (typeof REASONS)[number];
 export type ChatErrorCode = 'TOKEN_FAILED' | 'RUNNER_FAILED' | Uppercase<ChatFailureReason> | null;
 
 export const codeForReason = (reason?: ChatFailureReason): ChatErrorCode => (reason ? (reason.toUpperCase() as Uppercase<ChatFailureReason>) : 'RUNNER_FAILED');
+
+/** Maps a CLI task status to a subagent-terminal status, or returns null if it is not a terminal state. */
+export function cliTaskStatus(raw: unknown): 'completed' | 'failed' | 'stopped' | null {
+  if (raw === 'completed' || raw === 'failed') return raw;
+  if (raw === 'killed' || raw === 'stopped' || raw === 'cancelled') return 'stopped';
+  return null;
+}
 
 /**
  * …and the other half of that drift, which cost this branch its first review finding: a label added to
@@ -90,7 +108,16 @@ export function parseFrame(line: string): ChatFrame | null {
   // A subagent's own frames (its text, its tool calls) are its business: the person hears what the
   // concierge relays, not the subagent's raw work. Its launch and its notification are the
   // concierge's own frames and still go through.
-  if (typeof f.parent_tool_use_id === 'string') return null;
+  if (typeof f.parent_tool_use_id === 'string') {
+    // A subagent's own frames stay out of the chat. Only its termhub tool calls are read: they are
+    // how a gated proposal is traced back to the subagent that made it (spec 2026-09-26 panel §5.1).
+    if (type !== 'assistant') return null;
+    const content = (f.message as { content?: unknown[] } | undefined)?.content ?? [];
+    for (const block of content as { type?: string; id?: string; name?: string }[]) {
+      if (block.type === 'tool_use' && block.id && block.name?.startsWith('mcp__termhub__')) return { type: 'subagent_tool', parent_tool_use_id: f.parent_tool_use_id, tool_use_id: block.id, tool: toolName(block.name) };
+    }
+    return null;
+  }
 
   if (type === 'stream_event') {
     const event = f.event as { type?: string; delta?: { type?: string; text?: string } } | undefined;
@@ -111,6 +138,19 @@ export function parseFrame(line: string): ChatFrame | null {
       if (block.type === 'tool_result' && block.tool_use_id) return { type: 'action_result', tool_use_id: block.tool_use_id, ok: block.is_error !== true };
     }
     return null;
+  }
+  if (type === 'system' && f.subtype === 'task_started') {
+    if (typeof f.task_id !== 'string' || typeof f.tool_use_id !== 'string') return null;
+    return { type: 'subagent_started', task_id: f.task_id, tool_use_id: f.tool_use_id, description: String(f.description ?? '').slice(0, 200), subagent_type: typeof f.subagent_type === 'string' ? f.subagent_type : null };
+  }
+  if (type === 'system' && (f.subtype === 'task_updated' || f.subtype === 'task_notification')) {
+    const raw = f.subtype === 'task_updated' ? (f.patch as { status?: unknown } | undefined)?.status : f.status;
+    const status = cliTaskStatus(raw);
+    return typeof f.task_id === 'string' && status ? { type: 'subagent_status', task_id: f.task_id, status } : null;
+  }
+  if (type === 'control_response') {
+    const r = f.response as { subtype?: unknown; request_id?: unknown } | undefined;
+    return typeof r?.request_id === 'string' ? { type: 'control_response', request_id: r.request_id, ok: r.subtype === 'success' } : null;
   }
   if (type === 'system' && f.subtype === 'background_tasks_changed') return { type: 'background', count: Array.isArray(f.tasks) ? f.tasks.length : 0 };
   if (type === 'result') {
