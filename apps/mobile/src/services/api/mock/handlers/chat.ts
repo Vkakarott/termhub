@@ -24,11 +24,12 @@ import {
   type TChatHostState,
   type TChatMemory,
   type TChatProjectGrant,
+  type TSubagentView,
   type TTabQuestion,
   type TTabSuggestion,
 } from '../../contract';
 import type { MockRouter } from '../router';
-import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockProjectGrant, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
+import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockProjectGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
 import { pushConfirmationNotification, pushReplyNotification } from './notifications';
 
 const USER_ID = 'u1';
@@ -266,10 +267,30 @@ function createTabSuggestion(state: MockState, now: number, conversationId: stri
   return suggestion;
 }
 
+// --- subagents panel (spec 2026-09-26 panel §4) -------------------------------------------------
+
+/** The wire shape of a subagent row (the server's `SubagentView`). */
+function subagentView(s: MockSubagent): TSubagentView {
+  const { conversation_id: _conversation, ...view } = s;
+  return view;
+}
+
+function subagentEvent(s: MockSubagent): TChatEvent {
+  return { type: 'subagent', user_id: USER_ID, conversation_id: s.conversation_id, subagent: subagentView(s) };
+}
+
+/** The canned subagent a `subagente` message starts running — the mock's stand-in for the concierge
+ * spawning one, `stepMs` before the reply that names it (`scheduleStream`'s own timing). */
+function createSubagent(state: MockState, now: number, conversationId: string): MockSubagent {
+  const subagent: MockSubagent = { id: randomId(10), conversation_id: conversationId, description: 'Buscar CI', subagent_type: 'general-purpose', status: 'running', started_at: new Date(now).toISOString(), ended_at: null };
+  state.subagents.push(subagent);
+  return subagent;
+}
+
 // --- the canned reply and its streaming (ruling 3) ----------------------------------------------
 
 interface AnswerOutcome {
-  kind: 'normal' | 'confirmation' | 'error' | 'tab_question' | 'tab_permission' | 'tab_suggestion';
+  kind: 'normal' | 'confirmation' | 'error' | 'tab_question' | 'tab_permission' | 'tab_suggestion' | 'subagent';
   text: string;
 }
 
@@ -283,6 +304,7 @@ function pickAnswer(text: string): AnswerOutcome {
   if (/pergunta/.test(text)) return { kind: 'tab_question', text: 'A aba api tem uma pergunta para você — responda no card.' };
   if (/permiss/.test(text)) return { kind: 'tab_permission', text: 'A aba api pede permissão — responda no card.' };
   if (/sugest/.test(text)) return { kind: 'tab_suggestion', text: 'A aba api sugere um próximo passo — veja o card.' };
+  if (/subagente/.test(text)) return { kind: 'subagent', text: 'Chamei uma subagente para isso — acompanhe no painel.' };
   if (/test|teste/.test(text)) return { kind: 'normal', text: 'Rodei `npm test` no jarvis: 1066 testes passaram, 137 pulados. Nada quebrou.' };
   if (/deploy/.test(text)) return { kind: 'normal', text: 'O último deploy foi há 2 h, verde. Quer que eu dispare outro?' };
   if (/status/.test(text)) return { kind: 'normal', text: 'Duas abas trabalhando, uma esperando você: a aba api pediu para rodar os testes.' };
@@ -420,6 +442,11 @@ function scheduleStream(o: StreamOptions): void {
       if (outcome.kind === 'tab_suggestion') {
         const suggestion = createTabSuggestion(o.state, o.now(), o.conversationId);
         broadcast(o.state, { type: 'tab_suggestion', user_id: USER_ID, conversation_id: o.conversationId, suggestion: tabSuggestionView(suggestion) });
+      }
+
+      if (outcome.kind === 'subagent') {
+        const subagent = createSubagent(o.state, o.now(), o.conversationId);
+        broadcast(o.state, subagentEvent(subagent));
       }
 
       const chunks = chunkText(outcome.text);
@@ -576,6 +603,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
         project_grants: activeProjectGrantsFor(state, conversation.id, ctx.now()),
         tab_questions: state.tabQuestions.filter((q) => q.conversation_id === conversation.id).map(tabQuestionView),
         tab_suggestions: state.tabSuggestions.filter((s) => s.conversation_id === conversation.id).map(tabSuggestionView),
+        subagents: state.subagents.filter((s) => s.conversation_id === conversation.id).map(subagentView),
         host: hostFor(conversation),
       },
     };
@@ -912,6 +940,29 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       broadcast(state, { type: 'tab_suggestion_closed', user_id: USER_ID, conversation_id: suggestion.conversation_id, suggestion: tabSuggestionView(suggestion) });
     }
     return { status: 200, body: { tab_suggestion: tabSuggestionView(suggestion) } };
+  });
+
+  /**
+   * "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4): 404 unknown, 409 `SUBAGENT_NOT_RUNNING`
+   * for a row already at rest. The mock has no live CLI process to ask, so it never answers
+   * `SUBAGENT_GONE`: the row always settles to `stopped` after the same `stepMs` every other canned
+   * step takes, broadcasting `subagent` twice (`stopping`, then `stopped`) like the real cancel does
+   * (`stopping` then the CLI's own confirmation).
+   */
+  router.route('POST', '/api/m/v1/chat/subagents/:id/cancel', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
+    const subagent = state.subagents.find((s) => s.id === ctx.params.id);
+    if (!subagent) throw new WireError(404, 'NOT_FOUND', 'Subagente não encontrado.');
+    if (subagent.status !== 'running') throw new WireError(409, 'SUBAGENT_NOT_RUNNING', 'Este subagente não está rodando.');
+    subagent.status = 'stopping';
+    broadcast(state, subagentEvent(subagent));
+    setTimeout(() => {
+      if (subagent.status !== 'stopping') return; // already resolved otherwise
+      subagent.status = 'stopped';
+      subagent.ended_at = new Date(ctx.now()).toISOString();
+      broadcast(state, subagentEvent(subagent));
+    }, stepMs);
+    return { status: 202, body: { subagent: subagentView(subagent) } };
   });
 
   // --- "Memória do chat" (spec 2026-09-26 §4.6/§5.2) --------------------------------------------

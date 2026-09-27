@@ -24,6 +24,8 @@ import { ChatRepository } from './chat.js';
 import { ChatActionsRepository } from './chat-actions.js';
 import { ChatGrantsRepository } from './chat-grants.js';
 import { ChatProjectGrantsRepository } from './chat-project-grants.js';
+import { ChatSubagentsRepository } from './chat-subagents.js';
+import { ChatLiveRunsRepository } from './chat-live-runs.js';
 import { TabQuestionsRepository } from './tab-questions.js';
 import { ChatAttachmentsRepository, type ChatAttachmentsRepo } from './chat-attachments.js';
 import { ChatDecisionsRepository } from './chat-decisions.js';
@@ -62,6 +64,8 @@ export interface Repositories {
   chatActions: ChatActionsRepository;
   chatGrants: ChatGrantsRepository;
   chatProjectGrants: ChatProjectGrantsRepository;
+  chatSubagents: ChatSubagentsRepository;
+  chatLiveRuns: ChatLiveRunsRepository;
   tabQuestions: TabQuestionsRepository;
   chatAttachments: ChatAttachmentsRepo;
   chatDecisions: ChatDecisionsRepository;
@@ -102,6 +106,8 @@ export function createRepositories(db: PrismaClient): Repositories {
     chatActions: new ChatActionsRepository(db),
     chatGrants: new ChatGrantsRepository(db),
     chatProjectGrants: new ChatProjectGrantsRepository(db),
+    chatSubagents: new ChatSubagentsRepository(db),
+    chatLiveRuns: new ChatLiveRunsRepository(db),
     tabQuestions: new TabQuestionsRepository(db),
     chatAttachments: new ChatAttachmentsRepository(db),
     chatDecisions: new ChatDecisionsRepository(db),
@@ -124,7 +130,9 @@ export type { Role, PermissionGrant } from './roles.js';
 export type { Upload } from './uploads.js';
 export { SYSTEM_ROLE_IDS } from './roles.js';
 export type { ChatConversation, ChatMessage, ChatRole } from './chat.js';
-export type { ChatAction, ChatActionClass, ChatActionStatus, InsertPendingInput } from './chat-actions.js';
+export type { ChatAction, ChatActionClass, ChatActionStatus, InsertPendingInput, InsertApprovedInput } from './chat-actions.js';
+export type { ChatSubagent, StartSubagentInput } from './chat-subagents.js';
+export type { ChatLiveRun, StoredTurn, SaveLiveRunInput } from './chat-live-runs.js';
 export type { TabQuestion, TabQuestionStatus } from './tab-questions.js';
 export type { AttachmentRow, ChatAttachmentsRepo, CreateAttachmentInput } from './chat-attachments.js';
 export type { ChatDecision, DecisionOption, DecisionAnswer, NewDecision, DecisionNeighbour, AnsweredChoiceRow } from './chat-decisions.js';

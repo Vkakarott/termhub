@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
-import { parseFrame } from './stream.js';
+import { expect, it, describe } from 'vitest';
+import { parseFrame, cliTaskStatus } from './stream.js';
 
 const fixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-basic.ndjson'), 'utf8').split('\n').filter(Boolean);
 const toolCallFixture = readFileSync(join(import.meta.dirname, 'fixtures/stream-tool-call.ndjson'), 'utf8').split('\n').filter(Boolean);
@@ -101,7 +101,7 @@ it('ignores a malformed line instead of throwing', () => {
   expect(parseFrame('[1,2,3]')).toBeNull();
 });
 
-it('reads a streamed run: turns start on their replay, background tasks are counted, subagent frames are ignored', () => {
+it('reads a streamed run: turns start on their replay, background tasks are counted, subagent text/non-termhub frames are ignored', () => {
   const frames = backgroundFixture.map(parseFrame).filter((f) => f !== null);
   expect(frames.filter((f) => f!.type === 'turn_started')).toEqual([
     { type: 'turn_started', uuid: '11111111-1111-4111-8111-111111111111' },
@@ -109,7 +109,7 @@ it('reads a streamed run: turns start on their replay, background tasks are coun
   ]);
   expect(frames.filter((f) => f!.type === 'background').map((f) => (f as { count: number }).count)).toEqual([1, 0]);
   expect(frames.filter((f) => f!.type === 'done')).toHaveLength(3);
-  // The concierge's own call to Agent is an action; the subagent's own frames are nobody's.
+  // The concierge's own call to Agent is an action; the subagent's text and non-termhub tool calls are ignored.
   const actions = frames.filter((f) => f!.type === 'action') as { tool: string }[];
   expect(actions.map((a) => a.tool)).toEqual(['Agent']);
   const text = frames.filter((f) => f!.type === 'text').map((f) => (f as { delta: string }).delta).join('');
@@ -117,8 +117,8 @@ it('reads a streamed run: turns start on their replay, background tasks are coun
   expect(text).not.toMatch(/lighthouse/i);
 });
 
-it('ignores any frame that belongs to a subagent', () => {
-  expect(parseFrame(JSON.stringify({ type: 'assistant', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'tool_use', id: 'x', name: 'mcp__termhub__list_tabs', input: {} }] } }))).toBeNull();
+it('reads a subagent termhub tool call but ignores other subagent frames', () => {
+  expect(parseFrame(JSON.stringify({ type: 'assistant', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'tool_use', id: 'x', name: 'mcp__termhub__list_tabs', input: {} }] } }))).toEqual({ type: 'subagent_tool', parent_tool_use_id: 'toolu_1', tool_use_id: 'x', tool: 'list_tabs' });
   expect(parseFrame(JSON.stringify({ type: 'stream_event', parent_tool_use_id: 'toolu_1', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'oi' } } }))).toBeNull();
 });
 
@@ -130,4 +130,37 @@ it('marks a failed result as the end of one turn, not of the run', () => {
 
 it('reads a replay without a uuid as nothing', () => {
   expect(parseFrame(JSON.stringify({ type: 'user', isReplay: true, message: { role: 'user', content: 'oi' } }))).toBeNull();
+});
+
+describe('subagent frames', () => {
+  it('maps task_started to subagent_started', () => {
+    const line = JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 'af47', tool_use_id: 'toolu_A', description: 'Write text about lighthouses', subagent_type: 'general-purpose', is_backgrounded: true, prompt: 'secret prompt' });
+    expect(parseFrame(line)).toEqual({ type: 'subagent_started', task_id: 'af47', tool_use_id: 'toolu_A', description: 'Write text about lighthouses', subagent_type: 'general-purpose' });
+  });
+  it('caps the description at 200 chars and drops a task_started without ids', () => {
+    const long = 'x'.repeat(300);
+    expect((parseFrame(JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 't', tool_use_id: 'u', description: long })) as { description: string }).description).toHaveLength(200);
+    expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'task_started', description: 'd' }))).toBeNull();
+  });
+  it('maps task_updated and task_notification statuses', () => {
+    expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'task_updated', task_id: 't', patch: { status: 'completed', end_time: 1 } }))).toEqual({ type: 'subagent_status', task_id: 't', status: 'completed' });
+    expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: 't', status: 'killed', summary: 'x' }))).toEqual({ type: 'subagent_status', task_id: 't', status: 'stopped' });
+    for (const s of ['stopped', 'cancelled']) expect(cliTaskStatus(s)).toBe('stopped');
+    expect(cliTaskStatus('failed')).toBe('failed');
+    expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'task_updated', task_id: 't', patch: { status: 'running' } }))).toBeNull();
+    expect(parseFrame(JSON.stringify({ type: 'system', subtype: 'task_updated', task_id: 't', patch: { end_time: 1 } }))).toBeNull();
+  });
+  it('reports a subagent termhub tool call, and nothing else of a subagent', () => {
+    const tool = { type: 'assistant', parent_tool_use_id: 'toolu_A', message: { content: [{ type: 'tool_use', id: 'toolu_B', name: 'mcp__termhub__send_input', input: { text: 'x' } }] } };
+    expect(parseFrame(JSON.stringify(tool))).toEqual({ type: 'subagent_tool', parent_tool_use_id: 'toolu_A', tool_use_id: 'toolu_B', tool: 'send_input' });
+    const other = { ...tool, message: { content: [{ type: 'tool_use', id: 'toolu_C', name: 'Agent', input: {} }] } };
+    expect(parseFrame(JSON.stringify(other))).toBeNull();
+    const text = { type: 'assistant', parent_tool_use_id: 'toolu_A', message: { content: [{ type: 'text', text: 'hi' }] } };
+    expect(parseFrame(JSON.stringify(text))).toBeNull();
+  });
+  it('maps control_response success and error without the error text', () => {
+    expect(parseFrame(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: 'stop-1' } }))).toEqual({ type: 'control_response', request_id: 'stop-1', ok: true });
+    expect(parseFrame(JSON.stringify({ type: 'control_response', response: { subtype: 'error', request_id: 'stop-1', error: 'not supported' } }))).toEqual({ type: 'control_response', request_id: 'stop-1', ok: false });
+    expect(parseFrame(JSON.stringify({ type: 'control_response', response: { subtype: 'success' } }))).toBeNull();
+  });
 });

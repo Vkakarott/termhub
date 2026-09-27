@@ -50,6 +50,8 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
     <li className="chat-enter rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
       {/* Plain text only — never HTML: this sentence can carry a command the model read off a real terminal screen. */}
       <p className="whitespace-pre-wrap text-fg">{action.summary}</p>
+      {/* The subagent whose turn proposed this action (spec 2026-09-26 §4), when there is one. */}
+      {action.subagent && <p className="text-xs text-fg-dim">Pedido pelo subagente «{action.subagent.description}»</p>}
       {action.status === 'pending' ? (
         <div className="mt-2 flex gap-2">
           <button type="button" className="btn-primary" disabled={deciding} onClick={() => onDecide(action.id, 'approve')}>

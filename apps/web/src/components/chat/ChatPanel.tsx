@@ -4,6 +4,7 @@ import { ChatActionCard } from './ChatActionCard';
 import { ChatActionGroup, type BatchDecision } from './ChatActionGroup';
 import { ChatComposer } from './ChatComposer';
 import { ChatHost } from './ChatHost';
+import { ChatSubagents } from './ChatSubagents';
 import { ChatThread } from './ChatThread';
 import { ChatTurn } from './ChatTurn';
 import { TabQuestionCard } from './TabQuestionCard';
@@ -17,10 +18,14 @@ import { mergeMessage } from '../../lib/chat-merge';
 import { chatTimeline, groupPendingActions } from '../../lib/chat-timeline';
 import { activeGrantsLabel } from './grant-list-text';
 import { isGrantActive } from './grant-time';
+import { isActive, upsertSubagent } from '../../lib/subagents';
 import { PROMPT_CHANGED_TEXT, upsertTabQuestion } from './tab-question-text';
 import { SUGGESTION_CHANGED_TEXT, upsertTabSuggestion } from './tab-suggestion-text';
 import { useAuth } from '../../lib/auth';
-import type { AiAccount, ChatAction, ChatAttachment, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, TabQuestion, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
+import type { AiAccount, ChatAction, ChatAttachment, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
+
+/** How often the panel's elapsed labels ("há N min") refresh while it is open. */
+const SUBAGENTS_REFRESH_MS = 30_000;
 
 /**
  * Why the box refuses, one short line per host state — the long version is the card above the thread
@@ -116,6 +121,16 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const [tabSuggestions, setTabSuggestions] = useState<TabSuggestion[]>([]);
   const [busySuggestionId, setBusySuggestionId] = useState<string | null>(null);
   const [suggestionErrors, setSuggestionErrors] = useState<Record<string, string>>({});
+  /** The subagents panel (spec 2026-09-26 §4): sourced from `GET /api/chat` like `actions`, kept live
+   *  by `subagent` events. Recently-ended rows stay for a while (the server's own window), so the list
+   *  can be non-empty with the toolbar button gone — only `active` (running/stopping) counts for that. */
+  const [subagents, setSubagents] = useState<SubagentView[]>([]);
+  /** Ids whose "Cancelar" came back with `subagent_cancel_failed`; cleared once a fresh `subagent` event for that id arrives. */
+  const [cancelFailed, setCancelFailed] = useState<Set<string>>(new Set());
+  /** The panel opens from the toolbar button and stays open across events until closed by hand. */
+  const [subagentsOpen, setSubagentsOpen] = useState(false);
+  /** Refreshed every 30s while the panel is open, so "há N min" keeps moving without a re-render source of its own. */
+  const [subagentsNow, setSubagentsNow] = useState(() => Date.now());
   /** Sends whose POST is still open (it answers once the message is stored). Several can be in flight:
    *  the box never waits for an answer (spec 2026-09-26). */
   const [inFlight, setInFlight] = useState(0);
@@ -184,13 +199,14 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const load = useCallback(async () => {
     // No project = the account-wide chat: called with no argument, because the response must be
     // `request<...>('GET', '/chat')` exactly — a server that predates project chats knows nothing else.
-    const { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions } = projectId ? await api.chat(projectId) : await api.chat();
+    const { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents } = projectId ? await api.chat(projectId) : await api.chat();
     setMessages(messages);
     setActions(actions ?? []);
     setGrants(grants ?? []);
     setProjectGrants(project_grants ?? []);
     setTabQuestions(tab_questions ?? []);
     setTabSuggestions(tab_suggestions ?? []);
+    setSubagents(subagents ?? []);
     setHost(host ?? null);
     setHostAccountId(conversation.ai_account_id ?? null);
     setConversationId(conversation.id);
@@ -242,11 +258,13 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       if (e.type === 'message') setMessages((prev) => mergeMessage(prev, e.message));
       else if (e.type === 'confirmation') {
         // Enriched server-side exactly like GET /api/chat's trail (same summary, same ids): no name
-        // is resolved and no sentence is built here.
+        // is resolved and no sentence is built here. A repeated event for an id already on screen is
+        // the live run telling us which subagent proposed it after the card was already published
+        // with none — merged in, never re-added.
         setActions((prev) =>
           prev.some((a) => a.id === e.action_id)
-            ? prev
-            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary, created_at: e.created_at }],
+            ? prev.map((a) => (a.id === e.action_id && e.subagent ? { ...a, subagent: e.subagent } : a))
+            : [...prev, { id: e.action_id, tool: e.tool, args: e.args, class: e.class, status: 'pending', machine_id: e.machine_id, project_id: e.project_id, tab_id: e.tab_id, summary: e.summary, subagent: e.subagent, created_at: e.created_at }],
         );
       } else if (e.type === 'decision') {
         // Someone answered — possibly in another open tab. Keyed on the action id alone.
@@ -263,7 +281,11 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         // composer's chips, for a file uploaded but not yet sent.
         setMessages((prev) => patchMessageAttachment(prev, e.attachment));
         setAttachmentStatuses((prev) => ({ ...prev, [e.attachment.id]: e.attachment }));
-      }
+      } else if (e.type === 'subagent') {
+        setSubagents((prev) => upsertSubagent(prev, e.subagent));
+        // Whatever this row is now, a stale "Cancelar" failure from before no longer applies.
+        setCancelFailed((prev) => (prev.has(e.subagent.id) ? new Set([...prev].filter((id) => id !== e.subagent.id)) : prev));
+      } else if (e.type === 'subagent_cancel_failed') setCancelFailed((prev) => new Set(prev).add(e.subagent_id));
     },
     [conversationId, mine, push],
   );
@@ -396,6 +418,58 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   }, []);
   const sendSuggestion = useCallback((id: string, text: string) => void actOnSuggestion(id, () => api.sendTabSuggestion(id, text), 'Não foi possível enviar'), [actOnSuggestion]);
   const dismissSuggestion = useCallback((id: string) => void actOnSuggestion(id, () => api.dismissTabSuggestion(id), 'Não foi possível dispensar'), [actOnSuggestion]);
+
+  /**
+   * "Cancelar" on a subagent's row (spec 2026-09-26 §4): a 409 (already at rest) re-reads the trail,
+   * since the server publishes no `subagent` event for that case. Any other failure (404 gone, 5xx, a
+   * dropped connection) gets the same treatment as a real `subagent_cancel_failed`: the row is not
+   * updated (nothing changed), but the click itself did not go through, so it reads that way.
+   */
+  const cancelSubagent = useCallback(
+    async (id: string) => {
+      try {
+        await api.cancelSubagent(id);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) await load();
+        else setCancelFailed((prev) => new Set(prev).add(id));
+      }
+    },
+    [load],
+  );
+  /** Only running/stopping rows count for the toolbar button: an ended one may still sit in the list
+   *  (the server keeps it a while for "levou N min"), but it is not what the button is counting. */
+  const activeSubagents = useMemo(() => subagents.filter(isActive), [subagents]);
+  /** "há N min" keeps moving while the panel is open; closed, there is nobody to refresh it for. It is
+   *  refreshed the moment the panel opens too, or it would show the time of the last open (or mount). */
+  useEffect(() => {
+    if (!subagentsOpen) return;
+    setSubagentsNow(Date.now());
+    const id = setInterval(() => setSubagentsNow(Date.now()), SUBAGENTS_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [subagentsOpen]);
+  /** The toggle button and the popover it opens, so Escape/outside-click can tell "inside" from "outside"
+   *  and hand focus back — same pattern as `ProjectGroupsMenu`. */
+  const subagentsToggleRef = useRef<HTMLButtonElement>(null);
+  const subagentsPanelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!subagentsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setSubagentsOpen(false);
+      subagentsToggleRef.current?.focus();
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (subagentsPanelRef.current?.contains(t) || subagentsToggleRef.current?.contains(t)) return;
+      setSubagentsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+    };
+  }, [subagentsOpen]);
 
   /**
    * Opens the change picker and reads the two halves of the pair, once, on demand: they are only needed
@@ -569,6 +643,9 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       setQuestionErrors({});
       setTabSuggestions([]);
       setSuggestionErrors({});
+      setSubagents([]);
+      setCancelFailed(new Set());
+      setSubagentsOpen(false);
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Não foi possível começar uma nova conversa');
@@ -597,7 +674,22 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
        *  Disabled while an answer is being written (the server would 409) or with nothing yet to reset. */}
       {/* The conversation's trusted tabs used to be a strip above the box; now one link, only while any is
        *  in force (a tab grant or a project grant), to the list in Configurações (spec 2026-09-26 §4.1, §6). */}
-      <div className="flex items-center justify-end gap-1 pt-2">
+      <div className="relative flex items-center justify-end gap-1 pt-2">
+        {/* The subagents panel (spec 2026-09-26 §4): the toggle appears once something is running or
+         *  being cancelled, and — while it is open — stays even after every one of them ended, so the
+         *  panel it opened always has a way to close it again. */}
+        {(activeSubagents.length > 0 || subagentsOpen) && (
+          <button
+            type="button"
+            ref={subagentsToggleRef}
+            className="rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg"
+            aria-expanded={subagentsOpen}
+            aria-controls="chat-subagents-panel"
+            onClick={() => setSubagentsOpen((open) => !open)}
+          >
+            {`Subagentes (${activeSubagents.length})`}
+          </button>
+        )}
         {activeGrantCount > 0 && (
           <Link to="/settings/chat-grants" className="rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg">
             {activeGrantsLabel(activeGrantCount)}
@@ -606,6 +698,17 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         <button type="button" className="rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg disabled:opacity-50" disabled={answering || resetting || messages.length === 0} onClick={() => setConfirmReset(true)}>
           Nova conversa
         </button>
+        {subagentsOpen && (
+          <div
+            id="chat-subagents-panel"
+            ref={subagentsPanelRef}
+            role="dialog"
+            aria-label="Subagentes"
+            className="absolute right-0 top-full z-10 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-bg-1 p-2 shadow-lg"
+          >
+            <ChatSubagents subagents={subagents} failed={cancelFailed} onCancel={cancelSubagent} now={subagentsNow} />
+          </div>
+        )}
       </div>
       <ConfirmDialog
         open={confirmReset}

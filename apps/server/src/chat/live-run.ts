@@ -1,8 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { STREAM_END_INPUT_LINE, streamUserMessageLine } from '@termhub/agent-protocol';
 import type { ChatMessage, ChatRepository } from '../db/repositories/chat.js';
+import type { ChatAction, ChatActionsRepository } from '../db/repositories/chat-actions.js';
+import type { StoredTurn } from '../db/repositories/chat-live-runs.js';
+import { OPEN_STATUSES, type ChatSubagent, type ChatSubagentsRepository } from '../db/repositories/chat-subagents.js';
 import { chatBus } from './bus.js';
-import type { RunStream } from './service.js';
+import { actionClass } from './gate.js';
+import { failureLabel, type RunStream } from './service.js';
 import { codeForReason, parseFrame, type ChatErrorCode } from './stream.js';
+import { subagentOrigins } from './subagent-origin.js';
+import { toSubagentView } from './subagent-view.js';
+
+/** The `request_id` of a `stop_task` control request is this plus the subagent's id: how its
+ *  `control_response` is matched back to the subagent it was about. */
+export const STOP_REQUEST_PREFIX = 'stop-';
 
 /** One message of the person's in a streamed run, from the moment it is written until it is answered. */
 export interface LiveTurn {
@@ -10,7 +21,8 @@ export interface LiveTurn {
   uuid: string;
   /** Written to the CLI: the person's text, with any tab-question context in front. */
   text: string;
-  question: ChatMessage;
+  /** Null only for a turn resumed after a restart whose question row is gone. */
+  question: ChatMessage | null;
   answer: ChatMessage;
   /** Settles `done` of the `StartedRun` this turn was handed back as. */
   settle: { resolve(m: ChatMessage): void; reject(e: unknown): void };
@@ -33,6 +45,14 @@ export interface LiveRunDeps {
   /** The CLI session this run resumes (or will name), updated from the CLI's own frames. */
   sessionId: string | null;
   chat: Pick<ChatRepository, 'addMessage' | 'updateMessage' | 'deleteMessage' | 'setCliSession'>;
+  /** The conversation's subagents (spec 2026-09-26 panel §5.3), kept from the CLI's task frames. */
+  subagents: Pick<ChatSubagentsRepository, 'start' | 'setStatus' | 'interruptRunning'>;
+  chatActions: Pick<ChatActionsRepository, 'setSubagentByToolUse'>;
+  /** Re-publishes the confirmation of actions the gate proposed before the stream said which
+   *  subagent made them (ChatService supplies it). */
+  describeLate?: (actions: ChatAction[]) => Promise<void>;
+  /** Fire-and-forget: the open turns changed (persisted so another instance can resume them). */
+  onTurnsChanged?: (turns: StoredTurn[]) => void;
 }
 
 /**
@@ -53,6 +73,14 @@ export class LiveRun {
   private replayed = false;
   /** The newest question this run took: re-published to make screens re-read when a row is dropped. */
   private lastQuestion: ChatMessage | null = null;
+  /** Subagents this run started, by the CLI's task id and by the Task tool_use_id that launched them. */
+  private subagentsByTask = new Map<string, ChatSubagent>();
+  private subagentsByToolUse = new Map<string, ChatSubagent>();
+  /** Silent lines not replayed yet (uuid → text): the input stays open for them, and a process
+   *  started (or restarted) before their replay gets them first. */
+  private notes = new Map<string, string>();
+  /** Subagents a `stop_task` was written for, until its answer or their final status. */
+  private stopping = new Set<string>();
 
   constructor(private deps: LiveRunDeps) {
     this.session = deps.sessionId;
@@ -68,6 +96,10 @@ export class LiveRun {
   get sessionId(): string | null {
     return this.session;
   }
+  /** Whose conversation this process runs. */
+  get userId(): string {
+    return this.deps.userId;
+  }
 
   /** Takes a turn: written now to the live process, or kept for `initialText` before it starts. False
    *  when the input is closed (or the channel refused the line): the caller queues it for the next run. */
@@ -78,13 +110,60 @@ export class LiveRun {
       this.waiting.pop();
       return false;
     }
-    this.lastQuestion = turn.question;
+    if (turn.question) this.lastQuestion = turn.question;
+    this.turnsChanged();
     return true;
   }
 
-  /** The first input of a process: every turn not yet answered, one line each. */
+  /** A line with no question row and no waiting request (a decision or a tab's answer told to the
+   *  concierge): whatever the CLI says to it becomes a message of its own. Counted as pending until
+   *  its replay, so the input does not close under it. False when the input is closed. */
+  addNote(text: string): boolean {
+    if (!this.inputOpen) return false;
+    const uuid = randomUUID();
+    if (this.stream?.write && !this.stream.write(streamUserMessageLine(text, uuid))) return false;
+    this.notes.set(uuid, text);
+    return true;
+  }
+
+  /** Asks the CLI to stop one background subagent. False when the input is closed or the line was
+   *  refused. The row's status and its event are the caller's; a refusal comes back as a
+   *  `control_response` and is rolled back here. */
+  stopTask(taskId: string, subagentId: string): boolean {
+    if (!this.inputOpen || !this.stream?.write) return false;
+    const line = JSON.stringify({ type: 'control_request', request_id: STOP_REQUEST_PREFIX + subagentId, request: { subtype: 'stop_task', task_id: taskId } });
+    if (!this.stream.write(line)) return false;
+    this.stopping.add(subagentId);
+    return true;
+  }
+
+  /** A stop that failed (refused by the CLI, or never answered in time): back to running, and every
+   *  open screen says it could not cancel. A no-op once the stop settled either way — and only ever
+   *  from `stopping`, so a row something else already settled (a final status, an interruption) is
+   *  left as it is and nobody is told the cancel failed. Never throws. */
+  async rollbackStop(subagentId: string): Promise<void> {
+    if (!this.stopping.delete(subagentId)) return;
+    const { userId, conversationId } = this.deps;
+    let rolledBack = false;
+    await this.bookkeeping(async () => {
+      const row = await this.deps.subagents.setStatus(subagentId, 'running', { from: ['stopping'] });
+      if (!row) return;
+      rolledBack = true;
+      this.remember(row);
+    });
+    if (rolledBack) chatBus.publish({ type: 'subagent_cancel_failed', user_id: userId, conversation_id: conversationId, subagent_id: subagentId });
+  }
+
+  /** The turns still open, in order: the one being answered (and those folded into it), then those waiting. */
+  storedTurns(): StoredTurn[] {
+    const cur = this.current;
+    return [...(cur?.turn ? [cur.turn] : []), ...(cur?.merged ?? []), ...this.waiting].map((t) => ({ question_id: t.question?.id ?? null, answer_id: t.answer.id, text: t.text }));
+  }
+
+  /** The first input of a process: every note not yet replayed, then every turn not yet answered, one line each. */
   initialText(): string {
-    return this.waiting.map((t) => `${streamUserMessageLine(t.text, t.uuid)}\n`).join('');
+    const notes = [...this.notes].map(([uuid, text]) => `${streamUserMessageLine(text, uuid)}\n`);
+    return [...notes, ...this.waiting.map((t) => `${streamUserMessageLine(t.text, t.uuid)}\n`)].join('');
   }
 
   /** Reads one process to its end. Throws what the stream throws (a setup failure is the caller's). */
@@ -98,6 +177,15 @@ export class LiveRun {
         const frame = parseFrame(line);
         if (!frame) continue;
         if (frame.type === 'turn_started') {
+          if (this.notes.delete(frame.uuid)) {
+            // A note: a turn that already said something (or one the CLI started on its own) ends
+            // here, and what the CLI says next goes to a message of its own (`answering`). A person's
+            // turn that has said nothing yet stays current: the reply is still its answer.
+            this.replayed = true;
+            const cur = this.current;
+            if (cur && !(cur.turn && cur.collected === '')) await this.finish(cur, null);
+            continue;
+          }
           const i = this.waiting.findIndex((t) => t.uuid === frame.uuid);
           if (i === -1) continue;
           this.replayed = true;
@@ -111,12 +199,14 @@ export class LiveRun {
           if (prev?.turn && prev.collected === '') {
             this.current = { turn, answer: turn.answer, collected: '', usage: null, merged: [...prev.merged, prev.turn] };
             await this.deps.chat.deleteMessage(prev.answer.id);
-            // Re-publishing the question makes every open screen re-read and drop the deleted answer.
-            chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: prev.turn.question });
+            // Re-publishing a question makes every open screen re-read and drop the deleted answer.
+            const question = prev.turn.question ?? this.lastQuestion;
+            if (question) chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: question });
           } else {
             if (prev) await this.finish(prev, null);
             this.current = { turn, answer: turn.answer, collected: '', usage: null, merged: [] };
           }
+          this.turnsChanged();
         } else if (frame.type === 'text') {
           const a = await this.answering();
           a.collected += frame.delta;
@@ -134,7 +224,7 @@ export class LiveRun {
           }
           // A turn ended and this process never replayed a message: the CLI does not echo the uuids,
           // so no waiting turn can ever be matched. They fail now instead of waiting for the kill.
-          if (!this.replayed && this.waiting.length > 0) await this.failWaiting('RUN_FAILED');
+          if (!this.replayed && (this.waiting.length > 0 || this.notes.size > 0)) await this.failWaiting('RUN_FAILED');
           this.endInputIfIdle();
         } else if (frame.type === 'error') {
           await this.saveSession(frame.session_id);
@@ -148,9 +238,44 @@ export class LiveRun {
         } else if (frame.type === 'background') {
           this.background = frame.count;
           this.endInputIfIdle();
+        } else if (frame.type === 'subagent_started') {
+          await this.bookkeeping(async () => {
+            const row = await this.deps.subagents.start({ conversation_id: this.deps.conversationId, task_id: frame.task_id, tool_use_id: frame.tool_use_id, description: frame.description, subagent_type: frame.subagent_type });
+            this.remember(row);
+          });
+        } else if (frame.type === 'subagent_status') {
+          const known = this.subagentsByTask.get(frame.task_id);
+          if (!known) continue;
+          this.stopping.delete(known.id);
+          await this.bookkeeping(async () => {
+            // From any open state: the CLI's own word beats a cancel still in flight.
+            const row = await this.deps.subagents.setStatus(known.id, frame.status, { from: OPEN_STATUSES });
+            if (row) this.remember(row);
+          });
+        } else if (frame.type === 'subagent_tool') {
+          const parent = this.subagentsByToolUse.get(frame.parent_tool_use_id);
+          if (!parent) continue;
+          // The gate reads this back when the MCP call arrives after this frame; for one that arrived
+          // first, the action it already stored is bound here and its confirmation re-published.
+          subagentOrigins.remember(frame.tool_use_id, { conversationId: this.deps.conversationId, subagentId: parent.id });
+          if (actionClass(frame.tool, {}) === 'read') continue;
+          await this.bookkeeping(async () => {
+            const bound = await this.deps.chatActions.setSubagentByToolUse(this.deps.conversationId, frame.tool_use_id, parent.id);
+            if (bound.length) await this.deps.describeLate?.(bound);
+          });
+        } else if (frame.type === 'control_response') {
+          if (!frame.request_id.startsWith(STOP_REQUEST_PREFIX)) continue;
+          const id = frame.request_id.slice(STOP_REQUEST_PREFIX.length);
+          // Accepted: the task's final status follows as its own frame.
+          if (this.stopping.has(id) && !frame.ok) await this.rollbackStop(id);
         }
       }
     } finally {
+      // Whatever the CLI was running dies with it: nothing will ever report their final status.
+      await this.bookkeeping(async () => {
+        for (const row of await this.deps.subagents.interruptRunning(this.deps.conversationId)) this.remember(row);
+      });
+      this.stopping.clear();
       this.stream = null;
       this.inputOpen = false;
     }
@@ -173,6 +298,7 @@ export class LiveRun {
     this.background = 0;
     this.inputOpen = true;
     this.session = null;
+    this.turnsChanged();
     await this.deps.chat.setCliSession(this.deps.conversationId, null);
   }
 
@@ -193,6 +319,15 @@ export class LiveRun {
     if (failure) throw failure.error;
   }
 
+  /** The server is shutting down (spec 2026-09-26 panel §3): every open turn's `done` rejects with `err`
+   *  so no request waits on it, and no row is written — the answers stay open for the instance that
+   *  resumes them. */
+  rejectOpen(err: unknown): void {
+    this.inputOpen = false;
+    const cur = this.current;
+    for (const t of [...(cur?.turn ? [cur.turn] : []), ...(cur?.merged ?? []), ...this.waiting]) t.settle.reject(err);
+  }
+
   /** Nothing ran and nothing will (a setup failure): the answers go, every open turn rejects. */
   async abandon(err: unknown): Promise<void> {
     this.inputOpen = false;
@@ -207,7 +342,7 @@ export class LiveRun {
         await this.deps.chat.deleteMessage(t.answer.id);
         // Re-publishing the question makes every open screen re-read, which is how they learn the
         // answer row is gone (the bus has no "removed" event).
-        chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: t.question });
+        if (t.question) chatBus.publish({ type: 'message', user_id: this.deps.userId, conversation_id: this.deps.conversationId, message: t.question });
       } catch (e) {
         failure ??= { error: e };
       } finally {
@@ -228,6 +363,14 @@ export class LiveRun {
   }
 
   private async finish(a: Answering, code: ChatErrorCode): Promise<void> {
+    try {
+      await this.finishTurn(a, code);
+    } finally {
+      this.turnsChanged();
+    }
+  }
+
+  private async finishTurn(a: Answering, code: ChatErrorCode): Promise<void> {
     if (this.current === a) this.current = null;
     // A turn the CLI started on its own that said nothing (a tool call, then the next replay or its
     // result): an empty "ok" row reads as a failed answer, so it goes. Nobody waits on it.
@@ -262,6 +405,7 @@ export class LiveRun {
   /** Fails every waiting turn with `code` and closes the input: nothing written here will be answered. */
   private async failWaiting(code: ChatErrorCode): Promise<void> {
     this.inputOpen = false;
+    this.notes.clear();
     this.stream?.write?.(STREAM_END_INPUT_LINE);
     let failure: { error: unknown } | null = null;
     for (const t of this.waiting.splice(0)) {
@@ -277,8 +421,32 @@ export class LiveRun {
   /** Nothing to answer and nothing in the background: end the input. The CLI still runs whatever it
    *  has (a notification turn that is on its way), and a message that comes later goes to the next run. */
   private endInputIfIdle(): void {
-    if (!this.inputOpen || this.current || this.waiting.length > 0 || this.background > 0) return;
+    if (!this.inputOpen || this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0) return;
     this.inputOpen = false;
     this.stream?.write?.(STREAM_END_INPUT_LINE);
+  }
+
+  /** Keeps a subagent row by task and by launching tool_use_id, and tells every open screen. */
+  private remember(row: ChatSubagent): void {
+    this.subagentsByTask.set(row.task_id, row);
+    this.subagentsByToolUse.set(row.tool_use_id, row);
+    chatBus.publish({ type: 'subagent', user_id: this.deps.userId, conversation_id: this.deps.conversationId, subagent: toSubagentView(row) });
+  }
+
+  /** Subagent bookkeeping never breaks the stream nor fails a turn: a failure is logged by its label. */
+  private async bookkeeping(work: () => Promise<void>): Promise<void> {
+    try {
+      await work();
+    } catch (err) {
+      console.error('chat: subagent bookkeeping failed', { conversation_id: this.deps.conversationId, error: failureLabel(err) });
+    }
+  }
+
+  private turnsChanged(): void {
+    try {
+      this.deps.onTurnsChanged?.(this.storedTurns());
+    } catch (err) {
+      console.error('chat: live run turns could not be reported', { conversation_id: this.deps.conversationId, error: failureLabel(err) });
+    }
   }
 }

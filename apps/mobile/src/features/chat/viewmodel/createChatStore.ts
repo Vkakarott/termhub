@@ -26,7 +26,7 @@ import { CHAT_MSG } from '../model/messages';
 import { emptyFold, pruneLive, type LiveFold } from '../model/live';
 import type { PickedFile } from './attachments';
 import { createThrottledStorage } from './throttled-storage';
-import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, TabQuestion, TabSuggestion } from '../model/types';
+import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from '../model/types';
 
 /** `approve_tab` approves the card *and* trusts its tab for send_input ("Permitir sempre nesta aba");
  * `approve_project` approves it *and* trusts its project's board ("Permitir sempre neste projeto"). */
@@ -54,6 +54,12 @@ export interface ConversationSlot {
   tabQuestions: TabQuestion[];
   /** The tabs' suggestions pushed into this conversation. */
   tabSuggestions: TabSuggestion[];
+  /** The subagents panel of this conversation, newest first (spec 2026-09-26 panel §4). */
+  subagents: SubagentView[];
+  /** Ids whose "Cancelar" came back with `subagent_cancel_failed`, or any other cancel failure (a
+   * 404, a 5xx, a dropped connection) marked the same way — cleared once a fresh `subagent` event
+   * for that id arrives. */
+  cancelFailed: string[];
   host: ChatHostState | null;
   /** A `GET chat` answered since this store started (a persisted slot is shown, but not loaded). */
   loaded: boolean;
@@ -122,6 +128,9 @@ export interface ChatState {
   sendTabSuggestion(suggestionId: string, text: string): Promise<void>;
   /** "Dispensar": the card closes; the tab is not touched. */
   dismissTabSuggestion(suggestionId: string): Promise<void>;
+  /** "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4) — no PIN. A 409 (already at rest, or
+   * its process gone) re-reads the trail; any other failure marks that row `cancelFailed`. */
+  cancelSubagent(subagentId: string): Promise<void>;
   /** "Esquecer esta decisão" on a tab question's suggestion line (chat decision memory spec
    * 2026-09-26 §5.1): the card itself clears its own pre-selection regardless of the outcome, so a
    * session-ending error is the only thing worth reacting to here. */
@@ -144,7 +153,7 @@ export interface ChatState {
 
 type Data = Omit<ChatState, { [K in keyof ChatState]: ChatState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatState]>;
 
-type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'projectGrants' | 'tabQuestions' | 'tabSuggestions' | 'host'>;
+type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'projectGrants' | 'tabQuestions' | 'tabSuggestions' | 'subagents' | 'host'>;
 type Persisted = { projects: TChatProjectItem[]; conversations: Record<string, PersistedSlot> };
 
 const initialData = (): Data => ({
@@ -166,7 +175,7 @@ const initialData = (): Data => ({
   attachmentStatuses: {},
 });
 
-const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], host: null, loaded: false, error: null });
+const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [], host: null, loaded: false, error: null });
 const keyOf = (projectId: string | null): string => projectId ?? '';
 const projectOf = (key: string): string | null => (key === '' ? null : key);
 
@@ -245,6 +254,7 @@ export function createChatStore(deps: ChatDeps) {
               projectGrants: res.project_grants,
               tabQuestions: res.tab_questions,
               tabSuggestions: res.tab_suggestions,
+              subagents: res.subagents,
               host: res.host,
               loaded: true,
               error: null,
@@ -274,6 +284,8 @@ export function createChatStore(deps: ChatDeps) {
             projectGrants: current.projectGrants,
             tabQuestions: current.tabQuestions,
             tabSuggestions: current.tabSuggestions,
+            subagents: current.subagents,
+            cancelFailed: current.cancelFailed,
           };
           const slice = applyEvent(before, e);
           // One `set` per event, touching only what changed: a delta used to cost two (the slot,
@@ -285,7 +297,9 @@ export function createChatStore(deps: ChatDeps) {
             slice.grants !== before.grants ||
             slice.projectGrants !== before.projectGrants ||
             slice.tabQuestions !== before.tabQuestions ||
-            slice.tabSuggestions !== before.tabSuggestions;
+            slice.tabSuggestions !== before.tabSuggestions ||
+            slice.subagents !== before.subagents ||
+            slice.cancelFailed !== before.cancelFailed;
           if (liveChanged || slotChanged) {
             set((s) => ({
               ...(liveChanged ? { live: slice.live } : {}),
@@ -301,6 +315,8 @@ export function createChatStore(deps: ChatDeps) {
                         projectGrants: slice.projectGrants,
                         tabQuestions: slice.tabQuestions,
                         tabSuggestions: slice.tabSuggestions,
+                        subagents: slice.subagents,
+                        cancelFailed: slice.cancelFailed,
                       },
                     },
                   }
@@ -631,6 +647,33 @@ export function createChatStore(deps: ChatDeps) {
             return actOnSuggestion(suggestionId, () => api.dismissTabSuggestion(session().auth(), suggestionId));
           },
 
+          /**
+           * "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4): a 409 (`SUBAGENT_NOT_RUNNING`
+           * or `SUBAGENT_GONE` — already at rest, or its process gone) re-reads the trail, since the
+           * server publishes no `subagent` event for that exact click. Any other failure (404 gone,
+           * 5xx, a dropped connection) marks the row the same way a real `subagent_cancel_failed`
+           * event would — the click did not go through, so it reads that way; the row itself is not
+           * changed (nothing did). Real-time updates (the row turning `stopping`, or a genuine
+           * `subagent_cancel_failed` after the server's own cancel timeout) arrive over the socket,
+           * which the server call already publishes to, so this does not duplicate that state itself.
+           */
+          async cancelSubagent(subagentId) {
+            const projectId = get().activeProject;
+            if (projectId === undefined) return;
+            const key = keyOf(projectId);
+            const gen = generation;
+            try {
+              await api.cancelSubagent(session().auth(), subagentId);
+            } catch (e) {
+              if (gen !== generation || isLocked(e) || session().handleApiError(e)) return;
+              if (isApiError(e) && e.status === 409) {
+                void reread(key);
+                return;
+              }
+              patchSlot(key, (slot) => ({ cancelFailed: slot.cancelFailed.includes(subagentId) ? slot.cancelFailed : [...slot.cancelFailed, subagentId] }));
+            }
+          },
+
           uploadAttachment(file, onProgress) {
             const projectId = get().activeProject;
             if (projectId === undefined) return Promise.reject(new Error('NO_CONVERSATION'));
@@ -684,7 +727,7 @@ export function createChatStore(deps: ChatDeps) {
               await api.reset(session().auth(), projectId);
               if (gen !== generation) return;
               set({ live: emptyFold() });
-              patchSlot(key, () => ({ messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] })); // a reset ends the old conversation's grants too
+              patchSlot(key, () => ({ messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] })); // a reset ends the old conversation's grants too
               await reread(key);
             } catch (e) {
               fail(gen, e);
@@ -742,7 +785,7 @@ export function createChatStore(deps: ChatDeps) {
             // A row still in flight, or one that failed, is this device's alone: not worth a restart.
             Object.entries(s.conversations).map(([key, c]) => [
               key,
-              { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, projectGrants: c.projectGrants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, host: c.host },
+              { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, projectGrants: c.projectGrants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, subagents: c.subagents, host: c.host },
             ]),
           ),
         }),

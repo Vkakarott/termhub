@@ -698,6 +698,8 @@ model ChatConversation {
   tabQuestions  TabQuestion[]
   attachments   ChatAttachment[]
   chatDecisions ChatDecision[]
+  subagents     ChatSubagent[]
+  liveRun       ChatLiveRun?
 
   @@index([userId, createdAt])
   @@index([machineId])
@@ -785,10 +787,65 @@ model ChatAction {
   /// exactly once (spec §5, Task 5 fix round 2) — the same at-most-once trade-off `executed` makes
   /// for the tool call itself.
   injectedAt     DateTime?        @map("injected_at")
+  /// The CLI tool_use_id of the call this action came from, when it ran inside a subagent's own
+  /// turn (spec 2026-09-26 §4): how `setSubagentByToolUse` finds it once the subagent that carried
+  /// it is known.
+  toolUseId      String?          @map("tool_use_id")
+  /// The subagent (`chat_subagents`) whose turn proposed this action, when it ran inside one.
+  subagentId     String?          @map("subagent_id")
   createdAt      DateTime         @default(now()) @map("created_at")
 
   @@index([conversationId, createdAt])
+  @@index([conversationId, toolUseId])
   @@map("chat_actions")
+}
+
+/// A Task-tool subagent run inside a conversation's CLI session (spec 2026-09-26 §4): the panel and
+/// the gate origin ("Pedido pelo subagente «description»") both read from this table. One row per
+/// `task_id` per conversation — `start` upserts on that pair, so a repeated `task_started` frame for
+/// the same task never creates a second row.
+model ChatSubagent {
+  id            String           @id
+  conversationId String          @map("conversation_id")
+  conversation  ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// The CLI's own id for this subagent run, stable across its lifecycle frames.
+  taskId        String           @map("task_id")
+  /// The tool_use_id of the Task call that started it: how a later action inside its turn is tied
+  /// back to it (`chat_actions.tool_use_id`).
+  toolUseId     String           @map("tool_use_id")
+  description   String
+  subagentType  String?          @map("subagent_type")
+  /// running | stopping | completed | failed | stopped | interrupted (chat/stream.ts SubagentStatus)
+  status        String
+  startedAt     DateTime         @default(now()) @map("started_at")
+  endedAt       DateTime?        @map("ended_at")
+
+  @@unique([conversationId, taskId])
+  @@index([conversationId, startedAt])
+  @@map("chat_subagents")
+}
+
+/// The one concierge CLI process a conversation is running right now, kept across a server restart
+/// (spec 2026-09-26 §6): which instance holds it, when it last proved it is still alive, and the
+/// turns that were in flight when it last saved — so another instance can resume them once this one
+/// releases or goes stale. One row per conversation (the pkey), replaced wholesale on every save.
+model ChatLiveRun {
+  conversationId String           @id @map("conversation_id")
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String           @map("user_id")
+  /// The server process/instance currently running (or that last ran) this conversation's CLI.
+  instanceId     String           @map("instance_id")
+  heartbeatAt    DateTime         @default(now()) @map("heartbeat_at")
+  /// Set when the owning instance shut down cleanly: resumable immediately, not only once stale.
+  releasedAt     DateTime?        @map("released_at")
+  /// The in-flight turns at the last save (StoredTurn[]): question/answer message ids and the input
+  /// written to the CLI for each (the person's words plus server-added context), so a resuming
+  /// instance can settle or replay them. Chat content: never logged.
+  turns          Json
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([heartbeatAt])
+  @@map("chat_live_runs")
 }
 
 /// "Permitir sempre nesta aba": the user let the concierge type into one tab without asking, for

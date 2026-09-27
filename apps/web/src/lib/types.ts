@@ -900,6 +900,22 @@ export interface ChatAction {
   created_at: string;
   /** The grant this run happened under ("aba confiada"), if the server ran it without asking. */
   grant_id?: string | null;
+  /** The subagent (spec 2026-09-26 §4) whose turn proposed this action; null for the top-level run. */
+  subagent?: { id: string; description: string } | null;
+}
+
+/** Mirrors the server's `SubagentStatus` (apps/server/src/chat/stream.ts). */
+export type SubagentStatus = 'running' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+
+/** What the panel and the card need about one subagent — never its prompt or its turns' text
+ * (spec 2026-09-26 §7). Mirrors the server's `SubagentView` (apps/server/src/chat/subagent-view.ts). */
+export interface SubagentView {
+  id: string;
+  description: string;
+  subagent_type: string | null;
+  status: SubagentStatus;
+  started_at: string;
+  ended_at: string | null;
 }
 
 /**
@@ -1103,7 +1119,13 @@ export type ChatEvent =
   /** A tab shows a suggestion, or it was sent, dismissed or left the screen: the whole card each time. */
   | { type: 'tab_suggestion' | 'tab_suggestion_closed'; suggestion: TabSuggestion; conversation_id?: string }
   /** An attachment finished extracting or failed: update the chip by its id. */
-  | { type: 'attachment_status'; attachment: ChatAttachment; conversation_id?: string };
+  | { type: 'attachment_status'; attachment: ChatAttachment; conversation_id?: string }
+  /** A subagent of the conversation started, changed status or was interrupted (spec 2026-09-26
+   * panel §5): update the panel row by its id, or prepend a new one. */
+  | { type: 'subagent'; subagent: SubagentView; conversation_id?: string }
+  /** "Cancelar" timed out with no confirmation that the CLI actually stopped it (spec 2026-09-26
+   * panel §5.4): the row keeps whatever status it already had, this just says the click failed. */
+  | { type: 'subagent_cancel_failed'; subagent_id: string; conversation_id?: string };
 
 /** `GET /chat/projects`: which project chats have anything going on, for a sidebar badge. */
 export interface ProjectChatStatus {

@@ -22,6 +22,11 @@ export interface ChatActionCard {
   tab_id: string | null;
   grant_id: string | null;
   summary: string;
+  /** The subagent (`chat_subagents`, spec 2026-09-26 §4) whose turn proposed this action, resolved
+   * from `ChatAction.subagent_id` and scoped to this same conversation exactly like every other
+   * reference this card names — a subagent row from another conversation is indistinguishable from
+   * none at all. Null for an action the top-level run proposed directly. */
+  subagent: { id: string; description: string } | null;
   created_at: string;
 }
 
@@ -175,7 +180,7 @@ function summarize(action: ChatAction, task: Task | undefined, loc: Location, ti
   return where ? `${verb} ${where}` : verb;
 }
 
-const toCard = (action: ChatAction, summary: string): ChatActionCard => ({
+const toCard = (action: ChatAction, summary: string, subagent: { id: string; description: string } | null): ChatActionCard => ({
   id: action.id,
   tool: action.tool,
   args: action.args,
@@ -186,6 +191,7 @@ const toCard = (action: ChatAction, summary: string): ChatActionCard => ({
   tab_id: action.tab_id,
   grant_id: action.grant_id,
   summary,
+  subagent,
   created_at: action.created_at,
 });
 
@@ -255,6 +261,16 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
     chatTokenIds = new Set(tokens.filter((t) => t.gated).map((t) => t.id));
   }
 
+  // Which subagent proposed an action (spec 2026-09-26 §4), resolved the same batched way as every
+  // other reference this card names. Scoped to the action's own conversation, not `ownerId`: a
+  // subagent row belongs to a conversation, not a user, and `chatSubagents.listByIds` carries no
+  // owner filter of its own — the conversation check right below is what keeps a subagent row from
+  // a foreign conversation (which could only reach here via a stale or forged `subagent_id`) from
+  // ever being named on this card.
+  const subIds = [...new Set(actions.map((a) => a.subagent_id).filter((x): x is string => !!x))];
+  const subs = subIds.length ? await repos.chatSubagents.listByIds(subIds) : [];
+  const subById = new Map(subs.map((s) => [s.id, s]));
+
   return actions.map((action) => {
     const taskId = taskIdOf(action);
     const task = taskId ? taskById.get(taskId) : undefined;
@@ -312,7 +328,9 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
     }
 
     const summary = summarize(action, task, loc, ticketById);
-    return toCard(action, summary);
+    const sa = action.subagent_id ? subById.get(action.subagent_id) : undefined;
+    const subagent = sa && sa.conversation_id === action.conversation_id ? { id: sa.id, description: sa.description } : null;
+    return toCard(action, summary, subagent);
   });
 }
 

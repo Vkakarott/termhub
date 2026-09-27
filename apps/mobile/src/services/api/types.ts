@@ -26,6 +26,7 @@ import type {
   TProgressResponse,
   TSendAccepted,
   TSetHostBody,
+  TSubagentView,
   TTabQuestionAnswerBody,
   TTabQuestionScreenResponse,
   TTabSuggestionSendBody,
@@ -90,6 +91,10 @@ export interface MobileApi {
   sendTabSuggestion(auth: Auth, suggestionId: string, body: TTabSuggestionSendBody): Promise<void>;
   /** "Dispensar": closes the card, the tab is not touched. Idempotent; 404 unknown. */
   dismissTabSuggestion(auth: Auth, suggestionId: string): Promise<void>;
+  /** "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4) — no PIN. Answers the row now
+   * `stopping`; the panel's own update arrives over the socket. 404 unknown, 409 `SUBAGENT_NOT_RUNNING`
+   * (already at rest) or `SUBAGENT_GONE` (its process is no longer around to ask). */
+  cancelSubagent(auth: Auth, subagentId: string): Promise<TSubagentView>;
 
   // attachments (spec 2026-09-26 §5.3, §5.6)
   /** Streams the file as the raw body; `onProgress` is 0..1. 415 ATTACHMENT_TYPE, 413 ATTACHMENT_TOO_LARGE / ATTACHMENT_QUOTA. */

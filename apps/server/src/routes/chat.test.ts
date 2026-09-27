@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { applyErrorHandler, HttpError } from '../lib/errors.js';
 import { chatBus, type ChatEvent } from '../chat/bus.js';
 import { chatRoutes } from './chat.js';
@@ -40,6 +40,8 @@ function build(opts: {
   projectGrants?: { id: string; conversation_id: string; project_id: string; source_action_id: string | null; granted_by: string; created_at: string; expires_at: string; revoked_at: string | null; revoked_by: string | null }[];
   /** "View as" another owner: the request's own user stays 'u1'. */
   viewAsOwner?: string;
+  subagentsFor?: ReturnType<typeof vi.fn>;
+  cancelSubagent?: ReturnType<typeof vi.fn>;
 } = {}) {
   const send = opts.send ?? vi.fn(async () => ({ id: 'm2', role: 'assistant', text: 'Nada rodando.' }));
   const resumeAfterDecision = opts.resumeAfterDecision ?? vi.fn(async () => ({ id: 'm3', role: 'assistant', text: 'Feito.' }));
@@ -60,6 +62,8 @@ function build(opts: {
     reset,
     hostFor: opts.hostFor ?? vi.fn(async () => ({ kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null })),
     projectStatuses: vi.fn(async () => [{ project_id: 'p1', busy: true, pending_confirmations: 1 }]),
+    subagentsFor: opts.subagentsFor ?? vi.fn(async () => []),
+    cancelSubagent: opts.cancelSubagent ?? vi.fn(async () => ({ id: 'sub1', description: 'Escrever testes', subagent_type: null, status: 'stopping', started_at: '2026-09-26T12:00:00.000Z', ended_at: null })),
   };
   const tabs = opts.tabs ?? [];
   const projects = opts.projects ?? [];
@@ -753,4 +757,57 @@ it('POST /messages answers 409 ATTACHMENT_UNAVAILABLE as the service throws it',
   const res = await app.inject({ method: 'POST', url: '/chat/messages', payload: { text: 'oi', attachment_ids: ['gone'] } });
   expect(res.statusCode).toBe(409);
   expect(res.json()).toEqual({ error: 'Um dos anexos não está disponível: envie de novo', code: 'ATTACHMENT_UNAVAILABLE' });
+});
+
+describe('subagents panel (spec 2026-09-26 §4)', () => {
+  it('GET / includes the panel, from the service, alongside the trail', async () => {
+    const subagentsFor = vi.fn(async () => [{ id: 'sub1', description: 'Escrever testes', subagent_type: 'general-purpose', status: 'running', started_at: '2026-09-26T12:00:00.000Z', ended_at: null }]);
+    const { app } = build({ subagentsFor });
+    const res = await app.inject({ method: 'GET', url: '/chat' });
+    expect(res.statusCode).toBe(200);
+    expect(subagentsFor).toHaveBeenCalledWith('c1');
+    expect(res.json().subagents).toEqual([{ id: 'sub1', description: 'Escrever testes', subagent_type: 'general-purpose', status: 'running', started_at: '2026-09-26T12:00:00.000Z', ended_at: null }]);
+  });
+
+  it('GET / carries an empty panel when nothing is running', async () => {
+    const { app } = build();
+    const res = await app.inject({ method: 'GET', url: '/chat' });
+    expect(res.json().subagents).toEqual([]);
+  });
+
+  it('POST /subagents/:id/cancel answers 202 with the row now stopping', async () => {
+    const cancelSubagent = vi.fn(async () => ({ id: 'sub1', description: 'Escrever testes', subagent_type: null, status: 'stopping', started_at: '2026-09-26T12:00:00.000Z', ended_at: null }));
+    const { app } = build({ cancelSubagent });
+    const res = await app.inject({ method: 'POST', url: '/chat/subagents/sub1/cancel' });
+    expect(res.statusCode).toBe(202);
+    expect(cancelSubagent).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'sub1');
+    expect(res.json()).toEqual({ subagent: { id: 'sub1', description: 'Escrever testes', subagent_type: null, status: 'stopping', started_at: '2026-09-26T12:00:00.000Z', ended_at: null } });
+  });
+
+  it('POST /subagents/:id/cancel answers 404 for a foreign or missing subagent', async () => {
+    const cancelSubagent = vi.fn(async () => { throw new HttpError(404, 'Subagente não encontrado', 'NOT_FOUND'); });
+    const { app } = build({ cancelSubagent });
+    const res = await app.inject({ method: 'POST', url: '/chat/subagents/nope/cancel' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('POST /subagents/:id/cancel answers 409 when the row is not running or the process is gone', async () => {
+    const notRunning = vi.fn(async () => { throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING'); });
+    const { app: a1 } = build({ cancelSubagent: notRunning });
+    expect((await a1.inject({ method: 'POST', url: '/chat/subagents/sub1/cancel' })).statusCode).toBe(409);
+
+    const gone = vi.fn(async () => { throw new HttpError(409, 'O processo deste subagente já terminou', 'SUBAGENT_GONE'); });
+    const { app: a2 } = build({ cancelSubagent: gone });
+    const res = await a2.inject({ method: 'POST', url: '/chat/subagents/sub1/cancel' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('SUBAGENT_GONE');
+  });
+
+  it('POST /subagents/:id/cancel answers 400 for an id longer than 64 characters, without calling the service', async () => {
+    const cancelSubagent = vi.fn(async () => ({ id: 'sub1', description: 'x', subagent_type: null, status: 'stopping', started_at: '', ended_at: null }));
+    const { app } = build({ cancelSubagent });
+    const res = await app.inject({ method: 'POST', url: `/chat/subagents/${'a'.repeat(65)}/cancel` });
+    expect(res.statusCode).toBe(400);
+    expect(cancelSubagent).not.toHaveBeenCalled();
+  });
 });

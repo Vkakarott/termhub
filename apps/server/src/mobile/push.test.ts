@@ -251,6 +251,18 @@ describe('MobilePushService', () => {
     expect(JSON.stringify(sent)).not.toContain('Apagar');
   });
 
+  it('a confirmation re-published only to add its subagent origin (origin_update) is not notified again', async () => {
+    const t = setup();
+    stop = t.service.start();
+    chatBus.publish(confirmation);
+    await flush();
+    // The live run bound the action to its subagent after the gate had already published the card.
+    chatBus.publish({ ...confirmation, subagent: { id: 'sub1', description: 'Escrever testes' }, origin_update: true } as ChatEvent);
+    await flush();
+    expect(t.repos.userNotifications.create).toHaveBeenCalledTimes(1);
+    expect(t.sent).toHaveLength(1);
+  });
+
   it('answered and closed tab questions push nothing', async () => {
     const { service, sent, repos } = setup();
     stop = service.start();

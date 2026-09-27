@@ -44,6 +44,7 @@ import { extract } from './chat/attachments/extract.js';
 import { REQUEUE_MIN_AGE_MS, createExtractionQueue, requeuePending } from './chat/attachments/queue.js';
 import { toPublicAttachment } from './db/repositories/chat-attachments.js';
 import { ChatService, failureLabel, purgeExpiredActions } from './chat/service.js';
+import { HEARTBEAT_MS, SWEEP_MS } from './chat/resume.js';
 import { startDecisionSweeper } from './chat/decision-memory.js';
 import { agentRunner } from './chat/runner.js';
 import { expireOrphanTabQuestions, startTabQuestionExpiry } from './chat/tab-questions.js';
@@ -277,8 +278,24 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   const stopTabQuestionExpiry = startTabQuestionExpiry(repos, fastify.log);
   void expireOrphanTabQuestions(repos, fastify.log);
   const stopDecisionSweeper = startDecisionSweeper(repos, fastify.log);
+  // Live concierge runs survive a restart or a deploy (spec 2026-09-26 panel §3): this instance proves
+  // its own are alive, picks up those another instance released or left stale (once shortly after
+  // boot, then on a timer), and releases its own on a graceful shutdown. Each call logs its own
+  // failures by label; the `catch` only keeps them from becoming unhandled rejections.
+  const liveBeat = setInterval(() => void chat.heartbeat().catch(() => {}), HEARTBEAT_MS);
+  const resumeTimer = setInterval(() => void chat.resumeSweep().catch(() => {}), SWEEP_MS);
+  const firstSweep = setTimeout(() => void chat.resumeSweep().catch(() => {}), 5_000);
+  liveBeat.unref();
+  resumeTimer.unref();
+  firstSweep.unref();
+  fastify.addHook('preClose', async () => {
+    await chat.suspendAll();
+  });
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
+    clearInterval(liveBeat);
+    clearInterval(resumeTimer);
+    clearTimeout(firstSweep);
     stopSync();
     stopCiSync();
     stopAgentUpdates();

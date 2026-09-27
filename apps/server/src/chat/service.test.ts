@@ -2,11 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
+import type { ChatSubagent } from '../db/repositories/chat-subagents.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
 import type { AttachmentRow } from '../db/repositories/chat-attachments.js';
+import type { ChatLiveRun, SaveLiveRunInput, StoredTurn } from '../db/repositories/chat-live-runs.js';
 import { chatBus, type ChatEvent } from './bus.js';
 import { HttpError } from '../lib/errors.js';
-import { ChatService, purgeExpiredActions, type RunnerClient, type RunnerInput } from './service.js';
+import type { SubagentStatus } from './stream.js';
+import { ChatService, CANCEL_TIMEOUT_MS, purgeExpiredActions, type RunnerClient, type RunnerInput } from './service.js';
+import { RESUME_WINDOW_MS, STALE_MS } from './resume.js';
 import { ORCHESTRATOR_PROMPT } from './concierge-prompt.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
@@ -33,7 +37,7 @@ const action = (overrides: Partial<ChatAction> = {}): ChatAction => ({
   ...overrides,
 });
 
-function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; streaming?: boolean; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null } } } = {}) {
+function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActions?: ChatAction[]; tabQuestions?: TabQuestion[]; attachments?: AttachmentRow[]; subagents?: ChatSubagent[]; streaming?: boolean; host?: { machines?: unknown[]; capabilities?: string[] | null; account?: { id: string; provider: string; machine_id: string; config_dir: string | null } } } = {}) {
   // The host pair every case but the host-specific ones takes for granted: one agent machine of this
   // user's own, online, with an agent that knows how to run a chat (see host.test.ts for the choice
   // itself). `configDirs` is gone — the account travels as the chosen `ai_account`'s config dir.
@@ -93,6 +97,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       if (i >= 0) messages.splice(i, 1);
     }),
     listMessages: vi.fn(async () => messages),
+    findMessagesByIds: vi.fn(async (_conversationId: string, ids: string[]) => messages.filter((m) => ids.includes(m.id))),
   };
   // An in-memory stand-in for the two chatActions reads/writes ChatService now uses, real enough to
   // exercise the queue: findNextToInject only ever sees a decided (approved/denied) row nobody has
@@ -119,6 +124,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     listToInject: vi.fn(async (conversationId: string, excludeIds: string[] = [], limit = 20) => toInjectOf(conversationId, excludeIds).slice(0, limit)),
     expireOpenForConversation: vi.fn(async () => 0),
     countPendingByConversation: vi.fn(async () => new Map([['c_p1', 2]])),
+    setSubagentByToolUse: vi.fn(async () => []),
   };
   // What `describeActions` resolves the approved proposal's sentence from, owner-scoped exactly like
   // the real repositories: another user's id is simply absent from the batch.
@@ -157,8 +163,93 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       return count;
     }),
   };
+  /** A real enough stand-in for the conversation's subagents (spec 2026-09-26 §4): scoped to the
+   *  owning conversation's user like the repository's own `findByIdForUser`, and `setStatus` follows
+   *  the same `ended_at` rule (set on a final status, cleared otherwise). */
+  const FINAL_STATUSES: SubagentStatus[] = ['completed', 'failed', 'stopped', 'interrupted'];
+  const subagentsStore: ChatSubagent[] = (opts.subagents ?? []).map((s) => ({ ...s }));
+  const chatSubagents = {
+    start: vi.fn(async (input: { conversation_id: string; task_id: string; tool_use_id: string; description: string; subagent_type: string | null }) => {
+      const existing = subagentsStore.find((s) => s.conversation_id === input.conversation_id && s.task_id === input.task_id);
+      if (existing) return existing;
+      const row: ChatSubagent = { id: `sub${subagentsStore.length + 1}`, conversation_id: input.conversation_id, task_id: input.task_id, tool_use_id: input.tool_use_id, description: input.description, subagent_type: input.subagent_type, status: 'running', started_at: new Date().toISOString(), ended_at: null };
+      subagentsStore.push(row);
+      return row;
+    }),
+    setStatus: vi.fn(async (id: string, status: SubagentStatus, opts?: { from?: SubagentStatus[] }) => {
+      const row = subagentsStore.find((s) => s.id === id);
+      if (!row || (opts?.from && !opts.from.includes(row.status))) return undefined;
+      row.status = status;
+      row.ended_at = FINAL_STATUSES.includes(status) ? new Date().toISOString() : null;
+      return { ...row };
+    }),
+    findByIdForUser: vi.fn(async (id: string, userId: string) => (userId === user.id ? subagentsStore.find((s) => s.id === id) : undefined)),
+    listForPanel: vi.fn(async (conversationId: string) => subagentsStore.filter((s) => s.conversation_id === conversationId)),
+    interruptRunning: vi.fn(async (conversationId: string) => {
+      const rows = subagentsStore.filter((s) => s.conversation_id === conversationId && (s.status === 'running' || s.status === 'stopping'));
+      for (const r of rows) {
+        r.status = 'interrupted';
+        r.ended_at = new Date().toISOString();
+      }
+      return rows.map((r) => ({ ...r }));
+    }),
+    listByIds: vi.fn(async (ids: string[]) => subagentsStore.filter((s) => ids.includes(s.id))),
+  };
+  /** The live-run rows (spec 2026-09-26 panel §4), with the repository's semantics: one row per
+   *  conversation, `save` takes it over live, and only a released or stale row of another instance is
+   *  listed or claimed — `claim` is conditional, so two sweeps of the same row have one winner. */
+  const liveRunsStore = new Map<string, ChatLiveRun>();
+  const resumable = (r: ChatLiveRun, staleBefore: Date) => r.released_at !== null || Date.parse(r.heartbeat_at) < staleBefore.getTime();
+  const chatLiveRuns = {
+    save: vi.fn(async (input: SaveLiveRunInput) => {
+      const now = new Date().toISOString();
+      liveRunsStore.set(input.conversation_id, { ...input, heartbeat_at: now, released_at: null, created_at: liveRunsStore.get(input.conversation_id)?.created_at ?? now });
+    }),
+    heartbeat: vi.fn(async (instanceId: string) => {
+      let count = 0;
+      for (const r of liveRunsStore.values()) if (r.instance_id === instanceId) (r.heartbeat_at = new Date().toISOString()), count++;
+      return count;
+    }),
+    release: vi.fn(async (instanceId: string, turns?: Map<string, StoredTurn[]>) => {
+      let count = 0;
+      for (const r of liveRunsStore.values()) {
+        if (r.instance_id !== instanceId) continue;
+        r.released_at = new Date().toISOString();
+        const t = turns?.get(r.conversation_id);
+        if (t !== undefined) r.turns = t;
+        count++;
+      }
+      return count;
+    }),
+    listResumable: vi.fn(async (instanceId: string, staleBefore: Date) => [...liveRunsStore.values()].filter((r) => r.instance_id !== instanceId && resumable(r, staleBefore)).map((r) => ({ ...r }))),
+    claim: vi.fn(async (conversationId: string, from: string, to: string, staleBefore: Date) => {
+      const r = liveRunsStore.get(conversationId);
+      if (!r || r.instance_id !== from || !resumable(r, staleBefore)) return false;
+      Object.assign(r, { instance_id: to, released_at: null, heartbeat_at: new Date().toISOString() });
+      return true;
+    }),
+    findLiveElsewhere: vi.fn(async (conversationId: string, instanceId: string, freshAfter: Date) => {
+      const r = liveRunsStore.get(conversationId);
+      return r && r.instance_id !== instanceId && r.released_at === null && Date.parse(r.heartbeat_at) >= freshAfter.getTime() ? { ...r } : null;
+    }),
+    findResumable: vi.fn(async (conversationId: string, instanceId: string, staleBefore: Date) => {
+      const r = liveRunsStore.get(conversationId);
+      return r && r.instance_id !== instanceId && resumable(r, staleBefore) ? { ...r } : null;
+    }),
+    handBack: vi.fn(async (conversationId: string, from: string, releasedAt: Date) => {
+      const r = liveRunsStore.get(conversationId);
+      if (!r || r.instance_id !== from) return false;
+      Object.assign(r, { instance_id: 'released', released_at: releasedAt.toISOString() });
+      return true;
+    }),
+    delete: vi.fn(async (conversationId: string, instanceId: string) => {
+      if (liveRunsStore.get(conversationId)?.instance_id === instanceId) liveRunsStore.delete(conversationId);
+    }),
+  };
   const repos = {
     chat,
+    chatLiveRuns,
+    users: { findById: vi.fn(async (id: string) => (id === user.id ? user : undefined)) },
     apiTokens: { listByUser: vi.fn(async () => []), create: vi.fn(async () => ({})), revoke: vi.fn(async () => undefined), revokeForConversation: vi.fn(async () => 0) },
     chatActions,
     tabQuestions,
@@ -171,6 +262,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatProjectGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatAttachments,
+    chatSubagents,
   } as unknown as Repositories;
   const agents = {
     capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude', 'claude.system_prompt', ...(opts.streaming ? ['claude.stream_input'] : [])])),
@@ -188,7 +280,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner) });
   /** Every `RunnerInput` the service handed a runner, in order. */
   const inputs = () => vi.mocked(runner.run).mock.calls.map((c) => c[0]);
-  return { service, chat, chatActions, tabQuestions, chatAttachments, actionsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents };
+  return { service, chat, chatActions, tabQuestions, chatAttachments, chatSubagents, subagentsStore, actionsStore, chatLiveRuns, liveRunsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -231,6 +323,10 @@ async function runAt(lr: ReturnType<typeof liveRunner>, i: number) {
   return lr.runs[i];
 }
 const replayOf = (line: string) => JSON.stringify({ type: 'user', isReplay: true, uuid: JSON.parse(line).uuid, message: { role: 'user', content: 'x' } });
+/** The CLI's own frames for a Task-tool subagent (spec 2026-09-26 panel §4), exactly like live-run.test.ts. */
+const taskStarted = (taskId: string, toolUseId: string, description: string) => JSON.stringify({ type: 'system', subtype: 'task_started', task_id: taskId, tool_use_id: toolUseId, description, subagent_type: 'general-purpose' });
+const backgroundTasks = (taskIds: string[]) => JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: taskIds.map((task_id) => ({ task_id })) });
+const taskNotification = (taskId: string, status: 'completed' | 'failed' | 'killed' | 'stopped' | 'cancelled') => JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: taskId, status });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -1870,5 +1966,560 @@ describe('attachments on the always-free paths (TER-59)', () => {
     const text = vi.mocked(runner.run).mock.calls[1][0].text;
     expect(text).toContain(BLOCK);
     expect(text.endsWith('segunda')).toBe(true);
+  });
+});
+
+describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () => {
+  const runningRow = (over: Partial<ChatSubagent> = {}): ChatSubagent => ({
+    id: 'sub1',
+    conversation_id: 'c1',
+    task_id: 'task1',
+    tool_use_id: 'tu1',
+    description: 'Escrever testes',
+    subagent_type: 'general-purpose',
+    status: 'running',
+    started_at: '2026-09-26T12:00:00.000Z',
+    ended_at: null,
+    ...over,
+  });
+
+  it('subagentsFor maps the panel rows to views', async () => {
+    const { service, chatSubagents } = build([], { subagents: [runningRow()] });
+    const views = await service.subagentsFor('c1');
+    expect(chatSubagents.listForPanel).toHaveBeenCalledWith('c1');
+    expect(views).toEqual([{ id: 'sub1', description: 'Escrever testes', subagent_type: 'general-purpose', status: 'running', started_at: '2026-09-26T12:00:00.000Z', ended_at: null }]);
+  });
+
+  it('cancelSubagent 404s for a foreign or missing subagent', async () => {
+    const { service } = build([]);
+    await expect(service.cancelSubagent(user, 'nope')).rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
+  });
+
+  it('cancelSubagent refuses a row that is not running', async () => {
+    const { service } = build([], { subagents: [runningRow({ status: 'completed', ended_at: '2026-09-26T12:01:00.000Z' })] });
+    await expect(service.cancelSubagent(user, 'sub1')).rejects.toMatchObject({ statusCode: 409, code: 'SUBAGENT_NOT_RUNNING' });
+  });
+
+  it('cancelSubagent marks the row interrupted and answers SUBAGENT_GONE when no run is live', async () => {
+    const { service, chatSubagents } = build([], { subagents: [runningRow()] });
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await expect(service.cancelSubagent(user, 'sub1')).rejects.toMatchObject({ statusCode: 409, code: 'SUBAGENT_GONE' });
+    } finally {
+      off();
+    }
+    expect(chatSubagents.setStatus).toHaveBeenCalledWith('sub1', 'interrupted', { from: ['running', 'stopping'] });
+    expect(events).toContainEqual({ type: 'subagent', user_id: 'u1', conversation_id: 'c1', subagent: expect.objectContaining({ id: 'sub1', status: 'interrupted' }) });
+  });
+
+  /** The live-run row of `c1` as another instance keeps it, `heartbeatAgoMs` after its last beat. */
+  const otherInstanceRow = (built: ReturnType<typeof build>, heartbeatAgoMs: number) =>
+    built.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'other-instance', heartbeat_at: new Date(Date.now() - heartbeatAgoMs).toISOString(), released_at: null, turns: [], created_at: new Date().toISOString() });
+
+  it('cancelSubagent answers SUBAGENT_GONE without touching the row while another instance runs the conversation (blue/green overlap)', async () => {
+    const built = build([], { subagents: [runningRow()] });
+    otherInstanceRow(built, 1_000);
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await expect(built.service.cancelSubagent(user, 'sub1')).rejects.toMatchObject({ statusCode: 409, code: 'SUBAGENT_GONE' });
+    } finally {
+      off();
+    }
+    expect(built.chatSubagents.setStatus).not.toHaveBeenCalled();
+    expect(built.subagentsStore[0]).toMatchObject({ status: 'running', ended_at: null });
+    expect(events).toEqual([]);
+  });
+
+  it('cancelSubagent still marks the row interrupted when the other instance\'s row is stale', async () => {
+    const built = build([], { subagents: [runningRow()] });
+    otherInstanceRow(built, STALE_MS + 60_000);
+    await expect(built.service.cancelSubagent(user, 'sub1')).rejects.toMatchObject({ statusCode: 409, code: 'SUBAGENT_GONE' });
+    expect(built.subagentsStore[0]?.status).toBe('interrupted');
+  });
+
+  /** Drives a live run to the point where subagent `task1`/`sub1` is running in the background, its
+   *  notification turn still ahead — the state `cancelSubagent`'s happy path needs. */
+  async function withRunningSubagent() {
+    const built = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    const started = await built.service.start(user, 'faz uma tarefa em background');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(taskStarted('task1', 'tu1', 'Escrever testes'));
+    run.push(backgroundTasks(['task1'])); // keeps the channel open: the subagent is still running
+    run.push(delta('Disparei.'));
+    run.push(done());
+    await started.done;
+    return { ...built, run };
+  }
+
+  it('writes the stop control line, marks the row stopping and tells every open screen', async () => {
+    const { service, run } = await withRunningSubagent();
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    let result;
+    try {
+      result = await service.cancelSubagent(user, 'sub1');
+    } finally {
+      off();
+    }
+    expect(result.status).toBe('stopping');
+    expect(JSON.parse(run.written.at(-1)!)).toMatchObject({ type: 'control_request', request_id: 'stop-sub1', request: { subtype: 'stop_task', task_id: 'task1' } });
+    expect(events).toContainEqual({ type: 'subagent', user_id: 'u1', conversation_id: 'c1', subagent: expect.objectContaining({ id: 'sub1', status: 'stopping' }) });
+    run.push(backgroundTasks([]));
+    run.end();
+  });
+
+  it('rolls the row back and tells every screen when the CLI never confirms the stop in time', async () => {
+    const { service, run } = await withRunningSubagent();
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await service.cancelSubagent(user, 'sub1');
+      const i = timeoutSpy.mock.calls.findIndex((c) => c[1] === CANCEL_TIMEOUT_MS);
+      expect(i).toBeGreaterThanOrEqual(0);
+      clearTimeout(timeoutSpy.mock.results[i]!.value as NodeJS.Timeout); // never let the real 30s elapse
+      (timeoutSpy.mock.calls[i]![0] as () => void)(); // simulate the timeout firing
+      await settled();
+    } finally {
+      off();
+      timeoutSpy.mockRestore();
+    }
+    expect(events).toContainEqual({ type: 'subagent_cancel_failed', user_id: 'u1', conversation_id: 'c1', subagent_id: 'sub1' });
+    expect(events).toContainEqual({ type: 'subagent', user_id: 'u1', conversation_id: 'c1', subagent: expect.objectContaining({ id: 'sub1', status: 'running' }) });
+    run.push(backgroundTasks([]));
+    run.end();
+  });
+
+  it('never rolls back once the CLI already confirmed the stop', async () => {
+    const { service, run, chatSubagents } = await withRunningSubagent();
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await service.cancelSubagent(user, 'sub1');
+      chatSubagents.setStatus.mockClear();
+      const i = timeoutSpy.mock.calls.findIndex((c) => c[1] === CANCEL_TIMEOUT_MS);
+      expect(i).toBeGreaterThanOrEqual(0);
+      clearTimeout(timeoutSpy.mock.results[i]!.value as NodeJS.Timeout);
+      // The CLI's own status frame settles the stop before the timer would have fired.
+      run.push(taskNotification('task1', 'stopped'));
+      await settled();
+      (timeoutSpy.mock.calls[i]![0] as () => void)(); // firing late must now be a no-op
+      await settled();
+    } finally {
+      off();
+      timeoutSpy.mockRestore();
+    }
+    expect(chatSubagents.setStatus).toHaveBeenCalledWith('sub1', 'stopped', { from: ['running', 'stopping'] });
+    expect(chatSubagents.setStatus.mock.calls.some((c) => c[1] === 'running')).toBe(false);
+    expect(events.some((e) => e.type === 'subagent_cancel_failed')).toBe(false);
+    run.push(backgroundTasks([]));
+    run.end();
+  });
+
+  /** Makes the CLI answer the stop line the instant it is written, and holds every `stopping` write
+   *  until the stream had time to handle that answer: the window in which a late `stopping` used to
+   *  overwrite whatever the answer settled. */
+  function answerStopAtOnce(built: Awaited<ReturnType<typeof withRunningSubagent>>, answer: string) {
+    const push = built.run.written.push.bind(built.run.written);
+    built.run.written.push = (...lines: string[]) => {
+      const n = push(...lines);
+      if (lines.some((l) => l.includes('stop_task'))) built.run.push(answer);
+      return n;
+    };
+    const setStatus = built.chatSubagents.setStatus.getMockImplementation()!;
+    built.chatSubagents.setStatus.mockImplementation(async (id, status, opts) => {
+      if (status === 'stopping') await settled();
+      return setStatus(id, status, opts);
+    });
+  }
+  const controlResponse = (requestId: string, ok: boolean) => JSON.stringify({ type: 'control_response', response: ok ? { subtype: 'success', request_id: requestId } : { subtype: 'error', request_id: requestId, error: 'nope' } });
+
+  it('the CLI stopping the task right after the stop line leaves the row stopped, never stuck stopping', async () => {
+    const built = await withRunningSubagent();
+    answerStopAtOnce(built, taskNotification('task1', 'stopped'));
+    await built.service.cancelSubagent(user, 'sub1');
+    await settled();
+    expect(built.subagentsStore.find((s) => s.id === 'sub1')?.status).toBe('stopped');
+    built.run.push(backgroundTasks([]));
+    built.run.end();
+  });
+
+  it('the CLI refusing the stop right after the stop line rolls the row back to running and says so', async () => {
+    const built = await withRunningSubagent();
+    answerStopAtOnce(built, controlResponse('stop-sub1', false));
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await built.service.cancelSubagent(user, 'sub1');
+      await settled();
+    } finally {
+      off();
+    }
+    expect(built.subagentsStore.find((s) => s.id === 'sub1')?.status).toBe('running');
+    expect(events).toContainEqual({ type: 'subagent_cancel_failed', user_id: 'u1', conversation_id: 'c1', subagent_id: 'sub1' });
+    expect(events.filter((e) => e.type === 'subagent').at(-1)).toMatchObject({ subagent: { id: 'sub1', status: 'running' } });
+    built.run.push(backgroundTasks([]));
+    built.run.end();
+  });
+
+  it('the timeout firing after the row already stopped changes nothing', async () => {
+    const { service, run, subagentsStore, chatSubagents } = await withRunningSubagent();
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const events: ChatEvent[] = [];
+    try {
+      await service.cancelSubagent(user, 'sub1');
+      const i = timeoutSpy.mock.calls.findIndex((c) => c[1] === CANCEL_TIMEOUT_MS);
+      clearTimeout(timeoutSpy.mock.results[i]!.value as NodeJS.Timeout);
+      // Another path settled the row (not the task's own frame, which would also clear the stop).
+      subagentsStore.find((s) => s.id === 'sub1')!.status = 'stopped';
+      chatSubagents.setStatus.mockClear();
+      const off = chatBus.subscribe((e) => events.push(e));
+      try {
+        (timeoutSpy.mock.calls[i]![0] as () => void)();
+        await settled();
+      } finally {
+        off();
+      }
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+    expect(subagentsStore.find((s) => s.id === 'sub1')?.status).toBe('stopped');
+    expect(events).toEqual([]);
+    run.push(backgroundTasks([]));
+    run.end();
+  });
+
+  it('a late origin re-publishes only the still-pending cards, marked origin_update', async () => {
+    const { run, chatActions } = await withRunningSubagent();
+    const bound = [
+      action({ id: 'a_pending', status: 'pending', decided_by: null, decided_at: null, tool_use_id: 'toolu_X', subagent_id: 'sub1' }),
+      action({ id: 'a_approved', status: 'approved', tool_use_id: 'toolu_X', subagent_id: 'sub1' }),
+    ];
+    chatActions.setSubagentByToolUse.mockResolvedValueOnce(bound as never);
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      run.push(JSON.stringify({ type: 'assistant', parent_tool_use_id: 'tu1', message: { content: [{ type: 'tool_use', id: 'toolu_X', name: 'mcp__termhub__send_input', input: {} }] } }));
+      await settled();
+    } finally {
+      off();
+    }
+    expect(chatActions.setSubagentByToolUse).toHaveBeenCalledWith('c1', 'toolu_X', 'sub1');
+    const confirmations = events.filter((e): e is Extract<ChatEvent, { type: 'confirmation' }> => e.type === 'confirmation');
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0]).toMatchObject({ action_id: 'a_pending', origin_update: true, subagent: { id: 'sub1', description: 'Escrever testes' } });
+    run.push(backgroundTasks([]));
+    run.end();
+  });
+});
+
+describe('resume (spec 2026-09-26 panel §3)', () => {
+  /** A line the service wrote to the CLI, as the text it carries. */
+  const contentOf = (line: string) => JSON.parse(line).message.content as string;
+  const uuidOf = (line: string) => JSON.parse(line).uuid as string;
+
+  /** A streamed host whose processes are driven by hand. */
+  function streamed(opts: Parameters<typeof build>[1] = {}) {
+    const built = build([], { streaming: true, ...opts });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    return { ...built, lr };
+  }
+
+  /** A row another instance left for `c1`, with its question/answer pairs stored as messages. */
+  function seedRow(built: ReturnType<typeof streamed>, turns: { q: string; a: string; text: string; answer?: string; error?: string }[], over: Partial<ChatLiveRun> = {}) {
+    for (const t of turns) {
+      built.messages.push({ id: t.q, role: 'user', text: t.text, error_code: null });
+      built.messages.push({ id: t.a, role: 'assistant', text: t.answer ?? '', error_code: t.error ?? null });
+    }
+    const now = new Date().toISOString();
+    built.liveRunsStore.set('c1', {
+      conversation_id: 'c1',
+      user_id: 'u1',
+      instance_id: 'old-instance',
+      heartbeat_at: now,
+      released_at: now,
+      turns: turns.map((t) => ({ question_id: t.q, answer_id: t.a, text: t.text })),
+      created_at: now,
+      ...over,
+    });
+  }
+
+  it('saves the live run on start and deletes it on a normal end', async () => {
+    const { service, lr, liveRunsStore } = streamed();
+    const started = await service.start(user, 'oi');
+    const run = await runAt(lr, 0);
+    await vi.waitFor(() => expect(liveRunsStore.get('c1')).toMatchObject({ instance_id: service.instanceId, released_at: null, turns: [{ question_id: 'm1', answer_id: 'm2', text: 'oi' }] }));
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('olá'));
+    run.push(done());
+    await started.done;
+    run.end();
+    await vi.waitFor(() => expect(liveRunsStore.has('c1')).toBe(false));
+  });
+
+  it('suspendAll releases the open turns, interrupts the subagents, and the end fails nothing', async () => {
+    const { service, lr, liveRunsStore, messages, subagentsStore } = streamed();
+    const started = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(taskStarted('task1', 'tu1', 'Buscar CI'));
+    run.push(backgroundTasks(['task1']));
+    await vi.waitFor(() => expect(subagentsStore).toHaveLength(1));
+
+    await service.suspendAll();
+    expect(liveRunsStore.get('c1')).toMatchObject({ instance_id: service.instanceId, released_at: expect.any(String), turns: [{ question_id: 'm1', answer_id: 'm2', text: 'um' }] });
+    expect(subagentsStore[0].status).toBe('interrupted');
+
+    run.end();
+    // Whoever waits on the turn is answered now; the row and the answer stay open for the resume.
+    await expect(started.done).rejects.toMatchObject({ statusCode: 503, code: 'SERVER_RESTARTING' });
+    expect(messages.find((m) => m.id === 'm2')).toMatchObject({ text: '', error_code: null });
+    expect(liveRunsStore.get('c1')?.released_at).not.toBeNull();
+  });
+
+  it('suspendAll keeps a queued message, and nothing is launched for it on this instance', async () => {
+    const { service, lr, liveRunsStore, messages } = streamed();
+    const first = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('ok'));
+    run.push(done()); // nothing in the background: the input ends
+    await first.done;
+    await settled();
+    const queued = await service.start(user, 'dois'); // queued behind the closing process
+
+    await service.suspendAll();
+    await expect(queued.done).rejects.toMatchObject({ code: 'SERVER_RESTARTING' });
+    expect(liveRunsStore.get('c1')).toMatchObject({ released_at: expect.any(String), turns: [{ question_id: 'm3', answer_id: 'm4', text: 'dois' }] });
+
+    run.end();
+    await settled();
+    expect(lr.runs).toHaveLength(1);
+    expect(messages.find((m) => m.id === 'm4')).toMatchObject({ text: '', error_code: null });
+  });
+
+  it('resumeSweep takes over a released row: the note first, then each open turn into its own answer', async () => {
+    const built = streamed({
+      subagents: [
+        { id: 'sub1', conversation_id: 'c1', task_id: 'k1', tool_use_id: 'tu1', description: 'Buscar CI', subagent_type: null, status: 'interrupted', started_at: '2026-09-26T12:00:00.000Z', ended_at: '2026-09-26T12:01:00.000Z' },
+        { id: 'sub2', conversation_id: 'c1', task_id: 'k2', tool_use_id: 'tu2', description: 'Abrir aba', subagent_type: null, status: 'running', started_at: '2026-09-26T12:00:00.000Z', ended_at: null },
+      ],
+    });
+    const { service, lr, liveRunsStore, messages, conversation } = built;
+    conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+    seedRow(built, [
+      { q: 'q1', a: 'a1', text: 'primeira' },
+      { q: 'q2', a: 'a2', text: 'segunda', answer: 'já respondida' },
+      { q: 'q3', a: 'a3', text: 'terceira', error: 'RUN_FAILED' },
+      { q: 'q4', a: 'a4', text: 'quarta' },
+    ]);
+
+    await service.resumeSweep();
+    const run = await runAt(lr, 0);
+    expect(liveRunsStore.get('c1')?.instance_id).toBe(service.instanceId);
+    expect(run.input.resume).toBe(true);
+    const lines = run.input.text.trim().split('\n');
+    expect(lines).toHaveLength(3);
+    const note = contentOf(lines[0]);
+    expect(note).toContain('O servidor do termhub reiniciou');
+    expect(note).toContain('«Buscar CI»');
+    expect(note).toContain('«Abrir aba»');
+    expect(note).toContain('As 2 mensagens');
+    expect(lines.slice(1).map(contentOf)).toEqual(['primeira', 'quarta']);
+    expect(new Set(lines.map(uuidOf)).size).toBe(3);
+
+    run.push(replayOf(lines[0]));
+    run.push(delta('Relancei a busca.'));
+    run.push(replayOf(lines[1]));
+    run.push(delta('r1'));
+    run.push(done());
+    run.push(replayOf(lines[2]));
+    run.push(delta('r4'));
+    run.push(done());
+    await vi.waitFor(() => expect(messages.find((m) => m.id === 'a4')?.text).toBe('r4'));
+    expect(messages.find((m) => m.id === 'a1')).toMatchObject({ text: 'r1', error_code: null });
+    expect(messages.find((m) => m.id === 'a2')).toMatchObject({ text: 'já respondida', error_code: null });
+    expect(messages.find((m) => m.id === 'a3')).toMatchObject({ text: '', error_code: 'RUN_FAILED' });
+    expect(messages.some((m) => m.role === 'assistant' && m.text === 'Relancei a busca.')).toBe(true);
+    run.end();
+    await vi.waitFor(() => expect(liveRunsStore.has('c1')).toBe(false));
+  });
+
+  it('resumeSweep leaves alone a row whose owner is still alive (blue/green overlap)', async () => {
+    const built = streamed();
+    seedRow(built, [{ q: 'q1', a: 'a1', text: 'primeira' }], { released_at: null });
+    await built.service.resumeSweep();
+    await settled();
+    expect(built.lr.runs).toHaveLength(0);
+    expect(built.liveRunsStore.get('c1')?.instance_id).toBe('old-instance');
+  });
+
+  it('two instances sweeping the same row start one run', async () => {
+    const built = streamed();
+    seedRow(built, [{ q: 'q1', a: 'a1', text: 'primeira' }]);
+    const other = new ChatService({ repos: built.repos, agents: built.agents, runnerFor: () => built.runner });
+    await Promise.all([built.service.resumeSweep(), other.resumeSweep()]);
+    await runAt(built.lr, 0);
+    await settled();
+    expect(built.lr.runs).toHaveLength(1);
+    built.lr.runs[0].end();
+  });
+
+  it('gives up on a row older than the window whose host is not back: HOST_GONE, row deleted', async () => {
+    const built = streamed({ host: { capabilities: null } });
+    const now = new Date();
+    seedRow(built, [{ q: 'q1', a: 'a1', text: 'primeira' }, { q: 'q2', a: 'a2', text: 'segunda', answer: 'feita' }], { released_at: new Date(now.getTime() - RESUME_WINDOW_MS - 1000).toISOString() });
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await built.service.resumeSweep(now);
+    } finally {
+      off();
+    }
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ error_code: 'HOST_GONE' });
+    expect(built.messages.find((m) => m.id === 'a2')).toMatchObject({ text: 'feita', error_code: null });
+    expect(events).toContainEqual({ type: 'run_finished', user_id: 'u1', conversation_id: 'c1', message_id: 'a1', ok: false, error_code: 'HOST_GONE' });
+    expect(built.liveRunsStore.has('c1')).toBe(false);
+  });
+
+  it('keeps a row whose host is not back yet inside the window', async () => {
+    const built = streamed({ host: { capabilities: null } });
+    seedRow(built, [{ q: 'q1', a: 'a1', text: 'primeira' }]);
+    await built.service.resumeSweep();
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ text: '', error_code: null });
+    expect(built.liveRunsStore.get('c1')?.instance_id).toBe('old-instance');
+  });
+
+  it('leaves a row alone while this instance already runs its conversation', async () => {
+    const built = streamed();
+    await built.service.start(user, 'oi');
+    const run = await runAt(built.lr, 0);
+    await vi.waitFor(() => expect(built.liveRunsStore.get('c1')?.instance_id).toBe(built.service.instanceId));
+    const row = built.liveRunsStore.get('c1')!;
+    Object.assign(row, { instance_id: 'old-instance', released_at: new Date().toISOString() });
+    await built.service.resumeSweep();
+    await settled();
+    expect(built.lr.runs).toHaveLength(1);
+    expect(built.liveRunsStore.get('c1')?.instance_id).toBe('old-instance');
+    run.end();
+  });
+});
+
+describe('resume: fix round 1', () => {
+  function streamed(opts: Parameters<typeof build>[1] = {}) {
+    const built = build([], { streaming: true, ...opts });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    return { ...built, lr };
+  }
+  const contentOf = (line: string) => JSON.parse(line).message.content as string;
+  function seed(built: ReturnType<typeof streamed>, releasedAt: Date) {
+    built.messages.push({ id: 'q1', role: 'user', text: 'primeira', error_code: null }, { id: 'a1', role: 'assistant', text: '', error_code: null });
+    built.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'old-instance', heartbeat_at: releasedAt.toISOString(), released_at: releasedAt.toISOString(), turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }], created_at: releasedAt.toISOString() });
+  }
+  const dbDown = () => Object.assign(new Error('db down'), { code: 'P1001' });
+  /** Runs `work` with console.error silenced, answering what was logged. */
+  async function quietly(work: () => Promise<void>) {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await work();
+      return errors.mock.calls.map((c) => c[0] as string);
+    } finally {
+      errors.mockRestore();
+    }
+  }
+
+  it('a message sent before any sweep takes the released row over: note, old turns, then the new one', async () => {
+    const built = streamed({ subagents: [{ id: 'sub1', conversation_id: 'c1', task_id: 'k1', tool_use_id: 'tu1', description: 'Buscar CI', subagent_type: null, status: 'interrupted', started_at: '2026-09-26T12:00:00.000Z', ended_at: '2026-09-26T12:01:00.000Z' }] });
+    seed(built, new Date());
+    const started = await built.service.start(user, 'nova');
+    const run = await runAt(built.lr, 0);
+    const lines = run.input.text.trim().split('\n');
+    expect(lines).toHaveLength(3);
+    expect(contentOf(lines[0])).toContain('«Buscar CI»');
+    expect(contentOf(lines[0])).toContain('A mensagem a seguir');
+    expect(lines.slice(1).map(contentOf)).toEqual(['primeira', 'nova']);
+    await vi.waitFor(() =>
+      expect(built.liveRunsStore.get('c1')).toMatchObject({
+        instance_id: built.service.instanceId,
+        turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }, { question_id: started.user_message_id, answer_id: started.assistant_message_id, text: 'nova' }],
+      }),
+    );
+    run.push(replayOf(lines[1]));
+    run.push(delta('r1'));
+    run.push(done());
+    run.push(replayOf(lines[2]));
+    run.push(delta('r2'));
+    run.push(done());
+    expect((await started.done).text).toBe('r2');
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ text: 'r1', error_code: null });
+    expect(built.lr.runs).toHaveLength(1);
+    run.end();
+  });
+
+  it('a resume that fails inside the window hands the row back, and a later sweep resumes it', async () => {
+    const built = streamed();
+    const releasedAt = new Date(Date.now() - 60_000);
+    seed(built, releasedAt);
+    built.chatSubagents.listForPanel.mockRejectedValueOnce(dbDown());
+    const logged = await quietly(() => built.service.resumeSweep());
+    expect(logged).toContain('chat: a live run could not be resumed');
+    expect(built.runner.run).not.toHaveBeenCalled();
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ text: '', error_code: null });
+    // Back to every instance, with its original release time (the window is not reset).
+    expect(built.liveRunsStore.get('c1')).toMatchObject({ instance_id: 'released', released_at: releasedAt.toISOString() });
+
+    await built.service.resumeSweep(); // the same instance picks it up again
+    const run = await runAt(built.lr, 0);
+    expect(run.input.text.trim().split('\n').map(contentOf).slice(1)).toEqual(['primeira']);
+    run.end();
+  });
+
+  it('a resume that fails past the window gives up: RUNNER_FAILED, row deleted', async () => {
+    const built = streamed();
+    seed(built, new Date(Date.now() - RESUME_WINDOW_MS - 60_000));
+    built.chatSubagents.listForPanel.mockRejectedValueOnce(dbDown());
+    await quietly(() => built.service.resumeSweep());
+    expect(built.runner.run).not.toHaveBeenCalled();
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ error_code: 'RUNNER_FAILED' });
+    expect(built.liveRunsStore.has('c1')).toBe(false);
+  });
+
+  it('a give-up that fails hands the row back with its original release time', async () => {
+    const built = streamed({ host: { capabilities: null } });
+    const releasedAt = new Date(Date.now() - RESUME_WINDOW_MS - 60_000);
+    seed(built, releasedAt);
+    built.chat.findMessagesByIds.mockRejectedValueOnce(dbDown());
+    await quietly(() => built.service.resumeSweep());
+    expect(built.liveRunsStore.get('c1')).toMatchObject({ instance_id: 'released', released_at: releasedAt.toISOString() });
+    await built.service.resumeSweep(); // gives up for good this time
+    expect(built.messages.find((m) => m.id === 'a1')).toMatchObject({ error_code: 'HOST_GONE' });
+    expect(built.liveRunsStore.has('c1')).toBe(false);
+  });
+
+  it('a message after suspendAll is refused with 503 and nothing is stored', async () => {
+    const { service, messages, chatActions } = streamed({ chatActions: [action()] });
+    await service.suspendAll();
+    await expect(service.start(user, 'oi')).rejects.toMatchObject({ statusCode: 503, code: 'SERVER_RESTARTING' });
+    await expect(service.resumeAfterDecision(user, action())).rejects.toMatchObject({ statusCode: 503, code: 'SERVER_RESTARTING' });
+    expect(messages).toHaveLength(0);
+    expect(chatActions.markInjectedMany).not.toHaveBeenCalled();
+  });
+
+  it('a lost claim neither drains a decision nor launches anything here', async () => {
+    const built = streamed({ chatActions: [action()] });
+    seed(built, new Date());
+    built.chatLiveRuns.claim.mockResolvedValueOnce(false);
+    await built.service.resumeSweep();
+    await settled();
+    expect(built.runner.run).not.toHaveBeenCalled();
+    expect(built.chatActions.markInjectedMany).not.toHaveBeenCalled();
   });
 });

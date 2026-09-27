@@ -26,7 +26,7 @@ jest.mock('expo-router', () => ({
 
 import { useChatStore } from '@/features/chat/viewmodel/useChatStore';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
-import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatProjectGrant, TChatResponse, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatProjectGrant, TChatResponse, TSubagentView, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { emptyFold, foldLive } from '../model/live';
@@ -63,7 +63,7 @@ function addRows(rows: ChatMessage[], live: TChatEvent[]) {
 /** Replaces one of the store's actions for a test. Not `jest.spyOn(getState(), …)`: zustand
  * replaces the state object on every `setState`, so a restored spy would linger on the new one. */
 const realActions = { ...stores.chat.getState() };
-function stubAction<K extends 'decide' | 'decideMany' | 'reset' | 'setHost' | 'revokeGrant' | 'answerTabQuestion' | 'sendTabSuggestion' | 'dismissTabSuggestion' | 'retrySend'>(name: K) {
+function stubAction<K extends 'decide' | 'decideMany' | 'reset' | 'setHost' | 'revokeGrant' | 'answerTabQuestion' | 'sendTabSuggestion' | 'dismissTabSuggestion' | 'retrySend' | 'cancelSubagent'>(name: K) {
   const fn = jest.fn(async () => undefined);
   useChatStore.setState({ [name]: fn } as Partial<ReturnType<typeof useChatStore.getState>>);
   return fn;
@@ -74,7 +74,7 @@ function stubAction<K extends 'decide' | 'decideMany' | 'reset' | 'setHost' | 'r
  * mock's answer. These tests look at one pending card: the seed's second one (`a-termhub-2`) is
  * always left out, unless `keepBoth` is set (the grouped-card tests want both pending actions on
  * screen). A patch may leave `project_grants` out: it then keeps whatever the real mock answered. */
-function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'actions' | 'grants' | 'project_grants'>> = (res) => res, keepBoth = false) {
+function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'actions' | 'grants' | 'project_grants' | 'subagents'>> = (res) => res, keepBoth = false) {
   const real = stores.api.chat.bind(stores.api);
   jest.spyOn(stores.api, 'chat').mockImplementation(async (auth, projectId) => {
     const res = await real(auth, projectId);
@@ -86,6 +86,7 @@ function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'a
 
 const GRANT: TChatGrant = { id: 'g1', tab_id: 't-api', tool: 'send_input', source_action_id: 'a-termhub-1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
 const PROJECT_GRANT: TChatProjectGrant = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z' };
+const SUBAGENT: TSubagentView = { id: 'sub1', description: 'Buscar CI', subagent_type: null, status: 'running', started_at: '2026-09-27T00:00:00.000Z', ended_at: null };
 const withAction = (res: TChatResponse, patch: Partial<TChatAction>): TChatAction[] => res.actions.map((a) => (a.id === 'a-termhub-1' ? { ...a, ...patch } : a));
 
 /** The first load of a file signs its first P-256 proof, slow while other suites share the CPU. */
@@ -130,6 +131,7 @@ afterEach(() => {
     sendTabSuggestion: realActions.sendTabSuggestion,
     dismissTabSuggestion: realActions.dismissTabSuggestion,
     retrySend: realActions.retrySend,
+    cancelSubagent: realActions.cancelSubagent,
     questionErrors: {},
     suggestionErrors: {},
     answeringQuestionIds: [],
@@ -285,6 +287,56 @@ describe('Conversa', () => {
     await render(<ConversationScreen />);
     await screen.findByText(SEEDED_USER, undefined, LOAD);
     expect(screen.queryByRole('button', { name: /permiss(ão|ões) ativa/ })).toBeNull();
+  });
+
+  it('with one running subagent, the header shows Subagentes (1); pressing it opens the sheet, whose Cancelar calls the store', async () => {
+    serveChat(() => ({ subagents: [SUBAGENT] }));
+    const cancelSubagent = stubAction('cancelSubagent');
+    await render(<ConversationScreen />);
+    const button = await screen.findByRole('button', { name: 'Subagentes (1)' }, LOAD);
+    expect(screen.queryByText('Buscar CI')).toBeNull(); // the sheet is not open yet
+
+    await fireEvent.press(button);
+    expect(screen.getByText('Buscar CI')).toBeTruthy();
+    expect(screen.getByText(/rodando/)).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Cancelar Buscar CI' }));
+    expect(cancelSubagent).toHaveBeenCalledWith('sub1');
+  });
+
+  it('the sheet shows the elapsed time as of when it opens, not as of when the screen mounted', async () => {
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+    try {
+      serveChat(() => ({ subagents: [{ ...SUBAGENT, started_at: new Date(realNow()).toISOString() }] }));
+      await render(<ConversationScreen />);
+      const button = await screen.findByRole('button', { name: 'Subagentes (1)' }, LOAD);
+      offset = 10 * 60_000; // ten minutes later, the sheet is opened for the first time
+      await fireEvent.press(button);
+      expect(screen.getByText(/há 10 min/)).toBeTruthy();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('shows no Subagentes button with nothing running', async () => {
+    serveChat(() => ({ subagents: [] }));
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    expect(screen.queryByRole('button', { name: /^Subagentes/ })).toBeNull();
+  });
+
+  it('a card whose action carries a subagent shows "Pedido pelo subagente «X»"', async () => {
+    serveChat((res) => ({ actions: withAction(res, { subagent: { id: 'sub1', description: 'Buscar CI' } }) }));
+    await render(<ConversationScreen />);
+    expect(await screen.findByText('Pedido pelo subagente «Buscar CI»', undefined, LOAD)).toBeTruthy();
+  });
+
+  it('a grouped card shows the origin line for the action a subagent proposed', async () => {
+    serveChat((res) => ({ actions: withAction(res, { subagent: { id: 'sub1', description: 'Buscar CI' } }) }), true);
+    await render(<ConversationScreen />);
+    await screen.findByText('2 ações aguardando sua confirmação', undefined, LOAD);
+    expect(screen.getByText('Pedido pelo subagente «Buscar CI»')).toBeTruthy();
   });
 
   it('a card run under a grant reads "executada · aba confiada"', async () => {

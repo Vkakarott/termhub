@@ -37,6 +37,8 @@ export const ActionCard = memo(function ActionCard({ action, busy, onDecide, gra
     <View className="gap-3 rounded-2xl border border-app-accent bg-app-surface2 p-4">
       <AppText variant="label">Pedido de confirmação</AppText>
       <AppText>{action.summary}</AppText>
+      {/* The subagent whose turn proposed this action (spec 2026-09-26 §4), when there is one. */}
+      {action.subagent ? <AppText variant="muted">{`Pedido pelo subagente «${action.subagent.description}»`}</AppText> : null}
       {action.status === 'pending' ? (
         <View className="gap-2">
           <View className="flex-row gap-2">

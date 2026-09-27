@@ -272,6 +272,31 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect(await repo.expireApproved(claimed.id)).toBe(false);
   });
 
+  describe('setSubagentByToolUse', () => {
+    it('sets subagent_id only on rows still unset for that tool_use_id, scoped to the conversation', async () => {
+      const otherUserId = newId();
+      await db.user.create({ data: { id: otherUserId, email: `${otherUserId}@test.local`, name: 'test' } });
+      const otherConversationId = (await new ChatRepository(db).getOrCreateForUser(otherUserId)).id;
+      try {
+        await repo.insertPending({ conversation_id: conversationId, tool: 'run_command', args: { tab_id: 't1', text: 'x' }, class: 'write', idempotency_key: 'sub-a', tool_use_id: 'toolu_X' });
+        await repo.insertPending({ conversation_id: otherConversationId, tool: 'run_command', args: { tab_id: 't1', text: 'x' }, class: 'write', idempotency_key: 'sub-b', tool_use_id: 'toolu_X' });
+
+        const updated = await repo.setSubagentByToolUse(conversationId, 'toolu_X', 'sa1');
+        expect(updated).toHaveLength(1);
+        expect(updated[0]).toMatchObject({ conversation_id: conversationId, tool_use_id: 'toolu_X', subagent_id: 'sa1' });
+
+        // Already set: a second call touches nothing more in this conversation.
+        expect(await repo.setSubagentByToolUse(conversationId, 'toolu_X', 'sa2')).toEqual([]);
+
+        // The same tool_use_id in another conversation is untouched by either call.
+        const other = await repo.findOpenByKey(otherConversationId, 'sub-b');
+        expect(other?.subagent_id).toBeNull();
+      } finally {
+        await db.user.delete({ where: { id: otherUserId } });
+      }
+    });
+  });
+
   describe('expireOpenForConversation / countPendingByConversation', () => {
     // A fresh user and its own pair of conversations, isolated from `conversationId` above (which by
     // this point in the file carries a pile of pending/approved rows left open by earlier tests) —

@@ -176,6 +176,50 @@ it('a message containing confirma raises a confirmation event and a pending acti
   collected.close();
 });
 
+it('a message containing subagente starts one running, listed in GET chat; cancel round-trip settles it to stopped', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+
+  await api.sendMessage(auth, { text: 'chame uma subagente para isso', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+
+  const started = collected.events.find((e): e is Extract<TChatEvent, { type: 'subagent' }> => e.type === 'subagent');
+  expect(started).toBeDefined();
+  expect(started!.subagent.status).toBe('running');
+
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.subagents).toEqual([started!.subagent]);
+  // Another conversation's panel never sees it.
+  expect((await api.chat(auth, null)).subagents).toEqual([]);
+
+  const cancelled = await api.cancelSubagent(auth, started!.subagent.id);
+  expect(cancelled.status).toBe('stopping');
+  const stoppingEvent = collected.events.find((e): e is Extract<TChatEvent, { type: 'subagent' }> => e.type === 'subagent' && e.subagent.status === 'stopping');
+  expect(stoppingEvent).toBeDefined();
+
+  await jest.advanceTimersByTimeAsync(5000);
+  const stoppedEvent = collected.events.find((e): e is Extract<TChatEvent, { type: 'subagent' }> => e.type === 'subagent' && e.subagent.status === 'stopped');
+  expect(stoppedEvent).toBeDefined();
+  expect((await api.chat(auth, 'p-termhub')).subagents[0]).toMatchObject({ id: started!.subagent.id, status: 'stopped' });
+
+  collected.close();
+});
+
+it('cancelSubagent 404s for an unknown id, 409s for one already at rest', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+
+  await expect(api.cancelSubagent(auth, 'nope')).rejects.toMatchObject({ status: 404 });
+
+  await api.sendMessage(auth, { text: 'chame uma subagente para isso', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+  const [subagent] = (await api.chat(auth, 'p-termhub')).subagents;
+  await api.cancelSubagent(auth, subagent!.id); // running -> stopping
+  await expect(api.cancelSubagent(auth, subagent!.id)).rejects.toMatchObject({ status: 409, code: 'SUBAGENT_NOT_RUNNING' });
+});
+
 it('decides an action: approve resolves and emits decision, repeating it is 409, bad proofs are 401', async () => {
   const clock = { value: START };
   const { api, auth, deviceId, secret } = await enrol(clock);

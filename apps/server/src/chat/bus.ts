@@ -3,6 +3,7 @@ import type { ChatMessage } from '../db/repositories/chat.js';
 import type { ChatActionClass } from '../db/repositories/chat-actions.js';
 import type { ChatActionCard, ChatGrantView, ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
 import type { TabQuestionView } from '../db/repositories/tab-questions-view.js';
+import type { SubagentView } from './subagent-view.js';
 import type { ChatAttachment } from '@termhub/mobile-api';
 
 /** What the browser is told while an answer is being written. Terminal content never travels here:
@@ -22,7 +23,29 @@ export type ChatEvent =
    * — never a tool's result: nothing typed back, no screen, no command output. `summary` is the same
    * server-composed sentence `GET /api/chat`'s trail carries for this row (see
    * `db/repositories/chat-actions-view.ts`), so the browser never resolves a name itself. */
-  | { type: 'confirmation'; user_id: string; conversation_id: string; action_id: string; tool: string; args: unknown; class: ChatActionClass; machine_id: string | null; project_id: string | null; tab_id: string | null; summary: string; created_at: string }
+  | {
+      type: 'confirmation';
+      user_id: string;
+      conversation_id: string;
+      action_id: string;
+      tool: string;
+      args: unknown;
+      class: ChatActionClass;
+      machine_id: string | null;
+      project_id: string | null;
+      tab_id: string | null;
+      summary: string;
+      /** The subagent (spec 2026-09-26 §4) whose turn proposed this action, when the live run's stream
+       * told us before the gate did — `describeActions`' resolution of `ChatAction.subagent_id`, scoped
+       * to this same conversation. Null for an action proposed by the top-level run. */
+      subagent: { id: string; description: string } | null;
+      created_at: string;
+      /** Set only on the re-publish of a card whose subagent origin was learned after the gate had
+       * already published it: screens merge it by `action_id` like any other, but it is the same
+       * question, so the push service must not notify (or write a history row for) it again. Never
+       * part of the mobile contract — its schema strips it. */
+      origin_update?: true;
+    }
   /** The user answered a pending action. Every open tab gets this, not only the one that clicked —
    * the confirmation card in each of them must update the same way. */
   | { type: 'decision'; user_id: string; conversation_id: string; action_id: string; status: 'approved' | 'denied' }
@@ -55,7 +78,13 @@ export type ChatEvent =
   /** It was sent (`answered`, or `failed`), dismissed, or left the tab's screen. */
   | { type: 'tab_suggestion_closed'; user_id: string; conversation_id: string; suggestion: TabQuestionView }
   /** An attachment's extraction finished or failed (spec 2026-09-26 §5.5): the public row, never its text. */
-  | { type: 'attachment_status'; user_id: string; conversation_id: string; attachment: ChatAttachment };
+  | { type: 'attachment_status'; user_id: string; conversation_id: string; attachment: ChatAttachment }
+  /** A subagent of the conversation started, changed status or was interrupted (spec 2026-09-26 panel
+   * §5.3): the panel's row. Its description and type only, never its prompt nor its work. */
+  | { type: 'subagent'; user_id: string; conversation_id: string; subagent: SubagentView }
+  /** A cancel the person asked for did not happen (the CLI refused it, or never answered): the row is
+   * running again, and every open screen says "Não foi possível cancelar". */
+  | { type: 'subagent_cancel_failed'; user_id: string; conversation_id: string; subagent_id: string };
 
 class ChatBus {
   private emitter = new EventEmitter();

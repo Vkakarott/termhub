@@ -27,6 +27,10 @@ export interface ChatAction {
   decided_by: string | null;
   decided_at: string | null;
   injected_at: string | null;
+  /** The CLI tool_use_id of the call this action came from, when it ran inside a subagent's turn. */
+  tool_use_id: string | null;
+  /** The subagent (`chat_subagents`) whose turn proposed this action, when it ran inside one. */
+  subagent_id: string | null;
   created_at: string;
 }
 
@@ -40,6 +44,8 @@ export interface InsertPendingInput {
   machine_id?: string | null;
   project_id?: string | null;
   tab_id?: string | null;
+  tool_use_id?: string | null;
+  subagent_id?: string | null;
 }
 
 export interface InsertApprovedInput extends InsertPendingInput {
@@ -65,6 +71,8 @@ const mapAction = (a: PrismaChatAction): ChatAction => ({
   decided_by: a.decidedBy,
   decided_at: a.decidedAt?.toISOString() ?? null,
   injected_at: a.injectedAt?.toISOString() ?? null,
+  tool_use_id: a.toolUseId,
+  subagent_id: a.subagentId,
   created_at: a.createdAt.toISOString(),
 });
 
@@ -110,6 +118,24 @@ export class ChatActionsRepository {
     return row ? mapAction(row) : undefined;
   }
 
+  /**
+   * Ties every action of this conversation's tool_use_id to the subagent that turned out to have run
+   * it (spec 2026-09-26 §4): the gate proposes an action before it can know which subagent's turn it
+   * came from — that is only learned once the `task_started`/action frames are correlated — so this
+   * back-fills `subagent_id` once it is known. Only rows still unset: a row already tied to a subagent
+   * is never touched again, so a duplicate correlation (a retried frame) is a no-op and never returns
+   * a row that was already attributed a moment ago.
+   */
+  async setSubagentByToolUse(conversationId: string, toolUseId: string, subagentId: string): Promise<ChatAction[]> {
+    const { count } = await this.db.chatAction.updateMany({
+      where: { conversationId, toolUseId, subagentId: null },
+      data: { subagentId },
+    });
+    if (count === 0) return [];
+    const rows = await this.db.chatAction.findMany({ where: { conversationId, toolUseId, subagentId } });
+    return rows.map(mapAction);
+  }
+
   async insertPending(input: InsertPendingInput): Promise<ChatAction> {
     const row = await this.db.chatAction.create({
       data: {
@@ -124,6 +150,8 @@ export class ChatActionsRepository {
         machineId: input.machine_id ?? null,
         projectId: input.project_id ?? null,
         tabId: input.tab_id ?? null,
+        toolUseId: input.tool_use_id ?? null,
+        subagentId: input.subagent_id ?? null,
       },
     });
     return mapAction(row);
@@ -149,6 +177,8 @@ export class ChatActionsRepository {
         machineId: input.machine_id ?? null,
         projectId: input.project_id ?? null,
         tabId: input.tab_id ?? null,
+        toolUseId: input.tool_use_id ?? null,
+        subagentId: input.subagent_id ?? null,
         grantId: input.grant_id,
         decidedBy: input.decided_by,
         decidedAt: new Date(),

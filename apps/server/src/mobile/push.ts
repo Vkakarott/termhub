@@ -123,6 +123,8 @@ export class MobilePushService {
 
   private async handle(event: ChatEvent): Promise<void> {
     if (event.type === 'confirmation') {
+      // A card re-published only to name its subagent: the person was already told about it.
+      if (event.origin_update) return;
       // The event's project_id is the action's target (from the tool call's args), not the chat the
       // question belongs to: the wording and data.project_id come from the conversation itself.
       const projectId = await this.conversationProject(event.conversation_id, event.user_id);
