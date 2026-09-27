@@ -10,7 +10,7 @@ import { chatBus, type ChatEvent } from './bus.js';
 import { HttpError } from '../lib/errors.js';
 import type { SubagentStatus } from './stream.js';
 import { ChatService, CANCEL_TIMEOUT_MS, purgeExpiredActions, type RunnerClient, type RunnerInput } from './service.js';
-import { RESUME_WINDOW_MS } from './resume.js';
+import { RESUME_WINDOW_MS, STALE_MS } from './resume.js';
 import { ORCHESTRATOR_PROMPT } from './concierge-prompt.js';
 
 const user = { id: 'u1', email: 'p@test', role_id: 'role_authenticated' } as unknown as User;
@@ -227,6 +227,10 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       if (!r || r.instance_id !== from || !resumable(r, staleBefore)) return false;
       Object.assign(r, { instance_id: to, released_at: null, heartbeat_at: new Date().toISOString() });
       return true;
+    }),
+    findLiveElsewhere: vi.fn(async (conversationId: string, instanceId: string, freshAfter: Date) => {
+      const r = liveRunsStore.get(conversationId);
+      return r && r.instance_id !== instanceId && r.released_at === null && Date.parse(r.heartbeat_at) >= freshAfter.getTime() ? { ...r } : null;
     }),
     findResumable: vi.fn(async (conversationId: string, instanceId: string, staleBefore: Date) => {
       const r = liveRunsStore.get(conversationId);
@@ -2007,6 +2011,32 @@ describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () =
     }
     expect(chatSubagents.setStatus).toHaveBeenCalledWith('sub1', 'interrupted', { from: ['running', 'stopping'] });
     expect(events).toContainEqual({ type: 'subagent', user_id: 'u1', conversation_id: 'c1', subagent: expect.objectContaining({ id: 'sub1', status: 'interrupted' }) });
+  });
+
+  /** The live-run row of `c1` as another instance keeps it, `heartbeatAgoMs` after its last beat. */
+  const otherInstanceRow = (built: ReturnType<typeof build>, heartbeatAgoMs: number) =>
+    built.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'other-instance', heartbeat_at: new Date(Date.now() - heartbeatAgoMs).toISOString(), released_at: null, turns: [], created_at: new Date().toISOString() });
+
+  it('cancelSubagent answers SUBAGENT_GONE without touching the row while another instance runs the conversation (blue/green overlap)', async () => {
+    const built = build([], { subagents: [runningRow()] });
+    otherInstanceRow(built, 1_000);
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await expect(built.service.cancelSubagent(user, 'sub1')).rejects.toMatchObject({ statusCode: 409, code: 'SUBAGENT_GONE' });
+    } finally {
+      off();
+    }
+    expect(built.chatSubagents.setStatus).not.toHaveBeenCalled();
+    expect(built.subagentsStore[0]).toMatchObject({ status: 'running', ended_at: null });
+    expect(events).toEqual([]);
+  });
+
+  it('cancelSubagent still marks the row interrupted when the other instance\'s row is stale', async () => {
+    const built = build([], { subagents: [runningRow()] });
+    otherInstanceRow(built, STALE_MS + 60_000);
+    await expect(built.service.cancelSubagent(user, 'sub1')).rejects.toMatchObject({ statusCode: 409, code: 'SUBAGENT_GONE' });
+    expect(built.subagentsStore[0]?.status).toBe('interrupted');
   });
 
   /** Drives a live run to the point where subagent `task1`/`sub1` is running in the background, its

@@ -779,6 +779,26 @@ it('shows the subagents toolbar button while one is active, and clicking it list
   expect(await screen.findByText('Buscar CI')).toBeInTheDocument();
 });
 
+it('the subagents panel shows the elapsed time as of when it opens, not as of when the chat mounted', async () => {
+  const realNow = Date.now.bind(Date);
+  let offset = 0;
+  const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+  try {
+    chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1', started_at: new Date(realNow()).toISOString() })] });
+    render(
+      <MemoryRouter>
+        <ChatPanel projectId="p1" />
+      </MemoryRouter>,
+    );
+    const button = await screen.findByRole('button', { name: 'Subagentes (1)' });
+    offset = 10 * 60_000; // ten minutes later, the panel is opened for the first time
+    fireEvent.click(button);
+    expect(await screen.findByText(/há 10 min/)).toBeInTheDocument();
+  } finally {
+    nowSpy.mockRestore();
+  }
+});
+
 it('a subagent event turning it completed drops the toolbar button once nothing is active', async () => {
   let onEvent!: (e: unknown) => void;
   streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {

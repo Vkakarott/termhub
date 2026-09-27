@@ -372,14 +372,22 @@ export class ChatService {
    * chat action's own lookup: a foreign or missing id is the same 404, never a hint that a subagent
    * of someone else's conversation exists. A row already at rest (`SUBAGENT_NOT_RUNNING`) or one whose
    * process is no longer around to ask (`SUBAGENT_GONE`, marked `interrupted` here) both throw a 409:
-   * the click did not fail, there is simply nothing left to cancel.
+   * the click did not fail, there is simply nothing left to cancel. A process live on another instance
+   * (a fresh, unreleased `chat_live_runs` row of theirs) is `SUBAGENT_GONE` too, but its row is left
+   * untouched: that instance still runs it and will report its real end.
    */
   async cancelSubagent(user: User, subagentId: string): Promise<SubagentView> {
     const row = await this.deps.repos.chatSubagents.findByIdForUser(subagentId, user.id);
     if (!row) throw notFound('Subagente não encontrado');
     if (row.status !== 'running') throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING');
     const live = this.live.get(row.conversation_id);
-    if (!live) return this.subagentGone(user, row.id, row.conversation_id);
+    if (!live) {
+      // During a blue/green overlap the process may live on the other instance: it is not gone, only
+      // out of this one's reach, so the row is left for that instance to settle.
+      const elsewhere = await this.deps.repos.chatLiveRuns.findLiveElsewhere(row.conversation_id, this.instanceId, new Date(Date.now() - STALE_MS));
+      if (elsewhere) throw new HttpError(409, 'O processo deste subagente já terminou', 'SUBAGENT_GONE');
+      return this.subagentGone(user, row.id, row.conversation_id);
+    }
     // `stopping` is persisted before the stop line is written: the CLI's answer to that line (its final
     // status, or a refusal rolled back to running) can then never be overwritten by a late `stopping`.
     // Only from running — a row that ended in the meantime has nothing left to cancel.

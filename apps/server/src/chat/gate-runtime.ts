@@ -166,6 +166,25 @@ const originFor = (call: GatedCall, conversationId: string) => {
 };
 
 /**
+ * The origin can land between `originFor`'s read and the insert — and then the live run's own bind
+ * (`setSubagentByToolUse`) already ran while the row did not exist yet. A second read once the row is
+ * stored ties it here, before its card is published, so the card still says which subagent asked.
+ * Best-effort: a failure keeps the row as inserted (no origin, exactly as before this read).
+ */
+async function bindLateOrigin(ctx: ControlContext, call: GatedCall, conversationId: string, row: ChatAction): Promise<ChatAction> {
+  if (row.subagent_id !== null || !call.tool_use_id) return row;
+  const { subagent_id } = originFor(call, conversationId);
+  if (!subagent_id) return row;
+  try {
+    const bound = await ctx.repos.chatActions.setSubagentByToolUse(conversationId, call.tool_use_id, subagent_id);
+    // Nothing bound means the live run's bind got there first, with this same origin.
+    return bound.find((r) => r.id === row.id) ?? { ...row, subagent_id };
+  } catch {
+    return row;
+  }
+}
+
+/**
  * Tools that type free text at the prompt — exactly what must not land in a permission dialog.
  * `send_key`, and `send_input` with `answering_permission`, are how a pending permission is meant to
  * be answered (the tools' own contract), so for those a tab waiting on a permission is not stale.
@@ -278,6 +297,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
     if (await ctx.repos.chatActions.findOpenByKey(conversationId, key)) return WAITING;
     actionNotRecorded();
   }
+  row = await bindLateOrigin(ctx, call, conversationId, row);
   // Enriched the same way, and only in this one place, as `GET /api/chat`'s trail — the browser
   // must never resolve a machine/project/tab name or build the sentence itself. Scoped to the calling
   // user: the model on a gated token could name someone else's task/tab/project id in `call.args`
@@ -321,6 +341,7 @@ async function executeGranted(ctx: ControlContext, call: GatedCall, conversation
     if (await ctx.repos.chatActions.findOpenByKey(conversationId, key)) return ALREADY_CLAIMED;
     actionNotRecorded();
   }
+  row = await bindLateOrigin(ctx, call, conversationId, row);
   try {
     return await execute(ctx, call, row);
   } finally {

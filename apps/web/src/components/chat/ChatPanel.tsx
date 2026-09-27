@@ -439,9 +439,11 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   /** Only running/stopping rows count for the toolbar button: an ended one may still sit in the list
    *  (the server keeps it a while for "levou N min"), but it is not what the button is counting. */
   const activeSubagents = useMemo(() => subagents.filter(isActive), [subagents]);
-  /** "há N min" keeps moving while the panel is open; closed, there is nobody to refresh it for. */
+  /** "há N min" keeps moving while the panel is open; closed, there is nobody to refresh it for. It is
+   *  refreshed the moment the panel opens too, or it would show the time of the last open (or mount). */
   useEffect(() => {
     if (!subagentsOpen) return;
+    setSubagentsNow(Date.now());
     const id = setInterval(() => setSubagentsNow(Date.now()), SUBAGENTS_REFRESH_MS);
     return () => clearInterval(id);
   }, [subagentsOpen]);

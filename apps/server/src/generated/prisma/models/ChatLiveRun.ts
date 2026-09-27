@@ -511,8 +511,9 @@ export type $ChatLiveRunPayload<ExtArgs extends runtime.Types.Extensions.Interna
      */
     releasedAt: Date | null
     /**
-     * The in-flight turns at the last save (StoredTurn[]): question/answer message ids and the text
-     * collected so far, so a resuming instance can settle or replay them.
+     * The in-flight turns at the last save (StoredTurn[]): question/answer message ids and the input
+     * written to the CLI for each (the person's words plus server-added context), so a resuming
+     * instance can settle or replay them. Chat content: never logged.
      */
     turns: runtime.JsonValue
     createdAt: Date

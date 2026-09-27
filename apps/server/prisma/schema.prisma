@@ -838,8 +838,9 @@ model ChatLiveRun {
   heartbeatAt    DateTime         @default(now()) @map("heartbeat_at")
   /// Set when the owning instance shut down cleanly: resumable immediately, not only once stale.
   releasedAt     DateTime?        @map("released_at")
-  /// The in-flight turns at the last save (StoredTurn[]): question/answer message ids and the text
-  /// collected so far, so a resuming instance can settle or replay them.
+  /// The in-flight turns at the last save (StoredTurn[]): question/answer message ids and the input
+  /// written to the CLI for each (the person's words plus server-added context), so a resuming
+  /// instance can settle or replay them. Chat content: never logged.
   turns          Json
   createdAt      DateTime         @default(now()) @map("created_at")
 

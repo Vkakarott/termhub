@@ -51,6 +51,19 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatLiveRunsRepository (P
     expect(await repo.listResumable('B', new Date(Date.now() - 90_000))).toHaveLength(1);
   });
 
+  it('finds a run live on another instance only while fresh and not released', async () => {
+    const freshAfter = () => new Date(Date.now() - 90_000);
+    await repo.save({ conversation_id: conv, user_id: userId, instance_id: 'A', turns: [] });
+    expect((await repo.findLiveElsewhere(conv, 'B', freshAfter()))?.instance_id).toBe('A');
+    expect(await repo.findLiveElsewhere(conv, 'A', freshAfter())).toBeNull(); // never its own
+    await db.chatLiveRun.update({ where: { conversationId: conv }, data: { heartbeatAt: new Date(Date.now() - 120_000) } });
+    expect(await repo.findLiveElsewhere(conv, 'B', freshAfter())).toBeNull(); // stale
+    await repo.save({ conversation_id: conv, user_id: userId, instance_id: 'A', turns: [] });
+    await repo.release('A');
+    expect(await repo.findLiveElsewhere(conv, 'B', freshAfter())).toBeNull(); // released
+    await db.chatLiveRun.deleteMany({ where: { conversationId: conv } });
+  });
+
   it('finds one conversation\'s resumable row, and hands a claimed row back with its original release time', async () => {
     await repo.save({ conversation_id: conv, user_id: userId, instance_id: 'A', turns: [] });
     const staleBefore = new Date(Date.now() - 90_000);

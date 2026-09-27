@@ -2,8 +2,10 @@ import type { PrismaClient } from '../prisma.js';
 import type { ChatLiveRun as PrismaChatLiveRun } from '../../generated/prisma/client.js';
 
 /** One in-flight turn at the moment a live run was last saved: enough for a resuming instance to
- * settle it (both ids set) or replay it (an answer never finished, `text` is what was collected so
- * far). Never the prompt the person sent — only what was already stored as a message. */
+ * settle it (both ids set) or replay it (an answer never finished). `text` is the input that was
+ * written to the CLI for this turn — the person's own words plus any context the server put in front
+ * (a tab question's) — so a replay sends exactly the same line again. It is chat content: never log
+ * it; ids only. */
 export interface StoredTurn {
   question_id: string | null;
   answer_id: string | null;
@@ -136,6 +138,16 @@ export class ChatLiveRunsRepository {
         instanceId: { not: instanceId },
         OR: [{ releasedAt: { not: null } }, { heartbeatAt: { lt: staleBefore } }],
       },
+    });
+    return row ? mapLiveRun(row) : null;
+  }
+
+  /** The opposite of `findResumable`: the conversation's row when another instance owns it, has not
+   *  released it and beat at or after `freshAfter` — its process is alive over there (the blue/green
+   *  overlap), so this instance must not act as if it were gone. Null otherwise. */
+  async findLiveElsewhere(conversationId: string, instanceId: string, freshAfter: Date): Promise<ChatLiveRun | null> {
+    const row = await this.db.chatLiveRun.findFirst({
+      where: { conversationId, instanceId: { not: instanceId }, releasedAt: null, heartbeatAt: { gte: freshAfter } },
     });
     return row ? mapLiveRun(row) : null;
   }

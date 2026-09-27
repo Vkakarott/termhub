@@ -303,6 +303,22 @@ describe('Conversa', () => {
     expect(cancelSubagent).toHaveBeenCalledWith('sub1');
   });
 
+  it('the sheet shows the elapsed time as of when it opens, not as of when the screen mounted', async () => {
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+    try {
+      serveChat(() => ({ subagents: [{ ...SUBAGENT, started_at: new Date(realNow()).toISOString() }] }));
+      await render(<ConversationScreen />);
+      const button = await screen.findByRole('button', { name: 'Subagentes (1)' }, LOAD);
+      offset = 10 * 60_000; // ten minutes later, the sheet is opened for the first time
+      await fireEvent.press(button);
+      expect(screen.getByText(/há 10 min/)).toBeTruthy();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('shows no Subagentes button with nothing running', async () => {
     serveChat(() => ({ subagents: [] }));
     await render(<ConversationScreen />);

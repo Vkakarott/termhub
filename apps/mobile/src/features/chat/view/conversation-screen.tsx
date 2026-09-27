@@ -101,6 +101,8 @@ export function ConversationScreen() {
   const [subagentsNow, setSubagentsNow] = useState(() => Date.now());
   useEffect(() => {
     if (!subagentsOpen) return;
+    // Fresh on open too: otherwise the sheet shows the time of its last open (or of the mount).
+    setSubagentsNow(Date.now());
     const timer = setInterval(() => setSubagentsNow(Date.now()), SUBAGENTS_TICK_MS);
     return () => clearInterval(timer);
   }, [subagentsOpen]);

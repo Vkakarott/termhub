@@ -150,6 +150,12 @@ function fakeChatActions() {
       rows.push(row);
       return row;
     }),
+    /** Like the repository: binds only rows of that call not attributed yet, and hands back those it bound. */
+    setSubagentByToolUse: vi.fn(async (conversationId: string, toolUseId: string, subagentId: string) => {
+      const bound = rows.filter((r) => r.conversation_id === conversationId && r.tool_use_id === toolUseId && r.subagent_id === null);
+      for (const r of bound) r.subagent_id = subagentId;
+      return bound.map((r) => ({ ...r }));
+    }),
     markExecuted: vi.fn(async (id: string, ok: boolean, errorCode?: string | null, durationMs?: number | null) => {
       const row = rows.find((r) => r.id === id);
       if (!row) return;
@@ -705,6 +711,27 @@ it('ties a gated call to the subagent whose turn made it, and the confirmation c
   expect(actions.rows[0]).toMatchObject({ tool_use_id: 'toolu_S', subagent_id: SUBAGENT.id });
   const confirmation = collected.find((e) => e.type === 'confirmation') as { subagent: { id: string; description: string } | null } | undefined;
   expect(confirmation?.subagent).toEqual({ id: SUBAGENT.id, description: SUBAGENT.description });
+});
+
+it('picks up an origin the stream remembered while the gate was inserting the row, and the card carries it', async () => {
+  attachFakeTmux([]);
+  const { app, actions } = build({ gated: true });
+  subagentOrigins.clear();
+  // The subagent's tool frame lands between the gate's origin read and its insert: the live run's own
+  // bind ran before the row existed, so only the gate's second read can tie it.
+  const insert = actions.insertPending.getMockImplementation()!;
+  actions.insertPending.mockImplementationOnce(async (input) => {
+    subagentOrigins.remember('toolu_S', { conversationId: CONVERSATION, subagentId: SUBAGENT.id });
+    return insert(input);
+  });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' }, { 'claudecode/toolUseId': 'toolu_S' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(actions.rows[0]).toMatchObject({ tool_use_id: 'toolu_S', subagent_id: SUBAGENT.id });
+  const confirmations = collected.filter((e) => e.type === 'confirmation') as { subagent: { id: string; description: string } | null }[];
+  expect(confirmations).toHaveLength(1);
+  expect(confirmations[0]?.subagent).toEqual({ id: SUBAGENT.id, description: SUBAGENT.description });
 });
 
 it('never attributes a call to a subagent of another conversation', async () => {
