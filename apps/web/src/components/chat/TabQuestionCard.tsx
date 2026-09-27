@@ -1,6 +1,6 @@
-import { memo, useEffect, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
-import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
 
 export interface TabQuestionCardProps {
   question: TabQuestion;
@@ -47,8 +47,25 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
   // Which questions the person has looked at (the first one is shown at once). A pre-selected answer on
   // a tab never opened must not go out with "Responder", so it waits until every suggested one was seen.
   const [viewed, setViewed] = useState<boolean[]>(() => items.map((_, i) => i === 0));
-  /** Automatic answer countdown (spec 2026-09-26 concierge memory §6/§8): unlike `hint` above, this one
-   *  *does* track `question.auto_answer` on every render — `ChatPanel` owns the cancel call and hands
+  // A suggestion can land after the card is on screen (the concierge's wake → `answer_tab_question`
+  // path, 10–60 s later): `hint` follows it, keyed by its items' contents so a republish of the same
+  // suggestion changes nothing (and never brings back one the person forgot). It also becomes the
+  // pre-selection — but only while the person has not edited the card: their own choice always wins.
+  const touched = useRef(false);
+  const suggestionStamp = JSON.stringify(question.suggestion?.items ?? []);
+  const seededStamp = useRef(suggestionStamp);
+  useEffect(() => {
+    if (seededStamp.current === suggestionStamp) return;
+    seededStamp.current = suggestionStamp;
+    const next = question.suggestion?.items ?? [];
+    setHint(next);
+    if (touched.current) return;
+    setSelected(items.map((_, i) => next.find((s) => s.question_index === i)?.selected ?? []));
+    setTexts(items.map((_, i) => next.find((s) => s.question_index === i)?.text ?? ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestionStamp]);
+  /** Automatic answer countdown (spec 2026-09-26 concierge memory §6/§8): unlike the pre-selection
+   *  above, this one tracks `question.auto_answer` on every render — `ChatPanel` owns the cancel call and hands
    *  this card the updated question back, so the countdown/cancelled/sent/failed state always follows
    *  the current prop (a websocket event updates it exactly the same way). */
   const auto = question.auto_answer ?? null;
@@ -108,13 +125,16 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
       </>
     );
   }
-  // A countdown still `scheduled` past its own clock, or `sent` on a card still open (the send is in
-  // flight): no interactive options, just the countdown (or "Enviando…") and, while there is still time,
-  // "Cancelar" / "Responder agora" (spec 2026-09-26 concierge memory §6/§8).
-  const sending = auto?.status === 'sent' || (auto?.status === 'scheduled' && seconds <= 0);
-  const counting = auto?.status === 'scheduled' && !sending;
+  // A countdown `scheduled`, or `sent` on a card still open (the send is in flight): no interactive
+  // options. While the server still says `scheduled` — even past 0:00 on this device's clock, which
+  // may run ahead of the sweeper's — the line, "Cancelar" and "Responder agora" stay (the cancel can
+  // still win), with "Enviando…" beside them once the clock ran out; only `sent` leaves "Enviando…"
+  // alone (spec 2026-09-26 concierge memory §6/§8).
+  const sending = auto?.status === 'sent';
+  const counting = auto?.status === 'scheduled';
   if (counting || sending) {
-    let line = `Resposta automática em ${formatCountdown(seconds)} — «${choiceAnswerLabel(question.payload, auto!.answer)}». Motivo: ${auto!.reason}`;
+    const description = choiceAnswerDescription(question.payload, auto!.answer);
+    let line = `Resposta automática em ${formatCountdown(seconds)} — «${choiceAnswerLabel(question.payload, auto!.answer)}»${description ? ` (${description})` : ''}. Motivo: ${auto!.reason}`;
     if (auto!.by === 'memory') {
       const decisionIds = new Set(auto!.sources.filter((s) => s.kind === 'decision').map((s) => s.id));
       const idx = items.findIndex((_, i) => hint.some((h) => h.question_index === i && decisionIds.has(h.decision_id)));
@@ -129,13 +149,14 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
         ) : (
           <>
             <p className="mt-1 whitespace-pre-wrap text-fg">{line}</p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <button type="button" className="btn-ghost" disabled={answering} onClick={() => onCancelAutoAnswer?.(question.id)}>
                 Cancelar
               </button>
               <button type="button" className="btn-primary" disabled={answering} onClick={() => onAnswer(question.id, auto!.answer)}>
                 Responder agora
               </button>
+              {seconds <= 0 && <span className="text-xs text-fg-dim">Enviando…</span>}
             </div>
           </>
         )}
@@ -151,8 +172,10 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
   };
   const item = items[current]!;
   const typing = texts[current]!.trim() !== '';
-  const toggle = (option: number) =>
+  const toggle = (option: number) => {
+    touched.current = true;
     setSelected((prev) => prev.map((s, j) => (j !== current ? s : item.multi_select ? (s.includes(option) ? s.filter((x) => x !== option) : [...s, option]) : [option])));
+  };
   // WAI-ARIA tabs (spec 2026-09-26 §4.12): each tab names the panel it controls, the panel names its tab,
   // only the selected tab is in the tab order, and the arrows move between questions (wrapping).
   const tabs = items.length > 1;
@@ -171,6 +194,7 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
   /** "Esquecer esta decisão": the pre-selection it explains is cleared regardless of whether the
    *  DELETE succeeds — the server answers 204 even for a decision already gone. */
   const forget = (h: TabQuestionSuggestionItem) => {
+    touched.current = true;
     const clear = () => {
       setHint((prev) => prev.filter((s) => s !== h));
       setSelected((prev) => prev.map((s, j) => (j === h.question_index ? [] : s)));
@@ -234,7 +258,10 @@ function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswe
             className="input mt-1"
             maxLength={2000}
             value={texts[current]}
-            onChange={(e) => setTexts((prev) => prev.map((t, j) => (j === current ? e.target.value : t)))}
+            onChange={(e) => {
+              touched.current = true;
+              setTexts((prev) => prev.map((t, j) => (j === current ? e.target.value : t)));
+            }}
           />
         </label>
       </fieldset>

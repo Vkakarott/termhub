@@ -208,6 +208,45 @@ it('a concierge suggestion shows its own line and reason, with no "Esquecer esta
   expect(screen.queryByRole('button', { name: 'Esquecer esta decisão' })).toBeNull();
 });
 
+describe('a suggestion that arrives after the card is on screen (the concierge wake path)', () => {
+  const late = { ...suggestion, decision_id: '', similarity: 0, by: 'concierge' as const, reason: 'Você sempre escolhe verde', sources: ['doc:i1'] };
+
+  it('is shown and pre-selected when the person has not touched the card', () => {
+    const { rerender } = render(<TabQuestionCard question={choice({ payload: { questions: [colors] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked();
+    rerender(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [late] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByRole('radio', { name: /Green/ })).toBeChecked();
+    expect(screen.getByText('Sugestão do concierge: «Green». Motivo: Você sempre escolhe verde')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Responder' })).toBeEnabled();
+  });
+
+  it('after the person edited the card, the line shows but their selection is kept', () => {
+    const { rerender } = render(<TabQuestionCard question={choice({ payload: { questions: [colors] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    fireEvent.click(screen.getByRole('radio', { name: /Red/ }));
+    rerender(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [late] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText('Sugestão do concierge: «Green». Motivo: Você sempre escolhe verde')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Red/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked();
+  });
+
+  it('a typed "Outra resposta" also counts as an edit', () => {
+    const { rerender } = render(<TabQuestionCard question={choice({ payload: { questions: [colors] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Outra resposta'), { target: { value: 'Roxo' } });
+    rerender(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [late] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByLabelText('Outra resposta')).toHaveValue('Roxo');
+  });
+
+  it('the same suggestion re-sent (a new object, same items) does not re-seed a forgotten pre-selection', async () => {
+    const q = () => choice({ payload: { questions: [colors] }, suggestion: { items: [{ ...suggestion }] } } as Partial<TabQuestion>);
+    const { rerender } = render(<TabQuestionCard question={q()} answering={false} onAnswer={vi.fn()} onForget={vi.fn(async () => {})} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Esquecer esta decisão' }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked());
+    rerender(<TabQuestionCard question={q()} answering={false} onAnswer={vi.fn()} onForget={vi.fn(async () => {})} />);
+    expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked();
+    expect(screen.queryByText(/Sugestão da memória/)).toBeNull();
+  });
+});
+
 describe('automatic answer countdown (spec 2026-09-26 concierge memory §6/§8)', () => {
   const now = new Date('2026-09-27T10:00:00.000Z');
   const yesNo = { question: 'Usar worktree?', header: 'Worktree', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] };
@@ -262,11 +301,30 @@ describe('automatic answer countdown (spec 2026-09-26 concierge memory §6/§8)'
     expect(onAnswer).toHaveBeenCalledWith('q1', { answers: [{ selected: [0] }] });
   });
 
-  it('a countdown at 0:00 shows "Enviando…" (no negative numbers) with no buttons', () => {
-    render(<TabQuestionCard question={card({ auto_answer: auto({ due_at: now.toISOString() }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+  it('a countdown at 0:00 still "scheduled" shows "Enviando…" (no negative numbers) and keeps both buttons until the server says sent', () => {
+    const onCancelAutoAnswer = vi.fn();
+    render(<TabQuestionCard question={card({ auto_answer: auto({ due_at: now.toISOString() }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} onCancelAutoAnswer={onCancelAutoAnswer} />);
     expect(screen.getByText('Enviando…')).toBeInTheDocument();
     expect(screen.queryByText(/-\d/)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Cancelar' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Responder agora' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(onCancelAutoAnswer).toHaveBeenCalledWith('q1');
+  });
+
+  it('a countdown reaching 0:00 while on screen shows "Enviando…" next to the buttons', async () => {
+    render(<TabQuestionCard question={card({ auto_answer: auto({ due_at: new Date(now.getTime() + 1000).toISOString() }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.queryByText('Enviando…')).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.getByText('Enviando…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeInTheDocument();
+  });
+
+  it('the countdown line names the chosen option\'s description after its label, cut at 80 characters', () => {
+    const steps = { question: 'Como seguir?', header: 'Passo', multi_select: false, options: [{ label: 'Opção 1', description: 'faz merge e push para main', recommended: false }, { label: 'Opção 2', description: 'y'.repeat(100), recommended: false }] };
+    const { rerender } = render(<TabQuestionCard question={choice({ payload: { questions: [steps] }, auto_answer: auto() } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText(/Resposta automática em 0:42 — «Opção 1» \(faz merge e push para main\)\. Motivo: Mesma pergunta respondida antes/)).toBeInTheDocument();
+    rerender(<TabQuestionCard question={choice({ payload: { questions: [steps] }, auto_answer: auto({ answer: { answers: [{ selected: [1] }] } }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText(new RegExp(`«Opção 2» \\(${'y'.repeat(80)}…\\)\\. Motivo`))).toBeInTheDocument();
   });
 
   it('a "sent" countdown on a still-open card shows "Enviando…" with no buttons', () => {

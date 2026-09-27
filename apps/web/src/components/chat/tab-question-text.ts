@@ -35,6 +35,25 @@ export function choiceAnswerLabel(payload: { questions: TabQuestionItem[] }, ans
     .join(' / ');
 }
 
+/** How much of one option's description the countdown line shows. */
+const DESCRIPTION_MAX = 80;
+
+/** The chosen options' descriptions, for the countdown line (spec 2026-09-26 concierge memory §8):
+ *  Claude Code's options often carry their meaning there ("Opção 1" — "faz merge e push para main"), so
+ *  the label alone does not say what will be sent. Each cut at 80 characters with "…", joined like the
+ *  labels; null when no chosen option has one (or the answer is free text). */
+export function choiceAnswerDescription(payload: { questions: TabQuestionItem[] }, answer: ChoiceAnswer): string | null {
+  const parts = payload.questions.flatMap((item, i) => {
+    const a = answer.answers[i];
+    if (!a || a.text !== undefined) return [];
+    return a.selected.flatMap((s) => {
+      const d = item.options[s]?.description?.trim();
+      return d ? [d.length > DESCRIPTION_MAX ? `${d.slice(0, DESCRIPTION_MAX)}…` : d] : [];
+    });
+  });
+  return parts.length > 0 ? parts.join(' / ') : null;
+}
+
 /** "Não consegui responder sozinho…" (spec 2026-09-26 concierge memory §6/§8, controller ruling): the
  *  countdown's own failure line, shown only while the card is still open. */
 export function autoAnswerFailureText(code?: string | null): string {

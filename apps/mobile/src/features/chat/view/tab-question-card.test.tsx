@@ -133,6 +133,47 @@ describe('TabQuestionCard: suggested answer (chat decision memory spec 2026-09-2
   });
 });
 
+describe('TabQuestionCard: a suggestion that arrives after the card is on screen (the concierge wake path)', () => {
+  const late: TabQuestionSuggestion = {
+    items: [{ question_index: 0, decision_id: '', similarity: 0, selected: [1], by: 'concierge', reason: 'Você sempre usa branch', sources: ['doc:i1'], source: { question: 'Usar worktree?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00.000Z' } }],
+  };
+
+  it('is shown and pre-selected when the person has not touched the card', async () => {
+    const view = await render(<TabQuestionCard question={BASE_QUESTION} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    expect(screen.getByRole('radio', { name: 'Não' }).props.accessibilityState.checked).toBe(false);
+    await view.rerender(<TabQuestionCard question={{ ...BASE_QUESTION, suggestion: late }} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    expect(screen.getByRole('radio', { name: 'Não' }).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByText('Sugestão do concierge: «Não». Motivo: Você sempre usa branch')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Responder' }).props.accessibilityState.disabled).toBe(false);
+  });
+
+  it('after the person edited the card, the line shows but their selection is kept', async () => {
+    const view = await render(<TabQuestionCard question={BASE_QUESTION} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    await act(async () => fireEvent.press(screen.getByRole('radio', { name: 'Sim' })));
+    await view.rerender(<TabQuestionCard question={{ ...BASE_QUESTION, suggestion: late }} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    expect(screen.getByText('Sugestão do concierge: «Não». Motivo: Você sempre usa branch')).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Sim' }).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByRole('radio', { name: 'Não' }).props.accessibilityState.checked).toBe(false);
+  });
+
+  it('a typed "Outra resposta" also counts as an edit', async () => {
+    const view = await render(<TabQuestionCard question={BASE_QUESTION} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    await act(async () => fireEvent.changeText(screen.getByLabelText('Outra resposta'), 'Os dois'));
+    await view.rerender(<TabQuestionCard question={{ ...BASE_QUESTION, suggestion: late }} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn()} />);
+    expect(screen.getByLabelText('Outra resposta').props.value).toBe('Os dois');
+  });
+
+  it('the same suggestion re-sent (a new object, same items) does not re-seed a forgotten pre-selection', async () => {
+    const q = (): TabQuestion => ({ ...BASE_QUESTION, suggestion: { items: [{ ...SUGGESTION.items[0]! }] } });
+    const view = await render(<TabQuestionCard question={q()} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn(async () => undefined)} />);
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Esquecer esta decisão' })));
+    expect(screen.getByRole('radio', { name: 'Não' }).props.accessibilityState.checked).toBe(false);
+    await view.rerender(<TabQuestionCard question={q()} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={jest.fn(async () => undefined)} />);
+    expect(screen.getByRole('radio', { name: 'Não' }).props.accessibilityState.checked).toBe(false);
+    expect(screen.queryByText(/Sugestão da memória/)).toBeNull();
+  });
+});
+
 describe('automatic answer countdown (concierge memory spec 2026-09-26 §6/§8)', () => {
   const now = new Date('2026-09-27T10:00:00.000Z');
   const yesNo = { question: 'Usar worktree?', header: 'Worktree', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] };
@@ -187,11 +228,30 @@ describe('automatic answer countdown (concierge memory spec 2026-09-26 §6/§8)'
     expect(onAnswer).toHaveBeenCalledWith('q1', { answers: [{ selected: [0] }] });
   });
 
-  it('a countdown at 0:00 shows "Enviando…" (no negative numbers) with no buttons', async () => {
-    await render(<TabQuestionCard question={card({ auto_answer: auto({ due_at: now.toISOString() }) })} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} />);
+  it('a countdown at 0:00 still "scheduled" shows "Enviando…" (no negative numbers) and keeps both buttons until the server says sent', async () => {
+    const onCancelAutoAnswer = jest.fn();
+    await render(<TabQuestionCard question={card({ auto_answer: auto({ due_at: now.toISOString() }) })} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onCancelAutoAnswer={onCancelAutoAnswer} />);
     expect(screen.getByText('Enviando…')).toBeTruthy();
     expect(screen.queryByText(/-\d/)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Cancelar' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Responder agora' })).toBeTruthy();
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cancelar' })));
+    expect(onCancelAutoAnswer).toHaveBeenCalledWith('q1');
+  });
+
+  it('a countdown reaching 0:00 while on screen shows "Enviando…" next to the buttons', async () => {
+    await render(<TabQuestionCard question={card({ auto_answer: auto({ due_at: new Date(now.getTime() + 1000).toISOString() }) })} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} />);
+    expect(screen.queryByText('Enviando…')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(1000));
+    expect(screen.getByText('Enviando…')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeTruthy();
+  });
+
+  it('the countdown line names the chosen option\'s description after its label, cut at 80 characters', async () => {
+    const steps = { question: 'Como seguir?', header: 'Passo', multi_select: false, options: [{ label: 'Opção 1', description: 'faz merge e push para main', recommended: false }, { label: 'Opção 2', description: 'y'.repeat(100), recommended: false }] };
+    const view = await render(<TabQuestionCard question={card({ payload: { questions: [steps] }, auto_answer: auto() })} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} />);
+    expect(screen.getByText(/Resposta automática em 0:42 — «Opção 1» \(faz merge e push para main\)\. Motivo: Mesma pergunta respondida antes/)).toBeTruthy();
+    await view.rerender(<TabQuestionCard question={card({ payload: { questions: [steps] }, auto_answer: auto({ answer: { answers: [{ selected: [1] }] } }) })} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} />);
+    expect(screen.getByText(new RegExp(`«Opção 2» \\(${'y'.repeat(80)}…\\)\\. Motivo`))).toBeTruthy();
   });
 
   it('a "sent" countdown on a still-open card shows "Enviando…" with no buttons', async () => {

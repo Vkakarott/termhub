@@ -1,8 +1,8 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
-import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from '../model/tab-question-text';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from '../model/tab-question-text';
 import type { TabQuestion, TabQuestionSuggestionItem } from '../model/types';
 
 type Props = {
@@ -57,8 +57,25 @@ function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: 
   // Which questions the person has looked at (the first one is shown at once). A pre-selected answer on
   // a tab never opened must not go out with "Responder", so it waits until every suggested one was seen.
   const [viewed, setViewed] = useState<boolean[]>(() => items.map((_, i) => i === 0));
-  /** Automatic answer countdown (concierge memory spec 2026-09-26 §6/§8): unlike `hint` above, this
-   *  one *does* track `question.auto_answer` on every render — the store owns the cancel call and
+  // A suggestion can land after the card is on screen (the concierge's wake → `answer_tab_question`
+  // path, 10–60 s later): `hint` follows it, keyed by its items' contents so a republish of the same
+  // suggestion changes nothing (and never brings back one the person forgot). It also becomes the
+  // pre-selection — but only while the person has not edited the card: their own choice always wins.
+  const touched = useRef(false);
+  const suggestionStamp = JSON.stringify(question.suggestion?.items ?? []);
+  const seededStamp = useRef(suggestionStamp);
+  useEffect(() => {
+    if (seededStamp.current === suggestionStamp) return;
+    seededStamp.current = suggestionStamp;
+    const next = question.suggestion?.items ?? [];
+    setHint(next);
+    if (touched.current) return;
+    setSelected(items.map((_, i) => next.find((s) => s.question_index === i)?.selected ?? []));
+    setTexts(items.map((_, i) => next.find((s) => s.question_index === i)?.text ?? ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestionStamp]);
+  /** Automatic answer countdown (concierge memory spec 2026-09-26 §6/§8): unlike the pre-selection
+   *  above, this one tracks `question.auto_answer` on every render — the store owns the cancel call and
    *  hands this card the updated question back, so the countdown/cancelled/sent/failed state always
    *  follows the current prop (a socket event updates it exactly the same way). */
   const auto = question.auto_answer ?? null;
@@ -114,13 +131,16 @@ function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: 
       </View>
     );
   }
-  // A countdown still `scheduled` past its own clock, or `sent` on a card still open (the send is in
-  // flight): no interactive options, just the countdown (or "Enviando…") and, while there is still
-  // time, "Cancelar" / "Responder agora" (concierge memory spec 2026-09-26 §6/§8).
-  const sending = auto?.status === 'sent' || (auto?.status === 'scheduled' && seconds <= 0);
-  const counting = auto?.status === 'scheduled' && !sending;
+  // A countdown `scheduled`, or `sent` on a card still open (the send is in flight): no interactive
+  // options. While the server still says `scheduled` — even past 0:00 on this device's clock, which
+  // may run ahead of the sweeper's — the line, "Cancelar" and "Responder agora" stay (the cancel can
+  // still win), with "Enviando…" beside them once the clock ran out; only `sent` leaves "Enviando…"
+  // alone (concierge memory spec 2026-09-26 §6/§8).
+  const sending = auto?.status === 'sent';
+  const counting = auto?.status === 'scheduled';
   if (counting || sending) {
-    let line = `Resposta automática em ${formatCountdown(seconds)} — «${choiceAnswerLabel(question.payload, auto!.answer)}». Motivo: ${auto!.reason}`;
+    const description = choiceAnswerDescription(question.payload, auto!.answer);
+    let line = `Resposta automática em ${formatCountdown(seconds)} — «${choiceAnswerLabel(question.payload, auto!.answer)}»${description ? ` (${description})` : ''}. Motivo: ${auto!.reason}`;
     if (auto!.by === 'memory') {
       const decisionIds = new Set(auto!.sources.filter((s) => s.kind === 'decision').map((s) => s.id));
       const idx = items.findIndex((_, i) => hint.some((h) => h.question_index === i && decisionIds.has(h.decision_id)));
@@ -143,6 +163,7 @@ function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: 
                 <Button label="Responder agora" disabled={busy} onPress={() => onAnswer(question.id, auto!.answer)} />
               </View>
             </View>
+            {seconds <= 0 ? <AppText variant="muted">Enviando…</AppText> : null}
           </View>
         )}
       </View>
@@ -157,10 +178,13 @@ function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: 
     setCurrent(i);
     setViewed((prev) => prev.map((v, j) => v || j === i));
   };
-  const toggle = (option: number) =>
+  const toggle = (option: number) => {
+    touched.current = true;
     setSelected((prev) => prev.map((s, j) => (j !== current ? s : item.multi_select ? (s.includes(option) ? s.filter((x) => x !== option) : [...s, option]) : [option])));
+  };
   const currentHint = hint.find((s) => s.question_index === current);
   const forget = (h: TabQuestionSuggestionItem) => {
+    touched.current = true;
     const clear = () => {
       setHint((prev) => prev.filter((s) => s !== h));
       setSelected((prev) => prev.map((s, j) => (j === h.question_index ? [] : s)));
@@ -220,7 +244,10 @@ function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: 
         value={texts[current]}
         maxLength={2000}
         editable={!busy}
-        onChangeText={(t) => setTexts((prev) => prev.map((x, j) => (j === current ? t : x)))}
+        onChangeText={(t) => {
+          touched.current = true;
+          setTexts((prev) => prev.map((x, j) => (j === current ? t : x)));
+        }}
         className={INPUT}
       />
       {currentHint ? (

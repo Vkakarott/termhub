@@ -4,6 +4,7 @@ import {
   answerSummary,
   autoAnswerFailureText,
   autoAnswerSeconds,
+  choiceAnswerDescription,
   choiceAnswerLabel,
   formatCountdown,
   statusLabel,
@@ -93,6 +94,20 @@ it('reads what a ChoiceAnswer would say, one value per question, joined', () => 
   const { payload } = choice();
   expect(choiceAnswerLabel(payload, { answers: [{ selected: [1] }, { selected: [0, 1] }] })).toBe('Verde / Maçã, Manga');
   expect(choiceAnswerLabel(payload, { answers: [{ selected: [], text: 'Roxo' }] })).toBe('Roxo');
+});
+
+it('reads the chosen options\' descriptions for the countdown line, each cut at 80 characters', () => {
+  const opt = (label: string, description: string) => ({ label, description, recommended: false });
+  const payload = {
+    questions: [
+      { question: 'Como seguir?', header: 'Passo', multi_select: false, options: [opt('Opção 1', 'faz merge e push para main'), opt('Opção 2', '')] },
+      { question: 'E depois?', header: 'Depois', multi_select: true, options: [opt('A', 'x'.repeat(90)), opt('B', 'b')] },
+    ],
+  };
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [0] }] })).toBe('faz merge e push para main');
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [1] }] })).toBeNull();
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [], text: 'livre' }] })).toBeNull();
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [0] }, { selected: [0, 1] }] })).toBe(`faz merge e push para main / ${'x'.repeat(80)}… / b`);
 });
 
 it('upserts by id, appending a new one', () => {
