@@ -13,7 +13,7 @@ const tabIcon =
     <SymbolView name={{ ios: focused ? iosSelected : ios, android }} tintColor={color} size={size} />
   );
 
-/** The three tabs of spec §11.2; Notificações carries the unread count (design spec §7). */
+/** The four tabs of spec §11.2; Notificações carries the unread count (design spec §7). */
 export default function TabsLayout() {
   const unread = useNotificationsStore((s) => s.unread);
   return (
@@ -30,6 +30,7 @@ export default function TabsLayout() {
         name="notifications"
         options={{ title: 'Notificações', tabBarBadge: unread > 0 ? unread : undefined, tabBarIcon: tabIcon('bell', 'bell.fill', 'notifications') }}
       />
+      <Tabs.Screen name="progress" options={{ title: 'Progresso', tabBarIcon: tabIcon('chart.bar', 'chart.bar.fill', 'bar_chart') }} />
       <Tabs.Screen name="settings" options={{ title: 'Ajustes', tabBarIcon: tabIcon('gearshape', 'gearshape.fill', 'settings') }} />
     </Tabs>
   );
