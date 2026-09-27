@@ -16,6 +16,7 @@ const readTools = new Set([
   'list_tickets',
   'get_ticket',
   'read_attachment',
+  'search_memory',
 ]);
 
 const writeTools = new Set([

@@ -62,6 +62,10 @@ it('classifies the ticket tools', () => {
   expect(actionClass('push_ticket_status', {})).toBe('irreversible');
 });
 
+it('classifies search_memory as read', () => {
+  expect(actionClass('search_memory', {})).toBe('read');
+});
+
 describe('grantable', () => {
   it('is only send_input to a named tab that is not answering a permission', () => {
     expect(grantable('send_input', { tab_id: 't1', text: 'oi' })).toBe(true);
