@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { minimalDocx } from '../../../test/zip.js';
 import type { AttachmentRow, ChatAttachmentsRepo } from '../../db/repositories/chat-attachments.js';
-import { ExtractError, type extract } from './extract.js';
+import { ExtractError, extract } from './extract.js';
 import { MAX_PARSE_ATTEMPTS, MAX_TRANSCRIPTION_ATTEMPTS, REQUEUE_MIN_AGE_MS, createExtractionQueue, requeuePending } from './queue.js';
 
 const row = (over: Partial<AttachmentRow> = {}): AttachmentRow => ({
@@ -168,4 +169,33 @@ describe('extraction queue', () => {
     await queue.idle();
     expect(extractImpl).toHaveBeenCalledTimes(2);
   });
+});
+
+describe('extraction queue with the real worker (TER-196)', () => {
+  const SPIN = new URL('../../../test/workers/spin.ts', import.meta.url);
+  const MISSING = new URL('../../../test/workers/missing.ts', import.meta.url);
+
+  it('a parse that runs out of time fails its row, and the next job runs and extracts', async () => {
+    const extractImpl = ((kind, file, mime, w) => extract(kind, file, mime, kind === 'pdf' ? { ...w, workerUrl: SPIN, timeoutMs: 1_000 } : w)) as typeof extract;
+    const { queue, files, onDone } = build([row({ id: 'hang', kind: 'pdf' }), row({ id: 'doc', kind: 'docx', name: 'a.docx' })], extractImpl);
+    files.read.mockImplementation(async (_u: string, id: string) => (id === 'doc' ? minimalDocx(['Olá mundo']) : Buffer.from('%PDF-1.4')));
+    queue.enqueue('hang');
+    queue.enqueue('doc');
+    await queue.idle();
+    expect(onDone.mock.calls.map((c) => [c[0].id, c[0].status, c[0].error_code, c[0].extracted_text])).toEqual([
+      ['hang', 'failed', 'ATTACHMENT_INVALID', null],
+      ['doc', 'ready', null, 'Olá mundo'],
+    ]);
+  }, 30_000);
+
+  it('a worker that cannot start leaves the row pending for the hourly re-queue, then fails it when the attempts run out', async () => {
+    const extractImpl = ((kind, file, mime, w) => extract(kind, file, mime, { ...w, workerUrl: MISSING })) as typeof extract;
+    const { queue, repo, store, log } = build([row({ id: 'first' }), row({ id: 'last', meta: { attempts: MAX_PARSE_ATTEMPTS - 1 } })], extractImpl);
+    queue.enqueue('first');
+    queue.enqueue('last');
+    await queue.idle();
+    expect(store.get('first')!.status).toBe('pending');
+    expect(repo.setFailed).toHaveBeenCalledWith('last', 'ATTACHMENT_INVALID');
+    expect(log.info).toHaveBeenCalledWith(expect.objectContaining({ attachmentId: 'first', kind: 'pdf', code: 'ATTACHMENT_INVALID' }), 'attachment extraction deferred');
+  }, 30_000);
 });
