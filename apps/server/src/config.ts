@@ -124,6 +124,10 @@ const envSchema = z.object({
    *  2026-09-26 concierge memory D6, §6). Bounded so a typo can neither remove the undo window nor
    *  leave a tab waiting for ten minutes. */
   AUTO_ANSWER_DELAY_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
+  /** the least cosine similarity (0..1) between a card's question and the cited decision's question for
+   *  `answer_tab_question` to schedule an automatic answer (spec 2026-09-26 concierge memory D6): the
+   *  model judges "the same question", the server checks it is at least close. Below it, a suggestion. */
+  AUTO_ANSWER_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.8),
 
   // Chat concierge (docker/concierge): the container runner. Since the chat moved onto the user's own
   // machine (spec §6, `chat/agent-runner.ts`) these two reach that container alone, and nothing calls
@@ -225,6 +229,7 @@ export const config = {
   embeddings: env.EMBED_URL && env.EMBED_SECRET ? { url: env.EMBED_URL.replace(/\/$/, ''), secret: env.EMBED_SECRET } : null,
   decisionSuggestThreshold: env.DECISION_SUGGEST_THRESHOLD,
   autoAnswerDelayMs: env.AUTO_ANSWER_DELAY_SECONDS * 1000,
+  autoAnswerMinSimilarity: env.AUTO_ANSWER_MIN_SIMILARITY,
   /**
    * Settings for the container runner (`httpRunner`) and nothing else: the chat itself no longer reads
    * this, and no code path builds that runner any more (spec §6). What the chat needs is `mcpUrl`

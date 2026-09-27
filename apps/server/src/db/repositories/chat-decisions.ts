@@ -229,6 +229,23 @@ export class ChatDecisionsRepository {
     return rows.map((r) => ({ ...mapRaw(r), similarity: Number(r.similarity) }));
   }
 
+  /**
+   * Cosine similarity (`1 - (embedding <=> v)`) of each named row to `vector`, for `answer_tab_question`'s
+   * similarity floor (spec 2026-09-26 concierge memory D6): the cited decision must be about a question
+   * like this one, not just share its answer. Owner-scoped; a row that is another user's, missing, or
+   * not embedded yet, or embedded under another model or text version (`embedModel`, the `embedTag` of
+   * the query vector — TER-204), is simply absent from the map (the caller treats absent as "not similar").
+   */
+  async similarityTo(ids: string[], userId: string, vector: number[], embedModel: string): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const v = toVector(vector);
+    const rows = await this.db.$queryRaw<{ id: string; similarity: number | string }[]>`
+      SELECT d.id, 1 - (d.embedding <=> ${v}::vector) AS similarity
+      FROM "chat_decisions" d
+      WHERE d.user_id = ${userId} AND d.embedding IS NOT NULL AND d.embed_model = ${embedModel} AND d.id IN (${Prisma.join(ids)})`;
+    return new Map(rows.map((r) => [r.id, Number(r.similarity)]));
+  }
+
   /** Postgres full-text over header, question and the answer's labels/text (never the raw jsonb keys),
    *  best `ts_rank` first — same no-index trade-off as `MemoryItemsRepository.textSearch` (D5). A
    *  query with no lexeme (only punctuation) matches nothing rather than throwing. */

@@ -61,6 +61,15 @@ describe('TabQuestionCard: suggested answer (chat decision memory spec 2026-09-2
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
+  it('"Esquecer esta decisão" on a suggestion with an empty decision_id only clears the pre-selection', async () => {
+    const onForget = jest.fn(async () => undefined);
+    const noDecision: TabQuestionSuggestion = { items: [{ ...SUGGESTION.items[0]!, decision_id: '', similarity: 0 }] };
+    await render(<TabQuestionCard question={{ ...BASE_QUESTION, suggestion: noDecision }} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} onForget={onForget} />);
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Esquecer esta decisão' })));
+    expect(onForget).not.toHaveBeenCalled();
+    expect(screen.getByRole('radio', { name: 'Não' }).props.accessibilityState.checked).toBe(false);
+  });
+
   it('no suggestion line renders for a question with no suggestion, or once it is answered', async () => {
     await render(<TabQuestionCard question={BASE_QUESTION} busy={false} onAnswer={jest.fn()} loadScreen={async () => null} />);
     expect(screen.queryByText(/Sugestão da memória/)).toBeNull();

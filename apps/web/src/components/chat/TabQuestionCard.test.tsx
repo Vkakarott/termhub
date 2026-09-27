@@ -136,6 +136,14 @@ it('"Esquecer esta decisão" forgets the decision and clears the pre-selection',
   expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked();
 });
 
+it('"Esquecer esta decisão" on a suggestion with an empty decision_id only clears the pre-selection', async () => {
+  const onForget = vi.fn(async () => {});
+  render(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [{ ...suggestion, decision_id: '', similarity: 0 }] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} onForget={onForget} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Esquecer esta decisão' }));
+  expect(onForget).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByRole('radio', { name: /Green/ })).not.toBeChecked());
+});
+
 it("forgetting one question's suggestion keeps another question's pre-selection", async () => {
   const onForget = vi.fn(async () => {});
   const suggestionFruits = { question_index: 1, decision_id: 'd2', similarity: 0.9, selected: [0, 2], source: { question: 'Quais frutas você gosta?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00Z' } };

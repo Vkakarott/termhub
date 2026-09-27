@@ -355,6 +355,29 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
     expect(ids).not.toContain(otherUserRow!.id);
   });
 
+  it('similarityTo: cosine similarity of the named rows to a vector, only this user\'s embedded rows', async () => {
+    const [same] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Sim1', question: 'Sim pergunta 1?' })]);
+    await repo.setEmbedding(same!.id, vec(5), 'm');
+    const [near] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Sim2', question: 'Sim pergunta 2?' })]);
+    await repo.setEmbedding(near!.id, mix(5, 6, 0.5), 'm');
+    const [unembedded] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Sim3', question: 'Sim pergunta 3?' })]);
+    const [foreign] = await repo.insertMany([
+      newDecision({ user_id: otherUserId, project_id: null, conversation_id: null, tab_question_id: newId(), header: 'Sim4', question: 'Sim pergunta 4?' }),
+    ]);
+    await repo.setEmbedding(foreign!.id, vec(5), 'm');
+    const [otherVersion] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Sim5', question: 'Sim pergunta 5?' })]);
+    await repo.setEmbedding(otherVersion!.id, vec(5), 'm#old');
+
+    const sims = await repo.similarityTo([same!.id, near!.id, unembedded!.id, foreign!.id, otherVersion!.id], userId, vec(5), 'm');
+    expect(sims.get(same!.id)).toBeCloseTo(1, 5);
+    expect(sims.get(near!.id)!).toBeGreaterThan(0);
+    expect(sims.get(near!.id)!).toBeLessThan(1);
+    expect(sims.has(unembedded!.id)).toBe(false);
+    expect(sims.has(foreign!.id)).toBe(false);
+    expect(sims.has(otherVersion!.id)).toBe(false); // another model / text version is never compared (TER-204)
+    expect((await repo.similarityTo([], userId, vec(5), 'm')).size).toBe(0);
+  });
+
   it('textSearch: matches the question and answer labels case-insensitively, only this user\'s rows, similarity-free ranking; punctuation-only query returns []', async () => {
     const [row] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Busca texto', question: 'Qual worktree usar isolado?', answer: { labels: ['Ultravioleta777'] } })]);
     await repo.insertMany([

@@ -278,13 +278,15 @@ export class TabQuestionsRepository {
 
   /**
    * Attaches a countdown to a still-open `choice` question (spec §6, D9): conditional on `status =
-   * 'open'` and no countdown already scheduled — a second `setAutoAnswer` while one is `scheduled`
-   * changes nothing, since only the sweeper (`claimAutoAnswer`) or a cancel may end it.
+   * 'open'` and no countdown already scheduled or being sent — a second `setAutoAnswer` while one is
+   * `scheduled` changes nothing, since only the sweeper (`claimAutoAnswer`) or a cancel may end it; nor
+   * while one is `sent` (claimed, send in flight): overwriting it would make the sweeper's
+   * `finishAutoAnswer` miss on a failed send and let a second automatic send fire later.
    */
   async setAutoAnswer(id: string, auto: AutoAnswer): Promise<TabQuestion | undefined> {
     const count = await this.db.$executeRaw`
       UPDATE "tab_questions" SET "auto_answer" = ${JSON.stringify(auto)}::jsonb
-      WHERE "id" = ${id} AND "status" = 'open' AND ("auto_answer" IS NULL OR "auto_answer"->>'status' <> 'scheduled')`;
+      WHERE "id" = ${id} AND "status" = 'open' AND ("auto_answer" IS NULL OR "auto_answer"->>'status' NOT IN ('scheduled', 'sent'))`;
     if (count === 0) return undefined;
     const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
     return row ? mapQuestion(row) : undefined;

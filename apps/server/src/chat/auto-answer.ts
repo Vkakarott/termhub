@@ -9,12 +9,15 @@ import { publishTabQuestions } from './tab-questions.js';
 
 /**
  * Why `answer_tab_question`'s `mode: 'auto'` became a suggestion (spec 2026-09-26 concierge memory
- * §5.4): the person's switch is off (D8); no cited person decision equals the proposed answer (D6);
- * the card names an irreversible act (D7's blocklist); or a multi-question card is backed for some of
- * its questions but not all (D7). When several apply, that order of precedence is reported, most
- * decisive first: `switch_off` > `blocked` > `multi_question_partial` > `no_person_precedent`.
+ * §5.4): the person's switch is off (D8); the person already cancelled a countdown on this card; no
+ * cited person decision equals the proposed answer (D6); the card names an irreversible act (D7's
+ * blocklist); a multi-question card is backed for some of its questions but not all (D7); or the
+ * backing decisions are about questions below the similarity floor, or it could not be measured (D6,
+ * `AUTO_ANSWER_MIN_SIMILARITY`, fail closed). When several apply, the most decisive is reported:
+ * `switch_off` > `cancelled_by_person` > `blocked` > `multi_question_partial` > `no_person_precedent`
+ * > `not_similar`.
  */
-export type Downgrade = 'switch_off' | 'no_person_precedent' | 'blocked' | 'multi_question_partial';
+export type Downgrade = 'switch_off' | 'cancelled_by_person' | 'no_person_precedent' | 'blocked' | 'multi_question_partial' | 'not_similar';
 
 export interface ScheduleInput {
   row: TabQuestion;

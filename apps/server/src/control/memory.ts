@@ -3,7 +3,8 @@ import type { ChatDecision, DecisionNeighbour } from '../db/repositories/chat-de
 import type { MemoryFilter, MemoryHit, MemoryItem, MemoryKind, MemoryTrust } from '../db/repositories/memory-items.js';
 import { checkChoiceAnswer, choiceAnswerBody, type ChoiceAnswer, type ChoicePayload } from '../chat/tab-question-payload.js';
 import { decisionBacks, scheduleAutoAnswer, type Downgrade } from '../chat/auto-answer.js';
-import { labelKey, type SuggestionItem } from '../chat/decision-text.js';
+import { embedTag, embedText, labelKey, type SuggestionItem } from '../chat/decision-text.js';
+import { config } from '../config.js';
 import { publishTabQuestions } from '../chat/tab-questions.js';
 import { autoAnswerBlocked } from '../memory/blocklist.js';
 import { defaultEmbedder, EMBED_TIMEOUT_MS, withTimeout, type Embedder } from '../chat/embeddings.js';
@@ -355,6 +356,40 @@ function suggestionSource(first: ResolvedSource): SuggestionItem['source'] {
 }
 
 /**
+ * The similarity floor behind `auto` (spec D6): for every question, one of the decisions that back its
+ * answer (`backers[i]`) must also be about a similar question — cosine(embedding of this question's
+ * `embedText`, the decision's stored embedding) ≥ `AUTO_ANSWER_MIN_SIMILARITY`, computed in SQL
+ * (`similarityTo`, owner-scoped, only vectors of the same model and text version — `embedTag`, TER-204).
+ * Fails closed: no embedder, an embed that fails or times out, a question that normalises to '' (it
+ * would match every other empty question at 1.0), or a decision with no embedding of this version yet
+ * all answer `false`. One embed call for the whole card.
+ */
+async function similarEnough(ctx: ControlContext, payload: ChoicePayload, backers: ChatDecision[][], embedder: Embedder | null): Promise<boolean> {
+  if (!embedder) return false;
+  const texts = payload.questions.map(embedText);
+  if (texts.some((t) => t === '')) return false;
+  let model: string;
+  let vectors: number[][];
+  try {
+    ({ model, vectors } = await withTimeout(embedder.embed(texts), EMBED_TIMEOUT_MS, () => {}));
+  } catch {
+    return false;
+  }
+  for (const [i, ds] of backers.entries()) {
+    const vector = vectors[i];
+    if (!vector || ds.length === 0) return false;
+    const sims = await ctx.repos.chatDecisions.similarityTo(
+      ds.map((d) => d.id),
+      ctx.scope.user.id,
+      vector,
+      embedTag(model),
+    );
+    if (![...sims.values()].some((sim) => sim >= config.autoAnswerMinSimilarity)) return false;
+  }
+  return true;
+}
+
+/**
  * `answer_tab_question` (spec 2026-09-26 concierge memory D6, D7, D8, D11, §5.4): answers one of the
  * person's open `choice` cards from memory, never by typing — either a cancellable countdown
  * (`mode: 'auto'`, the default) or a pre-selection with the concierge's reason (`mode: 'suggest'`).
@@ -362,14 +397,17 @@ function suggestionSource(first: ResolvedSource): SuggestionItem['source'] {
  * The server, not the model, decides when "auto" is allowed. In order, each failure a pt-BR
  * `ControlError` with nothing written:
  *  1. the row is the caller's (`findByIdForUser`; another user's is exactly as missing as a stray id),
- *     a `choice` (never a permission prompt or a tab suggestion), still `open`, with no countdown running;
+ *     a `choice` (never a permission prompt or a tab suggestion), still `open`, with no countdown
+ *     `scheduled` or `sent` (a claimed send in flight must never be replaced);
  *  2. the answers parse against the payload (`toChoiceAnswer`);
  *  3. every source resolves in the caller's own memory (`verifySources`).
  * Then `auto` is downgraded to a suggestion, with the reason in the result (precedence as `Downgrade`
- * documents), when the person's "Responder sozinho" switch is off; when any question's header, text
- * or chosen answer hits the blocklist; or when not every question has a cited `decision` (a person's
- * own past answer) that maps to exactly the proposed answer (`decisionBacks`). A doc, card, message or
- * note can never back `auto`: text an agent wrote may carry an injection (D2).
+ * documents), when the person's "Responder sozinho" switch is off; when the person already cancelled a
+ * countdown on this card; when any question's header, text or chosen answer hits the blocklist; when
+ * not every question has a cited `decision` (a person's own past answer) that maps to exactly the
+ * proposed answer (`decisionBacks`); or when those decisions are not about a similar enough question
+ * (`similarEnough`, fail closed). A doc, card, message or note can never back `auto`: text an agent
+ * wrote may carry an injection (D2).
  *
  * A suggestion replaces the card's items (the answers cover every question) and is republished; a
  * countdown is `scheduleAutoAnswer`'s. A row that moved on between the read and the write answers
@@ -378,13 +416,15 @@ function suggestionSource(first: ResolvedSource): SuggestionItem['source'] {
 export async function answerTabQuestionTool(
   ctx: ControlContext,
   a: { question_id: string; answers: ProposedAnswer[]; reason: string; sources: string[]; mode?: 'auto' | 'suggest' },
+  deps: { embedder?: Embedder | null } = {},
 ): Promise<{ mode: 'auto' | 'suggest'; due_at?: string; downgraded_because?: Downgrade }> {
   const userId = ctx.scope.user.id;
   const row = await ctx.repos.tabQuestions.findByIdForUser(a.question_id, userId);
   if (!row) throw new ControlError('QUESTION_NOT_FOUND', 'Pergunta não encontrada');
   if (row.kind !== 'choice') throw new ControlError('NOT_A_CHOICE', NOT_A_CHOICE);
   if (row.status !== 'open') throw new ControlError('QUESTION_CLOSED', QUESTION_CLOSED);
-  if (row.auto_answer?.status === 'scheduled') throw new ControlError('ALREADY_SCHEDULED', 'Já há uma resposta automática em contagem para esta pergunta');
+  const autoStatus = row.auto_answer?.status;
+  if (autoStatus === 'scheduled' || autoStatus === 'sent') throw new ControlError('ALREADY_SCHEDULED', 'Já há uma resposta automática em contagem para esta pergunta');
   const payload = row.payload as ChoicePayload;
   const answer = toChoiceAnswer(payload, a.answers);
   const sources = await verifySources(ctx, a.sources);
@@ -393,15 +433,18 @@ export async function answerTabQuestionTool(
   let downgrade: Downgrade | undefined;
   if ((a.mode ?? 'auto') === 'auto') {
     const decisions = sources.flatMap((s) => (s.kind === 'decision' ? [s.decision] : []));
-    const backed = payload.questions.filter((item, i) => decisions.some((d) => decisionBacks(d, item, answer.answers[i]!))).length;
+    const backers = payload.questions.map((item, i) => decisions.filter((d) => decisionBacks(d, item, answer.answers[i]!)));
+    const backed = backers.filter((ds) => ds.length > 0).length;
     const parts = payload.questions.flatMap((q, i) => {
       const ans = answer.answers[i]!;
       return [q.header, q.question, ...ans.selected.map((s) => q.options[s]!.label), ...(ans.text !== undefined ? [ans.text] : [])];
     });
     if (!(await ctx.repos.users.chatAutodecide(userId))) downgrade = 'switch_off';
+    else if (autoStatus === 'cancelled') downgrade = 'cancelled_by_person';
     else if (autoAnswerBlocked(parts)) downgrade = 'blocked';
     else if (payload.questions.length > 1 && backed > 0 && backed < payload.questions.length) downgrade = 'multi_question_partial';
     else if (backed < payload.questions.length) downgrade = 'no_person_precedent';
+    else if (!(await similarEnough(ctx, payload, backers, deps.embedder !== undefined ? deps.embedder : defaultEmbedder()))) downgrade = 'not_similar';
 
     if (!downgrade) {
       const scheduled = await scheduleAutoAnswer(ctx.repos, { row, answer, by: 'concierge', reason: a.reason, sources: sources.map((s) => ({ kind: s.kind, id: s.id })) });
@@ -411,8 +454,13 @@ export async function answerTabQuestionTool(
   }
 
   const source = suggestionSource(sources[0]!);
+  // Installed mobile builds parse both fields as required: the first cited decision's id (or "" — the
+  // cards and `bumpAccepted` skip an empty id) and a similarity of 0 (no search ranked it).
+  const decisionId = sources.find((s) => s.kind === 'decision')?.id ?? '';
   const items: SuggestionItem[] = answer.answers.map((ans, i) => ({
     question_index: i,
+    decision_id: decisionId,
+    similarity: 0,
     selected: ans.selected,
     ...(ans.text !== undefined ? { text: ans.text } : {}),
     by: 'concierge',

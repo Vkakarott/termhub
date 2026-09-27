@@ -372,6 +372,15 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect(await repo.setAutoAnswer(answeredQ.id, autoAnswer())).toBeUndefined();
   });
 
+  it('setAutoAnswer: never over a countdown already claimed (sent), so a failed send cannot be followed by a second one', async () => {
+    const { question } = await open('ta11');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: dueNow() }));
+    expect((await repo.claimAutoAnswer(question.id))?.auto_answer?.status).toBe('sent');
+    expect(await repo.setAutoAnswer(question.id, autoAnswer({ reason: 'de novo' }))).toBeUndefined();
+    // The sweeper's own failure path still finds its claimed countdown.
+    expect((await repo.finishAutoAnswer(question.id, 'failed', 'PROMPT_MOVED'))?.auto_answer).toMatchObject({ status: 'failed', reason: 'Mesma pergunta respondida antes' });
+  });
+
   it('claimAutoAnswer: scheduled → sent, only once due, exactly one winner of two racing claims, never after cancelAutoAnswer', async () => {
     const { question: notDue } = await open('ta3');
     await repo.setAutoAnswer(notDue.id, autoAnswer());

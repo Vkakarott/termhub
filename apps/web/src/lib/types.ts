@@ -1006,9 +1006,9 @@ export type TabQuestionAnswer = ChoiceAnswer | PermissionAnswer;
  * indexes (the mapping is done server-side); `text` is set instead for a free-text past answer. */
 export interface TabQuestionSuggestionItem {
   question_index: number;
-  /** Absent on a concierge suggestion (spec 2026-09-26 concierge memory §3.2): no single decision backs it. */
-  decision_id?: string;
-  similarity?: number;
+  /** `""` on a concierge suggestion that cited no decision (spec 2026-09-26 concierge memory §3.2). */
+  decision_id: string;
+  similarity: number;
   selected: number[];
   text?: string;
   source: { question: string; project_name: string | null; answered_at: string };

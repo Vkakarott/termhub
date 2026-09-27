@@ -38,7 +38,7 @@ export async function suggestFor(repos: Pick<Repositories, 'users' | 'chatDecisi
     if (!(await repos.users.chatSuggestions(row.user_id))) return null;
     const texts = items.map(embedText);
     const { model, vectors } = await embedder.embed(texts);
-    const found: (SuggestionItem & { decision_id: string; similarity: number })[] = [];
+    const found: SuggestionItem[] = [];
     for (const [i, item] of items.entries()) {
       // A question that normalises to '' (e.g. only "?" or "...") would embed identically to every
       // other empty question and match them at similarity 1.0 — never a real match, so it never even
@@ -145,7 +145,7 @@ export async function recordDecisions(repos: Pick<Repositories, 'chatDecisions'>
           const a = answer.answers[item.question_index];
           return a !== undefined && sameAnswer({ selected: item.selected, text: item.text }, { selected: a.selected, text: a.text });
         })
-        // A concierge suggestion (spec 2026-09-26 concierge memory §5.4) cites no single decision.
+        // A concierge suggestion that cited no decision carries an empty id (spec 2026-09-26 concierge memory §5.4).
         .flatMap((item) => (item.decision_id ? [item.decision_id] : []));
       if (acceptedIds.length > 0) await repos.chatDecisions.bumpAccepted(acceptedIds);
     }

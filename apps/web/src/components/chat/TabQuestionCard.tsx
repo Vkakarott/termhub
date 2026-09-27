@@ -90,7 +90,7 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
       setSelected((prev) => prev.map((s, j) => (j === h.question_index ? [] : s)));
       setTexts((prev) => prev.map((t, j) => (j === h.question_index ? '' : t)));
     };
-    // A concierge suggestion cites no single decision: forgetting it only clears the pre-selection.
+    // An empty id (a concierge suggestion that cited no decision): forgetting only clears the pre-selection.
     const result = h.decision_id ? onForget?.(h.decision_id) : undefined;
     if (result) void result.then(clear, clear);
     else clear();
