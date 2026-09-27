@@ -185,3 +185,20 @@ The retired color's logs (`docker logs` on the stopped color) cover the time bef
 - Keeping a textless `Stop` from blanking `state_text` for `list_tabs` / `wait_for_state`.
 - Suggestions for Codex / Cursor.
 - A per-`agent_id` close rule for subagents (TER-83 §10 follow-up).
+
+## 10. Live test results (2026-09-26, Claude Code 2.1.283)
+
+Dev server on 127.0.0.1:3203, throwaway Postgres (`pgvector/pgvector:pg16`, since migrations need `vector`),
+isolated tmux socket, `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=1`. Metadata only.
+
+- Step 1 (seed): migrations applied; user, machine, project, tab and hook token seeded (the seed also has to load the
+  public id key before `projects.create`).
+- Step 3 (normal turn): dimmed suggestion drawn; one `open` card, `context` byte-equal to that `Stop`'s text;
+  log `tab suggestion opened` with `chars: 23`, `contextChars: 181`.
+- Step 4 (running Monitor): `Stop` meta `background_tasks: 1`; the Step 3 card went `answered_in_tab`; no new card
+  although a dimmed suggestion was on screen; log `tab suggestion skipped`, `reason: background`, `count: 1`.
+  After the task ended (`UserPromptSubmit` then a new `Stop` without `background_tasks`), a suggestion was drawn and a
+  new `open` card appeared, `context` byte-equal to that final `Stop`'s text (`contextChars: 118`).
+- Step 5 (textless `Stop` posted by hand, HTTP 200): no new card; log `tab suggestion skipped`, `reason: no_context`.
+- Step 6 (leak check): `server.log` has 0 matches for the prompt, message or command strings.
+- Step 7: server, tmux and database removed; no leftover container or process.
