@@ -104,6 +104,14 @@ describe('Ajustes', () => {
     await screen.findByText('iPhone de teste', undefined, LOAD);
   });
 
+  it('"Memória do chat" pushes /chat-memory', async () => {
+    await render(<SettingsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Memória do chat' }, LOAD));
+    expect(mockRouter.push).toHaveBeenCalledWith('/chat-memory');
+    // Waits for this render's own device load, so nothing is left in flight for the next test.
+    await screen.findByText('iPhone de teste', undefined, LOAD);
+  });
+
   it('runs the key diagnostic and shows every step ok', async () => {
     await render(<SettingsScreen />);
     await fireEvent.press(await screen.findByRole('button', { name: 'Testar a chave do aparelho' }, LOAD));

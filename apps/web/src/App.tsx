@@ -11,6 +11,7 @@ import { HomePage } from './pages/HomePage';
 import { ProjectPage } from './pages/ProjectPage';
 import { CardPage } from './pages/CardPage';
 import { ChatPage } from './pages/ChatPage';
+import { ChatMemoryPage } from './pages/ChatMemoryPage';
 import { MachinesPage } from './pages/MachinesPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -65,6 +66,7 @@ export function AppRoutes() {
         </Route>
         <Route element={<ChatLayout />}>
           <Route path="/chat" element={<ChatPage />} />
+          <Route path="/chat/memoria" element={<ChatMemoryPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

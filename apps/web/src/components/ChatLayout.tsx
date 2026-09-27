@@ -37,6 +37,10 @@ export function ChatLayout() {
           ← Voltar
         </Link>
         <h1 className="text-sm font-semibold text-fg">Chat</h1>
+        {/* The suggestion memory's own screen (spec 2026-09-26 §5.2): list, search, forget, switch. */}
+        <Link to="/chat/memoria" className="text-sm text-fg-dim hover:text-fg">
+          Memória
+        </Link>
         {/* Which bundle this screen is running, so "it did not change on my phone" can be answered by
             reading it instead of guessing between a stale page and a fix that does not work. The
             version is what the person asked for; the commit is what actually tells two deploys apart,

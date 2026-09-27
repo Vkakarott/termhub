@@ -220,6 +220,12 @@ export type ChatGrant = Prisma.ChatGrantModel
  */
 export type TabQuestion = Prisma.TabQuestionModel
 /**
+ * Model ChatDecision
+ * A question of a tab's AskUserQuestion answered from the chat, remembered to suggest the answer to
+ * similar questions later (spec 2026-09-26). `embedding` is pgvector, read and written in raw SQL.
+ */
+export type ChatDecision = Prisma.ChatDecisionModel
+/**
  * Model InstanceSecret
  * A secret this instance generates for itself, once, and keeps: no env var to configure, and blue
  * and green read the same row. `public_id` keys the HMAC behind every id on the public city.

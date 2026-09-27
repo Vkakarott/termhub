@@ -118,6 +118,10 @@ export interface ChatState {
   sendTabSuggestion(suggestionId: string, text: string): Promise<void>;
   /** "Dispensar": the card closes; the tab is not touched. */
   dismissTabSuggestion(suggestionId: string): Promise<void>;
+  /** "Esquecer esta decisão" on a tab question's suggestion line (chat decision memory spec
+   * 2026-09-26 §5.1): the card itself clears its own pre-selection regardless of the outcome, so a
+   * session-ending error is the only thing worth reacting to here. */
+  forgetDecision(decisionId: string): Promise<void>;
   reset(): Promise<void>;
   loadHostOptions(): Promise<void>;
   setHost(machineId: string, aiAccountId?: string): Promise<void>;
@@ -619,6 +623,23 @@ export function createChatStore(deps: ChatDeps) {
 
           attachmentSource(id) {
             return api.attachmentSource(session().auth(), id);
+          },
+
+          async forgetDecision(decisionId) {
+            const gen = generation;
+            try {
+              await api.forgetChatDecision(session().auth(), decisionId);
+            } catch (e) {
+              // The card already cleared its pre-selection optimistically (it does so regardless
+              // of this call's outcome — the server's own `DELETE` is idempotent, 204 even for a
+              // decision already gone), so a non-session failure here is not "nothing happened" to
+              // the user: it looks forgotten but may not be. A short banner says so; the server's
+              // own message is not shown (there is no meaningful business-rule case here, unlike
+              // `TAB_PROMPT_CHANGED` elsewhere). Session-ending errors still go to the session store.
+              if (gen !== generation || isLocked(e)) return;
+              if (session().handleApiError(e)) return;
+              set({ error: CHAT_MSG.forgetDecisionFailed });
+            }
           },
 
           async reset() {

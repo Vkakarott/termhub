@@ -426,6 +426,7 @@ export const ModelName = {
   ChatAction: 'ChatAction',
   ChatGrant: 'ChatGrant',
   TabQuestion: 'TabQuestion',
+  ChatDecision: 'ChatDecision',
   InstanceSecret: 'InstanceSecret',
   ProjectGroup: 'ProjectGroup',
   ProjectGroupItem: 'ProjectGroupItem',
@@ -450,7 +451,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatGrant" | "tabQuestion" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatGrant" | "tabQuestion" | "chatDecision" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2600,6 +2601,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ChatDecision: {
+      payload: Prisma.$ChatDecisionPayload<ExtArgs>
+      fields: Prisma.ChatDecisionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ChatDecisionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ChatDecisionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>
+        }
+        findFirst: {
+          args: Prisma.ChatDecisionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ChatDecisionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>
+        }
+        findMany: {
+          args: Prisma.ChatDecisionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>[]
+        }
+        create: {
+          args: Prisma.ChatDecisionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>
+        }
+        createMany: {
+          args: Prisma.ChatDecisionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ChatDecisionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>[]
+        }
+        delete: {
+          args: Prisma.ChatDecisionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>
+        }
+        update: {
+          args: Prisma.ChatDecisionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>
+        }
+        deleteMany: {
+          args: Prisma.ChatDecisionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ChatDecisionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ChatDecisionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>[]
+        }
+        upsert: {
+          args: Prisma.ChatDecisionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatDecisionPayload>
+        }
+        aggregate: {
+          args: Prisma.ChatDecisionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateChatDecision>
+        }
+        groupBy: {
+          args: Prisma.ChatDecisionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChatDecisionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ChatDecisionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChatDecisionCountAggregateOutputType> | number
+        }
+      }
+    }
     InstanceSecret: {
       payload: Prisma.$InstanceSecretPayload<ExtArgs>
       fields: Prisma.InstanceSecretFieldRefs
@@ -3321,7 +3396,8 @@ export const UserScalarFieldEnum = {
   lastLoginAt: 'lastLoginAt',
   createdAt: 'createdAt',
   reviewEnabledUntil: 'reviewEnabledUntil',
-  reviewEnabledBy: 'reviewEnabledBy'
+  reviewEnabledBy: 'reviewEnabledBy',
+  chatSuggestions: 'chatSuggestions'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
@@ -3766,10 +3842,32 @@ export const TabQuestionScalarFieldEnum = {
   answeredAt: 'answeredAt',
   closedAt: 'closedAt',
   injectedAt: 'injectedAt',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  suggestion: 'suggestion'
 } as const
 
 export type TabQuestionScalarFieldEnum = (typeof TabQuestionScalarFieldEnum)[keyof typeof TabQuestionScalarFieldEnum]
+
+
+export const ChatDecisionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  projectId: 'projectId',
+  conversationId: 'conversationId',
+  tabQuestionId: 'tabQuestionId',
+  questionIndex: 'questionIndex',
+  header: 'header',
+  question: 'question',
+  options: 'options',
+  multiSelect: 'multiSelect',
+  answer: 'answer',
+  embedModel: 'embedModel',
+  suggestedCount: 'suggestedCount',
+  acceptedCount: 'acceptedCount',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatDecisionScalarFieldEnum = (typeof ChatDecisionScalarFieldEnum)[keyof typeof ChatDecisionScalarFieldEnum]
 
 
 export const InstanceSecretScalarFieldEnum = {
@@ -4361,6 +4459,7 @@ export type GlobalOmitConfig = {
   chatAction?: Prisma.ChatActionOmit
   chatGrant?: Prisma.ChatGrantOmit
   tabQuestion?: Prisma.TabQuestionOmit
+  chatDecision?: Prisma.ChatDecisionOmit
   instanceSecret?: Prisma.InstanceSecretOmit
   projectGroup?: Prisma.ProjectGroupOmit
   projectGroupItem?: Prisma.ProjectGroupItemOmit

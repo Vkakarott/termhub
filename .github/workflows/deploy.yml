@@ -83,7 +83,8 @@ jobs:
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
     services:
       postgres:
-        image: postgres:16-alpine
+        # pgvector/pgvector:pg16: the check job needs the `vector` extension for the chat_decisions migration.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -109,6 +110,8 @@ jobs:
         run: docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps landing
       - name: Whisper (speech-to-text service; recreated only when its image or config changes)
         run: docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps whisper
+      - name: Embed (text embeddings for the chat memory; recreated only when its image or config changes)
+        run: docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.proxy.yml --profile prod up -d --build --no-deps embed
       - name: Deploy blue-green (build, healthcheck, switch nginx, retire old)
         run: bash deploy/blue-green.sh
       - name: Conferir migrations aplicadas

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { TabQuestion } from '../../lib/types';
-import { answerSummary, statusLabel, tabLabel, upsertTabQuestion } from './tab-question-text';
+import { answerSummary, statusLabel, suggestionLine, tabLabel, upsertTabQuestion } from './tab-question-text';
 
 const base = { id: 'q1', tab_id: 't1', tab_name: 'api', error_code: null, created_at: '', answered_at: null, closed_at: null };
 const choice = (over: Partial<TabQuestion> = {}) =>
@@ -28,6 +28,16 @@ it('summarises what was answered', () => {
   expect(answerSummary(permission({ status: 'answered', answer: { allow: false } }))).toEqual(['Negado']);
   expect(answerSummary(permission({ status: 'expired' }))).toEqual([]);
 });
+it('names the suggestion\'s source (an option, or free text) in pt-BR', () => {
+  const item = choice().payload.questions[0]!;
+  expect(
+    suggestionLine(item, { question_index: 0, decision_id: 'd1', similarity: 0.9, selected: [1], source: { question: 'Qual cor prefere?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00.000Z' } }),
+  ).toBe('Sugestão da memória: você respondeu «Verde» a «Qual cor prefere?» em termhub, 20/09/2026');
+  expect(
+    suggestionLine(item, { question_index: 0, decision_id: 'd2', similarity: 0.9, selected: [], text: 'Roxo', source: { question: 'Qual cor prefere?', project_name: null, answered_at: '2026-09-20T10:00:00.000Z' } }),
+  ).toBe('Sugestão da memória: você respondeu «Roxo» a «Qual cor prefere?» em sem projeto, 20/09/2026');
+});
+
 it('upserts by id, appending a new one', () => {
   const list = [choice()];
   expect(upsertTabQuestion(list, choice({ status: 'answered' }))).toEqual([choice({ status: 'answered' })]);

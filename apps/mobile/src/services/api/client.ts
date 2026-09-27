@@ -10,8 +10,10 @@ import {
   challengeResponse,
   chatAttachmentResponse,
   chatGrantListResponse,
+  chatMemoryResponse,
   chatProjectsResponse,
   chatResponse,
+  decisionsResponse,
   deviceActivateResponse,
   devicePollResponse,
   deviceRequestResponse,
@@ -269,6 +271,17 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
     transcribe: (a: Auth, fileUri, mime, seconds, onProgress) =>
       uploadCall(`/api/m/v1/transcriptions?seconds=${Math.round(seconds)}`, fileUri, mime, transcriptionResponse, a.accessToken, onProgress).then((r) => r.transcription),
     transcription: (a: Auth, id) => call('GET', `/api/m/v1/transcriptions/${encodeURIComponent(id)}`, transcriptionResponse, { token: a.accessToken }).then((r) => r.transcription),
+
+    chatDecisions: (a: Auth, q, cursor) => {
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      if (cursor) params.set('cursor', cursor);
+      const qs = params.toString();
+      return call('GET', `/api/m/v1/chat/decisions${qs ? `?${qs}` : ''}`, decisionsResponse, { token: a.accessToken });
+    },
+    forgetChatDecision: (a: Auth, id: string) => empty('DELETE', `/api/m/v1/chat/decisions/${encodeURIComponent(id)}`, { token: a.accessToken }),
+    chatMemory: (a: Auth) => call('GET', '/api/m/v1/chat/memory', chatMemoryResponse, { token: a.accessToken }),
+    setChatMemory: (a: Auth, enabled: boolean) => call('PATCH', '/api/m/v1/chat/memory', chatMemoryResponse, { token: a.accessToken, body: { enabled } }),
 
     notifications: (a: Auth, before?: string) =>
       call('GET', `/api/m/v1/notifications${before ? `?before=${encodeURIComponent(before)}` : ''}`, notificationsResponse, {

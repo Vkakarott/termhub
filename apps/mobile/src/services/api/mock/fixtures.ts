@@ -2,7 +2,7 @@
 // account-wide chat, each with a short pt-BR thread dated within the last two days, and the two
 // pending confirmations of termhub (`a-termhub-1`, the one the plan fixes in place, and `a-termhub-2`).
 import { randomId } from '../../crypto/random';
-import type { MockAction, MockConversation, MockMessage, MockNotification, MockProject, MockState } from './state';
+import type { MockAction, MockConversation, MockDecision, MockMessage, MockNotification, MockProject, MockState } from './state';
 
 /** 5 h between messages (oldest first), newest one 20 min ago — keeps every conversation well
  * inside the "last two days" the brief asks for, even at 6 messages. */
@@ -114,6 +114,41 @@ export function seedFixtures(state: MockState, now: number): void {
     created_at: new Date(now - 14 * 60_000).toISOString(),
   };
   state.actions.set(second.id, second);
+
+  // "Memória do chat" (spec 2026-09-26 §4.6): two decisions already remembered, so the screen
+  // (and a manual mock run) is not empty on first boot either.
+  const decisions: MockDecision[] = [
+    {
+      id: 'd-worktree',
+      project_id: 'p-termhub',
+      project_name: 'termhub',
+      header: 'Worktree',
+      question: 'Usar worktree para essa tarefa?',
+      options: [
+        { label: 'Sim', description: 'Isola a tarefa num diretório à parte.' },
+        { label: 'Não', description: 'Trabalha direto no checkout atual.' },
+      ],
+      multi_select: false,
+      answer: { labels: ['Não'] },
+      suggested_count: 3,
+      accepted_count: 2,
+      created_at: new Date(now - 2 * 24 * 60 * 60_000).toISOString(),
+    },
+    {
+      id: 'd-branch',
+      project_id: 'p-opapingou',
+      project_name: 'opapingou',
+      header: 'Branch',
+      question: 'Qual branch a partir de main?',
+      options: [],
+      multi_select: false,
+      answer: { labels: [], text: 'fix/city-sound-ios' },
+      suggested_count: 1,
+      accepted_count: 1,
+      created_at: new Date(now - 6 * 60 * 60_000).toISOString(),
+    },
+  ];
+  state.decisions.push(...decisions);
 
   // The confirmation notification this pre-existing pending action would have produced, so the
   // Notificações tab is not empty on first boot either.

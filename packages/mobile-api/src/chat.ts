@@ -81,3 +81,31 @@ export const tabQuestionScreenResponse = z.object({ text: z.string() });
 /** `POST chat/tab-suggestions/:id/send`: the text to type, as edited. The server is the judge of the rest
  * (one line, no control characters, no leading "!" or "/"). No PIN (spec 2026-09-25 tab suggestions §2). */
 export const tabSuggestionSendBody = z.object({ text: z.string().trim().min(1).max(2000) });
+
+/** "Memória do chat" (spec 2026-09-26 §4.6): the shape of one remembered decision, as the list and
+ * (eventually) other screens show it — never the embedding, the owning user, the conversation or the
+ * tab question it came from. */
+export const decisionOptionView = z.object({ label: z.string(), description: z.string() });
+export const decisionAnswerView = z.object({ labels: z.array(z.string()), text: z.string().optional() });
+export const decisionViewSchema = z.object({
+  id: z.string(),
+  project_id: z.string().nullable(),
+  project_name: z.string().nullable(),
+  header: z.string(),
+  question: z.string(),
+  options: z.array(decisionOptionView),
+  multi_select: z.boolean(),
+  answer: decisionAnswerView,
+  suggested_count: z.number().int(),
+  accepted_count: z.number().int(),
+  created_at: z.string(),
+});
+/** `GET chat/decisions`: newest first, 50 per page, with a keyset `next_cursor` (opaque, `null` on the
+ * last page). */
+export const decisionsResponse = z.object({ decisions: z.array(decisionViewSchema), next_cursor: z.string().nullable() });
+
+/** `GET`/`PATCH chat/memory`: the suggestion switch, whether embeddings are configured on this server
+ * at all (`available: false` hides the switch rather than offering one that can never do anything),
+ * and how many decisions are remembered. */
+export const chatMemoryResponse = z.object({ enabled: z.boolean(), available: z.boolean(), count: z.number().int() });
+export const chatMemoryPatchBody = z.object({ enabled: z.boolean() });

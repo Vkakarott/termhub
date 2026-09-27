@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import type { TabQuestionView } from '../db/repositories/tab-questions-view.js';
 import { tabQuestionContext } from './tab-question-context.js';
 
-const base = { tab_id: 't1', tab_name: 'api', status: 'answered' as const, error_code: null, created_at: '', answered_at: '', closed_at: null };
+const base = { tab_id: 't1', tab_name: 'api', status: 'answered' as const, error_code: null, created_at: '', answered_at: '', closed_at: null, suggestion: null };
 const colors = { question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] };
 const fruits = { question: 'Quais frutas?', header: 'Frutas', multi_select: true, options: ['Maçã', 'Banana', 'Manga'].map((label) => ({ label, description: '', recommended: false })) };
 

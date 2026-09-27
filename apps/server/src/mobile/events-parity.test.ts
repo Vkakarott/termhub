@@ -19,6 +19,7 @@ const question = {
   created_at: '2026-09-25T12:00:00.000Z',
   answered_at: null,
   closed_at: null,
+  suggestion: null,
 };
 const suggestion = {
   id: 's1',

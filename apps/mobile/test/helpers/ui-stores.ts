@@ -1,10 +1,11 @@
 // One mock transport, one session store, one chat store, one notifications store, one settings
-// store and one chat grants store over it, for the `ui` project: a screen test mocks
-// `useSessionStore`, `useChatStore`, `useNotificationsStore`, `useSettingsStore` and
-// `useChatGrantsStore` with these (each `jest.mock` factory requires this module, and Jest's
-// registry hands every store the same instance within a test file).
+// store, one chat grants store and one chat-memory store over it, for the `ui` project: a screen test
+// mocks `useSessionStore`, `useChatStore`, `useNotificationsStore`, `useSettingsStore`,
+// `useChatGrantsStore` and `useChatMemoryStore` with these (each `jest.mock` factory requires this
+// module, and Jest's registry hands every store the same instance within a test file).
 // `enrolStores()` leaves the session unlocked; run it once, in `beforeAll`.
 import { createChatGrantsStore } from '@/features/chat-grants/viewmodel/createChatGrantsStore';
+import { createChatMemoryStore } from '@/features/chat/viewmodel/createChatMemoryStore';
 import { createChatStore } from '@/features/chat/viewmodel/createChatStore';
 import { createNotificationsStore } from '@/features/notifications/viewmodel/createNotificationsStore';
 import { createSettingsStore } from '@/features/settings/viewmodel/createSettingsStore';
@@ -25,6 +26,7 @@ export const stores = {
   }),
   settings: createSettingsStore({ api: ctx.api, session: () => ctx.store.getState() }),
   chatGrants: createChatGrantsStore({ api: ctx.api, session: () => ctx.store.getState() }),
+  chatMemory: createChatMemoryStore({ api: ctx.api, session: () => ctx.store.getState() }),
 };
 
 export async function enrolStores(): Promise<void> {
