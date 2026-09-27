@@ -8,21 +8,21 @@ import { KIND_GLYPH } from './attachment-chip';
 type Source = { uri: string; headers: Record<string, string> };
 
 /** The signed `<Image source>` for a sent image: the store signs one DPoP proof per `attempt`, with the
- * token it holds then. `null` while a proof is being signed. */
-function useAttachmentSource(id: string, attempt: number): Source | null {
+ * token it holds then. `null` while a proof is being signed. A source is tied to the attempt it was
+ * signed for and read during render, so a new attempt never mounts the previous, already used proof. */
+export function useAttachmentSource(id: string, attempt: number): Source | null {
   const attachmentSource = useChatStore((s) => s.attachmentSource);
-  const [source, setSource] = useState<Source | null>(null);
+  const [signed, setSigned] = useState<{ id: string; attempt: number; source: Source } | null>(null);
   useEffect(() => {
     let live = true;
-    setSource(null);
     attachmentSource(id)
-      .then((s) => live && setSource(s))
+      .then((source) => live && setSigned({ id, attempt, source }))
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [attachmentSource, id, attempt]);
-  return source;
+  return signed && signed.id === id && signed.attempt === attempt ? signed.source : null;
 }
 
 /** How many loads failed, and which signed source is on screen. */

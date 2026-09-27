@@ -1,7 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import type { TChatAttachment } from '@/services/api/contract';
-import { MessageAttachments } from './message-attachments';
+import { MessageAttachments, useAttachmentSource } from './message-attachments';
 
 // The store's `attachmentSource`: each call is a fresh DPoP proof, numbered so a test can tell them apart.
 let signed = 0;
@@ -57,5 +57,24 @@ describe('MessageAttachments images', () => {
     const loaded = await screen.findByLabelText('foto.jpg');
     // No explicit size: only what the `h-40 w-40` class gives (NativeWind may or may not turn it into style here).
     expect([undefined, 160]).toContain(StyleSheet.flatten(loaded.props.style)?.width);
+  });
+
+  it('a new attempt never returns the previous proof, not even for one render', async () => {
+    const seen: (string | null)[] = [];
+    const { rerender } = await renderHook(
+      ({ attempt }: { attempt: number }) => {
+        const s = useAttachmentSource('img1', attempt);
+        seen.push(s?.headers.DPoP ?? null);
+        return s;
+      },
+      { initialProps: { attempt: 0 } },
+    );
+    await waitFor(() => expect(seen).toContain('proof-1'));
+
+    mockAttachmentSource.mockImplementationOnce(() => new Promise(() => {})); // the new proof is still being signed
+    seen.length = 0;
+    await act(async () => rerender({ attempt: 1 }));
+    expect(seen).not.toContain('proof-1');
+    expect(seen.at(-1)).toBeNull();
   });
 });
