@@ -1,10 +1,18 @@
-import { useEffect } from 'react';
+import { memo, useEffect } from 'react';
 import { useData } from '../../lib/data';
 import { useNarrowWindow } from '../../lib/narrow-window';
 import { useProjectChat } from '../../lib/project-chat';
 import { trackAppHeight } from '../../lib/viewport';
 import { ChatPanel } from './ChatPanel';
 import { ChatResizer } from './ChatResizer';
+
+// `ChatDock` re-renders on every status, pref or `alive` change (each is a new `useProjectChat()`
+// value), which would otherwise re-render every one of the up-to-3 mounted panels too, tearing down
+// and rebuilding whatever local state a re-render loses. `ChatPanel`'s only prop is `projectId`, which
+// changes only when a panel actually mounts or unmounts, so memoizing it here skips all of those
+// unrelated re-renders. Module-level (not created per render of `ChatDock`), so the memoized identity
+// is stable across the dock's own re-renders.
+const DockPanel = memo(ChatPanel);
 
 /**
  * The project chat, docked in the project window (spec 2026-09-26 project chat dock §4.5). Rendered in
@@ -18,6 +26,12 @@ import { ChatResizer } from './ChatResizer';
  * a stable order: a keyed reorder would move DOM nodes, which can reset their scroll.
  *
  * Escape does not close it: next to a terminal, Escape belongs to the program running there.
+ *
+ * No ancestor of the dock (this component or anything above it in `Layout`) may get a `transform`,
+ * `filter` or `contain` style: any of those creates a new containing block, and a hidden panel is
+ * positioned `fixed` (`-left-[200vw]`, off screen) precisely so it stays laid out without taking space
+ * in the flow — inside a `transform`ed ancestor `fixed` would resolve against that ancestor instead of
+ * the viewport, breaking the "still laid out, never 0×0" trick this file's docstring above relies on.
  */
 export function ChatDock() {
   const { alive, shownProjectId, pref, setOpen, setWidth, setMaximized } = useProjectChat();
@@ -79,7 +93,7 @@ export function ChatDock() {
               </button>
             </header>
             <div className="flex min-h-0 flex-1 flex-col">
-              <ChatPanel projectId={id} />
+              <DockPanel projectId={id} />
             </div>
           </aside>
         );

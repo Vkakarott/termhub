@@ -5,10 +5,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ChatPref } from '../../lib/project-chat-prefs';
 
 const mounts = vi.hoisted(() => new Map<string, number>());
+const renders = vi.hoisted(() => new Map<string, number>());
 vi.mock('./ChatPanel', async () => {
   const { useEffect } = await import('react');
   return {
+    // A plain component (not memoized itself), so `ChatDock`'s own `memo(ChatPanel)` is what the test
+    // below exercises.
     ChatPanel: ({ projectId }: { projectId: string }) => {
+      renders.set(projectId, (renders.get(projectId) ?? 0) + 1);
       useEffect(() => void mounts.set(projectId, (mounts.get(projectId) ?? 0) + 1), [projectId]);
       return <div>painel {projectId}</div>;
     },
@@ -36,6 +40,7 @@ const renderDock = () => render(<MemoryRouter><ChatDock /></MemoryRouter>);
 
 beforeEach(() => {
   mounts.clear();
+  renders.clear();
   narrow.value = false;
   chat.alive = [];
   chat.shownProjectId = null;
@@ -139,6 +144,19 @@ it('Escape does not close the docked chat', () => {
   renderDock();
   act(() => void fireEvent.keyDown(window, { key: 'Escape' }));
   expect(chat.setOpen).not.toHaveBeenCalled();
+});
+
+it('memoizes the mounted panel: a pref change for another project does not re-render it', () => {
+  chat.alive = ['p1'];
+  chat.shownProjectId = 'p1';
+  chat.prefs = { p1: open() };
+  const { rerender } = renderDock();
+  expect(renders.get('p1')).toBe(1);
+  // A change that has nothing to do with p1 (a different project's pref) still re-renders ChatDock
+  // itself (a new `useProjectChat()` value): only a memoized panel skips the re-render.
+  chat.prefs = { p1: chat.prefs.p1, p2: open(600) };
+  rerender(<MemoryRouter><ChatDock /></MemoryRouter>);
+  expect(renders.get('p1')).toBe(1);
 });
 
 it('the separator commits the width of the shown project', () => {
