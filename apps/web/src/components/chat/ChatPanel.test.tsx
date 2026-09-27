@@ -580,9 +580,12 @@ it('"Cancelar" on a countdown calls the API and, with the returned view, shows t
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Cancelar' }));
   await waitFor(() => expect(cancelAutoAnswerMock).toHaveBeenCalledWith('q1'));
-  const radio = await screen.findByRole('radio', { name: 'Sim' });
-  expect(radio).toBeChecked();
-  expect(radio).toBeEnabled();
+  // The card re-renders only once the returned view lands in state: wait for it, not just for the radio.
+  await waitFor(() => {
+    const radio = screen.getByRole('radio', { name: 'Sim' });
+    expect(radio).toBeChecked();
+    expect(radio).toBeEnabled();
+  });
 });
 
 it('a 409 NOT_SCHEDULED on "Cancelar" shows "A resposta automática já foi enviada."', async () => {
