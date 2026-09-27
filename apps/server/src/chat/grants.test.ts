@@ -110,4 +110,39 @@ describe('listGrants kinds', () => {
     expect(out.grants.map((g) => [g.id, g.kind])).toEqual([['pg1', 'project'], ['g1', 'tab']]);
     expect(out.next_cursor).toBe(encodeGrantCursor({ created_at: '2026-01-02T00:00:00.000Z', id: 'g1' }));
   });
+
+  // A cursor-aware fake, unlike `repos` above (which ignores its cursor entirely): filters to rows
+  // strictly after the given (created_at, id) in desc order, exactly like the real repositories'
+  // `listForUser`, so a genuine two-page round trip can be driven through `listGrants` itself.
+  function cursoredTable(rows: { id: string; created_at: string }[]) {
+    const sorted = [...rows].sort((a, b) => (a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1));
+    return vi.fn(async (_userId: string, opts: { cursor: { created_at: string; id: string } | null; limit: number }) => {
+      const after = opts.cursor
+        ? sorted.filter((r) => r.created_at < opts.cursor!.created_at || (r.created_at === opts.cursor!.created_at && r.id < opts.cursor!.id))
+        : sorted;
+      const page = after.slice(0, opts.limit);
+      const last = page[page.length - 1];
+      return { grants: page, next: after.length > opts.limit && last ? { created_at: last.created_at, id: last.id } : null };
+    });
+  }
+
+  it('kinds=all: a two-page round trip skips nothing and repeats nothing when both tables still have rows after the cut', async () => {
+    const r = {
+      chatGrants: { listForUser: cursoredTable([tab('g2', '2026-01-04T00:00:00.000Z'), tab('g1', '2026-01-02T00:00:00.000Z')]) },
+      chatProjectGrants: { listForUser: cursoredTable([proj('pg2', '2026-01-03T00:00:00.000Z'), proj('pg1', '2026-01-01T00:00:00.000Z')]) },
+      tabs: { findByIdsForOwner: vi.fn(async () => []) },
+      projects: { findByIdsForOwner: vi.fn(async () => [{ id: 'p1', name: 'App' }]) },
+    } as never;
+
+    const page1 = await listGrants(r, 'u1', { state: 'ended', limit: 2, kinds: 'all' });
+    expect(page1.grants.map((g) => g.id)).toEqual(['g2', 'pg2']);
+    expect(page1.next_cursor).not.toBeNull();
+
+    const page2 = await listGrants(r, 'u1', { state: 'ended', limit: 2, kinds: 'all', cursor: page1.next_cursor! });
+    expect(page2.grants.map((g) => g.id)).toEqual(['g1', 'pg1']);
+    expect(page2.next_cursor).toBeNull();
+
+    // Every row of both tables appears exactly once across the two pages, oldest-to-newest order kept.
+    expect([...page1.grants, ...page2.grants].map((g) => g.id)).toEqual(['g2', 'pg2', 'g1', 'pg1']);
+  });
 });
