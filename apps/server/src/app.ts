@@ -18,6 +18,7 @@ import { projectTaskRoutes, taskRoutes } from './routes/tasks.js';
 import { columnRoutes, projectColumnRoutes } from './routes/columns.js';
 import { noteRoutes } from './routes/notes.js';
 import { dashboardRoutes } from './routes/dashboard.js';
+import { progressRoutes } from './routes/progress.js';
 import { officeRoutes } from './routes/office.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { setupRoutes } from './routes/setup.js';
@@ -209,6 +210,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       await guarded('tasks', (a) => projectColumnRoutes(a, repos), '/projects');
       await guarded('tasks', (a) => columnRoutes(a, repos), '/columns');
       await guarded('projects', (a) => dashboardRoutes(a, repos), '/dashboard');
+      await guarded('tasks', (a) => progressRoutes(a, repos), '/progress');
       await guarded('projects', (a) => officeRoutes(a, repos, { simulators, agents }), '/office');
       await guarded('integrations', (a) => integrationRoutes(a, repos), '/integrations');
       await guarded('projects', (a) => setupRoutes(a, repos), '/projects');
