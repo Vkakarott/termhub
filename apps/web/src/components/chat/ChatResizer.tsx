@@ -77,7 +77,13 @@ export function ChatResizer({ width, onCommit }: { width: number; onCommit: (w: 
         }}
       />
       {dragX !== null && (
-        <div data-testid="chat-resize-overlay" className="fixed inset-0 z-50 cursor-col-resize" onPointerMove={move} onPointerUp={end}>
+        <div
+          data-testid="chat-resize-overlay"
+          className="fixed inset-0 z-50 cursor-col-resize"
+          onPointerMove={move}
+          onPointerUp={end}
+          onPointerCancel={() => setDragX(null)}
+        >
           <div className="absolute inset-y-0 w-0.5 bg-accent" style={{ left: right.current - widthFromPointer(right.current, dragX) }} />
         </div>
       )}

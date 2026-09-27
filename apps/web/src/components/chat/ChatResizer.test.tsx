@@ -82,6 +82,16 @@ describe('ChatResizer', () => {
     expect(screen.queryByTestId('chat-resize-overlay')).toBeNull();
   });
 
+  it('pointercancel on the overlay resets it too, without committing', () => {
+    const { sep, onCommit } = mount();
+    pointer(sep, 'pointerdown', 580);
+    const overlay = screen.getByTestId('chat-resize-overlay');
+    pointer(overlay, 'pointermove', 550);
+    pointer(overlay, 'pointercancel', 550);
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('chat-resize-overlay')).toBeNull();
+  });
+
   it('overlay fallback: pointermove and pointerup on overlay commit the width', () => {
     const { sep, onCommit } = mount();
     pointer(sep, 'pointerdown', 580);
