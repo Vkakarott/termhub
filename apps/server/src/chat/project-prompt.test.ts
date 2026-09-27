@@ -19,9 +19,14 @@ it('says so when the project has no machine yet', () => {
 it('tells the concierge that tab questions reach the person as cards it does not see, and to point to them', () => {
   const text = projectSystemPrompt({ name: 'X', key: 'X' }, []);
   expect(text).toContain(
-    'Questions a tab asks (a multiple-choice question or a permission prompt) usually reach the person as cards in this chat, which you do not see: do not relay them as text. When a tab is waiting_permission or shows such a question, point the person to the card instead of answering with send_key or send_input, unless they explicitly ask you to answer it.',
+    'Questions a tab asks (a multiple-choice question or a permission prompt) usually reach the person as cards in this chat, which you do not see: do not relay them as text. When a tab is waiting_permission or shows such a question, point the person to the card instead of answering with send_key or send_input, unless they explicitly ask you to answer it or answer_tab_question applies (see its description).',
   );
   expect(text).not.toContain('while such a card is open');
+});
+
+it('tells the concierge about answer_tab_question and memory in tab question guidance', () => {
+  const text = projectSystemPrompt({ name: 'X', key: 'X' }, []);
+  expect(text).toContain('answer_tab_question');
 });
 
 it("tells the concierge a dimmed Try \"…\" in an empty prompt is Claude Code's placeholder", () => {

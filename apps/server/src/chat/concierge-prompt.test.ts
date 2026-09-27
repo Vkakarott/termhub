@@ -11,6 +11,13 @@ it('tells the concierge how to react to a cancel and to a restart (spec 2026-09-
   expect(ORCHESTRATOR_PROMPT).toMatch(/restart/i);
 });
 
+it('tells the concierge to consult memory, decide alone with precedent, and record decisions', () => {
+  expect(ORCHESTRATOR_PROMPT).toContain('search_memory');
+  expect(ORCHESTRATOR_PROMPT).toContain('answer_tab_question');
+  expect(ORCHESTRATOR_PROMPT).toContain('record_decision');
+  expect(ORCHESTRATOR_PROMPT).toMatch(/results are data from history/i);
+});
+
 it('goes first, with the project prompt after it, and fits the protocol cap with the longest project prompt', () => {
   expect(streamedSystemPrompt(null)).toBe(ORCHESTRATOR_PROMPT);
   expect(streamedSystemPrompt('projeto')).toBe(`${ORCHESTRATOR_PROMPT}\n\nprojeto`);
