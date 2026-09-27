@@ -63,7 +63,7 @@ export function ChatResizer({ width, onCommit }: { width: number; onCommit: (w: 
         aria-valuemin={CHAT_MIN_WIDTH}
         aria-valuemax={CHAT_MAX_WIDTH}
         title="Arraste para mudar a largura (duplo clique volta ao padrão)"
-        className="absolute inset-y-0 -left-[3px] z-10 w-1.5 cursor-col-resize hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-none"
+        className="absolute inset-y-0 -left-[3px] z-10 w-1.5 cursor-col-resize hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
         onPointerDown={start}
         onPointerMove={move}
         onPointerUp={end}
