@@ -23,6 +23,11 @@ export const DOCS_READ_MAX_BYTES = 600 * 1024;
 export const DOC_PATH_RE = /^docs\/superpowers\/(specs|plans)\/[A-Za-z0-9._-]{1,200}\.md$/;
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+/** A size field must be one or more decimal digits — nothing else. `Number('')`, `Number(' ')` and
+ *  `Number('0x10')` all parse as finite integers in JS (0, 0 and 16), so a plain `Number.isInteger`
+ *  check would accept an empty/blank size (e.g. from `wc -c` failing on an unreadable file) or a hex
+ *  literal; this regex is checked before `Number(...)` is ever called on the field. */
+const SIZE_RE = /^\d+$/;
 
 /** One `docs/superpowers/{specs,plans}/*.md` file as `docs.scan` reports it. `path` is relative to
  *  `cwd`. `sha256` is `null` for a file over `DOCS_MAX_BYTES` — the scan script skips hashing it
@@ -79,10 +84,11 @@ export function buildDocsScanScript(cwdQuoted: string): string {
     `    docs/superpowers/plans) [ "$plans_ok" = 1 ] || continue ;;`,
     `  esac`,
     `  for f in "$d"/*.md; do`,
-    `    [ -f "$f" ] && [ ! -L "$f" ] || continue`,
+    `    [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || continue`,
     `    case "$f" in *[!A-Za-z0-9._/-]*) continue;; esac`,
     `    n=$((n+1)); [ "$n" -le ${DOCS_MAX_FILES} ] || break 2`,
     `    s=$(wc -c < "$f" | tr -d ' ')`,
+    `    [ -n "$s" ] || continue`,
     `    if [ "$s" -le ${DOCS_MAX_BYTES} ]; then`,
     `      h=$($H "$f" | cut -d' ' -f1)`,
     `      printf 'F\\t%s\\t%s\\t%s\\n' "$h" "$s" "$f"`,
@@ -125,8 +131,9 @@ export function buildDocsReadScript(cwdQuoted: string, quotedPaths: string[]): s
     `  esac`,
     `  case "$f" in docs/superpowers/specs/*/*|docs/superpowers/plans/*/*) continue;; esac`,
     `  case "$f" in *[!A-Za-z0-9._/-]*) continue;; esac`,
-    `  [ -f "$f" ] && [ ! -L "$f" ] || continue`,
+    `  [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || continue`,
     `  s=$(wc -c < "$f" | tr -d ' ')`,
+    `  [ -n "$s" ] || continue`,
     `  [ "$s" -le ${DOCS_MAX_BYTES} ] || continue`,
     `  newtotal=$((total + s))`,
     `  [ "$newtotal" -le ${DOCS_READ_MAX_BYTES} ] || break`,
@@ -155,16 +162,16 @@ export function parseDocsScan(stdout: string): { entries: DocEntry[]; err: strin
     }
     if (line.startsWith('F\t')) {
       const [, sha256, sizeText, path] = line.split('\t');
-      const size = Number(sizeText);
-      if (sha256 === undefined || path === undefined || !SHA256_HEX_RE.test(sha256) || !Number.isInteger(size) || size < 0 || !DOC_PATH_RE.test(path)) continue;
-      entries.push({ path, sha256, size });
+      if (sha256 === undefined || sizeText === undefined || path === undefined) continue;
+      if (!SHA256_HEX_RE.test(sha256) || !SIZE_RE.test(sizeText) || !DOC_PATH_RE.test(path)) continue;
+      entries.push({ path, sha256, size: Number(sizeText) });
       continue;
     }
     if (line.startsWith('S\t')) {
       const [, sizeText, path] = line.split('\t');
-      const size = Number(sizeText);
-      if (path === undefined || !Number.isInteger(size) || size < 0 || !DOC_PATH_RE.test(path)) continue;
-      entries.push({ path, sha256: null, size });
+      if (sizeText === undefined || path === undefined) continue;
+      if (!SIZE_RE.test(sizeText) || !DOC_PATH_RE.test(path)) continue;
+      entries.push({ path, sha256: null, size: Number(sizeText) });
     }
   }
   return { entries, err };
@@ -172,7 +179,8 @@ export function parseDocsScan(stdout: string): { entries: DocEntry[]; err: strin
 
 /**
  * Reads `buildDocsReadScript`'s stdout back: relpath -> UTF-8 text. A file whose body was cut off
- * (no terminating `E` reached before stdout ran out — a truncated frame or a killed process) or
+ * (no terminating `E` reached before stdout ran out — a truncated frame or a killed process),
+ * whose size field is not a plain decimal integer, whose path does not match `DOC_PATH_RE`, or
  * whose decoded byte length does not match the size the `B` line declared (a failed/partial
  * `base64`) is dropped rather than stored as empty or partial text; a skipped file is simply absent.
  */
@@ -200,8 +208,8 @@ export function parseDocsRead(stdout: string): Map<string, string> {
       i++;
     }
     if (!terminated || sizeText === undefined || path === undefined) continue;
+    if (!SIZE_RE.test(sizeText) || !DOC_PATH_RE.test(path)) continue;
     const size = Number(sizeText);
-    if (!Number.isInteger(size) || size < 0) continue;
     const buf = Buffer.from(b64Lines.join(''), 'base64');
     if (buf.length !== size) continue;
     result.set(path, buf.toString('utf8'));

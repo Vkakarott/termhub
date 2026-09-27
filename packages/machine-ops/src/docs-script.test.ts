@@ -4,7 +4,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -145,6 +145,20 @@ describe('buildDocsScanScript / parseDocsScan', () => {
     }
   });
 
+  it('an unreadable file (chmod 000) is skipped by scan, not surfaced with an empty size', () => {
+    write('docs/superpowers/specs/secret.md', 'x'.repeat(10));
+    write('docs/superpowers/specs/visible.md', 'v');
+    const target = join(dir, 'docs/superpowers/specs/secret.md');
+    chmodSync(target, 0o000);
+    try {
+      const { entries, err } = parseDocsScan(runScan(dir));
+      expect(err).toBeNull();
+      expect(entries.map((e) => e.path)).toEqual(['docs/superpowers/specs/visible.md']);
+    } finally {
+      chmodSync(target, 0o644);
+    }
+  });
+
   it('a symlinked plans directory excludes only plans (scan and read); specs is untouched', () => {
     write('docs/superpowers/specs/a.md', 'A');
     const secretDir = mkdtempSync(join(tmpdir(), 'docs-secret-'));
@@ -253,6 +267,18 @@ describe('buildDocsReadScript / parseDocsRead', () => {
     const map = parseDocsRead(stdout);
     expect(map.get('docs/superpowers/specs/a.md')).toBe('abc');
   });
+
+  it('an unreadable file (chmod 000) is skipped, not surfaced with an empty size', () => {
+    write('docs/superpowers/specs/secret.md', 'x'.repeat(10));
+    const target = join(dir, 'docs/superpowers/specs/secret.md');
+    chmodSync(target, 0o000);
+    try {
+      const map = parseDocsRead(runRead(dir, ['docs/superpowers/specs/secret.md']));
+      expect(map.size).toBe(0);
+    } finally {
+      chmodSync(target, 0o644);
+    }
+  });
 });
 
 describe('parseDocsScan field validation', () => {
@@ -277,5 +303,36 @@ describe('parseDocsScan field validation', () => {
     const sha = createHash('sha256').update('x').digest('hex');
     const { entries } = parseDocsScan(`F\t${sha}\t1\tdocs/superpowers/specs/a.md\n`);
     expect(entries).toEqual([{ path: 'docs/superpowers/specs/a.md', sha256: sha, size: 1 }]);
+  });
+
+  // Number(''), Number(' ') and Number('0x10') are all finite integers in JS (0, 0 and 16), so
+  // only a strict /^\d+$/ check on the raw field — before Number(...) is ever called — catches
+  // these; a size that failed to compute (e.g. wc -c on an unreadable file printing nothing) must
+  // never be silently read back as size 0.
+  for (const bad of ['', ' ', '0x10']) {
+    it(`drops an F line whose size is ${JSON.stringify(bad)}`, () => {
+      const sha = createHash('sha256').update('x').digest('hex');
+      const { entries } = parseDocsScan(`F\t${sha}\t${bad}\tdocs/superpowers/specs/a.md\n`);
+      expect(entries).toEqual([]);
+    });
+
+    it(`drops an S line whose size is ${JSON.stringify(bad)}`, () => {
+      const { entries } = parseDocsScan(`S\t${bad}\tdocs/superpowers/specs/a.md\n`);
+      expect(entries).toEqual([]);
+    });
+  }
+});
+
+describe('parseDocsRead field validation', () => {
+  for (const bad of ['', ' ', '0x10']) {
+    it(`drops a B line whose size is ${JSON.stringify(bad)}`, () => {
+      const stdout = `B\t${bad}\tdocs/superpowers/specs/a.md\n${Buffer.from('x').toString('base64')}\nE\n`;
+      expect(parseDocsRead(stdout).size).toBe(0);
+    });
+  }
+
+  it("drops a B line whose path is outside docs/superpowers/{specs,plans} (defence in depth on the parser side too)", () => {
+    const stdout = `B\t1\tdocs/other/x.md\n${Buffer.from('x').toString('base64')}\nE\n`;
+    expect(parseDocsRead(stdout).size).toBe(0);
   });
 });
