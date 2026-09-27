@@ -4,9 +4,9 @@ import { RPC, RPC_METHODS, isWdaPort, rpcErrorSchema } from './rpc.js';
 describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
     expect([...RPC_METHODS].sort()).toEqual([
-      'agent.update', 'ai.credential', 'claude.linkSession', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install', 'hooks.uninstall', 'hw.probe',
-      'sim.boot', 'sim.list', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect',
-      'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail', 'wda.setup.start', 'wda.setup.state',
+      'agent.update', 'ai.credential', 'claude.linkSession', 'docs.read', 'docs.scan', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install',
+      'hooks.uninstall', 'hw.probe', 'sim.boot', 'sim.list', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey',
+      'tmux.sendText', 'tools.detect', 'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail', 'wda.setup.start', 'wda.setup.state',
     ]);
   });
   it('validates udids and the WDA port ranges for the simulator rpcs', () => {
@@ -87,6 +87,23 @@ describe('rpc catalog', () => {
     expect(RPC['hooks.install'].params.safeParse({ hooks_url: 'https://x', token: "a'b" }).success).toBe(false);
     expect(RPC['hooks.install'].timeoutMs).toBe(15_000);
     expect(RPC['hooks.uninstall'].params.safeParse({}).success).toBe(true);
+  });
+  it('docs.scan takes an absolute/~ cwd and has a 15 s budget', () => {
+    expect(RPC['docs.scan'].params.safeParse({ cwd: '/home/u/proj' }).success).toBe(true);
+    expect(RPC['docs.scan'].params.safeParse({ cwd: 'relative' }).success).toBe(false);
+    expect(RPC['docs.scan'].timeoutMs).toBe(15_000);
+  });
+  it('docs.read refuses paths outside docs/superpowers/{specs,plans}, a non-.md, and more than 20', () => {
+    const good = { cwd: '/home/u/proj', paths: ['docs/superpowers/specs/a.md'] };
+    expect(RPC['docs.read'].params.safeParse(good).success).toBe(true);
+    expect(RPC['docs.read'].params.safeParse({ ...good, paths: ['../x.md'] }).success).toBe(false);
+    expect(RPC['docs.read'].params.safeParse({ ...good, paths: ['docs/superpowers/other/a.md'] }).success).toBe(false);
+    expect(RPC['docs.read'].params.safeParse({ ...good, paths: ['docs/superpowers/specs/a.txt'] }).success).toBe(false);
+    expect(RPC['docs.read'].params.safeParse({ ...good, paths: ['docs/superpowers/specs/has space.md'] }).success).toBe(false);
+    expect(RPC['docs.read'].params.safeParse({ ...good, paths: [] }).success).toBe(false);
+    expect(RPC['docs.read'].params.safeParse({ ...good, paths: Array.from({ length: 21 }, (_, i) => `docs/superpowers/specs/a${i}.md`) }).success).toBe(false);
+    expect(RPC['docs.read'].params.safeParse({ ...good, paths: Array.from({ length: 20 }, (_, i) => `docs/superpowers/specs/a${i}.md`) }).success).toBe(true);
+    expect(RPC['docs.read'].timeoutMs).toBe(20_000);
   });
   it('shapes rpc errors', () => {
     expect(rpcErrorSchema.parse({ code: 'eperm', message: 'x', path: '/v' }).code).toBe('eperm');
