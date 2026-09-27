@@ -52,10 +52,18 @@ function buildApp(tasks: Record<string, Task>, ownerId: string | null = null) {
     delete: vi.fn(async () => true),
   };
   const unlinkTask = vi.fn(async () => {});
+  const taskPullRequests = {
+    listByTasks: vi.fn(async (ids: string[]) =>
+      ids.includes('t1')
+        ? [{ number: 7, url: 'u', title: 'x', state: 'open', draft: false, ci_state: 'passed', ci_summary: { total: 1, passed: 1, failed: 0, running: 0, failing: [] }, deploy_state: 'none', deploy_url: null, head_sha: 'abc', task_id: 't1' }]
+        : [],
+    ),
+  };
   const repos = {
     tasks: tasksRepo,
     tickets: { unlinkTask },
     taskColumns: { list: vi.fn(async () => [column]) },
+    taskPullRequests,
     projects: {
       findById: vi.fn(async (id: string) => projects.find((p) => p.id === id)),
       findByKey: vi.fn(async (key: string) => projects.find((p) => p.key === key)),
@@ -227,5 +235,24 @@ describe('task routes: subtasks', () => {
     expect(unlinkTask.mock.calls.map((c) => c[0]).sort()).toEqual(['c1', 'c2', 't1']);
     // unlink runs only once the delete has actually gone through — a refused delete must not touch tickets
     expect(unlinkTask.mock.invocationCallOrder.every((n) => n > tasksRepo.delete.mock.invocationCallOrder[0])).toBe(true);
+  });
+});
+
+describe('task routes: pull requests', () => {
+  it('lists the card PRs as badges, without internal fields', async () => {
+    const { app } = buildApp(store);
+    const r = await app.inject({ method: 'GET', url: '/tasks/t1/pull-requests' });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().pull_requests).toEqual([{ number: 7, url: 'u', title: 'x', state: 'open', draft: false, ci_state: 'passed', ci_summary: { total: 1, passed: 1, failed: 0, running: 0, failing: [] }, deploy_state: 'none', deploy_url: null }]);
+  });
+
+  it('answers the parent PRs for a subtask', async () => {
+    const { app } = buildApp(store);
+    expect((await app.inject({ method: 'GET', url: '/tasks/c1/pull-requests' })).json().pull_requests).toHaveLength(1);
+  });
+
+  it('is 404 outside the scope', async () => {
+    const { app } = buildApp(store, 'u1');
+    expect((await app.inject({ method: 'GET', url: '/tasks/x9/pull-requests' })).statusCode).toBe(404);
   });
 });

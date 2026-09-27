@@ -110,6 +110,14 @@ export async function taskRoutes(app: FastifyInstance, repos: Repositories) {
     return { task };
   });
 
+  app.get('/:id/pull-requests', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const { task } = await scoped(repos, request).task(id);
+    const rows = await repos.taskPullRequests.listByTasks([task.parent_id ?? task.id]);
+    const pull_requests = rows.map(({ number, url, title, state, draft, ci_state, ci_summary, deploy_state, deploy_url }) => ({ number, url, title, state, draft, ci_state, ci_summary, deploy_state, deploy_url }));
+    return { pull_requests };
+  });
+
   app.delete('/:id', async (request) => {
     const { id } = idParam.parse(request.params);
     await scoped(repos, request).task(id);
