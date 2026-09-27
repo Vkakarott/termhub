@@ -87,3 +87,27 @@ describe('project grants', () => {
     await expect(revokeGrant(r as never, 'u1', 'pg1')).rejects.toMatchObject({ statusCode: 409 });
   });
 });
+
+describe('listGrants kinds', () => {
+  const tab = (id: string, at: string) => ({ id, conversation_id: 'c1', tab_id: 't1', tool: 'send_input', source_action_id: null, granted_by: 'u1', created_at: at, expires_at: at, revoked_at: at, revoked_by: 'u1', conversation_project_id: null, conversation_archived: false });
+  const proj = (id: string, at: string) => ({ id, conversation_id: 'c1', project_id: 'p1', source_action_id: null, granted_by: 'u1', created_at: at, expires_at: at, revoked_at: at, revoked_by: 'u1', conversation_project_id: null, conversation_archived: false });
+  const repos = (tabs: unknown[], projects: unknown[]) => ({
+    chatGrants: { listForUser: vi.fn(async () => ({ grants: tabs, next: null })) },
+    chatProjectGrants: { listForUser: vi.fn(async () => ({ grants: projects, next: null })) },
+    tabs: { findByIdsForOwner: vi.fn(async () => []) },
+    projects: { findByIdsForOwner: vi.fn(async () => [{ id: 'p1', name: 'App' }]) },
+  }) as never;
+
+  it('default kinds stays tab-only', async () => {
+    const r = repos([tab('g1', '2026-01-02T00:00:00.000Z')], [proj('pg1', '2026-01-03T00:00:00.000Z')]);
+    const out = await listGrants(r, 'u1', { state: 'ended', limit: 50, kinds: 'tab' });
+    expect(out.grants.map((g) => g.id)).toEqual(['g1']);
+  });
+
+  it('kinds=all merges newest first, cuts to limit and returns the cut row as cursor', async () => {
+    const r = repos([tab('g1', '2026-01-02T00:00:00.000Z'), tab('g0', '2026-01-01T00:00:00.000Z')], [proj('pg1', '2026-01-03T00:00:00.000Z')]);
+    const out = await listGrants(r, 'u1', { state: 'ended', limit: 2, kinds: 'all' });
+    expect(out.grants.map((g) => [g.id, g.kind])).toEqual([['pg1', 'project'], ['g1', 'tab']]);
+    expect(out.next_cursor).toBe(encodeGrantCursor({ created_at: '2026-01-02T00:00:00.000Z', id: 'g1' }));
+  });
+});

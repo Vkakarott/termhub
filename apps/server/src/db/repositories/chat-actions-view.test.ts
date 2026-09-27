@@ -477,7 +477,7 @@ it('describeGrantList names the tab, its project and the origin conversation, wi
     NOW,
   );
   expect(active).toEqual({
-    id: 'g1', tab_id: tab.id, tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
+    kind: 'tab', id: 'g1', tab_id: tab.id, tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
     tab_name: tab.name, project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
     conversation_archived: false, state: 'active', ended_at: null,
   });

@@ -50,8 +50,14 @@ export const chatGrantSchema = z.object({
 /** How a listed grant stands (server `ChatGrantState`). */
 export const chatGrantState = z.enum(['active', 'expired', 'revoked', 'ended']);
 
-/** One row of "Abas confiáveis" (server `ChatGrantListItem`). */
+/** One row of "Abas confiáveis" (server `ChatGrantListItem`): a tab grant, or (with `kinds=all`) a
+ * project grant, which carries no tab. */
 export const chatGrantListItemSchema = chatGrantSchema.extend({
+  /** Absent from servers before project grants: those only list tab grants. */
+  kind: z.enum(['tab', 'project']).default('tab'),
+  tab_id: z.string().nullable(),
+  tool: z.string().nullable(),
+  tab_name: z.string().nullable(),
   project_id: z.string().nullable(),
   project_name: z.string().nullable(),
   conversation_id: z.string(),
@@ -68,6 +74,8 @@ export const chatGrantListQuery = z.object({
   state: z.enum(['active', 'ended']),
   cursor: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  /** `all` adds project grants; without it an old app never sees a row with no tab. */
+  kinds: z.enum(['tab', 'all']).default('tab'),
 });
 
 /** Mirrors `TabQuestionView` (apps/server/src/db/repositories/tab-questions-view.ts): a question a tab

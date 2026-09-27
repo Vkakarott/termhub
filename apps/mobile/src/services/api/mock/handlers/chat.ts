@@ -406,6 +406,9 @@ function grantListItem(state: MockState, g: MockGrant, now: number): TChatGrantL
   const conversation = state.conversations.get(g.conversation_id);
   const project = conversation?.project_id ? state.projects.get(conversation.project_id) : undefined;
   return {
+    // The mock only ever models tab grants (project grants are server-side, Task 6/7); a mobile task
+    // for "Permitir sempre neste projeto" would add project rows here too.
+    kind: 'tab',
     ...grantView(g),
     project_id: project?.id ?? null,
     project_name: project?.name ?? null,

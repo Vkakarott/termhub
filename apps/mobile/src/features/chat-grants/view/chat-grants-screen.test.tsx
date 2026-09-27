@@ -12,6 +12,7 @@ import { ChatGrantsScreen } from './chat-grants-screen';
 const LOAD = { timeout: 15_000 };
 
 const ACTIVE = {
+  kind: 'tab' as const,
   id: 'g1',
   tab_id: 't-api',
   tool: 'send_input',

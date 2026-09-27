@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { chatEventSchema, chatGrantListQuery, chatGrantListResponse, tabQuestionSchema, tabSuggestionSchema } from './events.js';
+import { chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, tabQuestionSchema, tabSuggestionSchema } from './events.js';
 
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', tab_name: 'api' };
@@ -53,9 +53,16 @@ describe('chat grant list', () => {
     expect(chatGrantListResponse.safeParse({ grants: [{ ...item, state: 'gone' }], next_cursor: null }).success).toBe(false);
   });
   it('validates the query: state required, limit 1..100 defaulting to 50', () => {
-    expect(chatGrantListQuery.parse({ state: 'ended' })).toEqual({ state: 'ended', limit: 50 });
-    expect(chatGrantListQuery.parse({ state: 'active', limit: '10', cursor: 'abc' })).toEqual({ state: 'active', limit: 10, cursor: 'abc' });
+    expect(chatGrantListQuery.parse({ state: 'ended' })).toEqual({ state: 'ended', limit: 50, kinds: 'tab' });
+    expect(chatGrantListQuery.parse({ state: 'active', limit: '10', cursor: 'abc' })).toEqual({ state: 'active', limit: 10, cursor: 'abc', kinds: 'tab' });
     for (const bad of [{}, { state: 'all' }, { state: 'ended', limit: '0' }, { state: 'ended', limit: '101' }, { state: 'ended', cursor: '' }]) expect(chatGrantListQuery.safeParse(bad).success).toBe(false);
+  });
+
+  it('list items: kind defaults to tab, a project row has no tab', () => {
+    const tabRow = { ...grant, project_id: 'p1', project_name: 'App', conversation_id: 'c1', conversation_project_name: null, conversation_archived: false, state: 'active', ended_at: null };
+    expect(chatGrantListItemSchema.parse(tabRow).kind).toBe('tab');
+    expect(chatGrantListItemSchema.parse({ ...tabRow, kind: 'project', tab_id: null, tab_name: null, tool: null }).kind).toBe('project');
+    expect(chatGrantListQuery.parse({ state: 'active' }).kinds).toBe('tab');
   });
 });
 

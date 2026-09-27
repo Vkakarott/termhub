@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { chatGrantListQuery } from '@termhub/mobile-api';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
-import { describeGrantList, describeGrants, describeProjectGrants, type ChatGrantListItem, type ChatGrantView, type ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
+import { describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, type ChatGrantListItem, type ChatGrantView, type ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
 import { GRANT_LIST_MAX, type GrantCursor } from '../db/repositories/chat-grants.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
@@ -105,10 +105,26 @@ export function decodeGrantCursor(s: string): GrantCursor {
 /** "Abas confiáveis" (spec 2026-09-26 §3.3): one page of this user's grants, web and phone alike.
  * `active` is never paged — the repository caps it at `GRANT_LIST_MAX` on its own, and this always
  * asks for that same cap rather than the query's `limit`, so the query's default (50) can never
- * silently truncate the active list. */
+ * silently truncate the active list.
+ *
+ * `kinds: 'all'` (spec 2026-09-26 project grant §5) adds project grants: both tables are read with the
+ * same cursor and `limit` each (each returns at most `limit` rows after the cursor, so the merged first
+ * `limit` rows of both pages together are exactly the next page), merged newest first by `(created_at,
+ * id)` and cut to `limit`; the cut row's own `(created_at, id)` is a valid cursor for both tables. An
+ * old app that never sends `kinds` keeps seeing tab grants only. */
 export async function listGrants(repos: Repositories, userId: string, query: z.infer<typeof chatGrantListQuery>, now = new Date()): Promise<{ grants: ChatGrantListItem[]; next_cursor: string | null }> {
   const cursor = query.cursor ? decodeGrantCursor(query.cursor) : null;
   const limit = query.state === 'active' ? GRANT_LIST_MAX : query.limit;
-  const { grants, next } = await repos.chatGrants.listForUser(userId, { state: query.state, cursor, limit }, now);
-  return { grants: await describeGrantList(repos, grants, userId, now), next_cursor: next ? encodeGrantCursor(next) : null };
+  const opts = { state: query.state, cursor, limit };
+  const tabs = await repos.chatGrants.listForUser(userId, opts, now);
+  const tabItems = await describeGrantList(repos, tabs.grants, userId, now);
+  if (query.kinds !== 'all') return { grants: tabItems, next_cursor: tabs.next ? encodeGrantCursor(tabs.next) : null };
+  const projects = await repos.chatProjectGrants.listForUser(userId, opts, now);
+  const merged = [...tabItems, ...(await describeProjectGrantList(repos, projects.grants, userId, now))].sort((a, b) =>
+    a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1,
+  );
+  const page = merged.slice(0, limit);
+  const more = merged.length > limit || tabs.next !== null || projects.next !== null;
+  const last = page[page.length - 1];
+  return { grants: page, next_cursor: query.state === 'ended' && more && last ? encodeGrantCursor({ created_at: last.created_at, id: last.id }) : null };
 }
