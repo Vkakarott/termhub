@@ -52,4 +52,18 @@ describe('MessageAttachments', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('reserves the fitted size of an image before it loads', () => {
+    render(<MessageAttachments attachments={[att({ id: 'img1', name: 'foto.jpg', kind: 'image', mime: 'image/jpeg', meta: { width: 1600, height: 1200 } })]} />);
+    const thumb = screen.getByRole('img', { name: 'foto.jpg' }) as HTMLImageElement;
+    expect(thumb.style.width).toBe('240px');
+    expect(thumb.style.height).toBe('180px');
+  });
+
+  it('keeps the old bounds when the image has no dimensions yet', () => {
+    render(<MessageAttachments attachments={[att({ id: 'img1', name: 'foto.jpg', kind: 'image', mime: 'image/jpeg', meta: null })]} />);
+    const thumb = screen.getByRole('img', { name: 'foto.jpg' }) as HTMLImageElement;
+    expect(thumb.style.width).toBe('');
+    expect(thumb.className).toContain('max-h-60');
+  });
 });

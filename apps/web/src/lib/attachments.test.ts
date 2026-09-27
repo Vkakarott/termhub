@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACHMENT_LIMITS, MAX_ATTACHMENTS_PER_MESSAGE, attachmentStatusText, checkFile, formatBytes, kindFromNameAndMime, patchMessageAttachment } from './attachments';
+import { ATTACHMENT_LIMITS, MAX_ATTACHMENTS_PER_MESSAGE, attachmentStatusText, checkFile, formatBytes, kindFromNameAndMime, patchMessageAttachment, thumbSize } from './attachments';
 import type { ChatAttachment, ChatMessage } from './types';
 
 const att = (over: Partial<ChatAttachment> = {}): ChatAttachment => ({
@@ -90,4 +90,22 @@ describe('patchMessageAttachment', () => {
     expect(patchMessageAttachment(list, att({ id: 'zz', status: 'ready' }))).toBe(list);
     expect(patchMessageAttachment(list, att({ id: 'a1', status: 'ready' }))).toBe(list);
   });
+});
+
+describe('thumbSize', () => {
+  it('fits the long side to the box and keeps the proportion', () => {
+    expect(thumbSize({ width: 1600, height: 1200 }, 240, 48)).toEqual({ width: 240, height: 180 });
+    expect(thumbSize({ width: 1200, height: 1600 }, 240, 48)).toEqual({ width: 180, height: 240 });
+  });
+  it('never scales up', () => {
+    expect(thumbSize({ width: 100, height: 50 }, 240, 48)).toEqual({ width: 100, height: 50 });
+  });
+  it('clamps an extreme proportion to the minimum side', () => {
+    expect(thumbSize({ width: 4000, height: 20 }, 240, 48)).toEqual({ width: 240, height: 48 });
+    expect(thumbSize({ width: 10, height: 10 }, 240, 48)).toEqual({ width: 48, height: 48 });
+  });
+  it.each([null, {}, { width: 0, height: 10 }, { width: -5, height: 10 }, { width: '800', height: 600 }, { width: Number.NaN, height: 600 }, { width: 800.5, height: 600 }])(
+    'is null without usable dimensions: %o',
+    (meta) => expect(thumbSize(meta as Record<string, unknown> | null, 240, 48)).toBeNull(),
+  );
 });
