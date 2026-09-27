@@ -122,3 +122,21 @@ describe('api.sendChatMessage', () => {
     expect(sent()).toEqual({ text: 'oi', wait: false });
   });
 });
+
+describe('api.listChatGrants', () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ grants: [], next_cursor: null }), { status: 200 }));
+
+  beforeEach(() => {
+    fetchMock.mockClear();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('always asks for every kind, with or without a cursor', async () => {
+    await api.listChatGrants({ state: 'active' });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/chat/grants?state=active&kinds=all');
+
+    fetchMock.mockClear();
+    await api.listChatGrants({ state: 'ended', cursor: 'x' });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/chat/grants?state=ended&cursor=x&kinds=all');
+  });
+});

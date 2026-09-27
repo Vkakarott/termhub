@@ -256,9 +256,10 @@ export const api = {
     request<{ actions: { id: string; status: ChatActionStatus }[]; skipped: { id: string; reason: string }[]; message?: ChatMessage; queued?: true; note?: string }>('POST', '/chat/actions/decisions', { decisions }),
   /** "Revogar": 404 unknown/not yours, 409 already revoked. */
   revokeChatGrant: (id: string) => request<{ grant: ChatGrant }>('DELETE', `/chat/grants/${encodeURIComponent(id)}`),
-  /** "Abas confiáveis": the grants in force, or the paged history (`state: 'ended'` also covers expired/revoked). */
+  /** "Permissões do chat": the grants in force, or the paged history (`state: 'ended'` also covers
+   *  expired/revoked). `kinds=all` always: tab grants and project grants together. */
   listChatGrants: (q: { state: 'active' | 'ended'; cursor?: string | null }) =>
-    request<{ grants: ChatGrantListItem[]; next_cursor: string | null }>('GET', `/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}`),
+    request<{ grants: ChatGrantListItem[]; next_cursor: string | null }>('GET', `/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}&kinds=all`),
   /** Answers a tab's question from its card (409 `TAB_PROMPT_CHANGED` when the tab moved on). */
   answerTabQuestion: (id: string, body: TabQuestionAnswer) => request<{ tab_question: TabQuestion }>('POST', `/chat/tab-questions/${encodeURIComponent(id)}/answer`, body),
   /** The last lines of the tab, live, for a permission card; 409 once the question is closed. */

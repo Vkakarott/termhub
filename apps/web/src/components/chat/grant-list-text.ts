@@ -7,6 +7,10 @@ export const activeGrantsLabel = (n: number): string => (n === 1 ? '1 permissão
 
 export const grantTabLabel = (g: Pick<ChatGrantListItem, 'tab_name'>): string => (g.tab_name ? `Aba ${g.tab_name}` : 'Aba que não existe mais');
 
+/** A row's own title: a tab grant names the tab, a project grant names the project (or that it is gone). */
+export const grantTitleLabel = (g: Pick<ChatGrantListItem, 'kind' | 'tab_name' | 'project_name'>): string =>
+  g.kind === 'project' ? (g.project_name ? `Quadro do projeto ${g.project_name}` : 'Projeto que não existe mais') : grantTabLabel(g);
+
 /** Which conversation granted it; a reset conversation says so. */
 export function grantOriginLabel(g: Pick<ChatGrantListItem, 'conversation_project_name' | 'conversation_archived'>): string {
   const base = g.conversation_project_name ? `Chat do projeto ${g.conversation_project_name}` : 'Chat geral';

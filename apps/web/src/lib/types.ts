@@ -915,8 +915,21 @@ export interface ChatProjectGrant {
 /** How a listed grant stands: in force, run out, revoked by someone, or ended by "Nova conversa". */
 export type ChatGrantState = 'active' | 'expired' | 'revoked' | 'ended';
 
-/** A row of "Abas confiáveis" (`GET /api/chat/grants`). */
-export interface ChatGrantListItem extends ChatGrant {
+/**
+ * A row of "Permissões do chat" (`GET /api/chat/grants?kinds=all`): a trusted tab or a trusted
+ * project, told apart by `kind`. `tab_id`/`tool`/`tab_name` are set only for `kind === 'tab'`;
+ * `project_id`/`project_name` are set for both (a tab grant always belongs to a project too).
+ */
+export interface ChatGrantListItem {
+  kind: 'tab' | 'project';
+  id: string;
+  tab_id: string | null;
+  tool: string | null;
+  /** The tab's name at read time; null once the tab is gone, or for a `project` row. */
+  tab_name: string | null;
+  source_action_id: string | null;
+  created_at: string;
+  expires_at: string;
   project_id: string | null;
   project_name: string | null;
   conversation_id: string;
