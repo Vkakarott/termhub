@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { STATE_TEXT_MAX, claudeSessionOf, interpretHookEvent, isRateLimit, needsYou } from './state.js';
+import { STATE_TEXT_MAX, claudeSessionOf, interpretHookEvent, isRateLimit, needsYou, runningBackgroundTasks } from './state.js';
 
 describe('interpretHookEvent — claude', () => {
   it('maps permission and idle notifications to waiting states with the message', () => {
@@ -337,5 +337,37 @@ describe('interpretHookEvent — claude questions (spec 2026-09-25 §4.2)', () =
       text: 'Claude needs your permission',
       meta: { event: 'Notification', type: 'permission_prompt' },
     });
+  });
+});
+
+describe('claude Stop background tasks (spec 2026-09-26 TER-203 §4.1)', () => {
+  const task = (status: unknown) => ({ id: 'b1', type: 'shell', status, description: 'Watch CI', command: "curl -H 'Authorization: Bearer s3cr3t' https://ci" });
+  it.each([
+    ['one running', [task('running')], 1],
+    ['running and completed', [task('running'), task('completed'), task('running')], 2],
+    ['only completed (the last task just ended)', [task('completed'), task('failed')], 0],
+    ['empty', [], 0],
+    ['absent (Claude Code without the field)', undefined, 0],
+    ['not an array', 'running', 0],
+    ['entries that are not objects, or a status that is not a string', ['running', null, task(1)], 0],
+  ])('%s', (_label, background, count) => {
+    const i = interpretHookEvent('claude', { hook_event_name: 'Stop', last_assistant_message: 'Vigiando o CI.', ...(background === undefined ? {} : { background_tasks: background }) });
+    expect(i?.text).toBe('Vigiando o CI.');
+    expect(i?.backgroundTasks).toBe(count > 0 ? count : undefined);
+    expect(i?.meta).toEqual(count > 0 ? { event: 'Stop', background_tasks: count } : { event: 'Stop' });
+    expect(JSON.stringify(i)).not.toContain('s3cr3t');
+    expect(JSON.stringify(i)).not.toContain('Watch CI');
+  });
+
+  it('only a Stop carries the count', () => {
+    const background_tasks = [task('running')];
+    expect(interpretHookEvent('claude', { hook_event_name: 'UserPromptSubmit', background_tasks })?.backgroundTasks).toBeUndefined();
+    expect(interpretHookEvent('claude', { hook_event_name: 'StopFailure', error: 'server_error', background_tasks })?.backgroundTasks).toBeUndefined();
+  });
+
+  it('runningBackgroundTasks never throws', () => {
+    expect(runningBackgroundTasks(undefined)).toBe(0);
+    expect(runningBackgroundTasks({ length: 3 })).toBe(0);
+    expect(runningBackgroundTasks([{ status: 'running' }, { status: 'RUNNING' }])).toBe(1);
   });
 });
