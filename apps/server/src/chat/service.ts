@@ -699,6 +699,20 @@ export class ChatService {
     return started;
   }
 
+  /**
+   * The concierge's own wake turn (spec 2026-09-26 concierge memory §7, D9b): the server-composed,
+   * injected text runs as an ordinary turn — `startIn`, never `start`, so it never reaches
+   * `indexMessage` (only what the person actually typed is memory, spec D3/D4). Loaded owner-scoped
+   * (`findByIdForUser`), like a decision's re-injection: a conversation archived since the card opened
+   * rejects `CHAT_ARCHIVED`, and `startIn` itself throws when the host is not ready — both left for the
+   * caller (the waker) to swallow, since there is no card to explain a failure on and no click to retry.
+   */
+  async wake(user: User, conversationId: string, text: string): Promise<StartedRun> {
+    const conversation = await this.deps.repos.chat.findByIdForUser(conversationId, user.id);
+    if (!conversation || conversation.archived_at !== null) throw new HttpError(409, 'Esta conversa foi encerrada', 'CHAT_ARCHIVED');
+    return this.startIn(user, conversation, text);
+  }
+
   /** The project's focus text for this run, or null for the account-wide chat. Owner-scoped reads, so a
    * machine link to a machine this user no longer owns names nothing. Read per run, never stored: a
    * rename or a new machine link reaches the very next message. */

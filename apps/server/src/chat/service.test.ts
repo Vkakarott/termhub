@@ -367,6 +367,25 @@ it('resumeAfterDecision never indexes anything: a decision re-injection is not a
   expect(indexMessage).not.toHaveBeenCalled();
 });
 
+describe('wake', () => {
+  it('runs the injected text as an ordinary turn of the given conversation, and never indexes it (spec 2026-09-26 concierge memory §7)', async () => {
+    const { service, chat, messages, indexMessage } = build([delta('ok'), done()]);
+    const started = await service.wake(user, 'c_p1', 'Automático: a aba «api» abriu a pergunta de id q1 e o usuário ainda não respondeu.');
+    expect(chat.findByIdForUser).toHaveBeenCalledWith('c_p1', 'u1');
+    expect(started.conversation_id).toBe('c_p1');
+    expect(messages.find((m) => m.id === started.user_message_id)?.text).toBe('Automático: a aba «api» abriu a pergunta de id q1 e o usuário ainda não respondeu.');
+    await started.done;
+    expect(indexMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects CHAT_ARCHIVED for a conversation nobody reads any more (the waker swallows it)', async () => {
+    const { service, projectConversation, runner } = build([delta('ok'), done()]);
+    projectConversation.archived_at = '2026-09-23T00:00:00.000Z';
+    await expect(service.wake(user, 'c_p1', 'x')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_ARCHIVED' });
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+});
+
 it('stores the question, the answer, and the session id the CLI reports', async () => {
   const { service, chat, messages, conversation } = build([delta('Nada '), delta('rodando.'), done()]);
   const answer = await service.send(user, 'o que está rodando?');

@@ -235,6 +235,37 @@ describe('openTabQuestion', () => {
     expect(q).toEqual(opened);
     expect(events.some((e) => e.type === 'tab_question')).toBe(true);
   });
+
+  it('a fresh choice card with no automatic answer wakes the concierge once, after the card is published', async () => {
+    vi.mocked(suggestFor).mockResolvedValueOnce(null);
+    const opened = row({ id: 'q1' });
+    const repos = fakeRepos({ opened });
+    const waker = { wake: vi.fn(async (r: TabQuestion) => { expect(events.some((e) => e.type === 'tab_question')).toBe(true); return r.id === 'q1'; }) };
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' }, { waker });
+    expect(q).toEqual(opened);
+    expect(waker.wake).toHaveBeenCalledTimes(1);
+    expect(waker.wake).toHaveBeenCalledWith(opened, 'api');
+  });
+
+  it('the repeat path scheduling a countdown: the concierge is not woken (the card already carries an answer)', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.99, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const repos = fakeRepos({ opened: row({ id: 'q1' }), autodecide: true });
+    repos.tabQuestions.setAutoAnswer.mockImplementation(async (_id: string, auto: AutoAnswer) => ({ ...row({ id: 'q1' }), suggestion, auto_answer: auto }));
+    const waker = { wake: vi.fn(async () => true) };
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' }, { waker });
+    expect(q?.auto_answer).toMatchObject({ status: 'scheduled' });
+    expect(waker.wake).not.toHaveBeenCalled();
+  });
+
+  it('a permission card is never woken for (not a choice)', async () => {
+    const repos = fakeRepos({ opened: null, closed: [row({ id: 'q0', kind: 'permission', payload: { tool_name: 'Bash' }, status: 'answered_in_tab' })] });
+    const waker = { wake: vi.fn(async () => true) };
+    await openTabQuestion(asRepos(repos), tab, { kind: 'permission', payload: { tool_name: 'Edit' }, tool_use_id: null }, { waker });
+    expect(waker.wake).not.toHaveBeenCalled();
+  });
 });
 
 describe('noteHookEvent', () => {
@@ -292,6 +323,13 @@ describe('noteHookEvent', () => {
     const l = log();
     await noteHookEvent(asRepos(fakeRepos()), l, tab, choice);
     expect(vi.mocked(suggestFor)).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'q1' }), expect.objectContaining({ log: l }));
+  });
+
+  it('passes its own waker down to openTabQuestion', async () => {
+    vi.mocked(suggestFor).mockResolvedValueOnce(null);
+    const waker = { wake: vi.fn(async () => true) };
+    await noteHookEvent(asRepos(fakeRepos()), log(), tab, choice, waker);
+    expect(waker.wake).toHaveBeenCalledTimes(1);
   });
 });
 

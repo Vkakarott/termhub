@@ -47,6 +47,7 @@ import { ChatService, failureLabel, purgeExpiredActions } from './chat/service.j
 import { HEARTBEAT_MS, SWEEP_MS } from './chat/resume.js';
 import { startDecisionSweeper } from './chat/decision-memory.js';
 import { startAutoAnswerSweeper } from './chat/auto-answer.js';
+import { createWaker } from './chat/wake.js';
 import { startMemorySweeper } from './memory/sweeper.js';
 import { agentRunner } from './chat/runner.js';
 import { expireOrphanTabQuestions, startTabQuestionExpiry } from './chat/tab-questions.js';
@@ -167,6 +168,10 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   // default — and the operator's container is no longer in this path at all. Shared by /api/chat
   // and the mobile API.
   const chat = new ChatService({ repos, agents, runnerFor: (machineId) => agentRunner(machineId) });
+  // Wakes the project's concierge for an unattended `choice` card (spec 2026-09-26 concierge memory
+  // §7): built here, next to `chat`, since it needs a live `ChatService` to inject the wake turn into —
+  // the hooks route (ingest path) has no `ChatService` of its own to build one from.
+  const waker = createWaker({ repos, chat, maxPerHour: config.autoWakeMaxPerHour, log: fastify.log });
   // Attachments (spec 2026-09-26 §5): the files on the chat-files volume, and the in-process queue
   // that reads them. A finished job tells every open screen through the bus, metadata only.
   const attachmentStore = diskStore(config.chatFiles.dir);
@@ -223,7 +228,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       await guarded('terminals', (a) => tabRoutes(a, repos, { simulators, closeSimulatorTab: (id) => simWs.closeTab(id) }), '/tabs');
       await guarded('terminals', (a) => transcriptionRoutes(a, { transcriptions }), '/transcriptions');
       await guarded('terminals', (a) => monitorRoutes(a, repos), '/monitor');
-      await guarded('terminals', (a) => hooksRoutes(a, repos), '/hooks');
+      await guarded('terminals', (a) => hooksRoutes(a, repos, { waker }), '/hooks');
       await guarded('ai_accounts', (a) => aiAccountRoutes(a, repos), '/ai-accounts');
       await guarded('waitlist', (a) => waitlistRoutes(a, repos), '/waitlist');
       await guarded('roles', (a) => roleRoutes(a, repos), '/roles');
