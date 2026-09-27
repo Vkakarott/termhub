@@ -20,6 +20,8 @@ export const VOICE_RECORDING: RecordingOptions = {
   android: { outputFormat: 'mpeg4', audioEncoder: 'aac' },
   ios: { outputFormat: IOSOutputFormat.MPEG4AAC, audioQuality: AudioQuality.MEDIUM },
   web: {},
+  // The status then carries the input level, which the recording pill draws as its wave.
+  isMeteringEnabled: true,
 };
 export const VOICE_MIME = 'audio/m4a';
 /** The server's `MOBILE_MAX_SECONDS`: clips are cut here no matter what. */
@@ -29,10 +31,20 @@ const MIN_CLIP_S = 0.5;
 const POLL_MS = 1000;
 /** Give up polling after this (a 5-minute clip on the CPU model takes ~100 s). */
 const POLL_TIMEOUT_MS = 12 * 60 * 1000;
+/** How often the input level is read while recording: often enough for the wave to follow speech. */
+const LEVEL_MS = 100;
+/** The level's range in dBFS: quieter than `QUIET_DB` is the room, not speech. */
+const QUIET_DB = -50;
 const MIC_DENIED = 'Permissão do microfone negada';
 const MIC_UNAVAILABLE = 'Não foi possível acessar o microfone';
 
 // --- the microphone -------------------------------------------------------------------------------
+
+/** A metering reading (dBFS, 0 the loudest) as 0–1, or `null` when there is none. */
+export function levelFromDb(db: number | undefined): number | null {
+  if (typeof db !== 'number' || Number.isNaN(db)) return null;
+  return Math.min(1, Math.max(0, (db - QUIET_DB) / -QUIET_DB));
+}
 
 /** Hands the audio session back (other apps' playback resumes). Never before `recorder.stop()`
  * settled: releasing the session under a running recorder cuts the clip short. */
@@ -50,6 +62,8 @@ export interface Recorder {
   state: 'idle' | 'recording';
   /** whole seconds recorded so far; 0 unless recording */
   seconds: number;
+  /** the input level, 0–1, while recording; `null` when idle or when the recorder reports none */
+  level: number | null;
   /** pt-BR: why the last `start()` could not open the microphone; cleared by the next `start()` */
   error: string | null;
   /**
@@ -71,8 +85,10 @@ export function useRecorder(): Recorder {
   /** mirrors `state` for the closures below (they run outside React's render cycle) */
   const stateRef = useRef<Recorder['state']>('idle');
   const [seconds, setSeconds] = useState(0);
+  const [level, setLevel] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const clock = useRef<ReturnType<typeof setInterval> | null>(null);
+  const meter = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAt = useRef(0);
   /** A `start()` still asking for the mic; `cancel()` clears it, and `start()` then closes what it opened. */
   const opening = useRef(false);
@@ -87,6 +103,10 @@ export function useRecorder(): Recorder {
       clearInterval(clock.current);
       clock.current = null;
     }
+    if (meter.current !== null) {
+      clearInterval(meter.current);
+      meter.current = null;
+    }
   };
 
   /** Back to idle on screen: clock off, `seconds` at 0 (as documented). The audio session is handed
@@ -94,6 +114,7 @@ export function useRecorder(): Recorder {
   const resetToIdle = useCallback(() => {
     stopClock();
     setSeconds(0);
+    setLevel(null);
     setState('idle');
   }, [setState]);
 
@@ -130,6 +151,15 @@ export function useRecorder(): Recorder {
     setState('recording');
     stopClock();
     clock.current = setInterval(() => setSeconds(Math.floor((Date.now() - startedAt.current) / 1000)), 500);
+    // A recorder that reports no level (or cannot be asked) leaves it `null`: the pill then draws a
+    // wave of its own that does not pretend to follow the voice.
+    meter.current = setInterval(() => {
+      try {
+        setLevel(levelFromDb(recorder.getStatus().metering));
+      } catch {
+        setLevel(null);
+      }
+    }, LEVEL_MS);
   }, [recorder, setState]);
 
   const stop = useCallback(async (): Promise<RecordedClip | null> => {
@@ -164,7 +194,7 @@ export function useRecorder(): Recorder {
   // Unmount mid-recording (the screen closed): stop the clock; `useAudioRecorder` releases the recorder.
   useEffect(() => () => stopClock(), []);
 
-  return { state, seconds, error, start, stop, cancel };
+  return { state, seconds, level, error, start, stop, cancel };
 }
 
 // --- dictation ------------------------------------------------------------------------------------
@@ -175,6 +205,8 @@ export interface Voice {
   state: VoiceState;
   /** whole seconds recorded so far, for the timer; 0 unless recording */
   seconds: number;
+  /** the microphone's input level, 0–1, while recording; `null` otherwise or when there is none */
+  level: number | null;
   /** pt-BR, already user-facing; cleared by the next start() */
   error: string | null;
   /** pt-BR feedback that is not a failure: a clip too short to hold speech, a transcription with
@@ -320,5 +352,5 @@ export function useVoice(onText: (text: string) => void, deps: VoiceDeps = appDe
     setState('idle');
   }, [setState]);
 
-  return { state, seconds: state === 'recording' ? recorder.seconds : 0, error, notice, start, stop, cancel };
+  return { state, seconds: state === 'recording' ? recorder.seconds : 0, level: state === 'recording' ? recorder.level : null, error, notice, start, stop, cancel };
 }

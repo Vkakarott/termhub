@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { DeviceEventEmitter, StyleSheet } from 'react-native';
 import { getAnimatedStyle } from 'react-native-reanimated';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
@@ -427,6 +427,42 @@ describe('Conversa', () => {
     // RNTL only sees host views: the `padding` behaviour is the one that pads the bottom by the
     // keyboard's height (0 while it is down); `height` and no behaviour leave the padding unset.
     expect(StyleSheet.flatten(screen.getByTestId('conversation-keyboard').props.style).paddingBottom).toBe(0);
+  });
+
+  it('lifts the composer right onto the keyboard, from where the conversation really starts on screen (measured)', async () => {
+    // Host views' native methods are jest mocks shared by every view: this one says the conversation
+    // starts 91 pt down the screen — more than the (zero) top inset jest reports.
+    const nativeMethods = require('@react-native/jest-preset/jest/MockNativeMethods').default as { measureInWindow: jest.Mock };
+    nativeMethods.measureInWindow.mockImplementation((cb: (x: number, y: number, w: number, h: number) => void) => cb(0, 91, 390, 700));
+    try {
+      await render(<ConversationScreen />);
+      await screen.findByText(SEEDED_USER, undefined, LOAD);
+      const layout = { persist: () => undefined, nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 700 } } };
+      await fireEvent(screen.getByTestId('conversation-body'), 'layout', layout);
+      await fireEvent(screen.getByTestId('conversation-keyboard'), 'layout', layout);
+      // The keyboard's top at 500 on screen; the avoiding view's bottom is at 91 + 700 = 791 on screen.
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          startCoordinates: { screenX: 0, screenY: 844, width: 390, height: 0 },
+          endCoordinates: { screenX: 0, screenY: 500, width: 390, height: 344 },
+          isEventFromThisApp: true,
+        });
+      });
+      await waitFor(() => expect(StyleSheet.flatten(screen.getByTestId('conversation-keyboard').props.style).paddingBottom).toBe(291));
+    } finally {
+      nativeMethods.measureInWindow.mockReset();
+    }
+  });
+
+  it('keeps nothing empty under the box: the dictation error and notice lines only show with text', async () => {
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    expect(screen.queryByText('Nenhuma fala reconhecida')).toBeNull();
+    mockVoice.notice = 'Nenhuma fala reconhecida';
+    await act(() => useChatStore.setState({ sending: true }));
+    expect(screen.getByText('Nenhuma fala reconhecida')).toBeTruthy();
   });
 
   it('Nova conversa asks first, then resets', async () => {

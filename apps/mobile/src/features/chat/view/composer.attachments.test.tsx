@@ -113,14 +113,29 @@ describe('Composer attachments', () => {
   it('closing the sheet cancels a recording that may still be opening the microphone', async () => {
     await renderComposer();
     await fireEvent.press(screen.getByRole('button', { name: 'Anexar' }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Fechar' }));
     expect(mockRecorder.cancel).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['starting', 'recording', 'uploading', 'transcribing'] as const)('📎 is disabled while dictation is %s (one recorder at a time)', async (state) => {
+  it.each(['starting', 'uploading', 'transcribing'] as const)('+ is disabled while dictation is %s (one recorder at a time)', async (state) => {
     mockVoice.state = state;
     await renderComposer();
     expect(screen.getByRole('button', { name: 'Anexar' })).toBeDisabled();
+  });
+
+  it('+ is gone while dictation records: the whole pill is the recording row', async () => {
+    mockVoice.state = 'recording';
+    await renderComposer();
+    expect(screen.queryByRole('button', { name: 'Anexar' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancelar gravação' })).toBeTruthy();
+  });
+
+  it('+ opens the menu with the three ways in, each a labelled button, and a tap outside closes it', async () => {
+    await renderComposer();
+    await fireEvent.press(screen.getByRole('button', { name: 'Anexar' }));
+    for (const name of ['Foto ou vídeo', 'Arquivo', 'Gravar áudio']) expect(screen.getByRole('button', { name })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Fechar' }));
+    expect(screen.queryByRole('button', { name: 'Arquivo' })).toBeNull();
   });
 
   it('a chip follows the status the store heard: "processando…" becomes "falhou: arquivo inválido", and the send is blocked until it is removed', async () => {
