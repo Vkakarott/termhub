@@ -25,6 +25,8 @@ jobs:
         run: npm ci
       - name: Gerar Prisma Client
         run: npm run prisma:generate
+      - name: Generated Prisma client is committed
+        run: git diff --exit-code -- apps/server/src/generated
       - name: Build dos pacotes compartilhados
         run: npm run build:packages
       - name: Testes agent
