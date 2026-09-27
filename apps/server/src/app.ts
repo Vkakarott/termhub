@@ -46,6 +46,7 @@ import { toPublicAttachment } from './db/repositories/chat-attachments.js';
 import { ChatService, failureLabel, purgeExpiredActions } from './chat/service.js';
 import { HEARTBEAT_MS, SWEEP_MS } from './chat/resume.js';
 import { startDecisionSweeper } from './chat/decision-memory.js';
+import { startAutoAnswerSweeper } from './chat/auto-answer.js';
 import { startMemorySweeper } from './memory/sweeper.js';
 import { agentRunner } from './chat/runner.js';
 import { expireOrphanTabQuestions, startTabQuestionExpiry } from './chat/tab-questions.js';
@@ -293,6 +294,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   fastify.addHook('preClose', async () => {
     await chat.suspendAll();
   });
+  // Sends due automatic answers (spec 2026-09-26 concierge memory §6); both colors run it, the claim picks one.
+  const stopAutoAnswerSweeper = startAutoAnswerSweeper(repos, fastify.log);
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
     clearInterval(liveBeat);
@@ -304,6 +307,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
     stopTabQuestionExpiry();
     stopDecisionSweeper();
     stopMemorySweeper();
+    stopAutoAnswerSweeper();
     stopTabSuggestions();
     await simulators.shutdownAll();
     await closePrisma();

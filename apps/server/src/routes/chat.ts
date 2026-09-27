@@ -8,6 +8,7 @@ import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions, splitTabRows } from '../db/repositories/tab-questions-view.js';
 import { controlContextFor } from '../control/context.js';
 import { answerTabQuestion, tabQuestionScreen } from '../chat/tab-question-answer.js';
+import { cancelAutoAnswer } from '../chat/auto-answer.js';
 import { dismissTabSuggestion, sendTabSuggestion } from '../chat/tab-suggestion-send.js';
 import { failureLabel, type ChatService } from '../chat/service.js';
 import { defaultEmbedder } from '../chat/embeddings.js';
@@ -272,6 +273,15 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     const { id } = tabQuestionIdParam.parse(request.params);
     const ctx = controlContextFor(repos, request.scope.user);
     return { tab_question: await answerTabQuestion(ctx, id, request.body, { log: request.log }) };
+  });
+
+  /**
+   * "Cancelar" on a countdown (spec 2026-09-26 concierge memory §6): nothing is sent, the proposed answer
+   * stays as the pre-selection. `create`, like answering; 404 for another user's card, 409 `NOT_SCHEDULED`.
+   */
+  app.post('/tab-questions/:id/auto-answer/cancel', { config: { action: 'create' } }, async (request) => {
+    const { id } = tabQuestionIdParam.parse(request.params);
+    return { tab_question: await cancelAutoAnswer(controlContextFor(repos, request.scope.user), id) };
   });
 
   /** The live excerpt a permission card shows (spec §6.1): read now, never stored nor logged. */

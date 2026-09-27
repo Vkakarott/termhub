@@ -1,7 +1,7 @@
 import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import type { SuggestionPayload, TabRowKind } from '../../chat/tab-question-payload.js';
 import type { Repositories } from './index.js';
-import { PERMISSION_QUEUED, type TabQuestion, type TabQuestionStatus, type TabRowAnswer, type TabRowPayload } from './tab-questions.js';
+import { PERMISSION_QUEUED, type AnsweredVia, type AutoAnswer, type TabQuestion, type TabQuestionStatus, type TabRowAnswer, type TabRowPayload } from './tab-questions.js';
 
 /** A tab's question as both clients render it (`GET /chat`, the bus, the phone): the row minus what
  * only the server needs, plus the tab's name at read time (null once the tab is gone). */
@@ -20,6 +20,12 @@ export interface TabQuestionView {
   /** Only while the card is still `open` (spec 2026-09-26 §4): answering, closing or the tab moving
    * on drops it, so a screen that reads the row later never resurfaces a stale suggestion. */
   suggestion: TabQuestionSuggestion | null;
+  /** The countdown (spec 2026-09-26 concierge memory §6) — the person's own data, shown whole: while
+   * the card is `open` (scheduled, cancelled as the pre-selection, or a failed send), and afterwards
+   * only when it was `sent` or `failed`, so the card can say so. */
+  auto_answer: AutoAnswer | null;
+  /** How `answer` was obtained: `'auto'` when the countdown sent it; null on rows from before. */
+  answered_via: AnsweredVia | null;
 }
 
 /** Names resolved owner-scoped, in one batched read: a tab the user cannot see names nothing. */
@@ -48,6 +54,8 @@ export function toTabQuestionView(r: TabQuestion, tabName: string | null): TabQu
     answered_at: r.answered_at,
     closed_at: r.closed_at,
     suggestion: r.status === 'open' ? r.suggestion : null,
+    auto_answer: r.auto_answer && (r.status === 'open' || r.auto_answer.status === 'sent' || r.auto_answer.status === 'failed') ? r.auto_answer : null,
+    answered_via: r.answered_via ?? null,
   };
 }
 

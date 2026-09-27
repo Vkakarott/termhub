@@ -18,3 +18,16 @@ it('a suggestion always carries context on the wire: null for a row stored befor
   expect(toTabQuestionView({ ...s, payload: { text: 'commit it', context: 'Quer que eu faça o commit?' } }, 'api').payload).toEqual({ text: 'commit it', context: 'Quer que eu faça o commit?' });
   expect(toTabQuestionView(row(), 'api').payload).toEqual({ tool_name: 'Bash' }); // questions untouched
 });
+
+it('carries the countdown while the card is open, and afterwards only once sent or failed (spec 2026-09-26 concierge memory §6)', () => {
+  const auto = { answer: { answers: [{ selected: [0] }] }, by: 'memory' as const, reason: 'r', sources: [{ kind: 'decision' as const, id: 'd1' }], due_at: '2026-09-26T12:01:00.000Z' };
+  const open = row({ kind: 'choice', payload: { questions: [] }, status: 'open', closed_at: null });
+  for (const status of ['scheduled', 'cancelled', 'sent', 'failed'] as const) {
+    expect(toTabQuestionView({ ...open, auto_answer: { ...auto, status } }, 'api').auto_answer).toEqual({ ...auto, status });
+  }
+  const answered = { ...open, status: 'answered' as const };
+  expect(toTabQuestionView({ ...answered, auto_answer: { ...auto, status: 'sent' }, answered_via: 'auto' }, 'api')).toMatchObject({ auto_answer: { status: 'sent' }, answered_via: 'auto' });
+  expect(toTabQuestionView({ ...answered, auto_answer: { ...auto, status: 'failed', error_code: 'TAB_PROMPT_CHANGED' } }, 'api').auto_answer?.status).toBe('failed');
+  expect(toTabQuestionView({ ...answered, auto_answer: { ...auto, status: 'cancelled' }, answered_via: 'card' }, 'api')).toMatchObject({ auto_answer: null, answered_via: 'card' });
+  expect(toTabQuestionView(row(), 'api')).toMatchObject({ auto_answer: null, answered_via: null });
+});

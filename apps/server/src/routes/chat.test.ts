@@ -136,7 +136,7 @@ it('GET / returns the conversation\'s tab questions, named owner-scoped', async 
   const q = { id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null, status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z' };
   const { app, repos } = build({ tabs: [{ id: 't1', project_id: 'p1', name: 'api' }], tabQuestions: [q] });
   const res = await app.inject({ method: 'GET', url: '/chat' });
-  expect(res.json().tab_questions).toEqual([{ id: 'q1', tab_id: 't1', tab_name: 'api', kind: 'permission', payload: { tool_name: 'Bash' }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null }]);
+  expect(res.json().tab_questions).toEqual([{ id: 'q1', tab_id: 't1', tab_name: 'api', kind: 'permission', payload: { tool_name: 'Bash' }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null, auto_answer: null, answered_via: null }]);
   expect(repos.tabQuestions.listByConversation).toHaveBeenCalledWith('c1');
 });
 
@@ -722,7 +722,7 @@ it('GET / keeps suggestions out of tab_questions and lists them in tab_suggestio
   const { app } = build({ tabs: [{ id: 't1', project_id: 'p1', name: 'api' }], tabQuestions: [q, s] });
   const res = await app.inject({ method: 'GET', url: '/chat' });
   expect(res.json().tab_questions.map((x: { id: string }) => x.id)).toEqual(['q1']);
-  expect(res.json().tab_suggestions).toEqual([{ id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it', context: null }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null }]);
+  expect(res.json().tab_suggestions).toEqual([{ id: 's1', tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it', context: null }, status: 'open', answer: null, error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null, auto_answer: null, answered_via: null }]);
 });
 
 const listedRow = { id: 'g1', conversation_id: 'c1', tab_id: 't1', tool: 'send_input', source_action_id: 'act1', granted_by: 'u1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', revoked_at: '2026-09-25T12:00:00.000Z', revoked_by: 'u1', conversation_project_id: null, conversation_archived: false };
@@ -843,4 +843,42 @@ it('POST /compact passes the service refusal through with its code', async () =>
   const res = await app.inject({ method: 'POST', url: '/chat/compact', payload: {} });
   expect(res.statusCode).toBe(409);
   expect(res.json().code).toBe('CHAT_NOTHING_TO_COMPACT');
+});
+
+describe('POST /chat/tab-questions/:id/auto-answer/cancel (web)', () => {
+  const countdown = { answer: { answers: [{ selected: [0] }] }, by: 'memory', reason: 'Mesma pergunta respondida antes', sources: [{ kind: 'decision', id: 'd1' }], due_at: '2026-09-26T12:01:00.000Z', status: 'scheduled' };
+  const q = { id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload: { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: false }] }] }, tool_use_id: null, status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-26T12:00:00.000Z', suggestion: null, auto_answer: countdown, answered_via: null, woken_at: null };
+  const setup = (cancelled: unknown) => {
+    const built = build({ tabs: [{ id: 't1', project_id: 'p1', name: 'api' }] });
+    const tq = built.repos.tabQuestions as Record<string, unknown>;
+    tq.findByIdForUser = vi.fn(async (id: string, userId: string) => (id === 'q1' && userId === 'u1' ? q : undefined));
+    tq.cancelAutoAnswer = vi.fn(async () => cancelled);
+    return { ...built, tq };
+  };
+
+  it('cancels the countdown and answers the card', async () => {
+    const { app, tq } = setup({ ...q, auto_answer: { ...countdown, status: 'cancelled', decided_by: 'u1' } });
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/q1/auto-answer/cancel' });
+    off();
+    expect(res.statusCode).toBe(200);
+    expect(res.json().tab_question).toMatchObject({ id: 'q1', tab_name: 'api', status: 'open', auto_answer: { status: 'cancelled', answer: { answers: [{ selected: [0] }] } } });
+    expect(tq.cancelAutoAnswer).toHaveBeenCalledWith('q1', 'u1');
+    expect(events).toEqual([expect.objectContaining({ type: 'tab_question', question: expect.objectContaining({ id: 'q1' }) })]);
+  });
+
+  it('404 for a foreign or missing id', async () => {
+    const { app, tq } = setup(undefined);
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/other/auto-answer/cancel' });
+    expect(res.statusCode).toBe(404);
+    expect(tq.cancelAutoAnswer).not.toHaveBeenCalled();
+  });
+
+  it('409 NOT_SCHEDULED when no countdown is running', async () => {
+    const { app } = setup(undefined);
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/q1/auto-answer/cancel' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('NOT_SCHEDULED');
+  });
 });

@@ -1017,6 +1017,19 @@ export interface TabQuestionSuggestion {
   items: TabQuestionSuggestionItem[];
 }
 
+/** A countdown that sends `answer` by itself at `due_at` unless the person cancels it (spec 2026-09-26
+ * concierge memory §6). `by: 'memory'` is a near-verbatim repeat, `'concierge'` the concierge's call. */
+export interface TabQuestionAutoAnswer {
+  answer: ChoiceAnswer;
+  by: 'memory' | 'concierge';
+  reason: string;
+  sources: { kind: string; id: string }[];
+  due_at: string;
+  status: 'scheduled' | 'cancelled' | 'sent' | 'failed';
+  error_code?: string;
+  decided_by?: string;
+}
+
 interface TabQuestionBase {
   id: string;
   tab_id: string;
@@ -1029,6 +1042,10 @@ interface TabQuestionBase {
   closed_at: string | null;
   /** Only while the card is `open`; absent from a server that predates it, so treat undefined as null. */
   suggestion?: TabQuestionSuggestion | null;
+  /** The countdown while the card is open (or once sent/failed); absent from an older server. */
+  auto_answer?: TabQuestionAutoAnswer | null;
+  /** `'auto'` when the countdown sent the answer; absent from an older server. */
+  answered_via?: 'card' | 'auto' | null;
 }
 export type TabQuestionChoice = TabQuestionBase & { kind: 'choice'; payload: { questions: TabQuestionItem[] }; answer: ChoiceAnswer | null };
 export type TabQuestionPermission = TabQuestionBase & { kind: 'permission'; payload: { tool_name: string }; answer: PermissionAnswer | null };

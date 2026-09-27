@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments.js';
+import { tabQuestionSchema } from './events.js';
 
 /** `POST chat/messages`: text, or attachments, or both (spec 2026-09-26 §5.5). An empty text with ids
  * is a message made of files alone; neither is refused before anything is stored. */
@@ -82,6 +83,11 @@ export const tabQuestionAnswerBody = z.union([
   z.object({ answers: z.array(z.object({ selected: z.array(z.number().int().min(0).max(3)).max(4), text: z.string().max(2000).optional() })).min(1).max(4) }),
   z.object({ allow: z.boolean(), text: z.string().max(2000).optional() }),
 ]);
+/** `POST chat/tab-questions/:id/auto-answer/cancel` (no body): "Cancelar" on a countdown (spec 2026-09-26
+ * concierge memory §6). Answers the card, `auto_answer.status: 'cancelled'`, the proposed answer kept as
+ * the pre-selection; 404 for a card not the user's, 409 `NOT_SCHEDULED` when no countdown runs. "Responder
+ * agora" is the ordinary answer route, which cancels the countdown itself. */
+export const tabQuestionAutoAnswerCancelResponse = z.object({ tab_question: tabQuestionSchema });
 /** `GET chat/tab-questions/:id/screen`: the last lines of the tab, live, for a permission card. */
 export const tabQuestionScreenResponse = z.object({ text: z.string() });
 

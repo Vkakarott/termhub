@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decisionsResponse, isBoardGrantable, isTabGrantable, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody } from './chat.js';
+import { decisionsResponse, isBoardGrantable, isTabGrantable, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody, tabQuestionAutoAnswerCancelResponse } from './chat.js';
 import { tabQuestionSchema } from './events.js';
 
 describe('mobileDecisionBody', () => {
@@ -130,5 +130,26 @@ describe('tabQuestionSchema: suggestion', () => {
   it('parses a question with a null suggestion, and one with no suggestion key at all (older servers)', () => {
     expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, suggestion: null }).success).toBe(true);
     expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload }).success).toBe(true);
+  });
+});
+
+describe('tabQuestionSchema: auto answer (spec 2026-09-26 concierge memory §6)', () => {
+  const common = { id: 'q1', tab_id: 't1', tab_name: 'api', status: 'open', error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null };
+  const choicePayload = { payload: { questions: [{ question: 'Q?', header: 'Q', multi_select: false, options: [{ label: 'a', description: '', recommended: true }] }] }, answer: null };
+  const auto = { answer: { answers: [{ selected: [0] }] }, by: 'memory', reason: 'Mesma pergunta respondida antes', sources: [{ kind: 'decision', id: 'd1' }], due_at: '2026-09-26T12:01:00.000Z', status: 'scheduled' };
+
+  it('parses a card with a countdown and how it was answered', () => {
+    const r = tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, auto_answer: auto, answered_via: null });
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+    expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, status: 'answered', answer: { answers: [{ selected: [0] }] }, auto_answer: { ...auto, status: 'sent' }, answered_via: 'auto' }).success).toBe(true);
+  });
+
+  it('parses a card from an older server, with neither field', () => {
+    expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload }).success).toBe(true);
+  });
+
+  it('the cancel response is the card, countdown cancelled', () => {
+    const r = tabQuestionAutoAnswerCancelResponse.safeParse({ tab_question: { ...common, kind: 'choice', ...choicePayload, auto_answer: { ...auto, status: 'cancelled', decided_by: 'u1' }, answered_via: null } });
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
   });
 });

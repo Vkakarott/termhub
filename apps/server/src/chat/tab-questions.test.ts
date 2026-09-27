@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repositories } from '../db/repositories/index.js';
-import type { TabQuestion } from '../db/repositories/tab-questions.js';
+import type { AutoAnswer, TabQuestion } from '../db/repositories/tab-questions.js';
 import type { Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import type { Interpreted } from '../monitor/state.js';
@@ -16,7 +16,8 @@ const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'api' } as Tab
 const payload = { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] };
 const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload, tool_use_id: 'toolu_1',
-  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
+  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null,
+  auto_answer: null, answered_via: null, woken_at: null, ...over,
 });
 const choice: Interpreted = { kind: 'working', text: null, activity: 'planning', verb: null, meta: { event: 'PreToolUse', tool: 'AskUserQuestion' }, question: { kind: 'choice', payload, tool_use_id: 'toolu_1' } };
 const log = () => ({ info: vi.fn(), warn: vi.fn() });
@@ -36,6 +37,8 @@ function fakeRepos(
     /** What `findOpenForTab` reports back when `openTabQuestion` re-checks a stale `null` suggestion.
      *  Defaults to the row it just opened, i.e. "still the same open question". */
     stillOpen?: TabQuestion | undefined;
+    /** The person's "Responder sozinho" switch (off by default). */
+    autodecide?: boolean;
   } = {},
 ) {
   const conversation = opts.conversation === undefined ? { id: 'c1', user_id: 'u1' } : (opts.conversation ?? undefined);
@@ -53,7 +56,9 @@ function fakeRepos(
         return { ...(opened ?? row()), suggestion: s };
       }),
       findOpenForTab: vi.fn(async () => ('stillOpen' in opts ? opts.stillOpen : opened)),
+      setAutoAnswer: vi.fn(async (_id: string, auto: AutoAnswer) => ({ ...(opened ?? row()), suggestion: null as TabQuestionSuggestion | null, auto_answer: auto })),
     },
+    users: { chatAutodecide: vi.fn(async () => opts.autodecide ?? false) },
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], owner: string) => (owner === 'u1' && ids.includes('t1') ? [tab] : [])) },
   };
 }
@@ -134,6 +139,46 @@ describe('openTabQuestion', () => {
     expect(repos.tabQuestions.setSuggestion).toHaveBeenCalledWith('q1', suggestion);
     const tqEvent = events.find((e) => e.type === 'tab_question');
     expect(tqEvent && 'question' in tqEvent ? tqEvent.question.suggestion : undefined).toEqual(suggestion);
+  });
+
+  it('the repeat path: a near-verbatim precedent with the switch on publishes the card once, carrying the countdown', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.99, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const repos = fakeRepos({ opened: row({ id: 'q1' }), autodecide: true });
+    repos.tabQuestions.setAutoAnswer.mockImplementation(async (_id: string, auto: AutoAnswer) => ({ ...row({ id: 'q1' }), suggestion, auto_answer: auto }));
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q?.auto_answer).toMatchObject({ status: 'scheduled', by: 'memory', sources: [{ kind: 'decision', id: 'd1' }] });
+    const published = events.filter((e) => e.type === 'tab_question');
+    expect(published).toHaveLength(1);
+    expect(published[0] && 'question' in published[0] ? published[0].question.auto_answer : undefined).toMatchObject({ status: 'scheduled', answer: { answers: [{ selected: [0] }] } });
+  });
+
+  it('the repeat path with the switch off publishes the plain suggested card, no countdown', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.99, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const repos = fakeRepos({ opened: row({ id: 'q1' }) });
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' });
+    expect(q?.auto_answer).toBeNull();
+    expect(repos.tabQuestions.setAutoAnswer).not.toHaveBeenCalled();
+    expect(events.filter((e) => e.type === 'tab_question')).toHaveLength(1);
+  });
+
+  it('the repeat path failing (a db hiccup) still announces the suggested card', async () => {
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: 'd1', similarity: 0.99, selected: [0], source: { question: 'Qual cor?', project_name: 'Proj', answered_at: '2026-09-20T00:00:00.000Z' } }],
+    };
+    vi.mocked(suggestFor).mockResolvedValueOnce(suggestion);
+    const repos = fakeRepos({ opened: row({ id: 'q1' }), autodecide: true });
+    repos.tabQuestions.setAutoAnswer.mockRejectedValue(Object.assign(new Error('db down'), { code: 'P1001' }));
+    const l = log();
+    const q = await openTabQuestion(asRepos(repos), tab, { kind: 'choice', payload, tool_use_id: 'toolu_1' }, { embedder: null, log: l });
+    expect(q?.suggestion).toEqual(suggestion);
+    expect(events.filter((e) => e.type === 'tab_question')).toHaveLength(1);
+    expect(l.warn).toHaveBeenCalledWith({ tabQuestionId: 'q1', code: 'P1001' }, 'auto answer not scheduled');
   });
 
   it('publishes without a suggestion when suggestFor gives null, and does not re-check the tab with no embedder configured', async () => {

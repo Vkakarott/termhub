@@ -6,6 +6,7 @@ import { describeTabQuestions, type TabQuestionView } from '../db/repositories/t
 import type { Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import type { Interpreted } from '../monitor/state.js';
+import { maybeScheduleRepeat } from './auto-answer.js';
 import { chatBus } from './bus.js';
 import { suggestFor } from './decision-memory.js';
 import { defaultEmbedder, type Embedder } from './embeddings.js';
@@ -66,7 +67,9 @@ export async function closeTabQuestions(repos: Repositories, tabId: string, stat
  * or kept exactly as with a card. A permission queued behind an open one opens nothing either.
  *
  * A fresh `choice` card is offered a suggestion from the person's past decisions (spec 2026-09-26 §4)
- * before it is announced — best effort, and never blocks the card on it. `deps` lets tests and the
+ * before it is announced — best effort, and never blocks the card on it. A stored suggestion that
+ * covers every question from a decision may start a countdown on it (`maybeScheduleRepeat`, spec
+ * 2026-09-26 concierge memory §6): the card is still announced once, carrying `auto_answer`. `deps` lets tests and the
  * ingest path (`noteHookEvent`) pass their own embedder/logger; left out, it is `defaultEmbedder()`
  * (null without EMBED_URL) and a no-op logger.
  *
@@ -102,10 +105,21 @@ export async function openTabQuestion(
     const embedder = deps?.embedder !== undefined ? deps.embedder : defaultEmbedder();
     const suggestion = await suggestFor(repos, question, { embedder, threshold: config.decisionSuggestThreshold, log: deps?.log ?? silentLog });
     if (suggestion) {
+      let stored: TabQuestion | undefined;
       try {
-        shown = (await repos.tabQuestions.setSuggestion(question.id, suggestion)) ?? null;
+        stored = await repos.tabQuestions.setSuggestion(question.id, suggestion);
+        shown = stored ?? null;
       } catch {
         shown = { ...question, suggestion };
+      }
+      // The repeat path (spec 2026-09-26 concierge memory §6, D9a): best effort, like the suggestion —
+      // a failure here must not lose the card, which then shows the suggestion alone.
+      if (stored) {
+        try {
+          shown = (await maybeScheduleRepeat(repos, stored)) ?? stored;
+        } catch (err) {
+          (deps?.log ?? silentLog).warn({ tabQuestionId: stored.id, code: failureLabel(err) }, 'auto answer not scheduled');
+        }
       }
     } else if (embedder) {
       const stillOpen = await repos.tabQuestions.findOpenForTab(tab.id);

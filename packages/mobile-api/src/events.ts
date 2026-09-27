@@ -114,6 +114,20 @@ export const tabQuestionSuggestionSchema = z.object({
   ),
 });
 
+/** Mirrors `AutoAnswer` (apps/server/src/db/repositories/tab-questions.ts): a countdown that sends the
+ * proposed answer by itself when due, unless the person cancels it (spec 2026-09-26 concierge memory §6).
+ * `sources` cite what backed it (a past decision, or a memory item). */
+export const tabQuestionAutoAnswerSchema = z.object({
+  answer: z.object({ answers: z.array(z.object({ selected: z.array(z.number().int()), text: z.string().optional() })) }),
+  by: z.enum(['memory', 'concierge']),
+  reason: z.string(),
+  sources: z.array(z.object({ kind: z.string(), id: z.string() })),
+  due_at: z.string(),
+  status: z.enum(['scheduled', 'cancelled', 'sent', 'failed']),
+  error_code: z.string().optional(),
+  decided_by: z.string().optional(),
+});
+
 const tabQuestionCommon = {
   id: z.string(),
   tab_id: z.string(),
@@ -125,6 +139,10 @@ const tabQuestionCommon = {
   closed_at: z.string().nullable(),
   /** Only while the card is `open`; absent from an older server. */
   suggestion: tabQuestionSuggestionSchema.nullable().optional(),
+  /** The countdown, while open (or once sent/failed); absent from an older server, stripped by an older app. */
+  auto_answer: tabQuestionAutoAnswerSchema.nullable().optional(),
+  /** `'auto'` when the countdown sent the answer; absent from an older server. */
+  answered_via: z.enum(['card', 'auto']).nullable().optional(),
 };
 export const tabQuestionSchema = z.discriminatedUnion('kind', [
   z.object({

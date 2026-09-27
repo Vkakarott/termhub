@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
-import { chatGrantListResponse, decisionProofMessage } from '@termhub/mobile-api';
+import { chatGrantListResponse, decisionProofMessage, tabQuestionAutoAnswerCancelResponse } from '@termhub/mobile-api';
 import type { Device } from '../db/repositories/devices.js';
 import { applyErrorHandler, HttpError } from '../lib/errors.js';
 import { chatBus, type ChatEvent } from '../chat/bus.js';
@@ -1102,5 +1102,46 @@ describe('GET /me', () => {
     expect(res.body).not.toContain('public_key');
     expect(res.body).not.toContain('pin_secret_enc');
     expect(res.body).not.toContain('secret-hash');
+  });
+});
+
+describe('POST /chat/tab-questions/:id/auto-answer/cancel (mobile)', () => {
+  const countdown = { answer: { answers: [{ selected: [0] }] }, by: 'memory', reason: 'Mesma pergunta respondida antes', sources: [{ kind: 'decision', id: 'd1' }], due_at: '2026-09-26T12:01:00.000Z', status: 'scheduled' };
+  const q = { id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload: { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: false }] }] }, tool_use_id: null, status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-26T12:00:00.000Z', suggestion: null, auto_answer: countdown, answered_via: null, woken_at: null };
+  const setup = (cancelled: unknown) => {
+    const built = build({ tabs: [{ id: 't1', project_id: 'p1', name: 'api' }] });
+    const tq = built.repos.tabQuestions as Record<string, unknown>;
+    tq.findByIdForUser = vi.fn(async (id: string, userId: string) => (id === 'q1' && userId === 'u1' ? q : undefined));
+    tq.cancelAutoAnswer = vi.fn(async () => cancelled);
+    return { ...built, tq };
+  };
+
+  it('cancels the countdown and answers the card', async () => {
+    const { app, tq } = setup({ ...q, auto_answer: { ...countdown, status: 'cancelled', decided_by: 'u1' } });
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/q1/auto-answer/cancel' });
+    off();
+    expect(res.statusCode).toBe(200);
+    expect(res.json().tab_question).toMatchObject({ id: 'q1', tab_name: 'api', status: 'open', auto_answer: { status: 'cancelled', answer: { answers: [{ selected: [0] }] } } });
+    expect(tq.cancelAutoAnswer).toHaveBeenCalledWith('q1', 'u1');
+    expect(events).toEqual([expect.objectContaining({ type: 'tab_question', question: expect.objectContaining({ id: 'q1' }) })]);
+    // What the phone parses (`@termhub/mobile-api`).
+    const parsed = tabQuestionAutoAnswerCancelResponse.safeParse(res.json());
+    expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+  });
+
+  it('404 for a foreign or missing id', async () => {
+    const { app, tq } = setup(undefined);
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/other/auto-answer/cancel' });
+    expect(res.statusCode).toBe(404);
+    expect(tq.cancelAutoAnswer).not.toHaveBeenCalled();
+  });
+
+  it('409 NOT_SCHEDULED when no countdown is running', async () => {
+    const { app } = setup(undefined);
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/q1/auto-answer/cancel' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('NOT_SCHEDULED');
   });
 });
