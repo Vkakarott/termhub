@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSetup, setupInputSchema, withLegacyMirror } from './schema.js';
+import { normalizeSetup, setupInputSchema, withLegacyMirror, SETUP_VERSION } from './schema.js';
 
 const legacy = { provider: 'linear', integration_id: 'i1', scope: 'EI', filter: null, include_done: true, sync_minutes: 15 };
 
@@ -32,5 +32,16 @@ describe('setup ticket sources', () => {
     const r = setupInputSchema.safeParse({ ticket_sources: [src, { ...src, scope: ' acme/api ' }] });
     expect(r.success).toBe(false);
     expect(r.error?.issues[0].message).toBe('Fonte de tickets repetida');
+  });
+});
+
+describe('setup repo.deploy_workflow', () => {
+  it('defaults to null for a setup saved before the field existed', () => {
+    const data = normalizeSetup({ repo: { integration_id: 'i1', full_name: 'acme/app' } }, SETUP_VERSION);
+    expect(data.repo?.deploy_workflow).toBeNull();
+  });
+  it('keeps a trimmed workflow name', () => {
+    const data = normalizeSetup({ repo: { integration_id: 'i1', full_name: 'acme/app', deploy_workflow: '  deploy.yml ' } }, SETUP_VERSION);
+    expect(data.repo?.deploy_workflow).toBe('deploy.yml');
   });
 });

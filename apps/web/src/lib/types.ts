@@ -390,6 +390,7 @@ export interface ProjectSetupData {
     base_branch: string;
     branch_pattern: string;
     draft_pr: boolean;
+    deploy_workflow: string | null;
   } | null;
   /** server-owned mirror of ticket_sources[0] (with include_done: false), or null; send it back as received */
   tickets: {

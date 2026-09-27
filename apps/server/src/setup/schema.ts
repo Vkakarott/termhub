@@ -16,6 +16,8 @@ export const repoSchema = z.object({
   /** placeholders: {ticket} {slug} */
   branch_pattern: z.string().trim().min(1).max(100).default('{ticket}-{slug}'),
   draft_pr: z.boolean().default(true),
+  /** GitHub Actions workflow whose run on the merge commit is "the deploy" (file name or display name); null = not tracked */
+  deploy_workflow: z.string().trim().min(1).max(200).nullable().default(null),
 });
 
 /** One ticket source of a project. Identity: (integration_id, scope). Open tickets only. */
