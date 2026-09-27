@@ -73,6 +73,10 @@ model User {
   chatDecisions      ChatDecision[]
   /// "Memória do chat" switch (Settings): off skips recording and suggesting from this user's answers.
   chatSuggestions    Boolean            @default(true) @map("chat_suggestions")
+  /// "Responder sozinho quando houver precedente" (spec 2026-09-26 concierge memory D8): off, the
+  /// concierge can only suggest, never schedule an automatic answer.
+  chatAutodecide     Boolean            @default(false) @map("chat_autodecide")
+  memoryItems        MemoryItem[]
 
   @@index([roleId])
   @@map("users")
@@ -215,6 +219,7 @@ model Project {
   tabQuestions   TabQuestion[]
   chatDecisions  ChatDecision[]
   groupItems     ProjectGroupItem[]
+  memoryItems    MemoryItem[]
   agentColumn    TaskColumn?   @relation("ProjectAgentColumn", fields: [agentColumnId], references: [id], onDelete: SetNull)
   /// The project's board columns, in `position` order.
   columns        TaskColumn[]  @relation("ProjectColumns")
@@ -923,6 +928,15 @@ model TabQuestion {
   createdAt      DateTime         @default(now()) @map("created_at")
   /// A suggested answer from a similar past decision, offered before the person picks (spec 2026-09-26 §4).
   suggestion     Json?
+  /// A scheduled/cancelled/sent/failed automatic answer (spec 2026-09-26 concierge memory §3.2, §6):
+  /// `{ answer, by, reason, sources, due_at, status, error_code?, decided_by? }`.
+  autoAnswer     Json?            @map("auto_answer")
+  /// How the row got its `answer`: `card` (a click) or `auto` (the countdown sent it). Null = before
+  /// this change, same as `card`.
+  answeredVia    String?          @map("answered_via")
+  /// Set once, before a wake turn starts (conditional update `WHERE woken_at IS NULL`), so one card
+  /// never wakes the concierge twice (spec §3.2, §7).
+  wokenAt        DateTime?        @map("woken_at")
 
   @@index([tabId, status])
   @@index([conversationId, createdAt])
@@ -951,10 +965,45 @@ model ChatDecision {
   embedModel     String?           @map("embed_model")
   suggestedCount Int               @default(0) @map("suggested_count")
   acceptedCount  Int               @default(0) @map("accepted_count")
+  /// Times this decision backed an automatic answer sent by the countdown (spec §D11); those answers
+  /// are never recorded as a new row, so this is the only trace of them on the source decision.
+  autoCount      Int               @default(0) @map("auto_count")
   createdAt      DateTime          @default(now()) @map("created_at")
 
   @@index([userId, createdAt])
   @@map("chat_decisions")
+}
+
+/// One chunk of the concierge's searchable memory (spec 2026-09-26 concierge memory §3.1): a card, a
+/// message the person typed, a gate decision, a spec/plan section or a note. Decisions answered on a
+/// card live in `chat_decisions`. `embedding` is pgvector, read and written in raw SQL.
+model MemoryItem {
+  id          String   @id
+  ownerId     String   @map("owner_id")
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  projectId   String?  @map("project_id")
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// task | message | action | doc | note
+  kind        String
+  sourceId    String   @map("source_id")
+  chunkIndex  Int      @default(0) @map("chunk_index")
+  title       String
+  text        String
+  /// person | derived
+  trust       String
+  contentHash String   @map("content_hash")
+  /// A doc file's sha256 (docs sweeper skips unchanged files); null for other kinds.
+  sourceHash  String?  @map("source_hash")
+  embedding   Unsupported("vector(384)")?
+  embedModel  String?  @map("embed_model")
+  sourceAt    DateTime @map("source_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([kind, sourceId, chunkIndex])
+  @@index([ownerId, kind])
+  @@index([ownerId, projectId])
+  @@map("memory_items")
 }
 
 /// A secret this instance generates for itself, once, and keeps: no env var to configure, and blue

@@ -312,4 +312,63 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
     await users.setChatSuggestions(userId, false);
     expect(await users.chatSuggestions(userId)).toBe(false);
   });
+
+  it('users.chatAutodecide defaults to false; setChatAutodecide(true) turns it on', async () => {
+    expect(await users.chatAutodecide(userId)).toBe(false);
+    await users.setChatAutodecide(userId, true);
+    expect(await users.chatAutodecide(userId)).toBe(true);
+    await users.setChatAutodecide(userId, false);
+    expect(await users.chatAutodecide(userId)).toBe(false);
+  });
+
+  it('findManyForUser: only the requested ids this user owns', async () => {
+    const [mine] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Meu', question: 'Minha pergunta?' })]);
+    const [theirs] = await repo.insertMany([newDecision({ user_id: otherUserId, project_id: null, conversation_id: null, tab_question_id: newId(), header: 'Deles', question: 'Pergunta deles?' })]);
+    const found = await repo.findManyForUser([mine!.id, theirs!.id, newId()], userId);
+    expect(found.map((d) => d.id)).toEqual([mine!.id]);
+  });
+
+  it('bumpAuto increments auto_count', async () => {
+    const [row] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Auto', question: 'Pergunta auto?' })]);
+    expect(row!.auto_count).toBe(0);
+    await repo.bumpAuto([row!.id]);
+    await repo.bumpAuto([row!.id]);
+    const page = await repo.listForUser(userId, { limit: 1000 });
+    expect(page.items.find((d) => d.id === row!.id)).toMatchObject({ auto_count: 2 });
+  });
+
+  it('nearestAny: best match first across both multi_select shapes, scoped to the user, only embedded rows', async () => {
+    const [single] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Any1', question: 'Any pergunta 1?' })]);
+    await repo.setEmbedding(single!.id, vec(1), 'm');
+    const [multi] = await repo.insertMany([newDecision({ tab_question_id: newId(), multi_select: true, header: 'Any2', question: 'Any pergunta 2?' })]);
+    await repo.setEmbedding(multi!.id, mix(1, 2, 0.7), 'm');
+    const [unembedded] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Any3', question: 'Any pergunta 3?' })]);
+    const [otherUserRow] = await repo.insertMany([
+      newDecision({ user_id: otherUserId, project_id: null, conversation_id: null, tab_question_id: newId(), header: 'Any4', question: 'Any pergunta 4?' }),
+    ]);
+    await repo.setEmbedding(otherUserRow!.id, vec(1), 'm');
+
+    const neighbours = await repo.nearestAny(userId, vec(1), 10);
+    const ids = neighbours.map((n) => n.id);
+    expect(ids.indexOf(single!.id)).toBeLessThan(ids.indexOf(multi!.id)); // both shapes present, best first
+    expect(ids).not.toContain(unembedded!.id);
+    expect(ids).not.toContain(otherUserRow!.id);
+  });
+
+  it('textSearch: matches the question and answer labels case-insensitively, only this user\'s rows, similarity-free ranking; punctuation-only query returns []', async () => {
+    const [row] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Busca texto', question: 'Qual worktree usar isolado?', answer: { labels: ['Ultravioleta777'] } })]);
+    await repo.insertMany([
+      newDecision({ user_id: otherUserId, project_id: null, conversation_id: null, tab_question_id: newId(), header: 'Busca texto', question: 'Qual worktree usar isolado?', answer: { labels: ['Ultravioleta777'] } }),
+    ]);
+
+    const byQuestion = await repo.textSearch(userId, 'worktree isolado', 5);
+    expect(byQuestion.map((d) => d.id)).toContain(row!.id);
+    expect(byQuestion.every((d) => d.user_id === userId)).toBe(true);
+    expect(byQuestion[0]!.rank).toBe(1);
+
+    const byLabel = await repo.textSearch(userId, 'ULTRAVIOLETA777', 5);
+    expect(byLabel.map((d) => d.id)).toEqual([row!.id]);
+
+    expect(await repo.textSearch(userId, '!!!', 5)).toEqual([]);
+  });
 });

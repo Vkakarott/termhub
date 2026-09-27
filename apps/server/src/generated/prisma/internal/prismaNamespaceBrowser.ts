@@ -85,6 +85,7 @@ export const ModelName = {
   ChatProjectGrant: 'ChatProjectGrant',
   TabQuestion: 'TabQuestion',
   ChatDecision: 'ChatDecision',
+  MemoryItem: 'MemoryItem',
   InstanceSecret: 'InstanceSecret',
   ProjectGroup: 'ProjectGroup',
   ProjectGroupItem: 'ProjectGroupItem',
@@ -129,7 +130,8 @@ export const UserScalarFieldEnum = {
   createdAt: 'createdAt',
   reviewEnabledUntil: 'reviewEnabledUntil',
   reviewEnabledBy: 'reviewEnabledBy',
-  chatSuggestions: 'chatSuggestions'
+  chatSuggestions: 'chatSuggestions',
+  chatAutodecide: 'chatAutodecide'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
@@ -650,7 +652,10 @@ export const TabQuestionScalarFieldEnum = {
   closedAt: 'closedAt',
   injectedAt: 'injectedAt',
   createdAt: 'createdAt',
-  suggestion: 'suggestion'
+  suggestion: 'suggestion',
+  autoAnswer: 'autoAnswer',
+  answeredVia: 'answeredVia',
+  wokenAt: 'wokenAt'
 } as const
 
 export type TabQuestionScalarFieldEnum = (typeof TabQuestionScalarFieldEnum)[keyof typeof TabQuestionScalarFieldEnum]
@@ -671,10 +676,32 @@ export const ChatDecisionScalarFieldEnum = {
   embedModel: 'embedModel',
   suggestedCount: 'suggestedCount',
   acceptedCount: 'acceptedCount',
+  autoCount: 'autoCount',
   createdAt: 'createdAt'
 } as const
 
 export type ChatDecisionScalarFieldEnum = (typeof ChatDecisionScalarFieldEnum)[keyof typeof ChatDecisionScalarFieldEnum]
+
+
+export const MemoryItemScalarFieldEnum = {
+  id: 'id',
+  ownerId: 'ownerId',
+  projectId: 'projectId',
+  kind: 'kind',
+  sourceId: 'sourceId',
+  chunkIndex: 'chunkIndex',
+  title: 'title',
+  text: 'text',
+  trust: 'trust',
+  contentHash: 'contentHash',
+  sourceHash: 'sourceHash',
+  embedModel: 'embedModel',
+  sourceAt: 'sourceAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type MemoryItemScalarFieldEnum = (typeof MemoryItemScalarFieldEnum)[keyof typeof MemoryItemScalarFieldEnum]
 
 
 export const InstanceSecretScalarFieldEnum = {

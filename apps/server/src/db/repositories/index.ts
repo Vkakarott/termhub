@@ -29,6 +29,7 @@ import { ChatLiveRunsRepository } from './chat-live-runs.js';
 import { TabQuestionsRepository } from './tab-questions.js';
 import { ChatAttachmentsRepository, type ChatAttachmentsRepo } from './chat-attachments.js';
 import { ChatDecisionsRepository } from './chat-decisions.js';
+import { MemoryItemsRepository } from './memory-items.js';
 import { InstanceSecretsRepository } from './instance-secrets.js';
 import { ProjectGroupsRepository } from './project-groups.js';
 import { DeviceRequestsRepository } from './device-requests.js';
@@ -69,6 +70,7 @@ export interface Repositories {
   tabQuestions: TabQuestionsRepository;
   chatAttachments: ChatAttachmentsRepo;
   chatDecisions: ChatDecisionsRepository;
+  memoryItems: MemoryItemsRepository;
   instanceSecrets: InstanceSecretsRepository;
   projectGroups: ProjectGroupsRepository;
   deviceRequests: DeviceRequestsRepository;
@@ -111,6 +113,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     tabQuestions: new TabQuestionsRepository(db),
     chatAttachments: new ChatAttachmentsRepository(db),
     chatDecisions: new ChatDecisionsRepository(db),
+    memoryItems: new MemoryItemsRepository(db),
     instanceSecrets: new InstanceSecretsRepository(db),
     projectGroups: new ProjectGroupsRepository(db),
     deviceRequests: new DeviceRequestsRepository(db),
@@ -133,9 +136,10 @@ export type { ChatConversation, ChatMessage, ChatRole } from './chat.js';
 export type { ChatAction, ChatActionClass, ChatActionStatus, InsertPendingInput, InsertApprovedInput } from './chat-actions.js';
 export type { ChatSubagent, StartSubagentInput } from './chat-subagents.js';
 export type { ChatLiveRun, StoredTurn, SaveLiveRunInput } from './chat-live-runs.js';
-export type { TabQuestion, TabQuestionStatus } from './tab-questions.js';
+export type { TabQuestion, TabQuestionStatus, AutoAnswer, AnsweredVia } from './tab-questions.js';
 export type { AttachmentRow, ChatAttachmentsRepo, CreateAttachmentInput } from './chat-attachments.js';
 export type { ChatDecision, DecisionOption, DecisionAnswer, NewDecision, DecisionNeighbour, AnsweredChoiceRow } from './chat-decisions.js';
+export type { MemoryItem, NewMemoryItem, MemoryHit, MemoryFilter, MemoryKind, MemoryTrust } from './memory-items.js';
 export { ProjectRuleError } from './projects.js';
 export type { ProjectRuleCode } from './projects.js';
 export { ProjectGroupRuleError } from './project-groups.js';

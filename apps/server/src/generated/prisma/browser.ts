@@ -230,6 +230,13 @@ export type TabQuestion = Prisma.TabQuestionModel
  */
 export type ChatDecision = Prisma.ChatDecisionModel
 /**
+ * Model MemoryItem
+ * One chunk of the concierge's searchable memory (spec 2026-09-26 concierge memory §3.1): a card, a
+ * message the person typed, a gate decision, a spec/plan section or a note. Decisions answered on a
+ * card live in `chat_decisions`. `embedding` is pgvector, read and written in raw SQL.
+ */
+export type MemoryItem = Prisma.MemoryItemModel
+/**
  * Model InstanceSecret
  * A secret this instance generates for itself, once, and keeps: no env var to configure, and blue
  * and green read the same row. `public_id` keys the HMAC behind every id on the public city.

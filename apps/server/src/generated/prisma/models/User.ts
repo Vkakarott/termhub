@@ -42,6 +42,7 @@ export type UserMinAggregateOutputType = {
   reviewEnabledUntil: Date | null
   reviewEnabledBy: string | null
   chatSuggestions: boolean | null
+  chatAutodecide: boolean | null
 }
 
 export type UserMaxAggregateOutputType = {
@@ -62,6 +63,7 @@ export type UserMaxAggregateOutputType = {
   reviewEnabledUntil: Date | null
   reviewEnabledBy: string | null
   chatSuggestions: boolean | null
+  chatAutodecide: boolean | null
 }
 
 export type UserCountAggregateOutputType = {
@@ -82,6 +84,7 @@ export type UserCountAggregateOutputType = {
   reviewEnabledUntil: number
   reviewEnabledBy: number
   chatSuggestions: number
+  chatAutodecide: number
   _all: number
 }
 
@@ -104,6 +107,7 @@ export type UserMinAggregateInputType = {
   reviewEnabledUntil?: true
   reviewEnabledBy?: true
   chatSuggestions?: true
+  chatAutodecide?: true
 }
 
 export type UserMaxAggregateInputType = {
@@ -124,6 +128,7 @@ export type UserMaxAggregateInputType = {
   reviewEnabledUntil?: true
   reviewEnabledBy?: true
   chatSuggestions?: true
+  chatAutodecide?: true
 }
 
 export type UserCountAggregateInputType = {
@@ -144,6 +149,7 @@ export type UserCountAggregateInputType = {
   reviewEnabledUntil?: true
   reviewEnabledBy?: true
   chatSuggestions?: true
+  chatAutodecide?: true
   _all?: true
 }
 
@@ -237,6 +243,7 @@ export type UserGroupByOutputType = {
   reviewEnabledUntil: Date | null
   reviewEnabledBy: string | null
   chatSuggestions: boolean
+  chatAutodecide: boolean
   _count: UserCountAggregateOutputType | null
   _min: UserMinAggregateOutputType | null
   _max: UserMaxAggregateOutputType | null
@@ -278,6 +285,7 @@ export type UserWhereInput = {
   reviewEnabledUntil?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolFilter<"User"> | boolean
+  chatAutodecide?: Prisma.BoolFilter<"User"> | boolean
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
   machines?: Prisma.MachineListRelationFilter
@@ -292,6 +300,7 @@ export type UserWhereInput = {
   notifications?: Prisma.UserNotificationListRelationFilter
   chatAttachments?: Prisma.ChatAttachmentListRelationFilter
   chatDecisions?: Prisma.ChatDecisionListRelationFilter
+  memoryItems?: Prisma.MemoryItemListRelationFilter
 }
 
 export type UserOrderByWithRelationInput = {
@@ -312,6 +321,7 @@ export type UserOrderByWithRelationInput = {
   reviewEnabledUntil?: Prisma.SortOrderInput | Prisma.SortOrder
   reviewEnabledBy?: Prisma.SortOrderInput | Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
+  chatAutodecide?: Prisma.SortOrder
   roleRef?: Prisma.RoleOrderByWithRelationInput
   sessions?: Prisma.SessionOrderByRelationAggregateInput
   machines?: Prisma.MachineOrderByRelationAggregateInput
@@ -326,6 +336,7 @@ export type UserOrderByWithRelationInput = {
   notifications?: Prisma.UserNotificationOrderByRelationAggregateInput
   chatAttachments?: Prisma.ChatAttachmentOrderByRelationAggregateInput
   chatDecisions?: Prisma.ChatDecisionOrderByRelationAggregateInput
+  memoryItems?: Prisma.MemoryItemOrderByRelationAggregateInput
 }
 
 export type UserWhereUniqueInput = Prisma.AtLeast<{
@@ -349,6 +360,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   reviewEnabledUntil?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolFilter<"User"> | boolean
+  chatAutodecide?: Prisma.BoolFilter<"User"> | boolean
   roleRef?: Prisma.XOR<Prisma.RoleNullableScalarRelationFilter, Prisma.RoleWhereInput> | null
   sessions?: Prisma.SessionListRelationFilter
   machines?: Prisma.MachineListRelationFilter
@@ -363,6 +375,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   notifications?: Prisma.UserNotificationListRelationFilter
   chatAttachments?: Prisma.ChatAttachmentListRelationFilter
   chatDecisions?: Prisma.ChatDecisionListRelationFilter
+  memoryItems?: Prisma.MemoryItemListRelationFilter
 }, "id" | "email" | "nickname" | "googleId">
 
 export type UserOrderByWithAggregationInput = {
@@ -383,6 +396,7 @@ export type UserOrderByWithAggregationInput = {
   reviewEnabledUntil?: Prisma.SortOrderInput | Prisma.SortOrder
   reviewEnabledBy?: Prisma.SortOrderInput | Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
+  chatAutodecide?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
   _max?: Prisma.UserMaxOrderByAggregateInput
   _min?: Prisma.UserMinOrderByAggregateInput
@@ -409,6 +423,7 @@ export type UserScalarWhereWithAggregatesInput = {
   reviewEnabledUntil?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   reviewEnabledBy?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  chatAutodecide?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
 }
 
 export type UserCreateInput = {
@@ -428,6 +443,7 @@ export type UserCreateInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -442,6 +458,7 @@ export type UserCreateInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateInput = {
@@ -462,6 +479,7 @@ export type UserUncheckedCreateInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -475,6 +493,7 @@ export type UserUncheckedCreateInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUpdateInput = {
@@ -494,6 +513,7 @@ export type UserUpdateInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -508,6 +528,7 @@ export type UserUpdateInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateInput = {
@@ -528,6 +549,7 @@ export type UserUncheckedUpdateInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -541,6 +563,7 @@ export type UserUncheckedUpdateInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateManyInput = {
@@ -561,6 +584,7 @@ export type UserCreateManyInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
 }
 
 export type UserUpdateManyMutationInput = {
@@ -580,6 +604,7 @@ export type UserUpdateManyMutationInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 export type UserUncheckedUpdateManyInput = {
@@ -600,6 +625,7 @@ export type UserUncheckedUpdateManyInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 export type UserCountOrderByAggregateInput = {
@@ -620,6 +646,7 @@ export type UserCountOrderByAggregateInput = {
   reviewEnabledUntil?: Prisma.SortOrder
   reviewEnabledBy?: Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
+  chatAutodecide?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -640,6 +667,7 @@ export type UserMaxOrderByAggregateInput = {
   reviewEnabledUntil?: Prisma.SortOrder
   reviewEnabledBy?: Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
+  chatAutodecide?: Prisma.SortOrder
 }
 
 export type UserMinOrderByAggregateInput = {
@@ -660,6 +688,7 @@ export type UserMinOrderByAggregateInput = {
   reviewEnabledUntil?: Prisma.SortOrder
   reviewEnabledBy?: Prisma.SortOrder
   chatSuggestions?: Prisma.SortOrder
+  chatAutodecide?: Prisma.SortOrder
 }
 
 export type UserListRelationFilter = {
@@ -882,6 +911,20 @@ export type UserUpdateOneRequiredWithoutChatDecisionsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutChatDecisionsInput, Prisma.UserUpdateWithoutChatDecisionsInput>, Prisma.UserUncheckedUpdateWithoutChatDecisionsInput>
 }
 
+export type UserCreateNestedOneWithoutMemoryItemsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutMemoryItemsInput, Prisma.UserUncheckedCreateWithoutMemoryItemsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutMemoryItemsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutMemoryItemsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutMemoryItemsInput, Prisma.UserUncheckedCreateWithoutMemoryItemsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutMemoryItemsInput
+  upsert?: Prisma.UserUpsertWithoutMemoryItemsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutMemoryItemsInput, Prisma.UserUpdateWithoutMemoryItemsInput>, Prisma.UserUncheckedUpdateWithoutMemoryItemsInput>
+}
+
 export type UserCreateNestedOneWithoutProjectGroupsInput = {
   create?: Prisma.XOR<Prisma.UserCreateWithoutProjectGroupsInput, Prisma.UserUncheckedCreateWithoutProjectGroupsInput>
   connectOrCreate?: Prisma.UserCreateOrConnectWithoutProjectGroupsInput
@@ -957,6 +1000,7 @@ export type UserCreateWithoutRoleRefInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -970,6 +1014,7 @@ export type UserCreateWithoutRoleRefInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutRoleRefInput = {
@@ -989,6 +1034,7 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1002,6 +1048,7 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutRoleRefInput = {
@@ -1051,6 +1098,7 @@ export type UserScalarWhereInput = {
   reviewEnabledUntil?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   reviewEnabledBy?: Prisma.StringNullableFilter<"User"> | string | null
   chatSuggestions?: Prisma.BoolFilter<"User"> | boolean
+  chatAutodecide?: Prisma.BoolFilter<"User"> | boolean
 }
 
 export type UserCreateWithoutSessionsInput = {
@@ -1070,6 +1118,7 @@ export type UserCreateWithoutSessionsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -1083,6 +1132,7 @@ export type UserCreateWithoutSessionsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutSessionsInput = {
@@ -1103,6 +1153,7 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1115,6 +1166,7 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutSessionsInput = {
@@ -1150,6 +1202,7 @@ export type UserUpdateWithoutSessionsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -1163,6 +1216,7 @@ export type UserUpdateWithoutSessionsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutSessionsInput = {
@@ -1183,6 +1237,7 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1195,6 +1250,7 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutMachinesInput = {
@@ -1214,6 +1270,7 @@ export type UserCreateWithoutMachinesInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
@@ -1227,6 +1284,7 @@ export type UserCreateWithoutMachinesInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutMachinesInput = {
@@ -1247,6 +1305,7 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1259,6 +1318,7 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutMachinesInput = {
@@ -1294,6 +1354,7 @@ export type UserUpdateWithoutMachinesInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -1307,6 +1368,7 @@ export type UserUpdateWithoutMachinesInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutMachinesInput = {
@@ -1327,6 +1389,7 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1339,6 +1402,7 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutProjectsInput = {
@@ -1358,6 +1422,7 @@ export type UserCreateWithoutProjectsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1371,6 +1436,7 @@ export type UserCreateWithoutProjectsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutProjectsInput = {
@@ -1391,6 +1457,7 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
@@ -1403,6 +1470,7 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutProjectsInput = {
@@ -1438,6 +1506,7 @@ export type UserUpdateWithoutProjectsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1451,6 +1520,7 @@ export type UserUpdateWithoutProjectsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutProjectsInput = {
@@ -1471,6 +1541,7 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1483,6 +1554,7 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutIntegrationsInput = {
@@ -1502,6 +1574,7 @@ export type UserCreateWithoutIntegrationsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1515,6 +1588,7 @@ export type UserCreateWithoutIntegrationsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutIntegrationsInput = {
@@ -1535,6 +1609,7 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1547,6 +1622,7 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutIntegrationsInput = {
@@ -1582,6 +1658,7 @@ export type UserUpdateWithoutIntegrationsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1595,6 +1672,7 @@ export type UserUpdateWithoutIntegrationsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutIntegrationsInput = {
@@ -1615,6 +1693,7 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1627,6 +1706,7 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutUploadsInput = {
@@ -1646,6 +1726,7 @@ export type UserCreateWithoutUploadsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1659,6 +1740,7 @@ export type UserCreateWithoutUploadsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutUploadsInput = {
@@ -1679,6 +1761,7 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1691,6 +1774,7 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutUploadsInput = {
@@ -1726,6 +1810,7 @@ export type UserUpdateWithoutUploadsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1739,6 +1824,7 @@ export type UserUpdateWithoutUploadsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutUploadsInput = {
@@ -1759,6 +1845,7 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1771,6 +1858,7 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutApiTokensInput = {
@@ -1790,6 +1878,7 @@ export type UserCreateWithoutApiTokensInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1803,6 +1892,7 @@ export type UserCreateWithoutApiTokensInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutApiTokensInput = {
@@ -1823,6 +1913,7 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1835,6 +1926,7 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutApiTokensInput = {
@@ -1870,6 +1962,7 @@ export type UserUpdateWithoutApiTokensInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -1883,6 +1976,7 @@ export type UserUpdateWithoutApiTokensInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutApiTokensInput = {
@@ -1903,6 +1997,7 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -1915,6 +2010,7 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutChatConversationsInput = {
@@ -1934,6 +2030,7 @@ export type UserCreateWithoutChatConversationsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -1947,6 +2044,7 @@ export type UserCreateWithoutChatConversationsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutChatConversationsInput = {
@@ -1967,6 +2065,7 @@ export type UserUncheckedCreateWithoutChatConversationsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -1979,6 +2078,7 @@ export type UserUncheckedCreateWithoutChatConversationsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutChatConversationsInput = {
@@ -2014,6 +2114,7 @@ export type UserUpdateWithoutChatConversationsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2027,6 +2128,7 @@ export type UserUpdateWithoutChatConversationsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutChatConversationsInput = {
@@ -2047,6 +2149,7 @@ export type UserUncheckedUpdateWithoutChatConversationsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2059,6 +2162,7 @@ export type UserUncheckedUpdateWithoutChatConversationsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutChatAttachmentsInput = {
@@ -2078,6 +2182,7 @@ export type UserCreateWithoutChatAttachmentsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2091,6 +2196,7 @@ export type UserCreateWithoutChatAttachmentsInput = {
   devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutChatAttachmentsInput = {
@@ -2111,6 +2217,7 @@ export type UserUncheckedCreateWithoutChatAttachmentsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2123,6 +2230,7 @@ export type UserUncheckedCreateWithoutChatAttachmentsInput = {
   devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutChatAttachmentsInput = {
@@ -2158,6 +2266,7 @@ export type UserUpdateWithoutChatAttachmentsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2171,6 +2280,7 @@ export type UserUpdateWithoutChatAttachmentsInput = {
   devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutChatAttachmentsInput = {
@@ -2191,6 +2301,7 @@ export type UserUncheckedUpdateWithoutChatAttachmentsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2203,6 +2314,7 @@ export type UserUncheckedUpdateWithoutChatAttachmentsInput = {
   devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutChatDecisionsInput = {
@@ -2222,6 +2334,7 @@ export type UserCreateWithoutChatDecisionsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2235,6 +2348,7 @@ export type UserCreateWithoutChatDecisionsInput = {
   devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutChatDecisionsInput = {
@@ -2255,6 +2369,7 @@ export type UserUncheckedCreateWithoutChatDecisionsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2267,6 +2382,7 @@ export type UserUncheckedCreateWithoutChatDecisionsInput = {
   devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutChatDecisionsInput = {
@@ -2302,6 +2418,7 @@ export type UserUpdateWithoutChatDecisionsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2315,6 +2432,7 @@ export type UserUpdateWithoutChatDecisionsInput = {
   devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutChatDecisionsInput = {
@@ -2335,6 +2453,7 @@ export type UserUncheckedUpdateWithoutChatDecisionsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2347,6 +2466,159 @@ export type UserUncheckedUpdateWithoutChatDecisionsInput = {
   devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+}
+
+export type UserCreateWithoutMemoryItemsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  chatSuggestions?: boolean
+  chatAutodecide?: boolean
+  roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
+  chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
+  chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutMemoryItemsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  chatSuggestions?: boolean
+  chatAutodecide?: boolean
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
+  chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutMemoryItemsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutMemoryItemsInput, Prisma.UserUncheckedCreateWithoutMemoryItemsInput>
+}
+
+export type UserUpsertWithoutMemoryItemsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutMemoryItemsInput, Prisma.UserUncheckedUpdateWithoutMemoryItemsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutMemoryItemsInput, Prisma.UserUncheckedCreateWithoutMemoryItemsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutMemoryItemsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutMemoryItemsInput, Prisma.UserUncheckedUpdateWithoutMemoryItemsInput>
+}
+
+export type UserUpdateWithoutMemoryItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
+  chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
+  chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutMemoryItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
+  chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutProjectGroupsInput = {
@@ -2366,6 +2638,7 @@ export type UserCreateWithoutProjectGroupsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2379,6 +2652,7 @@ export type UserCreateWithoutProjectGroupsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutProjectGroupsInput = {
@@ -2399,6 +2673,7 @@ export type UserUncheckedCreateWithoutProjectGroupsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2411,6 +2686,7 @@ export type UserUncheckedCreateWithoutProjectGroupsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutProjectGroupsInput = {
@@ -2446,6 +2722,7 @@ export type UserUpdateWithoutProjectGroupsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2459,6 +2736,7 @@ export type UserUpdateWithoutProjectGroupsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutProjectGroupsInput = {
@@ -2479,6 +2757,7 @@ export type UserUncheckedUpdateWithoutProjectGroupsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2491,6 +2770,7 @@ export type UserUncheckedUpdateWithoutProjectGroupsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutDeviceRequestsInput = {
@@ -2510,6 +2790,7 @@ export type UserCreateWithoutDeviceRequestsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2523,6 +2804,7 @@ export type UserCreateWithoutDeviceRequestsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutDeviceRequestsInput = {
@@ -2543,6 +2825,7 @@ export type UserUncheckedCreateWithoutDeviceRequestsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2555,6 +2838,7 @@ export type UserUncheckedCreateWithoutDeviceRequestsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutDeviceRequestsInput = {
@@ -2590,6 +2874,7 @@ export type UserUpdateWithoutDeviceRequestsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2603,6 +2888,7 @@ export type UserUpdateWithoutDeviceRequestsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutDeviceRequestsInput = {
@@ -2623,6 +2909,7 @@ export type UserUncheckedUpdateWithoutDeviceRequestsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2635,6 +2922,7 @@ export type UserUncheckedUpdateWithoutDeviceRequestsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutDevicesInput = {
@@ -2654,6 +2942,7 @@ export type UserCreateWithoutDevicesInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2667,6 +2956,7 @@ export type UserCreateWithoutDevicesInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutDevicesInput = {
@@ -2687,6 +2977,7 @@ export type UserUncheckedCreateWithoutDevicesInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2699,6 +2990,7 @@ export type UserUncheckedCreateWithoutDevicesInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutDevicesInput = {
@@ -2734,6 +3026,7 @@ export type UserUpdateWithoutDevicesInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2747,6 +3040,7 @@ export type UserUpdateWithoutDevicesInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutDevicesInput = {
@@ -2767,6 +3061,7 @@ export type UserUncheckedUpdateWithoutDevicesInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2779,6 +3074,7 @@ export type UserUncheckedUpdateWithoutDevicesInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutNotificationsInput = {
@@ -2798,6 +3094,7 @@ export type UserCreateWithoutNotificationsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
   sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
@@ -2811,6 +3108,7 @@ export type UserCreateWithoutNotificationsInput = {
   devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
 }
 
 export type UserUncheckedCreateWithoutNotificationsInput = {
@@ -2831,6 +3129,7 @@ export type UserUncheckedCreateWithoutNotificationsInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
   machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
   projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
@@ -2843,6 +3142,7 @@ export type UserUncheckedCreateWithoutNotificationsInput = {
   devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
 }
 
 export type UserCreateOrConnectWithoutNotificationsInput = {
@@ -2878,6 +3178,7 @@ export type UserUpdateWithoutNotificationsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
@@ -2891,6 +3192,7 @@ export type UserUpdateWithoutNotificationsInput = {
   devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutNotificationsInput = {
@@ -2911,6 +3213,7 @@ export type UserUncheckedUpdateWithoutNotificationsInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -2923,6 +3226,7 @@ export type UserUncheckedUpdateWithoutNotificationsInput = {
   devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateManyRoleRefInput = {
@@ -2942,6 +3246,7 @@ export type UserCreateManyRoleRefInput = {
   reviewEnabledUntil?: Date | string | null
   reviewEnabledBy?: string | null
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
 }
 
 export type UserUpdateWithoutRoleRefInput = {
@@ -2961,6 +3266,7 @@ export type UserUpdateWithoutRoleRefInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
@@ -2974,6 +3280,7 @@ export type UserUpdateWithoutRoleRefInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateWithoutRoleRefInput = {
@@ -2993,6 +3300,7 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
   machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
   projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
@@ -3006,6 +3314,7 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserUncheckedUpdateManyWithoutRoleRefInput = {
@@ -3025,6 +3334,7 @@ export type UserUncheckedUpdateManyWithoutRoleRefInput = {
   reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
 }
 
 
@@ -3046,6 +3356,7 @@ export type UserCountOutputType = {
   notifications: number
   chatAttachments: number
   chatDecisions: number
+  memoryItems: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -3062,6 +3373,7 @@ export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.I
   notifications?: boolean | UserCountOutputTypeCountNotificationsArgs
   chatAttachments?: boolean | UserCountOutputTypeCountChatAttachmentsArgs
   chatDecisions?: boolean | UserCountOutputTypeCountChatDecisionsArgs
+  memoryItems?: boolean | UserCountOutputTypeCountMemoryItemsArgs
 }
 
 /**
@@ -3165,6 +3477,13 @@ export type UserCountOutputTypeCountChatDecisionsArgs<ExtArgs extends runtime.Ty
   where?: Prisma.ChatDecisionWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountMemoryItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.MemoryItemWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -3184,6 +3503,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   reviewEnabledUntil?: boolean
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
   machines?: boolean | Prisma.User$machinesArgs<ExtArgs>
@@ -3198,6 +3518,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   notifications?: boolean | Prisma.User$notificationsArgs<ExtArgs>
   chatAttachments?: boolean | Prisma.User$chatAttachmentsArgs<ExtArgs>
   chatDecisions?: boolean | Prisma.User$chatDecisionsArgs<ExtArgs>
+  memoryItems?: boolean | Prisma.User$memoryItemsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -3219,6 +3540,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   reviewEnabledUntil?: boolean
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -3240,6 +3562,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   reviewEnabledUntil?: boolean
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -3261,9 +3584,10 @@ export type UserSelectScalar = {
   reviewEnabledUntil?: boolean
   reviewEnabledBy?: boolean
   chatSuggestions?: boolean
+  chatAutodecide?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "cityShortUrlPartner" | "cityShortUrlCustom" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt" | "reviewEnabledUntil" | "reviewEnabledBy" | "chatSuggestions", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "nickname" | "cityShortUrlPartner" | "cityShortUrlCustom" | "passwordHash" | "googleId" | "role" | "roleId" | "invitedAt" | "lastLoginAt" | "createdAt" | "reviewEnabledUntil" | "reviewEnabledBy" | "chatSuggestions" | "chatAutodecide", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   roleRef?: boolean | Prisma.User$roleRefArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -3279,6 +3603,7 @@ export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   notifications?: boolean | Prisma.User$notificationsArgs<ExtArgs>
   chatAttachments?: boolean | Prisma.User$chatAttachmentsArgs<ExtArgs>
   chatDecisions?: boolean | Prisma.User$chatDecisionsArgs<ExtArgs>
+  memoryItems?: boolean | Prisma.User$memoryItemsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type UserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -3305,6 +3630,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     notifications: Prisma.$UserNotificationPayload<ExtArgs>[]
     chatAttachments: Prisma.$ChatAttachmentPayload<ExtArgs>[]
     chatDecisions: Prisma.$ChatDecisionPayload<ExtArgs>[]
+    memoryItems: Prisma.$MemoryItemPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -3348,6 +3674,11 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
      * "Memória do chat" switch (Settings): off skips recording and suggesting from this user's answers.
      */
     chatSuggestions: boolean
+    /**
+     * "Responder sozinho quando houver precedente" (spec 2026-09-26 concierge memory D8): off, the
+     * concierge can only suggest, never schedule an automatic answer.
+     */
+    chatAutodecide: boolean
   }, ExtArgs["result"]["user"]>
   composites: {}
 }
@@ -3756,6 +4087,7 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   notifications<T extends Prisma.User$notificationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$notificationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$UserNotificationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatAttachments<T extends Prisma.User$chatAttachmentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$chatAttachmentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatAttachmentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatDecisions<T extends Prisma.User$chatDecisionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$chatDecisionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatDecisionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  memoryItems<T extends Prisma.User$memoryItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$memoryItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MemoryItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -3802,6 +4134,7 @@ export interface UserFieldRefs {
   readonly reviewEnabledUntil: Prisma.FieldRef<"User", 'DateTime'>
   readonly reviewEnabledBy: Prisma.FieldRef<"User", 'String'>
   readonly chatSuggestions: Prisma.FieldRef<"User", 'Boolean'>
+  readonly chatAutodecide: Prisma.FieldRef<"User", 'Boolean'>
 }
     
 
@@ -4531,6 +4864,30 @@ export type User$chatDecisionsArgs<ExtArgs extends runtime.Types.Extensions.Inte
   take?: number
   skip?: number
   distinct?: Prisma.ChatDecisionScalarFieldEnum | Prisma.ChatDecisionScalarFieldEnum[]
+}
+
+/**
+ * User.memoryItems
+ */
+export type User$memoryItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MemoryItem
+   */
+  select?: Prisma.MemoryItemSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the MemoryItem
+   */
+  omit?: Prisma.MemoryItemOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.MemoryItemInclude<ExtArgs> | null
+  where?: Prisma.MemoryItemWhereInput
+  orderBy?: Prisma.MemoryItemOrderByWithRelationInput | Prisma.MemoryItemOrderByWithRelationInput[]
+  cursor?: Prisma.MemoryItemWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.MemoryItemScalarFieldEnum | Prisma.MemoryItemScalarFieldEnum[]
 }
 
 /**

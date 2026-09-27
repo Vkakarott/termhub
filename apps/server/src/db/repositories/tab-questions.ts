@@ -3,6 +3,7 @@ import type { Prisma, TabQuestion as PrismaTabQuestion } from '../../generated/p
 import { newId } from '../../lib/ids.js';
 import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import type { ChoiceAnswer, ChoicePayload, PermissionAnswer, PermissionPayload, SuggestionAnswer, SuggestionPayload, TabRowKind } from '../../chat/tab-question-payload.js';
+import type { MemoryKind } from './memory-items.js';
 
 export type TabQuestionStatus = 'open' | 'answered' | 'answered_in_tab' | 'expired' | 'failed' | 'dismissed';
 export type TabRowPayload = ChoicePayload | PermissionPayload | SuggestionPayload;
@@ -10,6 +11,27 @@ export type TabRowAnswer = ChoiceAnswer | PermissionAnswer | SuggestionAnswer;
 /** How a question leaves the screen when the chat did not answer it: the person answered in the tab
  * (or anything else happened there), or the tab is gone. */
 export type TabQuestionCloseStatus = 'answered_in_tab' | 'expired';
+/** How a `choice` question got its `answer`: a click on the card, or the countdown sending it by
+ * itself (spec 2026-09-26 concierge memory §3.2). */
+export type AnsweredVia = 'card' | 'auto';
+
+/**
+ * A scheduled automatic answer on a still-open `choice` card (spec 2026-09-26 concierge memory §3.2,
+ * §6): `by: 'memory'` is the repeat path (a near-verbatim precedent, no LLM call), `'concierge'` is the
+ * wake path. `sources` cites what backed it — a `chat_decisions` row (`kind: 'decision'`) or a
+ * `memory_items` row — so the card can show and forget them. `due_at` is when the sweeper may send it;
+ * `status` tracks the countdown itself, independent of the row's own `status`.
+ */
+export interface AutoAnswer {
+  answer: ChoiceAnswer;
+  by: 'memory' | 'concierge';
+  reason: string;
+  sources: { kind: 'decision' | MemoryKind; id: string }[];
+  due_at: string;
+  status: 'scheduled' | 'cancelled' | 'sent' | 'failed';
+  error_code?: string;
+  decided_by?: string;
+}
 
 export interface TabQuestion {
   id: string;
@@ -32,6 +54,12 @@ export interface TabQuestion {
   /** A suggested answer from a similar past decision, offered before the person picks (spec
    * 2026-09-26 §4); never set on a `permission` or `suggestion` row. */
   suggestion: TabQuestionSuggestion | null;
+  /** A scheduled/cancelled/sent/failed automatic answer (spec 2026-09-26 concierge memory §6). */
+  auto_answer: AutoAnswer | null;
+  /** How `answer` was obtained: null = before this change, same as `card`. */
+  answered_via: AnsweredVia | null;
+  /** Set once, before a wake turn starts, so one card never wakes the concierge twice (spec §7). */
+  woken_at: string | null;
 }
 
 export interface OpenTabQuestionInput {
@@ -80,6 +108,9 @@ const mapQuestion = (q: Row): TabQuestion => ({
   injected_at: iso(q.injectedAt),
   created_at: q.createdAt.toISOString(),
   suggestion: (q.suggestion ?? null) as unknown as TabQuestionSuggestion | null,
+  auto_answer: (q.autoAnswer ?? null) as unknown as AutoAnswer | null,
+  answered_via: (q.answeredVia ?? null) as AnsweredVia | null,
+  woken_at: iso(q.wokenAt),
 });
 
 /**
@@ -210,9 +241,11 @@ export class TabQuestionsRepository {
   /**
    * A question's `open → answered`, conditionally: a double click, a second device or a close that got
    * there first all match nothing — and so does a suggestion, which is only ever sent (`claimSuggestion`).
+   * `via` records how the answer was obtained (spec §3.2): `'card'` (a click, the default) or
+   * `'auto'` (the countdown sent it — `startAutoAnswerSweeper`, never a person's own claim call).
    */
-  async claim(id: string, userId: string, answer: ChoiceAnswer | PermissionAnswer, now = new Date()): Promise<TabQuestion | undefined> {
-    return this.claimKind(id, userId, { not: 'suggestion' }, answer, now);
+  async claim(id: string, userId: string, answer: ChoiceAnswer | PermissionAnswer, now = new Date(), via: AnsweredVia = 'card'): Promise<TabQuestion | undefined> {
+    return this.claimKind(id, userId, { not: 'suggestion' }, answer, now, via);
   }
 
   /** "Enviar": a suggestion's `open → answered` with the text as sent; never matches a question. */
@@ -220,12 +253,87 @@ export class TabQuestionsRepository {
     return this.claimKind(id, userId, 'suggestion', answer, now);
   }
 
-  private async claimKind(id: string, userId: string, kind: 'suggestion' | { not: 'suggestion' }, answer: TabRowAnswer, now: Date): Promise<TabQuestion | undefined> {
+  private async claimKind(id: string, userId: string, kind: 'suggestion' | { not: 'suggestion' }, answer: TabRowAnswer, now: Date, via: AnsweredVia = 'card'): Promise<TabQuestion | undefined> {
     const { count } = await this.db.tabQuestion.updateMany({
       where: { id, kind, status: 'open', conversation: { userId } },
-      data: { status: 'answered', answer: answer as never, answeredBy: userId, answeredAt: now },
+      data: { status: 'answered', answer: answer as never, answeredBy: userId, answeredAt: now, answeredVia: via },
     });
     return count === 0 ? undefined : this.findByIdForUser(id, userId);
+  }
+
+  /**
+   * Attaches a countdown to a still-open `choice` question (spec §6, D9): conditional on `status =
+   * 'open'` and no countdown already scheduled — a second `setAutoAnswer` while one is `scheduled`
+   * changes nothing, since only the sweeper (`claimAutoAnswer`) or a cancel may end it.
+   */
+  async setAutoAnswer(id: string, auto: AutoAnswer): Promise<TabQuestion | undefined> {
+    const count = await this.db.$executeRaw`
+      UPDATE "tab_questions" SET "auto_answer" = ${JSON.stringify(auto)}::jsonb
+      WHERE "id" = ${id} AND "status" = 'open' AND ("auto_answer" IS NULL OR "auto_answer"->>'status' <> 'scheduled')`;
+    if (count === 0) return undefined;
+    const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
+    return row ? mapQuestion(row) : undefined;
+  }
+
+  /**
+   * `scheduled → sent`, conditionally on the row still `open`, the countdown still `scheduled` and
+   * `due_at` reached: the claim across both blue/green colors, and across two sweeper ticks racing —
+   * the row's own lock makes exactly one of them see `scheduled` still true. The caller still owes the
+   * actual send (`answerTabQuestion`); a failure calls `finishAutoAnswer` to record it.
+   */
+  async claimAutoAnswer(id: string, now = new Date()): Promise<TabQuestion | undefined> {
+    const count = await this.db.$executeRaw`
+      UPDATE "tab_questions" SET "auto_answer" = jsonb_set("auto_answer", '{status}', '"sent"')
+      WHERE "id" = ${id} AND "status" = 'open' AND "auto_answer"->>'status' = 'scheduled' AND ("auto_answer"->>'due_at')::timestamptz <= ${now}`;
+    if (count === 0) return undefined;
+    const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
+    return row ? mapQuestion(row) : undefined;
+  }
+
+  /** A claimed (`sent`) countdown whose actual send failed (a 409 — the prompt moved — or a 502):
+   *  `sent → failed` with the code, so the card falls back to an ordinary one. */
+  async finishAutoAnswer(id: string, status: 'failed', code: string): Promise<TabQuestion | undefined> {
+    const count = await this.db.$executeRaw`
+      UPDATE "tab_questions" SET "auto_answer" = jsonb_set(jsonb_set("auto_answer", '{status}', to_jsonb(${status}::text)), '{error_code}', to_jsonb(${code}::text))
+      WHERE "id" = ${id} AND "auto_answer" IS NOT NULL AND "auto_answer"->>'status' = 'sent'`;
+    if (count === 0) return undefined;
+    const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
+    return row ? mapQuestion(row) : undefined;
+  }
+
+  /** "Cancelar": `scheduled → cancelled`, `decided_by` = the person who clicked — only the
+   *  conversation's own user, like every other client-facing method here. The proposed answer stays as
+   *  the pre-selection; the row's own `status` is untouched (still `open`). */
+  async cancelAutoAnswer(id: string, userId: string): Promise<TabQuestion | undefined> {
+    const count = await this.db.$executeRaw`
+      UPDATE "tab_questions" q SET "auto_answer" = jsonb_set(jsonb_set(q."auto_answer", '{status}', '"cancelled"'), '{decided_by}', to_jsonb(${userId}::text))
+      WHERE q."id" = ${id} AND q."auto_answer"->>'status' = 'scheduled'
+        AND EXISTS (SELECT 1 FROM "chat_conversations" c WHERE c."id" = q."conversation_id" AND c."user_id" = ${userId})`;
+    return count === 0 ? undefined : this.findByIdForUser(id, userId);
+  }
+
+  /** The sweeper's tick (`startAutoAnswerSweeper`, spec §6): every row whose countdown is `scheduled`,
+   *  due, and still `open` — across every user, oldest due first. */
+  async listDueAutoAnswers(now: Date, limit: number): Promise<TabQuestion[]> {
+    const due = await this.db.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "tab_questions"
+      WHERE "status" = 'open' AND "auto_answer"->>'status' = 'scheduled' AND ("auto_answer"->>'due_at')::timestamptz <= ${now}
+      ORDER BY ("auto_answer"->>'due_at')::timestamptz ASC
+      LIMIT ${limit}`;
+    if (due.length === 0) return [];
+    const rows = await this.db.tabQuestion.findMany({ where: { id: { in: due.map((r) => r.id) } }, include: withOwner });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return due.map((r) => byId.get(r.id)).filter((r): r is Row => r !== undefined).map(mapQuestion);
+  }
+
+  /**
+   * Set once, before a wake turn starts (spec §7): conditional on `woken_at IS NULL`, so one card never
+   * wakes the concierge twice, even across a restart or both blue/green colors. True for the one
+   * winner of a race, false for everyone else (including a row that never existed).
+   */
+  async markWoken(id: string, now = new Date()): Promise<boolean> {
+    const { count } = await this.db.tabQuestion.updateMany({ where: { id, wokenAt: null }, data: { wokenAt: now } });
+    return count > 0;
   }
 
   /** "Dispensar": `open → dismissed` for a suggestion of this user, conditionally. The tab is not touched. */

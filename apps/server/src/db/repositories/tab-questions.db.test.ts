@@ -4,7 +4,7 @@ import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { ChatRepository } from './chat.js';
-import { TabQuestionsRepository } from './tab-questions.js';
+import { TabQuestionsRepository, type AutoAnswer } from './tab-questions.js';
 
 const payload = { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] };
 
@@ -343,6 +343,97 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     const { question: b } = await open('td2');
     await repo.claim(b.id, userId, { answers: [{ selected: [0] }] });
     expect(await repo.expireOne(b.id)).toMatchObject({ id: b.id, status: 'answered' });
+  });
+
+  const autoAnswer = (over: Partial<AutoAnswer> = {}): AutoAnswer => ({
+    answer: { answers: [{ selected: [0] }] },
+    by: 'memory',
+    reason: 'Mesma pergunta respondida antes',
+    sources: [{ kind: 'decision', id: newId() }],
+    due_at: new Date(Date.now() + 60_000).toISOString(),
+    status: 'scheduled',
+    ...over,
+  });
+  const dueNow = () => new Date(Date.now() - 1000).toISOString();
+
+  it('setAutoAnswer: only an open row, and only while no countdown is already scheduled', async () => {
+    const { question } = await open('ta1');
+    const auto = autoAnswer();
+    const withAuto = await repo.setAutoAnswer(question.id, auto);
+    expect(withAuto).toMatchObject({ id: question.id, auto_answer: auto });
+
+    // Already scheduled: a second call changes nothing.
+    expect(await repo.setAutoAnswer(question.id, autoAnswer({ reason: 'outro motivo' }))).toBeUndefined();
+    expect((await repo.findByIdForUser(question.id, userId))?.auto_answer).toMatchObject({ reason: 'Mesma pergunta respondida antes' });
+
+    // No longer open (answered from the chat): never gets a countdown.
+    const { question: answeredQ } = await open('ta2');
+    await repo.claim(answeredQ.id, userId, { answers: [{ selected: [0] }] });
+    expect(await repo.setAutoAnswer(answeredQ.id, autoAnswer())).toBeUndefined();
+  });
+
+  it('claimAutoAnswer: scheduled → sent, only once due, exactly one winner of two racing claims, never after cancelAutoAnswer', async () => {
+    const { question: notDue } = await open('ta3');
+    await repo.setAutoAnswer(notDue.id, autoAnswer());
+    expect(await repo.claimAutoAnswer(notDue.id)).toBeUndefined(); // due_at in the future
+
+    const { question: raced } = await open('ta4');
+    await repo.setAutoAnswer(raced.id, autoAnswer({ due_at: dueNow() }));
+    const [a, b] = await Promise.all([repo.claimAutoAnswer(raced.id), repo.claimAutoAnswer(raced.id)]);
+    const winners = [a, b].filter((r) => r !== undefined);
+    expect(winners.length).toBe(1);
+    expect(winners[0]!.auto_answer?.status).toBe('sent');
+
+    const { question: cancelledFirst } = await open('ta5');
+    await repo.setAutoAnswer(cancelledFirst.id, autoAnswer({ due_at: dueNow() }));
+    await repo.cancelAutoAnswer(cancelledFirst.id, userId);
+    expect(await repo.claimAutoAnswer(cancelledFirst.id)).toBeUndefined();
+  });
+
+  it('finishAutoAnswer: sent → failed with the code, only a claimed (sent) countdown', async () => {
+    const { question } = await open('ta6');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: dueNow() }));
+    expect(await repo.finishAutoAnswer(question.id, 'failed', 'PROMPT_MOVED')).toBeUndefined(); // still scheduled, not sent
+    await repo.claimAutoAnswer(question.id);
+    const failed = await repo.finishAutoAnswer(question.id, 'failed', 'PROMPT_MOVED');
+    expect(failed?.auto_answer).toMatchObject({ status: 'failed', error_code: 'PROMPT_MOVED' });
+  });
+
+  it('listDueAutoAnswers: only scheduled, due, open rows', async () => {
+    const { question: due } = await open('ta7');
+    await repo.setAutoAnswer(due.id, autoAnswer({ due_at: dueNow() }));
+    const { question: notDue } = await open('ta8');
+    await repo.setAutoAnswer(notDue.id, autoAnswer());
+    const { question: cancelled } = await open('ta9');
+    await repo.setAutoAnswer(cancelled.id, autoAnswer({ due_at: dueNow() }));
+    await repo.cancelAutoAnswer(cancelled.id, userId);
+    const { question: noLongerOpen } = await open('ta10');
+    await repo.setAutoAnswer(noLongerOpen.id, autoAnswer({ due_at: dueNow() }));
+    await repo.claim(noLongerOpen.id, userId, { answers: [{ selected: [0] }] });
+
+    const dueRows = await repo.listDueAutoAnswers(new Date(), 1000);
+    const ids = dueRows.map((r) => r.id);
+    expect(ids).toContain(due.id);
+    expect(ids).not.toContain(notDue.id);
+    expect(ids).not.toContain(cancelled.id);
+    expect(ids).not.toContain(noLongerOpen.id);
+  });
+
+  it('markWoken: true for the one winner, false for every call after', async () => {
+    const { question } = await open('ta11');
+    expect(await repo.markWoken(question.id)).toBe(true);
+    expect(await repo.markWoken(question.id)).toBe(false);
+    expect(await repo.markWoken(newId())).toBe(false); // never existed
+  });
+
+  it('claim: answered_via defaults to "card"; claim(..., \'auto\') stores "auto"', async () => {
+    const { question: q1 } = await open('ta12');
+    const claimed1 = await repo.claim(q1.id, userId, { answers: [{ selected: [0] }] });
+    expect(claimed1?.answered_via).toBe('card');
+
+    const { question: q2 } = await open('ta13');
+    const claimed2 = await repo.claim(q2.id, userId, { answers: [{ selected: [0] }] }, undefined, 'auto');
+    expect(claimed2?.answered_via).toBe('auto');
   });
 
   // Last on purpose: the sweep closes every orphan row of the database.

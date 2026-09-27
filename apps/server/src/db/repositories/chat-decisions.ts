@@ -34,6 +34,8 @@ export interface ChatDecision {
   embed_model: string | null;
   suggested_count: number;
   accepted_count: number;
+  /** Times this decision backed an automatic answer sent by the countdown (spec §D11). */
+  auto_count: number;
   created_at: string;
 }
 
@@ -82,11 +84,25 @@ interface RawRow {
   embed_model: string | null;
   suggested_count: number;
   accepted_count: number;
+  auto_count: number;
   created_at: Date;
 }
 
 const DECISION_COLUMNS = Prisma.raw(
-  `id, user_id, project_id, conversation_id, tab_question_id, question_index, header, question, options, multi_select, answer, embed_model, suggested_count, accepted_count, created_at`,
+  `id, user_id, project_id, conversation_id, tab_question_id, question_index, header, question, options, multi_select, answer, embed_model, suggested_count, accepted_count, auto_count, created_at`,
+);
+
+/** Shared column list for the raw SELECTs below, aliased through `d` and joined to `projects` for
+ *  `project_name` — everything but `embedding` itself (never selected — write-only from here). */
+const DECISION_SELECT = Prisma.raw(
+  `d.id, d.user_id, d.project_id, p.name AS project_name, d.conversation_id, d.tab_question_id, d.question_index, d.header, d.question, d.options, d.multi_select, d.answer, d.embed_model, d.suggested_count, d.accepted_count, d.auto_count, d.created_at`,
+);
+
+/** The person's picked label(s) and free text, as one tsvector-able string — never the raw jsonb keys
+ *  ("labels", "text"), which would match every row. Repeated between WHERE and ORDER BY on purpose:
+ *  a CTE alias would need a LATERAL join for one extra clarity point that is not worth it here. */
+const answerTextExpr = Prisma.raw(
+  `coalesce((SELECT string_agg(l, ' ') FROM jsonb_array_elements_text(d.answer->'labels') l), '') || ' ' || coalesce(d.answer->>'text', '')`,
 );
 
 /** pgvector's text input format: `[x,y,z]`. Never-finite components (NaN, Infinity) are zeroed rather
@@ -109,6 +125,7 @@ const mapRaw = (r: RawRow): ChatDecision => ({
   embed_model: r.embed_model,
   suggested_count: r.suggested_count,
   accepted_count: r.accepted_count,
+  auto_count: r.auto_count,
   created_at: r.created_at.toISOString(),
 });
 
@@ -190,14 +207,59 @@ export class ChatDecisionsRepository {
   async nearest(userId: string, vector: number[], opts: { multiSelect: boolean; k: number; embedModel: string }): Promise<DecisionNeighbour[]> {
     const v = toVector(vector);
     const rows = await this.db.$queryRaw<(RawRow & { similarity: number | string })[]>`
-      SELECT d.id, d.user_id, d.project_id, p.name AS project_name, d.conversation_id, d.tab_question_id, d.question_index,
-             d.header, d.question, d.options, d.multi_select, d.answer, d.embed_model, d.suggested_count, d.accepted_count, d.created_at,
-             1 - (d.embedding <=> ${v}::vector) AS similarity
+      SELECT ${DECISION_SELECT}, 1 - (d.embedding <=> ${v}::vector) AS similarity
       FROM "chat_decisions" d LEFT JOIN "projects" p ON p.id = d.project_id
       WHERE d.user_id = ${userId} AND d.embedding IS NOT NULL AND d.multi_select = ${opts.multiSelect} AND d.embed_model = ${opts.embedModel}
       ORDER BY d.embedding <=> ${v}::vector
       LIMIT ${opts.k}`;
     return rows.map((r) => ({ ...mapRaw(r), similarity: Number(r.similarity) }));
+  }
+
+  /** Same as `nearest`, but across both `multi_select` shapes (a `search_memory` caller has no
+   *  question payload to match a shape against — only `answer_tab_question`'s own precedent check
+   *  does, and it re-verifies the shape itself with `mapAnswer`). */
+  async nearestAny(userId: string, vector: number[], k: number): Promise<DecisionNeighbour[]> {
+    const v = toVector(vector);
+    const rows = await this.db.$queryRaw<(RawRow & { similarity: number | string })[]>`
+      SELECT ${DECISION_SELECT}, 1 - (d.embedding <=> ${v}::vector) AS similarity
+      FROM "chat_decisions" d LEFT JOIN "projects" p ON p.id = d.project_id
+      WHERE d.user_id = ${userId} AND d.embedding IS NOT NULL
+      ORDER BY d.embedding <=> ${v}::vector
+      LIMIT ${k}`;
+    return rows.map((r) => ({ ...mapRaw(r), similarity: Number(r.similarity) }));
+  }
+
+  /** Postgres full-text over header, question and the answer's labels/text (never the raw jsonb keys),
+   *  best `ts_rank` first — same no-index trade-off as `MemoryItemsRepository.textSearch` (D5). A
+   *  query with no lexeme (only punctuation) matches nothing rather than throwing. */
+  async textSearch(userId: string, query: string, k: number): Promise<(ChatDecision & { rank: number })[]> {
+    const rows = await this.db.$queryRaw<RawRow[]>`
+      WITH q AS (SELECT websearch_to_tsquery('simple', ${query}) AS tsq)
+      SELECT ${DECISION_SELECT}
+      FROM "chat_decisions" d CROSS JOIN q LEFT JOIN "projects" p ON p.id = d.project_id
+      WHERE d.user_id = ${userId}
+        AND numnode(q.tsq) > 0
+        AND to_tsvector('simple', d.header || ' ' || d.question || ' ' || ${answerTextExpr}) @@ q.tsq
+      ORDER BY ts_rank(to_tsvector('simple', d.header || ' ' || d.question || ' ' || ${answerTextExpr}), q.tsq) DESC, d.created_at DESC
+      LIMIT ${k}`;
+    return rows.map((r, i) => ({ ...mapRaw(r), rank: i + 1 }));
+  }
+
+  /** Only the ids this user owns — `search_memory`'s citations are re-checked against the caller
+   *  before being shown, never trusted as-is. */
+  async findManyForUser(ids: string[], userId: string): Promise<ChatDecision[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.$queryRaw<RawRow[]>`
+      SELECT ${DECISION_SELECT}
+      FROM "chat_decisions" d LEFT JOIN "projects" p ON p.id = d.project_id
+      WHERE d.user_id = ${userId} AND d.id IN (${Prisma.join(ids)})`;
+    return rows.map(mapRaw);
+  }
+
+  /** An automatic answer backed this decision (spec D11): counted, never recorded as a new row. */
+  async bumpAuto(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.db.chatDecision.updateMany({ where: { id: { in: ids } }, data: { autoCount: { increment: 1 } } });
   }
 
   async bumpSuggested(ids: string[]): Promise<void> {
@@ -218,8 +280,7 @@ export class ChatDecisionsRepository {
     const like = q ? `%${escapeLike(q)}%` : null;
     const cur = opts.cursor ? decodeCursor(opts.cursor) : null;
     const rows = await this.db.$queryRaw<RawRow[]>`
-      SELECT d.id, d.user_id, d.project_id, p.name AS project_name, d.conversation_id, d.tab_question_id, d.question_index,
-             d.header, d.question, d.options, d.multi_select, d.answer, d.embed_model, d.suggested_count, d.accepted_count, d.created_at
+      SELECT ${DECISION_SELECT}
       FROM "chat_decisions" d LEFT JOIN "projects" p ON p.id = d.project_id
       WHERE d.user_id = ${userId}
         AND (${like}::text IS NULL
