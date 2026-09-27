@@ -301,6 +301,7 @@ export type UserWhereInput = {
   chatAttachments?: Prisma.ChatAttachmentListRelationFilter
   chatDecisions?: Prisma.ChatDecisionListRelationFilter
   memoryItems?: Prisma.MemoryItemListRelationFilter
+  verifiedMemoryItems?: Prisma.MemoryItemListRelationFilter
 }
 
 export type UserOrderByWithRelationInput = {
@@ -337,6 +338,7 @@ export type UserOrderByWithRelationInput = {
   chatAttachments?: Prisma.ChatAttachmentOrderByRelationAggregateInput
   chatDecisions?: Prisma.ChatDecisionOrderByRelationAggregateInput
   memoryItems?: Prisma.MemoryItemOrderByRelationAggregateInput
+  verifiedMemoryItems?: Prisma.MemoryItemOrderByRelationAggregateInput
 }
 
 export type UserWhereUniqueInput = Prisma.AtLeast<{
@@ -376,6 +378,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   chatAttachments?: Prisma.ChatAttachmentListRelationFilter
   chatDecisions?: Prisma.ChatDecisionListRelationFilter
   memoryItems?: Prisma.MemoryItemListRelationFilter
+  verifiedMemoryItems?: Prisma.MemoryItemListRelationFilter
 }, "id" | "email" | "nickname" | "googleId">
 
 export type UserOrderByWithAggregationInput = {
@@ -459,6 +462,7 @@ export type UserCreateInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateInput = {
@@ -494,6 +498,7 @@ export type UserUncheckedCreateInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUpdateInput = {
@@ -529,6 +534,7 @@ export type UserUpdateInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateInput = {
@@ -564,6 +570,7 @@ export type UserUncheckedUpdateInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateManyInput = {
@@ -917,12 +924,28 @@ export type UserCreateNestedOneWithoutMemoryItemsInput = {
   connect?: Prisma.UserWhereUniqueInput
 }
 
+export type UserCreateNestedOneWithoutVerifiedMemoryItemsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutVerifiedMemoryItemsInput, Prisma.UserUncheckedCreateWithoutVerifiedMemoryItemsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutVerifiedMemoryItemsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
 export type UserUpdateOneRequiredWithoutMemoryItemsNestedInput = {
   create?: Prisma.XOR<Prisma.UserCreateWithoutMemoryItemsInput, Prisma.UserUncheckedCreateWithoutMemoryItemsInput>
   connectOrCreate?: Prisma.UserCreateOrConnectWithoutMemoryItemsInput
   upsert?: Prisma.UserUpsertWithoutMemoryItemsInput
   connect?: Prisma.UserWhereUniqueInput
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutMemoryItemsInput, Prisma.UserUpdateWithoutMemoryItemsInput>, Prisma.UserUncheckedUpdateWithoutMemoryItemsInput>
+}
+
+export type UserUpdateOneWithoutVerifiedMemoryItemsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutVerifiedMemoryItemsInput, Prisma.UserUncheckedCreateWithoutVerifiedMemoryItemsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutVerifiedMemoryItemsInput
+  upsert?: Prisma.UserUpsertWithoutVerifiedMemoryItemsInput
+  disconnect?: Prisma.UserWhereInput | boolean
+  delete?: Prisma.UserWhereInput | boolean
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutVerifiedMemoryItemsInput, Prisma.UserUpdateWithoutVerifiedMemoryItemsInput>, Prisma.UserUncheckedUpdateWithoutVerifiedMemoryItemsInput>
 }
 
 export type UserCreateNestedOneWithoutProjectGroupsInput = {
@@ -1015,6 +1038,7 @@ export type UserCreateWithoutRoleRefInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutRoleRefInput = {
@@ -1049,6 +1073,7 @@ export type UserUncheckedCreateWithoutRoleRefInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutRoleRefInput = {
@@ -1133,6 +1158,7 @@ export type UserCreateWithoutSessionsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutSessionsInput = {
@@ -1167,6 +1193,7 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutSessionsInput = {
@@ -1217,6 +1244,7 @@ export type UserUpdateWithoutSessionsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutSessionsInput = {
@@ -1251,6 +1279,7 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutMachinesInput = {
@@ -1285,6 +1314,7 @@ export type UserCreateWithoutMachinesInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutMachinesInput = {
@@ -1319,6 +1349,7 @@ export type UserUncheckedCreateWithoutMachinesInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutMachinesInput = {
@@ -1369,6 +1400,7 @@ export type UserUpdateWithoutMachinesInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutMachinesInput = {
@@ -1403,6 +1435,7 @@ export type UserUncheckedUpdateWithoutMachinesInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutProjectsInput = {
@@ -1437,6 +1470,7 @@ export type UserCreateWithoutProjectsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutProjectsInput = {
@@ -1471,6 +1505,7 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutProjectsInput = {
@@ -1521,6 +1556,7 @@ export type UserUpdateWithoutProjectsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutProjectsInput = {
@@ -1555,6 +1591,7 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutIntegrationsInput = {
@@ -1589,6 +1626,7 @@ export type UserCreateWithoutIntegrationsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutIntegrationsInput = {
@@ -1623,6 +1661,7 @@ export type UserUncheckedCreateWithoutIntegrationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutIntegrationsInput = {
@@ -1673,6 +1712,7 @@ export type UserUpdateWithoutIntegrationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutIntegrationsInput = {
@@ -1707,6 +1747,7 @@ export type UserUncheckedUpdateWithoutIntegrationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutUploadsInput = {
@@ -1741,6 +1782,7 @@ export type UserCreateWithoutUploadsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutUploadsInput = {
@@ -1775,6 +1817,7 @@ export type UserUncheckedCreateWithoutUploadsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutUploadsInput = {
@@ -1825,6 +1868,7 @@ export type UserUpdateWithoutUploadsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutUploadsInput = {
@@ -1859,6 +1903,7 @@ export type UserUncheckedUpdateWithoutUploadsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutApiTokensInput = {
@@ -1893,6 +1938,7 @@ export type UserCreateWithoutApiTokensInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutApiTokensInput = {
@@ -1927,6 +1973,7 @@ export type UserUncheckedCreateWithoutApiTokensInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutApiTokensInput = {
@@ -1977,6 +2024,7 @@ export type UserUpdateWithoutApiTokensInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutApiTokensInput = {
@@ -2011,6 +2059,7 @@ export type UserUncheckedUpdateWithoutApiTokensInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutChatConversationsInput = {
@@ -2045,6 +2094,7 @@ export type UserCreateWithoutChatConversationsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutChatConversationsInput = {
@@ -2079,6 +2129,7 @@ export type UserUncheckedCreateWithoutChatConversationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutChatConversationsInput = {
@@ -2129,6 +2180,7 @@ export type UserUpdateWithoutChatConversationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutChatConversationsInput = {
@@ -2163,6 +2215,7 @@ export type UserUncheckedUpdateWithoutChatConversationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutChatAttachmentsInput = {
@@ -2197,6 +2250,7 @@ export type UserCreateWithoutChatAttachmentsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutChatAttachmentsInput = {
@@ -2231,6 +2285,7 @@ export type UserUncheckedCreateWithoutChatAttachmentsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutChatAttachmentsInput = {
@@ -2281,6 +2336,7 @@ export type UserUpdateWithoutChatAttachmentsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutChatAttachmentsInput = {
@@ -2315,6 +2371,7 @@ export type UserUncheckedUpdateWithoutChatAttachmentsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutChatDecisionsInput = {
@@ -2349,6 +2406,7 @@ export type UserCreateWithoutChatDecisionsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutChatDecisionsInput = {
@@ -2383,6 +2441,7 @@ export type UserUncheckedCreateWithoutChatDecisionsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutChatDecisionsInput = {
@@ -2433,6 +2492,7 @@ export type UserUpdateWithoutChatDecisionsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutChatDecisionsInput = {
@@ -2467,6 +2527,7 @@ export type UserUncheckedUpdateWithoutChatDecisionsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutMemoryItemsInput = {
@@ -2501,6 +2562,7 @@ export type UserCreateWithoutMemoryItemsInput = {
   notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutMemoryItemsInput = {
@@ -2535,11 +2597,87 @@ export type UserUncheckedCreateWithoutMemoryItemsInput = {
   notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutMemoryItemsInput = {
   where: Prisma.UserWhereUniqueInput
   create: Prisma.XOR<Prisma.UserCreateWithoutMemoryItemsInput, Prisma.UserUncheckedCreateWithoutMemoryItemsInput>
+}
+
+export type UserCreateWithoutVerifiedMemoryItemsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  chatSuggestions?: boolean
+  chatAutodecide?: boolean
+  roleRef?: Prisma.RoleCreateNestedOneWithoutUsersInput
+  sessions?: Prisma.SessionCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationCreateNestedManyWithoutUserInput
+  chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
+  chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+}
+
+export type UserUncheckedCreateWithoutVerifiedMemoryItemsInput = {
+  id: string
+  email: string
+  name: string
+  avatarUrl?: string | null
+  nickname?: string | null
+  cityShortUrlPartner?: string | null
+  cityShortUrlCustom?: string | null
+  passwordHash?: string | null
+  googleId?: string | null
+  role?: $Enums.UserRole
+  roleId?: string | null
+  invitedAt?: Date | string | null
+  lastLoginAt?: Date | string | null
+  createdAt?: Date | string
+  reviewEnabledUntil?: Date | string | null
+  reviewEnabledBy?: string | null
+  chatSuggestions?: boolean
+  chatAutodecide?: boolean
+  sessions?: Prisma.SessionUncheckedCreateNestedManyWithoutUserInput
+  machines?: Prisma.MachineUncheckedCreateNestedManyWithoutOwnerInput
+  projects?: Prisma.ProjectUncheckedCreateNestedManyWithoutOwnerInput
+  integrations?: Prisma.IntegrationUncheckedCreateNestedManyWithoutOwnerInput
+  uploads?: Prisma.UploadUncheckedCreateNestedManyWithoutUserInput
+  apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutUserInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutUserInput
+  projectGroups?: Prisma.ProjectGroupUncheckedCreateNestedManyWithoutUserInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedCreateNestedManyWithoutUserInput
+  devices?: Prisma.DeviceUncheckedCreateNestedManyWithoutUserInput
+  notifications?: Prisma.UserNotificationUncheckedCreateNestedManyWithoutUserInput
+  chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+}
+
+export type UserCreateOrConnectWithoutVerifiedMemoryItemsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutVerifiedMemoryItemsInput, Prisma.UserUncheckedCreateWithoutVerifiedMemoryItemsInput>
 }
 
 export type UserUpsertWithoutMemoryItemsInput = {
@@ -2585,6 +2723,7 @@ export type UserUpdateWithoutMemoryItemsInput = {
   notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutMemoryItemsInput = {
@@ -2619,6 +2758,88 @@ export type UserUncheckedUpdateWithoutMemoryItemsInput = {
   notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
+}
+
+export type UserUpsertWithoutVerifiedMemoryItemsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutVerifiedMemoryItemsInput, Prisma.UserUncheckedUpdateWithoutVerifiedMemoryItemsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutVerifiedMemoryItemsInput, Prisma.UserUncheckedCreateWithoutVerifiedMemoryItemsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutVerifiedMemoryItemsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutVerifiedMemoryItemsInput, Prisma.UserUncheckedUpdateWithoutVerifiedMemoryItemsInput>
+}
+
+export type UserUpdateWithoutVerifiedMemoryItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  roleRef?: Prisma.RoleUpdateOneWithoutUsersNestedInput
+  sessions?: Prisma.SessionUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUpdateManyWithoutUserNestedInput
+  chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
+  chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+}
+
+export type UserUncheckedUpdateWithoutVerifiedMemoryItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  email?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  avatarUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  nickname?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlPartner?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  cityShortUrlCustom?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  passwordHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  role?: Prisma.EnumUserRoleFieldUpdateOperationsInput | $Enums.UserRole
+  roleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  invitedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastLoginAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reviewEnabledUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reviewEnabledBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chatSuggestions?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  chatAutodecide?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  sessions?: Prisma.SessionUncheckedUpdateManyWithoutUserNestedInput
+  machines?: Prisma.MachineUncheckedUpdateManyWithoutOwnerNestedInput
+  projects?: Prisma.ProjectUncheckedUpdateManyWithoutOwnerNestedInput
+  integrations?: Prisma.IntegrationUncheckedUpdateManyWithoutOwnerNestedInput
+  uploads?: Prisma.UploadUncheckedUpdateManyWithoutUserNestedInput
+  apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutUserNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutUserNestedInput
+  projectGroups?: Prisma.ProjectGroupUncheckedUpdateManyWithoutUserNestedInput
+  deviceRequests?: Prisma.DeviceRequestUncheckedUpdateManyWithoutUserNestedInput
+  devices?: Prisma.DeviceUncheckedUpdateManyWithoutUserNestedInput
+  notifications?: Prisma.UserNotificationUncheckedUpdateManyWithoutUserNestedInput
+  chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
 }
 
 export type UserCreateWithoutProjectGroupsInput = {
@@ -2653,6 +2874,7 @@ export type UserCreateWithoutProjectGroupsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutProjectGroupsInput = {
@@ -2687,6 +2909,7 @@ export type UserUncheckedCreateWithoutProjectGroupsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutProjectGroupsInput = {
@@ -2737,6 +2960,7 @@ export type UserUpdateWithoutProjectGroupsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutProjectGroupsInput = {
@@ -2771,6 +2995,7 @@ export type UserUncheckedUpdateWithoutProjectGroupsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutDeviceRequestsInput = {
@@ -2805,6 +3030,7 @@ export type UserCreateWithoutDeviceRequestsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutDeviceRequestsInput = {
@@ -2839,6 +3065,7 @@ export type UserUncheckedCreateWithoutDeviceRequestsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutDeviceRequestsInput = {
@@ -2889,6 +3116,7 @@ export type UserUpdateWithoutDeviceRequestsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutDeviceRequestsInput = {
@@ -2923,6 +3151,7 @@ export type UserUncheckedUpdateWithoutDeviceRequestsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutDevicesInput = {
@@ -2957,6 +3186,7 @@ export type UserCreateWithoutDevicesInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutDevicesInput = {
@@ -2991,6 +3221,7 @@ export type UserUncheckedCreateWithoutDevicesInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutDevicesInput = {
@@ -3041,6 +3272,7 @@ export type UserUpdateWithoutDevicesInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutDevicesInput = {
@@ -3075,6 +3307,7 @@ export type UserUncheckedUpdateWithoutDevicesInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateWithoutNotificationsInput = {
@@ -3109,6 +3342,7 @@ export type UserCreateWithoutNotificationsInput = {
   chatAttachments?: Prisma.ChatAttachmentCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemCreateNestedManyWithoutVerifierInput
 }
 
 export type UserUncheckedCreateWithoutNotificationsInput = {
@@ -3143,6 +3377,7 @@ export type UserUncheckedCreateWithoutNotificationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedCreateNestedManyWithoutUserInput
   chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutUserInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutOwnerInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutVerifierInput
 }
 
 export type UserCreateOrConnectWithoutNotificationsInput = {
@@ -3193,6 +3428,7 @@ export type UserUpdateWithoutNotificationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutNotificationsInput = {
@@ -3227,6 +3463,7 @@ export type UserUncheckedUpdateWithoutNotificationsInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserCreateManyRoleRefInput = {
@@ -3281,6 +3518,7 @@ export type UserUpdateWithoutRoleRefInput = {
   chatAttachments?: Prisma.ChatAttachmentUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateWithoutRoleRefInput = {
@@ -3315,6 +3553,7 @@ export type UserUncheckedUpdateWithoutRoleRefInput = {
   chatAttachments?: Prisma.ChatAttachmentUncheckedUpdateManyWithoutUserNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutUserNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput
+  verifiedMemoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput
 }
 
 export type UserUncheckedUpdateManyWithoutRoleRefInput = {
@@ -3357,6 +3596,7 @@ export type UserCountOutputType = {
   chatAttachments: number
   chatDecisions: number
   memoryItems: number
+  verifiedMemoryItems: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -3374,6 +3614,7 @@ export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.I
   chatAttachments?: boolean | UserCountOutputTypeCountChatAttachmentsArgs
   chatDecisions?: boolean | UserCountOutputTypeCountChatDecisionsArgs
   memoryItems?: boolean | UserCountOutputTypeCountMemoryItemsArgs
+  verifiedMemoryItems?: boolean | UserCountOutputTypeCountVerifiedMemoryItemsArgs
 }
 
 /**
@@ -3484,6 +3725,13 @@ export type UserCountOutputTypeCountMemoryItemsArgs<ExtArgs extends runtime.Type
   where?: Prisma.MemoryItemWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountVerifiedMemoryItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.MemoryItemWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -3519,6 +3767,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   chatAttachments?: boolean | Prisma.User$chatAttachmentsArgs<ExtArgs>
   chatDecisions?: boolean | Prisma.User$chatDecisionsArgs<ExtArgs>
   memoryItems?: boolean | Prisma.User$memoryItemsArgs<ExtArgs>
+  verifiedMemoryItems?: boolean | Prisma.User$verifiedMemoryItemsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -3604,6 +3853,7 @@ export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   chatAttachments?: boolean | Prisma.User$chatAttachmentsArgs<ExtArgs>
   chatDecisions?: boolean | Prisma.User$chatDecisionsArgs<ExtArgs>
   memoryItems?: boolean | Prisma.User$memoryItemsArgs<ExtArgs>
+  verifiedMemoryItems?: boolean | Prisma.User$verifiedMemoryItemsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type UserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -3631,6 +3881,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     chatAttachments: Prisma.$ChatAttachmentPayload<ExtArgs>[]
     chatDecisions: Prisma.$ChatDecisionPayload<ExtArgs>[]
     memoryItems: Prisma.$MemoryItemPayload<ExtArgs>[]
+    verifiedMemoryItems: Prisma.$MemoryItemPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -4088,6 +4339,7 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   chatAttachments<T extends Prisma.User$chatAttachmentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$chatAttachmentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatAttachmentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   chatDecisions<T extends Prisma.User$chatDecisionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$chatDecisionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatDecisionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   memoryItems<T extends Prisma.User$memoryItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$memoryItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MemoryItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  verifiedMemoryItems<T extends Prisma.User$verifiedMemoryItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$verifiedMemoryItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MemoryItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -4870,6 +5122,30 @@ export type User$chatDecisionsArgs<ExtArgs extends runtime.Types.Extensions.Inte
  * User.memoryItems
  */
 export type User$memoryItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MemoryItem
+   */
+  select?: Prisma.MemoryItemSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the MemoryItem
+   */
+  omit?: Prisma.MemoryItemOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.MemoryItemInclude<ExtArgs> | null
+  where?: Prisma.MemoryItemWhereInput
+  orderBy?: Prisma.MemoryItemOrderByWithRelationInput | Prisma.MemoryItemOrderByWithRelationInput[]
+  cursor?: Prisma.MemoryItemWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.MemoryItemScalarFieldEnum | Prisma.MemoryItemScalarFieldEnum[]
+}
+
+/**
+ * User.verifiedMemoryItems
+ */
+export type User$verifiedMemoryItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
    * Select specific fields to fetch from the MemoryItem
    */

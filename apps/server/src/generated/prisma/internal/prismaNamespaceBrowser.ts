@@ -697,6 +697,11 @@ export const MemoryItemScalarFieldEnum = {
   contentHash: 'contentHash',
   sourceHash: 'sourceHash',
   embedModel: 'embedModel',
+  verifiedAt: 'verifiedAt',
+  verifiedBy: 'verifiedBy',
+  verifiedHash: 'verifiedHash',
+  hiddenHash: 'hiddenHash',
+  meta: 'meta',
   sourceAt: 'sourceAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'

@@ -49,6 +49,10 @@ export type MemoryItemMinAggregateOutputType = {
   contentHash: string | null
   sourceHash: string | null
   embedModel: string | null
+  verifiedAt: Date | null
+  verifiedBy: string | null
+  verifiedHash: string | null
+  hiddenHash: string | null
   sourceAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -67,6 +71,10 @@ export type MemoryItemMaxAggregateOutputType = {
   contentHash: string | null
   sourceHash: string | null
   embedModel: string | null
+  verifiedAt: Date | null
+  verifiedBy: string | null
+  verifiedHash: string | null
+  hiddenHash: string | null
   sourceAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -85,6 +93,11 @@ export type MemoryItemCountAggregateOutputType = {
   contentHash: number
   sourceHash: number
   embedModel: number
+  verifiedAt: number
+  verifiedBy: number
+  verifiedHash: number
+  hiddenHash: number
+  meta: number
   sourceAt: number
   createdAt: number
   updatedAt: number
@@ -113,6 +126,10 @@ export type MemoryItemMinAggregateInputType = {
   contentHash?: true
   sourceHash?: true
   embedModel?: true
+  verifiedAt?: true
+  verifiedBy?: true
+  verifiedHash?: true
+  hiddenHash?: true
   sourceAt?: true
   createdAt?: true
   updatedAt?: true
@@ -131,6 +148,10 @@ export type MemoryItemMaxAggregateInputType = {
   contentHash?: true
   sourceHash?: true
   embedModel?: true
+  verifiedAt?: true
+  verifiedBy?: true
+  verifiedHash?: true
+  hiddenHash?: true
   sourceAt?: true
   createdAt?: true
   updatedAt?: true
@@ -149,6 +170,11 @@ export type MemoryItemCountAggregateInputType = {
   contentHash?: true
   sourceHash?: true
   embedModel?: true
+  verifiedAt?: true
+  verifiedBy?: true
+  verifiedHash?: true
+  hiddenHash?: true
+  meta?: true
   sourceAt?: true
   createdAt?: true
   updatedAt?: true
@@ -254,6 +280,11 @@ export type MemoryItemGroupByOutputType = {
   contentHash: string
   sourceHash: string | null
   embedModel: string | null
+  verifiedAt: Date | null
+  verifiedBy: string | null
+  verifiedHash: string | null
+  hiddenHash: string | null
+  meta: runtime.JsonValue | null
   sourceAt: Date
   createdAt: Date
   updatedAt: Date
@@ -295,11 +326,17 @@ export type MemoryItemWhereInput = {
   contentHash?: Prisma.StringFilter<"MemoryItem"> | string
   sourceHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
   embedModel?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  verifiedAt?: Prisma.DateTimeNullableFilter<"MemoryItem"> | Date | string | null
+  verifiedBy?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  verifiedHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  hiddenHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  meta?: Prisma.JsonNullableFilter<"MemoryItem">
   sourceAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   owner?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   project?: Prisma.XOR<Prisma.ProjectNullableScalarRelationFilter, Prisma.ProjectWhereInput> | null
+  verifier?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
 }
 
 export type MemoryItemOrderByWithRelationInput = {
@@ -315,11 +352,17 @@ export type MemoryItemOrderByWithRelationInput = {
   contentHash?: Prisma.SortOrder
   sourceHash?: Prisma.SortOrderInput | Prisma.SortOrder
   embedModel?: Prisma.SortOrderInput | Prisma.SortOrder
+  verifiedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  verifiedBy?: Prisma.SortOrderInput | Prisma.SortOrder
+  verifiedHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  hiddenHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  meta?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   owner?: Prisma.UserOrderByWithRelationInput
   project?: Prisma.ProjectOrderByWithRelationInput
+  verifier?: Prisma.UserOrderByWithRelationInput
 }
 
 export type MemoryItemWhereUniqueInput = Prisma.AtLeast<{
@@ -339,11 +382,17 @@ export type MemoryItemWhereUniqueInput = Prisma.AtLeast<{
   contentHash?: Prisma.StringFilter<"MemoryItem"> | string
   sourceHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
   embedModel?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  verifiedAt?: Prisma.DateTimeNullableFilter<"MemoryItem"> | Date | string | null
+  verifiedBy?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  verifiedHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  hiddenHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  meta?: Prisma.JsonNullableFilter<"MemoryItem">
   sourceAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   owner?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   project?: Prisma.XOR<Prisma.ProjectNullableScalarRelationFilter, Prisma.ProjectWhereInput> | null
+  verifier?: Prisma.XOR<Prisma.UserNullableScalarRelationFilter, Prisma.UserWhereInput> | null
 }, "id" | "kind_sourceId_chunkIndex">
 
 export type MemoryItemOrderByWithAggregationInput = {
@@ -359,6 +408,11 @@ export type MemoryItemOrderByWithAggregationInput = {
   contentHash?: Prisma.SortOrder
   sourceHash?: Prisma.SortOrderInput | Prisma.SortOrder
   embedModel?: Prisma.SortOrderInput | Prisma.SortOrder
+  verifiedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  verifiedBy?: Prisma.SortOrderInput | Prisma.SortOrder
+  verifiedHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  hiddenHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  meta?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -385,6 +439,11 @@ export type MemoryItemScalarWhereWithAggregatesInput = {
   contentHash?: Prisma.StringWithAggregatesFilter<"MemoryItem"> | string
   sourceHash?: Prisma.StringNullableWithAggregatesFilter<"MemoryItem"> | string | null
   embedModel?: Prisma.StringNullableWithAggregatesFilter<"MemoryItem"> | string | null
+  verifiedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"MemoryItem"> | Date | string | null
+  verifiedBy?: Prisma.StringNullableWithAggregatesFilter<"MemoryItem"> | string | null
+  verifiedHash?: Prisma.StringNullableWithAggregatesFilter<"MemoryItem"> | string | null
+  hiddenHash?: Prisma.StringNullableWithAggregatesFilter<"MemoryItem"> | string | null
+  meta?: Prisma.JsonNullableWithAggregatesFilter<"MemoryItem">
   sourceAt?: Prisma.DateTimeWithAggregatesFilter<"MemoryItem"> | Date | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"MemoryItem"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"MemoryItem"> | Date | string
@@ -401,11 +460,16 @@ export type MemoryItemCreateInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
   owner: Prisma.UserCreateNestedOneWithoutMemoryItemsInput
   project?: Prisma.ProjectCreateNestedOneWithoutMemoryItemsInput
+  verifier?: Prisma.UserCreateNestedOneWithoutVerifiedMemoryItemsInput
 }
 
 export type MemoryItemUncheckedCreateInput = {
@@ -421,6 +485,11 @@ export type MemoryItemUncheckedCreateInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedBy?: string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -437,11 +506,16 @@ export type MemoryItemUpdateInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneRequiredWithoutMemoryItemsNestedInput
   project?: Prisma.ProjectUpdateOneWithoutMemoryItemsNestedInput
+  verifier?: Prisma.UserUpdateOneWithoutVerifiedMemoryItemsNestedInput
 }
 
 export type MemoryItemUncheckedUpdateInput = {
@@ -457,6 +531,11 @@ export type MemoryItemUncheckedUpdateInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -475,6 +554,11 @@ export type MemoryItemCreateManyInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedBy?: string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -491,6 +575,10 @@ export type MemoryItemUpdateManyMutationInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -509,6 +597,11 @@ export type MemoryItemUncheckedUpdateManyInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -543,6 +636,11 @@ export type MemoryItemCountOrderByAggregateInput = {
   contentHash?: Prisma.SortOrder
   sourceHash?: Prisma.SortOrder
   embedModel?: Prisma.SortOrder
+  verifiedAt?: Prisma.SortOrder
+  verifiedBy?: Prisma.SortOrder
+  verifiedHash?: Prisma.SortOrder
+  hiddenHash?: Prisma.SortOrder
+  meta?: Prisma.SortOrder
   sourceAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -565,6 +663,10 @@ export type MemoryItemMaxOrderByAggregateInput = {
   contentHash?: Prisma.SortOrder
   sourceHash?: Prisma.SortOrder
   embedModel?: Prisma.SortOrder
+  verifiedAt?: Prisma.SortOrder
+  verifiedBy?: Prisma.SortOrder
+  verifiedHash?: Prisma.SortOrder
+  hiddenHash?: Prisma.SortOrder
   sourceAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -583,6 +685,10 @@ export type MemoryItemMinOrderByAggregateInput = {
   contentHash?: Prisma.SortOrder
   sourceHash?: Prisma.SortOrder
   embedModel?: Prisma.SortOrder
+  verifiedAt?: Prisma.SortOrder
+  verifiedBy?: Prisma.SortOrder
+  verifiedHash?: Prisma.SortOrder
+  hiddenHash?: Prisma.SortOrder
   sourceAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -599,10 +705,24 @@ export type MemoryItemCreateNestedManyWithoutOwnerInput = {
   connect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
 }
 
+export type MemoryItemCreateNestedManyWithoutVerifierInput = {
+  create?: Prisma.XOR<Prisma.MemoryItemCreateWithoutVerifierInput, Prisma.MemoryItemUncheckedCreateWithoutVerifierInput> | Prisma.MemoryItemCreateWithoutVerifierInput[] | Prisma.MemoryItemUncheckedCreateWithoutVerifierInput[]
+  connectOrCreate?: Prisma.MemoryItemCreateOrConnectWithoutVerifierInput | Prisma.MemoryItemCreateOrConnectWithoutVerifierInput[]
+  createMany?: Prisma.MemoryItemCreateManyVerifierInputEnvelope
+  connect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+}
+
 export type MemoryItemUncheckedCreateNestedManyWithoutOwnerInput = {
   create?: Prisma.XOR<Prisma.MemoryItemCreateWithoutOwnerInput, Prisma.MemoryItemUncheckedCreateWithoutOwnerInput> | Prisma.MemoryItemCreateWithoutOwnerInput[] | Prisma.MemoryItemUncheckedCreateWithoutOwnerInput[]
   connectOrCreate?: Prisma.MemoryItemCreateOrConnectWithoutOwnerInput | Prisma.MemoryItemCreateOrConnectWithoutOwnerInput[]
   createMany?: Prisma.MemoryItemCreateManyOwnerInputEnvelope
+  connect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+}
+
+export type MemoryItemUncheckedCreateNestedManyWithoutVerifierInput = {
+  create?: Prisma.XOR<Prisma.MemoryItemCreateWithoutVerifierInput, Prisma.MemoryItemUncheckedCreateWithoutVerifierInput> | Prisma.MemoryItemCreateWithoutVerifierInput[] | Prisma.MemoryItemUncheckedCreateWithoutVerifierInput[]
+  connectOrCreate?: Prisma.MemoryItemCreateOrConnectWithoutVerifierInput | Prisma.MemoryItemCreateOrConnectWithoutVerifierInput[]
+  createMany?: Prisma.MemoryItemCreateManyVerifierInputEnvelope
   connect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
 }
 
@@ -620,6 +740,20 @@ export type MemoryItemUpdateManyWithoutOwnerNestedInput = {
   deleteMany?: Prisma.MemoryItemScalarWhereInput | Prisma.MemoryItemScalarWhereInput[]
 }
 
+export type MemoryItemUpdateManyWithoutVerifierNestedInput = {
+  create?: Prisma.XOR<Prisma.MemoryItemCreateWithoutVerifierInput, Prisma.MemoryItemUncheckedCreateWithoutVerifierInput> | Prisma.MemoryItemCreateWithoutVerifierInput[] | Prisma.MemoryItemUncheckedCreateWithoutVerifierInput[]
+  connectOrCreate?: Prisma.MemoryItemCreateOrConnectWithoutVerifierInput | Prisma.MemoryItemCreateOrConnectWithoutVerifierInput[]
+  upsert?: Prisma.MemoryItemUpsertWithWhereUniqueWithoutVerifierInput | Prisma.MemoryItemUpsertWithWhereUniqueWithoutVerifierInput[]
+  createMany?: Prisma.MemoryItemCreateManyVerifierInputEnvelope
+  set?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  disconnect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  delete?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  connect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  update?: Prisma.MemoryItemUpdateWithWhereUniqueWithoutVerifierInput | Prisma.MemoryItemUpdateWithWhereUniqueWithoutVerifierInput[]
+  updateMany?: Prisma.MemoryItemUpdateManyWithWhereWithoutVerifierInput | Prisma.MemoryItemUpdateManyWithWhereWithoutVerifierInput[]
+  deleteMany?: Prisma.MemoryItemScalarWhereInput | Prisma.MemoryItemScalarWhereInput[]
+}
+
 export type MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput = {
   create?: Prisma.XOR<Prisma.MemoryItemCreateWithoutOwnerInput, Prisma.MemoryItemUncheckedCreateWithoutOwnerInput> | Prisma.MemoryItemCreateWithoutOwnerInput[] | Prisma.MemoryItemUncheckedCreateWithoutOwnerInput[]
   connectOrCreate?: Prisma.MemoryItemCreateOrConnectWithoutOwnerInput | Prisma.MemoryItemCreateOrConnectWithoutOwnerInput[]
@@ -631,6 +765,20 @@ export type MemoryItemUncheckedUpdateManyWithoutOwnerNestedInput = {
   connect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
   update?: Prisma.MemoryItemUpdateWithWhereUniqueWithoutOwnerInput | Prisma.MemoryItemUpdateWithWhereUniqueWithoutOwnerInput[]
   updateMany?: Prisma.MemoryItemUpdateManyWithWhereWithoutOwnerInput | Prisma.MemoryItemUpdateManyWithWhereWithoutOwnerInput[]
+  deleteMany?: Prisma.MemoryItemScalarWhereInput | Prisma.MemoryItemScalarWhereInput[]
+}
+
+export type MemoryItemUncheckedUpdateManyWithoutVerifierNestedInput = {
+  create?: Prisma.XOR<Prisma.MemoryItemCreateWithoutVerifierInput, Prisma.MemoryItemUncheckedCreateWithoutVerifierInput> | Prisma.MemoryItemCreateWithoutVerifierInput[] | Prisma.MemoryItemUncheckedCreateWithoutVerifierInput[]
+  connectOrCreate?: Prisma.MemoryItemCreateOrConnectWithoutVerifierInput | Prisma.MemoryItemCreateOrConnectWithoutVerifierInput[]
+  upsert?: Prisma.MemoryItemUpsertWithWhereUniqueWithoutVerifierInput | Prisma.MemoryItemUpsertWithWhereUniqueWithoutVerifierInput[]
+  createMany?: Prisma.MemoryItemCreateManyVerifierInputEnvelope
+  set?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  disconnect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  delete?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  connect?: Prisma.MemoryItemWhereUniqueInput | Prisma.MemoryItemWhereUniqueInput[]
+  update?: Prisma.MemoryItemUpdateWithWhereUniqueWithoutVerifierInput | Prisma.MemoryItemUpdateWithWhereUniqueWithoutVerifierInput[]
+  updateMany?: Prisma.MemoryItemUpdateManyWithWhereWithoutVerifierInput | Prisma.MemoryItemUpdateManyWithWhereWithoutVerifierInput[]
   deleteMany?: Prisma.MemoryItemScalarWhereInput | Prisma.MemoryItemScalarWhereInput[]
 }
 
@@ -687,10 +835,15 @@ export type MemoryItemCreateWithoutOwnerInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
   project?: Prisma.ProjectCreateNestedOneWithoutMemoryItemsInput
+  verifier?: Prisma.UserCreateNestedOneWithoutVerifiedMemoryItemsInput
 }
 
 export type MemoryItemUncheckedCreateWithoutOwnerInput = {
@@ -705,6 +858,11 @@ export type MemoryItemUncheckedCreateWithoutOwnerInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedBy?: string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -717,6 +875,60 @@ export type MemoryItemCreateOrConnectWithoutOwnerInput = {
 
 export type MemoryItemCreateManyOwnerInputEnvelope = {
   data: Prisma.MemoryItemCreateManyOwnerInput | Prisma.MemoryItemCreateManyOwnerInput[]
+  skipDuplicates?: boolean
+}
+
+export type MemoryItemCreateWithoutVerifierInput = {
+  id: string
+  kind: string
+  sourceId: string
+  chunkIndex?: number
+  title: string
+  text: string
+  trust: string
+  contentHash: string
+  sourceHash?: string | null
+  embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  sourceAt: Date | string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  owner: Prisma.UserCreateNestedOneWithoutMemoryItemsInput
+  project?: Prisma.ProjectCreateNestedOneWithoutMemoryItemsInput
+}
+
+export type MemoryItemUncheckedCreateWithoutVerifierInput = {
+  id: string
+  ownerId: string
+  projectId?: string | null
+  kind: string
+  sourceId: string
+  chunkIndex?: number
+  title: string
+  text: string
+  trust: string
+  contentHash: string
+  sourceHash?: string | null
+  embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  sourceAt: Date | string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type MemoryItemCreateOrConnectWithoutVerifierInput = {
+  where: Prisma.MemoryItemWhereUniqueInput
+  create: Prisma.XOR<Prisma.MemoryItemCreateWithoutVerifierInput, Prisma.MemoryItemUncheckedCreateWithoutVerifierInput>
+}
+
+export type MemoryItemCreateManyVerifierInputEnvelope = {
+  data: Prisma.MemoryItemCreateManyVerifierInput | Prisma.MemoryItemCreateManyVerifierInput[]
   skipDuplicates?: boolean
 }
 
@@ -752,9 +964,30 @@ export type MemoryItemScalarWhereInput = {
   contentHash?: Prisma.StringFilter<"MemoryItem"> | string
   sourceHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
   embedModel?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  verifiedAt?: Prisma.DateTimeNullableFilter<"MemoryItem"> | Date | string | null
+  verifiedBy?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  verifiedHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  hiddenHash?: Prisma.StringNullableFilter<"MemoryItem"> | string | null
+  meta?: Prisma.JsonNullableFilter<"MemoryItem">
   sourceAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"MemoryItem"> | Date | string
+}
+
+export type MemoryItemUpsertWithWhereUniqueWithoutVerifierInput = {
+  where: Prisma.MemoryItemWhereUniqueInput
+  update: Prisma.XOR<Prisma.MemoryItemUpdateWithoutVerifierInput, Prisma.MemoryItemUncheckedUpdateWithoutVerifierInput>
+  create: Prisma.XOR<Prisma.MemoryItemCreateWithoutVerifierInput, Prisma.MemoryItemUncheckedCreateWithoutVerifierInput>
+}
+
+export type MemoryItemUpdateWithWhereUniqueWithoutVerifierInput = {
+  where: Prisma.MemoryItemWhereUniqueInput
+  data: Prisma.XOR<Prisma.MemoryItemUpdateWithoutVerifierInput, Prisma.MemoryItemUncheckedUpdateWithoutVerifierInput>
+}
+
+export type MemoryItemUpdateManyWithWhereWithoutVerifierInput = {
+  where: Prisma.MemoryItemScalarWhereInput
+  data: Prisma.XOR<Prisma.MemoryItemUpdateManyMutationInput, Prisma.MemoryItemUncheckedUpdateManyWithoutVerifierInput>
 }
 
 export type MemoryItemCreateWithoutProjectInput = {
@@ -768,10 +1001,15 @@ export type MemoryItemCreateWithoutProjectInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
   owner: Prisma.UserCreateNestedOneWithoutMemoryItemsInput
+  verifier?: Prisma.UserCreateNestedOneWithoutVerifiedMemoryItemsInput
 }
 
 export type MemoryItemUncheckedCreateWithoutProjectInput = {
@@ -786,6 +1024,11 @@ export type MemoryItemUncheckedCreateWithoutProjectInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedBy?: string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -829,6 +1072,33 @@ export type MemoryItemCreateManyOwnerInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedBy?: string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  sourceAt: Date | string
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type MemoryItemCreateManyVerifierInput = {
+  id: string
+  ownerId: string
+  projectId?: string | null
+  kind: string
+  sourceId: string
+  chunkIndex?: number
+  title: string
+  text: string
+  trust: string
+  contentHash: string
+  sourceHash?: string | null
+  embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -845,10 +1115,15 @@ export type MemoryItemUpdateWithoutOwnerInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   project?: Prisma.ProjectUpdateOneWithoutMemoryItemsNestedInput
+  verifier?: Prisma.UserUpdateOneWithoutVerifiedMemoryItemsNestedInput
 }
 
 export type MemoryItemUncheckedUpdateWithoutOwnerInput = {
@@ -863,6 +1138,11 @@ export type MemoryItemUncheckedUpdateWithoutOwnerInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -880,6 +1160,77 @@ export type MemoryItemUncheckedUpdateManyWithoutOwnerInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type MemoryItemUpdateWithoutVerifierInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  chunkIndex?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  trust?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  owner?: Prisma.UserUpdateOneRequiredWithoutMemoryItemsNestedInput
+  project?: Prisma.ProjectUpdateOneWithoutMemoryItemsNestedInput
+}
+
+export type MemoryItemUncheckedUpdateWithoutVerifierInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.StringFieldUpdateOperationsInput | string
+  projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  chunkIndex?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  trust?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type MemoryItemUncheckedUpdateManyWithoutVerifierInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.StringFieldUpdateOperationsInput | string
+  projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceId?: Prisma.StringFieldUpdateOperationsInput | string
+  chunkIndex?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  text?: Prisma.StringFieldUpdateOperationsInput | string
+  trust?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -897,6 +1248,11 @@ export type MemoryItemCreateManyProjectInput = {
   contentHash: string
   sourceHash?: string | null
   embedModel?: string | null
+  verifiedAt?: Date | string | null
+  verifiedBy?: string | null
+  verifiedHash?: string | null
+  hiddenHash?: string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt: Date | string
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -913,10 +1269,15 @@ export type MemoryItemUpdateWithoutProjectInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   owner?: Prisma.UserUpdateOneRequiredWithoutMemoryItemsNestedInput
+  verifier?: Prisma.UserUpdateOneWithoutVerifiedMemoryItemsNestedInput
 }
 
 export type MemoryItemUncheckedUpdateWithoutProjectInput = {
@@ -931,6 +1292,11 @@ export type MemoryItemUncheckedUpdateWithoutProjectInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -948,6 +1314,11 @@ export type MemoryItemUncheckedUpdateManyWithoutProjectInput = {
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   sourceHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   embedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  verifiedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  verifiedHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  hiddenHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  meta?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   sourceAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -968,11 +1339,17 @@ export type MemoryItemSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   contentHash?: boolean
   sourceHash?: boolean
   embedModel?: boolean
+  verifiedAt?: boolean
+  verifiedBy?: boolean
+  verifiedHash?: boolean
+  hiddenHash?: boolean
+  meta?: boolean
   sourceAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   owner?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   project?: boolean | Prisma.MemoryItem$projectArgs<ExtArgs>
+  verifier?: boolean | Prisma.MemoryItem$verifierArgs<ExtArgs>
 }, ExtArgs["result"]["memoryItem"]>
 
 export type MemoryItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -988,11 +1365,17 @@ export type MemoryItemSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   contentHash?: boolean
   sourceHash?: boolean
   embedModel?: boolean
+  verifiedAt?: boolean
+  verifiedBy?: boolean
+  verifiedHash?: boolean
+  hiddenHash?: boolean
+  meta?: boolean
   sourceAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   owner?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   project?: boolean | Prisma.MemoryItem$projectArgs<ExtArgs>
+  verifier?: boolean | Prisma.MemoryItem$verifierArgs<ExtArgs>
 }, ExtArgs["result"]["memoryItem"]>
 
 export type MemoryItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -1008,11 +1391,17 @@ export type MemoryItemSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   contentHash?: boolean
   sourceHash?: boolean
   embedModel?: boolean
+  verifiedAt?: boolean
+  verifiedBy?: boolean
+  verifiedHash?: boolean
+  hiddenHash?: boolean
+  meta?: boolean
   sourceAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   owner?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   project?: boolean | Prisma.MemoryItem$projectArgs<ExtArgs>
+  verifier?: boolean | Prisma.MemoryItem$verifierArgs<ExtArgs>
 }, ExtArgs["result"]["memoryItem"]>
 
 export type MemoryItemSelectScalar = {
@@ -1028,23 +1417,31 @@ export type MemoryItemSelectScalar = {
   contentHash?: boolean
   sourceHash?: boolean
   embedModel?: boolean
+  verifiedAt?: boolean
+  verifiedBy?: boolean
+  verifiedHash?: boolean
+  hiddenHash?: boolean
+  meta?: boolean
   sourceAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type MemoryItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "ownerId" | "projectId" | "kind" | "sourceId" | "chunkIndex" | "title" | "text" | "trust" | "contentHash" | "sourceHash" | "embedModel" | "sourceAt" | "createdAt" | "updatedAt", ExtArgs["result"]["memoryItem"]>
+export type MemoryItemOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "ownerId" | "projectId" | "kind" | "sourceId" | "chunkIndex" | "title" | "text" | "trust" | "contentHash" | "sourceHash" | "embedModel" | "verifiedAt" | "verifiedBy" | "verifiedHash" | "hiddenHash" | "meta" | "sourceAt" | "createdAt" | "updatedAt", ExtArgs["result"]["memoryItem"]>
 export type MemoryItemInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   owner?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   project?: boolean | Prisma.MemoryItem$projectArgs<ExtArgs>
+  verifier?: boolean | Prisma.MemoryItem$verifierArgs<ExtArgs>
 }
 export type MemoryItemIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   owner?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   project?: boolean | Prisma.MemoryItem$projectArgs<ExtArgs>
+  verifier?: boolean | Prisma.MemoryItem$verifierArgs<ExtArgs>
 }
 export type MemoryItemIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   owner?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   project?: boolean | Prisma.MemoryItem$projectArgs<ExtArgs>
+  verifier?: boolean | Prisma.MemoryItem$verifierArgs<ExtArgs>
 }
 
 export type $MemoryItemPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1052,13 +1449,14 @@ export type $MemoryItemPayload<ExtArgs extends runtime.Types.Extensions.Internal
   objects: {
     owner: Prisma.$UserPayload<ExtArgs>
     project: Prisma.$ProjectPayload<ExtArgs> | null
+    verifier: Prisma.$UserPayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     ownerId: string
     projectId: string | null
     /**
-     * task | message | action | doc | note
+     * task | message | action | doc | note | lesson | project_note
      */
     kind: string
     sourceId: string
@@ -1075,6 +1473,24 @@ export type $MemoryItemPayload<ExtArgs extends runtime.Types.Extensions.Internal
      */
     sourceHash: string | null
     embedModel: string | null
+    /**
+     * Set by "Verificar" on a lesson (chunk 0): who and when. `verified` = verifiedAt set and
+     * verifiedHash still matches contentHash (spec 2026-09-27 failure lessons §3, D8).
+     */
+    verifiedAt: Date | null
+    verifiedBy: string | null
+    verifiedHash: string | null
+    /**
+     * Set by "Esquecer" on a file lesson to the item's contentHash (spec §3): search and the lessons
+     * list skip a row while hiddenHash still matches contentHash; a re-indexed file with new content
+     * (new hash) comes back as a fresh, unverified lesson.
+     */
+    hiddenHash: string | null
+    /**
+     * Lesson metadata (spec §3): { evidence, card, pr, tags, agent, tab_id, origin, path }. Null for
+     * every other kind.
+     */
+    meta: runtime.JsonValue | null
     sourceAt: Date
     createdAt: Date
     updatedAt: Date
@@ -1474,6 +1890,7 @@ export interface Prisma__MemoryItemClient<T, Null = never, ExtArgs extends runti
   readonly [Symbol.toStringTag]: "PrismaPromise"
   owner<T extends Prisma.UserDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.UserDefaultArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   project<T extends Prisma.MemoryItem$projectArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.MemoryItem$projectArgs<ExtArgs>>): Prisma.Prisma__ProjectClient<runtime.Types.Result.GetResult<Prisma.$ProjectPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  verifier<T extends Prisma.MemoryItem$verifierArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.MemoryItem$verifierArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1515,6 +1932,11 @@ export interface MemoryItemFieldRefs {
   readonly contentHash: Prisma.FieldRef<"MemoryItem", 'String'>
   readonly sourceHash: Prisma.FieldRef<"MemoryItem", 'String'>
   readonly embedModel: Prisma.FieldRef<"MemoryItem", 'String'>
+  readonly verifiedAt: Prisma.FieldRef<"MemoryItem", 'DateTime'>
+  readonly verifiedBy: Prisma.FieldRef<"MemoryItem", 'String'>
+  readonly verifiedHash: Prisma.FieldRef<"MemoryItem", 'String'>
+  readonly hiddenHash: Prisma.FieldRef<"MemoryItem", 'String'>
+  readonly meta: Prisma.FieldRef<"MemoryItem", 'Json'>
   readonly sourceAt: Prisma.FieldRef<"MemoryItem", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"MemoryItem", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"MemoryItem", 'DateTime'>
@@ -1935,6 +2357,25 @@ export type MemoryItem$projectArgs<ExtArgs extends runtime.Types.Extensions.Inte
    */
   include?: Prisma.ProjectInclude<ExtArgs> | null
   where?: Prisma.ProjectWhereInput
+}
+
+/**
+ * MemoryItem.verifier
+ */
+export type MemoryItem$verifierArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the User
+   */
+  select?: Prisma.UserSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the User
+   */
+  omit?: Prisma.UserOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.UserInclude<ExtArgs> | null
+  where?: Prisma.UserWhereInput
 }
 
 /**

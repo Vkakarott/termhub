@@ -2,7 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
-import { MemoryItemsRepository, type NewMemoryItem } from './memory-items.js';
+import { MemoryItemsRepository, type LessonMeta, type NewMemoryItem } from './memory-items.js';
 
 const DIM = 384;
 /** A unit vector with a 1 at index `i`: cosine similarity to itself is exactly 1, and to another such
@@ -283,5 +283,134 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MemoryItemsRepository (Po
     const [theirs] = await repo.upsertMany([item({ owner_id: otherUserId, project_id: otherProjectId, title: 'Theirs', text: 'theirs' })]);
     const found = await repo.findManyForOwner([mine!.id, theirs!.id, newId()], userId);
     expect(found.map((r) => r.id)).toEqual([mine!.id]);
+  });
+
+  const lessonMeta = (over: Partial<LessonMeta> = {}): LessonMeta => ({
+    evidence: 'fixed',
+    card: 'TER-205',
+    pr: 'https://github.com/example/repo/pull/1',
+    tags: ['prisma'],
+    agent: 'claude',
+    tab_id: null,
+    origin: 'file',
+    path: 'docs/lessons/2026-09-27-example.md',
+    ...over,
+  });
+
+  it('upsertMany of a lesson with meta stores and returns it; verified starts false', async () => {
+    const sourceId = newId();
+    const meta = lessonMeta();
+    const [row] = await repo.upsertMany([item({ kind: 'lesson', source_id: sourceId, title: 'P3009 migration', text: 'Sintoma...', meta })]);
+    expect(row!.meta).toEqual(meta);
+    expect(row!.verified).toBe(false);
+    expect(row!.verified_at).toBeNull();
+
+    const [found] = await repo.findManyForOwner([row!.id], userId);
+    expect(found!.meta).toEqual(meta);
+    expect(found!.verified).toBe(false);
+  });
+
+  it('setVerified/clearVerified: verified true on match; hash change drops it; scoped to owner and kind lesson chunk 0', async () => {
+    const sourceId = newId();
+    const [lesson] = await repo.upsertMany([item({ kind: 'lesson', source_id: sourceId, title: 'Symptom', text: 'v1', meta: lessonMeta() })]);
+    const id = lesson!.id;
+
+    expect(await repo.setVerified(id, userId, otherUserId)).toBe(true);
+    const [verified] = await repo.findManyForOwner([id], userId);
+    expect(verified!.verified).toBe(true);
+    expect(verified!.verified_at).not.toBeNull();
+
+    // Re-upsert with the same text: content_hash unchanged, stays verified.
+    await repo.upsertMany([item({ kind: 'lesson', source_id: sourceId, title: 'Symptom', text: 'v1', meta: lessonMeta() })]);
+    const [stillVerified] = await repo.findManyForOwner([id], userId);
+    expect(stillVerified!.verified).toBe(true);
+
+    // Re-upsert with changed text: content_hash differs, verified drops but verified_at stays set.
+    await repo.upsertMany([item({ kind: 'lesson', source_id: sourceId, title: 'Symptom', text: 'v2', meta: lessonMeta() })]);
+    const [changed] = await repo.findManyForOwner([id], userId);
+    expect(changed!.verified).toBe(false);
+    expect(changed!.verified_at).not.toBeNull();
+
+    expect(await repo.clearVerified(id, userId)).toBe(true);
+    const [cleared] = await repo.findManyForOwner([id], userId);
+    expect(cleared!.verified).toBe(false);
+    expect(cleared!.verified_at).toBeNull();
+  });
+
+  it('setVerified: false for another owner\'s item, and false for a non-lesson item; nothing changes', async () => {
+    const [lesson] = await repo.upsertMany([item({ owner_id: otherUserId, project_id: otherProjectId, kind: 'lesson', title: 'Other', text: 'v1', meta: lessonMeta() })]);
+    expect(await repo.setVerified(lesson!.id, userId, userId)).toBe(false);
+    const [stillUnverified] = await repo.findManyForOwner([lesson!.id], otherUserId);
+    expect(stillUnverified!.verified).toBe(false);
+
+    const [doc] = await repo.upsertMany([item({ kind: 'doc', source_id: newId(), title: 'Doc', text: 'body' })]);
+    expect(await repo.setVerified(doc!.id, userId, userId)).toBe(false);
+  });
+
+  it('hideSource hides every chunk of the source from nearest/textSearch/listLessons; stays hidden on same content, returns on new content', async () => {
+    const sourceId = newId();
+    const [chunk0, chunk1] = await repo.upsertMany([0, 1].map((i) => item({ kind: 'lesson', source_id: sourceId, chunk_index: i, title: 'Hide me', text: `chunk ${i} hideme-marker`, meta: lessonMeta() })));
+    const chunk0Id = chunk0!.id;
+    await repo.setEmbedding(chunk0Id, vec(5), 'm');
+    await repo.setEmbedding(chunk1!.id, vec(5), 'm');
+
+    expect(await repo.hideSource(chunk0Id, userId)).toBe(true);
+
+    expect((await repo.nearest({ ownerId: userId }, vec(5), 10)).map((r) => r.id)).not.toContain(chunk0Id);
+    expect((await repo.nearest({ ownerId: userId }, vec(5), 10)).map((r) => r.id)).not.toContain(chunk1!.id);
+    expect((await repo.textSearch({ ownerId: userId }, 'hideme-marker', 10)).map((r) => r.id)).toEqual([]);
+    expect((await repo.listLessons(userId, { limit: 1000 })).items.map((r) => r.id)).not.toContain(chunk0Id);
+
+    // hideSource of an id that doesn't belong to this owner: false, nothing hidden.
+    expect(await repo.hideSource(chunk0Id, otherUserId)).toBe(false);
+
+    // Re-upsert with the same content: content_hash unchanged, stays hidden.
+    await repo.upsertMany([item({ kind: 'lesson', source_id: sourceId, chunk_index: 0, title: 'Hide me', text: 'chunk 0 hideme-marker', meta: lessonMeta() })]);
+    expect((await repo.listLessons(userId, { limit: 1000 })).items.map((r) => r.id)).not.toContain(chunk0Id);
+
+    // Re-upsert with new content: content_hash changes, comes back.
+    await repo.upsertMany([item({ kind: 'lesson', source_id: sourceId, chunk_index: 0, title: 'Hide me', text: 'brand new content', meta: lessonMeta() })]);
+    expect((await repo.listLessons(userId, { limit: 1000 })).items.map((r) => r.id)).toContain(chunk0Id);
+  });
+
+  it('countNoteLessonsSince: only this owner\'s note-origin lessons, chunk 0, created since the given time', async () => {
+    const before = await repo.countNoteLessonsSince(userId, new Date(0));
+    await repo.upsertMany([item({ kind: 'lesson', source_id: newId(), title: 'Note lesson', text: 'body', meta: lessonMeta({ origin: 'note' }) })]);
+    await repo.upsertMany([item({ kind: 'lesson', source_id: newId(), title: 'File lesson', text: 'body', meta: lessonMeta({ origin: 'file' }) })]);
+    await repo.upsertMany([item({ owner_id: otherUserId, project_id: otherProjectId, kind: 'lesson', source_id: newId(), title: 'Other note lesson', text: 'body', meta: lessonMeta({ origin: 'note' }) })]);
+    expect(await repo.countNoteLessonsSince(userId, new Date(0))).toBe(before + 1);
+    expect(await repo.countNoteLessonsSince(userId, new Date(Date.now() + 3600_000))).toBe(0);
+  });
+
+  it('listLessons: chunk 0 only, not hidden, filters by q and project, newest source_at first, pages with cursor', async () => {
+    const projA = projectId;
+    const early = new Date('2026-09-01T00:00:00.000Z');
+    const late = new Date('2026-09-27T00:00:00.000Z');
+    const marker = `P3009-${newId()}`; // unique per run: other tests in this file also create P3009 lessons
+    const [l1] = await repo.upsertMany([item({ kind: 'lesson', project_id: projA, source_id: newId(), title: `Migration ${marker} fails`, text: 'body', source_at: early, meta: lessonMeta() })]);
+    const [l2] = await repo.upsertMany([item({ kind: 'lesson', project_id: projA, source_id: newId(), title: 'Unrelated symptom', text: 'body', source_at: late, meta: lessonMeta() })]);
+    const [otherProjLesson] = await repo.upsertMany([item({ kind: 'lesson', project_id: null, source_id: newId(), title: 'Migration in no project', text: 'body', source_at: late, meta: lessonMeta() })]);
+    // second chunk of l2's source: must not show up as its own row
+    await repo.upsertMany([item({ kind: 'lesson', project_id: projA, source_id: (await db.memoryItem.findUniqueOrThrow({ where: { id: l2!.id } })).sourceId, chunk_index: 1, title: 'Unrelated symptom', text: 'more body', source_at: late, meta: lessonMeta() })]);
+
+    const page = await repo.listLessons(userId, { limit: 1000 });
+    const ids = page.items.map((r) => r.id);
+    expect(ids).toContain(l1!.id);
+    expect(ids).toContain(l2!.id);
+    expect(ids.filter((id) => id === l2!.id)).toHaveLength(1); // chunk 0 only
+    // newest source_at first
+    expect(ids.indexOf(l2!.id)).toBeLessThan(ids.indexOf(l1!.id));
+
+    const byProject = await repo.listLessons(userId, { projectId: projA, limit: 1000 });
+    expect(byProject.items.map((r) => r.id)).not.toContain(otherProjLesson!.id);
+
+    const byQ = await repo.listLessons(userId, { q: marker, limit: 1000 });
+    expect(byQ.items.map((r) => r.id)).toEqual([l1!.id]);
+
+    const paged1 = await repo.listLessons(userId, { limit: 1 });
+    expect(paged1.items.length).toBe(1);
+    expect(paged1.next_cursor).not.toBeNull();
+    const paged2 = await repo.listLessons(userId, { limit: 1, cursor: paged1.next_cursor! });
+    expect(paged2.items[0]!.id).not.toBe(paged1.items[0]!.id);
   });
 });

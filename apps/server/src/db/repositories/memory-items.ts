@@ -3,8 +3,25 @@ import type { PrismaClient } from '../prisma.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 
-export type MemoryKind = 'task' | 'message' | 'action' | 'doc' | 'note';
+export type MemoryKind = 'task' | 'message' | 'action' | 'doc' | 'note' | 'lesson' | 'project_note';
 export type MemoryTrust = 'person' | 'derived';
+
+/**
+ * A lesson's metadata (spec 2026-09-27 failure lessons §3): the parsed `docs/lessons/*.md` front
+ * matter, or the `record_lesson` input, for a `lesson` item's chunk 0. Null for every other kind.
+ * Never a place for free text — every value is capped by the writer (tags ≤ 10 × 40 chars, strings
+ * ≤ 300) before it lands here.
+ */
+export interface LessonMeta {
+  evidence: 'observed' | 'fixed' | 'confirmed';
+  card: string | null;
+  pr: string | null;
+  tags: string[];
+  agent: string | null;
+  tab_id: string | null;
+  origin: 'file' | 'note';
+  path: string | null;
+}
 
 /**
  * One chunk of the concierge's searchable memory (spec 2026-09-26 concierge memory §3.1): a card, a
@@ -26,6 +43,10 @@ export interface MemoryItem {
   content_hash: string;
   source_hash: string | null;
   embed_model: string | null;
+  meta: LessonMeta | null;
+  /** `verified_at != null && verified_hash === content_hash` (spec §3, D8): a changed text drops it. */
+  verified: boolean;
+  verified_at: string | null;
   source_at: string;
   created_at: string;
   updated_at: string;
@@ -47,6 +68,9 @@ export interface NewMemoryItem {
   source_at: Date;
   /** the whole source's hash (a doc file's sha256), so the docs sweeper can skip unchanged files; null otherwise */
   source_hash?: string | null;
+  /** Lesson metadata (spec §3); undefined/null for every other kind. `upsertIn` writes it on every
+   *  upsert but never touches `verified_*`/`hidden_hash` — those survive a re-index untouched. */
+  meta?: LessonMeta | null;
 }
 
 export interface MemoryHit extends MemoryItem {
@@ -76,13 +100,16 @@ interface RawItem {
   content_hash: string;
   source_hash: string | null;
   embed_model: string | null;
+  meta: LessonMeta | null;
+  verified_at: Date | null;
+  verified_hash: string | null;
   source_at: Date;
   created_at: Date;
   updated_at: Date;
 }
 
 const ITEM_COLUMNS = Prisma.raw(
-  `m.id, m.owner_id, m.project_id, m.kind, m.source_id, m.chunk_index, m.title, m.text, m.trust, m.content_hash, m.source_hash, m.embed_model, m.source_at, m.created_at, m.updated_at`,
+  `m.id, m.owner_id, m.project_id, m.kind, m.source_id, m.chunk_index, m.title, m.text, m.trust, m.content_hash, m.source_hash, m.embed_model, m.meta, m.verified_at, m.verified_hash, m.source_at, m.created_at, m.updated_at`,
 );
 
 /** pgvector's text input format: `[x,y,z]`. Never-finite components (NaN, Infinity) are zeroed rather
@@ -106,6 +133,9 @@ const mapRaw = (r: RawItem): MemoryItem => ({
   content_hash: r.content_hash,
   source_hash: r.source_hash,
   embed_model: r.embed_model,
+  meta: r.meta,
+  verified: r.verified_at !== null && r.verified_hash === r.content_hash,
+  verified_at: r.verified_at ? r.verified_at.toISOString() : null,
   source_at: r.source_at.toISOString(),
   created_at: r.created_at.toISOString(),
   updated_at: r.updated_at.toISOString(),
@@ -138,16 +168,17 @@ async function upsertIn(tx: RawClient, items: NewMemoryItem[]): Promise<MemoryIt
   const out: MemoryItem[] = [];
   for (const it of items) {
     const hash = contentHash(it.title, it.text);
+    const meta = it.meta ? JSON.stringify(it.meta) : null;
     const [row] = await tx.$queryRaw<(RawItem & { needs_embedding: boolean })[]>`
-      INSERT INTO "memory_items" ("id","owner_id","project_id","kind","source_id","chunk_index","title","text","trust","content_hash","source_hash","source_at","updated_at")
-      VALUES (${it.id ?? newId()}, ${it.owner_id}, ${it.project_id}, ${it.kind}, ${it.source_id}, ${it.chunk_index}, ${it.title}, ${it.text}, ${it.trust}, ${hash}, ${it.source_hash ?? null}, ${it.source_at}, now())
+      INSERT INTO "memory_items" ("id","owner_id","project_id","kind","source_id","chunk_index","title","text","trust","content_hash","source_hash","meta","source_at","updated_at")
+      VALUES (${it.id ?? newId()}, ${it.owner_id}, ${it.project_id}, ${it.kind}, ${it.source_id}, ${it.chunk_index}, ${it.title}, ${it.text}, ${it.trust}, ${hash}, ${it.source_hash ?? null}, ${meta}::jsonb, ${it.source_at}, now())
       ON CONFLICT ("kind","source_id","chunk_index") DO UPDATE SET
         "title" = EXCLUDED."title", "text" = EXCLUDED."text", "trust" = EXCLUDED."trust", "owner_id" = EXCLUDED."owner_id", "project_id" = EXCLUDED."project_id",
-        "source_at" = EXCLUDED."source_at", "updated_at" = now(), "content_hash" = EXCLUDED."content_hash", "source_hash" = EXCLUDED."source_hash",
+        "source_at" = EXCLUDED."source_at", "updated_at" = now(), "content_hash" = EXCLUDED."content_hash", "source_hash" = EXCLUDED."source_hash", "meta" = EXCLUDED."meta",
         "embedding" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embedding" ELSE NULL END,
         "embed_model" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embed_model" ELSE NULL END
       RETURNING id, owner_id, project_id, (SELECT name FROM "projects" WHERE id = "project_id") AS project_name,
-                kind, source_id, chunk_index, title, text, trust, content_hash, source_hash, embed_model, source_at, created_at, updated_at,
+                kind, source_id, chunk_index, title, text, trust, content_hash, source_hash, embed_model, meta, verified_at, verified_hash, source_at, created_at, updated_at,
                 (embedding IS NULL) AS needs_embedding`;
     if (row!.needs_embedding) out.push(mapRaw(row!));
   }
@@ -253,6 +284,7 @@ export class MemoryItemsRepository {
              1 - (m.embedding <=> ${v}::vector) AS similarity
       FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
       WHERE m.owner_id = ${filter.ownerId} AND m.embedding IS NOT NULL
+        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)
         AND (${filter.projectId ?? null}::text IS NULL OR m.project_id = ${filter.projectId ?? null})
         AND (${filter.kinds ?? null}::text[] IS NULL OR m.kind = ANY(${filter.kinds ?? null}::text[]))
       ORDER BY m.embedding <=> ${v}::vector
@@ -269,6 +301,7 @@ export class MemoryItemsRepository {
       SELECT ${ITEM_COLUMNS}, p.name AS project_name
       FROM "memory_items" m CROSS JOIN q LEFT JOIN "projects" p ON p.id = m.project_id
       WHERE m.owner_id = ${filter.ownerId}
+        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)
         AND (${filter.projectId ?? null}::text IS NULL OR m.project_id = ${filter.projectId ?? null})
         AND (${filter.kinds ?? null}::text[] IS NULL OR m.kind = ANY(${filter.kinds ?? null}::text[]))
         AND numnode(q.tsq) > 0
@@ -283,7 +316,8 @@ export class MemoryItemsRepository {
     const rows = await this.db.$queryRaw<RawItem[]>`
       SELECT ${ITEM_COLUMNS}, p.name AS project_name
       FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
-      WHERE m.owner_id = ${ownerId} AND m.id IN (${Prisma.join(ids)})`;
+      WHERE m.owner_id = ${ownerId} AND m.id IN (${Prisma.join(ids)})
+        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)`;
     return rows.map(mapRaw);
   }
 
@@ -312,5 +346,94 @@ export class MemoryItemsRepository {
   async deleteNote(id: string, ownerId: string): Promise<boolean> {
     const { count } = await this.db.memoryItem.deleteMany({ where: { id, ownerId, kind: 'note' } });
     return count > 0;
+  }
+
+  /**
+   * "Verificar" (spec §3, D8): stamps who and the current `content_hash`. Only this owner's `lesson`
+   * chunk 0 — never another owner's row, never a non-lesson row (verification only ever means anything
+   * for a lesson). False, nothing changed, when the id/owner/kind don't match.
+   */
+  async setVerified(id: string, ownerId: string, byUserId: string): Promise<boolean> {
+    const count = await this.db.$executeRaw`
+      UPDATE "memory_items" SET "verified_at" = now(), "verified_by" = ${byUserId}, "verified_hash" = "content_hash"
+      WHERE "id" = ${id} AND "owner_id" = ${ownerId} AND "kind" = 'lesson' AND "chunk_index" = 0`;
+    return count > 0;
+  }
+
+  /** "Desfazer verificação": the inverse of `setVerified`, same scope. */
+  async clearVerified(id: string, ownerId: string): Promise<boolean> {
+    const count = await this.db.$executeRaw`
+      UPDATE "memory_items" SET "verified_at" = NULL, "verified_by" = NULL, "verified_hash" = NULL
+      WHERE "id" = ${id} AND "owner_id" = ${ownerId} AND "kind" = 'lesson' AND "chunk_index" = 0`;
+    return count > 0;
+  }
+
+  /**
+   * "Esquecer" a file lesson (spec §6): sets `hidden_hash` = `content_hash` on every chunk of the
+   * item's source (its `(kind, source_id)`), so `nearest`/`textSearch`/`listLessons`/`findManyForOwner`
+   * skip it. Survives a re-index with the same content (the upsert never touches `hidden_hash`); a
+   * changed content (new `content_hash`) no longer matches the stored `hidden_hash` and comes back as
+   * a fresh, unverified lesson. False when `id` is not this owner's row.
+   */
+  async hideSource(id: string, ownerId: string): Promise<boolean> {
+    const count = await this.db.$executeRaw`
+      UPDATE "memory_items" m SET "hidden_hash" = m."content_hash"
+      FROM (SELECT "kind", "source_id" FROM "memory_items" WHERE "id" = ${id} AND "owner_id" = ${ownerId}) t
+      WHERE m."owner_id" = ${ownerId} AND m."kind" = t."kind" AND m."source_id" = t."source_id"`;
+    return count > 0;
+  }
+
+  /**
+   * "Lições" list (spec §6): the owner's `lesson` items, one row per source (chunk 0), never a hidden
+   * one, newest `source_at` first — `q` matches title or text (ILIKE), `projectId` narrows further.
+   * Keyset cursor over `(source_at, id)`.
+   */
+  async listLessons(ownerId: string, o: { q?: string; projectId?: string; cursor?: string; limit: number }): Promise<{ items: MemoryItem[]; next_cursor: string | null }> {
+    const cur = o.cursor ? decodeCursor(o.cursor) : null;
+    const like = o.q !== undefined ? `%${escapeLike(o.q)}%` : null;
+    const rows = await this.db.$queryRaw<RawItem[]>`
+      SELECT ${ITEM_COLUMNS}, p.name AS project_name
+      FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
+      WHERE m.owner_id = ${ownerId} AND m.kind = 'lesson' AND m.chunk_index = 0
+        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)
+        AND (${o.projectId ?? null}::text IS NULL OR m.project_id = ${o.projectId ?? null})
+        AND (${like}::text IS NULL OR m.title ILIKE ${like} ESCAPE '\\' OR m.text ILIKE ${like} ESCAPE '\\')
+        AND (${cur === null}::boolean OR (m.source_at, m.id) < (${cur?.createdAt ?? new Date(0)}, ${cur?.id ?? ''}))
+      ORDER BY m.source_at DESC, m.id DESC
+      LIMIT ${o.limit + 1}`;
+    const hasMore = rows.length > o.limit;
+    const page = rows.slice(0, o.limit);
+    const last = page[page.length - 1];
+    const next_cursor = hasMore && last ? encodeCursor(last.source_at, last.id) : null;
+    return { items: page.map(mapRaw), next_cursor };
+  }
+
+  /** One lesson, "Abrir origem"/verify-route lookups: this owner's `lesson` chunk 0, never a hidden one. */
+  async findLessonForOwner(id: string, ownerId: string): Promise<MemoryItem | null> {
+    const rows = await this.db.$queryRaw<RawItem[]>`
+      SELECT ${ITEM_COLUMNS}, p.name AS project_name
+      FROM "memory_items" m LEFT JOIN "projects" p ON p.id = m.project_id
+      WHERE m.id = ${id} AND m.owner_id = ${ownerId} AND m.kind = 'lesson' AND m.chunk_index = 0
+        AND (m.hidden_hash IS NULL OR m.hidden_hash <> m.content_hash)`;
+    return rows[0] ? mapRaw(rows[0]) : null;
+  }
+
+  /** `project_id → source_at` of the newest chunk (spec §4, D6): the note indexer's "is this project's
+   *  note stale" check, mirroring `listSourceAt` but grouped since a note's sections span many chunks. */
+  async latestSourceAt(kind: 'project_note', ownerId: string): Promise<Map<string, string>> {
+    const rows = await this.db.$queryRaw<{ project_id: string; source_at: Date }[]>`
+      SELECT "project_id", MAX("source_at") AS source_at FROM "memory_items"
+      WHERE "kind" = ${kind} AND "owner_id" = ${ownerId} AND "project_id" IS NOT NULL
+      GROUP BY "project_id"`;
+    return new Map(rows.map((r) => [r.project_id, r.source_at.toISOString()]));
+  }
+
+  /** `record_lesson`'s hourly cap (spec D10): this owner's note-origin lessons (chunk 0) created since `since`. */
+  async countNoteLessonsSince(ownerId: string, since: Date): Promise<number> {
+    const rows = await this.db.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(*) AS count FROM "memory_items"
+      WHERE "owner_id" = ${ownerId} AND "kind" = 'lesson' AND "chunk_index" = 0
+        AND "meta"->>'origin' = 'note' AND "created_at" >= ${since}`;
+    return Number(rows[0]!.count);
   }
 }
