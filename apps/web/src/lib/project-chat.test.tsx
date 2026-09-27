@@ -141,6 +141,15 @@ it('works without a provider (a component in isolation): nothing current, closed
   expect(text('p1')).toBe('{"busy":false,"pending":0}');
 });
 
+it('without chat permission, the shown project and alive list stay empty even with an open pref (a stored pref is per browser, not per user: an admin "ver como" a member without chat)', () => {
+  projectsMock.mockResolvedValue({ projects: [] });
+  canMock = (r) => r !== 'chat';
+  localStorage.setItem('termhub:project-chat', JSON.stringify({ p1: { open: true, width: 420, maximized: false } }));
+  render(<ProjectChatProvider><Page id="p1" /><Probe /></ProjectChatProvider>);
+  expect(text('shown')).toBe('none');
+  expect(text('alive')).toBe('');
+});
+
 it('without chat permission, neither /chat/projects nor the ws stream is touched, and status stays idle', async () => {
   // A role without `chat` (or without `terminals:read`, which the `/ws/chat` upgrade guard also
   // requires — ws/router.ts) must never open the websocket or poll the endpoint: both 403 for that

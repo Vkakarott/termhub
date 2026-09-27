@@ -55,7 +55,10 @@ export function ProjectChatProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => saveChatPrefs(prefs), [prefs]);
 
-  const shownProjectId = currentProjectId !== null && prefOf(prefs, currentProjectId).open ? currentProjectId : null;
+  // Gated on `chat` here, not just at `<ChatDock/>`: a stored pref is per browser, not per user (e.g.
+  // an admin "ver como" a member without `chat`), so a pref left open by someone else must not hide
+  // `main` (LayoutRow's `maximized`) or show a dock nobody here is allowed to see.
+  const shownProjectId = can('chat') && currentProjectId !== null && prefOf(prefs, currentProjectId).open ? currentProjectId : null;
   useEffect(() => {
     if (shownProjectId !== null) setAlive((a) => touchAlive(a, shownProjectId));
   }, [shownProjectId]);
