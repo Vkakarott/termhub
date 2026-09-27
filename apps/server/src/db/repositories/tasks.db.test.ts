@@ -540,4 +540,28 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
       expect((await repo.officeProgress([projectId])).counts[projectId]).toEqual({ todo: 1, doing: 1, done: 0 });
     });
   });
+
+  // No production code is expected to change here: this pins the guarantee the chat project grant
+  // relies on (spec 2026-09-26 project grant §2 "Can a covered call reach another project?").
+  describe('cross-project refusals (project grant relies on these)', () => {
+    it('update refuses an epic of another project', async () => {
+      const card = await repo.createWithSubtasks(projectId, { title: 'a' }, []);
+      const epicB = await repo.createWithSubtasks(otherProjectId, { title: 'e', type: 'epic' }, []);
+      await expect(repo.update(card.id, { epic_id: epicB.id })).rejects.toMatchObject({ code: 'EPIC_NOT_FOUND' });
+    });
+
+    it('move refuses a column of another project', async () => {
+      const card = await repo.createWithSubtasks(projectId, { title: 'a' }, []);
+      const originalColumnId = card.column_id;
+      await repo.createWithSubtasks(otherProjectId, { title: 'seed' }, []); // gives otherProjectId its default columns
+      const colB = await column('todo', otherProjectId);
+      await expect(repo.move(card.id, { column_id: colB.id }, 0)).rejects.toBeInstanceOf(TaskRuleError);
+      expect((await repo.findById(card.id))?.column_id).toBe(originalColumnId);
+    });
+
+    it('create refuses an epic of another project', async () => {
+      const epicB = await repo.createWithSubtasks(otherProjectId, { title: 'e', type: 'epic' }, []);
+      await expect(repo.createWithSubtasks(projectId, { title: 'a', epic_id: epicB.id }, [])).rejects.toMatchObject({ code: 'EPIC_NOT_FOUND' });
+    });
+  });
 });
