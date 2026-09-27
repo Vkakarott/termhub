@@ -15,7 +15,7 @@ jest.mock('react-native-reanimated', () => {
   return { __esModule: true, ...actual, default: actual.default, useReducedMotion: () => mockReducedMotion };
 });
 
-const frame = () => getAnimatedStyle(screen.getByTestId('composer-text')) as { marginBottom: number; marginLeft: number; height: number };
+const frame = () => getAnimatedStyle(screen.getByTestId('composer-text')) as { marginBottom: number; marginLeft: number; marginRight: number; height: number };
 
 async function renderComposer() {
   await render(<Composer sending={false} onSend={jest.fn(async () => true)} uploadAttachment={jest.fn()} deleteAttachment={jest.fn()} />);
@@ -34,6 +34,7 @@ describe('Composer motion', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockReducedMotion = false;
+    mockVoice.state = 'idle';
   });
   afterEach(() => {
     jest.runOnlyPendingTimers();
@@ -70,6 +71,31 @@ describe('Composer motion', () => {
     expect(frame()).toMatchObject({ marginLeft: 40, marginBottom: 0, height: 36 });
     // The same input all along: never remounted, so the keyboard would have stayed up.
     expect(screen.getByLabelText('Mensagem')).toBe(input);
+  });
+
+  it('with a line typed, ↑ joins the microphone on the right and the text makes room for it', async () => {
+    const input = await renderComposer();
+    expect(screen.getByRole('button', { name: 'Ditar' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Enviar' })).toBeNull();
+    expect(frame().marginRight).toBe(40);
+
+    await fireEvent.changeText(input, 'oi');
+    expect(screen.getByRole('button', { name: 'Ditar' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeEnabled();
+    await elapse(80);
+    expect(frame().marginRight).toBeGreaterThan(40);
+    expect(frame().marginRight).toBeLessThan(84);
+    await elapse(300);
+    // Still one line, beside the buttons: 📎 on the left, the microphone and ↑ on the right.
+    expect(frame()).toMatchObject({ marginLeft: 40, marginRight: 84, marginBottom: 0, height: 36 });
+  });
+
+  it('with dictation off there is no microphone, and the empty box keeps a disabled ↑', async () => {
+    mockVoice.state = 'off';
+    await renderComposer();
+    expect(screen.queryByRole('button', { name: 'Ditar' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
+    expect(frame().marginRight).toBe(40);
   });
 
   it('jumps straight to the new layout when the system asks for reduced motion', async () => {

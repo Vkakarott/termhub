@@ -310,7 +310,7 @@ describe('Conversa', () => {
     expect(screen.queryByRole('button', { name: 'Permitir sempre nesta aba' })).toBeNull();
   });
 
-  it('an empty box offers Ditar; typing turns it into Enviar, which sends and empties the box at once', async () => {
+  it('an empty box offers Ditar; typing adds Enviar beside it, which sends and empties the box at once', async () => {
     const sent = jest.spyOn(stores.api, 'sendMessage').mockResolvedValue({ conversation_id: 'c-termhub', user_message_id: 'u', assistant_message_id: 'a' });
     await render(<ConversationScreen />);
     await screen.findByText(SEEDED_USER, undefined, LOAD);
@@ -320,7 +320,8 @@ describe('Conversa', () => {
     expect(screen.queryByRole('button', { name: 'Enviar' })).toBeNull();
 
     await fireEvent.changeText(screen.getByLabelText('Mensagem'), 'como está o deploy?');
-    expect(screen.queryByRole('button', { name: 'Ditar' })).toBeNull();
+    // The microphone stays: dictating adds to what is typed.
+    expect(screen.getByRole('button', { name: 'Ditar' }).props.accessibilityState.disabled).toBe(false);
     await fireEvent.press(screen.getByRole('button', { name: 'Enviar' }));
     expect(sent).toHaveBeenCalledWith(expect.anything(), { text: 'como está o deploy?', project_id: 'p-termhub' });
     expect(screen.getByLabelText('Mensagem').props.value).toBe('');
@@ -337,6 +338,8 @@ describe('Conversa', () => {
     await act(() => mockOnText!('roda os testes')); // a re-render: the hook's state is read again
     expect(screen.getByLabelText('Mensagem').props.value).toBe('roda os testes');
     expect(screen.getByText('1:05')).toBeTruthy();
+    // Listening never sends mid-sentence: ↑ steps aside while recording, even with text in the box.
+    expect(screen.queryByRole('button', { name: 'Enviar' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'Parar' }));
     expect(mockVoice.stop).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByRole('button', { name: 'Cancelar gravação' }));

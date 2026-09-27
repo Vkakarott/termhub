@@ -20,8 +20,11 @@ const MAX_HEIGHT = LINE_HEIGHT * MAX_ROWS;
 const ROW_HEIGHT = 36;
 const PILL_X = 4;
 const PILL_Y = 6;
-/** A button and the gap next to it: how far the text keeps off each side while it shares the row. */
-const BESIDE = ROW_HEIGHT + 4;
+/** The gap between the row's items (`gap-2`), and between the text and a button beside it. */
+const ROW_ITEM_GAP = 8;
+const TEXT_GAP = 4;
+/** How far the text keeps off a side while it shares the row with `buttons` buttons there. */
+const beside = (buttons: number) => (buttons === 0 ? 0 : buttons * ROW_HEIGHT + (buttons - 1) * ROW_ITEM_GAP + TEXT_GAP);
 /** Where the text starts on its own line, and the gap between it and the buttons' row. */
 const TEXT_INSET = 8;
 const TEXT_TOP = 6;
@@ -31,13 +34,14 @@ const GLIDE = { duration: 220, easing: Easing.out(Easing.cubic), reduceMotion: R
 
 /**
  * The text's frame inside the pill. The buttons' row is pinned to the pill's bottom in both layouts;
- * sharing it, the text sits between 📎 and the round button, centred on the row; on its own, it takes
- * the whole width and keeps the row free below. The pill's height is whatever this frame adds up to.
+ * sharing it, the text sits between 📎 and the `rightButtons` on the right (the microphone, and ↑ once
+ * there is something to send), centred on the row; on its own, it takes the whole width and keeps the
+ * row free below. The pill's height is whatever this frame adds up to.
  */
-function textFrame(stacked: boolean, height: number) {
+function textFrame(stacked: boolean, height: number, rightButtons: number) {
   return stacked
     ? { left: TEXT_INSET, right: TEXT_INSET, top: TEXT_TOP, height: TEXT_TOP + height, below: ROW_HEIGHT + ROW_GAP }
-    : { left: BESIDE, right: BESIDE, top: (ROW_HEIGHT - LINE_HEIGHT) / 2, height: ROW_HEIGHT, below: 0 };
+    : { left: beside(1), right: beside(rightButtons), top: (ROW_HEIGHT - LINE_HEIGHT) / 2, height: ROW_HEIGHT, below: 0 };
 }
 
 /** A number that glides to each new target, or jumps there when the system asks for reduced motion. */
@@ -52,15 +56,15 @@ function useGlide(target: number, still: boolean): SharedValue<number> {
 /** The number of chips 📎 stops at. */
 const MAX_CHIPS = MAX_ATTACHMENTS_PER_MESSAGE;
 
-/** What the single round button does right now. Exactly one of these, in every state. */
-type PrimaryRole = 'dictate' | 'send' | 'stop';
+/** What the microphone button does right now: dictate, or stop the recording it started. */
+type MicRole = 'dictate' | 'stop';
 
-const PRIMARY_LABEL: Record<PrimaryRole, string> = { dictate: 'Ditar', send: 'Enviar', stop: 'Parar' };
-const PRIMARY_ICON: Record<PrimaryRole, IconName> = {
+const MIC_LABEL: Record<MicRole, string> = { dictate: 'Ditar', stop: 'Parar' };
+const MIC_ICON: Record<MicRole, IconName> = {
   dictate: { ios: 'mic', android: 'mic' },
-  send: { ios: 'arrow.up', android: 'arrow_upward' },
   stop: { ios: 'stop.fill', android: 'stop' },
 };
+const SEND_ICON: IconName = { ios: 'arrow.up', android: 'arrow_upward' };
 const ATTACH_ICON: IconName = { ios: 'paperclip', android: 'attach_file' };
 
 /**
@@ -92,13 +96,13 @@ type Props = {
 /**
  * The message box (chat redesign spec §4.2 "Composer", attachments spec 2026-09-26 §5.6): one rounded
  * pill holding the attachment chips on top and a `TextInput` whose height follows its content between
- * `MIN_ROWS` and `MAX_ROWS` lines. While the text fits on one line, 📎, the text and the one round
- * button sit side by side; once it wraps (or while recording, or with a status to show) the text takes
- * the pill's whole width and the buttons get a row of their own under it, inside the pill — the web
- * composer's "one box, two rows". The buttons' row stays pinned to the pill's bottom, next to the
- * keyboard: the pill grows upwards and the text glides between the two places (`GLIDE`), line by
- * line, unless the system asks for reduced motion. The round button is a microphone with nothing typed and no chips, the send arrow with
- * text or chips, a stop square while recording, the web's rules. Nothing leaves while a chip is still uploading, and nothing leaves
+ * `MIN_ROWS` and `MAX_ROWS` lines. While the text fits on one line, 📎, the text and the buttons on
+ * the right (the microphone, and ↑ beside it once there is text or a chip — ChatGPT's pair) sit side
+ * by side; once it wraps (or while recording, or with a status to show) the text takes the pill's
+ * whole width and the buttons get a row of their own under it, inside the pill — the web composer's
+ * "one box, two rows". The buttons' row stays pinned to the pill's bottom, next to the keyboard: the
+ * pill grows upwards and the text glides between the two places (`GLIDE`), line by line, unless the
+ * system asks for reduced motion. Nothing leaves while a chip is still uploading, and nothing leaves
  * with a chip the server could not read (it would answer 409): the line says to remove it. The text
  * clears as soon as it is sent and comes back if the send fails; the chips only go once the server
  * accepted. The status, error and notice lines are always mounted, so text appearing in them moves
@@ -151,11 +155,15 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
 
   /** The clip is on its way to the server: nothing else can be done with the box's content yet. */
   const busy = voice.state === 'uploading' || voice.state === 'transcribing';
-  // Recording outranks the text: a box that is listening stops, it never sends mid-sentence. With
-  // nothing typed and no chips the button dictates — unless dictation is off, where the empty box
-  // keeps the (disabled) send button. While `checking` or `starting` it is the microphone, disabled.
-  const role: PrimaryRole = voice.state === 'recording' ? 'stop' : hasText || hasChips || voice.state === 'off' ? 'send' : 'dictate';
-  const disabled = role === 'stop' ? false : role === 'send' ? !canSend || busy : busy || voice.state === 'checking' || voice.state === 'starting';
+  // ChatGPT's pair on the right: the microphone is always there (dictating adds to what is typed),
+  // and ↑ joins it once there is text or a chip. Recording outranks the text: the microphone becomes
+  // the stop square and ↑ steps aside, so a box that is listening never sends mid-sentence. With
+  // dictation off there is no microphone and the empty box keeps the (disabled) ↑. While `checking`
+  // or `starting` the microphone is there, disabled.
+  const micRole: MicRole | null = voice.state === 'off' ? null : voice.state === 'recording' ? 'stop' : 'dictate';
+  const micDisabled = micRole === 'dictate' && (busy || voice.state === 'checking' || voice.state === 'starting');
+  const showSend = voice.state !== 'recording' && (hasText || hasChips || voice.state === 'off');
+  const sendDisabled = !canSend || busy;
   const statusText = busy
     ? 'transcrevendo…'
     : attachments.uploading
@@ -163,7 +171,6 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
       : invalid
         ? CHAT_MSG.attachmentInvalid
         : (attachments.notice ?? '');
-  const onPrimary = role === 'stop' ? voice.stop : role === 'send' ? () => void submit() : voice.start;
   // No 📎 while dictation holds the microphone or its clip: the sheet's recorder would release the
   // audio session under it (one recorder at a time), and five chips is the message's limit.
   const attachOff = attachments.drafts.length >= MAX_CHIPS || voice.state === 'starting' || voice.state === 'recording' || busy;
@@ -171,7 +178,7 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
   // The status line needs the row's middle, which the text covers while it shares the row.
   const stacked = wrapped || voice.state === 'recording' || statusText !== '';
   const still = useReducedMotion();
-  const frame = textFrame(stacked, height);
+  const frame = textFrame(stacked, height, (micRole ? 1 : 0) + (showSend ? 1 : 0));
   const left = useGlide(frame.left, still);
   const right = useGlide(frame.right, still);
   const top = useGlide(frame.top, still);
@@ -203,22 +210,34 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
       {statusText}
     </Text>
   ) : null;
-  // Send and stop are the filled circle (the text colour, so it inverts with the theme); the
-  // microphone is a plain symbol, like the one next to an empty ChatGPT box.
-  const filled = role !== 'dictate';
-  const primary = (
+  // The microphone is a plain symbol, like the one next to ChatGPT's box; stop and ↑ are the filled
+  // circle in the text colour, so it inverts with the theme (white on the dark one).
+  const mic = micRole ? (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={PRIMARY_LABEL[role]}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPrimary}
+      accessibilityLabel={MIC_LABEL[micRole]}
+      accessibilityState={{ disabled: micDisabled }}
+      disabled={micDisabled}
+      onPress={micRole === 'stop' ? voice.stop : voice.start}
       hitSlop={4}
-      className={`h-9 w-9 items-center justify-center rounded-full ${filled ? 'bg-app-text' : ''} ${disabled ? 'opacity-40' : ''}`}
+      className={`h-9 w-9 items-center justify-center rounded-full ${micRole === 'stop' ? 'bg-app-text' : ''} ${micDisabled ? 'opacity-40' : ''}`}
     >
-      <Icon name={PRIMARY_ICON[role]} size={filled ? 16 : 20} tone={filled ? 'bg' : 'text'} />
+      <Icon name={MIC_ICON[micRole]} size={micRole === 'stop' ? 16 : 20} tone={micRole === 'stop' ? 'bg' : 'text'} />
     </Pressable>
-  );
+  ) : null;
+  const send = showSend ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Enviar"
+      accessibilityState={{ disabled: sendDisabled }}
+      disabled={sendDisabled}
+      onPress={() => void submit()}
+      hitSlop={4}
+      className={`h-9 w-9 items-center justify-center rounded-full bg-app-text ${sendDisabled ? 'opacity-40' : ''}`}
+    >
+      <Icon name={SEND_ICON} size={16} tone="bg" />
+    </Pressable>
+  ) : null;
 
   return (
     <View className="bg-app-bg px-3 pb-2 pt-2">
@@ -253,7 +272,8 @@ export function Composer({ sending, onSend, uploadAttachment, deleteAttachment, 
             ) : null}
           </View>
           {status}
-          {primary}
+          {mic}
+          {send}
         </View>
         <Animated.View testID="composer-text" style={[{ overflow: 'hidden' }, textStyle]}>
           <TextInput
