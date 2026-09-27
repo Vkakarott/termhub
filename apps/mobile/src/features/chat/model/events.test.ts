@@ -203,7 +203,7 @@ describe('tab grants', () => {
 
 describe('project grants', () => {
   const pg = { id: 'pg1', project_id: 'p1', project_name: 'termhub', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z' };
-  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
+  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
 
   it('a project_grant event adds it; a second grant for the same project replaces the first', () => {
     const added = applyEvent(slice, { type: 'project_grant', ...base, grant: pg });
