@@ -24,7 +24,9 @@ const response = (): ProgressResponse => ({
       units: { done: 3, total: 5 }, percent: 60, started_at: null, done_at: null, active_seconds: 1800,
       estimate: { kind: 'range', low_s: 1200, high_s: 2700, basis: 'agent_time', samples: 3 },
       agents: [{ tab_id: 't1', tab_name: 'spec', machine_name: 'jarvis', subtask_ref: null, state: 'working', state_at: '2026-09-27T11:50:00.000Z', needs_you: false, activity: 'coding', activity_verb: 'Coding', rate_limited: false }],
+      pull_requests: [],
     }],
+    ci: null, ci_error: null,
   }],
 });
 
@@ -53,6 +55,24 @@ describe('ProgressPanel', () => {
     expect(screen.getByText('1 cards sem estimativa')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /TER-183/ })).toHaveAttribute('href', '/project/TER-183');
     expect(screen.getByRole('link', { name: /spec.*trabalhando/ })).toHaveAttribute('href', '/projects/p1?tab=t1');
+  });
+
+  it('shows PR badges, the epic CI line and a sync error', async () => {
+    const withPr = response();
+    withPr.epics[0]!.ci = { open: 1, failed: 1, running: 0, deployed: 0 };
+    withPr.epics[0]!.ci_error = 'GitHub: repositório não encontrado';
+    withPr.epics[0]!.cards[0]!.pull_requests = [{
+      number: 12, url: 'https://github.com/acme/app/pull/12', title: 'Painel', state: 'open', draft: true,
+      ci_state: 'failed', ci_summary: { total: 2, passed: 1, failed: 1, running: 0, failing: ['lint'] }, deploy_state: 'none', deploy_url: null,
+    }];
+    progressMock.mockResolvedValue(withPr);
+    mount();
+    const link = await screen.findByRole('link', { name: /PR #12/ });
+    expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
+    expect(link).toHaveTextContent('rascunho');
+    expect(screen.getByText('CI falhou: lint')).toBeInTheDocument();
+    expect(screen.getByText('PRs: 1 aberto · 1 falhou')).toBeInTheDocument();
+    expect(screen.getByText('GitHub: repositório não encontrado')).toBeInTheDocument();
   });
 
   it('overlays the live monitor state and lists who is waiting for the user', async () => {

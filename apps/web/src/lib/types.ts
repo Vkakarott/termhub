@@ -270,6 +270,18 @@ export interface AgentOnCard {
   activity_verb: string | null;
   rate_limited: boolean;
 }
+/** A GitHub PR linked to a card, with its CI and deploy status (spec 2026-09-26 progress-panel §5.2). */
+export interface PullRequestBadge {
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'closed' | 'merged';
+  draft: boolean;
+  ci_state: 'none' | 'running' | 'passed' | 'failed';
+  ci_summary: { total: number; passed: number; failed: number; running: number; failing: string[] };
+  deploy_state: 'none' | 'running' | 'passed' | 'failed';
+  deploy_url: string | null;
+}
 export interface CardProgress {
   id: string;
   ref: string;
@@ -284,6 +296,7 @@ export interface CardProgress {
   active_seconds: number;
   estimate: ProgressEstimate;
   agents: AgentOnCard[] | null;
+  pull_requests: PullRequestBadge[];
 }
 export interface EpicProgress {
   id: string;
@@ -296,6 +309,9 @@ export interface EpicProgress {
   cards_without_estimate: number;
   agents: { working: number; needs_you: number; idle: number } | null;
   cards: CardProgress[];
+  /** distinct PR numbers across the epic's cards; null when none has a PR */
+  ci: { open: number; failed: number; running: number; deployed: number } | null;
+  ci_error: string | null;
 }
 export interface ProgressResponse {
   epics: EpicProgress[];

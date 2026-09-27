@@ -1,4 +1,4 @@
-import type { AgentOnCard, EpicProgress, ProgressEstimate, Tab, TabState } from './types';
+import type { AgentOnCard, EpicProgress, ProgressEstimate, PullRequestBadge, Tab, TabState } from './types';
 
 const HOUR = 3600;
 
@@ -53,4 +53,20 @@ export function needsYouAgents(epics: EpicProgress[]): AgentOnCard[] {
   const byTab = new Map<string, AgentOnCard>();
   for (const e of epics) for (const c of e.cards) for (const a of c.agents ?? []) if (a.needs_you) byTab.set(a.tab_id, a);
   return [...byTab.values()];
+}
+
+/** One line per PR: an open PR by its CI, a merged one by its deploy (spec §5.6). */
+export function ciLabel(p: PullRequestBadge): string {
+  if (p.state === 'closed') return 'fechado';
+  if (p.state === 'merged') return { none: 'mergeado', running: 'deploy rodando', passed: 'deploy ok', failed: 'deploy falhou' }[p.deploy_state];
+  if (p.ci_state === 'failed') return p.ci_summary.failing.length ? `CI falhou: ${p.ci_summary.failing.join(', ')}` : 'CI falhou';
+  return { none: 'sem CI', running: 'CI rodando', passed: 'CI verde' }[p.ci_state];
+}
+
+export function epicCiLine(ci: NonNullable<EpicProgress['ci']>): string {
+  const parts = [`${ci.open} ${ci.open === 1 ? 'aberto' : 'abertos'}`];
+  if (ci.failed) parts.push(`${ci.failed} falhou`);
+  if (ci.running) parts.push(`${ci.running} rodando`);
+  if (ci.deployed) parts.push(`${ci.deployed} em produção`);
+  return `PRs: ${parts.join(' · ')}`;
 }
