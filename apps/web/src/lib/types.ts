@@ -899,6 +899,19 @@ export interface ChatGrant {
   tab_name: string | null;
 }
 
+/**
+ * A "Permitir sempre neste projeto" grant, as the server enriches it: it trusts the whole board of one
+ * project rather than a single tab. `project_name` is null once the project is gone.
+ */
+export interface ChatProjectGrant {
+  id: string;
+  project_id: string;
+  project_name: string | null;
+  source_action_id: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
 /** How a listed grant stands: in force, run out, revoked by someone, or ended by "Nova conversa". */
 export type ChatGrantState = 'active' | 'expired' | 'revoked' | 'ended';
 
@@ -1049,7 +1062,11 @@ export type ChatEvent =
   | { type: 'grant'; grant: ChatGrant; conversation_id?: string }
   /** A grant was revoked (by this or another tab, or because it expired and a reset ended it). */
   | { type: 'grant_revoked'; grant_id: string; conversation_id?: string }
-  /** An action the server ran straight away under a trusted tab, with no confirmation card first. */
+  /** A new (or renewed) "Permitir sempre neste projeto" grant, e.g. from "Permitir sempre neste projeto" in another tab. */
+  | { type: 'project_grant'; grant: ChatProjectGrant; conversation_id?: string }
+  /** A project grant was revoked (by this or another tab, or because it expired and a reset ended it). */
+  | { type: 'project_grant_revoked'; grant_id: string; conversation_id?: string }
+  /** An action the server ran straight away under a trusted tab or a trusted project, with no confirmation card first. */
   | { type: 'granted_action'; action: ChatAction; conversation_id?: string }
   /** A tab asked something, the chat answered it (or failed to), or it left the tab's screen: the whole card each time. */
   | { type: 'tab_question' | 'tab_question_answered' | 'tab_question_closed'; question: TabQuestion; conversation_id?: string }

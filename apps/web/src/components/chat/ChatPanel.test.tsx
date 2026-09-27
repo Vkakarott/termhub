@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
-import type { ChatAction, ChatGrant, ChatMessage, TabQuestion, TabSuggestion } from '../../lib/types';
+import type { ChatAction, ChatGrant, ChatMessage, ChatProjectGrant, TabQuestion, TabSuggestion } from '../../lib/types';
 
 const chatMock = vi.fn();
 const sendMock = vi.fn();
@@ -102,6 +102,15 @@ const grant = (over: Partial<ChatGrant> & { id: string }): ChatGrant => ({
   created_at: '2026-09-21T00:00:00.000Z',
   expires_at: new Date(Date.now() + 3_600_000).toISOString(),
   tab_name: 'Terminal 1',
+  ...over,
+});
+
+const projectGrant = (over: Partial<ChatProjectGrant> & { id: string }): ChatProjectGrant => ({
+  project_id: 'p1',
+  project_name: 'App',
+  source_action_id: 'a1',
+  created_at: '2026-09-21T00:00:00.000Z',
+  expires_at: new Date(Date.now() + 3_600_000).toISOString(),
   ...over,
 });
 
@@ -276,8 +285,35 @@ it('shows how many tabs are trusted as a link to Configurações, and no strip',
       <ChatPanel projectId="p1" />
     </MemoryRouter>,
   );
-  expect(await screen.findByRole('link', { name: '2 abas confiáveis' })).toHaveAttribute('href', '/settings/chat-grants');
+  expect(await screen.findByRole('link', { name: '2 permissões ativas' })).toHaveAttribute('href', '/settings/chat-grants');
   expect(screen.queryByText(/Enviando direto para/)).toBeNull();
+});
+
+it('counts tab and project grants in the indicator', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [grant({ id: 'g1' })], project_grants: [projectGrant({ id: 'pg1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole('link', { name: '2 permissões ativas' })).toHaveAttribute('href', '/settings/chat-grants');
+});
+
+it('project_grant_revoked removes it from the indicator', async () => {
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    return { connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [], project_grants: [projectGrant({ id: 'pg1' }), projectGrant({ id: 'pg2', project_id: 'p2' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+  onEvent({ type: 'project_grant_revoked', conversation_id: 'c_p1', grant_id: 'pg1' });
+  expect(await screen.findByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
 });
 
 it('no link without an active grant', async () => {
@@ -394,7 +430,7 @@ it('"Permitir sempre nesta aba" on a pending card records the grant, shows it on
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Permitir sempre nesta aba' }));
   await waitFor(() => expect(decideMock).toHaveBeenCalledWith('a1', 'approve_tab'));
-  expect(await screen.findByRole('link', { name: '1 aba confiável' })).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
   expect(screen.getByText(/^Permitido nesta aba até/)).toBeInTheDocument();
 });
 
@@ -443,16 +479,16 @@ it('a grant event adds to the header count, a grant_revoked removes it, a grante
   await waitFor(() => expect(chatMock).toHaveBeenCalled());
 
   onEvent({ type: 'grant', conversation_id: 'c_other', grant: grant({ id: 'g_other' }) });
-  expect(screen.queryByRole('link', { name: '1 aba confiável' })).toBeNull();
+  expect(screen.queryByRole('link', { name: '1 permissão ativa' })).toBeNull();
 
   onEvent({ type: 'grant', conversation_id: 'c_p1', grant: grant({ id: 'g1' }) });
-  expect(await screen.findByRole('link', { name: '1 aba confiável' })).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
 
   onEvent({ type: 'granted_action', conversation_id: 'c_p1', action: action({ id: 'a2', status: 'executed', grant_id: 'g1' }) });
   expect(await screen.findByText('Executado · aba confiada')).toBeInTheDocument();
 
   onEvent({ type: 'grant_revoked', conversation_id: 'c_p1', grant_id: 'g1' });
-  await waitFor(() => expect(screen.queryByRole('link', { name: '1 aba confiável' })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole('link', { name: '1 permissão ativa' })).toBeNull());
 });
 
 const question = (over: Partial<TabQuestion> & { id: string }): TabQuestion =>

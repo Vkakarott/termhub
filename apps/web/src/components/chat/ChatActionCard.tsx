@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import type { ChatAction, ChatGrant } from '../../lib/types';
+import type { ChatAction, ChatGrant, ChatProjectGrant } from '../../lib/types';
 import { untilLabel } from './grant-time';
 
 /** How a decided action reads once there is nothing left to click. `pending` has its own buttons
@@ -18,6 +18,11 @@ export function isTabGrantable(action: ChatAction): boolean {
   return action.tool === 'send_input' && args.answering_permission !== true && Boolean(action.tab_id);
 }
 
+/** The tools "Permitir sempre neste projeto" can trust: every write that only ever touches the board. */
+const BOARD_GRANT_TOOLS = new Set(['create_task', 'add_subtasks', 'update_task', 'move_task']);
+/** Mirrors the server's `BOARD_GRANT_TOOLS`; the server still refuses a card whose project does not resolve. */
+export const isBoardGrantable = (action: ChatAction): boolean => BOARD_GRANT_TOOLS.has(action.tool);
+
 export interface ChatActionCardProps {
   action: ChatAction;
   /** This card's decision is in flight (`decidingId` in `ChatPanel`): its buttons are disabled. */
@@ -26,11 +31,13 @@ export interface ChatActionCardProps {
   note?: string;
   /** The active grant this card created ("Permitir sempre nesta aba"), if it is still in force. */
   grant?: ChatGrant;
+  /** The active project grant this card created ("Permitir sempre neste projeto"), if still in force. */
+  projectGrant?: ChatProjectGrant;
   revoking?: boolean;
   /** Takes the grant's id, so the panel can pass one stable callback to every card. */
   onRevoke?: (grantId: string) => void;
   /** Takes the action's id, for the same reason. */
-  onDecide: (id: string, decision: 'approve' | 'deny' | 'approve_tab') => void;
+  onDecide: (id: string, decision: 'approve' | 'deny' | 'approve_tab' | 'approve_project') => void;
 }
 
 /**
@@ -38,7 +45,7 @@ export interface ChatActionCardProps {
  * request, the decision call and the queued note all live in `ChatPanel`. Memoised, with callbacks
  * that take the id: a streamed delta re-renders the panel, and this card must not follow.
  */
-export const ChatActionCard = memo(function ChatActionCard({ action, deciding, note, grant, revoking, onRevoke, onDecide }: ChatActionCardProps) {
+export const ChatActionCard = memo(function ChatActionCard({ action, deciding, note, grant, projectGrant, revoking, onRevoke, onDecide }: ChatActionCardProps) {
   return (
     <li className="chat-enter rounded-xl border border-attention/40 bg-bg-2 px-4 py-3 text-sm">
       {/* Plain text only — never HTML: this sentence can carry a command the model read off a real terminal screen. */}
@@ -53,6 +60,11 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
               Permitir sempre nesta aba
             </button>
           )}
+          {isBoardGrantable(action) && (
+            <button type="button" className="btn-ghost" disabled={deciding} onClick={() => onDecide(action.id, 'approve_project')}>
+              Permitir sempre neste projeto
+            </button>
+          )}
           <button type="button" className="btn-danger" disabled={deciding} onClick={() => onDecide(action.id, 'deny')}>
             Recusar
           </button>
@@ -60,13 +72,21 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
       ) : (
         <p className="mt-1 text-xs text-fg-dim">
           {ACTION_STATUS_LABEL[action.status]}
-          {action.grant_id ? ' · aba confiada' : ''}
+          {action.grant_id ? (isBoardGrantable(action) ? ' · quadro confiado' : ' · aba confiada') : ''}
         </p>
       )}
       {grant && (
         <p className="mt-1 flex items-center gap-2 text-xs text-fg-dim">
           <span>Permitido nesta aba {untilLabel(grant.expires_at)}</span>
           <button type="button" className="underline hover:text-fg" disabled={revoking} onClick={() => onRevoke?.(grant.id)}>
+            Revogar
+          </button>
+        </p>
+      )}
+      {projectGrant && (
+        <p className="mt-1 flex items-center gap-2 text-xs text-fg-dim">
+          <span>Permitido neste projeto {untilLabel(projectGrant.expires_at)}</span>
+          <button type="button" className="underline hover:text-fg" disabled={revoking} onClick={() => onRevoke?.(projectGrant.id)}>
             Revogar
           </button>
         </p>
