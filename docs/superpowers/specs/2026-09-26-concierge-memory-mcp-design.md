@@ -361,6 +361,35 @@ context the card routes build — no token, so the gate is not involved (the per
   reach the app through `env_file` alone; compose only lists `EMBED_URL`/`EMBED_SECRET`/`WHISPER_*`
   explicitly, because those need a compose-network default (`http://embed:8000`, …) that plain
   `env_file` passthrough cannot supply.
+- **A cancelled countdown is never overwritten** (final review). `setAutoAnswer` refuses a row whose
+  countdown is `scheduled`, `sent` *or* `cancelled`: two overlapping `answer_tab_question` calls both
+  read the card before the person's cancel (the ≤ 2 s embed widens the window), and the second must not
+  restart the countdown the person just stopped. The tool re-reads the row after a lost write and, when
+  the countdown is now `cancelled`, reports the same `cancelled_by_person` downgrade (and writes the
+  suggestion) a later call would get; any other lost write is still `QUESTION_CLOSED`.
+- **Option descriptions count, on both automatic paths** (D6, D7, final review). Claude Code's options
+  often carry their meaning in `description` ("Opção 1" — "faz merge e push para main"), so: the
+  blocklist also reads the chosen options' descriptions (`blocklistParts`, shared by
+  `maybeScheduleRepeat` and `answer_tab_question`); a cited decision backs an answer only if every
+  chosen option's description equals the one the precedent stored for that label (`decisionBacks`,
+  `labelKey` on both sides) — the same label meaning something else is not a precedent; and the repeat
+  path now re-reads the decisions its suggestion cites (`precedentBacks`) instead of trusting the
+  suggestion, so a forgotten or differently-described precedent leaves the card a plain suggestion.
+  The countdown line on web and mobile shows the chosen description after the label, cut at 80
+  characters: "Resposta automática em 0:42 — «Opção 1» (faz merge e push para main)".
+- **A suggestion that arrives after the card is on screen is shown** (§8, final review). The wake →
+  `answer_tab_question` → suggest path lands 10–60 s after the card; both cards re-seed their hint
+  when `suggestion`'s items change (compared by content, so a republish of the same one never revives
+  a forgotten pre-selection) and pre-select it only while the person has not edited the card (an
+  option pressed, a text typed, a suggestion forgotten) — their own choice is never overwritten.
+- **Turning "Responder sozinho" off cancels what it already started** (D8, final review). `PATCH
+  /memory { autodecide: false }` stores the switch, then cancels every countdown of that user still
+  `scheduled` (`cancelScheduledForUser`, one conditional UPDATE, `decided_by` = the user) and
+  republishes those cards; a countdown already `sent` is the sender's, which re-reads the switch and
+  fails as `AUTODECIDE_OFF`. Also from the final review: "Cancelar"/"Responder agora" stay visible past
+  0:00 until the server says `sent` ("Enviando…" beside them), `list_tab_questions` returns the newest
+  50 cards and sanitises the tab name, `search_memory` refuses an empty `kinds`, and the memory sweeper
+  drains up to 20 embed batches per tick while each comes back full.
 - **Known limits, reported by the tasks that hit them, left as is:** an old mobile build shows a
   concierge-scheduled card's pre-selected answer with no countdown (it does not know the new field) —
   acceptable during rollout, since the person can still answer normally; the docs sweeper re-reads an
