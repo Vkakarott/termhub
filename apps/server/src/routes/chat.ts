@@ -39,6 +39,7 @@ const batchBody = z.object({
 });
 const grantIdParam = z.object({ id: z.string().min(1).max(64) });
 const tabQuestionIdParam = z.object({ id: z.string().min(1).max(64) });
+const subagentIdParam = z.object({ id: z.string().min(1).max(64) });
 /** The host pair the user picks: the machine, and optionally which of its Claude accounts. No account
  *  (absent or null) means the machine's own default config dir. */
 const hostBody = z.object({ machine_id: z.string().min(1).max(64), ai_account_id: z.string().min(1).max(64).nullish() });
@@ -62,7 +63,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // The trail comes from here, not from live events (which only update what is already on
     // screen): a reload must see every pending/decided action exactly as the server has it,
     // including an old denied row sitting beside a newer pending one for the same proposal.
-    const [messages, rows, host, grants, project_grants, questionRows] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, questionRows, subagents] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       // The state, not a rendered sentence: which machine will run the next message, or which of the
@@ -73,11 +74,13 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       activeGrants(repos, request.scope.user.id, conversation.id),
       activeProjectGrants(repos, request.scope.user.id, conversation.id),
       repos.tabQuestions.listByConversation(conversation.id),
+      // The subagents panel (spec 2026-09-26 §4): every one still open, plus any that ended recently.
+      deps.service.subagentsFor(conversation.id),
     ]);
     // Scoped to this request's own user: a card must never resolve a name this user cannot see.
     const actions = await describeActions(repos, rows, request.scope.user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, request.scope.user.id));
-    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions };
+    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents };
   });
 
   /**
@@ -212,6 +215,17 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { actions: decided, skipped, queued: true, note: QUEUED_NOTE };
       throw err;
     }
+  });
+
+  /**
+   * "Cancelar" on a subagent's row in the panel (spec 2026-09-26 §4): asks the live process to stop it.
+   * `cancelSubagent` throws 404 for a foreign or missing id, 409 `SUBAGENT_NOT_RUNNING` for one already
+   * at rest and 409 `SUBAGENT_GONE` for one whose process is no longer around to ask.
+   */
+  app.post('/subagents/:id/cancel', { config: { action: 'create' } }, async (request, reply) => {
+    const { id } = subagentIdParam.parse(request.params);
+    const subagent = await deps.service.cancelSubagent(request.scope.user, id);
+    return reply.code(202).send({ subagent });
   });
 
   /** "Abas confiáveis" (Configurações): every grant of this user, active or a page of the history. */

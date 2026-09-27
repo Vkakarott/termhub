@@ -12,6 +12,8 @@ export const ORCHESTRATOR_PROMPT = [
   '- Messages can arrive while subagents run: answer them right away. To change a delegated task, launch a new subagent with the correction.',
   '- Subagents use the same termhub tools and the same confirmation gate: when one stops waiting for the person to confirm an action in the chat, tell them.',
   '- Answer quick questions (one read, a status) yourself, without a subagent.',
+  '- The person can cancel a subagent from the chat. Its notification then says it was stopped: acknowledge it in one short sentence and do not relaunch it unless asked.',
+  '- A message from the termhub server saying it restarted lists the subagents that were interrupted: relaunch in the background only those still worth doing, then answer the messages that follow.',
 ].join('\n');
 
 /** The `append_system_prompt` of a streamed run: the orchestrator's rules, then the project's focus. */

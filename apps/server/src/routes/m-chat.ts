@@ -24,6 +24,7 @@ const resetBody = z.object({ project_id: z.string().min(1).max(64).nullish() });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
 const grantIdParam = z.object({ id: z.string().min(1).max(64) });
 const tabQuestionIdParam = z.object({ id: z.string().min(1).max(64) });
+const subagentIdParam = z.object({ id: z.string().min(1).max(64) });
 const hostBody = z.object({ machine_id: z.string().min(1).max(64), ai_account_id: z.string().min(1).max(64).nullish() });
 
 /**
@@ -82,17 +83,19 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     const projectId = project ?? null;
     const user = request.scope.user;
     const conversation = await deps.chat.conversationFor(user, projectId);
-    const [messages, rows, host, grants, project_grants, questionRows] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, questionRows, subagents] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       deps.chat.hostFor(user, projectId),
       activeGrants(repos, user.id, conversation.id),
       activeProjectGrants(repos, user.id, conversation.id),
       repos.tabQuestions.listByConversation(conversation.id),
+      // The subagents panel (spec 2026-09-26 §4), same as the web's GET /api/chat.
+      deps.chat.subagentsFor(conversation.id),
     ]);
     const actions = await describeActions(repos, rows, user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, user.id));
-    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions };
+    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents };
   });
 
   /** The user's projects, with their chat's status; a project with no conversation yet is idle. */
@@ -291,6 +294,18 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       .then(() => deps.chat.resumeAfterDecision(user, first))
       .catch((err) => request.log.warn({ code: failureLabel(err), actionId: first.id }, 'mobile batch resume failed'));
     return { actions: decided, skipped, queued: true, note: DECISION_NOTE };
+  });
+
+  /**
+   * "Cancelar" on a subagent's row in the panel, exactly as the web's route: `cancelSubagent` throws
+   * 404 for a foreign or missing id, 409 `SUBAGENT_NOT_RUNNING` for one already at rest and 409
+   * `SUBAGENT_GONE` for one whose process is no longer around to ask. No PIN: like deciding a card,
+   * this only ever takes something away, never authorizes a new write.
+   */
+  app.post('/subagents/:id/cancel', { config: { action: 'create' } }, async (request, reply) => {
+    const { id } = subagentIdParam.parse(request.params);
+    const subagent = await deps.chat.cancelSubagent(request.scope.user, id);
+    return reply.code(202).send({ subagent });
   });
 
   /** The phone's "Abas confiáveis": the same list as the web, validated against the shared contract. */

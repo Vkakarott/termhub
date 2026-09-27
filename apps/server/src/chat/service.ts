@@ -8,7 +8,7 @@ import { isAttachable, toPublicAttachment, type AttachmentRow } from '../db/repo
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions } from '../db/repositories/tab-questions-view.js';
 import type { User } from '../db/repositories/types.js';
-import { HttpError } from '../lib/errors.js';
+import { HttpError, notFound } from '../lib/errors.js';
 import { attachmentContext } from './attachments/context.js';
 import { chatBus } from './bus.js';
 import { streamedSystemPrompt } from './concierge-prompt.js';
@@ -16,6 +16,7 @@ import { hostFailure, resolveHost, type HostAgents, type HostChoice } from './ho
 import { LiveRun, type LiveTurn } from './live-run.js';
 import { projectSystemPrompt } from './project-prompt.js';
 import { codeForReason, parseFrame, type ChatErrorCode, type ChatFailureReason } from './stream.js';
+import { toSubagentView, type SubagentView } from './subagent-view.js';
 import { tabQuestionContext } from './tab-question-context.js';
 import { mintConciergeToken } from './token.js';
 
@@ -73,6 +74,12 @@ export interface RunnerClient {
  * this same constant for `APPROVAL_HOLDS_MS`). Kept in step with `mintConciergeToken`'s own TTL_MS: a
  * token outlives every action minted under it. */
 export const ACTION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** How long "Cancelar" waits for the CLI to confirm a subagent actually stopped (spec 2026-09-26
+ * panel §5.4) before giving up on it: the row goes back to `running` and every open screen is told
+ * the cancel failed. `LiveRun.rollbackStop` is idempotent, so a `subagent_status` frame that arrives
+ * first (the ordinary case) makes this timer a no-op. */
+export const CANCEL_TIMEOUT_MS = 30_000;
 
 /**
  * The hourly timer's other half (app.ts, next to `authService.purgeExpired()`): an open row must not
@@ -319,6 +326,40 @@ export class ChatService {
     const ids = rows.map((r) => r.id);
     const [actions, questions] = await Promise.all([this.deps.repos.chatActions.countPendingByConversation(ids), this.deps.repos.tabQuestions.countOpenByConversation(ids)]);
     return rows.map((r) => ({ project_id: r.project_id, busy: this.running.has(r.id), pending_confirmations: (actions.get(r.id) ?? 0) + (questions.get(r.id) ?? 0) }));
+  }
+
+  /** The subagents panel of a conversation (spec 2026-09-26 §4): every one still open, plus any that
+   * ended recently — `listForPanel`'s own window and cap. */
+  async subagentsFor(conversationId: string): Promise<SubagentView[]> {
+    return (await this.deps.repos.chatSubagents.listForPanel(conversationId)).map(toSubagentView);
+  }
+
+  /**
+   * "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4): asks the live process to stop it,
+   * marks the row `stopping` and tells every open screen, then gives the CLI `CANCEL_TIMEOUT_MS` to
+   * confirm before rolling the row back to `running` (`LiveRun.rollbackStop`, itself a no-op once the
+   * CLI's own status frame already settled it).
+   *
+   * `findByIdForUser` scopes the row to this user through its owning conversation, exactly like a
+   * chat action's own lookup: a foreign or missing id is the same 404, never a hint that a subagent
+   * of someone else's conversation exists. A row already at rest (`SUBAGENT_NOT_RUNNING`) or one whose
+   * process is no longer around to ask (`SUBAGENT_GONE`, marked `interrupted` here) both throw a 409:
+   * the click did not fail, there is simply nothing left to cancel.
+   */
+  async cancelSubagent(user: User, subagentId: string): Promise<SubagentView> {
+    const row = await this.deps.repos.chatSubagents.findByIdForUser(subagentId, user.id);
+    if (!row) throw notFound('Subagente não encontrado');
+    if (row.status !== 'running') throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING');
+    const live = this.live.get(row.conversation_id);
+    if (!live || !live.stopTask(row.task_id, row.id)) {
+      const gone = await this.deps.repos.chatSubagents.setStatus(row.id, 'interrupted');
+      if (gone) chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: row.conversation_id, subagent: toSubagentView(gone) });
+      throw new HttpError(409, 'O processo deste subagente já terminou', 'SUBAGENT_GONE');
+    }
+    const stopping = (await this.deps.repos.chatSubagents.setStatus(row.id, 'stopping')) ?? row;
+    chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: row.conversation_id, subagent: toSubagentView(stopping) });
+    setTimeout(() => void live.rollbackStop(row.id).catch(() => {}), CANCEL_TIMEOUT_MS).unref?.();
+    return toSubagentView(stopping);
   }
 
   /**
@@ -872,6 +913,32 @@ export class ChatService {
       chat: this.deps.repos.chat,
       subagents: this.deps.repos.chatSubagents,
       chatActions: this.deps.repos.chatActions,
+      // A gate call the CLI made before its subagent frame told us whose turn it was: the action was
+      // already stored (and its confirmation published) with no `subagent`, so the card is republished
+      // once bound — only while it is still `pending`, since a card already decided has nothing left
+      // for the person to answer differently now that it names who proposed it.
+      describeLate: async (actions) => {
+        const pending = actions.filter((a) => a.status === 'pending');
+        if (pending.length === 0) return;
+        const cards = await describeActions(this.deps.repos, pending, user.id);
+        for (const c of cards) {
+          chatBus.publish({
+            type: 'confirmation',
+            user_id: user.id,
+            conversation_id: conversation.id,
+            action_id: c.id,
+            tool: c.tool,
+            args: c.args,
+            class: c.class,
+            machine_id: c.machine_id,
+            project_id: c.project_id,
+            tab_id: c.tab_id,
+            summary: c.summary,
+            subagent: c.subagent,
+            created_at: c.created_at,
+          });
+        }
+      },
     });
     for (const t of turns) live.add(t);
     this.live.set(conversation.id, live);
