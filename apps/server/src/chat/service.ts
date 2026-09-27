@@ -316,11 +316,18 @@ export class ChatService {
    * message cannot start a run on the row being archived. Its open questions are expired and its tokens
    * revoked first: nobody will answer a card in a thread that is no longer on screen, and a token minted
    * for a conversation that is over must not reach the gate on its behalf.
+   *
+   * A streamed process whose turns have all ended but that still waits on subagents in the background
+   * holds the lock for as long as it lives, yet answers nothing: it does not stop a reset. Its input is
+   * ended so nothing more reaches the archived thread, and it keeps the lock until it exits.
    */
   async reset(user: User, projectId: string | null): Promise<ChatConversation> {
     const current = await this.conversationFor(user, projectId);
-    if (this.running.has(current.id)) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
-    this.running.add(current.id);
+    const live = this.live.get(current.id);
+    const detached = this.running.has(current.id) && live !== undefined && !live.busy;
+    if (this.running.has(current.id) && !detached) throw new HttpError(409, 'O concierge ainda está respondendo a mensagem anterior', 'CHAT_BUSY');
+    if (detached) live.endInput();
+    else this.running.add(current.id);
     this.resetting.add(current.id);
     try {
       await this.deps.repos.chatActions.expireOpenForConversation(current.id);
@@ -330,10 +337,13 @@ export class ChatService {
       await this.deps.repos.chat.archive(current.id);
     } finally {
       this.resetting.delete(current.id);
-      this.running.delete(current.id);
-      // A queue launch that found this lock held stepped back, trusting a release to drain it: this is
-      // that release. The thread is archived now, so each queued message is closed with its reason.
-      if (this.queued.get(current.id)?.length) void this.launchQueued(user, current.id);
+      // A detached process still owns the lock: its own release drains the queue once it exits.
+      if (!detached) {
+        this.running.delete(current.id);
+        // A queue launch that found this lock held stepped back, trusting a release to drain it: this is
+        // that release. The thread is archived now, so each queued message is closed with its reason.
+        if (this.queued.get(current.id)?.length) void this.launchQueued(user, current.id);
+      }
     }
     const fresh = await this.conversationFor(user, projectId);
     // The account-wide row owns the host (spec §3): a new thread is not a new machine or account, and
