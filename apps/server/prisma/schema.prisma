@@ -600,6 +600,8 @@ model ApiTokenEvent {
   machineId  String?  @map("machine_id")
   projectId  String?  @map("project_id")
   tabId      String?  @map("tab_id")
+  /// The attachment a read_attachment call read (spec 2026-09-26 attachment follow-ups §4). Only the id.
+  attachmentId String?  @map("attachment_id")
   ok         Boolean
   errorCode  String?  @map("error_code")
   durationMs Int      @map("duration_ms")

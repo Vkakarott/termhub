@@ -28,6 +28,7 @@ export interface ApiTokenEventInput {
   machine_id?: string | null;
   project_id?: string | null;
   tab_id?: string | null;
+  attachment_id?: string | null;
   ok: boolean;
   error_code?: string | null;
   duration_ms: number;
@@ -120,6 +121,7 @@ export class ApiTokensRepository {
         machineId: e.machine_id ?? null,
         projectId: e.project_id ?? null,
         tabId: e.tab_id ?? null,
+        attachmentId: e.attachment_id ?? null,
         ok: e.ok,
         errorCode: e.error_code ?? null,
         durationMs: e.duration_ms,

@@ -3726,6 +3726,7 @@ export const ApiTokenEventScalarFieldEnum = {
   machineId: 'machineId',
   projectId: 'projectId',
   tabId: 'tabId',
+  attachmentId: 'attachmentId',
   ok: 'ok',
   errorCode: 'errorCode',
   durationMs: 'durationMs',

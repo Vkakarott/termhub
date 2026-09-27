@@ -42,6 +42,7 @@ export type ApiTokenEventMinAggregateOutputType = {
   machineId: string | null
   projectId: string | null
   tabId: string | null
+  attachmentId: string | null
   ok: boolean | null
   errorCode: string | null
   durationMs: number | null
@@ -55,6 +56,7 @@ export type ApiTokenEventMaxAggregateOutputType = {
   machineId: string | null
   projectId: string | null
   tabId: string | null
+  attachmentId: string | null
   ok: boolean | null
   errorCode: string | null
   durationMs: number | null
@@ -68,6 +70,7 @@ export type ApiTokenEventCountAggregateOutputType = {
   machineId: number
   projectId: number
   tabId: number
+  attachmentId: number
   ok: number
   errorCode: number
   durationMs: number
@@ -91,6 +94,7 @@ export type ApiTokenEventMinAggregateInputType = {
   machineId?: true
   projectId?: true
   tabId?: true
+  attachmentId?: true
   ok?: true
   errorCode?: true
   durationMs?: true
@@ -104,6 +108,7 @@ export type ApiTokenEventMaxAggregateInputType = {
   machineId?: true
   projectId?: true
   tabId?: true
+  attachmentId?: true
   ok?: true
   errorCode?: true
   durationMs?: true
@@ -117,6 +122,7 @@ export type ApiTokenEventCountAggregateInputType = {
   machineId?: true
   projectId?: true
   tabId?: true
+  attachmentId?: true
   ok?: true
   errorCode?: true
   durationMs?: true
@@ -217,6 +223,7 @@ export type ApiTokenEventGroupByOutputType = {
   machineId: string | null
   projectId: string | null
   tabId: string | null
+  attachmentId: string | null
   ok: boolean
   errorCode: string | null
   durationMs: number
@@ -253,6 +260,7 @@ export type ApiTokenEventWhereInput = {
   machineId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   projectId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   tabId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
+  attachmentId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   ok?: Prisma.BoolFilter<"ApiTokenEvent"> | boolean
   errorCode?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   durationMs?: Prisma.IntFilter<"ApiTokenEvent"> | number
@@ -267,6 +275,7 @@ export type ApiTokenEventOrderByWithRelationInput = {
   machineId?: Prisma.SortOrderInput | Prisma.SortOrder
   projectId?: Prisma.SortOrderInput | Prisma.SortOrder
   tabId?: Prisma.SortOrderInput | Prisma.SortOrder
+  attachmentId?: Prisma.SortOrderInput | Prisma.SortOrder
   ok?: Prisma.SortOrder
   errorCode?: Prisma.SortOrderInput | Prisma.SortOrder
   durationMs?: Prisma.SortOrder
@@ -284,6 +293,7 @@ export type ApiTokenEventWhereUniqueInput = Prisma.AtLeast<{
   machineId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   projectId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   tabId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
+  attachmentId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   ok?: Prisma.BoolFilter<"ApiTokenEvent"> | boolean
   errorCode?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   durationMs?: Prisma.IntFilter<"ApiTokenEvent"> | number
@@ -298,6 +308,7 @@ export type ApiTokenEventOrderByWithAggregationInput = {
   machineId?: Prisma.SortOrderInput | Prisma.SortOrder
   projectId?: Prisma.SortOrderInput | Prisma.SortOrder
   tabId?: Prisma.SortOrderInput | Prisma.SortOrder
+  attachmentId?: Prisma.SortOrderInput | Prisma.SortOrder
   ok?: Prisma.SortOrder
   errorCode?: Prisma.SortOrderInput | Prisma.SortOrder
   durationMs?: Prisma.SortOrder
@@ -319,6 +330,7 @@ export type ApiTokenEventScalarWhereWithAggregatesInput = {
   machineId?: Prisma.StringNullableWithAggregatesFilter<"ApiTokenEvent"> | string | null
   projectId?: Prisma.StringNullableWithAggregatesFilter<"ApiTokenEvent"> | string | null
   tabId?: Prisma.StringNullableWithAggregatesFilter<"ApiTokenEvent"> | string | null
+  attachmentId?: Prisma.StringNullableWithAggregatesFilter<"ApiTokenEvent"> | string | null
   ok?: Prisma.BoolWithAggregatesFilter<"ApiTokenEvent"> | boolean
   errorCode?: Prisma.StringNullableWithAggregatesFilter<"ApiTokenEvent"> | string | null
   durationMs?: Prisma.IntWithAggregatesFilter<"ApiTokenEvent"> | number
@@ -331,6 +343,7 @@ export type ApiTokenEventCreateInput = {
   machineId?: string | null
   projectId?: string | null
   tabId?: string | null
+  attachmentId?: string | null
   ok: boolean
   errorCode?: string | null
   durationMs: number
@@ -345,6 +358,7 @@ export type ApiTokenEventUncheckedCreateInput = {
   machineId?: string | null
   projectId?: string | null
   tabId?: string | null
+  attachmentId?: string | null
   ok: boolean
   errorCode?: string | null
   durationMs: number
@@ -357,6 +371,7 @@ export type ApiTokenEventUpdateInput = {
   machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attachmentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ok?: Prisma.BoolFieldUpdateOperationsInput | boolean
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   durationMs?: Prisma.IntFieldUpdateOperationsInput | number
@@ -371,6 +386,7 @@ export type ApiTokenEventUncheckedUpdateInput = {
   machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attachmentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ok?: Prisma.BoolFieldUpdateOperationsInput | boolean
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   durationMs?: Prisma.IntFieldUpdateOperationsInput | number
@@ -384,6 +400,7 @@ export type ApiTokenEventCreateManyInput = {
   machineId?: string | null
   projectId?: string | null
   tabId?: string | null
+  attachmentId?: string | null
   ok: boolean
   errorCode?: string | null
   durationMs: number
@@ -396,6 +413,7 @@ export type ApiTokenEventUpdateManyMutationInput = {
   machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attachmentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ok?: Prisma.BoolFieldUpdateOperationsInput | boolean
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   durationMs?: Prisma.IntFieldUpdateOperationsInput | number
@@ -409,6 +427,7 @@ export type ApiTokenEventUncheckedUpdateManyInput = {
   machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attachmentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ok?: Prisma.BoolFieldUpdateOperationsInput | boolean
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   durationMs?: Prisma.IntFieldUpdateOperationsInput | number
@@ -432,6 +451,7 @@ export type ApiTokenEventCountOrderByAggregateInput = {
   machineId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   tabId?: Prisma.SortOrder
+  attachmentId?: Prisma.SortOrder
   ok?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
   durationMs?: Prisma.SortOrder
@@ -449,6 +469,7 @@ export type ApiTokenEventMaxOrderByAggregateInput = {
   machineId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   tabId?: Prisma.SortOrder
+  attachmentId?: Prisma.SortOrder
   ok?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
   durationMs?: Prisma.SortOrder
@@ -462,6 +483,7 @@ export type ApiTokenEventMinOrderByAggregateInput = {
   machineId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
   tabId?: Prisma.SortOrder
+  attachmentId?: Prisma.SortOrder
   ok?: Prisma.SortOrder
   errorCode?: Prisma.SortOrder
   durationMs?: Prisma.SortOrder
@@ -520,6 +542,7 @@ export type ApiTokenEventCreateWithoutTokenInput = {
   machineId?: string | null
   projectId?: string | null
   tabId?: string | null
+  attachmentId?: string | null
   ok: boolean
   errorCode?: string | null
   durationMs: number
@@ -532,6 +555,7 @@ export type ApiTokenEventUncheckedCreateWithoutTokenInput = {
   machineId?: string | null
   projectId?: string | null
   tabId?: string | null
+  attachmentId?: string | null
   ok: boolean
   errorCode?: string | null
   durationMs: number
@@ -574,6 +598,7 @@ export type ApiTokenEventScalarWhereInput = {
   machineId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   projectId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   tabId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
+  attachmentId?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   ok?: Prisma.BoolFilter<"ApiTokenEvent"> | boolean
   errorCode?: Prisma.StringNullableFilter<"ApiTokenEvent"> | string | null
   durationMs?: Prisma.IntFilter<"ApiTokenEvent"> | number
@@ -586,6 +611,7 @@ export type ApiTokenEventCreateManyTokenInput = {
   machineId?: string | null
   projectId?: string | null
   tabId?: string | null
+  attachmentId?: string | null
   ok: boolean
   errorCode?: string | null
   durationMs: number
@@ -598,6 +624,7 @@ export type ApiTokenEventUpdateWithoutTokenInput = {
   machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attachmentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ok?: Prisma.BoolFieldUpdateOperationsInput | boolean
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   durationMs?: Prisma.IntFieldUpdateOperationsInput | number
@@ -610,6 +637,7 @@ export type ApiTokenEventUncheckedUpdateWithoutTokenInput = {
   machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attachmentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ok?: Prisma.BoolFieldUpdateOperationsInput | boolean
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   durationMs?: Prisma.IntFieldUpdateOperationsInput | number
@@ -622,6 +650,7 @@ export type ApiTokenEventUncheckedUpdateManyWithoutTokenInput = {
   machineId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   projectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attachmentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ok?: Prisma.BoolFieldUpdateOperationsInput | boolean
   errorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   durationMs?: Prisma.IntFieldUpdateOperationsInput | number
@@ -637,6 +666,7 @@ export type ApiTokenEventSelect<ExtArgs extends runtime.Types.Extensions.Interna
   machineId?: boolean
   projectId?: boolean
   tabId?: boolean
+  attachmentId?: boolean
   ok?: boolean
   errorCode?: boolean
   durationMs?: boolean
@@ -651,6 +681,7 @@ export type ApiTokenEventSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   machineId?: boolean
   projectId?: boolean
   tabId?: boolean
+  attachmentId?: boolean
   ok?: boolean
   errorCode?: boolean
   durationMs?: boolean
@@ -665,6 +696,7 @@ export type ApiTokenEventSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   machineId?: boolean
   projectId?: boolean
   tabId?: boolean
+  attachmentId?: boolean
   ok?: boolean
   errorCode?: boolean
   durationMs?: boolean
@@ -679,13 +711,14 @@ export type ApiTokenEventSelectScalar = {
   machineId?: boolean
   projectId?: boolean
   tabId?: boolean
+  attachmentId?: boolean
   ok?: boolean
   errorCode?: boolean
   durationMs?: boolean
   createdAt?: boolean
 }
 
-export type ApiTokenEventOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tokenId" | "tool" | "machineId" | "projectId" | "tabId" | "ok" | "errorCode" | "durationMs" | "createdAt", ExtArgs["result"]["apiTokenEvent"]>
+export type ApiTokenEventOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "tokenId" | "tool" | "machineId" | "projectId" | "tabId" | "attachmentId" | "ok" | "errorCode" | "durationMs" | "createdAt", ExtArgs["result"]["apiTokenEvent"]>
 export type ApiTokenEventInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   token?: boolean | Prisma.ApiTokenDefaultArgs<ExtArgs>
 }
@@ -708,6 +741,10 @@ export type $ApiTokenEventPayload<ExtArgs extends runtime.Types.Extensions.Inter
     machineId: string | null
     projectId: string | null
     tabId: string | null
+    /**
+     * The attachment a read_attachment call read (spec 2026-09-26 attachment follow-ups §4). Only the id.
+     */
+    attachmentId: string | null
     ok: boolean
     errorCode: string | null
     durationMs: number
@@ -1142,6 +1179,7 @@ export interface ApiTokenEventFieldRefs {
   readonly machineId: Prisma.FieldRef<"ApiTokenEvent", 'String'>
   readonly projectId: Prisma.FieldRef<"ApiTokenEvent", 'String'>
   readonly tabId: Prisma.FieldRef<"ApiTokenEvent", 'String'>
+  readonly attachmentId: Prisma.FieldRef<"ApiTokenEvent", 'String'>
   readonly ok: Prisma.FieldRef<"ApiTokenEvent", 'Boolean'>
   readonly errorCode: Prisma.FieldRef<"ApiTokenEvent", 'String'>
   readonly durationMs: Prisma.FieldRef<"ApiTokenEvent", 'Int'>
