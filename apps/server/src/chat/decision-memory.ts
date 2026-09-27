@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { AnsweredChoiceRow, ChatDecision, NewDecision } from '../db/repositories/chat-decisions.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
-import { answerToDecision, decisionText, mapAnswer, sameAnswer, type SuggestionItem, type TabQuestionSuggestion } from './decision-text.js';
+import { answerToDecision, embedTag, embedText, EMBED_TEXT_VERSION, mapAnswer, sameAnswer, type SuggestionItem, type TabQuestionSuggestion } from './decision-text.js';
 import { defaultEmbedder, EMBED_TIMEOUT_MS, EmbedError, type Embedder } from './embeddings.js';
 import { checkChoiceAnswer, choiceAnswerBody, choicePayload, type ChoiceAnswer, type ChoicePayload } from './tab-question-payload.js';
 
@@ -68,10 +68,15 @@ export async function suggestFor(repos: Pick<Repositories, 'users' | 'chatDecisi
 
   const work = async (): Promise<TabQuestionSuggestion | null> => {
     if (!(await repos.users.chatSuggestions(row.user_id))) return null;
-    const { vectors } = await embedder.embed(items.map(decisionText));
+    const texts = items.map(embedText);
+    const { model, vectors } = await embedder.embed(texts);
     const found: SuggestionItem[] = [];
     for (const [i, item] of items.entries()) {
-      const near = await repos.chatDecisions.nearest(row.user_id, vectors[i]!, { multiSelect: item.multi_select, k: SUGGEST_K });
+      // A question that normalises to '' (e.g. only "?" or "...") would embed identically to every
+      // other empty question and match them at similarity 1.0 — never a real match, so it never even
+      // asks `nearest`.
+      if (texts[i] === '') continue;
+      const near = await repos.chatDecisions.nearest(row.user_id, vectors[i]!, { multiSelect: item.multi_select, k: SUGGEST_K, embedModel: embedTag(model) });
       // Newest first among the ones close enough: a fresher decision beats a stronger but stale match.
       const candidates = near.filter((n) => n.similarity >= deps.threshold).sort((a, b) => b.created_at.localeCompare(a.created_at));
       for (const c of candidates) {
@@ -137,8 +142,8 @@ export function decisionsOf(row: Pick<TabQuestion, 'id' | 'project_id' | 'conver
  */
 async function embedInserted(repos: Pick<Repositories, 'chatDecisions'>, embedder: Embedder, rows: ChatDecision[], log: Pick<FastifyBaseLogger, 'warn'>, timeoutMs?: number): Promise<void> {
   try {
-    const { model, vectors } = await withTimeout(embedder.embed(rows.map(decisionText)), timeoutMs ?? EMBED_TIMEOUT_MS, () => {});
-    await Promise.all(rows.map((r, i) => repos.chatDecisions.setEmbedding(r.id, vectors[i]!, model)));
+    const { model, vectors } = await withTimeout(embedder.embed(rows.map(embedText)), timeoutMs ?? EMBED_TIMEOUT_MS, () => {});
+    await Promise.all(rows.map((r, i) => repos.chatDecisions.setEmbedding(r.id, vectors[i]!, embedTag(model))));
   } catch (err) {
     log.warn({ count: rows.length, code: memoryCode(err) }, 'decision embed failed');
   }
@@ -230,14 +235,15 @@ export async function backfillDecisions(repos: Pick<Repositories, 'chatDecisions
 
 /**
  * Embeds the sweeper's backlog (spec §5): rows `recordDecisions` inserted with no embedder configured,
- * or whose fire-and-forget embed failed. One request for the whole batch, one `setEmbedding` per row.
+ * or whose fire-and-forget embed failed, and rows embedded under another text version (TER-204), which
+ * is how a deploy re-embeds the old ones. One request for the whole batch, one `setEmbedding` per row.
  * Errors propagate to the caller (`startDecisionSweeper`), which logs them — this function does not.
  */
 export async function embedPending(repos: Pick<Repositories, 'chatDecisions'>, embedder: Embedder, limit = 32): Promise<number> {
-  const rows = await repos.chatDecisions.listToEmbed(limit);
+  const rows = await repos.chatDecisions.listToEmbed(limit, '#' + EMBED_TEXT_VERSION);
   if (rows.length === 0) return 0;
-  const { model, vectors } = await embedder.embed(rows.map(decisionText));
-  await Promise.all(rows.map((r, i) => repos.chatDecisions.setEmbedding(r.id, vectors[i]!, model)));
+  const { model, vectors } = await embedder.embed(rows.map(embedText));
+  await Promise.all(rows.map((r, i) => repos.chatDecisions.setEmbedding(r.id, vectors[i]!, embedTag(model))));
   return rows.length;
 }
 

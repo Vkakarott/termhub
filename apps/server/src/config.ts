@@ -116,9 +116,9 @@ const envSchema = z.object({
   EMBED_URL: z.string().url().optional(),
   /** bearer token for embeddings service authentication */
   EMBED_SECRET: z.string().optional(),
-  /** similarity threshold for suggesting past decisions (0..1). Measured (spec §9): a short
-   *  yes/no question with the opposite verb still scores 0.97, so the default only catches near-verbatim
-   *  repeats (≥ 0.987); lower it to trade precision for paraphrases. */
+  /** similarity threshold for suggesting past decisions (0..1), on the normalised question alone
+   *  (TER-204): the worst opposite-meaning pair measured scores 0.948 and a repeat with another header
+   *  or options scores 1.0; lower it to trade precision for paraphrases. */
   DECISION_SUGGEST_THRESHOLD: z.coerce.number().min(0).max(1).default(0.98),
 
   // Chat concierge (docker/concierge): the container runner. Since the chat moved onto the user's own

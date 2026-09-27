@@ -98,35 +98,35 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
   });
 
   it('listToEmbed returns rows without an embedding; setEmbedding clears it from the list and sets embed_model', async () => {
-    const before = await repo.listToEmbed(1000);
+    const before = await repo.listToEmbed(1000, '#q1');
     expect(before.map((d) => d.id)).toContain(decisionAId);
     const found = before.find((d) => d.id === decisionAId)!;
     expect(found).toMatchObject({ header: 'Fonte', question: 'Qual fonte usar?', options });
 
-    await repo.setEmbedding(decisionAId, vec(1), 'm');
+    await repo.setEmbedding(decisionAId, vec(1), 'm#q1');
 
-    const after = await repo.listToEmbed(1000);
+    const after = await repo.listToEmbed(1000, '#q1');
     expect(after.map((d) => d.id)).not.toContain(decisionAId);
 
     const page = await repo.listForUser(userId, { limit: 1000 });
-    expect(page.items.find((d) => d.id === decisionAId)).toMatchObject({ embed_model: 'm' });
+    expect(page.items.find((d) => d.id === decisionAId)).toMatchObject({ embed_model: 'm#q1' });
   });
 
   it('nearest: best match first, scoped to the user and the multi_select shape, only embedded rows', async () => {
     const [b] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Estilo', question: 'Qual estilo?' })]);
-    await repo.setEmbedding(b!.id, mix(1, 2, 0.5), 'm');
+    await repo.setEmbedding(b!.id, mix(1, 2, 0.5), 'm#q1');
 
     const [multi] = await repo.insertMany([newDecision({ tab_question_id: newId(), multi_select: true, header: 'Multi', question: 'Quais opcoes?' })]);
-    await repo.setEmbedding(multi!.id, vec(1), 'm');
+    await repo.setEmbedding(multi!.id, vec(1), 'm#q1');
 
     const [unembedded] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'SemEmbedding', question: 'Ainda sem embedding?' })]);
 
     const [otherUserRow] = await repo.insertMany([
       newDecision({ user_id: otherUserId, project_id: null, conversation_id: null, tab_question_id: newId(), header: 'Outro', question: 'Pergunta de outro usuario?' }),
     ]);
-    await repo.setEmbedding(otherUserRow!.id, vec(1), 'm');
+    await repo.setEmbedding(otherUserRow!.id, vec(1), 'm#q1');
 
-    const neighbours = await repo.nearest(userId, vec(1), { multiSelect: false, k: 5 });
+    const neighbours = await repo.nearest(userId, vec(1), { multiSelect: false, k: 5, embedModel: 'm#q1' });
     expect(neighbours[0]).toMatchObject({ id: decisionAId, project_name: 'proj' });
     expect(neighbours[0]!.similarity).toBeCloseTo(1, 5);
     expect(neighbours[1]!.id).toBe(b!.id);
@@ -135,6 +135,41 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
     expect(ids).not.toContain(multi!.id);
     expect(ids).not.toContain(unembedded!.id);
     expect(ids).not.toContain(otherUserRow!.id);
+  });
+
+  it('listToEmbed also returns rows embedded under another text version, null embeddings first', async () => {
+    const [stale] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Velha', question: 'Embedding antigo?' })]);
+    await repo.setEmbedding(stale!.id, vec(3), 'm'); // previous release: untagged
+    const [other] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Outra', question: 'Versao q10?' })]);
+    await repo.setEmbedding(other!.id, vec(4), 'm#q10'); // a suffix that only starts like '#q1'
+    const [fresh] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Nova', question: 'Sem embedding?' })]);
+
+    const ids = (await repo.listToEmbed(1000, '#q1')).map((d) => d.id);
+    expect(ids).toContain(stale!.id);
+    expect(ids).toContain(other!.id);
+    expect(ids.indexOf(fresh!.id)).toBeLessThan(ids.indexOf(stale!.id));
+
+    await repo.setEmbedding(stale!.id, vec(3), 'm#q1');
+    await repo.setEmbedding(other!.id, vec(4), 'm#q1');
+    await repo.setEmbedding(fresh!.id, vec(5), 'm#q1');
+    const after = (await repo.listToEmbed(1000, '#q1')).map((d) => d.id);
+    expect(after).not.toContain(stale!.id);
+    expect(after).not.toContain(other!.id);
+    expect(after).not.toContain(fresh!.id);
+  });
+
+  it('nearest only compares vectors with exactly the same embed_model', async () => {
+    const [untagged] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'SemTag', question: 'Vetor antigo?' })]);
+    await repo.setEmbedding(untagged!.id, vec(7), 'm');
+    const [longer] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Q10', question: 'Outra versao?' })]);
+    await repo.setEmbedding(longer!.id, vec(7), 'm#q10');
+    const [tagged] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'ComTag', question: 'Vetor novo?' })]);
+    await repo.setEmbedding(tagged!.id, vec(7), 'm#q1');
+
+    const ids = (await repo.nearest(userId, vec(7), { multiSelect: false, k: 50, embedModel: 'm#q1' })).map((n) => n.id);
+    expect(ids).toContain(tagged!.id);
+    expect(ids).not.toContain(untagged!.id);
+    expect(ids).not.toContain(longer!.id);
   });
 
   it('bumpSuggested / bumpAccepted increment their counters', async () => {

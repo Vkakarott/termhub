@@ -135,10 +135,13 @@ All additive; the previous release never reads them.
 
 ### 4.1 Decision text
 
-`decisionText({ header, question, options })` =
-`"<header>\n<question>\nOpções: <label 1> | <label 2> | …"`. Descriptions are left out (they are
-long and vary more than the question itself). Pure function, used both to embed a decision and to
-embed an incoming question.
+`embedText({ question })` = the question alone, lower-cased, whitespace collapsed, trailing
+`?!.:;` stripped. Header and option labels are left out (TER-204, §9): measured on real and
+synthetic pairs, they pushed opposite-meaning yes/no questions over the similarity threshold and
+pulled a repeat asked under a new header below it. Pure function, used both to embed a decision and
+to embed an incoming question. Every stored vector's `embed_model` is tagged `<model>#q1`
+(`embedTag`, the model name plus `EMBED_TEXT_VERSION`) so vectors from a different text version are
+never compared as if they were the same shape (TER-204, §9).
 
 ### 4.2 Suggesting (question opens)
 
@@ -146,9 +149,10 @@ In `openTabQuestion`, after `repos.tabQuestions.open(...)` returns a `choice` ro
 `tab_question` is published:
 
 1. Skip when the conversation's user has `chat_suggestions = false` or embeddings are unavailable.
-2. Embed every question's `decisionText` in one call.
+2. Embed every question's `embedText` in one call.
 3. Per question, `repos.chatDecisions.nearest(userId, vector, k = 5)`: rows with an embedding, same
-   `multi_select`, cosine similarity ≥ `DECISION_SUGGEST_THRESHOLD` (env, default `0.98`, measured in §9).
+   `multi_select`, the exact `embed_model` tag of this embed call (`embedTag`, TER-204, §9), cosine
+   similarity ≥ `DECISION_SUGGEST_THRESHOLD` (env, default `0.98`, measured in §9).
 4. Among those candidates, **most recent first** (a newer answer to the same question supersedes an
    older one), take the first that **maps** onto the new question: every past label equals one of
    the new options' labels (compared lowercase, letters and digits only); a past free-text answer
@@ -182,8 +186,10 @@ start and every 10 minutes:
 
 - **Backfill:** answered `choice` rows of `tab_questions` with no decision yet → decisions (same
   code as §4.3 step 1).
-- **Embed:** decisions with `embedding IS NULL`, in batches of 32. (Re-embedding after a model change
-  is out of scope; every row records its `embed_model` so it can be done later.)
+- **Embed:** decisions with `embedding IS NULL`, `embed_model IS NULL`, or an `embed_model` not ending
+  in the current `#q1` tag (null embeddings first, then oldest first), in batches of 32 (TER-204, §9).
+  (Re-embedding after a model change is out of scope; every row records its `embed_model` so it can be
+  done later.)
 
 Without embeddings only the embed step is skipped: the backfill still runs, since decisions are
 recorded regardless (§4.5). Errors are logged by count.
@@ -370,3 +376,17 @@ Answered/closed cards show no suggestion line.
   `main` whose `20260926120000_tab_questions_indexes` and `20260926150000_chat_attachments` are already
   applied in production; Prisma applies migrations in name order, so this one must sort after them.
   It touches `tab_questions` only with an added nullable column, no clash with that index migration.
+- **Question-only embeddings (TER-204).** A decision is now embedded from `embedText` — the question
+  alone, lower-cased, whitespace collapsed, trailing `?!.:;` stripped — instead of header + question +
+  "Opções: …"; `embed_model` stores `<model>#q1` (`embedTag`/`EMBED_TEXT_VERSION`) and `nearest` only
+  ever compares vectors with an exact tag match, so a row embedded under another text version is
+  invisible to it until the sweeper (`embedPending`/`listToEmbed`, which matches on the `#q1` suffix)
+  re-embeds it. A row of another **model** but the same text version is invisible to `nearest` the same
+  way, but the sweeper does not re-embed it (its suffix still matches): re-embedding on a model change
+  remains out of scope (§4.4), and such a row stays invisible until that is done. Measured on the
+  held-out set: the worst opposite-meaning pair dropped from 0.989 (old header+question+options text)
+  to 0.948 (question alone), and real near-verbatim repeats passing the 0.98 threshold rose from 71%
+  to 86%; paraphrases still are not suggested. Larger models (mpnet, e5-large, embeddinggemma,
+  Qwen3-Embedding, jina-v3) and cross-encoder rerankers were also tried and reached at most 33%
+  paraphrase recall at zero false positives, at 2–55× the latency and 768/1024 dimensions, so switching
+  the embedding model was not worth it (table in TER-204).

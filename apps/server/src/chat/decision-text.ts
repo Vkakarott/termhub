@@ -33,15 +33,24 @@ export function labelKey(label: string): string {
     .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
+/** Bumped whenever `embedText` changes shape: every stored vector is tagged with it (`embedTag`), so
+ *  vectors of another version are never compared and the sweeper re-embeds them (TER-204). */
+export const EMBED_TEXT_VERSION = 'q1';
+
 /**
- * Formats a decision item as text: header, question, and option labels (never descriptions).
- * "Isolamento\nUsar worktree?\nOpções: Sim | Não"
+ * The text a decision is embedded by (TER-204): the question alone, lower-cased, whitespace collapsed,
+ * trailing `?!.:;` stripped. Header and option labels are left out on purpose: measured on real and
+ * synthetic pairs, they pushed opposite yes/no questions ("Aceitar" × "Descartar as mudanças") over the
+ * threshold and pulled a repeat with a new header under it; `mapAnswer` still requires the past labels
+ * to exist among the new options.
  */
-export function decisionText(item: { header: string; question: string; options: { label: string }[] }): string {
-  const parts = [item.header, item.question];
-  const labels = item.options.map((o) => o.label).join(' | ');
-  parts.push(`Opções: ${labels}`);
-  return parts.join('\n');
+export function embedText(item: { question: string }): string {
+  return item.question.replace(/\s+/g, ' ').trim().replace(/[?!.:;\s]+$/, '').toLowerCase();
+}
+
+/** The `embed_model` value stored with a vector: the service's model name plus the text version. */
+export function embedTag(model: string): string {
+  return `${model}#${EMBED_TEXT_VERSION}`;
 }
 
 /**
