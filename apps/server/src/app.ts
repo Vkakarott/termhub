@@ -312,7 +312,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
     stopTabQuestionExpiry();
     stopDecisionSweeper();
     stopMemorySweeper();
-    stopAutoAnswerSweeper();
+    // Before the database closes: a send in flight finishes (or records its failure) first.
+    await stopAutoAnswerSweeper();
     stopTabSuggestions();
     await simulators.shutdownAll();
     await closePrisma();

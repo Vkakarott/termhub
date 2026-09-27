@@ -20,6 +20,11 @@ type Log = Pick<FastifyBaseLogger, 'info' | 'warn'>;
 export const REPEAT_REASON = 'Mesma pergunta respondida antes';
 /** How often the sender sweeper ticks (spec §6). */
 export const AUTO_ANSWER_SWEEP_MS = 5_000;
+/** The repeat path's own similarity floor (spec §6, D9a "near-verbatim"): independent of
+ * `DECISION_SUGGEST_THRESHOLD`, which an operator may lower for suggestions without making them automatic. */
+export const REPEAT_MIN_SIMILARITY = 0.98;
+/** How long after its claim a countdown still `sent` on an open card counts as lost (the sender died). */
+export const SENDER_LOST_AFTER_MS = 2 * 60_000;
 /** How many due countdowns one tick sends at most; the rest wait for the next tick. */
 const SWEEP_BATCH = 20;
 
@@ -95,9 +100,9 @@ async function storeAutoAnswer(repos: Repositories, input: ScheduleInput, now: D
 
 /**
  * The repeat path (spec §6, D9a): a fresh `choice` card whose TER-57 suggestion already found a person
- * precedent for every one of its questions — an item with a non-empty `decision_id`, which `suggestFor`
- * only gives at `DECISION_SUGGEST_THRESHOLD` (0.98, near-verbatim), so no other similarity floor applies
- * here — starts a countdown on that suggestion by itself, with no LLM call. Everything else is a plain
+ * precedent for every one of its questions — an item with a non-empty `decision_id` and a similarity of
+ * at least `REPEAT_MIN_SIMILARITY` (0.98, near-verbatim; its own floor, whatever the suggestion threshold
+ * is set to) — starts a countdown on that suggestion by itself, with no LLM call. Everything else is a plain
  * suggested card (`null`): the switch off (D8), a concierge item (it cites no decision of its own), a
  * card with a question left unsuggested, an answer that no longer fits the payload, a card that already
  * had a countdown, or a blocklist hit (D7) on any header, question, suggested label or text. The row is
@@ -106,7 +111,7 @@ async function storeAutoAnswer(repos: Repositories, input: ScheduleInput, now: D
 export async function maybeScheduleRepeat(repos: Repositories, row: TabQuestion, now = new Date()): Promise<TabQuestion | null> {
   if (row.kind !== 'choice' || row.status !== 'open' || row.auto_answer || !row.suggestion) return null;
   const payload = row.payload as ChoicePayload;
-  const items = payload.questions.map((_q, i) => row.suggestion!.items.find((it) => it.question_index === i && it.decision_id !== '' && it.by !== 'concierge'));
+  const items = payload.questions.map((_q, i) => row.suggestion!.items.find((it) => it.question_index === i && it.decision_id !== '' && it.by !== 'concierge' && it.similarity >= REPEAT_MIN_SIMILARITY));
   if (items.some((it) => it === undefined)) return null;
   const answer: ChoiceAnswer = { answers: items.map((it) => ({ selected: it!.selected, ...(it!.text !== undefined ? { text: it!.text } : {}) })) };
   if (checkChoiceAnswer(payload, answer)) return null;
@@ -131,7 +136,9 @@ const eventFor = (row: TabQuestion): TabQuestionEventType => (row.status === 'op
  * token — so the gate is not involved and the person's own grants, re-read now, apply — with `via:
  * 'auto'` (stored as `answered_via`, no decision recorded: D11) and no embedder. The live screen check,
  * the row's own `open` claim and every other check run as for a click. Then the cited decisions get
- * `auto_count + 1` (best effort: the keys are in the tab). Any failure — the user gone, a lost grant
+ * `auto_count + 1` (best effort: the keys are in the tab). Before sending, the switch (D8) and the cited
+ * decisions are re-read: the switch off is `AUTODECIDE_OFF`, a cited decision forgotten meanwhile (by a
+ * memory or concierge countdown alike) is `PRECEDENT_FORGOTTEN`. Any failure — the user gone, a lost grant
  * (403), the prompt moved (409), the send itself (502) — closes the countdown as `failed` with the code
  * and republishes the card; nothing else is typed. Resolves how many were sent. Logs ids, `by` and codes
  * only — never the answer nor the reason.
@@ -147,6 +154,10 @@ export async function sendDueAutoAnswers(repos: Repositories, log: Log, deps: { 
     try {
       const user = await repos.users.findById(claimed.user_id);
       if (!user) throw new HttpError(404, 'Usuário não encontrado', 'USER_GONE');
+      // Re-read now, not trusted from when it was scheduled: the switch (D8) and the precedents cited.
+      if (!(await repos.users.chatAutodecide(user.id))) throw new HttpError(409, 'Resposta automática desligada', 'AUTODECIDE_OFF');
+      const cited = [...new Set(auto.sources.filter((s) => s.kind === 'decision').map((s) => s.id))];
+      if (cited.length && (await repos.chatDecisions.findManyForUser(cited, user.id)).length < cited.length) throw new HttpError(409, 'A decisão usada foi esquecida', 'PRECEDENT_FORGOTTEN');
       await (deps.answer ?? answerTabQuestion)(controlContextFor(repos, user), claimed.id, auto.answer, { log, via: 'auto', embedder: null });
     } catch (err) {
       const code = codeOf(err, 'AUTO_ANSWER_FAILED');
@@ -173,27 +184,52 @@ export async function sendDueAutoAnswers(repos: Repositories, log: Log, deps: { 
 }
 
 /**
- * Runs `sendDueAutoAnswers` right away and every `intervalMs` (5 s). A `running` guard skips a tick that
- * overlaps the previous one in this process; across processes the claim decides. The timer is `unref`'d,
- * and a tick never throws: a failed read logs its code. The returned function stops it.
+ * Crash recovery (spec §6): every countdown claimed over `SENDER_LOST_AFTER_MS` ago and still `sent` on
+ * an open card — its sender died (a stopped color, a crash) before typing or recording a failure — is
+ * closed as `failed` `SENDER_LOST` and republished, so the card stops saying "sent" and is answered by
+ * hand. Resolves how many. Logs ids and the code only.
  */
-export function startAutoAnswerSweeper(repos: Repositories, log: Log, intervalMs = AUTO_ANSWER_SWEEP_MS): () => void {
-  let running = false;
-  const tick = async () => {
-    if (running) return;
-    running = true;
+export async function recoverLostAutoAnswers(repos: Repositories, log: Log, now = new Date()): Promise<number> {
+  const lost = await repos.tabQuestions.failLostAutoAnswers(new Date(now.getTime() - SENDER_LOST_AFTER_MS), 'SENDER_LOST');
+  for (const row of lost) log.warn({ tabQuestionId: row.id, code: 'SENDER_LOST' }, 'auto answer sender lost');
+  if (lost.length) await publishTabQuestions(repos, 'tab_question', lost);
+  return lost.length;
+}
+
+/**
+ * Runs a tick right away and every `intervalMs` (5 s): `recoverLostAutoAnswers`, then
+ * `sendDueAutoAnswers`. A `running` guard skips a tick that overlaps the previous one in this process;
+ * across processes the claim decides. The timer is `unref`'d, and a tick never throws: each step logs
+ * its own code. The returned `stop` clears the timer and resolves once the tick in flight (if any) is
+ * done — the app awaits it before closing the database, so a claimed send is never cut in half.
+ */
+export function startAutoAnswerSweeper(repos: Repositories, log: Log, intervalMs = AUTO_ANSWER_SWEEP_MS): () => Promise<void> {
+  let inFlight: Promise<void> | null = null;
+  const run = async () => {
+    try {
+      await recoverLostAutoAnswers(repos, log);
+    } catch (err) {
+      log.warn({ code: failureLabel(err) }, 'auto answer recovery failed');
+    }
     try {
       await sendDueAutoAnswers(repos, log);
     } catch (err) {
       log.warn({ code: failureLabel(err) }, 'auto answer sweep failed');
-    } finally {
-      running = false;
     }
   };
-  const timer = setInterval(() => void tick(), intervalMs);
+  const tick = () => {
+    if (inFlight) return;
+    inFlight = run().finally(() => {
+      inFlight = null;
+    });
+  };
+  const timer = setInterval(tick, intervalMs);
   timer.unref();
-  void tick();
-  return () => clearInterval(timer);
+  tick();
+  return async () => {
+    clearInterval(timer);
+    await inFlight;
+  };
 }
 
 /**

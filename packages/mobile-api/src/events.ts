@@ -119,13 +119,16 @@ export const tabQuestionSuggestionSchema = z.object({
  * `sources` cite what backed it (a past decision, or a memory item). */
 export const tabQuestionAutoAnswerSchema = z.object({
   answer: z.object({ answers: z.array(z.object({ selected: z.array(z.number().int()), text: z.string().optional() })) }),
-  by: z.enum(['memory', 'concierge']),
+  // Plain strings, like `sources.kind`: a value a newer server adds must not break an installed app.
+  // Known today: `by` 'memory' | 'concierge'; `status` 'scheduled' | 'cancelled' | 'sent' | 'failed'.
+  by: z.string(),
   reason: z.string(),
   sources: z.array(z.object({ kind: z.string(), id: z.string() })),
   due_at: z.string(),
-  status: z.enum(['scheduled', 'cancelled', 'sent', 'failed']),
+  status: z.string(),
   error_code: z.string().optional(),
   decided_by: z.string().optional(),
+  claimed_at: z.string().optional(),
 });
 
 const tabQuestionCommon = {

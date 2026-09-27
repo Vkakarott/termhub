@@ -1028,6 +1028,7 @@ export interface TabQuestionAutoAnswer {
   status: 'scheduled' | 'cancelled' | 'sent' | 'failed';
   error_code?: string;
   decided_by?: string;
+  claimed_at?: string;
 }
 
 interface TabQuestionBase {

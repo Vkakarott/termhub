@@ -428,6 +428,44 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect(ids).not.toContain(noLongerOpen.id);
   });
 
+  it('claimAutoAnswer stamps claimed_at; failLostAutoAnswers fails only open rows whose claim is older than the cutoff', async () => {
+    const longDue = () => new Date(Date.now() - 10 * 60_000).toISOString();
+    const { question: lost } = await open('tl1');
+    await repo.setAutoAnswer(lost.id, autoAnswer({ due_at: longDue() }));
+    const claimedAt = new Date(Date.now() - 5 * 60_000);
+    expect((await repo.claimAutoAnswer(lost.id, claimedAt))?.auto_answer).toMatchObject({ status: 'sent', claimed_at: claimedAt.toISOString() });
+    // Claimed just now (a slow tick that picked an old due_at): not lost.
+    const { question: fresh } = await open('tl2');
+    await repo.setAutoAnswer(fresh.id, autoAnswer({ due_at: new Date(Date.now() - 10 * 60_000).toISOString() }));
+    await repo.claimAutoAnswer(fresh.id);
+    // Sent and answered: the send finished, nothing to recover.
+    const { question: done } = await open('tl3');
+    await repo.setAutoAnswer(done.id, autoAnswer({ due_at: longDue() }));
+    await repo.claimAutoAnswer(done.id, claimedAt);
+    await repo.claim(done.id, userId, { answers: [{ selected: [0] }] }, new Date(), 'auto');
+    // Still scheduled: not the sender's.
+    const { question: waiting } = await open('tl4');
+    await repo.setAutoAnswer(waiting.id, autoAnswer({ due_at: new Date(Date.now() - 10 * 60_000).toISOString() }));
+
+    const cutoff = new Date(Date.now() - 2 * 60_000);
+    const failed = await repo.failLostAutoAnswers(cutoff, 'SENDER_LOST');
+    const ids = failed.map((r) => r.id);
+    expect(ids).toContain(lost.id);
+    expect(ids).not.toContain(fresh.id);
+    expect(ids).not.toContain(done.id);
+    expect(ids).not.toContain(waiting.id);
+    expect(failed.find((r) => r.id === lost.id)).toMatchObject({ status: 'open', auto_answer: { status: 'failed', error_code: 'SENDER_LOST' } });
+    expect(await repo.failLostAutoAnswers(cutoff, 'SENDER_LOST')).not.toContainEqual(expect.objectContaining({ id: lost.id }));
+  });
+
+  it('failLostAutoAnswers: a row claimed before claimed_at existed falls back to its due_at', async () => {
+    const { question } = await open('tl5');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: new Date(Date.now() - 10 * 60_000).toISOString(), status: 'sent' as const }));
+    // setAutoAnswer refuses over sent, so this row is stored as `sent` from the start: no claimed_at.
+    const failed = await repo.failLostAutoAnswers(new Date(Date.now() - 2 * 60_000), 'SENDER_LOST');
+    expect(failed.map((r) => r.id)).toContain(question.id);
+  });
+
   it('markWoken: true for the one winner, false for every call after', async () => {
     const { question } = await open('ta11');
     expect(await repo.markWoken(question.id)).toBe(true);

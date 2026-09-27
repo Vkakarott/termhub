@@ -31,6 +31,9 @@ export interface AutoAnswer {
   status: 'scheduled' | 'cancelled' | 'sent' | 'failed';
   error_code?: string;
   decided_by?: string;
+  /** When the sender claimed it (`scheduled → sent`): how `failLostAutoAnswers` tells a sender that
+   *  died from one still typing. */
+  claimed_at?: string;
 }
 
 export interface TabQuestion {
@@ -300,7 +303,7 @@ export class TabQuestionsRepository {
    */
   async claimAutoAnswer(id: string, now = new Date()): Promise<TabQuestion | undefined> {
     const count = await this.db.$executeRaw`
-      UPDATE "tab_questions" SET "auto_answer" = jsonb_set("auto_answer", '{status}', '"sent"')
+      UPDATE "tab_questions" SET "auto_answer" = jsonb_set(jsonb_set("auto_answer", '{status}', '"sent"'), '{claimed_at}', to_jsonb(${now.toISOString()}::text))
       WHERE "id" = ${id} AND "status" = 'open' AND "auto_answer"->>'status' = 'scheduled' AND ("auto_answer"->>'due_at')::timestamptz <= ${now}`;
     if (count === 0) return undefined;
     const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
@@ -316,6 +319,25 @@ export class TabQuestionsRepository {
     if (count === 0) return undefined;
     const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
     return row ? mapQuestion(row) : undefined;
+  }
+
+  /**
+   * The sender's crash recovery (spec §6): a countdown claimed (`sent`) whose card is still `open` means
+   * the process that claimed it died before sending or recording the failure — the row would otherwise
+   * say "sent" forever. `sent → failed` with `code`, conditionally, for every such row claimed before
+   * `cutoff` (`claimed_at`; `due_at` for a claim stored before `claimed_at` existed). A send that
+   * finished claimed the row itself (`answered`) and is never touched. Oldest first.
+   */
+  async failLostAutoAnswers(cutoff: Date, code: string): Promise<TabQuestion[]> {
+    const lost = await this.db.$queryRaw<{ id: string }[]>`
+      UPDATE "tab_questions"
+         SET "auto_answer" = jsonb_set(jsonb_set("auto_answer", '{status}', '"failed"'), '{error_code}', to_jsonb(${code}::text))
+       WHERE "status" = 'open' AND "auto_answer"->>'status' = 'sent'
+         AND COALESCE(("auto_answer"->>'claimed_at')::timestamptz, ("auto_answer"->>'due_at')::timestamptz) < ${cutoff}
+      RETURNING "id"`;
+    if (lost.length === 0) return [];
+    const rows = await this.db.tabQuestion.findMany({ where: { id: { in: lost.map((r) => r.id) } }, include: withOwner, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    return rows.map(mapQuestion);
   }
 
   /** "Cancelar": `scheduled → cancelled`, `decided_by` = the person who clicked — only the

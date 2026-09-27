@@ -144,6 +144,11 @@ describe('tabQuestionSchema: auto answer (spec 2026-09-26 concierge memory §6)'
     expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, status: 'answered', answer: { answers: [{ selected: [0] }] }, auto_answer: { ...auto, status: 'sent' }, answered_via: 'auto' }).success).toBe(true);
   });
 
+  it('parses a countdown with a status or author this build does not know yet (a newer server)', () => {
+    const r = tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, auto_answer: { ...auto, by: 'someone_new', status: 'paused' } });
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+  });
+
   it('parses a card from an older server, with neither field', () => {
     expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload }).success).toBe(true);
   });

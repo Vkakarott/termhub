@@ -8,7 +8,7 @@ import type { ControlContext } from '../control/context.js';
 
 vi.mock('./tab-questions.js', () => ({ publishTabQuestions: vi.fn(async () => []) }));
 const { publishTabQuestions } = await import('./tab-questions.js');
-const { cancelAutoAnswer, maybeScheduleRepeat, precedentBacks, scheduleAutoAnswer, sendDueAutoAnswers, startAutoAnswerSweeper } = await import('./auto-answer.js');
+const { cancelAutoAnswer, maybeScheduleRepeat, precedentBacks, recoverLostAutoAnswers, scheduleAutoAnswer, sendDueAutoAnswers, startAutoAnswerSweeper } = await import('./auto-answer.js');
 const { HttpError } = await import('../lib/errors.js');
 
 const yesNo = (question: string, header = 'Isolamento'): ChoicePayload['questions'][number] => ({
@@ -199,6 +199,13 @@ describe('maybeScheduleRepeat', () => {
     expect(await maybeScheduleRepeat(repos, row({ suggestion: { items: [item({ selected: [], text: 'faça o merge' })] } }), now)).toBeNull();
   });
 
+  it('an item below the 0.98 hard floor → null, whatever the suggestion threshold', async () => {
+    const { repos, setAutoAnswer } = reposFor();
+    expect(await maybeScheduleRepeat(repos, row({ suggestion: { items: [item({ similarity: 0.97 })] } }), now)).toBeNull();
+    expect(setAutoAnswer).not.toHaveBeenCalled();
+    expect(await maybeScheduleRepeat(repos, row({ suggestion: { items: [item({ similarity: 0.98 })] } }), now)).not.toBeNull();
+  });
+
   it('two questions, only one suggested → null', async () => {
     const { repos, setAutoAnswer } = reposFor();
     const payload = { questions: [yesNo('Usar git worktree?'), yesNo('Rodar os testes?', 'Testes')] };
@@ -237,8 +244,8 @@ describe('sendDueAutoAnswers', () => {
   const now = () => new Date('2026-09-26T12:01:05.000Z');
   const user = { id: 'u1', email: 'a@x', name: 'Ana', nickname: 'ana', role_id: 'r1', password_hash: 'h' };
   const log = () => ({ info: vi.fn(), warn: vi.fn() });
-  function fake(opts: { claimOnce?: boolean; user?: typeof user | undefined } = {}) {
-    const due = row({ auto_answer: scheduled() });
+  function fake(opts: { claimOnce?: boolean; user?: typeof user | undefined; autodecide?: boolean; decisions?: string[]; auto?: Partial<AutoAnswer> } = {}) {
+    const due = row({ auto_answer: scheduled(opts.auto) });
     let claimed = false;
     const tabQuestions = {
       listDueAutoAnswers: vi.fn(async () => [due]),
@@ -251,8 +258,11 @@ describe('sendDueAutoAnswers', () => {
     };
     const repos = {
       tabQuestions,
-      users: { findById: vi.fn(async (id: string) => ('user' in opts ? opts.user : id === 'u1' ? user : undefined)) },
-      chatDecisions: { bumpAuto: vi.fn(async () => {}) },
+      users: { findById: vi.fn(async (id: string) => ('user' in opts ? opts.user : id === 'u1' ? user : undefined)), chatAutodecide: vi.fn(async () => opts.autodecide ?? true) },
+      chatDecisions: {
+        bumpAuto: vi.fn(async () => {}),
+        findManyForUser: vi.fn(async (ids: string[], userId: string) => (userId === 'u1' ? ids.filter((id) => (opts.decisions ?? ['d1', 'd2']).includes(id)).map((id) => decision({ id })) : [])),
+      },
       roles: { findById: vi.fn(async () => ({ id: 'r1', name: 'x', is_admin: false })), permissionsOf: vi.fn(async () => []) },
     };
     return { repos, due, tabQuestions };
@@ -335,6 +345,37 @@ describe('sendDueAutoAnswers', () => {
     expect(a + b).toBe(1);
   });
 
+  it('the switch turned off mid-countdown → failed AUTODECIDE_OFF, nothing typed (D8)', async () => {
+    const { repos, tabQuestions } = fake({ autodecide: false });
+    const answer = vi.fn();
+    expect(await sendDueAutoAnswers(repos as unknown as Repositories, log(), { now, answer })).toBe(0);
+    expect(repos.users.chatAutodecide).toHaveBeenCalledWith('u1');
+    expect(answer).not.toHaveBeenCalled();
+    expect(tabQuestions.finishAutoAnswer).toHaveBeenCalledWith('q1', 'failed', 'AUTODECIDE_OFF');
+    expect(publishTabQuestions).toHaveBeenCalledTimes(1);
+  });
+
+  it('a cited decision forgotten mid-countdown → failed PRECEDENT_FORGOTTEN, nothing typed', async () => {
+    const { repos, tabQuestions } = fake({ decisions: [] });
+    const answer = vi.fn();
+    expect(await sendDueAutoAnswers(repos as unknown as Repositories, log(), { now, answer })).toBe(0);
+    expect(repos.chatDecisions.findManyForUser).toHaveBeenCalledWith(['d1'], 'u1');
+    expect(answer).not.toHaveBeenCalled();
+    expect(tabQuestions.finishAutoAnswer).toHaveBeenCalledWith('q1', 'failed', 'PRECEDENT_FORGOTTEN');
+  });
+
+  it("the same check applies to a concierge countdown's decision sources; its memory items are not decisions", async () => {
+    const auto = { by: 'concierge' as const, sources: [{ kind: 'decision' as const, id: 'd1' }, { kind: 'decision' as const, id: 'd2' }, { kind: 'doc' as const, id: 'm1' }] };
+    const gone = fake({ auto, decisions: ['d1'] });
+    const answer = vi.fn(async () => ({}) as never);
+    await sendDueAutoAnswers(gone.repos as unknown as Repositories, log(), { now, answer });
+    expect(gone.repos.chatDecisions.findManyForUser).toHaveBeenCalledWith(['d1', 'd2'], 'u1');
+    expect(answer).not.toHaveBeenCalled();
+    expect(gone.tabQuestions.finishAutoAnswer).toHaveBeenCalledWith('q1', 'failed', 'PRECEDENT_FORGOTTEN');
+    const kept = fake({ auto, decisions: ['d1', 'd2'] });
+    expect(await sendDueAutoAnswers(kept.repos as unknown as Repositories, log(), { now, answer })).toBe(1);
+  });
+
   it('a failed bump after a successful send does not turn the send into a failure', async () => {
     const { repos, tabQuestions } = fake();
     repos.chatDecisions.bumpAuto.mockRejectedValue(new Error('db'));
@@ -343,12 +384,58 @@ describe('sendDueAutoAnswers', () => {
   });
 });
 
+describe('recoverLostAutoAnswers', () => {
+  beforeEach(() => vi.mocked(publishTabQuestions).mockClear());
+
+  it('fails, as SENDER_LOST, countdowns claimed over 2 minutes ago on still-open cards, and republishes them', async () => {
+    const lost = row({ auto_answer: scheduled({ status: 'failed', error_code: 'SENDER_LOST' }) });
+    const failLostAutoAnswers = vi.fn(async () => [lost]);
+    const repos = { tabQuestions: { failLostAutoAnswers } } as unknown as Repositories;
+    const l = { info: vi.fn(), warn: vi.fn() };
+    expect(await recoverLostAutoAnswers(repos, l, new Date('2026-09-26T12:10:00.000Z'))).toBe(1);
+    expect(failLostAutoAnswers).toHaveBeenCalledWith(new Date('2026-09-26T12:08:00.000Z'), 'SENDER_LOST');
+    expect(publishTabQuestions).toHaveBeenCalledWith(repos, 'tab_question', [lost]);
+    expect(l.warn).toHaveBeenCalledWith({ tabQuestionId: 'q1', code: 'SENDER_LOST' }, 'auto answer sender lost');
+  });
+});
+
 describe('startAutoAnswerSweeper', () => {
+  it('each tick recovers lost countdowns, then sends the due ones', async () => {
+    const failLostAutoAnswers = vi.fn(async () => []);
+    const listDueAutoAnswers = vi.fn(async () => []);
+    const repos = { tabQuestions: { failLostAutoAnswers, listDueAutoAnswers } } as unknown as Repositories;
+    const stop = startAutoAnswerSweeper(repos, { info: vi.fn(), warn: vi.fn() }, 60_000);
+    await vi.waitFor(() => expect(listDueAutoAnswers).toHaveBeenCalled());
+    expect(failLostAutoAnswers.mock.invocationCallOrder[0]!).toBeLessThan(listDueAutoAnswers.mock.invocationCallOrder[0]!);
+    await stop();
+  });
+
+  it('stop waits for the tick in flight before it resolves (so the database is not closed under a send)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let finished = false;
+    const listDueAutoAnswers = vi.fn(async () => {
+      await gate;
+      finished = true;
+      return [];
+    });
+    const repos = { tabQuestions: { failLostAutoAnswers: vi.fn(async () => []), listDueAutoAnswers } } as unknown as Repositories;
+    const stop = startAutoAnswerSweeper(repos, { info: vi.fn(), warn: vi.fn() }, 60_000);
+    await vi.waitFor(() => expect(listDueAutoAnswers).toHaveBeenCalled());
+    let stopped = false;
+    const stopping = stop().then(() => (stopped = true));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect(finished).toBe(true);
+  });
+
   it('ticks right away and never throws out of a tick; stop clears the timer', async () => {
     const listDueAutoAnswers = vi.fn(async () => {
       throw Object.assign(new Error('db down'), { code: 'P1001' });
     });
-    const repos = { tabQuestions: { listDueAutoAnswers } } as unknown as Repositories;
+    const repos = { tabQuestions: { listDueAutoAnswers, failLostAutoAnswers: vi.fn(async () => []) } } as unknown as Repositories;
     const l = { info: vi.fn(), warn: vi.fn() };
     const stop = startAutoAnswerSweeper(repos, l, 60_000);
     await vi.waitFor(() => expect(l.warn).toHaveBeenCalledWith({ code: 'P1001' }, 'auto answer sweep failed'));
