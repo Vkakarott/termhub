@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerToDecision, decisionText, labelKey, mapAnswer, sameAnswer } from './decision-text.js';
+import { answerToDecision, decisionText, embedTag, embedText, EMBED_TEXT_VERSION, labelKey, mapAnswer, sameAnswer } from './decision-text.js';
 
 const item = (labels: string[], multi = false) => ({ question: 'Usar worktree?', header: 'Isolamento', multi_select: multi, options: labels.map((label) => ({ label, description: 'longa descrição', recommended: false })) });
 
@@ -54,5 +54,33 @@ describe('sameAnswer', () => {
     expect(sameAnswer({ selected: [2, 0] }, { selected: [0, 2] })).toBe(true);
     expect(sameAnswer({ selected: [], text: ' a ' }, { selected: [], text: 'a' })).toBe(true);
     expect(sameAnswer({ selected: [0] }, { selected: [1] })).toBe(false);
+  });
+});
+
+describe('embedText', () => {
+  it('is the question alone, lower-cased, without trailing punctuation', () => {
+    expect(embedText({ question: 'Usar git worktree para isolar o trabalho?' })).toBe('usar git worktree para isolar o trabalho');
+  });
+  it('ignores header and options, so a changed header or reordered options embed the same', () => {
+    const a = { header: 'Isolamento', question: 'Usar worktree?', options: [{ label: 'Sim' }, { label: 'Não' }] };
+    const b = { header: 'Git', question: 'Usar worktree?', options: [{ label: 'Não' }, { label: 'Sim' }, { label: 'Talvez' }] };
+    expect(embedText(a)).toBe(embedText(b));
+  });
+  it('collapses whitespace and strips every trailing ?!.:; plus surrounding spaces', () => {
+    expect(embedText({ question: '  Fazer   commit\n agora ?! ' })).toBe('fazer commit agora');
+    expect(embedText({ question: 'Pronto.' })).toBe('pronto');
+  });
+  it('keeps inner punctuation and accents', () => {
+    expect(embedText({ question: 'Salvar em docs/plans, ou não?' })).toBe('salvar em docs/plans, ou não');
+  });
+  it('gives an empty string for a question that is only punctuation', () => {
+    expect(embedText({ question: ' ?! ' })).toBe('');
+  });
+});
+
+describe('embedTag', () => {
+  it('appends the text version to the model name', () => {
+    expect(EMBED_TEXT_VERSION).toBe('q1');
+    expect(embedTag('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')).toBe('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2#q1');
   });
 });
