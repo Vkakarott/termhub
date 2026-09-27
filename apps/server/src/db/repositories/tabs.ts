@@ -147,6 +147,10 @@ export class TabsRepository {
   ): Promise<{ tab: Tab; event: TabEvent }> {
     const at = new Date();
     const [e, t] = await this.db.$transaction(async (tx) => {
+      // One event per tab at a time: two hooks fired together (PermissionRequest and
+      // Notification(permission_prompt)) would otherwise both see the same `working` event as the
+      // previous one and credit its interval twice. The second waits here and reads the first's event.
+      await tx.$queryRaw`SELECT 1 FROM "tabs" WHERE "id" = ${tabId} FOR UPDATE`;
       const current = await tx.tab.findUnique({ where: { id: tabId }, select: { state: true, stateAt: true, stateSeenAt: true, stateText: true } });
       // A working interval ends here: credit it to the card this tab works on (a subtask's parent), once.
       const previous = await tx.tabEvent.findFirst({ where: { tabId }, orderBy: { createdAt: 'desc' }, select: { kind: true, createdAt: true } });

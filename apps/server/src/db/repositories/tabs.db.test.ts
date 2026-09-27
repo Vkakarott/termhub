@@ -490,6 +490,29 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.recordEven
     expect(await secondsOf(sub.id)).toBe(0);
   });
 
+  it('credits one interval once when two events for the tab arrive together', async () => {
+    const card = await task({ tabId });
+    await eventAgo('working', 60);
+    // Hold the tab row from another connection so both events are in flight at once (Claude fires
+    // PermissionRequest and Notification(permission_prompt) together), then let them go.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const blocker = db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "tabs" WHERE "id" = ${tabId} FOR UPDATE`;
+      await held;
+    });
+    const events = Promise.all([
+      repo.recordEvent(tabId, { kind: 'waiting_permission', tool: 'claude', text: null }),
+      repo.recordEvent(tabId, { kind: 'waiting_permission', tool: 'claude', text: null }),
+    ]);
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+    await blocker;
+    await events;
+    expect(await secondsOf(card.id)).toBeGreaterThanOrEqual(59);
+    expect(await secondsOf(card.id)).toBeLessThanOrEqual(61);
+  });
+
   it('credits the parent card when only a subtask is linked', async () => {
     const card = await task({});
     await task({ parentId: card.id, tabId, type: 'subtask' });
