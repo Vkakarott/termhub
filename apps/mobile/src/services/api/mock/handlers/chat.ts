@@ -29,7 +29,7 @@ import {
   type TTabSuggestion,
 } from '../../contract';
 import type { MockRouter } from '../router';
-import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockProjectGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
+import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockNote, type MockProjectGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
 import { pushConfirmationNotification, pushReplyNotification } from './notifications';
 
 const USER_ID = 'u1';
@@ -515,10 +515,11 @@ function projectGrantListItem(state: MockState, g: MockProjectGrant, now: number
   };
 }
 
-// --- chat memory (spec 2026-09-26 §4.6) -----------------------------------------------------
+// --- chat memory (spec 2026-09-26 §4.6, concierge memory D8/D12) ----------------------------
 
-/** 50 per page, same as the server's `DECISIONS_PAGE` (`apps/server/src/routes/chat-memory.ts`). */
+/** 50 per page, same as the server's `DECISIONS_PAGE`/`NOTES_PAGE` (`apps/server/src/routes/chat-memory.ts`). */
 const DECISIONS_PAGE = 50;
+const NOTES_PAGE = 50;
 
 /** `q` matches the question, the header, the answer (labels or free text) or the project name —
  * mirrors `repos.chatDecisions.listForUser`'s `ILIKE` over the same columns. */
@@ -531,7 +532,7 @@ function matchesDecisionQuery(d: MockDecision, q: string): boolean {
 function chatMemoryView(state: MockState): TChatMemory {
   // `available` has no fixture for "false" (no server config to mirror in the mock) — every mock
   // run behaves as if embeddings were configured, like a dev server normally would be.
-  return { enabled: state.chatMemoryEnabled, available: true, count: state.decisions.length };
+  return { enabled: state.chatMemoryEnabled, autodecide: state.chatAutodecideEnabled, available: true, count: state.decisions.length, notes: state.notes.length };
 }
 
 // --- routes ---------------------------------------------------------------------------------
@@ -996,7 +997,30 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
   router.route('PATCH', '/api/m/v1/chat/memory', (ctx) => {
     verifyAuth(state, { headers: ctx.headers, htm: 'PATCH', htu: ctx.htu, now: ctx.now() });
     const body = chatMemoryPatchBody.parse(ctx.body);
-    state.chatMemoryEnabled = body.enabled;
+    if (body.enabled !== undefined) state.chatMemoryEnabled = body.enabled;
+    if (body.autodecide !== undefined) state.chatAutodecideEnabled = body.autodecide;
     return { status: 200, body: chatMemoryView(state) };
+  });
+
+  // --- "Anotações do concierge" (spec D12/§8) -----------------------------------------------
+
+  router.route('GET', '/api/m/v1/chat/notes', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
+    const list: MockNote[] = [...state.notes].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)); // newest first
+    const cursor = ctx.query.cursor;
+    const start = cursor ? Math.max(0, list.findIndex((n) => n.id === cursor) + 1) : 0;
+    const notes = list.slice(start, start + NOTES_PAGE);
+    const next_cursor = start + NOTES_PAGE < list.length ? (notes[notes.length - 1]?.id ?? null) : null;
+    return { status: 200, body: { notes, next_cursor } };
+  });
+
+  /** "Esquecer": idempotent and silent about whether `id` ever existed (the server scopes the
+   * delete to `(id, ownerId, kind: 'note')` in SQL, so there is nothing left to distinguish here
+   * either): always 204. */
+  router.route('DELETE', '/api/m/v1/chat/notes/:id', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'DELETE', htu: ctx.htu, now: ctx.now() });
+    const idx = state.notes.findIndex((n) => n.id === ctx.params.id);
+    if (idx !== -1) state.notes.splice(idx, 1);
+    return { status: 204, body: {} };
   });
 }

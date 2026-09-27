@@ -108,7 +108,7 @@ describe('Memória do chat', () => {
   it('the switch calls setChatMemory(false)', async () => {
     // `mockResolvedValue`, not a call-through spy: a real PATCH would flip the shared mock
     // backend's switch for every test that runs after this one in the file.
-    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: false, available: true, count: 2 });
+    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: false, autodecide: false, available: true, count: 2, notes: 0 });
     await render(<ChatMemoryScreen />);
     const toggle = await screen.findByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' }, LOAD);
     await act(async () => fireEvent(toggle, 'valueChange', false));

@@ -22,6 +22,7 @@ import {
   emptyResponse,
   hostOptionsResponse,
   meResponse,
+  notesResponse,
   notificationsResponse,
   progressResponse,
   sendAccepted,
@@ -287,7 +288,15 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
     },
     forgetChatDecision: (a: Auth, id: string) => empty('DELETE', `/api/m/v1/chat/decisions/${encodeURIComponent(id)}`, { token: a.accessToken }),
     chatMemory: (a: Auth) => call('GET', '/api/m/v1/chat/memory', chatMemoryResponse, { token: a.accessToken }),
-    setChatMemory: (a: Auth, enabled: boolean) => call('PATCH', '/api/m/v1/chat/memory', chatMemoryResponse, { token: a.accessToken, body: { enabled } }),
+    setChatMemory: (a: Auth, body: boolean | { enabled?: boolean; autodecide?: boolean }) =>
+      call('PATCH', '/api/m/v1/chat/memory', chatMemoryResponse, { token: a.accessToken, body: typeof body === 'boolean' ? { enabled: body } : body }),
+    chatNotes: (a: Auth, cursor) => {
+      const params = new URLSearchParams();
+      if (cursor) params.set('cursor', cursor);
+      const qs = params.toString();
+      return call('GET', `/api/m/v1/chat/notes${qs ? `?${qs}` : ''}`, notesResponse, { token: a.accessToken });
+    },
+    forgetChatNote: (a: Auth, id: string) => empty('DELETE', `/api/m/v1/chat/notes/${encodeURIComponent(id)}`, { token: a.accessToken }),
 
     notifications: (a: Auth, before?: string) =>
       call('GET', `/api/m/v1/notifications${before ? `?before=${encodeURIComponent(before)}` : ''}`, notificationsResponse, {

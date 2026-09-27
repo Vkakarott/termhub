@@ -117,8 +117,28 @@ export const decisionViewSchema = z.object({
  * last page). */
 export const decisionsResponse = z.object({ decisions: z.array(decisionViewSchema), next_cursor: z.string().nullable() });
 
-/** `GET`/`PATCH chat/memory`: the suggestion switch, whether embeddings are configured on this server
- * at all (`available: false` hides the switch rather than offering one that can never do anything),
- * and how many decisions are remembered. */
-export const chatMemoryResponse = z.object({ enabled: z.boolean(), available: z.boolean(), count: z.number().int() });
-export const chatMemoryPatchBody = z.object({ enabled: z.boolean() });
+/** `GET`/`PATCH chat/memory`: the suggestion switch, "Responder sozinho quando houver precedente"
+ * (spec D8), whether embeddings are configured on this server at all (`available: false` hides both
+ * switches rather than offering ones that can never do anything), how many decisions are remembered,
+ * and how many concierge notes (spec D12) are. */
+export const chatMemoryResponse = z.object({ enabled: z.boolean(), autodecide: z.boolean(), available: z.boolean(), count: z.number().int(), notes: z.number().int() });
+/** At least one of the two switches, never neither — an empty body is refused rather than a silent no-op. */
+export const chatMemoryPatchBody = z
+  .object({ enabled: z.boolean().optional(), autodecide: z.boolean().optional() })
+  .refine((b) => b.enabled !== undefined || b.autodecide !== undefined, { message: 'Informe enabled ou autodecide' });
+
+/** "Anotações do concierge" (spec D12/§8): one `record_decision` note, as the list shows it —
+ * `question` is the note's title; `decision`/`reason` are parsed back out of the stored text's
+ * `Decisão:`/`Motivo:` lines server-side (never the embedding, the owning user or the raw text). */
+export const conciergeNoteView = z.object({
+  id: z.string(),
+  project_id: z.string().nullable(),
+  project_name: z.string().nullable(),
+  question: z.string(),
+  decision: z.string(),
+  reason: z.string(),
+  created_at: z.string(),
+});
+/** `GET chat/notes`: newest first, 50 per page, with a keyset `next_cursor` (opaque, `null` on the
+ * last page) — the same pagination shape as `decisionsResponse`. */
+export const notesResponse = z.object({ notes: z.array(conciergeNoteView), next_cursor: z.string().nullable() });

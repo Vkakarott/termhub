@@ -1079,13 +1079,29 @@ export interface ChatDecision {
   accepted_count: number;
   created_at: string;
 }
-/** `GET /chat/memory`: the suggestion switch, whether embeddings are configured on this server at all
- * (`available: false` hides the switch rather than offering one that can never do anything), and how
- * many decisions are remembered. */
+/** `GET /chat/memory`: the suggestion switch, "Responder sozinho quando houver precedente" (spec D8),
+ * whether embeddings are configured on this server at all (`available: false` hides both switches
+ * rather than offering ones that can never do anything), how many decisions are remembered, and how
+ * many concierge notes (spec D12) there are. */
 export interface ChatMemory {
   enabled: boolean;
+  autodecide: boolean;
   available: boolean;
   count: number;
+  notes: number;
+}
+
+/** "Anotações do concierge" (spec D12/§8): one `record_decision` note, as the list shows it —
+ * `question` is the note's title; `decision`/`reason` are parsed server-side out of the stored text's
+ * `Decisão:`/`Motivo:` lines. */
+export interface ConciergeNote {
+  id: string;
+  project_id: string | null;
+  project_name: string | null;
+  question: string;
+  decision: string;
+  reason: string;
+  created_at: string;
 }
 
 export type TabSuggestionStatus = TabQuestionStatus | 'dismissed';

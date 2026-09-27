@@ -22,6 +22,7 @@ import type {
   TMobileBatchDecisionBody,
   TMobileDecisionBody,
   TMobileMessageBody,
+  TNotesResponse,
   TNotificationsResponse,
   TProgressResponse,
   TSendAccepted,
@@ -114,14 +115,23 @@ export interface MobileApi {
   transcribe(auth: Auth, fileUri: string, mime: string, seconds: number, onProgress?: (fraction: number) => void): Promise<TTranscription>;
   transcription(auth: Auth, id: string): Promise<TTranscription>;
 
-  // "Memória do chat" (spec 2026-09-26 §4.6/§5.2): the twin of the web's `chatDecisions` /
-  // `forgetChatDecision` / `chatMemory` / `setChatMemory`. No PIN.
+  // "Memória do chat" (spec 2026-09-26 §4.6/§5.2, concierge memory D8/D12): the twin of the web's
+  // `chatDecisions` / `forgetChatDecision` / `chatMemory` / `setChatMemory` / `chatNotes` /
+  // `forgetChatNote`. No PIN.
   /** Newest first, 50 per page; `q` filters question/answer/project, `cursor` is `next_cursor`. */
   chatDecisions(auth: Auth, q?: string, cursor?: string | null): Promise<TDecisionsResponse>;
   /** Idempotent and silent about whether `id` ever existed or was someone else's — always 204. */
   forgetChatDecision(auth: Auth, id: string): Promise<void>;
   chatMemory(auth: Auth): Promise<TChatMemory>;
-  setChatMemory(auth: Auth, enabled: boolean): Promise<TChatMemory>;
+  /** A plain boolean is the same as `{ enabled: boolean }` (the pre-D8 shape every caller still
+   *  uses); `{ enabled?, autodecide? }` is the D8 shape for "Responder sozinho quando houver
+   *  precedente" — the server refuses a body with neither key. */
+  setChatMemory(auth: Auth, body: boolean | { enabled?: boolean; autodecide?: boolean }): Promise<TChatMemory>;
+  /** "Anotações do concierge" (spec D12/§8): newest first, 50 per page, `cursor` is `next_cursor`. */
+  chatNotes(auth: Auth, cursor?: string | null): Promise<TNotesResponse>;
+  /** Idempotent and silent about whether `id` ever existed, was someone else's, or was some other
+   *  memory kind — always 204. */
+  forgetChatNote(auth: Auth, id: string): Promise<void>;
 
   // notifications (P§9)
   notifications(auth: Auth, before?: string): Promise<TNotificationsResponse>;

@@ -196,7 +196,7 @@ it("toggling, then a search that completes before the PATCH does, still shows th
   expect(store.getState().memory?.enabled).toBe(true); // unchanged: the toggle has not resolved yet
 
   // Only now does the toggle's own PATCH resolve; the switch must reflect it, not the search's read.
-  resolveToggle({ enabled: false, available: true, count: 2 });
+  resolveToggle({ enabled: false, autodecide: false, available: true, count: 2, notes: 0 });
   await togglePromise;
   expect(store.getState().memory?.enabled).toBe(false);
 });
@@ -217,7 +217,7 @@ it('a search that started before a toggle completed never flips the switch back 
   expect(store.getState().memory?.enabled).toBe(false);
 
   // Only now does the search's stale read arrive: its list applies, its switch value must not.
-  resolveStaleMemory({ enabled: true, available: true, count: 2 });
+  resolveStaleMemory({ enabled: true, autodecide: false, available: true, count: 2, notes: 0 });
   await tick();
   expect(store.getState().memory?.enabled).toBe(false);
   expect(store.getState().decisions).not.toBeNull();

@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../../crypto/encoding';
 import type { P256Jwk } from '../../key/types';
 import { verifyProof } from '../dpop';
-import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TDeviceInfo, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
+import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TConciergeNote, TDeviceInfo, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
 
 /** Every non-2xx answer the mock throws (design spec ruling): mapped to the wire shape by
  * `transport.ts`. `error` is pt-BR text; `extra` carries `attempts_left` / `retry_after`, spread
@@ -138,6 +138,11 @@ export type MockNotification = TNotificationRow;
  * there is no `user_id` to keep here either. */
 export type MockDecision = TChatDecision;
 
+/** "Anotações do concierge" (spec D12): field-for-field the wire shape of one note (contract
+ * `chat.ts`'s `conciergeNoteView`) — the mock's single user owns every row, so there is no
+ * `owner_id` to keep here either. */
+export type MockNote = TConciergeNote;
+
 /** A tab's question (spec 2026-09-25): the wire shape plus the conversation it was pushed into. */
 export type MockTabQuestion = TTabQuestion & { conversation_id: string };
 
@@ -203,6 +208,12 @@ export interface MockState {
   /** The mock's one user's suggestion switch (`GET`/`PATCH memory`); defaults to `true`, like the
    * server's `chatSuggestions` column default. */
   chatMemoryEnabled: boolean;
+  /** "Responder sozinho quando houver precedente" (spec D8); defaults to `false`, like the server's
+   * `chatAutodecide` column default. */
+  chatAutodecideEnabled: boolean;
+  /** "Anotações do concierge" (spec D12): the mock's one user's `record_decision` notes, any order
+   * (`GET notes` sorts newest first) — "Esquecer" (`DELETE`) removes a row from here. */
+  notes: MockNote[];
 }
 
 export function createMockState(): MockState {
@@ -229,6 +240,8 @@ export function createMockState(): MockState {
     busyProjects: new Set(),
     decisions: [],
     chatMemoryEnabled: true,
+    chatAutodecideEnabled: false,
+    notes: [],
   };
 }
 
