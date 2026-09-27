@@ -1272,6 +1272,57 @@ describe('reset', () => {
     await running;
   });
 
+  it('is not held up by a subagent still running in the background once the turn has ended', async () => {
+    const { service, runner, repos } = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+
+    const first = await service.start(user, 'acompanha a aba em background', { projectId: 'p1' });
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 't1' }] }));
+    run.push(delta('Disparei.'));
+    run.push(done());
+    await first.done; // the turn is over; the process lives on for the subagent
+
+    const fresh = await service.reset(user, 'p1');
+    expect(repos.chat.archive).toHaveBeenCalledWith('c_p1');
+    expect(fresh.id).not.toBe('c_p1');
+    // The old process takes no more input: nothing typed later can land in the archived thread.
+    expect(run.written.at(-1)).toBe('{"type":"termhub_end_input"}');
+
+    // The new conversation runs on its own, while the old process is still alive.
+    const next = await service.start(user, 'oi', { projectId: 'p1' });
+    expect(next.conversation_id).toBe(fresh.id);
+    const second = await runAt(lr, 1);
+    second.push(replayOf(second.input.text.trim()));
+    second.push(delta('Oi!'));
+    second.push(done());
+    expect((await next.done).text).toBe('Oi!');
+    run.end();
+    await settled();
+  });
+
+  it('is still refused while a streamed turn is being answered, even with a subagent in the background', async () => {
+    const { service, runner, repos } = build([], { streaming: true });
+    const lr = liveRunner();
+    vi.mocked(runner.run).mockImplementation(lr.run);
+
+    const first = await service.start(user, 'dispara', { projectId: 'p1' });
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 't1' }] }));
+    run.push(delta('Escrevendo…'));
+    await settled();
+
+    await expect(service.reset(user, 'p1')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_BUSY' });
+    expect(repos.chat.archive).not.toHaveBeenCalled();
+    run.push(done());
+    await first.done;
+    run.end();
+    await settled();
+  });
+
   it('closes a queued message whose launch lost the lock to it, instead of leaving it waiting for ever', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));

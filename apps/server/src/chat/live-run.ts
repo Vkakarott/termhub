@@ -90,6 +90,11 @@ export class LiveRun {
   get accepting(): boolean {
     return this.inputOpen;
   }
+  /** Whether a turn is open: one being answered, or one written (a message or a server note) and not
+   *  started yet. A process kept alive only by subagents in the background has none. */
+  get busy(): boolean {
+    return this.current !== null || this.waiting.length > 0 || this.notes.size > 0;
+  }
   get endedTurns(): number {
     return this.ended;
   }
@@ -421,7 +426,14 @@ export class LiveRun {
   /** Nothing to answer and nothing in the background: end the input. The CLI still runs whatever it
    *  has (a notification turn that is on its way), and a message that comes later goes to the next run. */
   private endInputIfIdle(): void {
-    if (!this.inputOpen || this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0) return;
+    if (this.current || this.waiting.length > 0 || this.notes.size > 0 || this.background > 0) return;
+    this.endInput();
+  }
+
+  /** Ends the input for good, background or not: the CLI finishes whatever it runs and takes nothing
+   *  more (the conversation is being archived). */
+  endInput(): void {
+    if (!this.inputOpen) return;
     this.inputOpen = false;
     this.stream?.write?.(STREAM_END_INPUT_LINE);
   }
