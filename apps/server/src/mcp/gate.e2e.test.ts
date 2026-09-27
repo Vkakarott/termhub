@@ -224,6 +224,7 @@ function build(opts: { gated: boolean; conversationId?: string }) {
     chat,
     chatActions: actions,
     chatGrants: grants,
+    chatProjectGrants: { findActive: vi.fn(async () => undefined) },
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
     machines: {
       findById: vi.fn(async () => machine),
