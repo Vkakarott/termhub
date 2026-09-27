@@ -47,6 +47,17 @@ export const chatGrantSchema = z.object({
   tab_name: z.string().nullable(),
 });
 
+/** "Permitir sempre neste projeto" while it holds (server `ChatProjectGrantView`): the project's board
+ * in this conversation. `project_name` is null when the project is gone. */
+export const chatProjectGrantSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  project_name: z.string().nullable(),
+  source_action_id: z.string().nullable(),
+  created_at: z.string(),
+  expires_at: z.string(),
+});
+
 /** How a listed grant stands (server `ChatGrantState`). */
 export const chatGrantState = z.enum(['active', 'expired', 'revoked', 'ended']);
 
@@ -174,6 +185,8 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('decision'), user_id: z.string(), conversation_id: z.string(), action_id: z.string(), status: z.enum(['approved', 'denied']) }),
   z.object({ type: z.literal('grant'), user_id: z.string(), conversation_id: z.string(), grant: chatGrantSchema }),
   z.object({ type: z.literal('grant_revoked'), user_id: z.string(), conversation_id: z.string(), grant_id: z.string() }),
+  z.object({ type: z.literal('project_grant'), user_id: z.string(), conversation_id: z.string(), grant: chatProjectGrantSchema }),
+  z.object({ type: z.literal('project_grant_revoked'), user_id: z.string(), conversation_id: z.string(), grant_id: z.string() }),
   z.object({ type: z.literal('granted_action'), user_id: z.string(), conversation_id: z.string(), action: chatActionSchema }),
   z.object({ type: z.literal('tab_question'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),
   z.object({ type: z.literal('tab_question_answered'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),

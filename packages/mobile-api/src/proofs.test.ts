@@ -12,4 +12,9 @@ describe('proof helpers', () => {
     expect(decisionProofMessage('c1', 'a1', 'approve_tab')).toBe('c1\na1\napprove_tab');
     expect(decisionProofMessage('c1', 'a1', 'approve_tab')).not.toBe(decisionProofMessage('c1', 'a1', 'approve'));
   });
+  it('approve_project signs a different message', () => {
+    expect(decisionProofMessage('c1', 'a1', 'approve_project')).toBe('c1\na1\napprove_project');
+    expect(decisionProofMessage('c1', 'a1', 'approve_project')).not.toBe(decisionProofMessage('c1', 'a1', 'approve_tab'));
+    expect(decisionProofMessage('c1', 'a1', 'approve_project')).not.toBe(decisionProofMessage('c1', 'a1', 'approve'));
+  });
 });

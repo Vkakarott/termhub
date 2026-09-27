@@ -15,6 +15,12 @@ describe('chatEventSchema: grants', () => {
     const r = chatEventSchema.safeParse(e);
     expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
   });
+  it('parses project_grant and project_grant_revoked', () => {
+    const pg = { id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: '2026-09-27T10:00:00.000Z', expires_at: '2026-09-28T10:00:00.000Z' };
+    expect(chatEventSchema.parse({ type: 'project_grant', ...base, grant: pg }).type).toBe('project_grant');
+    expect(chatEventSchema.parse({ type: 'project_grant', ...base, grant: { ...pg, project_name: null, source_action_id: null } }).type).toBe('project_grant');
+    expect(chatEventSchema.parse({ type: 'project_grant_revoked', ...base, grant_id: 'pg1' }).type).toBe('project_grant_revoked');
+  });
   it('keeps grant_id on the card', () => {
     const r = chatEventSchema.parse({ type: 'granted_action', ...base, action: card });
     expect(r.type === 'granted_action' && r.action.grant_id).toBe('g1');

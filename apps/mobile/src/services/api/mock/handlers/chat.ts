@@ -668,6 +668,9 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       return { status: 200, body: {} };
     }
 
+    // The mock does not grant projects yet: refused like an ineligible card, before any PIN handling.
+    if (body.decision === 'approve_project') throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Não dá para permitir sempre neste projeto aqui');
+
     const hasProof = 'challenge' in body && body.challenge !== undefined && body.pin_proof !== undefined;
     if (!hasProof) {
       // Mirrors the server (TER-92): only a `write` card approves with the session alone.
