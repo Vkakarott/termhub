@@ -16,7 +16,7 @@
 - Grant lifetime: `GRANT_TTL_MS` (24 h), ended by "Nova conversa", replaced by re-granting the same project in the same conversation.
 - Budget: at most **30** calls per grant per rolling **60 minutes**; the 31st is asked.
 - A call whose project does not resolve owner-scoped is never covered (asked as today).
-- Migration only adds a table (`20260927000000_chat_project_grants`); `chat_grants` is untouched.
+- Migration only adds a table (`20260927010000_chat_project_grants`); `chat_grants` is untouched.
 - PIN proof word for the phone: `approve_project`. Batches stay `approve` / `deny` only.
 - `GET /chat/grants` without `kinds=all` returns tab grants only (old app builds).
 - UI copy pt-BR, exactly: "Permitir sempre neste projeto", "Permitido neste projeto até HH:MM", "quadro confiado", "Permissões do chat", "1 permissão ativa" / "N permissões ativas", "Quadro do projeto X", "Projeto que não existe mais", intro "O que o chat pode fazer sem pedir confirmação. Cada permissão vale para uma conversa, por até 24 horas."
@@ -42,7 +42,7 @@
 ### Task 1: `chat_project_grants` table and repository
 
 **Files:**
-- Create: `apps/server/prisma/migrations/20260927000000_chat_project_grants/migration.sql`
+- Create: `apps/server/prisma/migrations/20260927010000_chat_project_grants/migration.sql`
 - Modify: `apps/server/prisma/schema.prisma` (model `ChatProjectGrant`, relation on `ChatConversation`)
 - Create: `apps/server/src/db/repositories/chat-project-grants.ts`
 - Modify: `apps/server/src/db/repositories/index.ts` (`chatProjectGrants`)
