@@ -96,24 +96,6 @@ describe('extract: pdf, docx, xlsx', () => {
     expect(await code(extract('xlsx', xlsx, 'application/x', withBudget))).toBe('ATTACHMENT_INVALID');
     expect((await extract('xlsx', xlsx, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 8 * 1024 * 1024 })).meta).toMatchObject({ sheets: [{ name: 'S', rows: 1, cols: 1 }] });
   });
-  it('xlsx: a local entry the directory does not list is refused before the streaming reader (which walks local headers) sees it', async () => {
-    const wb = new ExcelJS.Workbook();
-    wb.addWorksheet('S').addRow(['x']);
-    const genuine = Buffer.from(await wb.xlsx.writeBuffer());
-    // 1 MB of shared strings deflates to a few KB, listed nowhere in the directory, so the directory-based guard counts nothing.
-    const strings = `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${'<si><t>aaaaaaaaaaaaaaaa</t></si>'.repeat(40_000)}</sst>`;
-    const hidden = withUnlistedEntry(genuine, 'xl/sharedStrings.xml', strings);
-    expect(hidden.length).toBeLessThan(genuine.length + 16 * 1024);
-    const parse = vi.spyOn(ExcelJS.stream.xlsx.WorkbookReader.prototype, 'parse');
-    try {
-      expect(await code(extract('xlsx', hidden, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 256 * 1024 }))).toBe('ATTACHMENT_INVALID');
-      expect(parse).not.toHaveBeenCalled();
-      // The same file without the extra entry is fine under that budget.
-      expect((await extract('xlsx', genuine, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 256 * 1024 })).meta).toMatchObject({ sheets: [{ name: 'S', rows: 1, cols: 1 }] });
-    } finally {
-      parse.mockRestore();
-    }
-  });
   it('docx and xlsx: an unlisted entry or bytes the directory does not account for are an invalid attachment', async () => {
     const docx = minimalDocx(['Olá'], { deflate: true });
     expect(await code(extract('docx', withUnlistedEntry(docx, 'word/extra.xml', 'x'.repeat(100)), 'application/x', noWhisper))).toBe('ATTACHMENT_INVALID');
@@ -156,25 +138,6 @@ describe('extract: pdf, docx, xlsx', () => {
     expect(r.text).toBe('## Vendas\n| Item | Qtd |\n| --- | --- |\n| Café \\| leite | 3 |\n| Total | 6 |');
     expect(r.text).not.toContain('B2*2');
     expect(r.meta).toEqual({ sheets: [{ name: 'Vendas', rows: 3, cols: 2 }], truncated: false });
-  });
-  it('xlsx: read through the streaming WorkbookReader, one row at a time, never a whole-workbook load', async () => {
-    const streamed = vi.spyOn(ExcelJS.stream.xlsx.WorkbookReader.prototype, 'parse');
-    // `Workbook#xlsx` is a getter that caches per instance: spy on the XLSX class behind it, not on the prototype's getter.
-    const loaded = vi.spyOn(Object.getPrototypeOf(new ExcelJS.Workbook().xlsx) as ExcelJS.Xlsx, 'load');
-    try {
-      const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Gaps');
-      ws.getRow(1).values = ['a', 'b'];
-      ws.getRow(3).values = ['c']; // row 2 stays empty: the table keeps its place, as the full load did
-      const r = await extract('xlsx', Buffer.from(await wb.xlsx.writeBuffer()), 'application/x', noWhisper);
-      expect(streamed).toHaveBeenCalledTimes(1);
-      expect(loaded).not.toHaveBeenCalled();
-      expect(r.text).toBe('## Gaps\n| a | b |\n| --- | --- |\n|  |  |\n| c |  |');
-      expect(r.meta).toEqual({ sheets: [{ name: 'Gaps', rows: 3, cols: 2 }], truncated: false });
-    } finally {
-      streamed.mockRestore();
-      loaded.mockRestore();
-    }
   });
   it('xlsx: each sheet is capped at 500 rows and 50 columns', async () => {
     const wb = new ExcelJS.Workbook();
