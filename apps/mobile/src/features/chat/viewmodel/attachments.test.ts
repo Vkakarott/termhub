@@ -1,6 +1,6 @@
 import { ATTACHMENT_LIMITS } from '@termhub/mobile-api';
 import type { TChatAttachment } from '@/services/api/contract';
-import { attachmentStatusText, checkPick, draftsReducer, formatBytes, invalidAttachments, isUploading, planAdd, uploadedAttachments, type PickedFile } from './attachments';
+import { attachmentStatusText, checkPick, draftsReducer, formatBytes, invalidAttachments, isUploading, planAdd, thumbSize, uploadedAttachments, type PickedFile } from './attachments';
 
 const att = (over: Partial<TChatAttachment> & { id: string }): TChatAttachment => ({
   name: 'relatorio.pdf', mime: 'application/pdf', kind: 'pdf', bytes: 10, status: 'pending', error_code: null, meta: null, created_at: '2026-09-26T00:00:00.000Z', ...over,
@@ -75,6 +75,20 @@ describe('copy', () => {
     expect(attachmentStatusText(att({ id: 'a' }))).toBe('processando…');
     expect(attachmentStatusText(att({ id: 'a', status: 'failed', error_code: 'ATTACHMENT_INVALID' }))).toBe('falhou: arquivo inválido');
     expect(attachmentStatusText(att({ id: 'a', status: 'ready' }))).toBeNull();
+  });
+});
+
+describe('thumbSize', () => {
+  it('fits the long side to the box and keeps the proportion', () => {
+    expect(thumbSize({ width: 1600, height: 1200 }, 160, 64)).toEqual({ width: 160, height: 120 });
+    expect(thumbSize({ width: 1200, height: 1600 }, 160, 64)).toEqual({ width: 120, height: 160 });
+  });
+  it('never scales up, and clamps to the minimum side', () => {
+    expect(thumbSize({ width: 100, height: 80 }, 160, 64)).toEqual({ width: 100, height: 80 });
+    expect(thumbSize({ width: 4000, height: 20 }, 160, 64)).toEqual({ width: 160, height: 64 });
+  });
+  it.each([null, {}, { width: 0, height: 10 }, { width: '800', height: 600 }, { width: Number.NaN, height: 600 }])('is null without usable dimensions: %o', (meta) => {
+    expect(thumbSize(meta as Record<string, unknown> | null, 160, 64)).toBeNull();
   });
 });
 

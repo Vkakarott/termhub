@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import type { TChatAttachment } from '@/services/api/contract';
 import { MessageAttachments } from './message-attachments';
 
@@ -36,5 +37,25 @@ describe('MessageAttachments images', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Toque para recarregar' }));
     await waitFor(() => expect(mockAttachmentSource).toHaveBeenCalledTimes(3));
     expect((await screen.findByLabelText('foto.jpg')).props.source.headers.DPoP).toBe('proof-3');
+  });
+
+  it('sizes the thumbnail, its loading box and its reload button from the dimensions', async () => {
+    mockAttachmentSource.mockImplementationOnce(() => new Promise(() => {})); // never signs: the loading box stays
+    const sized = { ...image, meta: { width: 1600, height: 1200 } };
+    await render(<MessageAttachments attachments={[sized]} />);
+    expect(StyleSheet.flatten(screen.getByTestId('attachment-placeholder').props.style)).toMatchObject({ width: 160, height: 120 });
+  });
+
+  it('sizes the loaded image from the dimensions too', async () => {
+    await render(<MessageAttachments attachments={[{ ...image, meta: { width: 1200, height: 1600 } }]} />);
+    const loaded = await screen.findByLabelText('foto.jpg');
+    expect(StyleSheet.flatten(loaded.props.style)).toMatchObject({ width: 120, height: 160 });
+  });
+
+  it('keeps the square box when the image has no dimensions', async () => {
+    await render(<MessageAttachments attachments={[image]} />);
+    const loaded = await screen.findByLabelText('foto.jpg');
+    // No explicit size: only what the `h-40 w-40` class gives (NativeWind may or may not turn it into style here).
+    expect([undefined, 160]).toContain(StyleSheet.flatten(loaded.props.style)?.width);
   });
 });
