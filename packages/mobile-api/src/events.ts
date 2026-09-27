@@ -104,8 +104,9 @@ export const tabQuestionSuggestionSchema = z.object({
   items: z.array(
     z.object({
       question_index: z.number().int(),
-      decision_id: z.string(),
-      similarity: z.number(),
+      // Absent on a concierge suggestion (spec 2026-09-26 concierge memory §3.2): no single decision backs it.
+      decision_id: z.string().optional(),
+      similarity: z.number().optional(),
       selected: z.array(z.number().int()),
       text: z.string().optional(),
       source: z.object({ question: z.string(), project_name: z.string().nullable(), answered_at: z.string() }),

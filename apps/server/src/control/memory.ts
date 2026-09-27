@@ -1,7 +1,11 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { ChatDecision, DecisionNeighbour } from '../db/repositories/chat-decisions.js';
 import type { MemoryFilter, MemoryHit, MemoryItem, MemoryKind, MemoryTrust } from '../db/repositories/memory-items.js';
-import type { ChoicePayload } from '../chat/tab-question-payload.js';
+import { checkChoiceAnswer, choiceAnswerBody, type ChoiceAnswer, type ChoicePayload } from '../chat/tab-question-payload.js';
+import { decisionBacks, scheduleAutoAnswer, type Downgrade } from '../chat/auto-answer.js';
+import { labelKey, type SuggestionItem } from '../chat/decision-text.js';
+import { publishTabQuestions } from '../chat/tab-questions.js';
+import { autoAnswerBlocked } from '../memory/blocklist.js';
 import { defaultEmbedder, EMBED_TIMEOUT_MS, withTimeout, type Embedder } from '../chat/embeddings.js';
 import { sanitisePromptText } from '../chat/tab-question-context.js';
 import { indexNote } from '../memory/index-items.js';
@@ -189,10 +193,13 @@ const NOTES_WINDOW_MS = 60 * 60 * 1000;
  * (`parseRef`) and then resolve — a `decision:` ref against `chatDecisions.findManyForUser`, every
  * other kind against `memoryItems.findManyForOwner` — both scoped to `ctx.scope.user.id`, so a ref
  * naming someone else's row, or one that never existed, fails exactly the same way: an injected
- * concierge can never cite a stranger's row to make a fabricated note look sourced.
+ * concierge can never cite a stranger's row to make a fabricated note look sourced. Resolves every ref
+ * in the order given, with the row it names, for a caller that needs to read them (`answer_tab_question`).
  */
-async function verifySources(ctx: ControlContext, sources: string[] | undefined): Promise<void> {
-  if (!sources || sources.length === 0) return;
+type ResolvedSource = { ref: string; kind: 'decision'; id: string; decision: ChatDecision } | { ref: string; kind: MemoryKind; id: string; item: MemoryItem };
+
+async function verifySources(ctx: ControlContext, sources: string[] | undefined): Promise<ResolvedSource[]> {
+  if (!sources || sources.length === 0) return [];
   const parsed = sources.map((ref) => ({ ref, parsed: parseRef(ref) }));
   const bad = parsed.find((p) => !p.parsed);
   if (bad) throw new ControlError('UNKNOWN_SOURCE', `Fonte desconhecida: ${bad.ref}`);
@@ -203,13 +210,22 @@ async function verifySources(ctx: ControlContext, sources: string[] | undefined)
     decisionIds.length > 0 ? ctx.repos.chatDecisions.findManyForUser(decisionIds, ownerId) : Promise.resolve([] as ChatDecision[]),
     itemIds.length > 0 ? ctx.repos.memoryItems.findManyForOwner(itemIds, ownerId) : Promise.resolve([] as MemoryItem[]),
   ]);
-  const decisionIdSet = new Set(decisions.map((d) => d.id));
-  const itemById = new Map(items.map((it) => [it.id, it.kind]));
+  const decisionById = new Map(decisions.map((d) => [d.id, d]));
+  const itemById = new Map(items.map((it) => [it.id, it]));
+  const resolved: ResolvedSource[] = [];
   for (const p of parsed) {
     const { kind, id } = p.parsed!;
-    const found = kind === 'decision' ? decisionIdSet.has(id) : itemById.get(id) === kind;
-    if (!found) throw new ControlError('UNKNOWN_SOURCE', `Fonte desconhecida: ${p.ref}`);
+    if (kind === 'decision') {
+      const decision = decisionById.get(id);
+      if (!decision) throw new ControlError('UNKNOWN_SOURCE', `Fonte desconhecida: ${p.ref}`);
+      resolved.push({ ref: p.ref, kind, id, decision });
+    } else {
+      const item = itemById.get(id);
+      if (!item || item.kind !== kind) throw new ControlError('UNKNOWN_SOURCE', `Fonte desconhecida: ${p.ref}`);
+      resolved.push({ ref: p.ref, kind, id, item });
+    }
   }
+  return resolved;
 }
 
 /**
@@ -295,4 +311,117 @@ export async function listTabQuestions(ctx: ControlContext, a: { project_id?: st
     });
   }
   return { note: TAB_QUESTIONS_NOTE, questions };
+}
+
+/** One proposed answer per question, as `answer_tab_question` takes it: option labels, or free text. */
+export type ProposedAnswer = { selected: string[] } | { text: string };
+
+const NOT_A_CHOICE = 'Só perguntas de múltipla escolha podem ser respondidas por aqui; permissões ficam com o usuário';
+const ANSWER_MISMATCH = 'A resposta não corresponde à pergunta: dê uma resposta por pergunta, com rótulos que existem nas opções (um só numa pergunta de escolha única) ou um texto';
+const QUESTION_CLOSED = 'Esta pergunta já foi respondida ou fechada';
+
+/**
+ * Labels → the payload's option indexes (`labelKey`: case, accents and punctuation do not matter),
+ * then the same checks a click's body goes through: `choiceAnswerBody` (a free text the tab would read
+ * as a key, a command or a shell escape is refused) and `checkChoiceAnswer` (one answer per question,
+ * options that exist, one option at most on a single-select). Any problem is `ANSWER_MISMATCH`.
+ */
+function toChoiceAnswer(payload: ChoicePayload, answers: ProposedAnswer[]): ChoiceAnswer {
+  const mismatch = () => new ControlError('ANSWER_MISMATCH', ANSWER_MISMATCH);
+  if (answers.length !== payload.questions.length) throw mismatch();
+  const raw = answers.map((a, i) => {
+    if ('text' in a) return { selected: [] as number[], text: a.text };
+    const options = payload.questions[i]!.options;
+    return {
+      selected: a.selected.map((label) => {
+        const key = labelKey(label);
+        const index = key ? options.findIndex((o) => labelKey(o.label) === key) : -1;
+        if (index === -1) throw mismatch();
+        return index;
+      }),
+    };
+  });
+  const parsed = choiceAnswerBody.safeParse({ answers: raw });
+  if (!parsed.success || checkChoiceAnswer(payload, parsed.data)) throw mismatch();
+  return parsed.data;
+}
+
+/** The TER-57 `source` line for a suggestion item, from the first ref the concierge cited: a
+ *  decision's own question, project and date; an item's title, project and date. */
+function suggestionSource(first: ResolvedSource): SuggestionItem['source'] {
+  if (first.kind === 'decision') return { question: first.decision.question, project_name: first.decision.project_name, answered_at: first.decision.created_at };
+  const { item } = first;
+  return { question: item.title, project_name: item.project_name, answered_at: item.source_at };
+}
+
+/**
+ * `answer_tab_question` (spec 2026-09-26 concierge memory D6, D7, D8, D11, §5.4): answers one of the
+ * person's open `choice` cards from memory, never by typing — either a cancellable countdown
+ * (`mode: 'auto'`, the default) or a pre-selection with the concierge's reason (`mode: 'suggest'`).
+ *
+ * The server, not the model, decides when "auto" is allowed. In order, each failure a pt-BR
+ * `ControlError` with nothing written:
+ *  1. the row is the caller's (`findByIdForUser`; another user's is exactly as missing as a stray id),
+ *     a `choice` (never a permission prompt or a tab suggestion), still `open`, with no countdown running;
+ *  2. the answers parse against the payload (`toChoiceAnswer`);
+ *  3. every source resolves in the caller's own memory (`verifySources`).
+ * Then `auto` is downgraded to a suggestion, with the reason in the result (precedence as `Downgrade`
+ * documents), when the person's "Responder sozinho" switch is off; when any question's header, text
+ * or chosen answer hits the blocklist; or when not every question has a cited `decision` (a person's
+ * own past answer) that maps to exactly the proposed answer (`decisionBacks`). A doc, card, message or
+ * note can never back `auto`: text an agent wrote may carry an injection (D2).
+ *
+ * A suggestion replaces the card's items (the answers cover every question) and is republished; a
+ * countdown is `scheduleAutoAnswer`'s. A row that moved on between the read and the write answers
+ * `QUESTION_CLOSED`. Logs nothing: the reason, answers and sources' text are the person's.
+ */
+export async function answerTabQuestionTool(
+  ctx: ControlContext,
+  a: { question_id: string; answers: ProposedAnswer[]; reason: string; sources: string[]; mode?: 'auto' | 'suggest' },
+): Promise<{ mode: 'auto' | 'suggest'; due_at?: string; downgraded_because?: Downgrade }> {
+  const userId = ctx.scope.user.id;
+  const row = await ctx.repos.tabQuestions.findByIdForUser(a.question_id, userId);
+  if (!row) throw new ControlError('QUESTION_NOT_FOUND', 'Pergunta não encontrada');
+  if (row.kind !== 'choice') throw new ControlError('NOT_A_CHOICE', NOT_A_CHOICE);
+  if (row.status !== 'open') throw new ControlError('QUESTION_CLOSED', QUESTION_CLOSED);
+  if (row.auto_answer?.status === 'scheduled') throw new ControlError('ALREADY_SCHEDULED', 'Já há uma resposta automática em contagem para esta pergunta');
+  const payload = row.payload as ChoicePayload;
+  const answer = toChoiceAnswer(payload, a.answers);
+  const sources = await verifySources(ctx, a.sources);
+  if (sources.length === 0) throw new ControlError('UNKNOWN_SOURCE', 'Cite ao menos uma fonte de search_memory');
+
+  let downgrade: Downgrade | undefined;
+  if ((a.mode ?? 'auto') === 'auto') {
+    const decisions = sources.flatMap((s) => (s.kind === 'decision' ? [s.decision] : []));
+    const backed = payload.questions.filter((item, i) => decisions.some((d) => decisionBacks(d, item, answer.answers[i]!))).length;
+    const parts = payload.questions.flatMap((q, i) => {
+      const ans = answer.answers[i]!;
+      return [q.header, q.question, ...ans.selected.map((s) => q.options[s]!.label), ...(ans.text !== undefined ? [ans.text] : [])];
+    });
+    if (!(await ctx.repos.users.chatAutodecide(userId))) downgrade = 'switch_off';
+    else if (autoAnswerBlocked(parts)) downgrade = 'blocked';
+    else if (payload.questions.length > 1 && backed > 0 && backed < payload.questions.length) downgrade = 'multi_question_partial';
+    else if (backed < payload.questions.length) downgrade = 'no_person_precedent';
+
+    if (!downgrade) {
+      const scheduled = await scheduleAutoAnswer(ctx.repos, { row, answer, by: 'concierge', reason: a.reason, sources: sources.map((s) => ({ kind: s.kind, id: s.id })) });
+      if (!scheduled?.auto_answer) throw new ControlError('QUESTION_CLOSED', QUESTION_CLOSED);
+      return { mode: 'auto', due_at: scheduled.auto_answer.due_at };
+    }
+  }
+
+  const source = suggestionSource(sources[0]!);
+  const items: SuggestionItem[] = answer.answers.map((ans, i) => ({
+    question_index: i,
+    selected: ans.selected,
+    ...(ans.text !== undefined ? { text: ans.text } : {}),
+    by: 'concierge',
+    reason: a.reason,
+    sources: sources.map((s) => s.ref),
+    source,
+  }));
+  const updated = await ctx.repos.tabQuestions.setSuggestion(row.id, { items });
+  if (!updated) throw new ControlError('QUESTION_CLOSED', QUESTION_CLOSED);
+  await publishTabQuestions(ctx.repos, 'tab_question', [updated]);
+  return downgrade ? { mode: 'suggest', downgraded_because: downgrade } : { mode: 'suggest' };
 }

@@ -120,6 +120,10 @@ const envSchema = z.object({
    *  (TER-204): the worst opposite-meaning pair measured scores 0.948 and a repeat with another header
    *  or options scores 1.0; lower it to trade precision for paraphrases. */
   DECISION_SUGGEST_THRESHOLD: z.coerce.number().min(0).max(1).default(0.98),
+  /** seconds an automatic answer stays on the card, cancellable, before the server sends it (spec
+   *  2026-09-26 concierge memory D6, §6). Bounded so a typo can neither remove the undo window nor
+   *  leave a tab waiting for ten minutes. */
+  AUTO_ANSWER_DELAY_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
 
   // Chat concierge (docker/concierge): the container runner. Since the chat moved onto the user's own
   // machine (spec §6, `chat/agent-runner.ts`) these two reach that container alone, and nothing calls
@@ -220,6 +224,7 @@ export const config = {
   chatFiles: { dir: env.CHAT_FILES_DIR, quotaBytes: env.CHAT_FILES_QUOTA_BYTES },
   embeddings: env.EMBED_URL && env.EMBED_SECRET ? { url: env.EMBED_URL.replace(/\/$/, ''), secret: env.EMBED_SECRET } : null,
   decisionSuggestThreshold: env.DECISION_SUGGEST_THRESHOLD,
+  autoAnswerDelayMs: env.AUTO_ANSWER_DELAY_SECONDS * 1000,
   /**
    * Settings for the container runner (`httpRunner`) and nothing else: the chat itself no longer reads
    * this, and no code path builds that runner any more (spec §6). What the chat needs is `mcpUrl`

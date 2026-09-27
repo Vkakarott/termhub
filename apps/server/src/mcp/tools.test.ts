@@ -142,3 +142,15 @@ it('list_tab_questions is listed only for a token holding read and the terminals
   const withoutGrant = { can: async () => false } as unknown as ControlContext;
   expect((await allowedTools(withoutGrant, ['read'])).some((t) => t.name === 'list_tab_questions')).toBe(false);
 });
+
+it('answer_tab_question needs the terminals scope and the terminals:write grant, and checks refs and answer shapes', () => {
+  const t = TOOLS.find((t) => t.name === 'answer_tab_question')!;
+  expect([t.scope, t.resource, t.action]).toEqual(['terminals', 'terminals', 'write']);
+  const ok = { question_id: 'q1', answers: [{ selected: ['Sim'] }], reason: 'r', sources: ['decision:abc123'] };
+  expect(parseArgs(t, ok).ok).toBe(true);
+  expect(parseArgs(t, { ...ok, answers: [{ text: 'use a main' }], mode: 'suggest' }).ok).toBe(true);
+  expect(parseArgs(t, { ...ok, sources: [] }).ok).toBe(false);
+  expect(parseArgs(t, { ...ok, sources: ['not-a-ref'] }).ok).toBe(false);
+  expect(parseArgs(t, { ...ok, answers: [{ selected: [] }] }).ok).toBe(false);
+  expect(parseArgs(t, { ...ok, mode: 'now' }).ok).toBe(false);
+});

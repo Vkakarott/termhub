@@ -10,7 +10,7 @@ import { linkProjectMachine, PROJECT_CWD, setProjectMachineCwd, unlinkProjectMac
 import { addSubtasks, createTask, deleteTask, listTasks, moveTask, TASK_DESCRIPTION_MAX, TASK_POSITION_MAX, TASK_TITLE_MAX, updateTask, type CreatableType, type WorkType } from '../control/tasks.js';
 import { getTicket, importTickets, listTickets, pushTicketStatus, syncTickets, TICKET_IMPORT_MAX, TICKET_LIST_MAX } from '../control/tickets.js';
 import { PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
-import { listTabQuestions, recordDecision, searchMemory, MEMORY_REF, type MemoryRefKind } from '../control/memory.js';
+import { answerTabQuestionTool, listTabQuestions, recordDecision, searchMemory, MEMORY_REF, type MemoryRefKind } from '../control/memory.js';
 import { readAttachment } from '../chat/attachments/read-tool.js';
 import { MAX_SUBTASKS_PER_CALL } from '../db/repositories/tasks.js';
 import type { TaskStatus, TaskType } from '../db/repositories/types.js';
@@ -226,6 +226,20 @@ export const TOOLS: ToolDef[] = [
     action: 'read',
     input: { project_id: id.optional() },
     run: (ctx, a) => listTabQuestions(ctx, a as { project_id?: string }),
+  },
+  {
+    name: 'answer_tab_question',
+    description:
+      'Answer a tab\'s open multiple-choice question (from list_tab_questions) on the person\'s behalf, based on memory. Give one answer per question (option labels, or text), a short reason in the person\'s language and the search_memory refs you relied on. mode "auto" (default) schedules the answer with a visible countdown (60 s) the person can cancel; the server only accepts it when a cited ref is a decision (trust "person") whose past answer is exactly this one, the person turned "Responder sozinho" on, and the question is not about deploys, pushes, merges, deletions or other irreversible acts — otherwise it becomes a suggestion (pre-selected on the card, the person still clicks), and the result says why. Use mode "suggest" when your basis is a spec, a card or a note. Never answer permission prompts: they are not listed here.',
+    scope: 'terminals', resource: 'terminals', action: 'write',
+    input: {
+      question_id: id,
+      answers: z.array(z.union([z.object({ selected: z.array(z.string().min(1).max(200)).min(1).max(10) }), z.object({ text: z.string().trim().min(1).max(1000) })])).min(1).max(4),
+      reason: z.string().trim().min(1).max(500),
+      sources: z.array(z.string().regex(MEMORY_REF)).min(1).max(10),
+      mode: z.enum(['auto', 'suggest']).optional(),
+    },
+    run: (ctx, a) => answerTabQuestionTool(ctx, a as Parameters<typeof answerTabQuestionTool>[1]),
   },
   {
     name: 'create_task',

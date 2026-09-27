@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatDecision, DecisionNeighbour } from '../db/repositories/chat-decisions.js';
 import type { MemoryHit, MemoryFilter, NewMemoryItem } from '../db/repositories/memory-items.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
@@ -8,7 +8,14 @@ import type { Embedder } from '../chat/embeddings.js';
 import { Scoped } from '../auth/scope.js';
 import { HttpError } from '../lib/errors.js';
 import type { ControlContext } from './context.js';
-import { MEMORY_NOTE, MEMORY_REF, listTabQuestions, parseRef, recordDecision, searchMemory } from './memory.js';
+import { ControlError } from './context.js';
+import { MEMORY_NOTE, MEMORY_REF, answerTabQuestionTool, listTabQuestions, parseRef, recordDecision, searchMemory } from './memory.js';
+import { publishTabQuestions } from '../chat/tab-questions.js';
+import type { MemoryItem } from '../db/repositories/memory-items.js';
+import type { AutoAnswer } from '../db/repositories/tab-questions.js';
+import type { TabQuestionSuggestion } from '../chat/decision-text.js';
+
+vi.mock('../chat/tab-questions.js', () => ({ publishTabQuestions: vi.fn(async () => []) }));
 
 const project = (over: Partial<Project> & { id: string }): Project => ({
   owner_id: 'u1', key: over.id.toUpperCase(), next_task_number: 1, name: over.id, status: 'active', description: null, last_terminal_at: null, created_at: '', ...over,
@@ -404,5 +411,225 @@ describe('listTabQuestions', () => {
     const { ctx, calls } = ctxForQuestions({});
     await listTabQuestions(ctx, { project_id: 'p1' });
     expect(calls.listOpenChoicesForUser).toHaveBeenCalledWith('u1', 'p1');
+  });
+});
+
+const yesNo = (question: string, header = 'Isolamento') => ({
+  question,
+  header,
+  multi_select: false,
+  options: [
+    { label: 'Sim', description: '', recommended: false },
+    { label: 'Não', description: '', recommended: false },
+  ],
+});
+
+const pastDecision = (over: Partial<ChatDecision> & { id: string }): ChatDecision => {
+  const { similarity, ...base } = decision({ project_id: 'p1', project_name: 'termhub', ...over });
+  return base;
+};
+
+const memoryItem = (over: Partial<MemoryItem> & { id: string }): MemoryItem => {
+  const { similarity, rank, ...base } = item({ project_id: 'p1', project_name: 'termhub', ...over });
+  return base;
+};
+
+interface AnswerSetup {
+  rows?: TabQuestion[];
+  decisions?: ChatDecision[];
+  items?: MemoryItem[];
+  autodecide?: boolean;
+}
+
+function ctxForAnswer(setup: AnswerSetup = {}) {
+  const rows = setup.rows ?? [tabQuestionRow({ id: 'q1', payload: { questions: [yesNo('Usar git worktree para isolar o trabalho?')] } })];
+  const findByIdForUser = vi.fn(async (id: string, userId: string) => rows.find((r) => r.id === id && r.user_id === userId));
+  const setAutoAnswer = vi.fn(async (id: string, auto: AutoAnswer) => ({ ...rows.find((r) => r.id === id)!, auto_answer: auto }));
+  const setSuggestion = vi.fn(async (id: string, suggestion: TabQuestionSuggestion) => ({ ...rows.find((r) => r.id === id)!, suggestion }));
+  const chatAutodecide = vi.fn(async () => setup.autodecide ?? true);
+  const decisions = setup.decisions ?? [pastDecision({ id: 'd1' })];
+  const items = setup.items ?? [];
+  const findManyForUser = vi.fn(async (ids: string[], userId: string) => decisions.filter((d) => ids.includes(d.id) && d.user_id === userId));
+  const findManyForOwner = vi.fn(async (ids: string[], ownerId: string) => items.filter((it) => ids.includes(it.id) && it.owner_id === ownerId));
+  const repos = {
+    tabQuestions: { findByIdForUser, setAutoAnswer, setSuggestion },
+    users: { chatAutodecide },
+    chatDecisions: { findManyForUser },
+    memoryItems: { findManyForOwner },
+  } as unknown as Repositories;
+  const scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' as const }, ownerId: 'u1', createAs: 'u1' };
+  const ctx: ControlContext = { repos, scope, scoped: new Scoped(repos, scope), can: async () => true };
+  return { ctx, calls: { findByIdForUser, setAutoAnswer, setSuggestion, chatAutodecide } };
+}
+
+const yes = { question_id: 'q1', answers: [{ selected: ['Sim'] }], reason: 'Você sempre usa worktree', sources: ['decision:d1'] };
+
+describe('answerTabQuestionTool', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-26T12:00:00.000Z'));
+    vi.mocked(publishTabQuestions).mockClear();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const refusal = async (setup: AnswerSetup, a: Parameters<typeof answerTabQuestionTool>[1], code: string) => {
+    const { ctx, calls } = ctxForAnswer(setup);
+    const err = await answerTabQuestionTool(ctx, a).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ControlError);
+    expect((err as ControlError).code).toBe(code);
+    expect(calls.setAutoAnswer).not.toHaveBeenCalled();
+    expect(calls.setSuggestion).not.toHaveBeenCalled();
+    expect(publishTabQuestions).not.toHaveBeenCalled();
+    return err as ControlError;
+  };
+
+  describe('refusals (nothing written)', () => {
+    it('QUESTION_NOT_FOUND for a missing row or another user\'s', async () => {
+      await refusal({}, { ...yes, question_id: 'nope' }, 'QUESTION_NOT_FOUND');
+      await refusal({ rows: [tabQuestionRow({ id: 'q1', user_id: 'u2' })] }, yes, 'QUESTION_NOT_FOUND');
+    });
+
+    it('NOT_A_CHOICE for a permission or a suggestion row', async () => {
+      const e = await refusal({ rows: [tabQuestionRow({ id: 'q1', kind: 'permission', payload: { tool_name: 'Bash' } })] }, yes, 'NOT_A_CHOICE');
+      expect(e.message).toBe('Só perguntas de múltipla escolha podem ser respondidas por aqui; permissões ficam com o usuário');
+      await refusal({ rows: [tabQuestionRow({ id: 'q1', kind: 'suggestion', payload: { text: 'x' } })] }, yes, 'NOT_A_CHOICE');
+    });
+
+    it('QUESTION_CLOSED for a row no longer open', async () => {
+      await refusal({ rows: [tabQuestionRow({ id: 'q1', status: 'answered', payload: { questions: [yesNo('Usar worktree?')] } })] }, yes, 'QUESTION_CLOSED');
+    });
+
+    it('ALREADY_SCHEDULED when a countdown is running', async () => {
+      const auto: AutoAnswer = { answer: { answers: [{ selected: [0] }] }, by: 'memory', reason: 'r', sources: [], due_at: '2026-09-26T12:01:00.000Z', status: 'scheduled' };
+      await refusal({ rows: [tabQuestionRow({ id: 'q1', auto_answer: auto, payload: { questions: [yesNo('Usar worktree?')] } })] }, yes, 'ALREADY_SCHEDULED');
+    });
+
+    it('ANSWER_MISMATCH for a wrong count, an unknown label or two labels on a single-select', async () => {
+      await refusal({}, { ...yes, answers: [{ selected: ['Sim'] }, { selected: ['Não'] }] }, 'ANSWER_MISMATCH');
+      await refusal({}, { ...yes, answers: [{ selected: ['Talvez'] }] }, 'ANSWER_MISMATCH');
+      await refusal({}, { ...yes, answers: [{ selected: ['Sim', 'Não'] }] }, 'ANSWER_MISMATCH');
+    });
+
+    it('ANSWER_MISMATCH for a free text the tab would read as a command', async () => {
+      await refusal({}, { ...yes, answers: [{ text: '/exit' }] }, 'ANSWER_MISMATCH');
+    });
+
+    it('UNKNOWN_SOURCE for an unknown ref or another user\'s decision', async () => {
+      await refusal({}, { ...yes, sources: ['decision:nope'] }, 'UNKNOWN_SOURCE');
+      await refusal({ decisions: [pastDecision({ id: 'd1', user_id: 'u2' })] }, yes, 'UNKNOWN_SOURCE');
+      await refusal({}, { ...yes, sources: ['doc:i9'] }, 'UNKNOWN_SOURCE');
+    });
+  });
+
+  it('auto with the switch on and a matching person decision schedules a 60 s countdown and republishes', async () => {
+    const { ctx, calls } = ctxForAnswer();
+    const r = await answerTabQuestionTool(ctx, yes);
+    expect(r).toEqual({ mode: 'auto', due_at: '2026-09-26T12:01:00.000Z' });
+    expect(calls.setAutoAnswer).toHaveBeenCalledWith('q1', {
+      answer: { answers: [{ selected: [0] }] },
+      by: 'concierge',
+      reason: 'Você sempre usa worktree',
+      sources: [{ kind: 'decision', id: 'd1' }],
+      due_at: '2026-09-26T12:01:00.000Z',
+      status: 'scheduled',
+    });
+    expect(calls.setSuggestion).not.toHaveBeenCalled();
+    expect(publishTabQuestions).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(publishTabQuestions).mock.calls[0]![1]).toBe('tab_question');
+  });
+
+  it('mode defaults to auto; label case and accents do not matter', async () => {
+    const { ctx } = ctxForAnswer({ decisions: [pastDecision({ id: 'd1', answer: { labels: ['NAO'] } })] });
+    const r = await answerTabQuestionTool(ctx, { ...yes, answers: [{ selected: ['nao'] }] });
+    expect(r.mode).toBe('auto');
+  });
+
+  const expectSuggestion = (calls: ReturnType<typeof ctxForAnswer>['calls'], source: { question: string; project_name: string | null; answered_at: string }, sources = ['decision:d1']) => {
+    expect(calls.setAutoAnswer).not.toHaveBeenCalled();
+    expect(calls.setSuggestion).toHaveBeenCalledTimes(1);
+    const [id, suggestion] = calls.setSuggestion.mock.calls[0]!;
+    expect(id).toBe('q1');
+    expect(suggestion.items).toEqual([{ question_index: 0, selected: [0], by: 'concierge', reason: 'Você sempre usa worktree', sources, source }]);
+    expect(publishTabQuestions).toHaveBeenCalledTimes(1);
+  };
+  const d1Source = { question: 'Usar git worktree para isolar o trabalho?', project_name: 'termhub', answered_at: '2026-09-24T10:00:00.000Z' };
+
+  it('downgrades to suggest when the switch is off (switch_off)', async () => {
+    const { ctx, calls } = ctxForAnswer({ autodecide: false });
+    const r = await answerTabQuestionTool(ctx, yes);
+    expect(r).toEqual({ mode: 'suggest', downgraded_because: 'switch_off' });
+    expectSuggestion(calls, d1Source);
+  });
+
+  it('downgrades with only a doc/note/task source (no_person_precedent); source.question is the item title', async () => {
+    const { ctx, calls } = ctxForAnswer({ items: [memoryItem({ id: 'i1', kind: 'doc', title: 'docs/spec.md — Isolamento' })] });
+    const r = await answerTabQuestionTool(ctx, { ...yes, sources: ['doc:i1'] });
+    expect(r).toEqual({ mode: 'suggest', downgraded_because: 'no_person_precedent' });
+    expectSuggestion(calls, { question: 'docs/spec.md — Isolamento', project_name: 'termhub', answered_at: '2026-09-24T10:00:00.000Z' }, ['doc:i1']);
+  });
+
+  it('downgrades when the cited decision answered the opposite (no_person_precedent)', async () => {
+    const { ctx, calls } = ctxForAnswer({ decisions: [pastDecision({ id: 'd1', answer: { labels: ['Não'] } })] });
+    const r = await answerTabQuestionTool(ctx, yes);
+    expect(r).toEqual({ mode: 'suggest', downgraded_because: 'no_person_precedent' });
+    expectSuggestion(calls, d1Source);
+  });
+
+  it('downgrades a question about deploys (blocked), even with a perfect precedent', async () => {
+    const { ctx, calls } = ctxForAnswer({ rows: [tabQuestionRow({ id: 'q1', payload: { questions: [yesNo('Fazer deploy?', 'Deploy')] } })] });
+    const r = await answerTabQuestionTool(ctx, yes);
+    expect(r).toEqual({ mode: 'suggest', downgraded_because: 'blocked' });
+    expectSuggestion(calls, d1Source);
+  });
+
+  it('the blocklist also reads the chosen labels', async () => {
+    const q = { question: 'O que fazer com a branch?', header: 'Branch', multi_select: false, options: [{ label: 'Manter', description: '', recommended: false }, { label: 'Apagar', description: '', recommended: false }] };
+    const { ctx } = ctxForAnswer({ rows: [tabQuestionRow({ id: 'q1', payload: { questions: [q] } })], decisions: [pastDecision({ id: 'd1', answer: { labels: ['Apagar'] }, options: q.options })] });
+    const r = await answerTabQuestionTool(ctx, { ...yes, answers: [{ selected: ['Apagar'] }] });
+    expect(r).toEqual({ mode: 'suggest', downgraded_because: 'blocked' });
+  });
+
+  it('downgrades a two-question card backed for only one question (multi_question_partial)', async () => {
+    const rows = [tabQuestionRow({ id: 'q1', payload: { questions: [yesNo('Usar git worktree?'), yesNo('Rodar os testes?', 'Testes')] } })];
+    const { ctx, calls } = ctxForAnswer({ rows });
+    const r = await answerTabQuestionTool(ctx, { ...yes, answers: [{ selected: ['Sim'] }, { selected: ['Não'] }] });
+    expect(r).toEqual({ mode: 'suggest', downgraded_because: 'multi_question_partial' });
+    expect(calls.setAutoAnswer).not.toHaveBeenCalled();
+    expect(calls.setSuggestion.mock.calls[0]![1].items.map((i) => [i.question_index, i.selected])).toEqual([
+      [0, [0]],
+      [1, [1]],
+    ]);
+  });
+
+  it('switch_off wins over blocked, and blocked over no_person_precedent', async () => {
+    const rows = [tabQuestionRow({ id: 'q1', payload: { questions: [yesNo('Fazer deploy?', 'Deploy')] } })];
+    const off = ctxForAnswer({ rows, autodecide: false, decisions: [pastDecision({ id: 'd1', answer: { labels: ['Não'] } })] });
+    expect((await answerTabQuestionTool(off.ctx, yes)).downgraded_because).toBe('switch_off');
+    const on = ctxForAnswer({ rows, decisions: [pastDecision({ id: 'd1', answer: { labels: ['Não'] } })] });
+    expect((await answerTabQuestionTool(on.ctx, yes)).downgraded_because).toBe('blocked');
+  });
+
+  it('mode suggest never schedules, even with a perfect precedent, and reports no downgrade', async () => {
+    const { ctx, calls } = ctxForAnswer();
+    const r = await answerTabQuestionTool(ctx, { ...yes, mode: 'suggest' });
+    expect(r).toEqual({ mode: 'suggest' });
+    expectSuggestion(calls, d1Source);
+  });
+
+  it('a free-text answer is stored as text with no selection', async () => {
+    const { ctx, calls } = ctxForAnswer({ decisions: [pastDecision({ id: 'd1', answer: { labels: [], text: 'use a main' } })] });
+    const r = await answerTabQuestionTool(ctx, { ...yes, answers: [{ text: 'use a main' }] });
+    expect(r.mode).toBe('auto');
+    expect(calls.setAutoAnswer.mock.calls[0]![1].answer).toEqual({ answers: [{ selected: [], text: 'use a main' }] });
+  });
+
+  it('a row that moved on between the read and the write answers QUESTION_CLOSED', async () => {
+    const { ctx, calls } = ctxForAnswer();
+    calls.setAutoAnswer.mockResolvedValueOnce(undefined as never);
+    await expect(answerTabQuestionTool(ctx, yes)).rejects.toMatchObject({ code: 'QUESTION_CLOSED' });
+    expect(publishTabQuestions).not.toHaveBeenCalled();
   });
 });

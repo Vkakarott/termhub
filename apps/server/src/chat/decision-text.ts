@@ -8,13 +8,23 @@ export interface ItemAnswer {
   text?: string;
 }
 
+/**
+ * One pre-selected answer on a card. TER-57's own (from a similar past decision) carries
+ * `decision_id` and `similarity`; a concierge suggestion (`answer_tab_question`, spec 2026-09-26
+ * concierge memory §5.4) carries `by: 'concierge'`, its `reason` and the `sources` refs it cited
+ * instead, and has no `decision_id` — a spec or a note backs it, not one decision to forget.
+ * `source` is always there: the past question (or the cited item's title), project and date.
+ */
 export interface SuggestionItem {
   question_index: number;
-  decision_id: string;
-  similarity: number;
+  decision_id?: string;
+  similarity?: number;
   selected: number[];
   text?: string;
   source: { question: string; project_name: string | null; answered_at: string };
+  by?: 'concierge';
+  reason?: string;
+  sources?: string[];
 }
 
 export interface TabQuestionSuggestion {
