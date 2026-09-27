@@ -10,6 +10,43 @@ export class EmbedError extends Error {
   }
 }
 
+/**
+ * Rejects with `EmbedError('SUGGEST_TIMEOUT')` if `p` has not settled within `ms`, calling `onTimeout`
+ * right before doing so; `p` itself keeps running (there is no cancelling an in-flight fetch or query
+ * from here), but the caller stops waiting — `onTimeout` is how it tells `p`'s continuation that.
+ * Shared by every embedding caller (decision suggestions, decision/memory-item embed steps) so a slow
+ * or hanging embed service never holds one of them up past its own budget.
+ */
+export function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      onTimeout();
+      reject(new EmbedError('SUGGEST_TIMEOUT'));
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/** The failure code worth logging: an `EmbedError`'s own code, a Prisma error's `.code`, else a
+ *  generic one — never the error's `message`, which may quote the question, the answer or a chunk of
+ *  indexed text. Shared by every embedding caller for the same reason as `withTimeout`. */
+export function memoryCode(err: unknown): string {
+  if (err instanceof EmbedError) return err.code;
+  if (typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
+    return (err as { code: string }).code;
+  }
+  return 'SUGGEST_FAILED';
+}
+
 export interface Embedder {
   embed(texts: string[]): Promise<{ model: string; vectors: number[][] }>;
 }

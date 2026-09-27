@@ -153,6 +153,29 @@ export class TasksRepository {
     return (await this.db.task.findMany({ where: { id: { in: ids }, project: { ownerId } }, include: KEY })).map(toTask);
   }
 
+  /**
+   * Cards of this owner's projects whose `updated_at` is at least `since`, oldest first, capped at
+   * `limit` — the memory sweeper's read for indexing cards (spec 2026-09-26 concierge memory §4):
+   * ordering by `updated_at` means a backlog larger than `limit` is caught up over successive sweeps
+   * instead of the same newest rows winning every tick.
+   */
+  async listChangedForOwner(ownerId: string, since: Date, limit = 200): Promise<Task[]> {
+    const rows = await this.db.task.findMany({
+      where: { project: { ownerId }, updatedAt: { gte: since } },
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      take: limit,
+      include: KEY,
+    });
+    return rows.map(toTask);
+  }
+
+  /** Every owner with at least one card — the memory sweeper's per-owner pass (spec 2026-09-26
+   *  concierge memory §4): never Prisma outside a repository. */
+  async listOwnersWithTasks(): Promise<string[]> {
+    const rows = await this.db.project.findMany({ where: { ownerId: { not: null }, tasks: { some: {} } }, select: { ownerId: true }, distinct: ['ownerId'] });
+    return rows.map((r) => r.ownerId).filter((id): id is string => id !== null);
+  }
+
   /** A top-level card lands at the top of its column (or of its epic's backlog); a subtask is appended to its parent. */
   async create(projectId: string, input: TaskInput): Promise<Task> {
     if (input.parent_id || input.type === 'subtask') {

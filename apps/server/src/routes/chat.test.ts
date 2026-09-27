@@ -120,8 +120,9 @@ function build(opts: {
     const ownerId = opts.viewAsOwner ?? 'u1';
     (req as unknown as { scope: unknown }).scope = { user: { id: 'u1' }, viewAs: opts.viewAsOwner ? { kind: 'user', userId: ownerId } : { kind: 'self' }, ownerId, createAs: ownerId };
   });
-  app.register((a) => chatRoutes(a, repos as never, { service: service as never }), { prefix: '/chat' });
-  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision, setHost, send, start, repos };
+  const indexActions = vi.fn(async () => {});
+  app.register((a) => chatRoutes(a, repos as never, { service: service as never, indexActions }), { prefix: '/chat' });
+  return { app, service, decide, findByIdForUser, listByConversation, resumeAfterDecision, setHost, send, start, repos, indexActions };
 }
 
 it('returns the conversation with its messages', async () => {
@@ -330,7 +331,7 @@ it('surfaces a concierge that did not answer as 502', async () => {
 });
 
 it('approves a row the user owns: 200, decided through the repository, and the run is resumed', async () => {
-  const { app, decide, resumeAfterDecision } = build();
+  const { app, decide, resumeAfterDecision, indexActions } = build();
   const events: ChatEvent[] = [];
   const unsubscribe = chatBus.subscribe((e) => events.push(e));
   let res;
@@ -347,6 +348,8 @@ it('approves a row the user owns: 200, decided through the repository, and the r
   expect(resumeAfterDecision.mock.calls[0][1]).toMatchObject({ id: 'act1', status: 'approved' });
   // Every open tab must learn of the decision, not only the one that clicked.
   expect(events).toContainEqual({ type: 'decision', user_id: 'u1', conversation_id: 'c1', action_id: 'act1', status: 'approved' });
+  // Memory (spec 2026-09-26 concierge memory §4): the decided row is indexed, fire-and-forget.
+  expect(indexActions).toHaveBeenCalledWith('u1', [expect.objectContaining({ id: 'act1', status: 'approved' })]);
 });
 
 it('denies a row the user owns: 200, decided as denied, and the run is resumed', async () => {
@@ -503,13 +506,15 @@ it('POST /chat/actions/decisions decides the batch and resumes the conversation 
   const rows: Record<string, typeof pendingAction & { status: string }> = { a1: { ...pendingAction, id: 'a1', status: 'pending' }, a2: { ...pendingAction, id: 'a2', status: 'pending' } };
   const findByIdForUser = vi.fn(async (id: string) => rows[id]);
   const decide = vi.fn(async (id: string, _u: string, status: string) => ({ ...rows[id], status }));
-  const { app, resumeAfterDecision } = build({ findByIdForUser, decide });
+  const { app, resumeAfterDecision, indexActions } = build({ findByIdForUser, decide });
   const res = await app.inject({ method: 'POST', url: '/chat/actions/decisions', payload: { decisions: [{ id: 'a1', decision: 'approve' }, { id: 'a2', decision: 'deny' }] } });
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('a1', 'u1', 'approved');
   expect(decide).toHaveBeenCalledWith('a2', 'u1', 'denied');
   expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
   expect(res.json()).toMatchObject({ actions: [{ id: 'a1', status: 'approved' }, { id: 'a2', status: 'denied' }], skipped: [] });
+  // Memory (spec 2026-09-26 concierge memory §4): the whole decided batch is indexed, fire-and-forget.
+  expect(indexActions).toHaveBeenCalledWith('u1', [expect.objectContaining({ id: 'a1', status: 'approved' }), expect.objectContaining({ id: 'a2', status: 'denied' })]);
 });
 
 it('POST /chat/actions/decisions validates the body', async () => {

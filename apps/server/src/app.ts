@@ -46,6 +46,7 @@ import { toPublicAttachment } from './db/repositories/chat-attachments.js';
 import { ChatService, failureLabel, purgeExpiredActions } from './chat/service.js';
 import { HEARTBEAT_MS, SWEEP_MS } from './chat/resume.js';
 import { startDecisionSweeper } from './chat/decision-memory.js';
+import { startMemorySweeper } from './memory/sweeper.js';
 import { agentRunner } from './chat/runner.js';
 import { expireOrphanTabQuestions, startTabQuestionExpiry } from './chat/tab-questions.js';
 import { stopTabSuggestions } from './chat/tab-suggestions.js';
@@ -278,6 +279,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   const stopTabQuestionExpiry = startTabQuestionExpiry(repos, fastify.log);
   void expireOrphanTabQuestions(repos, fastify.log);
   const stopDecisionSweeper = startDecisionSweeper(repos, fastify.log);
+  const stopMemorySweeper = startMemorySweeper(repos, fastify.log);
   // Live concierge runs survive a restart or a deploy (spec 2026-09-26 panel §3): this instance proves
   // its own are alive, picks up those another instance released or left stale (once shortly after
   // boot, then on a timer), and releases its own on a graceful shutdown. Each call logs its own
@@ -301,6 +303,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
     stopAgentUpdates();
     stopTabQuestionExpiry();
     stopDecisionSweeper();
+    stopMemorySweeper();
     stopTabSuggestions();
     await simulators.shutdownAll();
     await closePrisma();

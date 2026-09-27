@@ -564,4 +564,55 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TasksRepository (Postgres
       await expect(repo.createWithSubtasks(projectId, { title: 'a', epic_id: epicB.id }, [])).rejects.toMatchObject({ code: 'EPIC_NOT_FOUND' });
     });
   });
+
+  describe('listChangedForOwner / listOwnersWithTasks (memory sweeper reads)', () => {
+    it('lists an owner\'s cards updated at or after `since`, oldest first, and never another owner\'s', async () => {
+      const ownerId = newId();
+      const otherOwnerId = newId();
+      const foreignProjectId = newId();
+      await db.user.createMany({ data: [{ id: ownerId, email: `${ownerId}@test.local`, name: 'owner' }, { id: otherOwnerId, email: `${otherOwnerId}@test.local`, name: 'other' }] });
+      try {
+        await db.project.update({ where: { id: projectId }, data: { ownerId } });
+        await db.project.create({ data: { id: foreignProjectId, ownerId: otherOwnerId, key: keyOf(foreignProjectId), name: 'theirs' } });
+        await repo.create(projectId, { title: 'a' });
+        await repo.create(projectId, { title: 'b' });
+        await repo.create(foreignProjectId, { title: 'not mine' });
+
+        const since = new Date(Date.now() - 60_000);
+        const rows = await repo.listChangedForOwner(ownerId, since);
+        // Only this owner's real cards (never the seeded default epic's project — wait, both a and b's
+        // own default epic belongs to this project too, so both epic + a + b are this owner's, in
+        // updated_at order — oldest first).
+        expect(rows.map((r) => r.title)).toEqual(expect.arrayContaining(['a', 'b']));
+        expect(rows.some((r) => r.title === 'not mine')).toBe(false);
+        expect(rows.every((r) => r.project_id === projectId)).toBe(true);
+
+        // A `since` after every update excludes everything.
+        expect(await repo.listChangedForOwner(ownerId, new Date(Date.now() + 60_000))).toEqual([]);
+      } finally {
+        await db.project.deleteMany({ where: { id: foreignProjectId } });
+        await db.user.deleteMany({ where: { id: { in: [ownerId, otherOwnerId] } } });
+      }
+    });
+
+    it('lists every distinct owner with at least one card, never an orphan project or one with none', async () => {
+      const ownerId = newId();
+      const emptyOwnerId = newId();
+      const emptyProjectId = newId();
+      await db.user.createMany({ data: [{ id: ownerId, email: `${ownerId}@test.local`, name: 'owner' }, { id: emptyOwnerId, email: `${emptyOwnerId}@test.local`, name: 'empty' }] });
+      try {
+        await db.project.update({ where: { id: projectId }, data: { ownerId } });
+        await db.project.create({ data: { id: emptyProjectId, ownerId: emptyOwnerId, key: keyOf(emptyProjectId), name: 'no cards' } });
+        await repo.create(projectId, { title: 'a' });
+
+        const owners = await repo.listOwnersWithTasks();
+        expect(owners).toContain(ownerId);
+        expect(owners).not.toContain(emptyOwnerId);
+        expect(owners.every((id) => typeof id === 'string')).toBe(true);
+      } finally {
+        await db.project.deleteMany({ where: { id: emptyProjectId } });
+        await db.user.deleteMany({ where: { id: { in: [ownerId, emptyOwnerId] } } });
+      }
+    });
+  });
 });

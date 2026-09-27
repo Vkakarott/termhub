@@ -14,6 +14,7 @@ import { attachmentContext } from './attachments/context.js';
 import { chatBus } from './bus.js';
 import { saveContext } from './context.js';
 import { streamedSystemPrompt } from './concierge-prompt.js';
+import { defaultEmbedder } from './embeddings.js';
 import { hostFailure, resolveHost, type HostAgents, type HostChoice } from './host.js';
 import { LiveRun, type LiveTurn } from './live-run.js';
 import { projectSystemPrompt } from './project-prompt.js';
@@ -22,6 +23,7 @@ import { codeForReason, parseFrame, type ChatErrorCode, type ChatFailureReason }
 import { toSubagentView, type SubagentView } from './subagent-view.js';
 import { tabQuestionContext } from './tab-question-context.js';
 import { mintConciergeToken } from './token.js';
+import { indexMessage } from '../memory/index-items.js';
 
 export type { ChatErrorCode } from './stream.js';
 
@@ -273,17 +275,29 @@ export class ChatService {
   /** Conversations whose session is being compacted (TER-315): `compact` holds their lock meanwhile. */
   private compacting = new Set<string>();
 
-  constructor(
-    private deps: {
-      repos: Repositories;
-      /** The registry `resolveHost` reads: which of the user's machines is connected, and what its
-       *  agent understands. */
-      agents: HostAgents;
-      /** The runner for one host machine — `agentRunner` in production. A function, not a client:
-       *  which machine runs a conversation is decided per send, by `resolveHost`. */
-      runnerFor: (machineId: string) => RunnerClient;
-    },
-  ) {}
+  private deps: {
+    repos: Repositories;
+    /** The registry `resolveHost` reads: which of the user's machines is connected, and what its
+     *  agent understands. */
+    agents: HostAgents;
+    /** The runner for one host machine — `agentRunner` in production. A function, not a client:
+     *  which machine runs a conversation is decided per send, by `resolveHost`. */
+    runnerFor: (machineId: string) => RunnerClient;
+    /** Indexes a message the person typed, best effort (spec 2026-09-26 concierge memory D3/D4/§4):
+     *  only `start` calls it — `sendIn` (re-injections, wakes) never does, since only what the person
+     *  actually typed is memory. Defaults to the real writer, bound to `repos` and the configured
+     *  embed service, so only a test needs to override it to observe the call. */
+    indexMessage: (m: { id: string; owner_id: string; project_id: string | null; text: string; created_at: string }) => Promise<void>;
+  };
+
+  constructor(deps: {
+    repos: Repositories;
+    agents: HostAgents;
+    runnerFor: (machineId: string) => RunnerClient;
+    indexMessage?: (m: { id: string; owner_id: string; project_id: string | null; text: string; created_at: string }) => Promise<void>;
+  }) {
+    this.deps = { ...deps, indexMessage: deps.indexMessage ?? ((m) => indexMessage(deps.repos, m, { embedder: defaultEmbedder(), log: console })) };
+  }
 
   /** The active conversation of a scope: the account-wide chat, or one of the user's own projects. A
    * project id that is not this user's is a 404 — never a conversation about someone else's project. */
@@ -677,7 +691,12 @@ export class ChatService {
    * `catch`: this never swallows it, since `send` relies on that rejection.
    */
   async start(user: User, text: string, opts: SendOptions = {}): Promise<StartedRun> {
-    return this.startIn(user, await this.conversationFor(user, opts.projectId ?? null), text, { attachmentIds: opts.attachmentIds });
+    const conversation = await this.conversationFor(user, opts.projectId ?? null);
+    const started = await this.startIn(user, conversation, text, { attachmentIds: opts.attachmentIds });
+    // Only a message the person typed is memory (spec D3/D4): re-injections and wakes go through
+    // `sendIn` directly and never reach here. Best effort, fire-and-forget: `indexMessage` never throws.
+    void this.deps.indexMessage({ id: started.user_message_id, owner_id: user.id, project_id: conversation.project_id, text, created_at: new Date().toISOString() });
+    return started;
   }
 
   /** The project's focus text for this run, or null for the account-wide chat. Owner-scoped reads, so a

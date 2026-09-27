@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { chatGrantListQuery, MAX_ATTACHMENTS_PER_MESSAGE } from '@termhub/mobile-api';
 import type { Repositories } from '../db/repositories/index.js';
+import type { ChatAction } from '../db/repositories/chat-actions.js';
 import { chatMemoryRoutes } from './chat-memory.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions, splitTabRows } from '../db/repositories/tab-questions-view.js';
@@ -9,10 +10,18 @@ import { controlContextFor } from '../control/context.js';
 import { answerTabQuestion, tabQuestionScreen } from '../chat/tab-question-answer.js';
 import { dismissTabSuggestion, sendTabSuggestion } from '../chat/tab-suggestion-send.js';
 import { failureLabel, type ChatService } from '../chat/service.js';
+import { defaultEmbedder } from '../chat/embeddings.js';
 import { chatBus } from '../chat/bus.js';
 import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectGrantableAction, grantProject, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
 import { decideMany } from '../chat/decisions.js';
+import { indexActions as indexActionsWrite } from '../memory/index-items.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
+
+/** Indexes decided gate actions, best effort, fire-and-forget — the writer for `chatRoutes`'/
+ * `mobileChatRoutes`'s own `deps.indexActions` (spec 2026-09-26 concierge memory §4): only
+ * `approved`/`denied` rows carry anything (see `indexActions` itself). Bound once per route
+ * registration to that plugin's own repos and logger, so a test can override it to observe calls. */
+export type IndexActionsFn = (userId: string, actions: ChatAction[]) => Promise<void>;
 
 /** The same rule as the mobile contract's `mobileMessageBody` (spec 2026-09-26 §5.5): words, files, or both — never neither.
  *  `wait: false` (what the web sends): answer 202 as soon as the message is stored, like the phone's
@@ -52,9 +61,10 @@ const QUEUED_NOTE = 'A decisão foi registrada e será aplicada assim que a resp
 
 /** REST surface for the concierge chat: the conversation, its history and sending a message.
  * Live updates (deltas, actions) travel over `/ws/chat`, not here. */
-export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps: { service: ChatService }) {
+export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps: { service: ChatService; indexActions?: IndexActionsFn }) {
   // "Memória do chat" (spec 2026-09-26 §4.6): list/forget decisions, read/set the suggestion switch.
   await chatMemoryRoutes(app, repos);
+  const indexActions: IndexActionsFn = deps.indexActions ?? ((userId, actions) => indexActionsWrite(repos, userId, actions, { embedder: defaultEmbedder(), log: app.log }));
 
   app.get('/', async (request) => {
     const { project } = scopeQuery.parse(request.query);
@@ -183,6 +193,9 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
 
     // Every open tab must see the decision, not only the one that clicked it.
     chatBus.publish({ type: 'decision', user_id: user.id, conversation_id: action.conversation_id, action_id: action.id, status });
+    // Memory (spec 2026-09-26 concierge memory §4): best effort, fire-and-forget, never on the request's
+    // critical path — a slow or failing embed service must not delay the decision's own response.
+    void indexActions(user.id, [action]);
     // The approval above already happened and is already published: a grant that fails to be written
     // must not turn it into an error, nor keep the model from being resumed. It degrades to a plain
     // "Autorizar" — the card shows no grant and the user can trust the tab (or project) from the next one.
@@ -220,6 +233,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     const { decisions } = batchBody.parse(request.body);
     const user = request.scope.user;
     const { decided, skipped } = await decideMany(repos, user.id, decisions);
+    void indexActions(user.id, decided);
     try {
       const message = await deps.service.resumeAfterDecision(user, decided[0]!);
       return { actions: decided, skipped, message };

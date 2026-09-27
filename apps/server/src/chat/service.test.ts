@@ -284,10 +284,14 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   };
   /** Which machine each run was asked for: the service must drive the host, never a machine of its own choosing. */
   const hosted: string[] = [];
-  const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner) });
+  // A no-op stand-in for the real indexer (spec 2026-09-26 concierge memory): every test but the ones
+  // that exercise indexing itself just needs `start`/`send` not to touch `repos.memoryItems`, which
+  // this fixture never defines.
+  const indexMessage = vi.fn(async () => {});
+  const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner), indexMessage });
   /** Every `RunnerInput` the service handed a runner, in order. */
   const inputs = () => vi.mocked(runner.run).mock.calls.map((c) => c[0]);
-  return { service, chat, chatActions, tabQuestions, chatAttachments, chatSubagents, subagentsStore, actionsStore, chatLiveRuns, liveRunsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents };
+  return { service, chat, chatActions, tabQuestions, chatAttachments, chatSubagents, subagentsStore, actionsStore, chatLiveRuns, liveRunsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents, indexMessage };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -336,6 +340,32 @@ const backgroundTasks = (taskIds: string[]) => JSON.stringify({ type: 'system', 
 const taskNotification = (taskId: string, status: 'completed' | 'failed' | 'killed' | 'stopped' | 'cancelled') => JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: taskId, status });
 
 beforeEach(() => vi.clearAllMocks());
+
+it('start() indexes the person\'s own typed message, never the assistant reply', async () => {
+  const { service, indexMessage, conversation } = build([delta('Nada '), delta('rodando.'), done()]);
+  const started = await service.start(user, 'o que está rodando?');
+
+  expect(indexMessage).toHaveBeenCalledTimes(1);
+  expect(indexMessage).toHaveBeenCalledWith({
+    id: started.user_message_id,
+    owner_id: user.id,
+    project_id: conversation.project_id,
+    text: 'o que está rodando?',
+    created_at: expect.any(String),
+  });
+});
+
+it('send() (which starts a run) also indexes the typed message, exactly once', async () => {
+  const { service, indexMessage } = build([delta('ok'), done()]);
+  await service.send(user, 'oi');
+  expect(indexMessage).toHaveBeenCalledTimes(1);
+});
+
+it('resumeAfterDecision never indexes anything: a decision re-injection is not a message the person typed', async () => {
+  const { service, indexMessage } = build([delta('feito'), done()]);
+  await service.resumeAfterDecision(user, action());
+  expect(indexMessage).not.toHaveBeenCalled();
+});
 
 it('stores the question, the answer, and the session id the CLI reports', async () => {
   const { service, chat, messages, conversation } = build([delta('Nada '), delta('rodando.'), done()]);
