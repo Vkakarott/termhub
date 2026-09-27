@@ -1,6 +1,7 @@
-import { expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpError } from '../lib/errors.js';
-import { decodeGrantCursor, encodeGrantCursor, listGrants } from './grants.js';
+import { chatBus } from './bus.js';
+import { assertProjectGrantableAction, decodeGrantCursor, encodeGrantCursor, grantProject, listGrants, revokeGrant } from './grants.js';
 
 it('round-trips a cursor', () => {
   const c = { created_at: '2026-09-25T10:00:00.000Z', id: 'abc123' };
@@ -35,4 +36,54 @@ it('listGrants with { state: "active", limit: 50 } always asks the repository fo
   const now = new Date('2026-09-25T12:00:00.000Z');
   await listGrants(repos, 'u1', { state: 'active', limit: 50 }, now);
   expect(listForUser).toHaveBeenCalledWith('u1', { state: 'active', cursor: null, limit: 100 }, now);
+});
+
+describe('project grants', () => {
+  beforeEach(() => {
+    vi.spyOn(chatBus, 'publish').mockImplementation(() => undefined);
+  });
+
+  const pending = { id: 'a1', conversation_id: 'c1', tool: 'move_task', args: { task_id: 'k1', status: 'done' }, status: 'pending', tab_id: null } as never;
+  const base = () => ({
+    chatActions: { findByIdForUser: vi.fn(async () => pending) },
+    tasks: { findByIdsForOwner: vi.fn(async () => [{ id: 'k1', project_id: 'p1' }]) },
+    projects: { findByIdsForOwner: vi.fn(async () => [{ id: 'p1', name: 'App' }]) },
+    chatProjectGrants: {
+      grant: vi.fn(async () => ({ id: 'pg1', conversation_id: 'c1', project_id: 'p1', source_action_id: 'a1', granted_by: 'u1', created_at: 'x', expires_at: 'y', revoked_at: null, revoked_by: null })),
+      revoke: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined),
+    },
+    chatGrants: { revoke: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) },
+  });
+
+  it('assertProjectGrantableAction returns the resolved project', async () => {
+    expect(await assertProjectGrantableAction(base() as never, 'u1', 'a1')).toEqual({ action: pending, projectId: 'p1' });
+  });
+
+  it('refuses a tool outside the four and an unresolved project with GRANT_NOT_ALLOWED', async () => {
+    const r = base();
+    r.chatActions.findByIdForUser.mockResolvedValueOnce({ ...pending, tool: 'delete_task' });
+    await expect(assertProjectGrantableAction(r as never, 'u1', 'a1')).rejects.toMatchObject({ statusCode: 400, code: 'GRANT_NOT_ALLOWED' });
+    r.tasks.findByIdsForOwner.mockResolvedValueOnce([]);
+    await expect(assertProjectGrantableAction(r as never, 'u1', 'a1')).rejects.toMatchObject({ code: 'GRANT_NOT_ALLOWED' });
+  });
+
+  it('grantProject creates, names the project and publishes project_grant', async () => {
+    const r = base();
+    const g = await grantProject(r as never, 'u1', pending, 'p1');
+    expect(g).toMatchObject({ id: 'pg1', project_id: 'p1', project_name: 'App' });
+    expect(chatBus.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'project_grant', conversation_id: 'c1' }));
+  });
+
+  it('revokeGrant falls through to project grants and publishes project_grant_revoked', async () => {
+    const r = base();
+    r.chatProjectGrants.revoke.mockResolvedValueOnce({ id: 'pg1', conversation_id: 'c1', project_id: 'p1' } as never);
+    await revokeGrant(r as never, 'u1', 'pg1');
+    expect(chatBus.publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'project_grant_revoked', grant_id: 'pg1' }));
+  });
+
+  it('revokeGrant 409 for an already revoked project grant', async () => {
+    const r = base();
+    r.chatProjectGrants.findByIdForUser.mockResolvedValueOnce({ id: 'pg1' } as never);
+    await expect(revokeGrant(r as never, 'u1', 'pg1')).rejects.toMatchObject({ statusCode: 409 });
+  });
 });

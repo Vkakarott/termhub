@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { ChatMessage } from '../db/repositories/chat.js';
 import type { ChatActionClass } from '../db/repositories/chat-actions.js';
-import type { ChatActionCard, ChatGrantView } from '../db/repositories/chat-actions-view.js';
+import type { ChatActionCard, ChatGrantView, ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
 import type { TabQuestionView } from '../db/repositories/tab-questions-view.js';
 import type { ChatAttachment } from '@termhub/mobile-api';
 
@@ -30,6 +30,10 @@ export type ChatEvent =
   | { type: 'grant'; user_id: string; conversation_id: string; grant: ChatGrantView }
   /** "Revogar": every open screen drops it. */
   | { type: 'grant_revoked'; user_id: string; conversation_id: string; grant_id: string }
+  /** "Permitir sempre neste projeto" was clicked: every open screen shows the strip. */
+  | { type: 'project_grant'; user_id: string; conversation_id: string; grant: ChatProjectGrantView }
+  /** "Revogar", for a project grant: every open screen drops it. */
+  | { type: 'project_grant_revoked'; user_id: string; conversation_id: string; grant_id: string }
   /** A run ended, whichever way: after the final `message` event of its answer, or — for a run that
    * could not even be attempted (the concierge refused it) — with no message at all, its empty
    * assistant row already deleted. `error_code` is the stored answer's code, or `SETUP_FAILED`.

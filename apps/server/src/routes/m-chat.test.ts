@@ -105,6 +105,12 @@ function build(opts: {
       findByIdForUser: opts.findGrantByIdForUser ?? vi.fn(async () => undefined),
       listForUser: opts.listForUser ?? vi.fn(async () => ({ grants: [], next: null })),
     },
+    // `revokeGrant` falls through to this repository once a tab grant does not match — every test
+    // below only exercises tab grants, so these default to "no project grant matched either".
+    chatProjectGrants: {
+      revoke: vi.fn(async () => undefined),
+      findByIdForUser: vi.fn(async () => undefined),
+    },
     projects: {
       findByIdsForOwner: vi.fn(async () => []),
       list: vi.fn(async (f: { owner?: string }) =>

@@ -2,6 +2,7 @@ import { readTicketLink } from '../../integrations/ticket-link.js';
 import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
+import type { ChatProjectGrant } from './chat-project-grants.js';
 import type { Task, Ticket } from './types.js';
 
 /**
@@ -398,4 +399,24 @@ export async function describeGrantList(repos: Repositories, grants: ChatGrantWi
       ended_at: state === 'active' ? null : state === 'expired' ? g.expires_at : g.revoked_at,
     };
   });
+}
+
+/** "Permitir sempre neste projeto" as the chat shows it: the project by name (owner-scoped), no user ids. */
+export interface ChatProjectGrantView {
+  id: string;
+  project_id: string;
+  /** Null when the project is gone or not this user's. */
+  project_name: string | null;
+  source_action_id: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+/** Enriches a batch of project grants with the project's name, exactly like `describeGrants` — one
+ * batched, owner-scoped lookup, never one per grant. */
+export async function describeProjectGrants(repos: Repositories, grants: ChatProjectGrant[], ownerId: string): Promise<ChatProjectGrantView[]> {
+  const ids = [...new Set(grants.map((g) => g.project_id))];
+  const projects = ids.length ? await repos.projects.findByIdsForOwner(ids, ownerId) : [];
+  const name = new Map(projects.map((p) => [p.id, p.name]));
+  return grants.map((g) => ({ id: g.id, project_id: g.project_id, project_name: name.get(g.project_id) ?? null, source_action_id: g.source_action_id, created_at: g.created_at, expires_at: g.expires_at }));
 }
