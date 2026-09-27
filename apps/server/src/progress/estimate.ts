@@ -37,7 +37,8 @@ function paceOf(input: EstimateInput): { seconds: number; basis: 'agent_time' | 
 export function estimateCard(input: EstimateInput): ProgressEstimate {
   const { done, total } = input.units;
   if (input.status === 'done' || (total > 0 && done >= total)) return { kind: 'done' };
-  if (done === 0 && !input.started_at && input.active_seconds === 0) return { kind: 'none', reason: 'not_started' };
+  // A card in doing has started, even without a stamp (cards already in doing when started_at was added).
+  if (input.status !== 'doing' && done === 0 && !input.started_at && input.active_seconds === 0) return { kind: 'none', reason: 'not_started' };
   if (done < MIN_SAMPLES) return { kind: 'none', reason: 'few_samples' };
   const pace = paceOf(input);
   if (!pace) return { kind: 'none', reason: 'few_samples' };

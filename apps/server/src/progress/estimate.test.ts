@@ -21,6 +21,9 @@ describe('estimateCard', () => {
   it('is not_started when nothing started, no time and no unit done', () => {
     expect(estimateCard(input({ status: 'todo' }))).toEqual({ kind: 'none', reason: 'not_started' });
   });
+  it('is never not_started for a card in doing (in flight before started_at existed)', () => {
+    expect(estimateCard(input({ status: 'doing' }))).toEqual({ kind: 'none', reason: 'few_samples' });
+  });
   it('needs two finished units', () => {
     expect(estimateCard(input({ started_at: at(0) }))).toEqual({ kind: 'none', reason: 'few_samples' });
     expect(estimateCard(input({ units: { done: 1, total: 4 }, active_seconds: 600 }))).toEqual({ kind: 'none', reason: 'few_samples' });
