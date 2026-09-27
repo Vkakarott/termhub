@@ -2,38 +2,94 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { api } from './api';
 import { useAuth } from './auth';
 import { useChatStream } from './chat';
+import { dropAlive, touchAlive } from './chat-pool';
+import { DEFAULT_CHAT_PREF, loadChatPrefs, prefOf, saveChatPrefs, withPref, type ChatPref, type ChatPrefs } from './project-chat-prefs';
 import type { ChatEvent, ProjectChatStatus } from './types';
 
+/**
+ * The project chat dock's state (spec 2026-09-26 project chat dock §4.3): which project's window is on
+ * screen, what each project remembers about its chat, which chats stay mounted, and each project's
+ * live status for the dots.
+ */
 interface ProjectChatValue {
-  /** The project whose chat the drawer shows, or null when it is closed. */
-  openProjectId: string | null;
-  /** The sidebar's 💬: opens that project's chat, swaps to it from another one, or closes it if open. */
+  /** The project whose window is on screen (ProjectPage, CardPage), or null on any other page. */
+  currentProjectId: string | null;
+  /** `currentProjectId` when its chat is open there, else null: the one the dock shows. */
+  shownProjectId: string | null;
+  setCurrentProject(id: string): void;
+  /** Clears the current project only if it is still `id`, so a page's cleanup never clears the next page's. */
+  releaseCurrentProject(id: string): void;
+  pref(id: string): ChatPref;
+  setOpen(id: string, open: boolean): void;
   toggle(id: string): void;
-  close(): void;
+  setWidth(id: string, width: number): void;
+  setMaximized(id: string, maximized: boolean): void;
+  /** Panels kept mounted, most recent first. Only projects whose chat is open. */
+  alive: string[];
   /** Whether that project's chat is answering, and how many questions wait on the user. */
   status(id: string): { busy: boolean; pending: number };
 }
 
 const IDLE = { busy: false, pending: 0 };
-/** Without a provider (a component rendered on its own, in a test) the chat is closed and idle. */
-const ProjectChatContext = createContext<ProjectChatValue>({ openProjectId: null, toggle: () => {}, close: () => {}, status: () => IDLE });
+/** Without a provider (a component rendered on its own, in a test): no project on screen, every chat closed and idle. */
+const ProjectChatContext = createContext<ProjectChatValue>({
+  currentProjectId: null,
+  shownProjectId: null,
+  setCurrentProject: () => {},
+  releaseCurrentProject: () => {},
+  pref: () => DEFAULT_CHAT_PREF,
+  setOpen: () => {},
+  toggle: () => {},
+  setWidth: () => {},
+  setMaximized: () => {},
+  alive: [],
+  status: () => IDLE,
+});
 
 export function ProjectChatProvider({ children }: { children: ReactNode }) {
-  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [prefs, setPrefs] = useState<ChatPrefs>(() => loadChatPrefs());
+  const [alive, setAlive] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<Map<string, ProjectChatStatus>>(new Map());
   const { can } = useAuth();
 
+  useEffect(() => saveChatPrefs(prefs), [prefs]);
+
+  const shownProjectId = currentProjectId !== null && prefOf(prefs, currentProjectId).open ? currentProjectId : null;
+  useEffect(() => {
+    if (shownProjectId !== null) setAlive((a) => touchAlive(a, shownProjectId));
+  }, [shownProjectId]);
+
+  const patch = useCallback((id: string, p: Partial<ChatPref>) => setPrefs((cur) => withPref(cur, id, p)), []);
+  // Stable, so `useChatScope`'s effect runs only when the page's project changes.
+  const releaseCurrentProject = useCallback((id: string) => setCurrentProjectId((cur) => (cur === id ? null : cur)), []);
+  const setOpen = useCallback(
+    (id: string, open: boolean) => {
+      patch(id, { open });
+      // Closing unmounts the panel; it stops nothing on the server (a run finishes and is there on reopening).
+      if (!open) setAlive((a) => dropAlive(a, id));
+    },
+    [patch],
+  );
+
   const value = useMemo<ProjectChatValue>(
     () => ({
-      openProjectId,
-      toggle: (id) => setOpenProjectId((cur) => (cur === id ? null : id)),
-      close: () => setOpenProjectId(null),
+      currentProjectId,
+      shownProjectId,
+      setCurrentProject: setCurrentProjectId,
+      releaseCurrentProject,
+      pref: (id) => prefOf(prefs, id),
+      setOpen,
+      toggle: (id) => setOpen(id, !prefOf(prefs, id).open),
+      setWidth: (id, width) => patch(id, { width }),
+      setMaximized: (id, maximized) => patch(id, { maximized }),
+      alive: alive.filter((id) => prefOf(prefs, id).open),
       status: (id) => {
         const s = statuses.get(id);
         return s ? { busy: s.busy, pending: s.pending_confirmations } : IDLE;
       },
     }),
-    [openProjectId, statuses],
+    [currentProjectId, shownProjectId, prefs, alive, statuses, setOpen, patch, releaseCurrentProject],
   );
   return (
     <ProjectChatContext.Provider value={value}>
@@ -79,3 +135,16 @@ function ProjectChatStatusFeed({ onStatuses }: { onStatuses: (statuses: Map<stri
 }
 
 export const useProjectChat = (): ProjectChatValue => useContext(ProjectChatContext);
+
+/**
+ * Says which project's window is on screen, for as long as the calling page is mounted with that id.
+ * ProjectPage calls it, and so CardPage too, which renders ProjectPage.
+ */
+export function useChatScope(projectId: string | null): void {
+  const { setCurrentProject, releaseCurrentProject } = useProjectChat();
+  useEffect(() => {
+    if (projectId === null) return;
+    setCurrentProject(projectId);
+    return () => releaseCurrentProject(projectId);
+  }, [projectId, setCurrentProject, releaseCurrentProject]);
+}
