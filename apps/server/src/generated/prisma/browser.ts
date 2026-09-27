@@ -184,6 +184,22 @@ export type ChatAttachment = Prisma.ChatAttachmentModel
  */
 export type ChatAction = Prisma.ChatActionModel
 /**
+ * Model ChatSubagent
+ * A Task-tool subagent run inside a conversation's CLI session (spec 2026-09-26 §4): the panel and
+ * the gate origin ("Pedido pelo subagente «description»") both read from this table. One row per
+ * `task_id` per conversation — `start` upserts on that pair, so a repeated `task_started` frame for
+ * the same task never creates a second row.
+ */
+export type ChatSubagent = Prisma.ChatSubagentModel
+/**
+ * Model ChatLiveRun
+ * The one concierge CLI process a conversation is running right now, kept across a server restart
+ * (spec 2026-09-26 §6): which instance holds it, when it last proved it is still alive, and the
+ * turns that were in flight when it last saved — so another instance can resume them once this one
+ * releases or goes stale. One row per conversation (the pkey), replaced wholesale on every save.
+ */
+export type ChatLiveRun = Prisma.ChatLiveRunModel
+/**
  * Model ChatGrant
  * "Permitir sempre nesta aba": the user let the concierge type into one tab without asking, for
  * one conversation, until `expires_at` (24 h) or a revocation. Only `send_input` without

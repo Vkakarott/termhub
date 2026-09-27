@@ -133,6 +133,15 @@ export class ChatRepository {
     return rows.map((r) => ({ id: r.id, project_id: r.projectId!, last_message_at: r.lastMessageAt?.toISOString() ?? null }));
   }
 
+  /** Only messages that belong to this conversation — a resuming instance uses it to re-read the
+   * question/answer rows a saved `StoredTurn` names, and an id from another conversation (or one
+   * already gone) is silently dropped rather than leaking a message across conversations. */
+  async findMessagesByIds(conversationId: string, ids: string[]): Promise<ChatMessage[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.chatMessage.findMany({ where: { conversationId, id: { in: ids } } });
+    return rows.map(mapMessage);
+  }
+
   async setCliSession(id: string, sessionId: string | null): Promise<void> {
     await this.db.chatConversation.update({ where: { id }, data: { cliSessionId: sessionId } });
   }

@@ -50,7 +50,7 @@ Project rule: everything the chat does works in the mobile app too, in the same 
 | One-shot runs (old agents) | Unchanged: not resumed. | Only a streamed host can take the note plus the turns in one process. Old agents are going away (auto-update). |
 | Agent version | None needed. | §2: control lines already pass through the agent. |
 
-## 4. Data model (additive migration, `20260927100000_chat_subagents_resume`)
+## 4. Data model (additive migration, `20260927150000_chat_subagents_resume`)
 
 ```prisma
 model ChatSubagent {

@@ -20,7 +20,7 @@
 - Code, comments, commit messages in English; imperative subject ≤ 72 chars; every commit ends with `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
 - Routes never import Prisma; every request input validated with zod; chat routes stay under `guarded('chat', …)`; owner scoping through the conversation (`findByIdForUser`).
 - Never log terminal content, prompts, descriptions, `turns[].text` or control error text. Log ids and labels only (`failureLabel`).
-- Migration additive only (`CREATE TABLE`, `ADD COLUMN` nullable, `CREATE INDEX`). Name: `20260927100000_chat_subagents_resume`.
+- Migration additive only (`CREATE TABLE`, `ADD COLUMN` nullable, `CREATE INDEX`). Name: `20260927150000_chat_subagents_resume`.
 - No `@termhub/agent` version bump (control lines already pass through, spec §2).
 - Every chat feature ships in web **and** app.
 - Verification runs in Docker (no Node on host). Use the helper `SCRATCH/check.sh '<cmds>'`, where SCRATCH is `/tmp/claude-1000/-home-pedrogoiania-termhub/fab31e9f-34a1-4a9c-ae11-d05a6014a6a7/scratchpad`. It runs `<cmds>` in `node:22` at the worktree root `/home/pedrogoiania/termhub-ter301` with the throwaway Postgres `th-ter301-db` (`DATABASE_URL`, `TERMHUB_DB_TESTS=1` set). After a schema or package change, run first: `npm run prisma:generate >/dev/null && npm run build:packages >/dev/null && (cd apps/server && npx prisma migrate deploy)`.
@@ -174,7 +174,7 @@ Also import `cliTaskStatus` at the top of the test file.
 
 **Files:**
 - Modify: `apps/server/prisma/schema.prisma` (add models from spec §4 verbatim; add `subagents ChatSubagent[]` and `liveRun ChatLiveRun?` back-relations to `ChatConversation`; add `toolUseId String? @map("tool_use_id")`, `subagentId String? @map("subagent_id")` and `@@index([conversationId, toolUseId])` to `ChatAction`)
-- Create: `apps/server/prisma/migrations/20260927100000_chat_subagents_resume/migration.sql`
+- Create: `apps/server/prisma/migrations/20260927150000_chat_subagents_resume/migration.sql`
 - Create: `apps/server/src/db/repositories/chat-subagents.ts`, `chat-live-runs.ts`, and their `.db.test.ts`
 - Modify: `apps/server/src/db/repositories/chat-actions.ts`, `chat.ts`, `index.ts` (register `chatSubagents`, `chatLiveRuns` in `Repositories` exactly like `chatGrants`)
 - Test: `chat-actions.db.test.ts`, `chat.db.test.ts` (extend)

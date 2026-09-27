@@ -79,6 +79,8 @@ export const ModelName = {
   ChatMessage: 'ChatMessage',
   ChatAttachment: 'ChatAttachment',
   ChatAction: 'ChatAction',
+  ChatSubagent: 'ChatSubagent',
+  ChatLiveRun: 'ChatLiveRun',
   ChatGrant: 'ChatGrant',
   ChatProjectGrant: 'ChatProjectGrant',
   TabQuestion: 'TabQuestion',
@@ -563,10 +565,40 @@ export const ChatActionScalarFieldEnum = {
   decidedBy: 'decidedBy',
   decidedAt: 'decidedAt',
   injectedAt: 'injectedAt',
+  toolUseId: 'toolUseId',
+  subagentId: 'subagentId',
   createdAt: 'createdAt'
 } as const
 
 export type ChatActionScalarFieldEnum = (typeof ChatActionScalarFieldEnum)[keyof typeof ChatActionScalarFieldEnum]
+
+
+export const ChatSubagentScalarFieldEnum = {
+  id: 'id',
+  conversationId: 'conversationId',
+  taskId: 'taskId',
+  toolUseId: 'toolUseId',
+  description: 'description',
+  subagentType: 'subagentType',
+  status: 'status',
+  startedAt: 'startedAt',
+  endedAt: 'endedAt'
+} as const
+
+export type ChatSubagentScalarFieldEnum = (typeof ChatSubagentScalarFieldEnum)[keyof typeof ChatSubagentScalarFieldEnum]
+
+
+export const ChatLiveRunScalarFieldEnum = {
+  conversationId: 'conversationId',
+  userId: 'userId',
+  instanceId: 'instanceId',
+  heartbeatAt: 'heartbeatAt',
+  releasedAt: 'releasedAt',
+  turns: 'turns',
+  createdAt: 'createdAt'
+} as const
+
+export type ChatLiveRunScalarFieldEnum = (typeof ChatLiveRunScalarFieldEnum)[keyof typeof ChatLiveRunScalarFieldEnum]
 
 
 export const ChatGrantScalarFieldEnum = {

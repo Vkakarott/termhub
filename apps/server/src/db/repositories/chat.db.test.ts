@@ -217,6 +217,18 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatRepository (Postgres)
     expect((await repo.findByIdForUser(before.id, userId))?.archived_at).not.toBeNull();
   });
 
+  it('findMessagesByIds returns only messages of that conversation, ignoring ids elsewhere', async () => {
+    const c = await repo.getOrCreateForUser(userId);
+    // A tab-scoped conversation, isolated from the shared project/account-wide ones the other tests
+    // in this file depend on staying untouched.
+    const other = await db.chatConversation.create({ data: { id: newId(), userId, tabId: newId() } });
+    const mine = await repo.addMessage({ conversation_id: c.id, role: 'user', text: 'aqui' });
+    const elsewhere = await repo.addMessage({ conversation_id: other.id, role: 'user', text: 'lá' });
+
+    const found = await repo.findMessagesByIds(c.id, [mine.id, elsewhere.id, 'missing']);
+    expect(found.map((m) => m.id)).toEqual([mine.id]);
+  });
+
   it('findByIdForUser never answers for another user', async () => {
     const c = await repo.getOrCreateForProject(userId, projectId);
     expect(await repo.findByIdForUser(c.id, 'someone-else')).toBeUndefined();
