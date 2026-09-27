@@ -143,11 +143,13 @@ const eventFor = (row: TabQuestion): TabQuestionEventType => (row.status === 'op
  * and republishes the card; nothing else is typed. Resolves how many were sent. Logs ids, `by` and codes
  * only — never the answer nor the reason.
  */
-export async function sendDueAutoAnswers(repos: Repositories, log: Log, deps: { now?: () => Date; answer?: typeof answerTabQuestion } = {}): Promise<number> {
+export async function sendDueAutoAnswers(repos: Repositories, log: Log, deps: { now?: () => Date; answer?: typeof answerTabQuestion; shouldStop?: () => boolean } = {}): Promise<number> {
   const now = (deps.now ?? (() => new Date()))();
   const due = await repos.tabQuestions.listDueAutoAnswers(now, SWEEP_BATCH);
   let sent = 0;
   for (const row of due) {
+    // Shutting down: what is not claimed yet stays `scheduled` for the other color (or the next start).
+    if (deps.shouldStop?.()) break;
     const claimed = await repos.tabQuestions.claimAutoAnswer(row.id, now);
     if (!claimed?.auto_answer) continue;
     const auto = claimed.auto_answer;
@@ -189,8 +191,9 @@ export async function sendDueAutoAnswers(repos: Repositories, log: Log, deps: { 
  * closed as `failed` `SENDER_LOST` and republished, so the card stops saying "sent" and is answered by
  * hand. Resolves how many. Logs ids and the code only.
  */
-export async function recoverLostAutoAnswers(repos: Repositories, log: Log, now = new Date()): Promise<number> {
-  const lost = await repos.tabQuestions.failLostAutoAnswers(new Date(now.getTime() - SENDER_LOST_AFTER_MS), 'SENDER_LOST');
+export async function recoverLostAutoAnswers(repos: Repositories, log: Log): Promise<number> {
+  // Measured on the database's clock, the one that stamped `claimed_at`: two colors never disagree.
+  const lost = await repos.tabQuestions.failLostAutoAnswers('SENDER_LOST', SENDER_LOST_AFTER_MS);
   for (const row of lost) log.warn({ tabQuestionId: row.id, code: 'SENDER_LOST' }, 'auto answer sender lost');
   if (lost.length) await publishTabQuestions(repos, 'tab_question', lost);
   return lost.length;
@@ -200,11 +203,13 @@ export async function recoverLostAutoAnswers(repos: Repositories, log: Log, now 
  * Runs a tick right away and every `intervalMs` (5 s): `recoverLostAutoAnswers`, then
  * `sendDueAutoAnswers`. A `running` guard skips a tick that overlaps the previous one in this process;
  * across processes the claim decides. The timer is `unref`'d, and a tick never throws: each step logs
- * its own code. The returned `stop` clears the timer and resolves once the tick in flight (if any) is
- * done — the app awaits it before closing the database, so a claimed send is never cut in half.
+ * its own code. The returned `stop` clears the timer, stops the batch in flight before its next claim
+ * (so shutdown fits in the container's grace period) and resolves once the send already claimed is done
+ * — the app awaits it before closing the database, so a claimed send is never cut in half.
  */
 export function startAutoAnswerSweeper(repos: Repositories, log: Log, intervalMs = AUTO_ANSWER_SWEEP_MS): () => Promise<void> {
   let inFlight: Promise<void> | null = null;
+  let stopping = false;
   const run = async () => {
     try {
       await recoverLostAutoAnswers(repos, log);
@@ -212,13 +217,13 @@ export function startAutoAnswerSweeper(repos: Repositories, log: Log, intervalMs
       log.warn({ code: failureLabel(err) }, 'auto answer recovery failed');
     }
     try {
-      await sendDueAutoAnswers(repos, log);
+      await sendDueAutoAnswers(repos, log, { shouldStop: () => stopping });
     } catch (err) {
       log.warn({ code: failureLabel(err) }, 'auto answer sweep failed');
     }
   };
   const tick = () => {
-    if (inFlight) return;
+    if (inFlight || stopping) return;
     inFlight = run().finally(() => {
       inFlight = null;
     });
@@ -227,6 +232,7 @@ export function startAutoAnswerSweeper(repos: Repositories, log: Log, intervalMs
   timer.unref();
   tick();
   return async () => {
+    stopping = true;
     clearInterval(timer);
     await inFlight;
   };

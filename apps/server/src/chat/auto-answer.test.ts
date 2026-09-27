@@ -337,6 +337,15 @@ describe('sendDueAutoAnswers', () => {
     expect(answer).not.toHaveBeenCalled();
   });
 
+  it('shouldStop is checked before each claim', async () => {
+    const { repos, tabQuestions } = fake();
+    tabQuestions.listDueAutoAnswers.mockResolvedValue([row({ id: 'q1', auto_answer: scheduled() }), row({ id: 'q2', auto_answer: scheduled() })] as never);
+    let calls = 0;
+    const shouldStop = () => calls++ >= 1;
+    await sendDueAutoAnswers(repos as unknown as Repositories, log(), { now, answer: vi.fn(async () => ({}) as never), shouldStop });
+    expect(tabQuestions.claimAutoAnswer).toHaveBeenCalledTimes(1);
+  });
+
   it('two sweepers, one send', async () => {
     const { repos } = fake({ claimOnce: true });
     const answer = vi.fn(async () => ({}) as never);
@@ -392,8 +401,9 @@ describe('recoverLostAutoAnswers', () => {
     const failLostAutoAnswers = vi.fn(async () => [lost]);
     const repos = { tabQuestions: { failLostAutoAnswers } } as unknown as Repositories;
     const l = { info: vi.fn(), warn: vi.fn() };
-    expect(await recoverLostAutoAnswers(repos, l, new Date('2026-09-26T12:10:00.000Z'))).toBe(1);
-    expect(failLostAutoAnswers).toHaveBeenCalledWith(new Date('2026-09-26T12:08:00.000Z'), 'SENDER_LOST');
+    expect(await recoverLostAutoAnswers(repos, l)).toBe(1);
+    // The age is measured on the database's clock, the same one that stamped the claim.
+    expect(failLostAutoAnswers).toHaveBeenCalledWith('SENDER_LOST', 120_000);
     expect(publishTabQuestions).toHaveBeenCalledWith(repos, 'tab_question', [lost]);
     expect(l.warn).toHaveBeenCalledWith({ tabQuestionId: 'q1', code: 'SENDER_LOST' }, 'auto answer sender lost');
   });
@@ -429,6 +439,23 @@ describe('startAutoAnswerSweeper', () => {
     release();
     await stopping;
     expect(finished).toBe(true);
+  });
+
+  it('stop during a batch: the rest of the batch is not claimed, so shutdown ends within the grace period', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const due = ['q1', 'q2', 'q3'].map((id) => row({ id, auto_answer: scheduled() }));
+    const claimAutoAnswer = vi.fn(async () => {
+      await gate;
+      return undefined; // lost to the other color: nothing to send for this one
+    });
+    const repos = { tabQuestions: { failLostAutoAnswers: vi.fn(async () => []), listDueAutoAnswers: vi.fn(async () => due), claimAutoAnswer } } as unknown as Repositories;
+    const stop = startAutoAnswerSweeper(repos, { info: vi.fn(), warn: vi.fn() }, 60_000);
+    await vi.waitFor(() => expect(claimAutoAnswer).toHaveBeenCalledTimes(1));
+    const stopping = stop();
+    release();
+    await stopping;
+    expect(claimAutoAnswer).toHaveBeenCalledTimes(1);
   });
 
   it('ticks right away and never throws out of a tick; stop clears the timer', async () => {

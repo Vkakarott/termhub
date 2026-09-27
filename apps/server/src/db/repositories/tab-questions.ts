@@ -260,7 +260,8 @@ export class TabQuestionsRepository {
    * A question's `open → answered`, conditionally: a double click, a second device or a close that got
    * there first all match nothing — and so does a suggestion, which is only ever sent (`claimSuggestion`).
    * `via` records how the answer was obtained (spec §3.2): `'card'` (a click, the default) or
-   * `'auto'` (the countdown sent it — `startAutoAnswerSweeper`, never a person's own claim call).
+   * `'auto'` (the countdown sent it — `startAutoAnswerSweeper`, never a person's own claim call), which
+   * also requires the row's countdown still `sent`.
    */
   async claim(id: string, userId: string, answer: ChoiceAnswer | PermissionAnswer, now = new Date(), via: AnsweredVia = 'card'): Promise<TabQuestion | undefined> {
     return this.claimKind(id, userId, { not: 'suggestion' }, answer, now, via);
@@ -273,7 +274,9 @@ export class TabQuestionsRepository {
 
   private async claimKind(id: string, userId: string, kind: 'suggestion' | { not: 'suggestion' }, answer: TabRowAnswer, now: Date, via: AnsweredVia = 'card'): Promise<TabQuestion | undefined> {
     const { count } = await this.db.tabQuestion.updateMany({
-      where: { id, kind, status: 'open', conversation: { userId } },
+      // An automatic answer only over the countdown its sender claimed: one recovered as lost
+      // (`failLostAutoAnswers`), cancelled or never claimed is never typed.
+      where: { id, kind, status: 'open', conversation: { userId }, ...(via === 'auto' ? { autoAnswer: { path: ['status'], equals: 'sent' } } : {}) },
       data: { status: 'answered', answer: answer as never, answeredBy: userId, answeredAt: now, answeredVia: via },
     });
     return count === 0 ? undefined : this.findByIdForUser(id, userId);
@@ -298,12 +301,14 @@ export class TabQuestionsRepository {
   /**
    * `scheduled → sent`, conditionally on the row still `open`, the countdown still `scheduled` and
    * `due_at` reached: the claim across both blue/green colors, and across two sweeper ticks racing —
-   * the row's own lock makes exactly one of them see `scheduled` still true. The caller still owes the
+   * the row's own lock makes exactly one of them see `scheduled` still true. `now` only decides what is
+   * due; `claimed_at` is stamped with the database's own clock, the one `failLostAutoAnswers` measures
+   * against, so a row claimed late in a slow batch never looks older than it is. The caller still owes the
    * actual send (`answerTabQuestion`); a failure calls `finishAutoAnswer` to record it.
    */
   async claimAutoAnswer(id: string, now = new Date()): Promise<TabQuestion | undefined> {
     const count = await this.db.$executeRaw`
-      UPDATE "tab_questions" SET "auto_answer" = jsonb_set(jsonb_set("auto_answer", '{status}', '"sent"'), '{claimed_at}', to_jsonb(${now.toISOString()}::text))
+      UPDATE "tab_questions" SET "auto_answer" = jsonb_set(jsonb_set("auto_answer", '{status}', '"sent"'), '{claimed_at}', to_jsonb(now()))
       WHERE "id" = ${id} AND "status" = 'open' AND "auto_answer"->>'status' = 'scheduled' AND ("auto_answer"->>'due_at')::timestamptz <= ${now}`;
     if (count === 0) return undefined;
     const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
@@ -324,16 +329,18 @@ export class TabQuestionsRepository {
   /**
    * The sender's crash recovery (spec §6): a countdown claimed (`sent`) whose card is still `open` means
    * the process that claimed it died before sending or recording the failure — the row would otherwise
-   * say "sent" forever. `sent → failed` with `code`, conditionally, for every such row claimed before
-   * `cutoff` (`claimed_at`; `due_at` for a claim stored before `claimed_at` existed). A send that
+   * say "sent" forever. `sent → failed` with `code`, conditionally, for every such row claimed more than
+   * `lostAfterMs` ago on the database's clock (`claimed_at`, stamped by that same clock; `due_at` for a
+   * claim stored before `claimed_at` existed). A recovered countdown can no longer be typed: `claim(...,
+   * 'auto')` requires it still `sent`. A send that
    * finished claimed the row itself (`answered`) and is never touched. Oldest first.
    */
-  async failLostAutoAnswers(cutoff: Date, code: string): Promise<TabQuestion[]> {
+  async failLostAutoAnswers(code: string, lostAfterMs: number): Promise<TabQuestion[]> {
     const lost = await this.db.$queryRaw<{ id: string }[]>`
       UPDATE "tab_questions"
          SET "auto_answer" = jsonb_set(jsonb_set("auto_answer", '{status}', '"failed"'), '{error_code}', to_jsonb(${code}::text))
        WHERE "status" = 'open' AND "auto_answer"->>'status' = 'sent'
-         AND COALESCE(("auto_answer"->>'claimed_at')::timestamptz, ("auto_answer"->>'due_at')::timestamptz) < ${cutoff}
+         AND COALESCE(("auto_answer"->>'claimed_at')::timestamptz, ("auto_answer"->>'due_at')::timestamptz) < now() - ${lostAfterMs} * interval '1 millisecond'
       RETURNING "id"`;
     if (lost.length === 0) return [];
     const rows = await this.db.tabQuestion.findMany({ where: { id: { in: lost.map((r) => r.id) } }, include: withOwner, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });

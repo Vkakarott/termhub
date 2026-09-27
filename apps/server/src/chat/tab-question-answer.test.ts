@@ -310,6 +310,14 @@ describe('automatic answers (spec 2026-09-26 concierge memory §6, D11)', () => 
     expect(tabQuestions.cancelAutoAnswer).not.toHaveBeenCalled();
   });
 
+  it("via 'auto' losing the row claim (the countdown was recovered as lost meanwhile): 409, nothing typed", async () => {
+    const { ctx, chatDecisions } = ctxFor(row({ auto_answer: { ...countdown, status: 'sent' } }), { claimLoses: true });
+    await rejects(answerTabQuestion(ctx, 'q1', countdown.answer, { log: log(), sleep: noSleep, via: 'auto', ...noEmbed }), 409, 'TAB_PROMPT_CHANGED');
+    expect(sendKey).not.toHaveBeenCalled();
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+  });
+
   it('a card answer on a row with a scheduled countdown cancels it first, then claims', async () => {
     const { ctx, tabQuestions, chatDecisions } = ctxFor(row({ auto_answer: { ...countdown, status: 'scheduled' } }));
     await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [1] }, { selected: [0] }] }, { log: log(), sleep: noSleep, ...noEmbed });
