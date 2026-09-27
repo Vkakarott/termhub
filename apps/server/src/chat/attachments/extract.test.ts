@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { describe, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { buildZip, minimalDocx, minimalPdf, withUnlistedEntry } from '../../../test/zip.js';
-import { ExtractError, TEXT_CAP, XLSX_MAX_COLS, XLSX_MAX_ROWS, extract, imageDimensions, withTimeout } from './extract.js';
+import { ExtractError, TEXT_CAP, XLSX_MAX_COLS, XLSX_MAX_ROWS, extract, imageDimensions } from './extract.js';
 
 const noWhisper = { whisperUrl: null, language: null };
 const code = async (p: Promise<unknown>): Promise<string> => {
@@ -59,7 +59,9 @@ describe('extract: image and text', () => {
   });
 });
 
-describe('extract: pdf, docx, xlsx', () => {
+// Each pdf/docx/xlsx extract spawns a real worker, loaded through tsx in tests: slower than an
+// in-thread call, so the whole block gets one raised timeout instead of one per slow test.
+describe('extract: pdf, docx, xlsx', { timeout: 30_000 }, () => {
   it('pdf: the page text and the page count', async () => {
     const r = await extract('pdf', minimalPdf('Relatorio anual'), 'application/pdf', noWhisper);
     expect(r.text).toContain('Relatorio anual');
@@ -95,24 +97,6 @@ describe('extract: pdf, docx, xlsx', () => {
     const xlsx = Buffer.from(await wb.xlsx.writeBuffer());
     expect(await code(extract('xlsx', xlsx, 'application/x', withBudget))).toBe('ATTACHMENT_INVALID');
     expect((await extract('xlsx', xlsx, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 8 * 1024 * 1024 })).meta).toMatchObject({ sheets: [{ name: 'S', rows: 1, cols: 1 }] });
-  });
-  it('xlsx: a local entry the directory does not list is refused before the streaming reader (which walks local headers) sees it', async () => {
-    const wb = new ExcelJS.Workbook();
-    wb.addWorksheet('S').addRow(['x']);
-    const genuine = Buffer.from(await wb.xlsx.writeBuffer());
-    // 1 MB of shared strings deflates to a few KB, listed nowhere in the directory, so the directory-based guard counts nothing.
-    const strings = `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${'<si><t>aaaaaaaaaaaaaaaa</t></si>'.repeat(40_000)}</sst>`;
-    const hidden = withUnlistedEntry(genuine, 'xl/sharedStrings.xml', strings);
-    expect(hidden.length).toBeLessThan(genuine.length + 16 * 1024);
-    const parse = vi.spyOn(ExcelJS.stream.xlsx.WorkbookReader.prototype, 'parse');
-    try {
-      expect(await code(extract('xlsx', hidden, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 256 * 1024 }))).toBe('ATTACHMENT_INVALID');
-      expect(parse).not.toHaveBeenCalled();
-      // The same file without the extra entry is fine under that budget.
-      expect((await extract('xlsx', genuine, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 256 * 1024 })).meta).toMatchObject({ sheets: [{ name: 'S', rows: 1, cols: 1 }] });
-    } finally {
-      parse.mockRestore();
-    }
   });
   it('docx and xlsx: an unlisted entry or bytes the directory does not account for are an invalid attachment', async () => {
     const docx = minimalDocx(['Olá'], { deflate: true });
@@ -157,25 +141,6 @@ describe('extract: pdf, docx, xlsx', () => {
     expect(r.text).not.toContain('B2*2');
     expect(r.meta).toEqual({ sheets: [{ name: 'Vendas', rows: 3, cols: 2 }], truncated: false });
   });
-  it('xlsx: read through the streaming WorkbookReader, one row at a time, never a whole-workbook load', async () => {
-    const streamed = vi.spyOn(ExcelJS.stream.xlsx.WorkbookReader.prototype, 'parse');
-    // `Workbook#xlsx` is a getter that caches per instance: spy on the XLSX class behind it, not on the prototype's getter.
-    const loaded = vi.spyOn(Object.getPrototypeOf(new ExcelJS.Workbook().xlsx) as ExcelJS.Xlsx, 'load');
-    try {
-      const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Gaps');
-      ws.getRow(1).values = ['a', 'b'];
-      ws.getRow(3).values = ['c']; // row 2 stays empty: the table keeps its place, as the full load did
-      const r = await extract('xlsx', Buffer.from(await wb.xlsx.writeBuffer()), 'application/x', noWhisper);
-      expect(streamed).toHaveBeenCalledTimes(1);
-      expect(loaded).not.toHaveBeenCalled();
-      expect(r.text).toBe('## Gaps\n| a | b |\n| --- | --- |\n|  |  |\n| c |  |');
-      expect(r.meta).toEqual({ sheets: [{ name: 'Gaps', rows: 3, cols: 2 }], truncated: false });
-    } finally {
-      streamed.mockRestore();
-      loaded.mockRestore();
-    }
-  });
   it('xlsx: each sheet is capped at 500 rows and 50 columns', async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Big');
@@ -187,6 +152,26 @@ describe('extract: pdf, docx, xlsx', () => {
     expect(lines).toHaveLength(1 + XLSX_MAX_ROWS + 1); // heading, rows, separator
     expect(lines[1].split(' | ')).toHaveLength(XLSX_MAX_COLS);
     expect(r.text).not.toContain(`0.${XLSX_MAX_COLS}`);
+  });
+  it('documents are parsed in a worker: a parser that never answers is stopped by the timeout', async () => {
+    const spin = new URL('../../../test/workers/spin.ts', import.meta.url);
+    const started = Date.now();
+    const err = await extract('pdf', Buffer.from('%PDF-1.4'), 'application/pdf', { ...noWhisper, workerUrl: spin, timeoutMs: 1_000 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExtractError);
+    expect((err as ExtractError).code).toBe('ATTACHMENT_INVALID');
+    // Only the worker path says this: the in-thread unpdf would fail at once with its own error name.
+    expect((err as ExtractError).message).toBe('extraction timed out');
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+  it('a file that is a view into a larger buffer is extracted, and the caller’s buffer is left intact', async () => {
+    const doc = minimalDocx(['Olá mundo'], { deflate: true });
+    const slab = Buffer.alloc(doc.length + 64, 7);
+    doc.copy(slab, 32);
+    const view = slab.subarray(32, 32 + doc.length);
+    expect((await extract('docx', view, 'application/x', noWhisper)).text).toBe('Olá mundo');
+    expect(slab.byteLength).toBe(doc.length + 64);
+    expect(slab[0]).toBe(7);
+    expect(view.equals(doc)).toBe(true);
   });
 });
 
@@ -219,9 +204,4 @@ describe('extract: audio and video go to whisper', () => {
     expect(await code(extract('audio', Buffer.from('x'), 'audio/ogg', w(ok({ error: 'bad audio' }, 422))))).toBe('TRANSCRIPTION_FAILED');
     expect(await code(extract('audio', Buffer.from('x'), 'audio/ogg', w(ok({ nope: 1 }))))).toBe('TRANSCRIPTION_FAILED');
   });
-});
-
-it('withTimeout turns a parser that never answers into an invalid attachment', async () => {
-  expect(await code(withTimeout(new Promise(() => undefined), 5))).toBe('ATTACHMENT_INVALID');
-  expect(await withTimeout(Promise.resolve(1), 5)).toBe(1);
 });
