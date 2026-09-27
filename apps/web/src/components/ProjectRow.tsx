@@ -46,7 +46,7 @@ export function ProjectRow({ project: p, section, agents, machines, waiting, exp
     </button>
   );
   // The 💬 stays visible without hover while that project's chat is answering, waiting on a confirmation,
-  // or open in the drawer — the same always-shown treatment a favourite's pin gets.
+  // or open in its project window — the same always-shown treatment a favourite's pin gets.
   const chatActive = !!chat && (chat.status.busy || chat.status.pending > 0);
   const chatPinned = !!chat && (chatActive || chat.open);
   const chatButton = chat && (

@@ -24,9 +24,11 @@ vi.mock('../lib/auth', () => ({
   }),
 }));
 const chat = vi.hoisted(() => ({
-  openProjectId: null as string | null,
+  currentProjectId: null as string | null,
+  openIds: [] as string[],
+  pref: (id: string) => ({ open: chat.openIds.includes(id), width: 420, maximized: false }),
+  setOpen: vi.fn(),
   toggle: vi.fn(),
-  close: vi.fn(),
   status: vi.fn((_id: string) => ({ busy: false, pending: 0 })),
 }));
 vi.mock('../lib/project-chat', () => ({ useProjectChat: () => chat }));
@@ -90,10 +92,14 @@ function seed() {
   state.items = [];
 }
 
+function Where() {
+  return <span data-testid="where">{useLocation().pathname}</span>;
+}
 function renderSidebar() {
   return render(
     <MemoryRouter>
       <Sidebar />
+      <Where />
     </MemoryRouter>,
   );
 }
@@ -113,7 +119,8 @@ afterEach(() => {
   groupsState.error = null;
   auth.canChat = true;
   auth.canCreateProjects = true;
-  chat.openProjectId = null;
+  chat.currentProjectId = null;
+  chat.openIds = [];
   vi.clearAllMocks();
   chat.status.mockImplementation(() => ({ busy: false, pending: 0 }));
 });
@@ -570,10 +577,13 @@ describe('Sidebar groups', () => {
 describe('Sidebar project chat', () => {
   const rowOf = (name: string) => within(section('Outros')).getByRole('link', { name: new RegExp(name) }).closest('li')!;
 
-  it('💬 toggles that project chat', () => {
+  it('💬 on another project opens its chat and goes to it', () => {
+    chat.currentProjectId = 'p1';
     renderSidebar();
     fireEvent.click(within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' }));
-    expect(chat.toggle).toHaveBeenCalledWith('p3');
+    expect(chat.setOpen).toHaveBeenCalledWith('p3', true);
+    expect(chat.toggle).not.toHaveBeenCalled();
+    expect(screen.getByTestId('where').textContent).toBe('/projects/p3');
   });
 
   it('keeps the 💬 shown without hover, with a dot, while that chat is answering or waiting', () => {
@@ -586,10 +596,20 @@ describe('Sidebar project chat', () => {
     expect(within(rowOf('beta')).getByRole('button', { name: 'Chat do projeto' }).parentElement).toHaveClass('hidden');
   });
 
-  it('keeps the 💬 of the project whose chat is open shown without hover', () => {
-    chat.openProjectId = 'p3';
+  it('💬 on the project on screen toggles its chat and stays', () => {
+    chat.currentProjectId = 'p3';
+    renderSidebar();
+    fireEvent.click(within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' }));
+    expect(chat.toggle).toHaveBeenCalledWith('p3');
+    expect(chat.setOpen).not.toHaveBeenCalled();
+    expect(screen.getByTestId('where').textContent).toBe('/');
+  });
+
+  it('keeps the 💬 shown without hover for every project whose chat is open', () => {
+    chat.openIds = ['p3', 'p2'];
     renderSidebar();
     expect(within(rowOf('gamma')).getByRole('button', { name: 'Chat do projeto' }).parentElement).not.toHaveClass('hidden');
+    expect(within(rowOf('beta')).getByRole('button', { name: 'Chat do projeto' }).parentElement).not.toHaveClass('hidden');
   });
 
   it('has no chat button without the chat permission', () => {
