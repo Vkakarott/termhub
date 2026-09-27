@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentOnCard, EpicProgress, Tab } from './types';
-import { formatDuration, formatEstimate, needsYouAgents, stateLabel, withLiveTab } from './progress';
+import type { AgentOnCard, EpicProgress, PullRequestBadge, Tab } from './types';
+import { ciLabel, epicCiLine, formatDuration, formatEstimate, needsYouAgents, stateLabel, withLiveTab } from './progress';
 
 const agent = (over: Partial<AgentOnCard> = {}): AgentOnCard => ({
   tab_id: 't1', tab_name: 'agent', machine_name: 'jarvis', subtask_ref: null, state: 'working', state_at: '2026-09-27T12:00:00.000Z',
@@ -55,5 +55,32 @@ describe('needsYouAgents', () => {
     const card = { agents: [waiting, agent()] } as EpicProgress['cards'][number];
     const epics = [{ cards: [card, card] }, { cards: [{ agents: null }] }] as unknown as EpicProgress[];
     expect(needsYouAgents(epics).map((a) => a.tab_id)).toEqual(['t2']);
+  });
+});
+
+describe('ciLabel', () => {
+  const p = (over: Partial<PullRequestBadge>): PullRequestBadge => ({
+    number: 7, url: 'u', title: 't', state: 'open', draft: false, ci_state: 'passed',
+    ci_summary: { total: 2, passed: 2, failed: 0, running: 0, failing: [] }, deploy_state: 'none', deploy_url: null, ...over,
+  });
+  it('describes an open PR by its CI', () => {
+    expect(ciLabel(p({}))).toBe('CI verde');
+    expect(ciLabel(p({ ci_state: 'running' }))).toBe('CI rodando');
+    expect(ciLabel(p({ ci_state: 'failed', ci_summary: { total: 2, passed: 1, failed: 1, running: 0, failing: ['lint'] } }))).toBe('CI falhou: lint');
+    expect(ciLabel(p({ ci_state: 'none' }))).toBe('sem CI');
+  });
+  it('describes a merged PR by its deploy, and a closed one as fechado', () => {
+    expect(ciLabel(p({ state: 'merged', deploy_state: 'running' }))).toBe('deploy rodando');
+    expect(ciLabel(p({ state: 'merged', deploy_state: 'passed' }))).toBe('deploy ok');
+    expect(ciLabel(p({ state: 'merged', deploy_state: 'failed' }))).toBe('deploy falhou');
+    expect(ciLabel(p({ state: 'merged', deploy_state: 'none' }))).toBe('mergeado');
+    expect(ciLabel(p({ state: 'closed' }))).toBe('fechado');
+  });
+});
+
+describe('epicCiLine', () => {
+  it('summarises the epic PRs', () => {
+    expect(epicCiLine({ open: 2, failed: 1, running: 1, deployed: 3 })).toBe('PRs: 2 abertos · 1 falhou · 1 rodando · 3 em produção');
+    expect(epicCiLine({ open: 1, failed: 0, running: 0, deployed: 0 })).toBe('PRs: 1 aberto');
   });
 });

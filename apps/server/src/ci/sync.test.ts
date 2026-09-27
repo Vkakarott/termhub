@@ -1,0 +1,113 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Repositories } from '../db/repositories/index.js';
+import type { GithubCiClient, GithubPull } from '../integrations/github-ci.js';
+import { GithubCiError } from '../integrations/github-ci.js';
+import { ciErrorOf } from './status.js';
+import { syncProjectCi } from './sync.js';
+
+const pull = (over: Partial<GithubPull> = {}): GithubPull => ({
+  number: 7, html_url: 'https://github.com/acme/app/pull/7', title: 'Painel TER-2', body: 'Also TER-3 and TER-1 and TER-99', state: 'open', draft: false,
+  merged_at: null, merge_commit_sha: null, head: { ref: 'TER-2-panel', sha: 'abc' }, ...over,
+});
+const cards: Record<number, { id: string; type: string; parent_id: string | null }> = {
+  1: { id: 'epic', type: 'epic', parent_id: null },
+  2: { id: 'card2', type: 'story', parent_id: null },
+  3: { id: 'sub3', type: 'subtask', parent_id: 'card2' },
+};
+
+function setup(over: { integrationOwner?: string | null; projectOwner?: string | null; provider?: string; repo?: object | null } = {}) {
+  const replaceLinks = vi.fn(async () => {});
+  const updateCi = vi.fn(async () => {});
+  const listWatched = vi.fn(async () => [] as unknown[]);
+  const repos = {
+    projectSetup: { get: vi.fn(async () => ({ data: { repo: over.repo === undefined ? { integration_id: 'i1', full_name: 'acme/app', deploy_workflow: 'deploy.yml' } : over.repo } })) },
+    projects: { findById: vi.fn(async () => ({ id: 'p1', key: 'TER', owner_id: over.projectOwner === undefined ? 'u1' : over.projectOwner })) },
+    integrations: {
+      findById: vi.fn(async () => ({ id: 'i1', provider: over.provider ?? 'github', owner_id: over.integrationOwner === undefined ? 'u1' : over.integrationOwner })),
+      getSecret: vi.fn(async () => 'tok'),
+    },
+    tasks: { findByRef: vi.fn(async (_p: string, n: number) => cards[n]) },
+    taskPullRequests: { replaceLinks, updateCi, listWatched },
+  } as unknown as Repositories;
+  const github: GithubCiClient = {
+    listPulls: vi.fn(async () => ({ notModified: false as const, etag: 'e2', pulls: [pull()] })),
+    listRuns: vi.fn(async () => [{ id: 1, name: 'CI', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'failure', html_url: 'r', created_at: '2026-09-27T12:00:00Z' }]),
+  };
+  const etags = new Map<string, string>();
+  return { deps: { repos, github, etags, now: () => new Date('2026-09-27T12:00:00Z') }, replaceLinks, updateCi, listWatched, github, etags };
+}
+
+beforeEach(() => vi.clearAllMocks());
+
+describe('syncProjectCi', () => {
+  it('links the PR to the cards it names, a subtask to its parent, never an epic or a missing number', async () => {
+    const { deps, replaceLinks, etags } = setup();
+    expect(await syncProjectCi(deps, 'p1')).toEqual({ pulls: 1, checked: 0 });
+    expect(replaceLinks).toHaveBeenCalledWith('p1', expect.objectContaining({ repo: 'acme/app', number: 7, state: 'open', head_sha: 'abc' }), ['card2']);
+    expect(etags.get('p1')).toBe('e2');
+  });
+
+  it('calls replaceLinks with no cards when the PR names none, so old links go', async () => {
+    const { deps, replaceLinks, github } = setup();
+    vi.mocked(github.listPulls).mockResolvedValue({ notModified: false, etag: null, pulls: [pull({ title: 'x', body: null, head: { ref: 'main-fix', sha: 'z' } })] });
+    await syncProjectCi(deps, 'p1');
+    expect(replaceLinks).toHaveBeenCalledWith('p1', expect.objectContaining({ number: 7 }), []);
+  });
+
+  it('maps a merged PR', async () => {
+    const { deps, replaceLinks, github } = setup();
+    vi.mocked(github.listPulls).mockResolvedValue({ notModified: false, etag: null, pulls: [pull({ state: 'closed', merged_at: '2026-09-27T11:00:00Z', merge_commit_sha: 'm' })] });
+    await syncProjectCi(deps, 'p1');
+    expect(replaceLinks).toHaveBeenCalledWith('p1', expect.objectContaining({ state: 'merged', merge_commit_sha: 'm', merged_at: new Date('2026-09-27T11:00:00Z') }), ['card2']);
+  });
+
+  it('refreshes CI of open watched PRs and deploy of merged ones, once per PR, even when the list is not modified', async () => {
+    const { deps, updateCi, listWatched, github } = setup();
+    vi.mocked(github.listPulls).mockResolvedValue({ notModified: true });
+    listWatched.mockResolvedValue([
+      { repo: 'acme/app', number: 7, state: 'open', head_sha: 'abc', merge_commit_sha: null },
+      { repo: 'acme/app', number: 7, state: 'open', head_sha: 'abc', merge_commit_sha: null },
+      { repo: 'acme/app', number: 5, state: 'merged', head_sha: 'old', merge_commit_sha: 'm5' },
+    ]);
+    expect(await syncProjectCi(deps, 'p1')).toEqual({ pulls: null, checked: 2 });
+    expect(updateCi).toHaveBeenCalledWith('p1', 'acme/app', 7, { ci_state: 'failed', ci_summary: { total: 1, passed: 0, failed: 1, running: 0, failing: ['CI'] } });
+    expect(updateCi).toHaveBeenCalledWith('p1', 'acme/app', 5, { deploy_state: 'none', deploy_url: null });
+    expect(github.listRuns).toHaveBeenCalledWith('tok', 'acme/app', 'm5');
+  });
+
+  it('skips a project without repo, and one whose integration is not the owner’s GitHub', async () => {
+    expect(await syncProjectCi(setup({ repo: null }).deps, 'p1')).toEqual({ skipped: 'no_repo' });
+    expect(await syncProjectCi(setup({ integrationOwner: 'u2' }).deps, 'p1')).toEqual({ skipped: 'not_allowed' });
+    expect(await syncProjectCi(setup({ provider: 'linear' }).deps, 'p1')).toEqual({ skipped: 'not_allowed' });
+  });
+
+  it('watches only the current repo, and merged PRs only when a deploy workflow is set', async () => {
+    const withDeploy = setup();
+    await syncProjectCi(withDeploy.deps, 'p1');
+    expect(withDeploy.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/app', includeMerged: true }, new Date('2026-09-27T12:00:00Z'));
+    const noDeploy = setup({ repo: { integration_id: 'i1', full_name: 'acme/new', deploy_workflow: null } });
+    await syncProjectCi(noDeploy.deps, 'p1');
+    expect(noDeploy.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/new', includeMerged: false }, new Date('2026-09-27T12:00:00Z'));
+  });
+
+  it('never matches two missing owners', async () => {
+    expect(await syncProjectCi(setup({ projectOwner: null, integrationOwner: null }).deps, 'p1')).toEqual({ skipped: 'not_allowed' });
+  });
+
+  it('says why nothing shows when not allowed, and clears the error once the repo is removed', async () => {
+    await syncProjectCi(setup({ integrationOwner: 'u2' }).deps, 'p1');
+    expect(ciErrorOf('p1')).toBe('GitHub: a integração do projeto não é do dono do projeto');
+    await syncProjectCi(setup({ repo: null }).deps, 'p1');
+    expect(ciErrorOf('p1')).toBeNull();
+  });
+
+  it('records a GitHub failure for the panel, keeps the links, and clears it after a good sync', async () => {
+    const { deps, replaceLinks, github } = setup();
+    vi.mocked(github.listPulls).mockRejectedValueOnce(new GithubCiError('auth', 401));
+    await expect(syncProjectCi(deps, 'p1')).rejects.toBeInstanceOf(GithubCiError);
+    expect(ciErrorOf('p1')).toBe('GitHub: o token não tem acesso ao repositório');
+    expect(replaceLinks).not.toHaveBeenCalled();
+    await syncProjectCi(deps, 'p1');
+    expect(ciErrorOf('p1')).toBeNull();
+  });
+});

@@ -66,6 +66,14 @@ describe('Progresso', () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it('shows the CI line and the PR badges of an expanded card', async () => {
+    await render(<ProgressScreen />);
+    expect(await screen.findByText('PRs: 1 aberto · 1 falhou', {}, LOAD)).toBeTruthy();
+    const title = screen.getByText('Visão gerencial');
+    await act(async () => fireEvent.press(title));
+    expect(screen.getByText('PR #12 · CI falhou: lint')).toBeTruthy();
+  });
+
   it('shows the empty state', async () => {
     jest.spyOn(stores.api, 'progress').mockResolvedValue({ epics: [], generated_at: '' });
     await render(<ProgressScreen />);

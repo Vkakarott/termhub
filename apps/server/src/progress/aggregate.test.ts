@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import type { PullRequestBadge } from '@termhub/mobile-api';
 import { aggregateCard, aggregateEpic, selectEpics, type ProgressCardRow, type ProgressEpicRow, type ProgressTabRow } from './aggregate.js';
 
 const at = (min: number) => new Date(Date.UTC(2026, 8, 27, 12, 0) + min * 60_000);
 const tab = (id: string, state: ProgressTabRow['state']): ProgressTabRow => ({ id, name: `aba ${id}`, machine_name: 'jarvis', state, state_at: at(0), activity: null, activity_verb: null, rate_limited_at: null });
 const card = (over: Partial<ProgressCardRow> & { id: string }): ProgressCardRow => ({
   ref: `TER-${over.id}`, title: over.id, type: 'story', status: 'doing', position: 0, column_name: 'Fazendo',
-  started_at: null, done_at: null, active_seconds: 0, tab: null, subtasks: [], ...over,
+  started_at: null, done_at: null, active_seconds: 0, tab: null, subtasks: [], pull_requests: [], ...over,
 });
 const sub = (id: string, status: 'todo' | 'done', extra: { done_at?: Date; tab?: ProgressTabRow } = {}) => ({ id, ref: `TER-${id}`, status, done_at: extra.done_at ?? null, tab: extra.tab ?? null });
 const epic = (cards: ProgressCardRow[], id = 'e1'): ProgressEpicRow => ({ id, ref: `TER-${id}`, title: `Épico ${id}`, project: { id: 'p1', key: 'TER', name: 'termhub' }, cards });
@@ -72,6 +73,25 @@ describe('aggregateEpic', () => {
     const t1 = tab('t1', 'working');
     const e = aggregateEpic(epic([card({ id: '2', tab: t1 }), card({ id: '3', tab: tab('t2', 'waiting_input'), subtasks: [sub('4', 'todo', { tab: t1 })] }), card({ id: '5', tab: tab('t3', null) })]), true);
     expect(e.agents).toEqual({ working: 1, needs_you: 1, idle: 1 });
+  });
+});
+
+describe('CI summary', () => {
+  const badge = (over: Partial<PullRequestBadge>): PullRequestBadge => ({
+    number: 1, url: 'u', title: 't', state: 'open', draft: false, ci_state: 'passed',
+    ci_summary: { total: 1, passed: 1, failed: 0, running: 0, failing: [] }, deploy_state: 'none', deploy_url: null, ...over,
+  });
+  it('is null when no card has a PR', () => {
+    expect(aggregateEpic(epic([card({ id: '2' })]), true).ci).toBeNull();
+  });
+  it('counts PRs once per number across cards', () => {
+    const shared = badge({ number: 7, ci_state: 'failed' });
+    const e = aggregateEpic(epic([
+      card({ id: '2', pull_requests: [shared, badge({ number: 8, ci_state: 'running' })] }),
+      card({ id: '3', pull_requests: [shared, badge({ number: 9, state: 'merged', deploy_state: 'passed' }), badge({ number: 10, state: 'merged', deploy_state: 'failed' })] }),
+    ]), true);
+    expect(e.ci).toEqual({ open: 2, failed: 2, running: 1, deployed: 1 });
+    expect(e.cards[0].pull_requests.map((p) => p.number)).toEqual([7, 8]);
   });
 });
 

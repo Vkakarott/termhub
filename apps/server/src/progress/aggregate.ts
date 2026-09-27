@@ -1,4 +1,4 @@
-import type { AgentOnCard, CardProgress, EpicProgress, ProgressEstimate, ProgressScope } from '@termhub/mobile-api';
+import type { AgentOnCard, CardProgress, EpicProgress, ProgressEstimate, ProgressScope, PullRequestBadge } from '@termhub/mobile-api';
 import { NEEDS_YOU } from '../monitor/state.js';
 import { estimateCard } from './estimate.js';
 
@@ -29,6 +29,7 @@ export interface ProgressCardRow {
   active_seconds: number;
   tab: ProgressTabRow | null;
   subtasks: ProgressSubtaskRow[];
+  pull_requests: PullRequestBadge[];
 }
 export interface ProgressEpicRow { id: string; ref: string; title: string; project: { id: string; key: string; name: string }; cards: ProgressCardRow[] }
 
@@ -84,6 +85,7 @@ export function aggregateCard(card: ProgressCardRow, includeAgents: boolean): Ca
     active_seconds: card.active_seconds,
     estimate: estimateCard({ status: card.status, units, active_seconds: card.active_seconds, started_at: card.started_at, unit_done_at: finished }),
     agents: includeAgents ? agentsOf(card) : null,
+    pull_requests: card.pull_requests,
   };
 }
 
@@ -114,6 +116,21 @@ function agentCounts(cards: CardProgress[]): { working: number; needs_you: numbe
   return counts;
 }
 
+/** Each PR counted once by number across the epic's cards (spec 2026-09-26 progress-panel §5.2). */
+function ciSummary(cards: CardProgress[]): EpicProgress['ci'] {
+  const byNumber = new Map<number, PullRequestBadge>();
+  for (const c of cards) for (const p of c.pull_requests) byNumber.set(p.number, p);
+  if (byNumber.size === 0) return null;
+  const ci = { open: 0, failed: 0, running: 0, deployed: 0 };
+  for (const p of byNumber.values()) {
+    if (p.state === 'open') ci.open++;
+    if ((p.state === 'open' && p.ci_state === 'failed') || p.deploy_state === 'failed') ci.failed++;
+    if ((p.state === 'open' && p.ci_state === 'running') || p.deploy_state === 'running') ci.running++;
+    if (p.deploy_state === 'passed') ci.deployed++;
+  }
+  return ci;
+}
+
 export function aggregateEpic(epic: ProgressEpicRow, includeAgents: boolean): EpicProgress {
   const ordered = [...epic.cards].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.position - b.position);
   const cards = ordered.map((c) => aggregateCard(c, includeAgents));
@@ -134,6 +151,8 @@ export function aggregateEpic(epic: ProgressEpicRow, includeAgents: boolean): Ep
     cards_without_estimate: cards.filter((c) => (c.status === 'todo' || c.status === 'doing') && c.estimate.kind === 'none').length,
     agents: includeAgents ? agentCounts(cards) : null,
     cards,
+    ci: ciSummary(cards),
+    ci_error: null,
   };
 }
 

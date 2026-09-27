@@ -23,4 +23,10 @@ describe('progress contract', () => {
   it('rejects a percent above 100', () => {
     expect(() => progressResponse.parse({ epics: [{ ...epic, percent: 101 }], generated_at: 'x' })).toThrow();
   });
+  it('defaults the CI fields so an older server still parses', () => {
+    const parsed = progressResponse.parse({ epics: [epic], generated_at: 'x' });
+    expect(parsed.epics[0].ci).toBeNull();
+    expect(parsed.epics[0].ci_error).toBeNull();
+    expect(parsed.epics[0].cards[0].pull_requests).toEqual([]);
+  });
 });

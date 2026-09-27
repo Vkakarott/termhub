@@ -119,7 +119,7 @@ export function SetupForm({ project }: Props) {
                 className="input"
                 value={data.repo?.integration_id ?? ''}
                 onChange={(e) =>
-                  patch('repo', e.target.value ? { ...(data.repo ?? { full_name: null, base_branch: 'main', branch_pattern: '{ticket}-{slug}', draft_pr: true }), integration_id: e.target.value } : null)
+                  patch('repo', e.target.value ? { ...(data.repo ?? { full_name: null, base_branch: 'main', branch_pattern: '{ticket}-{slug}', draft_pr: true, deploy_workflow: null }), integration_id: e.target.value } : null)
                 }
               >
                 <option value="">— sem repositório —</option>
@@ -154,6 +154,14 @@ export function SetupForm({ project }: Props) {
                     <input className="input font-mono" value={data.repo.branch_pattern} onChange={(e) => patch('repo', { ...data.repo!, branch_pattern: e.target.value })} />
                   </Row>
                 </div>
+                <Row label="Workflow de deploy">
+                  <input
+                    className="input font-mono"
+                    placeholder="deploy.yml"
+                    value={data.repo.deploy_workflow ?? ''}
+                    onChange={(e) => patch('repo', { ...data.repo!, deploy_workflow: e.target.value.trim() ? e.target.value : null })}
+                  />
+                </Row>
                 <Check checked={data.repo.draft_pr} onChange={(v) => patch('repo', { ...data.repo!, draft_pr: v })}>
                   Abrir PR como rascunho até a aprovação
                 </Check>

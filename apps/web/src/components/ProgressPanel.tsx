@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useMonitor } from '../lib/monitor';
-import { BASIS_LABEL, formatEstimate, needsYouAgents, stateLabel, withLiveTab } from '../lib/progress';
+import { BASIS_LABEL, ciLabel, epicCiLine, formatEstimate, needsYouAgents, stateLabel, withLiveTab } from '../lib/progress';
 import { relativeTime } from '../lib/time';
-import type { AgentOnCard, CardProgress, EpicProgress, ProgressEstimate, ProgressResponse, ProgressScope } from '../lib/types';
+import type { AgentOnCard, CardProgress, EpicProgress, ProgressEstimate, ProgressResponse, ProgressScope, PullRequestBadge } from '../lib/types';
 
 /** Percentages move at subtask pace; tab states come live from the monitor (spec D9). */
 export const PROGRESS_REFRESH_MS = 15_000;
@@ -54,6 +54,34 @@ function AgentChip({ agent, projectId }: { agent: AgentOnCard; projectId: string
   );
 }
 
+const CI_TONE: Record<string, string> = { passed: 'text-emerald-600', running: 'text-amber-600', failed: 'text-red-600', none: 'text-zinc-500' };
+
+export function PullRequestBadges({ pulls }: { pulls: PullRequestBadge[] }) {
+  if (pulls.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {pulls.map((p) => {
+        const tone = p.state === 'merged' ? CI_TONE[p.deploy_state] : p.state === 'open' ? CI_TONE[p.ci_state] : CI_TONE.none;
+        return (
+          <span key={p.number} className="inline-flex items-center gap-1 text-xs">
+            <a href={p.url} target="_blank" rel="noreferrer" className="rounded border border-zinc-300 px-1.5 py-0.5 hover:underline dark:border-zinc-700" title={p.title}>
+              PR #{p.number}
+              {p.draft ? ' · rascunho' : ''}
+            </a>
+            {p.state === 'merged' && p.deploy_url ? (
+              <a href={p.deploy_url} target="_blank" rel="noreferrer" className={tone}>
+                {ciLabel(p)}
+              </a>
+            ) : (
+              <span className={tone}>{ciLabel(p)}</span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function CardRow({ card, projectId }: { card: CardProgress; projectId: string }) {
   return (
     <li className="space-y-1 py-2">
@@ -68,6 +96,7 @@ function CardRow({ card, projectId }: { card: CardProgress; projectId: string })
       </div>
       <Bar percent={card.percent} label={`${card.ref} ${card.percent}%`} />
       <EstimateLine estimate={card.estimate} />
+      <PullRequestBadges pulls={card.pull_requests} />
       {card.agents && card.agents.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {card.agents.map((a) => (
@@ -100,7 +129,9 @@ function EpicBlock({ epic, projectId }: { epic: EpicProgress; projectId: string 
             {epic.agents.working} trabalhando · {epic.agents.needs_you} esperando você · {epic.agents.idle} parados
           </span>
         )}
+        {epic.ci && <span>{epicCiLine(epic.ci)}</span>}
       </div>
+      {epic.ci_error && <p className="text-xs text-red-600">{epic.ci_error}</p>}
       <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
         {epic.cards.map((c) => (
           <CardRow key={c.id} card={c} projectId={projectId} />

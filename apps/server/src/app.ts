@@ -60,6 +60,7 @@ import { revokeDevice } from './mobile/revocation.js';
 import { purgeMobile } from './mobile/purge.js';
 import { actionForMethod, type Resource } from './auth/permissions.js';
 import { startTicketSyncScheduler } from './setup/tickets-sync.js';
+import { startCiSyncScheduler } from './ci/scheduler.js';
 import { startAgentUpdateScheduler } from './agent/latest-version.js';
 import { registerTerminalWs } from './terminal/ws.js';
 import { registerAgentWs } from './agent/ws.js';
@@ -271,6 +272,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
     void expireOrphanTabQuestions(repos, fastify.log);
   }, 60 * 60 * 1000);
   const stopSync = startTicketSyncScheduler(repos, fastify.log);
+  const stopCiSync = startCiSyncScheduler(repos, fastify.log);
   const stopAgentUpdates = startAgentUpdateScheduler(repos, fastify.log);
   const stopTabQuestionExpiry = startTabQuestionExpiry(repos, fastify.log);
   void expireOrphanTabQuestions(repos, fastify.log);
@@ -278,6 +280,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   fastify.addHook('onClose', async () => {
     clearInterval(purge);
     stopSync();
+    stopCiSync();
     stopAgentUpdates();
     stopTabQuestionExpiry();
     stopDecisionSweeper();

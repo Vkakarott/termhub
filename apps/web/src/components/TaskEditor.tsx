@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { canHaveSubtasks, cardPath, typeOptions } from '../lib/board';
 import { ticketKey } from '../lib/ticket-link';
 import { PROVIDER_LABEL, TASK_STATUS_LABEL, TASK_TYPE_LABEL, type Task, type TaskColumn, type TaskPatchInput, type TaskType } from '../lib/types';
+import { CardPullRequests } from './CardPullRequests';
 import { Modal } from './Modal';
 import { SubtaskList } from './SubtaskList';
 
@@ -125,6 +126,7 @@ export function TaskEditor({ task, columns, epics, terminalHref, onClose, onSave
           />
         </div>
         {canHaveSubtasks(task) && <SubtaskList parent={task} onChange={onSubtasks} onError={onError} />}
+        <CardPullRequests taskId={task.id} />
         {ref && (
           <div className="rounded-md border border-line bg-bg p-3 text-xs">
             <div className="flex items-center gap-2">

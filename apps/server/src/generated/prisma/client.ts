@@ -119,6 +119,11 @@ export type TaskColumn = Prisma.TaskColumnModel
  */
 export type Task = Prisma.TaskModel
 /**
+ * Model TaskPullRequest
+ * A GitHub pull request linked to a card by its ref (spec 2026-09-26 progress-panel §5.2). Written only by the CI sync.
+ */
+export type TaskPullRequest = Prisma.TaskPullRequestModel
+/**
  * Model Note
  * 
  */

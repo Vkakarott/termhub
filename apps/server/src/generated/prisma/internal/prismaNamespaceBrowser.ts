@@ -66,6 +66,7 @@ export const ModelName = {
   Ticket: 'Ticket',
   TaskColumn: 'TaskColumn',
   Task: 'Task',
+  TaskPullRequest: 'TaskPullRequest',
   Note: 'Note',
   Integration: 'Integration',
   ProjectSetup: 'ProjectSetup',
@@ -350,6 +351,30 @@ export const TaskScalarFieldEnum = {
 } as const
 
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]
+
+
+export const TaskPullRequestScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  taskId: 'taskId',
+  repo: 'repo',
+  number: 'number',
+  url: 'url',
+  title: 'title',
+  headRef: 'headRef',
+  headSha: 'headSha',
+  state: 'state',
+  draft: 'draft',
+  mergedAt: 'mergedAt',
+  mergeCommitSha: 'mergeCommitSha',
+  ciState: 'ciState',
+  ciSummary: 'ciSummary',
+  deployState: 'deployState',
+  deployUrl: 'deployUrl',
+  syncedAt: 'syncedAt'
+} as const
+
+export type TaskPullRequestScalarFieldEnum = (typeof TaskPullRequestScalarFieldEnum)[keyof typeof TaskPullRequestScalarFieldEnum]
 
 
 export const NoteScalarFieldEnum = {

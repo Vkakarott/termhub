@@ -34,6 +34,7 @@ import { DevicesRepository } from './devices.js';
 import { DeviceSessionsRepository } from './device-sessions.js';
 import { DeviceEventsRepository } from './device-events.js';
 import { UserNotificationsRepository } from './user-notifications.js';
+import { TaskPullRequestsRepository } from './task-pull-requests.js';
 
 export interface Repositories {
   users: UsersRepository;
@@ -71,6 +72,7 @@ export interface Repositories {
   deviceSessions: DeviceSessionsRepository;
   deviceEvents: DeviceEventsRepository;
   userNotifications: UserNotificationsRepository;
+  taskPullRequests: TaskPullRequestsRepository;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -110,6 +112,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     deviceSessions: new DeviceSessionsRepository(db),
     deviceEvents: new DeviceEventsRepository(db),
     userNotifications: new UserNotificationsRepository(db),
+    taskPullRequests: new TaskPullRequestsRepository(db),
   };
 }
 
@@ -136,3 +139,5 @@ export type { Device, DeviceStatus, DeviceCreateInput } from './devices.js';
 export type { DeviceChallengePurpose } from './device-sessions.js';
 export type { DeviceEvent, DeviceEventKind, DeviceEventInput } from './device-events.js';
 export type { UserNotification, UserNotificationCreateInput } from './user-notifications.js';
+export type { TaskPullRequest, PullRequestInfo, PrState, CiState, CiSummary } from './task-pull-requests.js';
+export { WATCH_MERGED_FOR_MS } from './task-pull-requests.js';

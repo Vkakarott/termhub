@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task, TaskColumn } from '../lib/types';
 
 vi.mock('./SubtaskList', () => ({ SubtaskList: () => <div>lista de subtarefas</div> }));
+vi.mock('./CardPullRequests', () => ({ CardPullRequests: ({ taskId }: { taskId: string }) => <div>prs-{taskId}</div> }));
 
 import { TaskEditor, type TaskEditorProps } from './TaskEditor';
 
@@ -49,6 +50,11 @@ describe('TaskEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     expect(props.onSave).toHaveBeenCalledWith({ type: 'bug', epic_id: 'e2' });
     expect(props.onClose).toHaveBeenCalled();
+  });
+
+  it('shows the card pull requests of an existing card', () => {
+    mount(task({ id: 'Pagar' }));
+    expect(screen.getByText('prs-Pagar')).toBeInTheDocument();
   });
 
   it('keeps a card with subtasks a story or a task, and shows its checklist', () => {

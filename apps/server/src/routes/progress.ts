@@ -5,6 +5,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import { canAccess } from '../auth/permissions.js';
 import { scoped } from '../auth/scope.js';
 import { aggregateEpic, selectEpics } from '../progress/aggregate.js';
+import { ciErrorOf } from '../ci/status.js';
 
 const query = z.object({ project_id: z.string().min(1).max(64).optional(), scope: progressScope.default('active') });
 
@@ -18,7 +19,8 @@ export async function progressRoutes(app: FastifyInstance, repos: Repositories, 
     if (q.project_id) await scoped(repos, request).project(q.project_id);
     const includeAgents = await canAccess(repos, request.user, 'terminals', 'read');
     const rows = await repos.progress.list({ owner: request.scope.ownerId, projectId: q.project_id ?? null });
-    const epics = selectEpics(rows.map((e) => aggregateEpic(e, includeAgents)), q.scope);
+    const aggregated = rows.map((e) => ({ ...aggregateEpic(e, includeAgents), ci_error: ciErrorOf(e.project.id) }));
+    const epics = selectEpics(aggregated, q.scope);
     return progressResponse.parse({ epics, generated_at: (deps.now?.() ?? new Date()).toISOString() });
   });
 }
