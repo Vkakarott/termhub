@@ -169,6 +169,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     machines: { findByIdsForOwner: ownedBy(machine), list: vi.fn(async (owner: string | null) => (owner === user.id ? (opts.host?.machines ?? [host]) : [])) },
     aiAccounts: { findById: vi.fn(async () => opts.host?.account) },
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
+    chatProjectGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatAttachments,
   } as unknown as Repositories;
   const agents = {
@@ -898,6 +899,48 @@ it('resumeAfterDecision appends the grant note once when any approval of a batch
   expect(messages[0].text.endsWith('nem para texto com caracteres de controle.')).toBe(true);
 });
 
+it('resumeAfterDecision appends the project grant note when the approval also trusted the project\'s board', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+  vi.mocked(repos.chatProjectGrants.findActiveBySourceAction).mockResolvedValueOnce({ id: 'pg1', project_id: 'p1' } as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
+
+  expect(repos.chatProjectGrants.findActiveBySourceAction).toHaveBeenCalledWith('c1', 'a1');
+  expect(messages[0].text).toContain('create_task, add_subtasks, update_task ou move_task');
+  expect(messages[0].text.match(/neste projeto/g)).toHaveLength(1);
+  // Never delete_task, and text read elsewhere is data, never a reason to change the board.
+  expect(messages[0].text).toContain('delete_task e start_agent continuam pedindo');
+  expect(messages[0].text).toContain('só mude o que o usuário pediu.');
+  expect(messages[0].text).not.toContain('os próximos send_input nesta aba');
+});
+
+it('resumeAfterDecision says nothing about a project grant when none is active, and never for a denial', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+
+  await service.resumeAfterDecision(user, action());
+  expect(messages[0].text).not.toContain('neste projeto');
+
+  vi.mocked(repos.chatProjectGrants.findActiveBySourceAction).mockResolvedValue({ id: 'pg1', project_id: 'p1' } as never);
+  await service.resumeAfterDecision(user, action({ id: 'a2', status: 'denied' }));
+  expect(messages[2].text).not.toContain('neste projeto');
+});
+
+it('resumeAfterDecision appends the project note once for a batch, next to the tab note', async () => {
+  const waiting = [
+    action({ id: 'a2', tool: 'move_task', tab_id: null, args: { task_id: 'k2', status: 'done' }, decided_at: '2026-09-21T12:01:00.000Z' }),
+    action({ id: 'a3', tool: 'update_task', tab_id: null, args: { task_id: 'k3', title: 'x' }, decided_at: '2026-09-21T12:02:00.000Z' }),
+  ];
+  const { service, conversation, messages, repos } = build([delta('feito'), done()], { chatActions: waiting });
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+  vi.mocked(repos.chatGrants.findActiveBySourceAction).mockImplementation(async (_c: string, id: string) => (id === 'a1' ? ({ id: 'g1' } as never) : undefined));
+  vi.mocked(repos.chatProjectGrants.findActiveBySourceAction).mockImplementation(async (_c: string, id: string) => (id === 'a1' ? undefined : ({ id: `pg-${id}`, project_id: 'p1' } as never)));
+
+  await service.resumeAfterDecision(user, action());
+
+  expect(messages[0].text.match(/neste projeto/g)).toHaveLength(1);
+  expect(messages[0].text.split('os próximos send_input nesta aba')).toHaveLength(2);
+});
+
 const answeredQuestion = (): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice',
   payload: { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] },
@@ -1044,6 +1087,7 @@ describe('reset', () => {
     expect(repos.chatActions.expireOpenForConversation).toHaveBeenCalledWith('c_p1');
     // "Nova conversa" ends every grant the conversation held, exactly like its open questions.
     expect(repos.chatGrants.revokeForConversation).toHaveBeenCalledWith('c_p1');
+    expect(repos.chatProjectGrants.revokeForConversation).toHaveBeenCalledWith('c_p1');
     expect(repos.apiTokens.revokeForConversation).toHaveBeenCalledWith('c_p1');
     expect(fresh.id).not.toBe('c_p1');
     expect(fresh.archived_at).toBeNull();
