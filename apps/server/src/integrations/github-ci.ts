@@ -37,6 +37,11 @@ function failure(res: Response): GithubCiError {
     const reset = Number(res.headers.get('x-ratelimit-reset'));
     return new GithubCiError('rate_limited', res.status, Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000) : null);
   }
+  // Secondary rate limit: 403/429 with `retry-after` (seconds) and no `x-ratelimit-remaining: 0`.
+  const retryAfter = Number(res.headers.get('retry-after'));
+  if ((res.status === 403 || res.status === 429) && res.headers.has('retry-after') && Number.isFinite(retryAfter) && retryAfter >= 0) {
+    return new GithubCiError('rate_limited', res.status, new Date(Date.now() + retryAfter * 1000));
+  }
   if (res.status === 403) return new GithubCiError('auth', 403);
   return new GithubCiError('http', res.status);
 }

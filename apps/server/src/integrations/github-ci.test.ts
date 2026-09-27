@@ -42,6 +42,20 @@ describe('github CI client', () => {
     }
   });
 
+  it('types a secondary rate limit (403 or 429 with retry-after) as rate_limited until now + retry-after', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-27T12:00:00Z'));
+    try {
+      for (const status of [403, 429]) {
+        const err = (await createGithubCiClient(vi.fn(async () => json(status, {}, { 'retry-after': '120' }))).listRuns('tok', 'acme/app', 'abc').catch((e: unknown) => e)) as GithubCiError;
+        expect(err.kind).toBe('rate_limited');
+        expect(err.resetAt).toEqual(new Date('2026-09-27T12:02:00Z'));
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('never puts the token in an error message', async () => {
     const err = (await createGithubCiClient(vi.fn(async () => json(401, { message: 'Bad credentials' }))).listPulls('secret-token', 'acme/app', null).catch((e: unknown) => e)) as Error;
     expect(err.message).not.toContain('secret-token');
