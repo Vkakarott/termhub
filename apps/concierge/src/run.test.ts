@@ -25,7 +25,8 @@ it('builds the exact argv the spec fixes, with no permission bypass', () => {
     '--mcp-config', '/tmp/mcp.json',
     '--strict-mcp-config',
     '--allowed-tools', 'mcp__termhub__*',
-    '--disallowed-tools', 'Bash,Read,Write,Edit,WebFetch,WebSearch',
+    '--disallowed-tools', 'Bash,PowerShell,Monitor,Read,Write,Edit,NotebookEdit,Glob,Grep,EnterWorktree,WebFetch,WebSearch,RemoteTrigger',
+    '--tools', 'Agent',
   ]);
 });
 

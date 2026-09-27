@@ -12,10 +12,9 @@ describe('buildClaudeArgs', () => {
   it('produces the exact argv the spec fixes, flag-value pairs adjacent, in a fixed order', () => {
     // A test that only checks a flag is present would still pass if its value drifted onto another
     // flag's slot; toEqual on the whole array is the strongest form of "adjacent pair" assertion.
-    // The disallowed-tools value is the literal, not the DISALLOWED_TOOLS constant under test: a
-    // test that compared the constant to itself would stay green even if the constant's own value
-    // drifted (a tool dropped, reordered, or wrong), which is exactly the drift this file exists to
-    // catch.
+    // The disallowed-tools and tools values are literals, not the constants under test: a
+    // test that compared a constant to itself would stay green even if its value drifted (a tool
+    // dropped, reordered, or wrong), which is exactly the drift this file exists to catch.
     expect(buildClaudeArgs(spec)).toEqual([
       '-p',
       '--session-id', spec.session_id,
@@ -25,7 +24,8 @@ describe('buildClaudeArgs', () => {
       '--mcp-config', spec.mcp_config_path,
       '--strict-mcp-config',
       '--allowed-tools', 'mcp__termhub__*',
-      '--disallowed-tools', 'Bash,Read,Write,Edit,WebFetch,WebSearch',
+      '--disallowed-tools', 'Bash,PowerShell,Monitor,Read,Write,Edit,NotebookEdit,Glob,Grep,EnterWorktree,WebFetch,WebSearch,RemoteTrigger',
+      '--tools', 'Agent',
     ]);
   });
 
@@ -65,9 +65,9 @@ describe('buildClaudeArgs', () => {
 
   it('streams input, replays messages and loads the background hook only when asked', () => {
     const args = buildClaudeArgs({ ...spec, stream_input: true });
-    const i = args.indexOf('--disallowed-tools');
-    expect(args.slice(i + 2, i + 7)).toEqual(['--input-format', 'stream-json', '--replay-user-messages', '--settings', CONCIERGE_SETTINGS]);
-    // The one-shot argv is exactly what it always was.
+    const i = args.indexOf('--tools');
+    expect(args.slice(i, i + 7)).toEqual(['--tools', 'Agent', '--input-format', 'stream-json', '--replay-user-messages', '--settings', CONCIERGE_SETTINGS]);
+    // The one-shot argv is the same apart from the streamed flags.
     expect(buildClaudeArgs({ ...spec, stream_input: false })).toEqual(buildClaudeArgs(spec));
     expect(buildClaudeArgs(spec)).not.toContain('--input-format');
   });
@@ -75,6 +75,23 @@ describe('buildClaudeArgs', () => {
   it('puts the system prompt last in a streamed run too', () => {
     const args = buildClaudeArgs({ ...spec, stream_input: true, append_system_prompt: 'foco' });
     expect(args.slice(-2)).toEqual(['--append-system-prompt', 'foco']);
+  });
+
+  it('never builds an argv without the built-in allowlist, whatever the options', () => {
+    // TER-127: without --tools every built-in the CLI adds (Glob, Grep, NotebookEdit, Monitor…)
+    // is the concierge's, and Grep reads the person's home without asking. The allowlist must be
+    // on every run the concierge makes.
+    const variants = [
+      buildClaudeArgs(spec),
+      buildClaudeArgs({ ...spec, resume: true, model: 'sonnet' }),
+      buildClaudeArgs({ ...spec, stream_input: true, append_system_prompt: 'foco' }),
+    ];
+    for (const args of variants) {
+      const i = args.indexOf('--tools');
+      expect(args.slice(i, i + 2)).toEqual(['--tools', 'Agent']);
+      const d = args.indexOf('--disallowed-tools');
+      expect(args[d + 1].split(',')).toEqual(expect.arrayContaining(['Glob', 'Grep', 'NotebookEdit', 'Monitor']));
+    }
   });
 });
 
