@@ -4,7 +4,7 @@ import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { ChatRepository } from './chat.js';
-import { TabQuestionsRepository, type AutoAnswer } from './tab-questions.js';
+import { LIST_OPEN_CHOICES_MAX, TabQuestionsRepository, type AutoAnswer } from './tab-questions.js';
 
 const payload = { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] };
 
@@ -381,6 +381,41 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect((await repo.finishAutoAnswer(question.id, 'failed', 'PROMPT_MOVED'))?.auto_answer).toMatchObject({ status: 'failed', reason: 'Mesma pergunta respondida antes' });
   });
 
+  it('setAutoAnswer: never over a countdown the person cancelled, so an overlapping call cannot restart it', async () => {
+    const { question } = await open('ta14');
+    await repo.setAutoAnswer(question.id, autoAnswer());
+    expect((await repo.cancelAutoAnswer(question.id, userId))?.auto_answer?.status).toBe('cancelled');
+    expect(await repo.setAutoAnswer(question.id, autoAnswer({ reason: 'de novo' }))).toBeUndefined();
+    expect((await repo.findByIdForUser(question.id, userId))?.auto_answer).toMatchObject({ status: 'cancelled', reason: 'Mesma pergunta respondida antes', decided_by: userId });
+  });
+
+  it('cancelScheduledForUser: every scheduled countdown of this user becomes cancelled — never a sent one, never another user\'s', async () => {
+    const otherProject = newId();
+    await db.project.create({ data: { id: otherProject, key: `Q${otherProject.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'other', ownerId: otherUserId } });
+    const otherConversation = (await chat.getOrCreateForProject(otherUserId, otherProject)).id;
+    try {
+      const { question: scheduled } = await open('tc10');
+      await repo.setAutoAnswer(scheduled.id, autoAnswer());
+      const { question: sent } = await open('tc11');
+      await repo.setAutoAnswer(sent.id, autoAnswer({ due_at: dueNow() }));
+      await repo.claimAutoAnswer(sent.id);
+      const { question: foreign } = await repo.open({ tab_id: 'tc12', project_id: otherProject, conversation_id: otherConversation, kind: 'choice', payload, tool_use_id: null });
+      await repo.setAutoAnswer(foreign!.id, autoAnswer());
+
+      const cancelled = await repo.cancelScheduledForUser(userId);
+      expect(cancelled.map((q) => q.id)).toContain(scheduled.id);
+      expect(cancelled.map((q) => q.id)).not.toContain(sent.id);
+      expect(cancelled.map((q) => q.id)).not.toContain(foreign!.id);
+      expect(cancelled.find((q) => q.id === scheduled.id)).toMatchObject({ status: 'open', user_id: userId, auto_answer: { status: 'cancelled', decided_by: userId } });
+      expect((await repo.findByIdForUser(sent.id, userId))?.auto_answer?.status).toBe('sent');
+      expect((await repo.findByIdForUser(foreign!.id, otherUserId))?.auto_answer?.status).toBe('scheduled');
+      // Nothing left to cancel: a second call is a no-op.
+      expect((await repo.cancelScheduledForUser(userId)).map((q) => q.id)).not.toContain(scheduled.id);
+    } finally {
+      await db.project.deleteMany({ where: { id: otherProject } });
+    }
+  });
+
   it('claimAutoAnswer: scheduled → sent, only once due, exactly one winner of two racing claims, never after cancelAutoAnswer', async () => {
     const { question: notDue } = await open('ta3');
     await repo.setAutoAnswer(notDue.id, autoAnswer());
@@ -554,6 +589,25 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
       expect(await repo.listOpenChoicesForUser(otherUserId)).toEqual([]);
     } finally {
       await db.project.deleteMany({ where: { id: project2 } }); // cascades its conversation and questions
+    }
+  });
+
+  it('listOpenChoicesForUser: at most LIST_OPEN_CHOICES_MAX rows, newest first', async () => {
+    const lonely = newId();
+    const project3 = newId();
+    await db.user.create({ data: { id: lonely, email: `${lonely}@test.local`, name: 'lonely' } });
+    await db.project.create({ data: { id: project3, key: `Q${project3.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'proj3', ownerId: lonely } });
+    try {
+      const conv = (await chat.getOrCreateForProject(lonely, project3)).id;
+      const base = Date.parse('2026-09-26T00:00:00.000Z');
+      const ids = Array.from({ length: LIST_OPEN_CHOICES_MAX + 2 }, () => newId());
+      await db.tabQuestion.createMany({ data: ids.map((id, i) => ({ id, tabId: `lm${i}`, projectId: project3, conversationId: conv, kind: 'choice', payload, status: 'open', createdAt: new Date(base + i * 1000) })) });
+      const listed = await repo.listOpenChoicesForUser(lonely);
+      expect(listed).toHaveLength(LIST_OPEN_CHOICES_MAX);
+      expect(listed.map((q) => q.id)).toEqual(ids.slice(2).reverse());
+    } finally {
+      await db.project.deleteMany({ where: { id: project3 } });
+      await db.user.deleteMany({ where: { id: lonely } });
     }
   });
 

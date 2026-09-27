@@ -8,7 +8,7 @@ import { toTabQuestionView, type TabQuestionView } from '../db/repositories/tab-
 import type { MemoryRefKind } from '../control/memory.js';
 import { HttpError, notFound } from '../lib/errors.js';
 import { autoAnswerBlocked } from '../memory/blocklist.js';
-import { mapAnswer, sameAnswer } from './decision-text.js';
+import { labelKey, mapAnswer, sameAnswer } from './decision-text.js';
 import { failureLabel } from './service.js';
 import { answerTabQuestion, codeOf, isQuestionRow } from './tab-question-answer.js';
 import { checkChoiceAnswer, type ChoiceAnswer, type ChoicePayload } from './tab-question-payload.js';
@@ -51,18 +51,47 @@ export interface ScheduleInput {
 /**
  * Whether one question's proposed answer is exactly what one of `decisions` answered, once that past
  * answer is mapped onto this question's own options (`mapAnswer`: labels compared by `labelKey`, so
- * case and accents do not matter; a free-text past answer compares as text, trimmed).
+ * case and accents do not matter; a free-text past answer compares as text, trimmed). A label is not
+ * the whole option: Claude Code's options often carry their meaning in `description` ("Opção 1" —
+ * "faz merge e push para main"), so every chosen option's description must also equal the one the
+ * precedent stored for that label (`labelKey` on both sides): the same label meaning something else
+ * this time is not a precedent.
  */
 export function decisionBacks(d: ChatDecision, item: ChoicePayload['questions'][number], a: ChoiceAnswer['answers'][number]): boolean {
   const mapped = mapAnswer(d.answer, item);
-  return mapped !== null && sameAnswer(mapped, { selected: a.selected, text: a.text });
+  if (mapped === null || !sameAnswer(mapped, { selected: a.selected, text: a.text })) return false;
+  return a.selected.every((s) => {
+    const option = item.options[s];
+    if (!option) return false;
+    const key = labelKey(option.label);
+    const past = d.options.find((o) => labelKey(o.label) === key);
+    return past !== undefined && labelKey(past.description ?? '') === labelKey(option.description ?? '');
+  });
+}
+
+/**
+ * The texts D7's blocklist reads for one card and its proposed answer: every question's header and
+ * text, and the chosen options' labels and descriptions (or the free text). Shared by both paths —
+ * the repeat path (`maybeScheduleRepeat`) and `answer_tab_question` — so neither can miss a field.
+ */
+export function blocklistParts(payload: ChoicePayload, answer: ChoiceAnswer): string[] {
+  return payload.questions.flatMap((q, i) => {
+    const a = answer.answers[i];
+    if (!a) return [q.header, q.question];
+    const chosen = a.selected.flatMap((s) => {
+      const o = q.options[s];
+      return o ? [o.label, o.description ?? ''] : [];
+    });
+    return [q.header, q.question, ...chosen, ...(a.text !== undefined ? [a.text] : [])];
+  });
 }
 
 /**
  * The server's own check behind D6 — the model never decides this: every question of the card must
  * have at least one of the cited decisions (already verified as the caller's own `chat_decisions`
- * rows, trust `person`) whose past answer maps onto that question and equals the proposed answer. A
- * card with two questions and a precedent for only one is not backed.
+ * rows, trust `person`) whose past answer maps onto that question and equals the proposed answer,
+ * descriptions included (`decisionBacks`). A card with two questions and a precedent for only one is
+ * not backed. The repeat path's check (`maybeScheduleRepeat`).
  */
 export function precedentBacks(decisions: ChatDecision[], payload: ChoicePayload, answer: ChoiceAnswer): boolean {
   if (answer.answers.length !== payload.questions.length) return false;
@@ -105,8 +134,10 @@ async function storeAutoAnswer(repos: Repositories, input: ScheduleInput, now: D
  * is set to) — starts a countdown on that suggestion by itself, with no LLM call. Everything else is a plain
  * suggested card (`null`): the switch off (D8), a concierge item (it cites no decision of its own), a
  * card with a question left unsuggested, an answer that no longer fits the payload, a card that already
- * had a countdown, or a blocklist hit (D7) on any header, question, suggested label or text. The row is
- * not published here (`openTabQuestion` does it, once). Logs nothing.
+ * had a countdown, a blocklist hit (D7) on any header, question, suggested label, its description or
+ * text, or a cited decision that no longer backs the answer (`precedentBacks`: forgotten meanwhile, or
+ * its chosen option described differently from this card's). The row is not published here
+ * (`openTabQuestion` does it, once). Logs nothing.
  */
 export async function maybeScheduleRepeat(repos: Repositories, row: TabQuestion, now = new Date()): Promise<TabQuestion | null> {
   if (row.kind !== 'choice' || row.status !== 'open' || row.auto_answer || !row.suggestion) return null;
@@ -115,13 +146,13 @@ export async function maybeScheduleRepeat(repos: Repositories, row: TabQuestion,
   if (items.some((it) => it === undefined)) return null;
   const answer: ChoiceAnswer = { answers: items.map((it) => ({ selected: it!.selected, ...(it!.text !== undefined ? { text: it!.text } : {}) })) };
   if (checkChoiceAnswer(payload, answer)) return null;
-  const parts = payload.questions.flatMap((q, i) => {
-    const a = answer.answers[i]!;
-    return [q.header, q.question, ...a.selected.map((s) => q.options[s]?.label ?? ''), ...(a.text !== undefined ? [a.text] : [])];
-  });
-  if (autoAnswerBlocked(parts)) return null;
+  if (autoAnswerBlocked(blocklistParts(payload, answer))) return null;
   if (!(await repos.users.chatAutodecide(row.user_id))) return null;
   const ids = [...new Set(items.map((it) => it!.decision_id))];
+  // The suggestion only says a decision was similar: re-read the ones it cites (the person's own,
+  // still there) and check each still backs its answer, option descriptions included.
+  const decisions = await repos.chatDecisions.findManyForUser(ids, row.user_id);
+  if (!precedentBacks(decisions, payload, answer)) return null;
   return storeAutoAnswer(repos, { row, answer, by: 'memory', reason: REPEAT_REASON, sources: ids.map((id) => ({ kind: 'decision' as const, id })) }, now);
 }
 

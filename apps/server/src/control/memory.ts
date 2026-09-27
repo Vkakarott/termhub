@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { ChatDecision, DecisionNeighbour } from '../db/repositories/chat-decisions.js';
 import type { MemoryFilter, MemoryHit, MemoryItem, MemoryKind, MemoryTrust } from '../db/repositories/memory-items.js';
 import { checkChoiceAnswer, choiceAnswerBody, type ChoiceAnswer, type ChoicePayload } from '../chat/tab-question-payload.js';
-import { decisionBacks, scheduleAutoAnswer, type Downgrade } from '../chat/auto-answer.js';
+import { blocklistParts, decisionBacks, scheduleAutoAnswer, type Downgrade } from '../chat/auto-answer.js';
 import { embedTag, embedText, labelKey, type SuggestionItem } from '../chat/decision-text.js';
 import { config } from '../config.js';
 import { publishTabQuestions } from '../chat/tab-questions.js';
@@ -277,7 +277,7 @@ export interface OpenQuestionView {
  * tab and project names filled in through the owner-scoped batch reads every other tool uses, never
  * `findById` (a stray foreign id from an injected screen must never resolve). The question, header and
  * option labels are the tab's own words: `sanitisePromptText` strips what would let them break out of
- * quoting in a later prompt, exactly as the "Enquanto isso" block does. `auto_answer`, when present,
+ * quoting in a later prompt, exactly as the "Enquanto isso" block does — and so is the tab's name. `auto_answer`, when present,
  * only ever carries `status` and `due_at` — never `reason` or `sources`, which are for the card itself.
  */
 export async function listTabQuestions(ctx: ControlContext, a: { project_id?: string }): Promise<{ note: string; questions: OpenQuestionView[] }> {
@@ -300,7 +300,7 @@ export async function listTabQuestions(ctx: ControlContext, a: { project_id?: st
     const payload = r.payload as ChoicePayload;
     questions.push({
       id: r.id,
-      tab: { id: r.tab_id, name: tabNameById.get(r.tab_id) ?? null },
+      tab: { id: r.tab_id, name: sanitiseName(tabNameById.get(r.tab_id)) },
       project: { id: project.id, name: project.name },
       questions: payload.questions.map((q) => ({
         header: sanitisePromptText(q.header),
@@ -313,6 +313,9 @@ export async function listTabQuestions(ctx: ControlContext, a: { project_id?: st
   }
   return { note: TAB_QUESTIONS_NOTE, questions };
 }
+
+/** A tab name is typed by whoever opened the tab, or set by an agent: tab-derived text like the rest. */
+const sanitiseName = (name: string | null | undefined): string | null => (name == null ? null : sanitisePromptText(name));
 
 /** One proposed answer per question, as `answer_tab_question` takes it: option labels, or free text. */
 export type ProposedAnswer = { selected: string[] } | { text: string };
@@ -403,15 +406,17 @@ async function similarEnough(ctx: ControlContext, payload: ChoicePayload, backer
  *  3. every source resolves in the caller's own memory (`verifySources`).
  * Then `auto` is downgraded to a suggestion, with the reason in the result (precedence as `Downgrade`
  * documents), when the person's "Responder sozinho" switch is off; when the person already cancelled a
- * countdown on this card; when any question's header, text or chosen answer hits the blocklist; when
+ * countdown on this card; when any question's header, text or chosen answer (label, description or
+ * free text) hits the blocklist; when
  * not every question has a cited `decision` (a person's own past answer) that maps to exactly the
- * proposed answer (`decisionBacks`); or when those decisions are not about a similar enough question
+ * proposed answer, option descriptions included (`decisionBacks`); or when those decisions are not about a similar enough question
  * (`similarEnough`, fail closed). A doc, card, message or note can never back `auto`: text an agent
  * wrote may carry an injection (D2).
  *
  * A suggestion replaces the card's items (the answers cover every question) and is republished; a
  * countdown is `scheduleAutoAnswer`'s. A row that moved on between the read and the write answers
- * `QUESTION_CLOSED`. Logs nothing: the reason, answers and sources' text are the person's.
+ * `QUESTION_CLOSED` — except one whose countdown the person cancelled in that window (an overlapping
+ * call scheduled it): that downgrades to a suggestion as `cancelled_by_person`. Logs nothing: the reason, answers and sources' text are the person's.
  */
 export async function answerTabQuestionTool(
   ctx: ControlContext,
@@ -435,10 +440,7 @@ export async function answerTabQuestionTool(
     const decisions = sources.flatMap((s) => (s.kind === 'decision' ? [s.decision] : []));
     const backers = payload.questions.map((item, i) => decisions.filter((d) => decisionBacks(d, item, answer.answers[i]!)));
     const backed = backers.filter((ds) => ds.length > 0).length;
-    const parts = payload.questions.flatMap((q, i) => {
-      const ans = answer.answers[i]!;
-      return [q.header, q.question, ...ans.selected.map((s) => q.options[s]!.label), ...(ans.text !== undefined ? [ans.text] : [])];
-    });
+    const parts = blocklistParts(payload, answer);
     if (!(await ctx.repos.users.chatAutodecide(userId))) downgrade = 'switch_off';
     else if (autoStatus === 'cancelled') downgrade = 'cancelled_by_person';
     else if (autoAnswerBlocked(parts)) downgrade = 'blocked';
@@ -448,8 +450,13 @@ export async function answerTabQuestionTool(
 
     if (!downgrade) {
       const scheduled = await scheduleAutoAnswer(ctx.repos, { row, answer, by: 'concierge', reason: a.reason, sources: sources.map((s) => ({ kind: s.kind, id: s.id })) });
-      if (!scheduled?.auto_answer) throw new ControlError('QUESTION_CLOSED', QUESTION_CLOSED);
-      return { mode: 'auto', due_at: scheduled.auto_answer.due_at };
+      if (scheduled?.auto_answer) return { mode: 'auto', due_at: scheduled.auto_answer.due_at };
+      // The write lost. If the person cancelled a countdown meanwhile (an overlapping call scheduled
+      // one during the embed above, and the person stopped it), that is the same `cancelled_by_person`
+      // a later call would get: fall through to the suggestion. Anything else moved the card on.
+      const now = await ctx.repos.tabQuestions.findByIdForUser(row.id, userId);
+      if (now?.status !== 'open' || now.auto_answer?.status !== 'cancelled') throw new ControlError('QUESTION_CLOSED', QUESTION_CLOSED);
+      downgrade = 'cancelled_by_person';
     }
   }
 

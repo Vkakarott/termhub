@@ -140,10 +140,11 @@ const item = (over: Partial<SuggestionItem> = {}): SuggestionItem => ({
 
 describe('maybeScheduleRepeat', () => {
   const now = new Date('2026-09-26T12:00:00.000Z');
-  const reposFor = (switchOn = true) => {
+  const reposFor = (switchOn = true, decisions: ChatDecision[] = [decision({ id: 'd1' }), decision({ id: 'd2', answer: { labels: ['Não'] } })]) => {
     const setAutoAnswer = vi.fn(async (_id: string, auto: AutoAnswer) => row({ auto_answer: auto }));
     const chatAutodecide = vi.fn(async () => switchOn);
-    return { repos: { tabQuestions: { setAutoAnswer }, users: { chatAutodecide } } as unknown as Repositories, setAutoAnswer, chatAutodecide };
+    const findManyForUser = vi.fn(async (ids: string[], userId: string) => decisions.filter((d) => ids.includes(d.id) && d.user_id === userId));
+    return { repos: { tabQuestions: { setAutoAnswer }, users: { chatAutodecide }, chatDecisions: { findManyForUser } } as unknown as Repositories, setAutoAnswer, chatAutodecide, findManyForUser };
   };
   beforeEach(() => vi.mocked(publishTabQuestions).mockClear());
 
@@ -165,7 +166,7 @@ describe('maybeScheduleRepeat', () => {
   });
 
   it('carries a free-text past answer as text', async () => {
-    const { repos, setAutoAnswer } = reposFor();
+    const { repos, setAutoAnswer } = reposFor(true, [decision({ id: 'd1', answer: { labels: [], text: 'usar a main' } })]);
     await maybeScheduleRepeat(repos, row({ suggestion: { items: [item({ selected: [], text: 'usar a main' })] } }), now);
     expect(setAutoAnswer.mock.calls[0]![1].answer).toEqual({ answers: [{ selected: [], text: 'usar a main' }] });
   });
@@ -218,6 +219,39 @@ describe('maybeScheduleRepeat', () => {
     const payload = { questions: [yesNo('Usar git worktree?'), yesNo('Rodar os testes?', 'Testes')] };
     await maybeScheduleRepeat(repos, row({ payload, suggestion: { items: [item(), item({ question_index: 1, decision_id: 'd2', selected: [1] })] } }), now);
     expect(setAutoAnswer.mock.calls[0]![1]).toMatchObject({ answer: { answers: [{ selected: [0] }, { selected: [1] }] }, sources: [{ kind: 'decision', id: 'd1' }, { kind: 'decision', id: 'd2' }] });
+  });
+
+  const described = (desc1: string): ChoicePayload['questions'][number] => ({
+    question: 'Como seguir?',
+    header: 'Próximo passo',
+    multi_select: false,
+    options: [
+      { label: 'Opção 1', description: desc1, recommended: false },
+      { label: 'Opção 2', description: 'deixar como está', recommended: false },
+    ],
+  });
+  const describedDecision = (desc1: string) =>
+    decision({ id: 'd1', header: 'Próximo passo', question: 'Como seguir?', answer: { labels: ['Opção 1'] }, options: [{ label: 'Opção 1', description: desc1 }, { label: 'Opção 2', description: 'deixar como está' }] });
+
+  it('a blocked description of the suggested option → null', async () => {
+    const { repos, setAutoAnswer } = reposFor(true, [describedDecision('faz merge e push para main')]);
+    expect(await maybeScheduleRepeat(repos, row({ payload: { questions: [described('faz merge e push para main')] }, suggestion: { items: [item()] } }), now)).toBeNull();
+    expect(setAutoAnswer).not.toHaveBeenCalled();
+  });
+
+  it('the cited decision\'s option meant something else (another description) → null; the same one schedules', async () => {
+    const other = reposFor(true, [describedDecision('abrir uma issue')]);
+    expect(await maybeScheduleRepeat(other.repos, row({ payload: { questions: [described('rodar os testes de novo')] }, suggestion: { items: [item()] } }), now)).toBeNull();
+    expect(other.findManyForUser).toHaveBeenCalledWith(['d1'], 'u1');
+    expect(other.setAutoAnswer).not.toHaveBeenCalled();
+    const same = reposFor(true, [describedDecision('Rodar os testes de novo.')]);
+    expect(await maybeScheduleRepeat(same.repos, row({ payload: { questions: [described('rodar os testes de novo')] }, suggestion: { items: [item()] } }), now)).not.toBeNull();
+  });
+
+  it('a cited decision forgotten since the suggestion (or another user\'s) → null', async () => {
+    const { repos, setAutoAnswer } = reposFor(true, []);
+    expect(await maybeScheduleRepeat(repos, row({ suggestion: { items: [item()] } }), now)).toBeNull();
+    expect(setAutoAnswer).not.toHaveBeenCalled();
   });
 
   it('no suggestion, a permission row, or a card that already had a countdown → null', async () => {

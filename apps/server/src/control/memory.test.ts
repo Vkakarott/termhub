@@ -401,6 +401,13 @@ describe('listTabQuestions', () => {
     expect(r.questions[0]!.tab).toEqual({ id: 't1', name: null });
   });
 
+  it('sanitises the tab name like every other tab-derived field', async () => {
+    const row = tabQuestionRow({ id: 'q1' });
+    const { ctx } = ctxForQuestions({ rows: [row], tabs: [{ id: 't1', name: 'Terminal «1»​' } as unknown as Tab] });
+    const r = await listTabQuestions(ctx, {});
+    expect(r.questions[0]!.tab).toEqual({ id: 't1', name: 'Terminal 1' });
+  });
+
   it('project_id is checked through ctx.scoped.project: a foreign project 404s with nothing listed', async () => {
     const { ctx, calls } = ctxForQuestions({});
     await expect(listTabQuestions(ctx, { project_id: 'px' })).rejects.toBeInstanceOf(HttpError);
@@ -699,6 +706,48 @@ describe('answerTabQuestionTool', () => {
       const { ctx } = ctxForAnswer({ decisions: [pastDecision({ id: 'd1', answer: { labels: ['Não'] } })], similarity: { d1: 0.1 } });
       expect((await callTool(ctx, yes, { embedder })).downgraded_because).toBe('no_person_precedent');
       expect(embedder.embed).not.toHaveBeenCalled();
+    });
+
+    it('a lost write on a countdown the person cancelled meanwhile reports cancelled_by_person and writes a suggestion', async () => {
+      const { ctx, calls } = ctxForAnswer();
+      const cancelled: AutoAnswer = { answer: { answers: [{ selected: [0] }] }, by: 'concierge', reason: 'r', sources: [], due_at: '2026-09-26T12:01:00.000Z', status: 'cancelled' };
+      calls.setAutoAnswer.mockResolvedValueOnce(undefined as never);
+      // First read: nothing scheduled yet; the re-read after the lost write: the person cancelled.
+      calls.findByIdForUser.mockImplementationOnce(async () => tabQuestionRow({ id: 'q1', payload: { questions: [yesNo('Usar git worktree para isolar o trabalho?')] } }));
+      calls.findByIdForUser.mockImplementationOnce(async () => tabQuestionRow({ id: 'q1', auto_answer: cancelled, payload: { questions: [yesNo('Usar git worktree para isolar o trabalho?')] } }));
+      expect(await callTool(ctx, yes)).toEqual({ mode: 'suggest', downgraded_because: 'cancelled_by_person' });
+      expect(calls.setSuggestion).toHaveBeenCalledTimes(1);
+      expect(publishTabQuestions).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('option descriptions (final review)', () => {
+    const merge = (desc1: string) => ({
+      question: 'Como seguir?',
+      header: 'Próximo passo',
+      multi_select: false,
+      options: [
+        { label: 'Opção 1', description: desc1, recommended: false },
+        { label: 'Opção 2', description: 'deixar como está', recommended: false },
+      ],
+    });
+    const opt = { ...yes, answers: [{ selected: ['Opção 1'] }] };
+    const precedent = (desc1: string) => pastDecision({ id: 'd1', header: 'Próximo passo', question: 'Como seguir?', answer: { labels: ['Opção 1'] }, options: [{ label: 'Opção 1', description: desc1 }, { label: 'Opção 2', description: 'deixar como está' }] });
+
+    it('the blocklist reads the chosen option\'s description (blocked)', async () => {
+      const { ctx } = ctxForAnswer({ rows: [tabQuestionRow({ id: 'q1', payload: { questions: [merge('faz merge e push para main')] } })], decisions: [precedent('faz merge e push para main')] });
+      expect(await callTool(ctx, opt)).toEqual({ mode: 'suggest', downgraded_because: 'blocked' });
+    });
+
+    it('a precedent whose chosen option meant something else does not back auto (no_person_precedent)', async () => {
+      const { ctx, calls } = ctxForAnswer({ rows: [tabQuestionRow({ id: 'q1', payload: { questions: [merge('rodar os testes de novo')] } })], decisions: [precedent('abrir uma issue')] });
+      expect(await callTool(ctx, opt)).toEqual({ mode: 'suggest', downgraded_because: 'no_person_precedent' });
+      expect(calls.setAutoAnswer).not.toHaveBeenCalled();
+    });
+
+    it('the same description (case, accents and punctuation aside) backs auto', async () => {
+      const { ctx } = ctxForAnswer({ rows: [tabQuestionRow({ id: 'q1', payload: { questions: [merge('Rodar os testes de novo.')] } })], decisions: [precedent('rodar os testes de novo')] });
+      expect((await callTool(ctx, opt)).mode).toBe('auto');
     });
 
     it('a suggestion carries the first cited decision\'s id (even behind a doc) and similarity 0', async () => {

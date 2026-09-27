@@ -89,6 +89,8 @@ export const PERMISSION_QUEUED = 'QUEUED';
 /** `listByConversation`'s windows, one per kind of row. */
 export const LIST_QUESTIONS_MAX = 200;
 export const LIST_SUGGESTIONS_MAX = 50;
+/** `listOpenChoicesForUser`'s window (`list_tab_questions`): the newest 50 open cards. */
+export const LIST_OPEN_CHOICES_MAX = 50;
 
 type Row = PrismaTabQuestion & { conversation: { userId: string } };
 
@@ -235,13 +237,15 @@ export class TabQuestionsRepository {
    * The user's open `choice` cards (spec 2026-09-26 concierge memory §5.3, `list_tab_questions`):
    * never a `permission` row, never one already answered from the chat, never another user's —
    * filtered by the owning conversation's `user_id`, like every other client-facing method here.
-   * `projectId` narrows further when given. Newest first.
+   * `projectId` narrows further when given. Newest first, at most `LIST_OPEN_CHOICES_MAX`: the tool's
+   * answer goes into a model's context, and a backlog of forgotten cards must not flood it.
    */
   async listOpenChoicesForUser(userId: string, projectId?: string): Promise<TabQuestion[]> {
     const rows = await this.db.tabQuestion.findMany({
       where: { kind: 'choice', status: 'open', conversation: { userId }, ...(projectId ? { projectId } : {}) },
       include: withOwner,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: LIST_OPEN_CHOICES_MAX,
     });
     return rows.map(mapQuestion);
   }
@@ -287,12 +291,15 @@ export class TabQuestionsRepository {
    * 'open'` and no countdown already scheduled or being sent — a second `setAutoAnswer` while one is
    * `scheduled` changes nothing, since only the sweeper (`claimAutoAnswer`) or a cancel may end it; nor
    * while one is `sent` (claimed, send in flight): overwriting it would make the sweeper's
-   * `finishAutoAnswer` miss on a failed send and let a second automatic send fire later.
+   * `finishAutoAnswer` miss on a failed send and let a second automatic send fire later; nor over one
+   * the person `cancelled`: two overlapping `answer_tab_question` calls both read the row before the
+   * cancel, and the second must not restart the countdown the person just stopped (no legitimate path
+   * schedules on a cancelled card — the tool downgrades those to a suggestion).
    */
   async setAutoAnswer(id: string, auto: AutoAnswer): Promise<TabQuestion | undefined> {
     const count = await this.db.$executeRaw`
       UPDATE "tab_questions" SET "auto_answer" = ${JSON.stringify(auto)}::jsonb
-      WHERE "id" = ${id} AND "status" = 'open' AND ("auto_answer" IS NULL OR "auto_answer"->>'status' NOT IN ('scheduled', 'sent'))`;
+      WHERE "id" = ${id} AND "status" = 'open' AND ("auto_answer" IS NULL OR "auto_answer"->>'status' NOT IN ('scheduled', 'sent', 'cancelled'))`;
     if (count === 0) return undefined;
     const row = await this.db.tabQuestion.findUnique({ where: { id }, include: withOwner });
     return row ? mapQuestion(row) : undefined;
@@ -356,6 +363,23 @@ export class TabQuestionsRepository {
       WHERE q."id" = ${id} AND q."auto_answer"->>'status' = 'scheduled'
         AND EXISTS (SELECT 1 FROM "chat_conversations" c WHERE c."id" = q."conversation_id" AND c."user_id" = ${userId})`;
     return count === 0 ? undefined : this.findByIdForUser(id, userId);
+  }
+
+  /**
+   * "Responder sozinho" turned off (`PATCH /memory { autodecide: false }`): every countdown of this user
+   * still `scheduled` becomes `cancelled`, `decided_by` = the user, in one conditional statement — a
+   * countdown already claimed (`sent`) is the sender's and is left alone (it re-reads the switch itself
+   * and fails as `AUTODECIDE_OFF`). The rows' own `status` is untouched. Oldest first, for republishing.
+   */
+  async cancelScheduledForUser(userId: string): Promise<TabQuestion[]> {
+    const cancelled = await this.db.$queryRaw<{ id: string }[]>`
+      UPDATE "tab_questions" q SET "auto_answer" = jsonb_set(jsonb_set(q."auto_answer", '{status}', '"cancelled"'), '{decided_by}', to_jsonb(${userId}::text))
+      WHERE q."auto_answer"->>'status' = 'scheduled'
+        AND EXISTS (SELECT 1 FROM "chat_conversations" c WHERE c."id" = q."conversation_id" AND c."user_id" = ${userId})
+      RETURNING q."id"`;
+    if (cancelled.length === 0) return [];
+    const rows = await this.db.tabQuestion.findMany({ where: { id: { in: cancelled.map((r) => r.id) } }, include: withOwner, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+    return rows.map(mapQuestion);
   }
 
   /** The sweeper's tick (`startAutoAnswerSweeper`, spec §6): every row whose countdown is `scheduled`,
