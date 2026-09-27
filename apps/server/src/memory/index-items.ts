@@ -21,7 +21,7 @@ const cut = (s: string): string => cleanMemoryText(s).slice(0, ITEM_TEXT_MAX);
  * every writer below fires this without awaiting it, so an unhandled rejection here would otherwise
  * escape unnoticed. Never logs the embedded text or title, only the row count and a failure code.
  */
-async function embedInserted(repos: Pick<Repositories, 'memoryItems'>, embedder: Embedder, rows: MemoryItem[], log: Pick<FastifyBaseLogger, 'warn'>, timeoutMs?: number): Promise<void> {
+export async function embedInserted(repos: Pick<Repositories, 'memoryItems'>, embedder: Embedder, rows: MemoryItem[], log: Pick<FastifyBaseLogger, 'warn'>, timeoutMs?: number): Promise<void> {
   if (rows.length === 0) return;
   try {
     const { model, vectors } = await withTimeout(embedder.embed(rows.map(memoryText)), timeoutMs ?? EMBED_TIMEOUT_MS, () => {});
