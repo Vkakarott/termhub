@@ -1,13 +1,15 @@
 // One mock transport, one session store, one chat store, one notifications store, one settings
-// store, one chat grants store and one chat-memory store over it, for the `ui` project: a screen test
-// mocks `useSessionStore`, `useChatStore`, `useNotificationsStore`, `useSettingsStore`,
-// `useChatGrantsStore` and `useChatMemoryStore` with these (each `jest.mock` factory requires this
-// module, and Jest's registry hands every store the same instance within a test file).
+// store, one chat grants store, one chat-memory store and one progress store over it, for the `ui`
+// project: a screen test mocks `useSessionStore`, `useChatStore`, `useNotificationsStore`,
+// `useSettingsStore`, `useChatGrantsStore`, `useChatMemoryStore` and `useProgressStore` with these
+// (each `jest.mock` factory requires this module, and Jest's registry hands every store the same
+// instance within a test file).
 // `enrolStores()` leaves the session unlocked; run it once, in `beforeAll`.
 import { createChatGrantsStore } from '@/features/chat-grants/viewmodel/createChatGrantsStore';
 import { createChatMemoryStore } from '@/features/chat/viewmodel/createChatMemoryStore';
 import { createChatStore } from '@/features/chat/viewmodel/createChatStore';
 import { createNotificationsStore } from '@/features/notifications/viewmodel/createNotificationsStore';
+import { createProgressStore } from '@/features/progress/viewmodel/createProgressStore';
 import { createSettingsStore } from '@/features/settings/viewmodel/createSettingsStore';
 import { enrol, setupSession } from './enrolled-session';
 
@@ -27,6 +29,7 @@ export const stores = {
   settings: createSettingsStore({ api: ctx.api, session: () => ctx.store.getState() }),
   chatGrants: createChatGrantsStore({ api: ctx.api, session: () => ctx.store.getState() }),
   chatMemory: createChatMemoryStore({ api: ctx.api, session: () => ctx.store.getState() }),
+  progress: createProgressStore({ api: ctx.api, session: () => ctx.store.getState() }),
 };
 
 export async function enrolStores(): Promise<void> {

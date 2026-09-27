@@ -252,6 +252,56 @@ export interface TaskPatchInput {
 /** Where a move sends a card: a column, or a status (backlog, or the first column of a category). */
 export type MoveTarget = { column_id: string } | { status: TaskStatus };
 
+/** Progress panel (spec 2026-09-26 progress-panel §4.4); same shape as `@termhub/mobile-api` progress.ts. */
+export type ProgressScope = 'active' | 'all';
+export type ProgressEstimate =
+  | { kind: 'done' }
+  | { kind: 'none'; reason: 'not_started' | 'few_samples' }
+  | { kind: 'range'; low_s: number; high_s: number; basis: 'agent_time' | 'wall_clock'; samples: number };
+export interface AgentOnCard {
+  tab_id: string;
+  tab_name: string;
+  machine_name: string;
+  subtask_ref: string | null;
+  state: TabState | null;
+  state_at: string | null;
+  needs_you: boolean;
+  activity: string | null;
+  activity_verb: string | null;
+  rate_limited: boolean;
+}
+export interface CardProgress {
+  id: string;
+  ref: string;
+  title: string;
+  type: string;
+  status: 'backlog' | 'todo' | 'doing' | 'done';
+  column_name: string | null;
+  units: { done: number; total: number };
+  percent: number;
+  started_at: string | null;
+  done_at: string | null;
+  active_seconds: number;
+  estimate: ProgressEstimate;
+  agents: AgentOnCard[] | null;
+}
+export interface EpicProgress {
+  id: string;
+  ref: string;
+  title: string;
+  project: { id: string; key: string; name: string };
+  units: { done: number; total: number; backlog_total: number };
+  percent: number;
+  estimate: ProgressEstimate;
+  cards_without_estimate: number;
+  agents: { working: number; needs_you: number; idle: number } | null;
+  cards: CardProgress[];
+}
+export interface ProgressResponse {
+  epics: EpicProgress[];
+  generated_at: string;
+}
+
 export interface Ticket {
   id: string;
   project_id: string;

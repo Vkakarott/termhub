@@ -1,0 +1,90 @@
+import Fastify from 'fastify';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Repositories } from '../db/repositories/index.js';
+import type { ProgressEpicRow } from '../progress/aggregate.js';
+import { applyErrorHandler } from '../lib/errors.js';
+
+const perms = vi.hoisted(() => ({ terminals: true }));
+vi.mock('../auth/permissions.js', async (orig) => ({
+  ...(await orig<typeof import('../auth/permissions.js')>()),
+  canAccess: vi.fn(async (_r: unknown, _u: unknown, resource: string, action: string) => (resource === 'terminals' && action === 'read' ? perms.terminals : true)),
+}));
+
+import { progressRoutes } from './progress.js';
+
+const NOW = new Date('2026-09-27T12:00:00.000Z');
+const rows: ProgressEpicRow[] = [
+  {
+    id: 'e1', ref: 'TER-1', title: 'Épico', project: { id: 'p1', key: 'TER', name: 'termhub' },
+    cards: [{
+      id: 'c1', ref: 'TER-2', title: 'Card', type: 'story', status: 'doing', position: 0, column_name: 'Fazendo',
+      started_at: null, done_at: null, active_seconds: 0, subtasks: [],
+      tab: { id: 't1', name: 'agent', machine_name: 'jarvis', state: 'waiting_input', state_at: NOW, activity: null, activity_verb: null, rate_limited_at: null },
+    }],
+  },
+  { id: 'e2', ref: 'TER-3', title: 'Parado', project: { id: 'p1', key: 'TER', name: 'termhub' }, cards: [{ id: 'c2', ref: 'TER-4', title: 'x', type: 'task', status: 'todo', position: 0, column_name: 'A fazer', started_at: null, done_at: null, active_seconds: 0, subtasks: [], tab: null }] },
+];
+const projects = [{ id: 'p1', owner_id: 'u1' }, { id: 'p2', owner_id: 'u2' }];
+
+function build(ownerId: string | null = 'u1') {
+  const list = vi.fn(async () => rows);
+  const repos = { progress: { list }, projects: { findById: vi.fn(async (id: string) => projects.find((p) => p.id === id)) } } as unknown as Repositories;
+  const app = Fastify();
+  applyErrorHandler(app);
+  app.addHook('preHandler', async (request) => {
+    request.scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' }, ownerId, createAs: 'u1' };
+    request.user = { id: 'u1', role_id: 'r1' } as never;
+  });
+  app.register((a) => progressRoutes(a, repos, { now: () => NOW }), { prefix: '/progress' });
+  return { app, list };
+}
+
+beforeEach(() => {
+  perms.terminals = true;
+});
+
+describe('GET /progress', () => {
+  it('returns the active epics of the caller with agents', async () => {
+    const { app, list } = build();
+    const r = await app.inject({ method: 'GET', url: '/progress' });
+    expect(r.statusCode).toBe(200);
+    expect(list).toHaveBeenCalledWith({ owner: 'u1', projectId: null });
+    const body = r.json();
+    expect(body.generated_at).toBe(NOW.toISOString());
+    expect(body.epics.map((e: { ref: string }) => e.ref)).toEqual(['TER-1']);
+    expect(body.epics[0].agents).toEqual({ working: 0, needs_you: 1, idle: 0 });
+    expect(body.epics[0].cards[0].agents[0]).toMatchObject({ tab_id: 't1', needs_you: true });
+  });
+
+  it('scope=all keeps epics without a card in doing', async () => {
+    const { app } = build();
+    const r = await app.inject({ method: 'GET', url: '/progress?scope=all' });
+    expect(r.json().epics.map((e: { ref: string }) => e.ref)).toEqual(['TER-1', 'TER-3']);
+  });
+
+  it('hides every agent without terminals:read', async () => {
+    perms.terminals = false;
+    const { app } = build();
+    const body = (await app.inject({ method: 'GET', url: '/progress' })).json();
+    expect(body.epics[0].agents).toBeNull();
+    expect(body.epics[0].cards[0].agents).toBeNull();
+    expect(JSON.stringify(body)).not.toContain('jarvis');
+  });
+
+  it('filters by a project of the scope', async () => {
+    const { app, list } = build();
+    expect((await app.inject({ method: 'GET', url: '/progress?project_id=p1' })).statusCode).toBe(200);
+    expect(list).toHaveBeenCalledWith({ owner: 'u1', projectId: 'p1' });
+  });
+
+  it('answers 404 for a project of another owner, without reading progress', async () => {
+    const { app, list } = build();
+    expect((await app.inject({ method: 'GET', url: '/progress?project_id=p2' })).statusCode).toBe(404);
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown scope with 400', async () => {
+    const { app } = build();
+    expect((await app.inject({ method: 'GET', url: '/progress?scope=everything' })).statusCode).toBe(400);
+  });
+});

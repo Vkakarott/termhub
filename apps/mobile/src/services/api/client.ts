@@ -22,6 +22,7 @@ import {
   hostOptionsResponse,
   meResponse,
   notificationsResponse,
+  progressResponse,
   sendAccepted,
   tabQuestionScreenResponse,
   tokenResponse,
@@ -288,6 +289,8 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
         token: a.accessToken,
       }),
     markRead: (a: Auth, id: string) => empty('POST', `/api/m/v1/notifications/${id}/read`, { token: a.accessToken }),
+
+    progress: (a: Auth, scope: 'active' | 'all' = 'active') => call('GET', `/api/m/v1/progress?scope=${scope}`, progressResponse, { token: a.accessToken }),
 
     events: (a, handlers) => {
       const current = typeof a === 'function' ? a : () => a;

@@ -1,0 +1,56 @@
+import type { AgentOnCard, EpicProgress, ProgressEstimate, Tab, TabState } from './types';
+
+const HOUR = 3600;
+
+/** "20 min", "1 h", "2,5 h". */
+export function formatDuration(seconds: number): string {
+  if (seconds < HOUR) return `${Math.round(seconds / 60)} min`;
+  const hours = Math.round((seconds / HOUR) * 10) / 10;
+  return `${String(hours).replace('.', ',')} h`;
+}
+
+/** The card's or epic's estimate as one line (spec D4, D6: work time, never a clock time). */
+export function formatEstimate(e: ProgressEstimate): string {
+  if (e.kind === 'done') return 'concluído';
+  if (e.kind === 'none') return e.reason === 'not_started' ? 'ainda não começou' : 'estimativa após 2 subtarefas';
+  const low = formatDuration(e.low_s);
+  const high = formatDuration(e.high_s);
+  if (low === high) return `~${low} de trabalho`;
+  const sameUnit = e.low_s < HOUR === e.high_s < HOUR;
+  return `~${sameUnit ? low.replace(/ (min|h)$/, '') : low}–${high} de trabalho`;
+}
+
+export const BASIS_LABEL = { agent_time: 'tempo de agente', wall_clock: 'tempo corrido' } as const;
+
+const STATE_LABEL: Record<TabState, string> = {
+  working: 'trabalhando',
+  waiting_input: 'esperando você',
+  waiting_permission: 'pedindo permissão',
+  idle: 'parado',
+  error: 'erro',
+};
+
+export function stateLabel(state: TabState | null): string {
+  return state ? STATE_LABEL[state] : 'sem sinal';
+}
+
+/** The monitor streams tab states live; the panel's own copy is up to 15 s old. */
+export function withLiveTab(agent: AgentOnCard, live: Tab | undefined): AgentOnCard {
+  if (!live) return agent;
+  return {
+    ...agent,
+    state: live.state,
+    state_at: live.state_at,
+    needs_you: live.state === 'waiting_input' || live.state === 'waiting_permission',
+    activity: live.activity,
+    activity_verb: live.activity_verb,
+    rate_limited: live.rate_limited_at !== null,
+  };
+}
+
+/** Every tab waiting for the user, once, across the epics shown. */
+export function needsYouAgents(epics: EpicProgress[]): AgentOnCard[] {
+  const byTab = new Map<string, AgentOnCard>();
+  for (const e of epics) for (const c of e.cards) for (const a of c.agents ?? []) if (a.needs_you) byTab.set(a.tab_id, a);
+  return [...byTab.values()];
+}

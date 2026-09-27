@@ -12,6 +12,7 @@ import { mobileChatAttachmentRoutes } from '../routes/m-chat-attachments.js';
 import type { ChatAttachmentDeps } from '../routes/chat-attachments.js';
 import { mobileDeviceRoutes, mobilePushTokenRoutes } from '../routes/m-devices.js';
 import { mobileNotificationRoutes } from '../routes/m-notifications.js';
+import { progressRoutes } from '../routes/progress.js';
 import { mobileSessionRoutes } from '../routes/m-session.js';
 import { mobileTranscriptionRoutes } from '../routes/m-transcriptions.js';
 import { buildMobileAuthHook, type MobileAuthMode } from './auth.js';
@@ -133,6 +134,8 @@ export async function registerMobileApi(
         await guarded('chat', (a) => mobileChatAttachmentRoutes(a, deps.repos, deps.attachments), '/chat/attachments');
         // The Notificações tab: the caller's own push history.
         await guarded('chat', (a) => mobileNotificationRoutes(a, deps.repos), '/notifications');
+        // The Progresso tab: the same read model as the web panel (spec 2026-09-26 progress-panel D10).
+        await guarded('tasks', (a) => progressRoutes(a, deps.repos), '/progress');
         // Voice dictation, over the same TranscriptionService as the web (`routes/transcriptions.ts`).
         await guarded('terminals', (a) => mobileTranscriptionRoutes(a, { transcriptions: deps.transcriptions }), '/transcriptions');
       }

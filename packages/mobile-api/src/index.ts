@@ -6,3 +6,4 @@ export * from './attachments.js';
 export * from './events.js';
 export * from './notifications.js';
 export * from './proofs.js';
+export * from './progress.js';

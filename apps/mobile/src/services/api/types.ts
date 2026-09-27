@@ -23,6 +23,7 @@ import type {
   TMobileDecisionBody,
   TMobileMessageBody,
   TNotificationsResponse,
+  TProgressResponse,
   TSendAccepted,
   TSetHostBody,
   TTabQuestionAnswerBody,
@@ -119,6 +120,9 @@ export interface MobileApi {
   // notifications (P§9)
   notifications(auth: Auth, before?: string): Promise<TNotificationsResponse>;
   markRead(auth: Auth, id: string): Promise<void>;
+
+  // progress panel (spec 2026-09-26 progress-panel D10)
+  progress(auth: Auth, scope?: 'active' | 'all'): Promise<TProgressResponse>;
 
   // the socket (P§6.1): server -> client events, filtered by user on the server. `onReconnect`
   // fires on every (re)open, before `hello` arrives, so the store re-reads `GET chat` (no

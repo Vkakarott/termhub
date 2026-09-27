@@ -9,6 +9,7 @@ import { ProjectMachinesRepository } from './project-machines.js';
 import { TabsRepository } from './tabs.js';
 import { TasksRepository } from './tasks.js';
 import { TaskColumnsRepository } from './task-columns.js';
+import { ProgressRepository } from './progress.js';
 import { NotesRepository } from './notes.js';
 import { IntegrationsRepository } from './integrations.js';
 import { ProjectSetupRepository } from './project-setup.js';
@@ -44,6 +45,7 @@ export interface Repositories {
   tabs: TabsRepository;
   tasks: TasksRepository;
   taskColumns: TaskColumnsRepository;
+  progress: ProgressRepository;
   notes: NotesRepository;
   integrations: IntegrationsRepository;
   projectSetup: ProjectSetupRepository;
@@ -81,6 +83,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     tabs: new TabsRepository(db),
     tasks: new TasksRepository(db),
     taskColumns: new TaskColumnsRepository(db),
+    progress: new ProgressRepository(db),
     notes: new NotesRepository(db),
     integrations: new IntegrationsRepository(db),
     projectSetup: new ProjectSetupRepository(db),
