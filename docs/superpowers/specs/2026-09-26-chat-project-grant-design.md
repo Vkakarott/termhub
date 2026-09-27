@@ -43,7 +43,7 @@ nor delete anything anywhere.
 
 ## 3. Data model
 
-Migration `20260927010000_chat_project_grants` — only a new table, so the previous release keeps working:
+Migration `20260927130000_chat_project_grants` — only a new table, so the previous release keeps working:
 
 | Column | Type | Notes |
 |---|---|---|
