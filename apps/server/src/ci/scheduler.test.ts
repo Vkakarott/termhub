@@ -10,9 +10,13 @@ import { ciTick, type CiTickState } from './scheduler.js';
 const NOW = new Date('2026-09-27T12:00:00Z');
 const log = { info: vi.fn(), warn: vi.fn() };
 
-function setup(doing: Record<string, boolean>, watched: Record<string, number>) {
+function setup(doing: Record<string, boolean>, watched: Record<string, number>, deployWorkflow: string | null = 'deploy.yml') {
   const repos = {
-    projectSetup: { listWithRepo: vi.fn(async () => Object.keys(doing).map((id) => ({ project_id: id, data: {} }))) },
+    projectSetup: {
+      listWithRepo: vi.fn(async () =>
+        Object.keys(doing).map((id) => ({ project_id: id, data: { repo: { integration_id: 'i1', full_name: `acme/${id}`, deploy_workflow: deployWorkflow } } })),
+      ),
+    },
     tasks: { hasDoing: vi.fn(async (id: string) => doing[id]) },
     taskPullRequests: { listWatched: vi.fn(async (id: string) => Array.from({ length: watched[id] ?? 0 }, () => ({}))) },
   } as unknown as Repositories;
@@ -42,6 +46,15 @@ describe('ciTick', () => {
     sync.fn.mockClear();
     await ciTick(deps, state);
     expect(sync.fn.mock.calls.map((c) => c[1])).toEqual(['p2']);
+  });
+
+  it('asks the busy check for the current repo, and for merged PRs only with a deploy workflow', async () => {
+    const withDeploy = setup({ p1: false }, {});
+    await ciTick(withDeploy.deps, withDeploy.state);
+    expect(withDeploy.deps.repos.taskPullRequests.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/p1', includeMerged: true }, NOW);
+    const noDeploy = setup({ p1: false }, {}, null);
+    await ciTick(noDeploy.deps, noDeploy.state);
+    expect(noDeploy.deps.repos.taskPullRequests.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/p1', includeMerged: false }, NOW);
   });
 
   it('logs other failures without the token and continues', async () => {

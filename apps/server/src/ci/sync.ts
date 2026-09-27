@@ -63,7 +63,9 @@ export async function syncProjectCi(deps: CiSyncDeps, projectId: string): Promis
       pulls = page.pulls.length;
     }
     const seen = new Set<number>();
-    for (const w of await repos.taskPullRequests.listWatched(projectId, deps.now?.() ?? new Date())) {
+    // Only the current repo's PRs; merged ones only when there is a deploy to follow.
+    const watched = await repos.taskPullRequests.listWatched(projectId, { repo: repo.full_name, includeMerged: !!repo.deploy_workflow }, deps.now?.() ?? new Date());
+    for (const w of watched) {
       if (seen.has(w.number)) continue;
       seen.add(w.number);
       if (w.state === 'open') {

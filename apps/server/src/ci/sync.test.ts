@@ -81,6 +81,15 @@ describe('syncProjectCi', () => {
     expect(await syncProjectCi(setup({ provider: 'linear' }).deps, 'p1')).toEqual({ skipped: 'not_allowed' });
   });
 
+  it('watches only the current repo, and merged PRs only when a deploy workflow is set', async () => {
+    const withDeploy = setup();
+    await syncProjectCi(withDeploy.deps, 'p1');
+    expect(withDeploy.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/app', includeMerged: true }, new Date('2026-09-27T12:00:00Z'));
+    const noDeploy = setup({ repo: { integration_id: 'i1', full_name: 'acme/new', deploy_workflow: null } });
+    await syncProjectCi(noDeploy.deps, 'p1');
+    expect(noDeploy.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/new', includeMerged: false }, new Date('2026-09-27T12:00:00Z'));
+  });
+
   it('records a GitHub failure for the panel, keeps the links, and clears it after a good sync', async () => {
     const { deps, replaceLinks, github } = setup();
     vi.mocked(github.listPulls).mockRejectedValueOnce(new GithubCiError('auth', 401));

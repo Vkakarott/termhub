@@ -100,12 +100,17 @@ export class TaskPullRequestsRepository {
     return (await this.db.taskPullRequest.findMany({ where: { taskId: { in: taskIds } }, orderBy: [{ number: 'desc' }] })).map(map);
   }
 
-  /** Open PRs, and PRs merged less than a day ago whose deploy is not passed/failed yet. */
-  async listWatched(projectId: string, now = new Date()): Promise<TaskPullRequest[]> {
+  /**
+   * Open PRs of the setup's current repo, and (when a deploy workflow is set: `includeMerged`) its PRs merged
+   * less than a day ago whose deploy is not passed/failed yet. Rows of a previous repo are never watched.
+   */
+  async listWatched(projectId: string, opts: { repo: string; includeMerged: boolean }, now = new Date()): Promise<TaskPullRequest[]> {
+    const merged = { state: 'merged', mergedAt: { gt: new Date(now.getTime() - WATCH_MERGED_FOR_MS) }, deployState: { in: ['none', 'running'] } };
     const rows = await this.db.taskPullRequest.findMany({
       where: {
         projectId,
-        OR: [{ state: 'open' }, { state: 'merged', mergedAt: { gt: new Date(now.getTime() - WATCH_MERGED_FOR_MS) }, deployState: { in: ['none', 'running'] } }],
+        repo: opts.repo,
+        OR: [{ state: 'open' }, ...(opts.includeMerged ? [merged] : [])],
       },
       orderBy: [{ number: 'desc' }],
     });

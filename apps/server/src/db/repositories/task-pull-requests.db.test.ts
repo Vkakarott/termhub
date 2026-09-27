@@ -55,6 +55,16 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TaskPullRequestsRepositor
     await repo.replaceLinks(projectId, pr({ number: 4, state: 'merged', merged_at: new Date('2026-09-27T11:00:00Z'), merge_commit_sha: 'm4' }), [a]);
     await repo.updateCi(projectId, 'acme/app', 4, { deploy_state: 'passed' });
     await repo.replaceLinks(projectId, pr({ number: 5, state: 'closed' }), [a]);
-    expect((await repo.listWatched(projectId, now)).map((r) => r.number).sort()).toEqual([1, 2]);
+    expect((await repo.listWatched(projectId, { repo: 'acme/app', includeMerged: true }, now)).map((r) => r.number).sort()).toEqual([1, 2]);
+  });
+
+  it('leaves merged PRs out without a deploy workflow, and rows of another repo out always', async () => {
+    const now = new Date('2026-09-27T12:00:00Z');
+    await repo.replaceLinks(projectId, pr({ number: 1 }), [a]);
+    await repo.replaceLinks(projectId, pr({ number: 2, state: 'merged', merged_at: new Date('2026-09-27T10:00:00Z'), merge_commit_sha: 'm2' }), [a]);
+    await repo.replaceLinks(projectId, pr({ repo: 'acme/old', number: 3 }), [a]);
+    await repo.replaceLinks(projectId, pr({ repo: 'acme/old', number: 4, state: 'merged', merged_at: new Date('2026-09-27T10:00:00Z'), merge_commit_sha: 'm4' }), [a]);
+    expect((await repo.listWatched(projectId, { repo: 'acme/app', includeMerged: false }, now)).map((r) => r.number)).toEqual([1]);
+    expect((await repo.listWatched(projectId, { repo: 'acme/app', includeMerged: true }, now)).map((r) => r.number).sort()).toEqual([1, 2]);
   });
 });

@@ -13,9 +13,11 @@ export interface CiTickState { etags: Map<string, string>; pausedUntil: Map<stri
 export async function ciTick(deps: { repos: Repositories; github: GithubCiClient; log: Log; now?: () => Date }, state: CiTickState): Promise<void> {
   const now = deps.now?.() ?? new Date();
   const projects = await deps.repos.projectSetup.listWithRepo().catch(() => []);
-  for (const { project_id: projectId } of projects) {
+  for (const { project_id: projectId, data } of projects) {
     if ((state.pausedUntil.get(projectId) ?? 0) > now.getTime()) continue;
-    const busy = (await deps.repos.tasks.hasDoing(projectId)) || (await deps.repos.taskPullRequests.listWatched(projectId, now)).length > 0;
+    // Same watch set as the sync: the current repo, merged PRs only when there is a deploy to follow.
+    const watch = { repo: data.repo?.full_name ?? '', includeMerged: !!data.repo?.deploy_workflow };
+    const busy = (await deps.repos.tasks.hasDoing(projectId)) || (await deps.repos.taskPullRequests.listWatched(projectId, watch, now)).length > 0;
     if (!busy) continue;
     try {
       await syncProjectCi({ repos: deps.repos, github: deps.github, etags: state.etags, now: () => now }, projectId);
