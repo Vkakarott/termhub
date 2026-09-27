@@ -59,6 +59,14 @@ function build(opts: {
   findGrantByIdForUser?: ReturnType<typeof vi.fn>;
   listForUser?: ReturnType<typeof vi.fn>;
   tabQuestions?: unknown[];
+  /** Cards `tasks.findByIdsForOwner` resolves for 'u1': a board call's project. */
+  boardTasks?: { id: string; project_id: string }[];
+  /** Projects `projects.findByIdsForOwner` names for 'u1'. */
+  namedProjects?: { id: string; name: string }[];
+  /** Active project grants `chatProjectGrants.listActive` answers with, as `GET /chat` returns them. */
+  projectGrants?: { id: string; conversation_id: string; project_id: string; source_action_id: string | null; granted_by: string; created_at: string; expires_at: string; revoked_at: string | null; revoked_by: string | null }[];
+  /** "View as" another owner: the request's own user stays 'u1'. */
+  viewAsOwner?: string;
 } = {}) {
   const extraProjects = opts.extraProjects ?? [];
   const decide = opts.decide ?? vi.fn(async (_id: string, _userId: string, status: string) => ({ ...pendingAction, status }));
@@ -105,14 +113,16 @@ function build(opts: {
       findByIdForUser: opts.findGrantByIdForUser ?? vi.fn(async () => undefined),
       listForUser: opts.listForUser ?? vi.fn(async () => ({ grants: [], next: null })),
     },
-    // `revokeGrant` falls through to this repository once a tab grant does not match — every test
-    // below only exercises tab grants, so these default to "no project grant matched either".
+    // `revokeGrant` falls through to this repository once a tab grant does not match: by default no
+    // project grant matches either.
     chatProjectGrants: {
+      grant: vi.fn(async (input: { conversation_id: string; project_id: string; source_action_id: string; granted_by: string }) => ({ id: 'pg1', ...input, created_at: '2026-09-27T10:00:00.000Z', expires_at: '2026-09-28T10:00:00.000Z', revoked_at: null, revoked_by: null })),
+      listActive: vi.fn(async () => opts.projectGrants ?? []),
       revoke: vi.fn(async () => undefined),
       findByIdForUser: vi.fn(async () => undefined),
     },
     projects: {
-      findByIdsForOwner: vi.fn(async () => []),
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === 'u1' ? (opts.namedProjects ?? []).filter((p) => ids.includes(p.id)) : [])),
       list: vi.fn(async (f: { owner?: string }) =>
         f.owner === 'u1'
           ? [
@@ -147,7 +157,7 @@ function build(opts: {
           : []
       ),
     },
-    tasks: { findByIdsForOwner: vi.fn(async () => []) },
+    tasks: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === 'u1' ? (opts.boardTasks ?? []).filter((t) => ids.includes(t.id)) : [])) },
     userNotifications: { countUnread: vi.fn(async () => 3) },
     roles: { findById: vi.fn(async () => undefined), permissionsOf: vi.fn(async () => []) },
   };
@@ -155,7 +165,8 @@ function build(opts: {
   applyErrorHandler(app);
   app.decorateRequest('scope', null);
   app.addHook('preHandler', async (req) => {
-    (req as unknown as { scope: unknown }).scope = { user, viewAs: { kind: 'self' }, ownerId: 'u1', createAs: 'u1' };
+    const ownerId = opts.viewAsOwner ?? 'u1';
+    (req as unknown as { scope: unknown }).scope = { user, viewAs: opts.viewAsOwner ? { kind: 'user', userId: ownerId } : { kind: 'self' }, ownerId, createAs: ownerId };
     req.mobile = { device, user } as never;
   });
   app.register((a) => mobileChatRoutes(a, repos as never, { chat: service as never, agents, session: session as never }), { prefix: '/chat' });
@@ -655,6 +666,108 @@ describe('POST /chat/actions/:id/decision', () => {
   });
 });
 
+describe('POST /chat/actions/:id/decision: approve_project', () => {
+  const boardCard = { ...pendingAction, status: 'pending', tool: 'move_task', args: { task_id: 'k1', status: 'done' }, tab_id: null };
+  const decideProject = (app: ReturnType<typeof build>['app']) =>
+    app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project', challenge: 'ch', pin_proof: 'proof-1' } });
+
+  it('with a proof signed for approve_project, decides, grants the project and publishes both events', async () => {
+    const { app, decide, repos, session } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], namedProjects: [{ id: 'p1', name: 'App' }] });
+    const events: ChatEvent[] = [];
+    const unsubscribe = chatBus.subscribe((e) => events.push(e));
+    let res;
+    try {
+      res = await decideProject(app);
+    } finally {
+      unsubscribe();
+    }
+    expect(res.statusCode).toBe(200);
+    expect(session.consumeDecisionChallenge).toHaveBeenCalledWith(device, 'ch', 'act1');
+    expect(session.checkPin).toHaveBeenCalledWith(device, decisionProofMessage('ch', 'act1', 'approve_project'), 'proof-1', expect.objectContaining({ ip: expect.any(String) }));
+    expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+    expect(repos.chatProjectGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', project_id: 'p1', source_action_id: 'act1', granted_by: 'u1' });
+    expect(repos.chatGrants.grant).not.toHaveBeenCalled();
+    expect(res.json()).toMatchObject({ queued: true, project_grant: { id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'act1' } });
+    expect(res.json()).not.toHaveProperty('grant');
+    expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'project_grant']));
+  });
+
+  it('resolves the card with the signed-in user, never the "view as" owner', async () => {
+    const { app, repos } = build({ viewAsOwner: 'u2', findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+    const res = await decideProject(app);
+    expect(res.statusCode).toBe(200);
+    expect(repos.tasks.findByIdsForOwner).toHaveBeenCalledWith(['k1'], 'u1');
+    expect(repos.chatProjectGrants.grant).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'p1', granted_by: 'u1' }));
+  });
+
+  it.each([['approve_tab'], ['approve']] as const)('a proof signed for %s is refused for approve_project', async (word) => {
+    // checkPin only accepts the exact message the proof was signed over: a route that checked the
+    // wrong word would let a proof for another decision open a project grant.
+    const checkPin = vi.fn(async (_d: unknown, message: string) => (message === decisionProofMessage('ch', 'act1', word) ? { ok: true } : { ok: false, code: 'PIN_INVALID', failures: 1 }));
+    const { app, decide, repos } = build({ checkPin, findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+    const res = await decideProject(app);
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe('PIN_INVALID');
+    expect(decide).not.toHaveBeenCalled();
+    expect(repos.chatProjectGrants.grant).not.toHaveBeenCalled();
+  });
+
+  it('whose grant fails still approves and resumes, with no project_grant in the answer or on the bus', async () => {
+    const resumeAfterDecision = vi.fn(async () => undefined);
+    const { app, decide, repos } = build({ resumeAfterDecision, findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+    vi.mocked(repos.chatProjectGrants.grant).mockRejectedValueOnce(new Error('connection terminated'));
+    const events: ChatEvent[] = [];
+    const unsubscribe = chatBus.subscribe((e) => events.push(e));
+    let res;
+    try {
+      res = await decideProject(app);
+      await new Promise((r) => setTimeout(r, 20));
+    } finally {
+      unsubscribe();
+    }
+    expect(res.statusCode).toBe(200);
+    expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+    expect(res.json()).toMatchObject({ queued: true });
+    expect(res.json()).not.toHaveProperty('project_grant');
+    expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+    expect(events.map((e) => e.type)).not.toContain('project_grant');
+  });
+
+  it.each([
+    ['a non-board card', { ...boardCard, tool: 'delete_task', args: { task_id: 'k1' } }],
+    ['a card whose project does not resolve', boardCard],
+  ])('refuses %s with 400 GRANT_NOT_ALLOWED, before the challenge is consumed or the PIN checked', async (_label, row) => {
+    const { app, session, decide, repos } = build({ findByIdForUser: vi.fn(async () => row) });
+    const res = await decideProject(app);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe('GRANT_NOT_ALLOWED');
+    expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
+    expect(session.checkPin).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
+    expect(repos.chatProjectGrants.grant).not.toHaveBeenCalled();
+  });
+
+  it('404 for a row this user cannot see and 409 for a decided one, before the challenge or the PIN', async () => {
+    const gone = build({ findByIdForUser: vi.fn(async () => undefined) });
+    expect((await decideProject(gone.app)).statusCode).toBe(404);
+    const done = build({ findByIdForUser: vi.fn(async () => ({ ...boardCard, status: 'approved' })), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+    expect((await decideProject(done.app)).statusCode).toBe(409);
+    for (const b of [gone, done]) {
+      expect(b.session.consumeDecisionChallenge).not.toHaveBeenCalled();
+      expect(b.session.checkPin).not.toHaveBeenCalled();
+      expect(b.decide).not.toHaveBeenCalled();
+    }
+  });
+
+  it('without a proof is a 400 (schema), touching nothing', async () => {
+    const { app, session, decide } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+    const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project' } });
+    expect(res.statusCode).toBe(400);
+    expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /chat/actions/decisions (batch)', () => {
   const rowsOf = (rows: Record<string, { status: string; conversation_id?: string; class?: string }>) =>
     vi.fn(async (id: string) => (rows[id] ? { ...pendingAction, id, conversation_id: 'c1', ...rows[id] } : undefined));
@@ -838,6 +951,7 @@ describe('POST /chat/actions/decisions (batch)', () => {
     const { app, session, decide } = build({ findByIdForUser: rowsOf({ a1: { status: 'pending' } }) });
     expect((await post(app, [{ id: 'a1', decision: 'approve', challenge: 'ch1' }])).statusCode).toBe(400);
     expect((await post(app, [{ id: 'a1', decision: 'approve_tab', challenge: 'ch1', pin_proof: 'pp1' }])).statusCode).toBe(400);
+    expect((await post(app, [{ id: 'a1', decision: 'approve_project', challenge: 'ch1', pin_proof: 'pp1' }])).statusCode).toBe(400);
     expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
     expect(decide).not.toHaveBeenCalled();
   });
@@ -886,6 +1000,17 @@ describe('grants', () => {
     });
     const res = await app.inject({ method: 'GET', url: '/chat' });
     expect(res.json().grants).toEqual([{ id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'act1', created_at: 'a', expires_at: 'b', tab_name: 'Terminal 1' }]);
+  });
+
+  it('GET /chat returns the conversation\'s active project grants with the project name', async () => {
+    const { app, repos } = build({
+      projectGrants: [{ id: 'pg1', conversation_id: 'c1', project_id: 'p1', source_action_id: 'a1', granted_by: 'u1', created_at: 'x', expires_at: 'y', revoked_at: null, revoked_by: null }],
+      namedProjects: [{ id: 'p1', name: 'App' }],
+    });
+    const res = await app.inject({ method: 'GET', url: '/chat' });
+    expect(repos.chatProjectGrants.listActive).toHaveBeenCalledWith('c1');
+    expect(res.json().project_grants).toEqual([{ id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: 'x', expires_at: 'y' }]);
+    expect(res.json().grants).toEqual([]);
   });
 
   it('GET /chat/grants answers the shared contract shape for this user', async () => {
