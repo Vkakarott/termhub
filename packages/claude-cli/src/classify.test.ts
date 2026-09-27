@@ -22,4 +22,15 @@ describe('classifyFailure', () => {
   it('reads a real stderr tail, where the phrase is not at the start', () => {
     expect(classifyFailure('warning: config dir is new\nNo conversation found with session ID abc\n')).toBe('missing_session');
   });
+
+  it('classifies an older CLI that does not know one of our flags as ours to fix', () => {
+    // commander's own wording, lowercase: what a CLI without --tools prints before doing any work.
+    // The web and the app answer CLI_REJECTED with "Atualize o claude nela", which is the advice.
+    expect(classifyFailure("error: unknown option '--tools'\n")).toBe('cli_rejected');
+    expect(classifyFailure("banner\nerror: unknown option '--replay-user-messages'\n")).toBe('cli_rejected');
+    // Anchored at the start of a line: the phrase inside other text is not the CLI refusing argv.
+    expect(classifyFailure('the model said: error: unknown option is a commander message')).toBe('run_failed');
+    expect(classifyFailure('error: rate limited')).toBe('run_failed');
+    expect(classifyFailure('Error: unknown model foo\n')).toBe('run_failed');
+  });
 });

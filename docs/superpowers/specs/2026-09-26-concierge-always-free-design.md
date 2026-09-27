@@ -243,6 +243,6 @@ In English, like the project prompt:
 - Resuming a live process after a server restart or deploy (TER-66). Today a deploy ends the process,
   and open turns fail as they do now.
 - "Nova conversa" while subagents run (it could end the process instead of answering 409).
-- `Glob`/`Grep` are not in `DISALLOWED_TOOLS` and need no permission in `-p`. The concierge and its
-  subagents can therefore search the host's files without going through the gate. This predates this work and is
-  worth its own card.
+- ~~`Glob`/`Grep` are not in `DISALLOWED_TOOLS` and need no permission in `-p`.~~ Resolved by TER-127:
+  the concierge now runs with `--tools Agent` and a wider deny list
+  (`docs/superpowers/specs/2026-09-26-concierge-tool-allowlist-design.md`).

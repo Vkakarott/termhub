@@ -23,10 +23,24 @@ export interface ClaudeRunSpec {
   stream_input?: boolean;
 }
 
-/** Tools the concierge must never have: with any of them it could reach a machine outside the MCP,
- * where the permission gate lives (spec §4.1). The CLI applies this list to the whole session, so the
- * subagents the concierge launches do not have them either. */
-export const DISALLOWED_TOOLS = 'Bash,Read,Write,Edit,WebFetch,WebSearch';
+/**
+ * The built-in tools the concierge may use: only the subagent tool (TER-127). Everything else it
+ * does goes through the termhub MCP (`--allowed-tools mcp__termhub__*`), where the permission gate
+ * lives (spec 2026-09-21 §4.1). An allowlist, because a denylist rots with every CLI release: 2.1.283
+ * ships Glob and Grep, which read any file under the working directory without asking — and the
+ * agent's working directory is the person's home. The CLI applies it to the subagents too.
+ * Left out on purpose: ToolSearch (the MCP tools load without it), TaskStop (cancelling a subagent
+ * is TER-64/65's design to add), SendMessage (the CLI's background-launch result mentions it, but
+ * the orchestrator prompt starts a new subagent instead), Skill, Workflow and the cron and task-list tools.
+ */
+export const CONCIERGE_TOOLS = 'Agent';
+
+/** The second layer: every built-in that reads or writes the machine's files, runs code on it, or
+ * reaches the network, denied by name. Deny rules win over the account's own `permissions.allow`,
+ * and naming a tool the CLI does not have is harmless, so this still holds if a future CLI changes
+ * what `--tools` means for a custom subagent. */
+export const DISALLOWED_TOOLS =
+  'Bash,PowerShell,Monitor,Read,Write,Edit,NotebookEdit,Glob,Grep,EnterWorktree,WebFetch,WebSearch,RemoteTrigger';
 
 /**
  * The `PreToolUse` hook that refuses a foreground subagent. A subagent in the foreground holds the
@@ -69,6 +83,7 @@ export function buildClaudeArgs(spec: ClaudeRunSpec): string[] {
     '--strict-mcp-config',
     '--allowed-tools', 'mcp__termhub__*',
     '--disallowed-tools', DISALLOWED_TOOLS,
+    '--tools', CONCIERGE_TOOLS,
     ...(spec.stream_input ? ['--input-format', 'stream-json', '--replay-user-messages', '--settings', CONCIERGE_SETTINGS] : []),
     ...(spec.model ? ['--model', spec.model] : []),
     // Last, and only when set: the account-wide chat's argv stays exactly what it was. It is our own
@@ -104,5 +119,7 @@ export function classifyFailure(stderr: string): ClaudeFailureReason {
   // The CLI rejecting our own flags is our bug, not the user's, and it exits before doing any work.
   // Classifying it apart is what makes it findable in one query instead of a container probe.
   if (/^Error: --/m.test(stderr)) return 'cli_rejected';
+  // A CLI older than one of our flags (`--tools`, TER-127) refuses it in commander's wording.
+  if (/^error: unknown option/m.test(stderr)) return 'cli_rejected';
   return 'run_failed';
 }
