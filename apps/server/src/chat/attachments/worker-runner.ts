@@ -25,6 +25,11 @@ export interface RunOptions {
 /**
  * The entry next to this module: `.js` in production (`dist/`), `.ts` under tsx and vitest, which
  * do not transform a Worker's code, so a `.ts` entry is loaded with `--import tsx` (`execArgvFor`).
+ *
+ * `extract-worker.ts` is never imported — the only path to it is the `new URL` below — so it reaches
+ * `dist` solely because `apps/server/tsconfig.json` compiles everything under `src`
+ * (`include: ["src"]`). Narrowing that include would silently drop it from the build, and every
+ * document would then fail to start.
  */
 export function defaultWorkerUrl(): URL {
   return new URL(`./extract-worker.${import.meta.url.endsWith('.ts') ? 'ts' : 'js'}`, import.meta.url);
@@ -66,9 +71,17 @@ export function runInWorker(kind: DocumentKind, file: Buffer, zipBudget: number,
       if (m.ok) finish(() => resolve(m.extracted));
       else finish(() => reject(new ExtractError(m.code, m.message)));
     });
-    worker.on('error', (err: Error & { code?: string }) => {
+    worker.on('error', (err: unknown) => {
+      // A worker's uncaught throw reaches here as whatever value was thrown, not necessarily an
+      // Error (`throw null` delivers `null`): never assume `.code`/`.name` exist.
+      const code = (err as { code?: string } | null | undefined)?.code;
+      const name = (err as { name?: string } | null | undefined)?.name;
       const failure =
-        err.code === 'ERR_WORKER_OUT_OF_MEMORY' ? new ExtractError('ATTACHMENT_INVALID', 'extraction out of memory') : !ready ? startFailure() : new ExtractError('ATTACHMENT_INVALID', err.name);
+        code === 'ERR_WORKER_OUT_OF_MEMORY'
+          ? new ExtractError('ATTACHMENT_INVALID', 'extraction out of memory')
+          : !ready
+            ? startFailure()
+            : new ExtractError('ATTACHMENT_INVALID', name ?? 'extraction failed');
       finish(() => reject(failure));
     });
     worker.on('exit', () => finish(() => reject(new ExtractError('ATTACHMENT_INVALID', 'extraction worker exited'))));

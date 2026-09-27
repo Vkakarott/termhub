@@ -62,12 +62,20 @@ describe('runInWorker', () => {
     expect(err.code).toBe('ATTACHMENT_INVALID');
     expect(err.message).toBe('TypeError');
     expect(err.message).not.toContain('SEGREDO');
+    expect(err.retryable).toBe(false);
+  }, 20_000);
+
+  it('an uncaught throw of a non-Error value (e.g. `throw null`) is ATTACHMENT_INVALID, and this process survives', async () => {
+    const err = await failure(runInWorker('pdf', Buffer.from('x'), 1, opts(fixture('throw-null.ts'))));
+    expect(err.code).toBe('ATTACHMENT_INVALID');
+    expect(err.retryable).toBe(false);
   }, 20_000);
 
   it('a worker that exits without answering is ATTACHMENT_INVALID', async () => {
     const err = await failure(runInWorker('pdf', Buffer.from('x'), 1, opts(fixture('exit.ts'))));
     expect(err.code).toBe('ATTACHMENT_INVALID');
     expect(err.message).toBe('extraction worker exited');
+    expect(err.retryable).toBe(false);
   }, 20_000);
 
   it('a worker entry that cannot load is a retryable failure (a broken build is not the file’s fault)', async () => {
