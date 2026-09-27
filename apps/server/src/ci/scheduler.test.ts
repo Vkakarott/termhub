@@ -5,7 +5,7 @@ import { GithubCiError, type GithubCiClient } from '../integrations/github-ci.js
 const sync = vi.hoisted(() => ({ fn: vi.fn() }));
 vi.mock('./sync.js', () => ({ syncProjectCi: (...a: unknown[]) => sync.fn(...a) }));
 
-import { ciTick, type CiTickState } from './scheduler.js';
+import { ciTick, startCiSyncScheduler, type CiTickState } from './scheduler.js';
 
 const NOW = new Date('2026-09-27T12:00:00Z');
 const log = { info: vi.fn(), warn: vi.fn() };
@@ -57,11 +57,32 @@ describe('ciTick', () => {
     expect(noDeploy.deps.repos.taskPullRequests.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/p1', includeMerged: false }, NOW);
   });
 
+  it('logs a failing busy check and keeps going, never throwing out of the tick', async () => {
+    const { deps, state } = setup({ p1: true, p2: true }, {});
+    vi.mocked(deps.repos.tasks.hasDoing).mockRejectedValueOnce(new Error('db down'));
+    await expect(ciTick(deps, state)).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith({ projectId: 'p1', err: 'db down' }, 'ci sync failed');
+    expect(sync.fn.mock.calls.map((c) => c[1])).toEqual(['p2']);
+  });
+
   it('logs other failures without the token and continues', async () => {
     const { deps, state } = setup({ p1: true, p2: true }, {});
     sync.fn.mockRejectedValueOnce(new GithubCiError('auth', 401));
     await ciTick(deps, state);
     expect(sync.fn).toHaveBeenCalledTimes(2);
     expect(log.warn).toHaveBeenCalledWith({ projectId: 'p1', err: 'GitHub 401 (auth)' }, 'ci sync failed');
+  });
+
+  it('logs a pass that throws instead of leaving an unhandled rejection', async () => {
+    vi.useFakeTimers();
+    try {
+      const repos = { projectSetup: { listWithRepo: vi.fn(async () => null) } } as unknown as Repositories; // iterating null throws
+      const stop = startCiSyncScheduler(repos, log, {} as GithubCiClient);
+      await vi.advanceTimersByTimeAsync(10_000);
+      stop();
+      expect(log.warn).toHaveBeenCalledWith({ err: expect.any(String) }, 'ci tick failed');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

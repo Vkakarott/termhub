@@ -15,11 +15,11 @@ export async function ciTick(deps: { repos: Repositories; github: GithubCiClient
   const projects = await deps.repos.projectSetup.listWithRepo().catch(() => []);
   for (const { project_id: projectId, data } of projects) {
     if ((state.pausedUntil.get(projectId) ?? 0) > now.getTime()) continue;
-    // Same watch set as the sync: the current repo, merged PRs only when there is a deploy to follow.
-    const watch = { repo: data.repo?.full_name ?? '', includeMerged: !!data.repo?.deploy_workflow };
-    const busy = (await deps.repos.tasks.hasDoing(projectId)) || (await deps.repos.taskPullRequests.listWatched(projectId, watch, now)).length > 0;
-    if (!busy) continue;
     try {
+      // Same watch set as the sync: the current repo, merged PRs only when there is a deploy to follow.
+      const watch = { repo: data.repo?.full_name ?? '', includeMerged: !!data.repo?.deploy_workflow };
+      const busy = (await deps.repos.tasks.hasDoing(projectId)) || (await deps.repos.taskPullRequests.listWatched(projectId, watch, now)).length > 0;
+      if (!busy) continue;
       await syncProjectCi({ repos: deps.repos, github: deps.github, etags: state.etags, now: () => now }, projectId);
     } catch (e) {
       if (e instanceof GithubCiError && e.kind === 'rate_limited') state.pausedUntil.set(projectId, e.resetAt?.getTime() ?? now.getTime() + DEFAULT_PAUSE_MS);
@@ -41,8 +41,10 @@ export function startCiSyncScheduler(repos: Repositories, log: Log, github: Gith
       running = false;
     }
   };
-  const timer = setInterval(() => void tick(), CI_POLL_MS);
-  const first = setTimeout(() => void tick(), 10_000);
+  // Never an unhandled rejection: Node exits the server on one.
+  const run = () => void tick().catch((e: unknown) => log.warn({ err: (e as Error).message }, 'ci tick failed'));
+  const timer = setInterval(run, CI_POLL_MS);
+  const first = setTimeout(run, 10_000);
   return () => {
     clearInterval(timer);
     clearTimeout(first);
