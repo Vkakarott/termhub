@@ -750,7 +750,7 @@ it('persists projects and each conversation, never live or transient state', asy
   expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'tabQuestions', 'tabSuggestions']);
 
   // A cold start shows the thread before any fetch.
-  const again = createChatStore({ api, session: () => ({ phase: 'locked', auth: () => { throw new Error('LOCKED'); }, handleApiError: () => false, requestPinProof: async () => { throw new Error('CANCELLED'); }, requestPinProofs: async () => { throw new Error('CANCELLED'); } }) });
+  const again = createChatStore({ api, session: () => ({ phase: 'locked', auth: () => { throw new Error('LOCKED'); }, handleApiError: () => false, requestPinProof: async () => { throw new Error('CANCELLED'); }, requestPinProofs: async () => { throw new Error('CANCELLED'); }, tokenStale: () => true, renewToken: async () => null }) });
   opened.push(again);
   expect(again.getState().projects).toHaveLength(3);
   expect(slot(again, 'p-termhub')).toMatchObject({ loaded: false, error: null, conversation: { id: 'c-termhub' } });
@@ -1021,6 +1021,40 @@ describe('attachments', () => {
     expect(source.uri).toBe('https://termhub.dev/api/m/v1/chat/attachments/att1');
     expect(source.headers.Authorization).toMatch(/^Bearer /);
     expect(source.headers.DPoP).toBeTruthy();
+  });
+
+  it('attachmentSource renews a stale token first and signs with the new one', async () => {
+    const { chat, store } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    const state = store.getState();
+    jest.spyOn(state, 'tokenStale').mockReturnValue(true);
+    const renew = jest.spyOn(state, 'renewToken');
+    const pending = chat.getState().attachmentSource('att1');
+    await jest.advanceTimersByTimeAsync(0);
+    const source = await pending;
+    expect(renew).toHaveBeenCalledTimes(1);
+    const fresh = await renew.mock.results[0]!.value;
+    expect(fresh).toBeTruthy();
+    expect(source.headers.Authorization).toBe(`Bearer ${fresh}`);
+  });
+
+  it('attachmentSource does not renew a fresh token', async () => {
+    const { chat, store } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    const renew = jest.spyOn(store.getState(), 'renewToken');
+    await chat.getState().attachmentSource('att1');
+    expect(renew).not.toHaveBeenCalled();
+  });
+
+  it('thumbnails appearing together with a stale token share one renewal', async () => {
+    const { chat, store, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    jest.spyOn(store.getState(), 'tokenStale').mockReturnValue(true);
+    const token = jest.spyOn(api, 'token');
+    const all = Promise.all(['a1', 'a2', 'a3'].map((id) => chat.getState().attachmentSource(id)));
+    await jest.advanceTimersByTimeAsync(0);
+    await all;
+    expect(token).toHaveBeenCalledTimes(1);
   });
 });
 
