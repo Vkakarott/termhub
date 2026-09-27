@@ -362,9 +362,10 @@ it('approve_tab on an action that is not send_input to a tab is 400 GRANT_NOT_AL
 
 it('approve_project approves and trusts the project\'s board with a proof for approve_project only; revokeGrant ends it once', async () => {
   const clock = { value: START };
-  const { api, auth, deviceId, secret } = await enrol(clock);
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
   const collected = collectEvents(api, auth);
   await jest.advanceTimersByTimeAsync(0);
+  const fetches = jest.spyOn(transport, 'fetch');
 
   // a-termhub-2 is the fixture's move_task (a board tool) on p-termhub.
   // A proof signed for `approve` cannot be spent on `approve_project`.
@@ -376,6 +377,11 @@ it('approve_project approves and trusts the project\'s board with a proof for ap
 
   const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-2' });
   await api.decide(auth, 'a-termhub-2', { decision: 'approve_project', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-2', 'approve_project') });
+  // The decision answers the grant under the server's own key, `project_grant` (routes/m-chat.ts).
+  const decided = fetches.mock.calls.findLastIndex(([input]) => input.url.endsWith('/chat/actions/a-termhub-2/decision'));
+  const decisionBody = JSON.parse((await fetches.mock.results[decided]!.value).text);
+  expect(decisionBody.project_grant).toMatchObject({ project_id: 'p-termhub', source_action_id: 'a-termhub-2' });
+  expect(decisionBody.grant).toBeUndefined();
 
   const chat = await api.chat(auth, 'p-termhub');
   expect(chat.actions.find((a) => a.id === 'a-termhub-2')!.status).toBe('approved');

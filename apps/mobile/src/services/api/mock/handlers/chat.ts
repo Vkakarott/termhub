@@ -775,9 +775,10 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       return { status: 200, body: { grant } };
     }
 
-    const grant = projectGrantView(state, grantProject(state, action, now));
-    broadcast(state, { type: 'project_grant', user_id: USER_ID, conversation_id: action.conversation_id, grant });
-    return { status: 200, body: { grant } };
+    // The server answers a project grant under its own key, `project_grant` (routes/m-chat.ts).
+    const projectGrant = projectGrantView(state, grantProject(state, action, now));
+    broadcast(state, { type: 'project_grant', user_id: USER_ID, conversation_id: action.conversation_id, grant: projectGrant });
+    return { status: 200, body: { project_grant: projectGrant } };
   });
 
   /** A grouped confirmation, like the server: ids of two conversations are a 400; every approval
