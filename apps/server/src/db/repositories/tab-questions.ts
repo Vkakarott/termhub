@@ -228,6 +228,21 @@ export class TabQuestionsRepository {
     });
   }
 
+  /**
+   * The user's open `choice` cards (spec 2026-09-26 concierge memory §5.3, `list_tab_questions`):
+   * never a `permission` row, never one already answered from the chat, never another user's —
+   * filtered by the owning conversation's `user_id`, like every other client-facing method here.
+   * `projectId` narrows further when given. Newest first.
+   */
+  async listOpenChoicesForUser(userId: string, projectId?: string): Promise<TabQuestion[]> {
+    const rows = await this.db.tabQuestion.findMany({
+      where: { kind: 'choice', status: 'open', conversation: { userId }, ...(projectId ? { projectId } : {}) },
+      include: withOwner,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map(mapQuestion);
+  }
+
   async findOpenForTab(tabId: string): Promise<TabQuestion | undefined> {
     const row = await this.db.tabQuestion.findFirst({ where: { tabId, status: 'open' }, include: withOwner, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
     return row ? mapQuestion(row) : undefined;

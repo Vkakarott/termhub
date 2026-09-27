@@ -75,6 +75,13 @@ describe('api token routes', () => {
     expect(apiTokens.create.mock.calls[0][1].expiresAt).toBeNull();
   });
 
+  it('accepts the memory scope (spec 2026-09-26 concierge memory D14)', async () => {
+    const { app, apiTokens } = buildApp();
+    const r = await app.inject({ method: 'POST', url: '/api-tokens', payload: { name: 'memoria', scopes: ['memory'] } });
+    expect(r.statusCode).toBe(201);
+    expect(apiTokens.create.mock.calls[0][1].scopes).toEqual(['memory']);
+  });
+
   it.each([
     ['no scopes', { name: 'a', scopes: [] }],
     ['an unknown scope', { name: 'a', scopes: ['read', 'admin'] }],

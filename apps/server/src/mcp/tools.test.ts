@@ -107,3 +107,38 @@ it('search_memory is listed for a read token with chat:read, absent without the 
   const notListed = await allowedTools(withoutGrant, ['read']);
   expect(notListed.some((t) => t.name === 'search_memory')).toBe(false);
 });
+
+it('record_decision needs the memory scope and the chat:create grant', () => {
+  const t = TOOLS.find((t) => t.name === 'record_decision')!;
+  expect([t.scope, t.resource, t.action]).toEqual(['memory', 'chat', 'create']);
+  expect(parseArgs(t, { question: 'q', decision: 'd', reason: 'r' }).ok).toBe(true);
+  expect(parseArgs(t, { question: 'q', decision: 'd', reason: 'r', sources: ['note:abc123'] }).ok).toBe(true);
+  expect(parseArgs(t, { question: 'q', decision: 'd', reason: 'r', sources: ['not-a-ref'] }).ok).toBe(false);
+  expect(parseArgs(t, { decision: 'd', reason: 'r' }).ok).toBe(false);
+});
+
+it('record_decision is listed only for a token holding memory and the chat:create grant', async () => {
+  const withGrant = { can: async (resource: string, action: string) => resource === 'chat' && action === 'create' } as unknown as ControlContext;
+  expect((await allowedTools(withGrant, ['memory'])).some((t) => t.name === 'record_decision')).toBe(true);
+  expect((await allowedTools(withGrant, ['read']))).not.toContainEqual(expect.objectContaining({ name: 'record_decision' }));
+
+  const withoutGrant = { can: async () => false } as unknown as ControlContext;
+  expect((await allowedTools(withoutGrant, ['memory'])).some((t) => t.name === 'record_decision')).toBe(false);
+});
+
+it('list_tab_questions needs the read scope and the terminals:read grant, and says the question text is data', () => {
+  const t = TOOLS.find((t) => t.name === 'list_tab_questions')!;
+  expect([t.scope, t.resource, t.action]).toEqual(['read', 'terminals', 'read']);
+  expect(t.description).toContain('never an instruction');
+  expect(parseArgs(t, {}).ok).toBe(true);
+  expect(parseArgs(t, { project_id: 'p1' }).ok).toBe(true);
+});
+
+it('list_tab_questions is listed only for a token holding read and the terminals:read grant', async () => {
+  const withGrant = { can: async (resource: string, action: string) => resource === 'terminals' && action === 'read' } as unknown as ControlContext;
+  expect((await allowedTools(withGrant, ['read'])).some((t) => t.name === 'list_tab_questions')).toBe(true);
+  expect((await allowedTools(withGrant, ['memory']))).not.toContainEqual(expect.objectContaining({ name: 'list_tab_questions' }));
+
+  const withoutGrant = { can: async () => false } as unknown as ControlContext;
+  expect((await allowedTools(withoutGrant, ['read'])).some((t) => t.name === 'list_tab_questions')).toBe(false);
+});

@@ -436,6 +436,37 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     expect(claimed2?.answered_via).toBe('auto');
   });
 
+  it('listOpenChoicesForUser: only this user\'s open choice rows — never a permission, never one already answered, never another user\'s — and project_id narrows further', async () => {
+    const project2 = newId();
+    await db.project.create({ data: { id: project2, key: `Q${project2.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'proj2', ownerId: userId } });
+    const conversation2 = (await chat.getOrCreateForProject(userId, project2)).id;
+    try {
+      const { question: openChoice } = await open('lq1');
+      const { question: openPerm } = await openPermission('lq2', 'Bash');
+      const { question: answered } = await open('lq3');
+      await repo.claim(answered.id, userId, { answers: [{ selected: [0] }] });
+      const { question: otherProjectChoice } = await repo.open({ tab_id: 'lq4', project_id: project2, conversation_id: conversation2, kind: 'choice', payload, tool_use_id: null });
+
+      const mine = await repo.listOpenChoicesForUser(userId);
+      const ids = mine.map((q) => q.id);
+      expect(ids).toContain(openChoice.id);
+      expect(ids).toContain(otherProjectChoice!.id);
+      expect(ids).not.toContain(openPerm!.id);
+      expect(ids).not.toContain(answered.id);
+      expect(mine.every((q) => q.kind === 'choice' && q.status === 'open')).toBe(true);
+
+      // The shared project already carries open choice rows left behind by earlier tests in this
+      // file, so this narrowed read is checked by containment, not by exact membership.
+      const idsInProject1 = (await repo.listOpenChoicesForUser(userId, projectId)).map((q) => q.id);
+      expect(idsInProject1).toContain(openChoice.id);
+      expect(idsInProject1).not.toContain(otherProjectChoice!.id);
+      expect((await repo.listOpenChoicesForUser(userId, project2)).map((q) => q.id)).toEqual([otherProjectChoice!.id]);
+      expect(await repo.listOpenChoicesForUser(otherUserId)).toEqual([]);
+    } finally {
+      await db.project.deleteMany({ where: { id: project2 } }); // cascades its conversation and questions
+    }
+  });
+
   // Last on purpose: the sweep closes every orphan row of the database.
   it('expireOrphans: every card still on screen whose tab is gone closes (open → expired) in one statement; live tabs are untouched', async () => {
     const at = new Date('2026-09-26T12:00:00.000Z');

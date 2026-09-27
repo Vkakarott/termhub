@@ -612,14 +612,17 @@ it('publishes the action and a shape-locked action_result over the bus, never th
   expect(actionResult).toMatchObject({ ok: false });
 });
 
-it('mints the concierge token with the write scopes and the gate flag together', async () => {
+it('mints the concierge token with the write scopes, memory and the gate flag together', async () => {
   // Pinned here, at the actual call site, not just inside mintConciergeToken: this is what would
   // regress if send() ever went back to minting `['read']` — the exact dangerous combination this
-  // branch closes is wide scopes with no gate, and only this call site decides the scopes.
+  // branch closes is wide scopes with no gate, and only this call site decides the scopes. `memory`
+  // (spec 2026-09-26 concierge memory D14) rides along the same way: record_decision and
+  // answer_tab_question are self-mediated (D13), so this token still stops at the gate for everything
+  // else.
   const { service, repos } = build([delta('ok'), done()]);
   await service.send(user, 'abre uma aba');
   const [, input] = vi.mocked(repos.apiTokens.create).mock.calls[0];
-  expect(input).toMatchObject({ scopes: ['read', 'tasks', 'terminals'], gated: true });
+  expect(input).toMatchObject({ scopes: ['read', 'tasks', 'terminals', 'memory'], gated: true });
 });
 
 it('marks the message with TOKEN_FAILED instead of throwing when minting the token fails', async () => {

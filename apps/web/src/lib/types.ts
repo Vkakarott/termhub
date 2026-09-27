@@ -1217,7 +1217,7 @@ export interface DevicesSummary {
   active_devices: number;
 }
 
-export type ApiTokenScope = 'read' | 'tasks' | 'terminals';
+export type ApiTokenScope = 'read' | 'tasks' | 'terminals' | 'memory';
 
 /** Personal API token as the server lists it (never the secret). */
 export interface ApiToken {

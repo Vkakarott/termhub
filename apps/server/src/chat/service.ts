@@ -1014,8 +1014,10 @@ export class ChatService {
       let token: string | undefined;
       try {
         // Wide scopes are safe here only because mintConciergeToken always pairs them with
-        // `gated: true` — every write this token can attempt still stops at the chat's gate.
-        token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals'], { accountWide: conversation.project_id === null });
+        // `gated: true` — every write this token can attempt still stops at the chat's gate, except
+        // record_decision and answer_tab_question (spec 2026-09-26 concierge memory D13), whose own
+        // effect already is the mediation the gate exists to add.
+        token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals', 'memory'], { accountWide: conversation.project_id === null });
       } catch {
         errorCode = 'TOKEN_FAILED';
       }
@@ -1158,8 +1160,10 @@ export class ChatService {
       let token: string;
       try {
         // Wide scopes are safe here only because mintConciergeToken always pairs them with
-        // `gated: true` — every write this token can attempt still stops at the chat's gate.
-        token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals'], { accountWide: conversation.project_id === null });
+        // `gated: true` — every write this token can attempt still stops at the chat's gate, except
+        // record_decision and answer_tab_question (spec 2026-09-26 concierge memory D13), whose own
+        // effect already is the mediation the gate exists to add.
+        token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals', 'memory'], { accountWide: conversation.project_id === null });
       } catch {
         if (this.suspending) live.rejectOpen(serverRestarting());
         else await live.failOpen('TOKEN_FAILED');
