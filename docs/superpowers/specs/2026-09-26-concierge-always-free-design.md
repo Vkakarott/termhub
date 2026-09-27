@@ -238,10 +238,12 @@ In English, like the project prompt:
 
 ## 9. Pending (outside scope A)
 
-- Panel of active subagents with cancel (TER-64/65).
-- The gate card naming the subagent that asked (TER-63).
-- Resuming a live process after a server restart or deploy (TER-66). Today a deploy ends the process,
-  and open turns fail as they do now.
+- Panel of active subagents with cancel (TER-64/65). Done in TER-301, see
+  `2026-09-26-concierge-subagents-panel-design.md`.
+- The gate card naming the subagent that asked (TER-63). Done in TER-301, see
+  `2026-09-26-concierge-subagents-panel-design.md`.
+- Resuming a live process after a server restart or deploy (TER-66). Done in TER-301, see
+  `2026-09-26-concierge-subagents-panel-design.md`.
 - "Nova conversa" while subagents run (it could end the process instead of answering 409).
 - ~~`Glob`/`Grep` are not in `DISALLOWED_TOOLS` and need no permission in `-p`.~~ Resolved by TER-127:
   the concierge now runs with `--tools Agent` and a wider deny list
