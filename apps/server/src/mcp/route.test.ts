@@ -565,4 +565,28 @@ describe('read_attachment', () => {
     const r = await rpc(app, call('read_attachment', { id: 'abc123' }));
     expect(r.json().result).toEqual({ content: [{ type: 'text', text: 'ok' }] });
   });
+
+  it('audits the attachment id, and never the image, the name or the text', async () => {
+    vi.mocked(readAttachment).mockResolvedValue({ content: [{ type: 'image', data: 'QUJD', mimeType: 'image/png' }, { type: 'text', text: '«foto.png» imagem 2×2' }] });
+    const { app, apiTokens } = build({ grants: chatGrants, attachments: store });
+    await rpc(app, call('read_attachment', { id: 'abc123' }));
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'read_attachment', attachment_id: 'abc123', ok: true });
+    expect(JSON.stringify(apiTokens.recordEvent.mock.calls)).not.toMatch(/QUJD|foto\.png|imagem/);
+  });
+
+  it('a refused call keeps a name passed as id out of the audit', async () => {
+    const { app, apiTokens } = build({ grants: chatGrants, attachments: store });
+    await rpc(app, call('read_attachment', { id: 'Relatório Final.pdf' }));
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0]).toMatchObject({ tool: 'read_attachment', attachment_id: null, ok: false, error_code: 'INVALID_ARGS' });
+    expect(JSON.stringify(apiTokens.recordEvent.mock.calls)).not.toMatch(/Relat/);
+  });
+
+  it('only read_attachment fills attachment_id', async () => {
+    const { app, apiTokens } = build({ grants: chatGrants, attachments: store });
+    await rpc(app, call('list_machines', { id: 'abc123' }));
+    await flush();
+    expect(apiTokens.recordEvent.mock.calls[0][0].attachment_id).toBeNull();
+  });
 });

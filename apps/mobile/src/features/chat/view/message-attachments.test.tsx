@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import type { TChatAttachment } from '@/services/api/contract';
-import { MessageAttachments } from './message-attachments';
+import { MessageAttachments, useAttachmentSource } from './message-attachments';
 
 // The store's `attachmentSource`: each call is a fresh DPoP proof, numbered so a test can tell them apart.
 let signed = 0;
@@ -36,5 +37,44 @@ describe('MessageAttachments images', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Toque para recarregar' }));
     await waitFor(() => expect(mockAttachmentSource).toHaveBeenCalledTimes(3));
     expect((await screen.findByLabelText('foto.jpg')).props.source.headers.DPoP).toBe('proof-3');
+  });
+
+  it('sizes the thumbnail, its loading box and its reload button from the dimensions', async () => {
+    mockAttachmentSource.mockImplementationOnce(() => new Promise(() => {})); // never signs: the loading box stays
+    const sized = { ...image, meta: { width: 1600, height: 1200 } };
+    await render(<MessageAttachments attachments={[sized]} />);
+    expect(StyleSheet.flatten(screen.getByTestId('attachment-placeholder').props.style)).toMatchObject({ width: 160, height: 120 });
+  });
+
+  it('sizes the loaded image from the dimensions too', async () => {
+    await render(<MessageAttachments attachments={[{ ...image, meta: { width: 1200, height: 1600 } }]} />);
+    const loaded = await screen.findByLabelText('foto.jpg');
+    expect(StyleSheet.flatten(loaded.props.style)).toMatchObject({ width: 120, height: 160 });
+  });
+
+  it('keeps the square box when the image has no dimensions', async () => {
+    await render(<MessageAttachments attachments={[image]} />);
+    const loaded = await screen.findByLabelText('foto.jpg');
+    // No explicit size: only what the `h-40 w-40` class gives (NativeWind may or may not turn it into style here).
+    expect([undefined, 160]).toContain(StyleSheet.flatten(loaded.props.style)?.width);
+  });
+
+  it('a new attempt never returns the previous proof, not even for one render', async () => {
+    const seen: (string | null)[] = [];
+    const { rerender } = await renderHook(
+      ({ attempt }: { attempt: number }) => {
+        const s = useAttachmentSource('img1', attempt);
+        seen.push(s?.headers.DPoP ?? null);
+        return s;
+      },
+      { initialProps: { attempt: 0 } },
+    );
+    await waitFor(() => expect(seen).toContain('proof-1'));
+
+    mockAttachmentSource.mockImplementationOnce(() => new Promise(() => {})); // the new proof is still being signed
+    seen.length = 0;
+    await act(async () => rerender({ attempt: 1 }));
+    expect(seen).not.toContain('proof-1');
+    expect(seen.at(-1)).toBeNull();
   });
 });

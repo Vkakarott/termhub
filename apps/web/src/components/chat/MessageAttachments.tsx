@@ -1,9 +1,13 @@
 import { memo, useState } from 'react';
 import { api } from '../../lib/api';
-import { attachmentStatusText, formatBytes } from '../../lib/attachments';
+import { attachmentStatusText, formatBytes, thumbSize } from '../../lib/attachments';
 import type { ChatAttachment } from '../../lib/types';
 import { Dot, KindIcon } from './AttachmentChip';
 import { ImageViewer } from './ImageViewer';
+
+/** 240 px at most on either side (`max-*-60` is 15rem); 48 px at least once the size is known. */
+const THUMB_BOX = 240;
+const THUMB_MIN = 48;
 
 /**
  * What the person sent with a message (spec §5.6): images as thumbnails that open the viewer, every
@@ -17,11 +21,12 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
       <ul aria-label="Anexos da mensagem" className="mt-2 flex flex-wrap gap-2">
         {attachments.map((a) => {
           if (a.kind === 'image') {
+            const size = thumbSize(a.meta, THUMB_BOX, THUMB_MIN);
             return (
               <li key={a.id}>
                 <button type="button" className="block overflow-hidden rounded-lg" aria-label={`Abrir imagem ${a.name}`} onClick={() => setViewing(a)}>
-                  {/* 240 px at most on either side (`max-*-60` is 15rem). */}
-                  <img src={api.chat.attachments.url(a.id)} alt={a.name} loading="lazy" className="max-h-60 max-w-60 object-cover" />
+                  {/* Sized from meta before it loads, so rows below do not move (TER-197). */}
+                  <img src={api.chat.attachments.url(a.id)} alt={a.name} loading="lazy" className="max-h-60 max-w-60 object-cover" style={size ?? undefined} />
                 </button>
               </li>
             );

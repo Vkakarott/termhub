@@ -100,6 +100,22 @@ export function draftsReducer(drafts: DraftAttachment[], action: DraftAction): D
   }
 }
 
+const isDimension = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+
+/**
+ * The size a thumbnail takes before its file loads (TER-197): the image's own proportion, scaled down
+ * to fit `box`, each side at least `min` (the rest is cropped by object-cover). Null when the server has
+ * not (or could not) read the dimensions; the caller then keeps its unsized layout. The web keeps a copy.
+ */
+export function thumbSize(meta: Record<string, unknown> | null, box: number, min: number): { width: number; height: number } | null {
+  const width = meta?.width;
+  const height = meta?.height;
+  if (!isDimension(width) || !isDimension(height)) return null;
+  const scale = Math.min(1, box / width, box / height);
+  const fit = (v: number) => Math.min(box, Math.max(min, Math.round(v * scale)));
+  return { width: fit(width), height: fit(height) };
+}
+
 export const isUploading = (drafts: DraftAttachment[]): boolean => drafts.some((d) => d.phase === 'uploading');
 export const uploadedAttachments = (drafts: DraftAttachment[]): TChatAttachment[] => drafts.flatMap((d) => (d.phase === 'uploaded' && d.attachment ? [d.attachment] : []));
 /** The uploaded chips the server will refuse to send (`isAttachable`): a file it could not read. A failed transcription is still sendable. */

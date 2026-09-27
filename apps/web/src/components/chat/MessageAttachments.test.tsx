@@ -52,4 +52,35 @@ describe('MessageAttachments', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('focuses Fechar in the viewer, keeps Tab inside, and returns focus to the thumbnail', () => {
+    render(<MessageAttachments attachments={[att({ id: 'img1', name: 'foto.jpg', kind: 'image', mime: 'image/jpeg' })]} />);
+    const thumb = screen.getByRole('button', { name: 'Abrir imagem foto.jpg' });
+    thumb.focus();
+    fireEvent.click(thumb);
+    const close = screen.getByRole('button', { name: 'Fechar' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.click(close);
+    expect(document.activeElement).toBe(thumb);
+
+    fireEvent.click(thumb);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(document.activeElement).toBe(thumb);
+  });
+
+  it('reserves the fitted size of an image before it loads', () => {
+    render(<MessageAttachments attachments={[att({ id: 'img1', name: 'foto.jpg', kind: 'image', mime: 'image/jpeg', meta: { width: 1600, height: 1200 } })]} />);
+    const thumb = screen.getByRole('img', { name: 'foto.jpg' }) as HTMLImageElement;
+    expect(thumb.style.width).toBe('240px');
+    expect(thumb.style.height).toBe('180px');
+  });
+
+  it('keeps the old bounds when the image has no dimensions yet', () => {
+    render(<MessageAttachments attachments={[att({ id: 'img1', name: 'foto.jpg', kind: 'image', mime: 'image/jpeg', meta: null })]} />);
+    const thumb = screen.getByRole('img', { name: 'foto.jpg' }) as HTMLImageElement;
+    expect(thumb.style.width).toBe('');
+    expect(thumb.className).toContain('max-h-60');
+  });
 });

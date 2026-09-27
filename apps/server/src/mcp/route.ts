@@ -28,9 +28,12 @@ type ToolResult = { content: ToolContent[]; isError?: boolean };
 const text = (t: string, isError = false): ToolResult => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
 /** An id worth auditing: refused calls carry raw, unvalidated arguments, so anything else is dropped. */
 const auditId = (v: unknown) => (typeof v === 'string' && v.length >= 1 && v.length <= 64 ? v : null);
-const idsOf = (args: unknown) => {
+/** read_attachment's own id rule: a refused call's raw `id` (a file name, say) never reaches the audit. */
+const ATTACHMENT_ID = /^[a-z0-9]{1,64}$/;
+const idsOf = (tool: string, args: unknown) => {
   const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
-  return { machine_id: auditId(a.machine_id), project_id: auditId(a.project_id), tab_id: auditId(a.tab_id) };
+  const attachmentId = tool === 'read_attachment' && typeof a.id === 'string' && ATTACHMENT_ID.test(a.id) ? a.id : null;
+  return { machine_id: auditId(a.machine_id), project_id: auditId(a.project_id), tab_id: auditId(a.tab_id), attachment_id: attachmentId };
 };
 
 /** Same headers the app's global onSend hook sets — a hijacked reply bypasses that hook. */
@@ -91,7 +94,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
     const { token, ctx } = request.mcp!;
     const audit = (tool: string, args: unknown, errorCode: string | null, durationMs: number) =>
       void repos.apiTokens
-        .recordEvent({ token_id: token.id, tool: tool.slice(0, 64), ...idsOf(args), ok: errorCode === null, error_code: errorCode, duration_ms: durationMs })
+        .recordEvent({ token_id: token.id, tool: tool.slice(0, 64), ...idsOf(tool, args), ok: errorCode === null, error_code: errorCode, duration_ms: durationMs })
         .catch((err) => request.log.warn({ err }, 'mcp: recordEvent failed'));
 
     server = new McpServer({ name: 'termhub', version: deps.version }, { capabilities: { tools: {} } });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 
 // Open layers (modals, the chat drawer), innermost last: only the top one answers Escape, so closing a
 // nested dialog never closes the one under it too.
@@ -32,6 +32,69 @@ export function useEscapeLayer(open: boolean, onEscape: (e: KeyboardEvent) => vo
   }, [open, base]);
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+const focusables = (root: HTMLElement) =>
+  Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.hidden && !el.closest('[inert]'));
+
+/**
+ * Focus for a modal layer (TER-199): on open, focus goes in — unless something inside already took it
+ * (an `autoFocus` field; React applies it during commit, before this effect) — to `initialFocusRef` or
+ * else the container itself (give it `tabIndex={-1}`). Tab and Shift+Tab wrap inside through the returned
+ * `onKeyDown`, which only sees keys pressed inside this dialog, so stacked layers do not fight (and a
+ * nested dialog's own wrap, once handled, stops the outer one from also acting on the same key). On
+ * close, focus goes back to what had it before — but only once focus has actually fallen to the page
+ * (`null`/`<body>`): StrictMode's simulated cleanup, and a Modal that closes the same update another
+ * dialog opens in, both run this same cleanup while focus is still meaningfully elsewhere, and must not
+ * steal it back.
+ */
+export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElement | null>, initialFocusRef?: RefObject<HTMLElement | null>) {
+  // The opener is read during the render that opens the dialog: by the time any effect runs, an
+  // `autoFocus` child has already taken focus, and the opener would be lost.
+  const opener = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  if (open && !wasOpen.current) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  wasOpen.current = open;
+
+  useEffect(() => {
+    if (!open) return;
+    const container = containerRef.current;
+    if (container && !container.contains(document.activeElement)) (initialFocusRef?.current ?? container).focus();
+    return () => {
+      const back = opener.current;
+      const active = document.activeElement;
+      // Only when focus has nowhere else to be. In StrictMode's simulated cleanup the container is
+      // still mounted and focus is still inside it (not null/body), so this does nothing and the
+      // effect that runs right after is left alone. On a real close the container is already gone
+      // and the browser has already moved focus to body, so the opener gets it back.
+      if (back && back.isConnected && (active === null || active === document.body)) back.focus();
+    };
+  }, [open, containerRef, initialFocusRef]);
+
+  return (e: ReactKeyboardEvent) => {
+    if (e.defaultPrevented) return;
+    const container = containerRef.current;
+    if (e.key !== 'Tab' || !container) return;
+    const items = focusables(container);
+    if (items.length === 0) {
+      e.preventDefault();
+      container.focus();
+      return;
+    }
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === container)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+}
+
 interface Props {
   title: string;
   open: boolean;
@@ -44,15 +107,21 @@ interface Props {
 
 export function Modal({ title, open, onClose, children, width = 'max-w-md', dismissible = true }: Props) {
   useEscapeLayer(open, onClose, dismissible);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onKeyDown = useDialogFocus(open, dialogRef);
 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={dismissible ? onClose : undefined}>
       <div
-        className={`flex max-h-[calc(100vh-2rem)] w-full ${width} flex-col rounded-lg border border-line bg-bg-2 shadow-2xl`}
+        ref={dialogRef}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        className={`flex max-h-[calc(100vh-2rem)] w-full ${width} flex-col rounded-lg border border-line bg-bg-2 shadow-2xl outline-none`}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-label={title}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold">{title}</h2>

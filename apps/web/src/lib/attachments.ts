@@ -88,6 +88,22 @@ export function attachmentStatusText(a: ChatAttachment): string | null {
   return null;
 }
 
+const isDimension = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+
+/**
+ * The size a thumbnail takes before its file loads (TER-197): the image's own proportion, scaled down
+ * to fit `box`, each side at least `min` (the rest is cropped by object-cover). Null when the server has
+ * not (or could not) read the dimensions; the caller then keeps its unsized layout. The app keeps a copy.
+ */
+export function thumbSize(meta: Record<string, unknown> | null, box: number, min: number): { width: number; height: number } | null {
+  const width = meta?.width;
+  const height = meta?.height;
+  if (!isDimension(width) || !isDimension(height)) return null;
+  const scale = Math.min(1, box / width, box / height);
+  const fit = (v: number) => Math.min(box, Math.max(min, Math.round(v * scale)));
+  return { width: fit(width), height: fit(height) };
+}
+
 /**
  * The messages with `attachment` replaced inside whichever message carries it, by id. Returns the same
  * array — and keeps every message object — when nothing changed, so memoised rows stay put.

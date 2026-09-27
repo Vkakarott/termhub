@@ -33,7 +33,7 @@ export type ChatDecision = 'approve' | 'deny' | 'approve_tab';
 
 /** What the chat store needs from the session store (read through a getter, so tests can inject
  * a session store built over the same mock transport). */
-export type SessionApi = Pick<SessionState, 'auth' | 'handleApiError' | 'requestPinProof' | 'requestPinProofs' | 'phase'>;
+export type SessionApi = Pick<SessionState, 'auth' | 'handleApiError' | 'requestPinProof' | 'requestPinProofs' | 'phase' | 'tokenStale' | 'renewToken'>;
 
 export interface ChatDeps {
   api: MobileApi;
@@ -621,7 +621,11 @@ export function createChatStore(deps: ChatDeps) {
             });
           },
 
-          attachmentSource(id) {
+          async attachmentSource(id) {
+            // `<Image>` fetches the url itself, so it never gets the client's TOKEN_EXPIRED retry. A
+            // token that expired while the app slept (the renewal timer does not run in the
+            // background) is renewed here first, through the session's single flight (TER-198).
+            if (session().tokenStale()) await session().renewToken();
             return api.attachmentSource(session().auth(), id);
           },
 

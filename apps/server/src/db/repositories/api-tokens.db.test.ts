@@ -150,4 +150,15 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ApiTokensRepository (Post
     expect(await db.apiToken.count({ where: { id: t.id } })).toBe(0);
     expect(await db.apiTokenEvent.count({ where: { tokenId: t.id } })).toBe(0);
   });
+
+  it('records the attachment a read_attachment call read, and null for the others', async () => {
+    const t = await make(userId);
+    await repo.recordEvent({ token_id: t.id, tool: 'read_attachment', attachment_id: 'abc123', ok: true, duration_ms: 4 });
+    await repo.recordEvent({ token_id: t.id, tool: 'list_machines', ok: true, duration_ms: 1 });
+    const rows = await db.apiTokenEvent.findMany({ where: { tokenId: t.id }, orderBy: { tool: 'asc' } });
+    expect(rows.map((r) => [r.tool, r.attachmentId])).toEqual([
+      ['list_machines', null],
+      ['read_attachment', 'abc123'],
+    ]);
+  });
 });

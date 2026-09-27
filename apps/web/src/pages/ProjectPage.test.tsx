@@ -145,7 +145,9 @@ describe('ProjectPage publish switch', () => {
       fireEvent.click(screen.getByRole('button', { name: /publicar/i }));
     });
 
-    expect(await screen.findByLabelText(/apelido/i)).toBeTruthy();
+    // exact 'Apelido' (not /apelido/i): the dialog's own title, "Escolha seu apelido", is now also
+    // findable by label text (TER-199 gave the container an aria-label), and a loose regex would match both.
+    expect(await screen.findByLabelText('Apelido')).toBeTruthy();
     expect(patchMock).not.toHaveBeenCalled();
   });
 

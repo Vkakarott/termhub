@@ -1,28 +1,28 @@
 import { memo, useEffect, useReducer, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
 import type { TChatAttachment } from '@/services/api/contract';
-import { attachmentStatusText, formatBytes } from '../viewmodel/attachments';
+import { attachmentStatusText, formatBytes, thumbSize } from '../viewmodel/attachments';
 import { useChatStore } from '../viewmodel/useChatStore';
 import { KIND_GLYPH } from './attachment-chip';
 
 type Source = { uri: string; headers: Record<string, string> };
 
 /** The signed `<Image source>` for a sent image: the store signs one DPoP proof per `attempt`, with the
- * token it holds then. `null` while a proof is being signed. */
-function useAttachmentSource(id: string, attempt: number): Source | null {
+ * token it holds then. `null` while a proof is being signed. A source is tied to the attempt it was
+ * signed for and read during render, so a new attempt never mounts the previous, already used proof. */
+export function useAttachmentSource(id: string, attempt: number): Source | null {
   const attachmentSource = useChatStore((s) => s.attachmentSource);
-  const [source, setSource] = useState<Source | null>(null);
+  const [signed, setSigned] = useState<{ id: string; attempt: number; source: Source } | null>(null);
   useEffect(() => {
     let live = true;
-    setSource(null);
     attachmentSource(id)
-      .then((s) => live && setSource(s))
+      .then((source) => live && setSigned({ id, attempt, source }))
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [attachmentSource, id, attempt]);
-  return source;
+  return signed && signed.id === id && signed.attempt === attempt ? signed.source : null;
 }
 
 /** How many loads failed, and which signed source is on screen. */
@@ -37,19 +37,27 @@ function loadReducer(s: LoadState, action: LoadAction): LoadState {
   return { attempt: errors === 1 ? s.attempt + 1 : s.attempt, errors };
 }
 
-function AuthImage({ attachment, className, resizeMode }: { attachment: TChatAttachment; className: string; resizeMode: 'cover' | 'contain' }) {
+/** The thumbnail's box (`h-40 w-40`), and its smallest side once the size is known (a tappable reload). */
+const THUMB_BOX = 160;
+const THUMB_MIN = 64;
+
+type Size = { width: number; height: number };
+
+function AuthImage({ attachment, className, resizeMode, size }: { attachment: TChatAttachment; className: string; resizeMode: 'cover' | 'contain'; size?: Size | null }) {
   const [load, dispatch] = useReducer(loadReducer, { attempt: 0, errors: 0 });
   const source = useAttachmentSource(attachment.id, load.attempt);
   const stuck = load.errors >= 2 && load.attempt < load.errors;
+  // Every state takes the same box, so the row never changes size when the image arrives (TER-197).
+  const style = size ?? undefined;
   if (stuck) {
     return (
-      <Pressable accessibilityRole="button" accessibilityLabel="Toque para recarregar" onPress={() => dispatch('reload')} className={`${className} items-center justify-center bg-app-surface2`}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Toque para recarregar" onPress={() => dispatch('reload')} className={`${className} items-center justify-center bg-app-surface2`} style={style}>
         <Text className="text-xs text-app-muted">Toque para recarregar</Text>
       </Pressable>
     );
   }
-  if (!source) return <View className={`${className} bg-app-surface2`} />;
-  return <Image source={source} accessibilityLabel={attachment.name} resizeMode={resizeMode} className={className} onError={() => dispatch('error')} />;
+  if (!source) return <View testID="attachment-placeholder" className={`${className} bg-app-surface2`} style={style} />;
+  return <Image source={source} accessibilityLabel={attachment.name} resizeMode={resizeMode} className={className} style={style} onError={() => dispatch('error')} />;
 }
 
 /**
@@ -65,7 +73,7 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
         if (a.kind === 'image') {
           return (
             <Pressable key={a.id} accessibilityRole="button" accessibilityLabel={`Abrir imagem ${a.name}`} onPress={() => setViewing(a)}>
-              <AuthImage attachment={a} className="h-40 w-40 rounded-lg" resizeMode="cover" />
+              <AuthImage attachment={a} className="h-40 w-40 rounded-lg" resizeMode="cover" size={thumbSize(a.meta, THUMB_BOX, THUMB_MIN)} />
             </Pressable>
           );
         }
