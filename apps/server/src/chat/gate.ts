@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { ChatAction, ChatActionStatus } from '../db/repositories/chat-actions.js';
 
-export type ActionClass = 'read' | 'write' | 'irreversible';
+export type ActionClass = 'read' | 'self_mediated' | 'write' | 'irreversible';
+
+// Tools whose effect is already mediated by the person, so asking again would double the question
+// (spec 2026-09-26 concierge memory D13): record_decision writes a note the person sees and can
+// forget on the Memória screen; answer_tab_question only schedules a countdown the person can cancel,
+// or leaves a suggestion. Never add a tool here that acts on a machine directly.
+const selfMediatedTools = new Set(['record_decision', 'answer_tab_question']);
 
 // Tools classified by reversibility
 const readTools = new Set([
@@ -16,6 +22,7 @@ const readTools = new Set([
   'list_tickets',
   'get_ticket',
   'read_attachment',
+  'search_memory',
 ]);
 
 const writeTools = new Set([
@@ -50,6 +57,10 @@ const interruptingKeys = new Set(['C-c', 'Escape']);
 export function actionClass(tool: string, args: unknown): ActionClass {
   if (readTools.has(tool)) {
     return 'read';
+  }
+
+  if (selfMediatedTools.has(tool)) {
+    return 'self_mediated';
   }
 
   if (writeTools.has(tool)) {

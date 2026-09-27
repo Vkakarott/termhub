@@ -284,10 +284,14 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   };
   /** Which machine each run was asked for: the service must drive the host, never a machine of its own choosing. */
   const hosted: string[] = [];
-  const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner) });
+  // A no-op stand-in for the real indexer (spec 2026-09-26 concierge memory): every test but the ones
+  // that exercise indexing itself just needs `start`/`send` not to touch `repos.memoryItems`, which
+  // this fixture never defines.
+  const indexMessage = vi.fn(async () => {});
+  const service = new ChatService({ repos, agents, runnerFor: (machineId) => (hosted.push(machineId), runner), indexMessage });
   /** Every `RunnerInput` the service handed a runner, in order. */
   const inputs = () => vi.mocked(runner.run).mock.calls.map((c) => c[0]);
-  return { service, chat, chatActions, tabQuestions, chatAttachments, chatSubagents, subagentsStore, actionsStore, chatLiveRuns, liveRunsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents };
+  return { service, chat, chatActions, tabQuestions, chatAttachments, chatSubagents, subagentsStore, actionsStore, chatLiveRuns, liveRunsStore, runner, hosted, messages, conversation, projectConversation, repos, host, inputs, agents, indexMessage };
 }
 
 const delta = (text: string) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -336,6 +340,51 @@ const backgroundTasks = (taskIds: string[]) => JSON.stringify({ type: 'system', 
 const taskNotification = (taskId: string, status: 'completed' | 'failed' | 'killed' | 'stopped' | 'cancelled') => JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: taskId, status });
 
 beforeEach(() => vi.clearAllMocks());
+
+it('start() indexes the person\'s own typed message, never the assistant reply', async () => {
+  const { service, indexMessage, conversation } = build([delta('Nada '), delta('rodando.'), done()]);
+  const started = await service.start(user, 'o que está rodando?');
+
+  expect(indexMessage).toHaveBeenCalledTimes(1);
+  expect(indexMessage).toHaveBeenCalledWith({
+    id: started.user_message_id,
+    owner_id: user.id,
+    project_id: conversation.project_id,
+    text: 'o que está rodando?',
+    created_at: expect.any(String),
+  });
+});
+
+it('send() (which starts a run) also indexes the typed message, exactly once', async () => {
+  const { service, indexMessage } = build([delta('ok'), done()]);
+  await service.send(user, 'oi');
+  expect(indexMessage).toHaveBeenCalledTimes(1);
+});
+
+it('resumeAfterDecision never indexes anything: a decision re-injection is not a message the person typed', async () => {
+  const { service, indexMessage } = build([delta('feito'), done()]);
+  await service.resumeAfterDecision(user, action());
+  expect(indexMessage).not.toHaveBeenCalled();
+});
+
+describe('wake', () => {
+  it('runs the injected text as an ordinary turn of the given conversation, and never indexes it (spec 2026-09-26 concierge memory §7)', async () => {
+    const { service, chat, messages, indexMessage } = build([delta('ok'), done()]);
+    const started = await service.wake(user, 'c_p1', 'Automático: a aba «api» abriu a pergunta de id q1 e o usuário ainda não respondeu.');
+    expect(chat.findByIdForUser).toHaveBeenCalledWith('c_p1', 'u1');
+    expect(started.conversation_id).toBe('c_p1');
+    expect(messages.find((m) => m.id === started.user_message_id)?.text).toBe('Automático: a aba «api» abriu a pergunta de id q1 e o usuário ainda não respondeu.');
+    await started.done;
+    expect(indexMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects CHAT_ARCHIVED for a conversation nobody reads any more (the waker swallows it)', async () => {
+    const { service, projectConversation, runner } = build([delta('ok'), done()]);
+    projectConversation.archived_at = '2026-09-23T00:00:00.000Z';
+    await expect(service.wake(user, 'c_p1', 'x')).rejects.toMatchObject({ statusCode: 409, code: 'CHAT_ARCHIVED' });
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+});
 
 it('stores the question, the answer, and the session id the CLI reports', async () => {
   const { service, chat, messages, conversation } = build([delta('Nada '), delta('rodando.'), done()]);
@@ -582,14 +631,17 @@ it('publishes the action and a shape-locked action_result over the bus, never th
   expect(actionResult).toMatchObject({ ok: false });
 });
 
-it('mints the concierge token with the write scopes and the gate flag together', async () => {
+it('mints the concierge token with the write scopes, memory and the gate flag together', async () => {
   // Pinned here, at the actual call site, not just inside mintConciergeToken: this is what would
   // regress if send() ever went back to minting `['read']` — the exact dangerous combination this
-  // branch closes is wide scopes with no gate, and only this call site decides the scopes.
+  // branch closes is wide scopes with no gate, and only this call site decides the scopes. `memory`
+  // (spec 2026-09-26 concierge memory D14) rides along the same way: record_decision and
+  // answer_tab_question are self-mediated (D13), so this token still stops at the gate for everything
+  // else.
   const { service, repos } = build([delta('ok'), done()]);
   await service.send(user, 'abre uma aba');
   const [, input] = vi.mocked(repos.apiTokens.create).mock.calls[0];
-  expect(input).toMatchObject({ scopes: ['read', 'tasks', 'terminals'], gated: true });
+  expect(input).toMatchObject({ scopes: ['read', 'tasks', 'terminals', 'memory'], gated: true });
 });
 
 it('marks the message with TOKEN_FAILED instead of throwing when minting the token fails', async () => {

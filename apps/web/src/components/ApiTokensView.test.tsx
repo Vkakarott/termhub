@@ -121,6 +121,23 @@ describe('ApiTokensView', () => {
     expect(create.disabled).toBe(false);
   });
 
+  it('offers the memory scope with its checkbox and sends it on creation', async () => {
+    createMock.mockResolvedValue({ api_token: tok({ id: 'new', name: 'concierge', scopes: ['memory'] }), token: SECRET, mcp_url: 'https://termhub.dev/mcp' });
+    render(<ApiTokensView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Novo token' }));
+    fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'concierge' } });
+    fireEvent.click(screen.getByLabelText(/^Memória \(gravar anotações\)/));
+    fireEvent.click(screen.getByRole('button', { name: 'Criar token' }));
+    await waitFor(() => expect(createMock).toHaveBeenCalledWith({ name: 'concierge', scopes: ['memory'], expires_in_days: 90 }));
+  });
+
+  it('shows the memory scope short label in the token list', async () => {
+    listMock.mockResolvedValue({ tokens: [tok({ id: 'concierge', scopes: ['read', 'memory'] })] });
+    render(<ApiTokensView />);
+    const row = (await screen.findByText('concierge')).closest('tr')!;
+    expect(within(row).getByText('ler, memória')).toBeTruthy();
+  });
+
   it('revokes after confirmation', async () => {
     listMock.mockResolvedValue({ tokens: [tok({ id: 'laptop' })] });
     revokeMock.mockResolvedValue({ api_token: tok({ id: 'laptop', revoked_at: '2026-09-19T02:00:00.000Z' }) });

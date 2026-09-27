@@ -268,3 +268,143 @@ context the card routes build — no token, so the gate is not involved (the per
 - Indexing other doc folders, attachments, other users' or shared memory.
 - A better embedding model (TER-57 follow-up); D5's full-text half is the recall fix for now.
 - Reading specs from the default branch instead of the working tree.
+
+## 12. Adjustments found while implementing
+
+- **`decision_id`/`similarity` stay required on the wire, not optional (§3.2 revised).** §3.2 said
+  `SuggestionItem.decision_id` would become optional for a doc-backed concierge suggestion. Installed
+  mobile builds parse both fields as required, and there is no way to version that contract for an app
+  already in the field, so a concierge suggestion instead carries the first cited `decision` ref's id,
+  or `""` when it cited none, and `similarity: 0`; clients hide "Esquecer esta decisão" on an empty id.
+  Cost if wrong: an old app's "Esquecer" on a doc-backed suggestion hits a 404 and shows its error line
+  — accepted, since the alternative breaks every installed app's parser today.
+- **A server-side similarity floor for `mode: "auto"`** (D6, new env `AUTO_ANSWER_MIN_SIMILARITY`,
+  default `0.80`): the cited decision must be about a question close enough to the new one —
+  `cosine(decisionText(new question), the cited decision's stored embedding) ≥
+  AUTO_ANSWER_MIN_SIMILARITY` — or the answer downgrades to a suggestion, `not_similar`. Without it,
+  any past "Sim" could back "Sim" on any non-blocklisted yes/no card just because the labels matched:
+  `decisionBacks` only checks the *answer* maps, never whether the *question* is the same one. `0.80`
+  rejects unrelated pairs (≤ 0.51 in TER-57's calibration table, §9) while leaving room for the
+  concierge's own judgement plus the countdown on true paraphrases (≥ 0.9). An embedder that is
+  unavailable, or a decision that was never embedded, fails closed to `not_similar` rather than
+  skipping the check.
+- **The repeat path (D9a) has its own hard `0.98` floor**, independent of `DECISION_SUGGEST_THRESHOLD`:
+  an operator lowering the suggestion threshold (to see more paraphrased suggestions) must not, as a
+  side effect, widen what the server types into a terminal with no click at all. Only the near-verbatim
+  band the env var defaults to keeps auto-scheduling without a model call; anything looser than that
+  goes through the concierge path (D9b), which re-checks similarity itself.
+- **Cancelling a countdown is remembered against the card, not just against the moment.** Once the
+  person cancels a `scheduled` auto-answer, `mode: "auto"` on that same card downgrades to `suggest`
+  with `downgraded_because: "cancelled_by_person"` even on a later `answer_tab_question` call — the
+  cancel is the undo D6 relies on, so a re-try can never route around it. A countdown already `sent`
+  is refused the same way `scheduled` is (`ALREADY_SCHEDULED`), closing a window where a second call
+  arriving during the ≤ 2 s embed/similarity check could have scheduled a second send.
+- **The sender re-checks the switch and the precedent, not just the grant, at send time** (§6):
+  `startAutoAnswerSweeper` fails a due countdown as `AUTODECIDE_OFF` if the person turned "Responder
+  sozinho" off since scheduling, and as `PRECEDENT_FORGOTTEN` if any cited decision was deleted
+  ("Esquecer") in the meantime — both close the countdown with nothing sent, and the card falls back to
+  an ordinary one. A missing `terminals:write` grant at send time fails the same way (§6 already said
+  this; recorded here because the other two re-checks are new).
+- **Crash recovery uses `claimed_at`, stamped at claim, not `due_at`, as the "sender lost" clock**
+  (`SENDER_LOST_AFTER_MS`, 2 minutes): `due_at` would let the other blue/green color fail a countdown
+  that is genuinely still mid-send (a slow `answerTabQuestion` call started right at the deadline). A
+  countdown claimed (`scheduled → sent`) longer than `SENDER_LOST_AFTER_MS` ago and still `sent` is
+  closed as `failed` with code `SENDER_LOST` and republished as an ordinary card, so a color that dies
+  mid-send never leaves a card stuck saying "sending" forever. A `stopping` flag, checked before each
+  claim, gives an in-progress shutdown its grace period without racing a new claim.
+- **Every option label in the wake text is quoted `«…»`**, like `tabQuestionContext` already quotes the
+  question: a card's own option labels are as much tab-derived, untrusted text as the question itself,
+  and the plan's literal wording did not quote them.
+- **`markWoken`'s claim also requires `status = 'open'` and `auto_answer IS NULL`** (not just
+  `woken_at IS NULL`): closes a narrow window between publishing the card and claiming the wake where
+  the row could have moved on (answered, closed, or already auto-scheduled by the repeat path) between
+  the two, which would otherwise still spend the card's one-time wake on a card nobody needs it for.
+- **The blocklist (D7) matches word-prefixes of ≥ 4 characters**, plus a short exact-only list (`rm`,
+  `prod`, `apaga`) for stems too short to prefix-match safely. Two fix rounds narrowed false positives
+  found while testing it against real Portuguese: "pública", "exclusivo", "apagão" and "destravar" no
+  longer match `publicar`/`excluir`/`apaga` (exact-only)/`destruir`, while `deletar`, `remover`,
+  `exclusão` and past participles like `publicado` still do. The floor stays crude on purpose (D7): it
+  cannot tell "não fazer deploy" from "fazer deploy", and blocking too eagerly only turns an auto answer
+  into a suggestion.
+- **`search_memory`'s `project_id` filters `memory_items` only; `chat_decisions` stay user-wide** (§5.1).
+  TER-57 made decisions global per user on purpose (a precedent applies across projects); a project
+  filter on decisions would silently hide a person's own precedent from the very tool meant to find it.
+- **`docs.read`'s 600 KiB budget (`DOCS_READ_MAX_BYTES`, `@termhub/machine-ops`) is a frame budget, not
+  just a byte cap**: at ~1.4× overhead for JSON/base64 framing, 600 KiB raw lands at ~840 KiB
+  serialised, comfortably under the agent WebSocket's 1 MiB `MAX_FRAME` — reading past it would drop
+  the machine's socket, not just fail one RPC. Both `docs.scan` and `docs.read` scripts check that no
+  matching ancestor directory is itself a symlink (`[ -L "$f" ]` on the leaf alone is not enough — a
+  symlinked `docs`, `docs/superpowers`, `specs` or `plans` directory would make every "outside the
+  project" check underneath it a no-op), reject `../` and any extra `/` in a path, and a file over
+  `DOCS_MAX_BYTES` (256 KiB) is reported by the scan as an `S\t<size>\t<path>` line (no hash, size
+  parsed defensively so an unreadable file never becomes a bogus zero-size entry) rather than skipped
+  silently, so the sweeper still knows the file exists and does not delete its old chunks.
+- **`DOCS_EMPTY`**: a successful scan that comes back with zero entries while the link already has
+  stored docs deletes nothing (only logs the code) instead of wiping every indexed doc of that link —
+  an empty manifest is far more likely to mean "the checkout is briefly unreadable" than "every spec
+  and plan was deleted".
+- **Stale-link cleanup and the re-chunk are each atomic.** `deleteDocsNotInLinks` removes doc items of
+  a project link that was unlinked or deleted (the sweeper's own pass otherwise never revisits it); a
+  re-chunk deletes the chunk tail and upserts the new chunks in one transaction (`replaceSourceChunks`),
+  so a crash between the two steps can never leave a stale chunk (past the new count) sitting next to a
+  chunk 0 whose hash already says the file is current — which would make that stale chunk unreachable
+  by every future pass.
+- **Mobile's "Responder sozinho" switch flips optimistically** (`createChatMemoryStore`), like the
+  TER-57 suggestions switch before it: the UI shows the new value the instant the PATCH is sent, and a
+  first-page `GET /memory` read that started before the latest toggle resolved does not apply its
+  (possibly stale) value over it.
+- **Verification ran on node:22, not the node:20 the base plan text names** — matching the rest of this
+  delivery's tasks and the CI runner; only the image tag would change if that were wrong.
+- **`docker-compose.yml` needed no change for the three new env vars.** `AUTO_ANSWER_DELAY_SECONDS`,
+  `AUTO_ANSWER_MIN_SIMILARITY` and `AUTO_WAKE_MAX_PER_HOUR` are plain app config with defaults in
+  `config.ts` and no cross-service coupling, so — like `DECISION_SUGGEST_THRESHOLD` before them — they
+  reach the app through `env_file` alone; compose only lists `EMBED_URL`/`EMBED_SECRET`/`WHISPER_*`
+  explicitly, because those need a compose-network default (`http://embed:8000`, …) that plain
+  `env_file` passthrough cannot supply.
+- **A cancelled countdown is never overwritten** (final review). `setAutoAnswer` refuses a row whose
+  countdown is `scheduled`, `sent` *or* `cancelled`: two overlapping `answer_tab_question` calls both
+  read the card before the person's cancel (the ≤ 2 s embed widens the window), and the second must not
+  restart the countdown the person just stopped. The tool re-reads the row after a lost write and, when
+  the countdown is now `cancelled`, reports the same `cancelled_by_person` downgrade (and writes the
+  suggestion) a later call would get; any other lost write is still `QUESTION_CLOSED`.
+- **Option descriptions count, on both automatic paths** (D6, D7, final review). Claude Code's options
+  often carry their meaning in `description` ("Opção 1" — "faz merge e push para main"), so: the
+  blocklist also reads the chosen options' descriptions (`blocklistParts`, shared by
+  `maybeScheduleRepeat` and `answer_tab_question`); a cited decision backs an answer only if every
+  chosen option's description equals the one the precedent stored for that label (`decisionBacks`,
+  `labelKey` on both sides) — the same label meaning something else is not a precedent; and the repeat
+  path now re-reads the decisions its suggestion cites (`precedentBacks`) instead of trusting the
+  suggestion, so a forgotten or differently-described precedent leaves the card a plain suggestion.
+  The countdown line on web and mobile shows the chosen description after the label, cut at 80
+  characters: "Resposta automática em 0:42 — «Opção 1» (faz merge e push para main)".
+- **A suggestion that arrives after the card is on screen is shown** (§8, final review). The wake →
+  `answer_tab_question` → suggest path lands 10–60 s after the card; both cards re-seed their hint
+  when `suggestion`'s items change (compared by content, so a republish of the same one never revives
+  a forgotten pre-selection) and pre-select it only while the person has not edited the card (an
+  option pressed, a text typed, a suggestion forgotten) — their own choice is never overwritten.
+- **Turning "Responder sozinho" off cancels what it already started** (D8, final review). `PATCH
+  /memory { autodecide: false }` stores the switch, then cancels every countdown of that user still
+  `scheduled` (`cancelScheduledForUser`, one conditional UPDATE, `decided_by` = the user) and
+  republishes those cards; a countdown already `sent` is the sender's, which re-reads the switch and
+  fails as `AUTODECIDE_OFF`. Also from the final review: "Cancelar"/"Responder agora" stay visible past
+  0:00 until the server says `sent` ("Enviando…" beside them), `list_tab_questions` returns the newest
+  50 cards and sanitises the tab name, `search_memory` refuses an empty `kinds`, and the memory sweeper
+  drains up to 20 embed batches per tick while each comes back full.
+- **Known limits, reported by the tasks that hit them, left as is:** an old mobile build shows a
+  concierge-scheduled card's pre-selected answer with no countdown (it does not know the new field) —
+  acceptable during rollout, since the person can still answer normally; the docs sweeper re-reads an
+  empty doc file on every pass (an empty file's content hash is cheap to recompute, so this costs
+  nothing but a redundant read); and a slow ssh docs pass can outlast the sweeper's own 10-minute tick
+  — harmless, since the sweeper's `running` guard skips a tick already in flight rather than overlapping
+  it.
+- **End-to-end smoke test (Task 15), real embedder against a real `th-ter95-db` + a throwaway
+  `docker/embed` container**: seeded a `person` decision ("Usar git worktree para isolar o trabalho?" →
+  Sim, embedded) and a `derived` note ("Qual cor usar no botão?" → Azul, embedded), plus two open
+  `choice` cards (one per question, each on its own tab — a tab keeps only one open question, so a
+  second `open()` on the same tab would have closed the first one). Over `/mcp` with a personal token
+  (`read`, `terminals`, `memory`): `search_memory("worktree")` ranked the decision first (`match:
+  "both"`, similarity 0.61) ahead of the note (`match: "semantic"`, 0.14); `record_decision` wrote a
+  note and returned its ref; `answer_tab_question` on the git-worktree card citing the decision, with
+  the switch on, returned `{"mode":"auto","due_at":"…"}`; the same tool on the button-colour card citing
+  only the note returned `{"mode":"suggest","downgraded_because":"no_person_precedent"}`, exactly as
+  D6/D7 and the sender's checks (above) predict.

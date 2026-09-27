@@ -3,7 +3,7 @@ import type { AnsweredChoiceRow, ChatDecision, NewDecision } from '../db/reposit
 import type { Repositories } from '../db/repositories/index.js';
 import type { TabQuestion } from '../db/repositories/tab-questions.js';
 import { answerToDecision, embedTag, embedText, EMBED_TEXT_VERSION, mapAnswer, sameAnswer, type SuggestionItem, type TabQuestionSuggestion } from './decision-text.js';
-import { defaultEmbedder, EMBED_TIMEOUT_MS, EmbedError, type Embedder } from './embeddings.js';
+import { defaultEmbedder, EMBED_TIMEOUT_MS, memoryCode, withTimeout, type Embedder } from './embeddings.js';
 import { checkChoiceAnswer, choiceAnswerBody, choicePayload, type ChoiceAnswer, type ChoicePayload } from './tab-question-payload.js';
 
 /** Neighbours asked per question of a `choice` payload (spec 2026-09-26 §4). */
@@ -14,38 +14,6 @@ export interface MemoryDeps {
   threshold: number;
   timeoutMs?: number;
   log: Pick<FastifyBaseLogger, 'info' | 'warn'>;
-}
-
-/** Rejects with `EmbedError('SUGGEST_TIMEOUT')` if `p` has not settled within `ms`, calling `onTimeout`
- *  right before doing so; `p` itself keeps running (there is no cancelling an in-flight fetch or query
- *  from here), but the caller stops waiting — `onTimeout` is how it tells `p`'s continuation that. */
-function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      onTimeout();
-      reject(new EmbedError('SUGGEST_TIMEOUT'));
-    }, ms);
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
-}
-
-/** The failure code worth logging: an `EmbedError`'s own code, a Prisma error's `.code`, else a
- *  generic one — never the error's `message`, which may quote the question or the answer. */
-function memoryCode(err: unknown): string {
-  if (err instanceof EmbedError) return err.code;
-  if (typeof err === 'object' && err !== null && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
-    return (err as { code: string }).code;
-  }
-  return 'SUGGEST_FAILED';
 }
 
 /**
@@ -177,7 +145,8 @@ export async function recordDecisions(repos: Pick<Repositories, 'chatDecisions'>
           const a = answer.answers[item.question_index];
           return a !== undefined && sameAnswer({ selected: item.selected, text: item.text }, { selected: a.selected, text: a.text });
         })
-        .map((item) => item.decision_id);
+        // A concierge suggestion that cited no decision carries an empty id (spec 2026-09-26 concierge memory §5.4).
+        .flatMap((item) => (item.decision_id ? [item.decision_id] : []));
       if (acceptedIds.length > 0) await repos.chatDecisions.bumpAccepted(acceptedIds);
     }
 

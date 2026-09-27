@@ -233,6 +233,16 @@ describe('recordDecisions', () => {
     expect(chatDecisions.setEmbedding).toHaveBeenCalledWith('d1', [1, 0], 'm#q1');
   });
 
+  it('never bumps an empty decision_id (a concierge suggestion that cited no decision)', async () => {
+    const chatDecisions = fakeChatDecisions();
+    const suggestion: TabQuestionSuggestion = {
+      items: [{ question_index: 0, decision_id: '', similarity: 0, selected: [0], source: { question: 'x', project_name: null, answered_at: '2026-09-01T00:00:00.000Z' }, by: 'concierge', reason: 'r', sources: ['doc:i1'] }],
+    };
+    const answered = row({ answered_by: 'u1', answer: { answers: [{ selected: [0] }] } as never, suggestion });
+    await recordDecisions({ chatDecisions } as never, answered, { embedder: null, log: log() });
+    expect(chatDecisions.bumpAccepted).not.toHaveBeenCalled();
+  });
+
   it('does not bump accepted for a suggestion item the answer does not match', async () => {
     const chatDecisions = fakeChatDecisions();
     const suggestion: TabQuestionSuggestion = {

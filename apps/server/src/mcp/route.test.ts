@@ -98,7 +98,7 @@ describe('POST /mcp tools', () => {
 
     const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const names = list.json().result.tools.map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(['find', 'list_machines', 'list_projects', 'list_tabs', 'read_screen', 'wait_for_state']);
+    expect(names).toEqual(['find', 'list_machines', 'list_projects', 'list_tab_questions', 'list_tabs', 'read_screen', 'wait_for_state']);
     await flush();
     expect(apiTokens.touchLastUsed).toHaveBeenCalledWith('tok1');
   });
@@ -529,9 +529,11 @@ describe('read_attachment', () => {
 
   it('is offered to a read token whose user can read the chat, and hidden otherwise', async () => {
     const offered = await rpc(build({ grants: chatGrants }).app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
-    expect(offered.json().result.tools.map((t: { name: string }) => t.name)).toEqual(['read_attachment']);
+    // search_memory shares the same chat:read grant as read_attachment.
+    expect(offered.json().result.tools.map((t: { name: string }) => t.name)).toEqual(['read_attachment', 'search_memory']);
     const hidden = await rpc(build({ grants: ['machines:read'] }).app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     expect(hidden.json().result.tools.map((t: { name: string }) => t.name)).not.toContain('read_attachment');
+    expect(hidden.json().result.tools.map((t: { name: string }) => t.name)).not.toContain('search_memory');
   });
 
   it('passes an MCP content result through untouched — an image block stays an image block — and audits without the content', async () => {

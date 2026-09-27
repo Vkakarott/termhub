@@ -76,6 +76,27 @@ it('a tab question never carries the dismissed status: that value is the suggest
   expect(tabQuestionSchema.safeParse({ ...common, kind: 'permission', payload: { tool_name: 'Bash' }, answer: null, status: 'dismissed' }).success).toBe(false);
 });
 
+it('a tab question suggestion item may carry the concierge fields (by/reason/sources); an older app still parses without them (concierge memory spec 2026-09-26 §5.4)', () => {
+  const common = { id: 'q1', tab_id: 't1', tab_name: 'api', status: 'open', error_code: null, created_at: '2026-09-26T12:00:00.000Z', answered_at: null, closed_at: null };
+  const choicePayload = { payload: { questions: [{ question: 'Q?', header: 'Q', multi_select: false, options: [{ label: 'a', description: '', recommended: false }] }] }, answer: null };
+  const conciergeItem = {
+    question_index: 0,
+    decision_id: '',
+    similarity: 0,
+    selected: [0],
+    by: 'concierge',
+    reason: 'Você sempre faz assim',
+    sources: ['doc:i1'],
+    source: { question: 'Q?', project_name: null, answered_at: '2026-09-20T10:00:00.000Z' },
+  };
+  const r = tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, suggestion: { items: [conciergeItem] } });
+  expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+  expect(r.success && r.data.suggestion?.items[0]).toMatchObject({ by: 'concierge', reason: 'Você sempre faz assim', sources: ['doc:i1'] });
+  // Without them at all: still parses (an older server never sends them, a memory-backed suggestion).
+  const { by: _by, reason: _reason, sources: _sources, ...plain } = conciergeItem;
+  expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, suggestion: { items: [plain] } }).success).toBe(true);
+});
+
 describe('chat grant list', () => {
   const item = {
     id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: null, created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',

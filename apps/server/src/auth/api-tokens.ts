@@ -4,8 +4,10 @@ import { createHash, randomBytes } from 'node:crypto';
 export const API_TOKEN_PREFIX = 'thb_pat_';
 export const API_TOKEN_RE = /^thb_pat_[A-Za-z0-9_-]{43}$/;
 
-/** What a token may do, on top of the owner's own grants (effective = scopes ∩ grants). */
-export const API_TOKEN_SCOPES = ['read', 'tasks', 'terminals'] as const;
+/** What a token may do, on top of the owner's own grants (effective = scopes ∩ grants). `memory`
+ *  (spec 2026-09-26 concierge memory D14) unlocks `record_decision`; `search_memory` needs only `read`
+ *  and `answer_tab_question` only `terminals`, so writing memory reuses neither. */
+export const API_TOKEN_SCOPES = ['read', 'tasks', 'terminals', 'memory'] as const;
 export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number];
 
 export const MAX_ACTIVE_TOKENS_PER_USER = 20;

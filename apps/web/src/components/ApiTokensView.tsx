@@ -8,6 +8,7 @@ const SCOPES: { key: ApiTokenScope; label: string; short: string; hint: string }
   { key: 'read', label: 'Ler', short: 'ler', hint: 'máquinas, projetos, abas, contas de IA e a tela dos terminais' },
   { key: 'tasks', label: 'Tarefas', short: 'tarefas', hint: 'criar, editar, mover e excluir tarefas e subtarefas' },
   { key: 'terminals', label: 'Terminais', short: 'terminais', hint: 'abrir abas, digitar e iniciar agentes nas suas máquinas' },
+  { key: 'memory', label: 'Memória (gravar anotações)', short: 'memória', hint: 'anotar decisões no chat, para consultar depois' },
 ];
 const EXPIRY: { value: string; label: string }[] = [
   { value: '30', label: '30 dias' },

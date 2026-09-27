@@ -26,7 +26,8 @@ const colors = { question: 'What is your favorite color?', header: 'Color', mult
 const fruits = { question: 'Which fruits do you like?', header: 'Fruits', multi_select: true, options: ['Apple', 'Banana', 'Mango'].map((label) => ({ label, description: '', recommended: false })) };
 const row = (over: Partial<TabQuestion> = {}): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload: { questions: [colors, fruits] }, tool_use_id: 'toolu_1',
-  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null, ...over,
+  status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-25T12:00:00.000Z', suggestion: null,
+  auto_answer: null, answered_via: null, woken_at: null, ...over,
 });
 const permission = (over: Partial<TabQuestion> = {}) => row({ id: 'q2', kind: 'permission', payload: { tool_name: 'Bash' }, tool_use_id: null, ...over });
 
@@ -34,7 +35,8 @@ function ctxFor(current: TabQuestion | undefined, opts: { latest?: TabQuestion |
   const tabQuestions = {
     findByIdForUser: vi.fn(async (_id: string, userId: string) => (userId === 'u1' ? current : undefined)),
     findOpenForTab: vi.fn(async () => ('latest' in opts ? opts.latest : current)),
-    claim: vi.fn(async (_id: string, _u: string, answer: unknown) => (opts.claimLoses || !current ? undefined : { ...current, status: 'answered' as const, answer: answer as never, answered_by: 'u1', answered_at: '2026-09-25T12:01:00.000Z' })),
+    claim: vi.fn(async (_id: string, _u: string, answer: unknown, _now?: Date, via: 'card' | 'auto' = 'card') => (opts.claimLoses || !current ? undefined : { ...current, status: 'answered' as const, answer: answer as never, answered_by: 'u1', answered_at: '2026-09-25T12:01:00.000Z', answered_via: via })),
+    cancelAutoAnswer: vi.fn(async () => (current?.auto_answer ? { ...current, auto_answer: { ...current.auto_answer, status: 'cancelled' as const, decided_by: 'u1' } } : undefined)),
     markFailed: vi.fn(async (_id: string, code: string) => (current ? { ...current, status: 'failed' as const, error_code: code } : undefined)),
     closeOne: vi.fn(async (_id: string, status: 'answered_in_tab' | 'expired') => (current ? { ...current, status, closed_at: '2026-09-25T12:01:00.000Z' } : undefined)),
     expireOne: vi.fn(async (_id: string) => (current && current.closed_at === null ? { ...current, status: current.status === 'open' ? ('expired' as const) : current.status, closed_at: '2026-09-26T12:02:00.000Z' } : undefined)),
@@ -88,7 +90,9 @@ describe('answerTabQuestion', () => {
     const view = await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [1] }, { selected: [2, 0] }] }, { log: log(), sleep: noSleep });
     expect(steps()).toEqual(['key:2', 'key:1', 'key:3', 'key:Tab', 'key:1']);
     expect(sendKey.mock.calls.every((c) => c[1].tab_id === 't1')).toBe(true);
-    expect(tabQuestions.claim).toHaveBeenCalledWith('q1', 'u1', { answers: [{ selected: [1] }, { selected: [2, 0] }] });
+    expect(tabQuestions.claim).toHaveBeenCalledWith('q1', 'u1', { answers: [{ selected: [1] }, { selected: [2, 0] }] }, undefined, 'card');
+    // No countdown on this card: nothing to cancel.
+    expect(tabQuestions.cancelAutoAnswer).not.toHaveBeenCalled();
     expect(view).toMatchObject({ id: 'q1', tab_name: 'api', status: 'answered' });
     expect(events).toEqual([expect.objectContaining({ type: 'tab_question_answered', user_id: 'u1', conversation_id: 'c1', question: expect.objectContaining({ status: 'answered' }) })]);
   });
@@ -290,6 +294,46 @@ describe('decision memory recording', () => {
     chatDecisions.insertMany.mockRejectedValueOnce(new Error('db down'));
     const view = await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [0] }, { selected: [1] }] }, { log: log(), sleep: noSleep, ...noEmbed });
     expect(view).toMatchObject({ id: 'q1', tab_name: 'api', status: 'answered' });
+  });
+});
+
+describe('automatic answers (spec 2026-09-26 concierge memory §6, D11)', () => {
+  const countdown = { answer: { answers: [{ selected: [0] }, { selected: [1] }] }, by: 'memory' as const, reason: 'Mesma pergunta respondida antes', sources: [{ kind: 'decision' as const, id: 'd1' }], due_at: '2026-09-25T12:01:00.000Z' };
+
+  it("via 'auto' claims as auto, stores answered_via auto and records no decision", async () => {
+    const { ctx, tabQuestions, chatDecisions } = ctxFor(row({ auto_answer: { ...countdown, status: 'sent' } }));
+    const view = await answerTabQuestion(ctx, 'q1', countdown.answer, { log: log(), sleep: noSleep, via: 'auto', ...noEmbed });
+    expect(tabQuestions.claim).toHaveBeenCalledWith('q1', 'u1', countdown.answer, undefined, 'auto');
+    expect(view).toMatchObject({ status: 'answered', answered_via: 'auto' });
+    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+    // The countdown is the one sending: it is never cancelled by its own send.
+    expect(tabQuestions.cancelAutoAnswer).not.toHaveBeenCalled();
+  });
+
+  it("via 'auto' losing the row claim (the countdown was recovered as lost meanwhile): 409, nothing typed", async () => {
+    const { ctx, chatDecisions } = ctxFor(row({ auto_answer: { ...countdown, status: 'sent' } }), { claimLoses: true });
+    await rejects(answerTabQuestion(ctx, 'q1', countdown.answer, { log: log(), sleep: noSleep, via: 'auto', ...noEmbed }), 409, 'TAB_PROMPT_CHANGED');
+    expect(sendKey).not.toHaveBeenCalled();
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(chatDecisions.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('a card answer on a row with a scheduled countdown cancels it first, then claims', async () => {
+    const { ctx, tabQuestions, chatDecisions } = ctxFor(row({ auto_answer: { ...countdown, status: 'scheduled' } }));
+    await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [1] }, { selected: [0] }] }, { log: log(), sleep: noSleep, ...noEmbed });
+    expect(tabQuestions.cancelAutoAnswer).toHaveBeenCalledWith('q1', 'u1');
+    expect(tabQuestions.cancelAutoAnswer.mock.invocationCallOrder[0]!).toBeLessThan(tabQuestions.claim.mock.invocationCallOrder[0]!);
+    expect(tabQuestions.claim).toHaveBeenCalledWith('q1', 'u1', { answers: [{ selected: [1] }, { selected: [0] }] }, undefined, 'card');
+    // The person's own answer is a decision like any other (D11).
+    expect(chatDecisions.insertMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('a countdown already cancelled or failed is left alone', async () => {
+    for (const status of ['cancelled', 'failed'] as const) {
+      const { ctx, tabQuestions } = ctxFor(row({ auto_answer: { ...countdown, status } }));
+      await answerTabQuestion(ctx, 'q1', { answers: [{ selected: [1] }, { selected: [0] }] }, { log: log(), sleep: noSleep, ...noEmbed });
+      expect(tabQuestions.cancelAutoAnswer).not.toHaveBeenCalled();
+    }
   });
 });
 

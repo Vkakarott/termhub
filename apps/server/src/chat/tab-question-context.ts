@@ -39,9 +39,13 @@ function linesOf(q: TabQuestionView): string[] {
     return [`- a aba ${tabOf(q)} pediu permissão para usar «${sanitise((q.payload as PermissionPayload).tool_name)}»; o usuário ${said}.`];
   }
   const a = q.answer as ChoiceAnswer | null;
+  // Sent by the countdown (spec 2026-09-26 concierge memory §6): said as such, with its reason.
+  const auto = q.answered_via === 'auto';
+  const reason = auto && q.auto_answer?.reason ? ` (motivo: ${sanitise(q.auto_answer.reason)})` : '';
   return (q.payload as ChoicePayload).questions.map((item, i) => {
     const ans = a?.answers[i];
     const said = !ans ? '—' : (ans.text ?? ans.selected.map((s) => item.options[s]?.label ?? '?').join(', '));
+    if (auto) return `- a aba ${tabOf(q)} perguntou «${sanitise(item.question)}»; respondido automaticamente «${sanitise(said)}»${reason}.`;
     return `- a aba ${tabOf(q)} perguntou «${sanitise(item.question)}»; o usuário respondeu «${sanitise(said)}».`;
   });
 }

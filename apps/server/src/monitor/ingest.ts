@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { noteHookEvent } from '../chat/tab-questions.js';
 import { cancelTabSuggestion, scheduleTabSuggestion } from '../chat/tab-suggestions.js';
+import type { Waker } from '../chat/wake.js';
 import { autoSwapOnLimit } from '../control/account-swap.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { Tab } from '../db/repositories/types.js';
@@ -11,12 +12,16 @@ export type IngestResult = { ok: true; tab: Tab } | { ok: false; reason: 'unknow
 
 /**
  * A hook fired on a machine: find the tab by its tmux session, interpret the payload, store
- * the event as the tab's state and tell the subscribers. Logs metadata only (never `text`).
+ * the event as the tab's state and tell the subscribers. Logs metadata only (never `text`). `waker`
+ * (spec 2026-09-26 concierge memory §7) reaches `noteHookEvent` from here — the route's own deps,
+ * passed down from `app.ts` next to `repos` and `log` — since this module already sits between the
+ * hooks route and the tab-question bookkeeping.
  */
 export async function ingestHookEvent(
   repos: Repositories,
   log: FastifyBaseLogger,
   input: { machineId: string; tool: HookTool; session: string; event: unknown },
+  waker?: Waker,
 ): Promise<IngestResult> {
   const tab = await repos.tabs.findByTmuxSession(input.machineId, input.session);
   if (!tab) return { ok: false, reason: 'unknown_session' };
@@ -30,7 +35,7 @@ export async function ingestHookEvent(
   const updated = await recordInterpretation(repos, log, current, input.tool, interpreted);
   // After the tab row (spec 2026-09-25 §4.2): a question opens a card in the project's chat, any
   // other event closes the one on screen. Never throws.
-  await noteHookEvent(repos, log, updated, interpreted);
+  await noteHookEvent(repos, log, updated, interpreted, waker);
   // Claude Code draws its suggested next prompt shortly after the turn ends: look in a few seconds, with the
   // Stop's own message and background count (spec 2026-09-26 TER-203 §4.2).
   if (input.tool === 'claude' && interpreted.meta.event === 'Stop') scheduleTabSuggestion(repos, log, updated.id, { context: interpreted.text, backgroundTasks: interpreted.backgroundTasks ?? 0 });

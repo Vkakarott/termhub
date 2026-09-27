@@ -4,7 +4,7 @@ import type { TabQuestionSuggestion } from '../../chat/decision-text.js';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { ChatRepository } from './chat.js';
-import { TabQuestionsRepository } from './tab-questions.js';
+import { LIST_OPEN_CHOICES_MAX, TabQuestionsRepository, type AutoAnswer } from './tab-questions.js';
 
 const payload = { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] };
 
@@ -343,6 +343,272 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabQuestionsRepository (P
     const { question: b } = await open('td2');
     await repo.claim(b.id, userId, { answers: [{ selected: [0] }] });
     expect(await repo.expireOne(b.id)).toMatchObject({ id: b.id, status: 'answered' });
+  });
+
+  const autoAnswer = (over: Partial<AutoAnswer> = {}): AutoAnswer => ({
+    answer: { answers: [{ selected: [0] }] },
+    by: 'memory',
+    reason: 'Mesma pergunta respondida antes',
+    sources: [{ kind: 'decision', id: newId() }],
+    due_at: new Date(Date.now() + 60_000).toISOString(),
+    status: 'scheduled',
+    ...over,
+  });
+  const dueNow = () => new Date(Date.now() - 1000).toISOString();
+
+  it('setAutoAnswer: only an open row, and only while no countdown is already scheduled', async () => {
+    const { question } = await open('ta1');
+    const auto = autoAnswer();
+    const withAuto = await repo.setAutoAnswer(question.id, auto);
+    expect(withAuto).toMatchObject({ id: question.id, auto_answer: auto });
+
+    // Already scheduled: a second call changes nothing.
+    expect(await repo.setAutoAnswer(question.id, autoAnswer({ reason: 'outro motivo' }))).toBeUndefined();
+    expect((await repo.findByIdForUser(question.id, userId))?.auto_answer).toMatchObject({ reason: 'Mesma pergunta respondida antes' });
+
+    // No longer open (answered from the chat): never gets a countdown.
+    const { question: answeredQ } = await open('ta2');
+    await repo.claim(answeredQ.id, userId, { answers: [{ selected: [0] }] });
+    expect(await repo.setAutoAnswer(answeredQ.id, autoAnswer())).toBeUndefined();
+  });
+
+  it('setAutoAnswer: never over a countdown already claimed (sent), so a failed send cannot be followed by a second one', async () => {
+    const { question } = await open('ta11');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: dueNow() }));
+    expect((await repo.claimAutoAnswer(question.id))?.auto_answer?.status).toBe('sent');
+    expect(await repo.setAutoAnswer(question.id, autoAnswer({ reason: 'de novo' }))).toBeUndefined();
+    // The sweeper's own failure path still finds its claimed countdown.
+    expect((await repo.finishAutoAnswer(question.id, 'failed', 'PROMPT_MOVED'))?.auto_answer).toMatchObject({ status: 'failed', reason: 'Mesma pergunta respondida antes' });
+  });
+
+  it('setAutoAnswer: never over a countdown the person cancelled, so an overlapping call cannot restart it', async () => {
+    const { question } = await open('ta14');
+    await repo.setAutoAnswer(question.id, autoAnswer());
+    expect((await repo.cancelAutoAnswer(question.id, userId))?.auto_answer?.status).toBe('cancelled');
+    expect(await repo.setAutoAnswer(question.id, autoAnswer({ reason: 'de novo' }))).toBeUndefined();
+    expect((await repo.findByIdForUser(question.id, userId))?.auto_answer).toMatchObject({ status: 'cancelled', reason: 'Mesma pergunta respondida antes', decided_by: userId });
+  });
+
+  it('cancelScheduledForUser: every scheduled countdown of this user becomes cancelled — never a sent one, never another user\'s', async () => {
+    const otherProject = newId();
+    await db.project.create({ data: { id: otherProject, key: `Q${otherProject.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'other', ownerId: otherUserId } });
+    const otherConversation = (await chat.getOrCreateForProject(otherUserId, otherProject)).id;
+    try {
+      const { question: scheduled } = await open('tc10');
+      await repo.setAutoAnswer(scheduled.id, autoAnswer());
+      const { question: sent } = await open('tc11');
+      await repo.setAutoAnswer(sent.id, autoAnswer({ due_at: dueNow() }));
+      await repo.claimAutoAnswer(sent.id);
+      const { question: foreign } = await repo.open({ tab_id: 'tc12', project_id: otherProject, conversation_id: otherConversation, kind: 'choice', payload, tool_use_id: null });
+      await repo.setAutoAnswer(foreign!.id, autoAnswer());
+
+      const cancelled = await repo.cancelScheduledForUser(userId);
+      expect(cancelled.map((q) => q.id)).toContain(scheduled.id);
+      expect(cancelled.map((q) => q.id)).not.toContain(sent.id);
+      expect(cancelled.map((q) => q.id)).not.toContain(foreign!.id);
+      expect(cancelled.find((q) => q.id === scheduled.id)).toMatchObject({ status: 'open', user_id: userId, auto_answer: { status: 'cancelled', decided_by: userId } });
+      expect((await repo.findByIdForUser(sent.id, userId))?.auto_answer?.status).toBe('sent');
+      expect((await repo.findByIdForUser(foreign!.id, otherUserId))?.auto_answer?.status).toBe('scheduled');
+      // Nothing left to cancel: a second call is a no-op.
+      expect((await repo.cancelScheduledForUser(userId)).map((q) => q.id)).not.toContain(scheduled.id);
+    } finally {
+      await db.project.deleteMany({ where: { id: otherProject } });
+    }
+  });
+
+  it('claimAutoAnswer: scheduled → sent, only once due, exactly one winner of two racing claims, never after cancelAutoAnswer', async () => {
+    const { question: notDue } = await open('ta3');
+    await repo.setAutoAnswer(notDue.id, autoAnswer());
+    expect(await repo.claimAutoAnswer(notDue.id)).toBeUndefined(); // due_at in the future
+
+    const { question: raced } = await open('ta4');
+    await repo.setAutoAnswer(raced.id, autoAnswer({ due_at: dueNow() }));
+    const [a, b] = await Promise.all([repo.claimAutoAnswer(raced.id), repo.claimAutoAnswer(raced.id)]);
+    const winners = [a, b].filter((r) => r !== undefined);
+    expect(winners.length).toBe(1);
+    expect(winners[0]!.auto_answer?.status).toBe('sent');
+
+    const { question: cancelledFirst } = await open('ta5');
+    await repo.setAutoAnswer(cancelledFirst.id, autoAnswer({ due_at: dueNow() }));
+    await repo.cancelAutoAnswer(cancelledFirst.id, userId);
+    expect(await repo.claimAutoAnswer(cancelledFirst.id)).toBeUndefined();
+  });
+
+  it('finishAutoAnswer: sent → failed with the code, only a claimed (sent) countdown', async () => {
+    const { question } = await open('ta6');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: dueNow() }));
+    expect(await repo.finishAutoAnswer(question.id, 'failed', 'PROMPT_MOVED')).toBeUndefined(); // still scheduled, not sent
+    await repo.claimAutoAnswer(question.id);
+    const failed = await repo.finishAutoAnswer(question.id, 'failed', 'PROMPT_MOVED');
+    expect(failed?.auto_answer).toMatchObject({ status: 'failed', error_code: 'PROMPT_MOVED' });
+  });
+
+  it('listDueAutoAnswers: only scheduled, due, open rows', async () => {
+    const { question: due } = await open('ta7');
+    await repo.setAutoAnswer(due.id, autoAnswer({ due_at: dueNow() }));
+    const { question: notDue } = await open('ta8');
+    await repo.setAutoAnswer(notDue.id, autoAnswer());
+    const { question: cancelled } = await open('ta9');
+    await repo.setAutoAnswer(cancelled.id, autoAnswer({ due_at: dueNow() }));
+    await repo.cancelAutoAnswer(cancelled.id, userId);
+    const { question: noLongerOpen } = await open('ta10');
+    await repo.setAutoAnswer(noLongerOpen.id, autoAnswer({ due_at: dueNow() }));
+    await repo.claim(noLongerOpen.id, userId, { answers: [{ selected: [0] }] });
+
+    const dueRows = await repo.listDueAutoAnswers(new Date(), 1000);
+    const ids = dueRows.map((r) => r.id);
+    expect(ids).toContain(due.id);
+    expect(ids).not.toContain(notDue.id);
+    expect(ids).not.toContain(cancelled.id);
+    expect(ids).not.toContain(noLongerOpen.id);
+  });
+
+  /** Moves a claimed countdown's `claimed_at` back by `minutes` on the database's own clock. */
+  const backdateClaim = (id: string, minutes: number) =>
+    db.$executeRaw`UPDATE "tab_questions" SET "auto_answer" = jsonb_set("auto_answer", '{claimed_at}', to_jsonb(now() - ${minutes} * interval '1 minute')) WHERE "id" = ${id}`;
+  const LOST_AFTER_MS = 2 * 60_000;
+
+  it('claimAutoAnswer stamps claimed_at with the database clock, not the caller\'s tick time', async () => {
+    const { question } = await open('tl0');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: new Date(Date.now() - 10 * 60_000).toISOString() }));
+    // A tick that started long ago (a slow batch) still stamps the claim as happening now.
+    const claimed = await repo.claimAutoAnswer(question.id, new Date(Date.now() - 5 * 60_000));
+    const [{ db_now }] = await db.$queryRaw<{ db_now: Date }[]>`SELECT now() AS db_now`;
+    expect(claimed?.auto_answer?.status).toBe('sent');
+    expect(Math.abs(new Date(claimed!.auto_answer!.claimed_at!).getTime() - db_now.getTime())).toBeLessThan(5_000);
+  });
+
+  it('failLostAutoAnswers: only open rows claimed longer ago than the limit, on the database clock', async () => {
+    const longDue = () => new Date(Date.now() - 10 * 60_000).toISOString();
+    const { question: lost } = await open('tl1');
+    await repo.setAutoAnswer(lost.id, autoAnswer({ due_at: longDue() }));
+    await repo.claimAutoAnswer(lost.id);
+    await backdateClaim(lost.id, 5);
+    // Claimed just now, with a due_at long past (a late tick): not lost.
+    const { question: fresh } = await open('tl2');
+    await repo.setAutoAnswer(fresh.id, autoAnswer({ due_at: longDue() }));
+    await repo.claimAutoAnswer(fresh.id);
+    // Sent and answered: the send finished, nothing to recover.
+    const { question: done } = await open('tl3');
+    await repo.setAutoAnswer(done.id, autoAnswer({ due_at: longDue() }));
+    await repo.claimAutoAnswer(done.id);
+    await repo.claim(done.id, userId, { answers: [{ selected: [0] }] }, new Date(), 'auto');
+    await backdateClaim(done.id, 5);
+    // Still scheduled: not the sender's.
+    const { question: waiting } = await open('tl4');
+    await repo.setAutoAnswer(waiting.id, autoAnswer({ due_at: longDue() }));
+
+    const failed = await repo.failLostAutoAnswers('SENDER_LOST', LOST_AFTER_MS);
+    const ids = failed.map((r) => r.id);
+    expect(ids).toContain(lost.id);
+    expect(ids).not.toContain(fresh.id);
+    expect(ids).not.toContain(done.id);
+    expect(ids).not.toContain(waiting.id);
+    expect(failed.find((r) => r.id === lost.id)).toMatchObject({ status: 'open', auto_answer: { status: 'failed', error_code: 'SENDER_LOST' } });
+    expect(await repo.failLostAutoAnswers('SENDER_LOST', LOST_AFTER_MS)).not.toContainEqual(expect.objectContaining({ id: lost.id }));
+  });
+
+  it('failLostAutoAnswers: a row claimed before claimed_at existed falls back to its due_at', async () => {
+    const { question } = await open('tl5');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: new Date(Date.now() - 10 * 60_000).toISOString(), status: 'sent' as const }));
+    // setAutoAnswer refuses over sent, so this row is stored as `sent` from the start: no claimed_at.
+    const failed = await repo.failLostAutoAnswers('SENDER_LOST', LOST_AFTER_MS);
+    expect(failed.map((r) => r.id)).toContain(question.id);
+  });
+
+  it("claim(..., 'auto') needs the countdown still `sent`: a recovered (failed) countdown can never be typed", async () => {
+    const { question } = await open('tl6');
+    await repo.setAutoAnswer(question.id, autoAnswer({ due_at: new Date(Date.now() - 10 * 60_000).toISOString() }));
+    await repo.claimAutoAnswer(question.id);
+    await backdateClaim(question.id, 5);
+    await repo.failLostAutoAnswers('SENDER_LOST', LOST_AFTER_MS);
+    expect(await repo.claim(question.id, userId, { answers: [{ selected: [0] }] }, undefined, 'auto')).toBeUndefined();
+    expect((await repo.findByIdForUser(question.id, userId))?.status).toBe('open');
+    // The person can still answer it by hand.
+    expect((await repo.claim(question.id, userId, { answers: [{ selected: [1] }] }))?.answered_via).toBe('card');
+  });
+
+  it('markWoken: true for the one winner, false for every call after, and false for a row not open or already carrying an auto_answer (fix round 1)', async () => {
+    const { question } = await open('ta11');
+    expect(await repo.markWoken(question.id)).toBe(true);
+    expect(await repo.markWoken(question.id)).toBe(false);
+    expect(await repo.markWoken(newId())).toBe(false); // never existed
+
+    // Answered from the tab between the card's publish and this claim: never woken for.
+    const { question: answered } = await open('ta11b');
+    await repo.claim(answered.id, userId, { answers: [{ selected: [0] }] });
+    expect(await repo.markWoken(answered.id)).toBe(false);
+
+    // The repeat path (or a prior answer_tab_question) scheduled a countdown in the same window:
+    // the row is still `open`, but already has an answer on the way — never woken for either.
+    const { question: withAuto } = await open('ta11c');
+    await repo.setAutoAnswer(withAuto.id, autoAnswer());
+    expect(await repo.markWoken(withAuto.id)).toBe(false);
+  });
+
+  it('claim: answered_via defaults to "card"; claim(..., \'auto\') stores "auto"', async () => {
+    const { question: q1 } = await open('ta12');
+    const claimed1 = await repo.claim(q1.id, userId, { answers: [{ selected: [0] }] });
+    expect(claimed1?.answered_via).toBe('card');
+
+    // 'auto' only over a countdown this sender claimed (`sent`): not a bare open row, not a scheduled one.
+    const { question: q2 } = await open('ta13');
+    expect(await repo.claim(q2.id, userId, { answers: [{ selected: [0] }] }, undefined, 'auto')).toBeUndefined();
+    await repo.setAutoAnswer(q2.id, autoAnswer({ due_at: dueNow() }));
+    expect(await repo.claim(q2.id, userId, { answers: [{ selected: [0] }] }, undefined, 'auto')).toBeUndefined();
+    await repo.claimAutoAnswer(q2.id);
+    const claimed2 = await repo.claim(q2.id, userId, { answers: [{ selected: [0] }] }, undefined, 'auto');
+    expect(claimed2?.answered_via).toBe('auto');
+  });
+
+  it('listOpenChoicesForUser: only this user\'s open choice rows — never a permission, never one already answered, never another user\'s — and project_id narrows further', async () => {
+    const project2 = newId();
+    await db.project.create({ data: { id: project2, key: `Q${project2.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'proj2', ownerId: userId } });
+    const conversation2 = (await chat.getOrCreateForProject(userId, project2)).id;
+    try {
+      const { question: openChoice } = await open('lq1');
+      const { question: openPerm } = await openPermission('lq2', 'Bash');
+      const { question: answered } = await open('lq3');
+      await repo.claim(answered.id, userId, { answers: [{ selected: [0] }] });
+      const { question: otherProjectChoice } = await repo.open({ tab_id: 'lq4', project_id: project2, conversation_id: conversation2, kind: 'choice', payload, tool_use_id: null });
+
+      const mine = await repo.listOpenChoicesForUser(userId);
+      const ids = mine.map((q) => q.id);
+      expect(ids).toContain(openChoice.id);
+      expect(ids).toContain(otherProjectChoice!.id);
+      expect(ids).not.toContain(openPerm!.id);
+      expect(ids).not.toContain(answered.id);
+      expect(mine.every((q) => q.kind === 'choice' && q.status === 'open')).toBe(true);
+
+      // The shared project already carries open choice rows left behind by earlier tests in this
+      // file, so this narrowed read is checked by containment, not by exact membership.
+      const idsInProject1 = (await repo.listOpenChoicesForUser(userId, projectId)).map((q) => q.id);
+      expect(idsInProject1).toContain(openChoice.id);
+      expect(idsInProject1).not.toContain(otherProjectChoice!.id);
+      expect((await repo.listOpenChoicesForUser(userId, project2)).map((q) => q.id)).toEqual([otherProjectChoice!.id]);
+      expect(await repo.listOpenChoicesForUser(otherUserId)).toEqual([]);
+    } finally {
+      await db.project.deleteMany({ where: { id: project2 } }); // cascades its conversation and questions
+    }
+  });
+
+  it('listOpenChoicesForUser: at most LIST_OPEN_CHOICES_MAX rows, newest first', async () => {
+    const lonely = newId();
+    const project3 = newId();
+    await db.user.create({ data: { id: lonely, email: `${lonely}@test.local`, name: 'lonely' } });
+    await db.project.create({ data: { id: project3, key: `Q${project3.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'proj3', ownerId: lonely } });
+    try {
+      const conv = (await chat.getOrCreateForProject(lonely, project3)).id;
+      const base = Date.parse('2026-09-26T00:00:00.000Z');
+      const ids = Array.from({ length: LIST_OPEN_CHOICES_MAX + 2 }, () => newId());
+      await db.tabQuestion.createMany({ data: ids.map((id, i) => ({ id, tabId: `lm${i}`, projectId: project3, conversationId: conv, kind: 'choice', payload, status: 'open', createdAt: new Date(base + i * 1000) })) });
+      const listed = await repo.listOpenChoicesForUser(lonely);
+      expect(listed).toHaveLength(LIST_OPEN_CHOICES_MAX);
+      expect(listed.map((q) => q.id)).toEqual(ids.slice(2).reverse());
+    } finally {
+      await db.project.deleteMany({ where: { id: project3 } });
+      await db.user.deleteMany({ where: { id: lonely } });
+    }
   });
 
   // Last on purpose: the sweep closes every orphan row of the database.

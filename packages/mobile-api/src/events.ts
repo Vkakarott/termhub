@@ -104,13 +104,39 @@ export const tabQuestionSuggestionSchema = z.object({
   items: z.array(
     z.object({
       question_index: z.number().int(),
+      // Required for installed builds; `""` on a concierge suggestion that cited no decision (spec 2026-09-26 concierge memory §3.2).
       decision_id: z.string(),
       similarity: z.number(),
       selected: z.array(z.number().int()),
       text: z.string().optional(),
       source: z.object({ question: z.string(), project_name: z.string().nullable(), answered_at: z.string() }),
+      // Set on a concierge call to `answer_tab_question` (mode "suggest", concierge memory spec
+      // 2026-09-26 §5.4): its own line and reason replace the ordinary "Sugestão da memória" one.
+      // Absent (an older server, or the ordinary past-decision suggestion) reads as the memory one.
+      // A plain string, like `tabQuestionAutoAnswerSchema.by`: a value a newer server adds must not
+      // break an installed app. `sources` are the concierge's cited refs (`"kind:id"` each); never rendered.
+      by: z.string().optional(),
+      reason: z.string().optional(),
+      sources: z.array(z.string()).optional(),
     }),
   ),
+});
+
+/** Mirrors `AutoAnswer` (apps/server/src/db/repositories/tab-questions.ts): a countdown that sends the
+ * proposed answer by itself when due, unless the person cancels it (spec 2026-09-26 concierge memory §6).
+ * `sources` cite what backed it (a past decision, or a memory item). */
+export const tabQuestionAutoAnswerSchema = z.object({
+  answer: z.object({ answers: z.array(z.object({ selected: z.array(z.number().int()), text: z.string().optional() })) }),
+  // Plain strings, like `sources.kind`: a value a newer server adds must not break an installed app.
+  // Known today: `by` 'memory' | 'concierge'; `status` 'scheduled' | 'cancelled' | 'sent' | 'failed'.
+  by: z.string(),
+  reason: z.string(),
+  sources: z.array(z.object({ kind: z.string(), id: z.string() })),
+  due_at: z.string(),
+  status: z.string(),
+  error_code: z.string().optional(),
+  decided_by: z.string().optional(),
+  claimed_at: z.string().optional(),
 });
 
 const tabQuestionCommon = {
@@ -124,6 +150,10 @@ const tabQuestionCommon = {
   closed_at: z.string().nullable(),
   /** Only while the card is `open`; absent from an older server. */
   suggestion: tabQuestionSuggestionSchema.nullable().optional(),
+  /** The countdown, while open (or once sent/failed); absent from an older server, stripped by an older app. */
+  auto_answer: tabQuestionAutoAnswerSchema.nullable().optional(),
+  /** `'auto'` when the countdown sent the answer; absent from an older server. */
+  answered_via: z.enum(['card', 'auto']).nullable().optional(),
 };
 export const tabQuestionSchema = z.discriminatedUnion('kind', [
   z.object({

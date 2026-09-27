@@ -17,4 +17,5 @@ export const CHAT_MSG = {
   attachmentInvalid: 'Remova o anexo inválido para enviar',
   attachmentGalleryDenied: 'Permissão da galeria negada',
   forgetDecisionFailed: 'Não foi possível esquecer a decisão',
+  autoAnswerAlreadySent: 'A resposta automática já foi enviada.',
 } as const;

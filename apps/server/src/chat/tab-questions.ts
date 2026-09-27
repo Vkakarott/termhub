@@ -6,11 +6,13 @@ import { describeTabQuestions, type TabQuestionView } from '../db/repositories/t
 import type { Tab } from '../db/repositories/types.js';
 import { monitorBus } from '../monitor/bus.js';
 import type { Interpreted } from '../monitor/state.js';
+import { maybeScheduleRepeat } from './auto-answer.js';
 import { chatBus } from './bus.js';
 import { suggestFor } from './decision-memory.js';
 import { defaultEmbedder, type Embedder } from './embeddings.js';
 import { failureLabel } from './service.js';
 import type { ChoicePayload, TabQuestionInput } from './tab-question-payload.js';
+import type { Waker } from './wake.js';
 
 /** Never fails to open a card over a logging concern: the default when a caller has none of its own. */
 const silentLog: Pick<FastifyBaseLogger, 'info' | 'warn'> = { info() {}, warn() {} };
@@ -66,7 +68,9 @@ export async function closeTabQuestions(repos: Repositories, tabId: string, stat
  * or kept exactly as with a card. A permission queued behind an open one opens nothing either.
  *
  * A fresh `choice` card is offered a suggestion from the person's past decisions (spec 2026-09-26 §4)
- * before it is announced — best effort, and never blocks the card on it. `deps` lets tests and the
+ * before it is announced — best effort, and never blocks the card on it. A stored suggestion that
+ * covers every question from a decision may start a countdown on it (`maybeScheduleRepeat`, spec
+ * 2026-09-26 concierge memory §6): the card is still announced once, carrying `auto_answer`. `deps` lets tests and the
  * ingest path (`noteHookEvent`) pass their own embedder/logger; left out, it is `defaultEmbedder()`
  * (null without EMBED_URL) and a no-op logger.
  *
@@ -84,12 +88,17 @@ export async function closeTabQuestions(repos: Repositories, tabId: string, stat
  *    (`findOpenForTab`) before announcing it, since by then it may already have moved on; with no
  *    embedder configured at all, `suggestFor` returned instantly and nothing has had time to change, so
  *    that extra read is skipped.
+ *
+ * Once the card is out (published), a fresh `choice` card that got no automatic answer — no repeat
+ * countdown from `maybeScheduleRepeat` above — wakes the project's concierge (spec 2026-09-26
+ * concierge memory §7, D9b), fire-and-forget (`void`): the hook POST that got us here never waits for
+ * a wake turn, and `deps.waker`'s own contract (`createWaker`) never throws.
  */
 export async function openTabQuestion(
   repos: Repositories,
-  tab: Pick<Tab, 'id' | 'project_id'>,
+  tab: Pick<Tab, 'id' | 'project_id' | 'name'>,
   input: TabQuestionInput,
-  deps?: { embedder?: Embedder | null; log?: Pick<FastifyBaseLogger, 'info' | 'warn'> },
+  deps?: { embedder?: Embedder | null; log?: Pick<FastifyBaseLogger, 'info' | 'warn'>; waker?: Waker },
 ): Promise<TabQuestion | null> {
   // Only the owner's chat: another user's conversation left on the project (a former owner, or an
   // admin's) must not receive the card, which would let them answer a tab they no longer own.
@@ -102,29 +111,46 @@ export async function openTabQuestion(
     const embedder = deps?.embedder !== undefined ? deps.embedder : defaultEmbedder();
     const suggestion = await suggestFor(repos, question, { embedder, threshold: config.decisionSuggestThreshold, log: deps?.log ?? silentLog });
     if (suggestion) {
+      let stored: TabQuestion | undefined;
       try {
-        shown = (await repos.tabQuestions.setSuggestion(question.id, suggestion)) ?? null;
+        stored = await repos.tabQuestions.setSuggestion(question.id, suggestion);
+        shown = stored ?? null;
       } catch {
         shown = { ...question, suggestion };
+      }
+      // The repeat path (spec 2026-09-26 concierge memory §6, D9a): best effort, like the suggestion —
+      // a failure here must not lose the card, which then shows the suggestion alone.
+      if (stored) {
+        try {
+          shown = (await maybeScheduleRepeat(repos, stored)) ?? stored;
+        } catch (err) {
+          (deps?.log ?? silentLog).warn({ tabQuestionId: stored.id, code: failureLabel(err) }, 'auto answer not scheduled');
+        }
       }
     } else if (embedder) {
       const stillOpen = await repos.tabQuestions.findOpenForTab(tab.id);
       if (stillOpen?.id !== question.id) shown = null;
     }
   }
-  if (shown) await publishTabQuestions(repos, 'tab_question', [shown]);
+  if (shown) {
+    await publishTabQuestions(repos, 'tab_question', [shown]);
+    if (shown.kind === 'choice' && !shown.auto_answer && deps?.waker) void deps.waker.wake(shown, tab.name);
+  }
   return shown;
 }
 
 /**
  * The ingest step's hand-off (spec §4.2): after the tab row is updated, a question opens and any
  * other event closes. Never throws — a hook event is already recorded, and bookkeeping for a card
- * must not turn it into a failed POST. Logs ids, kind and counts; never the question.
+ * must not turn it into a failed POST. Logs ids, kind and counts; never the question. `waker` is
+ * optional (spec 2026-09-26 concierge memory §7): the ingest route (`ingestHookEvent`) passes the real
+ * one down from `app.ts`, next to `repos` and `log` — there is no `ChatService` instance to build it
+ * from here, and this module must not construct one of its own.
  */
-export async function noteHookEvent(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>, tab: Tab, next: Interpreted): Promise<void> {
+export async function noteHookEvent(repos: Repositories, log: Pick<FastifyBaseLogger, 'info' | 'warn'>, tab: Tab, next: Interpreted, waker?: Waker): Promise<void> {
   try {
     if (next.question) {
-      const q = await openTabQuestion(repos, tab, next.question, { log });
+      const q = await openTabQuestion(repos, tab, next.question, { log, waker });
       if (q) log.info({ tabId: tab.id, tabQuestionId: q.id, kind: q.kind, questions: q.kind === 'choice' ? (q.payload as ChoicePayload).questions.length : 1 }, 'tab question opened');
     } else if (closesOpenQuestion(next)) {
       await closeTabQuestions(repos, tab.id, 'answered_in_tab');

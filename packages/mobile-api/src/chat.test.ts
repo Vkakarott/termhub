@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { decisionsResponse, isBoardGrantable, isTabGrantable, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody } from './chat.js';
+import {
+  chatMemoryPatchBody,
+  chatMemoryResponse,
+  decisionsResponse,
+  isBoardGrantable,
+  isTabGrantable,
+  mobileBatchDecisionBody,
+  mobileDecisionBody,
+  mobileMessageBody,
+  notesResponse,
+  tabQuestionAutoAnswerCancelResponse,
+} from './chat.js';
 import { tabQuestionSchema } from './events.js';
 
 describe('mobileDecisionBody', () => {
@@ -130,5 +141,81 @@ describe('tabQuestionSchema: suggestion', () => {
   it('parses a question with a null suggestion, and one with no suggestion key at all (older servers)', () => {
     expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, suggestion: null }).success).toBe(true);
     expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload }).success).toBe(true);
+  });
+});
+
+describe('tabQuestionSchema: auto answer (spec 2026-09-26 concierge memory §6)', () => {
+  const common = { id: 'q1', tab_id: 't1', tab_name: 'api', status: 'open', error_code: null, created_at: '2026-09-25T12:00:00.000Z', answered_at: null, closed_at: null };
+  const choicePayload = { payload: { questions: [{ question: 'Q?', header: 'Q', multi_select: false, options: [{ label: 'a', description: '', recommended: true }] }] }, answer: null };
+  const auto = { answer: { answers: [{ selected: [0] }] }, by: 'memory', reason: 'Mesma pergunta respondida antes', sources: [{ kind: 'decision', id: 'd1' }], due_at: '2026-09-26T12:01:00.000Z', status: 'scheduled' };
+
+  it('parses a card with a countdown and how it was answered', () => {
+    const r = tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, auto_answer: auto, answered_via: null });
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+    expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, status: 'answered', answer: { answers: [{ selected: [0] }] }, auto_answer: { ...auto, status: 'sent' }, answered_via: 'auto' }).success).toBe(true);
+  });
+
+  it('parses a countdown with a status or author this build does not know yet (a newer server)', () => {
+    const r = tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload, auto_answer: { ...auto, by: 'someone_new', status: 'paused' } });
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+  });
+
+  it('parses a card from an older server, with neither field', () => {
+    expect(tabQuestionSchema.safeParse({ ...common, kind: 'choice', ...choicePayload }).success).toBe(true);
+  });
+
+  it('the cancel response is the card, countdown cancelled', () => {
+    const r = tabQuestionAutoAnswerCancelResponse.safeParse({ tab_question: { ...common, kind: 'choice', ...choicePayload, auto_answer: { ...auto, status: 'cancelled', decided_by: 'u1' }, answered_via: null } });
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+  });
+});
+
+describe('chatMemoryResponse (spec D8/D12)', () => {
+  it('parses the switch, autodecide, availability, decisions count and notes count', () => {
+    const r = chatMemoryResponse.safeParse({ enabled: true, autodecide: false, available: true, count: 3, notes: 1 });
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+  });
+});
+
+describe('chatMemoryPatchBody (spec D8/§8)', () => {
+  it('accepts enabled alone, autodecide alone, or both', () => {
+    expect(chatMemoryPatchBody.safeParse({ enabled: false }).success).toBe(true);
+    expect(chatMemoryPatchBody.safeParse({ autodecide: true }).success).toBe(true);
+    expect(chatMemoryPatchBody.safeParse({ enabled: true, autodecide: true }).success).toBe(true);
+  });
+
+  it('refuses an empty body: at least one of the two switches', () => {
+    expect(chatMemoryPatchBody.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('notesResponse (spec D12/§8)', () => {
+  it('parses a page of concierge notes with a next cursor', () => {
+    const sample = {
+      notes: [
+        {
+          id: 'n1',
+          project_id: 'p1',
+          project_name: 'Projeto X',
+          question: 'Qual gerenciador de pacotes devo usar?',
+          decision: 'npm',
+          reason: 'é o padrão do Node',
+          created_at: '2026-09-26T00:00:00.000Z',
+        },
+      ],
+      next_cursor: 'CURSOR',
+    };
+    const r = notesResponse.safeParse(sample);
+    expect(r.success, JSON.stringify(!r.success && r.error.issues)).toBe(true);
+  });
+
+  it('accepts a null next_cursor (last page) and empty decision/reason', () => {
+    expect(notesResponse.safeParse({ notes: [], next_cursor: null }).success).toBe(true);
+    expect(
+      notesResponse.safeParse({
+        notes: [{ id: 'n1', project_id: null, project_name: null, question: 'Q', decision: '', reason: '', created_at: '2026-09-26T00:00:00.000Z' }],
+        next_cursor: null,
+      }).success,
+    ).toBe(true);
   });
 });

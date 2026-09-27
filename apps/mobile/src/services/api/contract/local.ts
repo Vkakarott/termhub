@@ -22,6 +22,7 @@ import {
   chatProjectGrantSchema,
   chatProjectItem,
   chatProjectsResponse,
+  conciergeNoteView,
   decisionsResponse,
   decisionViewSchema,
   deviceActivateBody,
@@ -36,6 +37,7 @@ import {
   mobileBatchDecisionBody,
   mobileDecisionBody,
   mobileMessageBody,
+  notesResponse,
   notificationRow,
   notificationsResponse,
   p256Jwk,
@@ -46,6 +48,7 @@ import {
   sendAccepted,
   subagentViewSchema,
   tabQuestionAnswerBody,
+  tabQuestionAutoAnswerCancelResponse,
   tabQuestionSchema,
   tabQuestionScreenResponse,
   tabQuestionSuggestionSchema,
@@ -209,13 +212,18 @@ export type TTabQuestion = z.infer<typeof tabQuestionSchema>;
 export type TTabQuestionAnswerBody = z.infer<typeof tabQuestionAnswerBody>;
 export type TTabQuestionScreenResponse = z.infer<typeof tabQuestionScreenResponse>;
 export type TTabQuestionSuggestion = z.infer<typeof tabQuestionSuggestionSchema>;
+/** `POST chat/tab-questions/:id/auto-answer/cancel` (concierge memory spec 2026-09-26 §6). */
+export type TTabQuestionAutoAnswerCancelResponse = z.infer<typeof tabQuestionAutoAnswerCancelResponse>;
 
-// "Memória do chat" (spec 2026-09-26 §4.6/§5.2): a remembered decision, its page and the
-// suggestion switch — mirrors `apps/web/src/lib/api.ts`'s `chatDecisions`/`chatMemory`/`setChatMemory`.
+// "Memória do chat" (spec 2026-09-26 §4.6/§5.2, concierge memory D8/D12): a remembered decision, its
+// page, the suggestion/autodecide switches and a concierge note's page — mirrors
+// `apps/web/src/lib/api.ts`'s `chatDecisions`/`chatMemory`/`setChatMemory`/`chatNotes`/`forgetChatNote`.
 export type TChatDecision = z.infer<typeof decisionViewSchema>;
 export type TDecisionsResponse = z.infer<typeof decisionsResponse>;
 export type TChatMemory = z.infer<typeof chatMemoryResponse>;
 export type TChatMemoryPatchBody = z.infer<typeof chatMemoryPatchBody>;
+export type TConciergeNote = z.infer<typeof conciergeNoteView>;
+export type TNotesResponse = z.infer<typeof notesResponse>;
 export type TTabSuggestion = z.infer<typeof tabSuggestionSchema>;
 export type TTabSuggestionSendBody = z.infer<typeof tabSuggestionSendBody>;
 export type TChatConversation = z.infer<typeof chatConversationSchema>;

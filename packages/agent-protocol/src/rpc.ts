@@ -6,6 +6,9 @@ export const sessionName = z.string().min(1).max(128).regex(SESSION_RE);
 export const machinePath = z.string().min(1).max(4096).refine((p) => (p === '~' || p.startsWith('~/') || p.startsWith('/')) && !/[\0\n\r]/.test(p), 'invalid path');
 /** Sanitized file name: what paste-file.safeName() produces. */
 export const pasteName = z.string().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/);
+/** A `docs/superpowers/{specs,plans}/*.md` file, relative to the link's cwd (spec D15). No `..`, no nesting. */
+export const DOC_PATH_RE = /^docs\/superpowers\/(specs|plans)\/[A-Za-z0-9._-]{1,200}\.md$/;
+export const docPath = z.string().regex(DOC_PATH_RE);
 export const aiProvider = z.enum(['claude', 'chatgpt', 'gemini', 'antigravity']);
 
 /** Simulator UDID as `xcrun simctl` prints it. The same regex lives in `@termhub/machine-ops`
@@ -121,6 +124,17 @@ export const RPC = {
   'wda.setup.start': def(z.object({}), z.object({ started: z.boolean() }), 10_000),
   /** Raw `STATE:/VERSION:/TAIL:` text; `parseSetupOutput` on the server reads it. */
   'wda.setup.state': def(z.object({}), z.object({ stdout: z.string() })),
+  /**
+   * Manifest of `docs/superpowers/{specs,plans}/*.md` under `cwd`: `F\t<sha256>\t<size>\t<relpath>`
+   * lines, `@termhub/machine-ops`'s `parseDocsScan` reads them back (since agent 0.8.0).
+   */
+  'docs.scan': def(z.object({ cwd: machinePath }), z.object({ stdout: z.string() }), 15_000),
+  /**
+   * Base64 bodies for up to 20 chosen paths, each re-validated against the same tree on the
+   * machine (defence in depth — `docPath` already restricts what reaches this call); a file over
+   * `DOCS_MAX_BYTES` is skipped silently. `parseDocsRead` reads the output back (since agent 0.8.0).
+   */
+  'docs.read': def(z.object({ cwd: machinePath, paths: z.array(docPath).min(1).max(20) }), z.object({ stdout: z.string() }), 20_000),
 } as const;
 
 export type RpcMethod = keyof typeof RPC;

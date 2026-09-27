@@ -130,6 +130,10 @@ export interface AnswerDeps {
   /** Left out resolves `defaultEmbedder()`; `null` turns off embedding for the decision this answer
    *  records (a test seam — recording itself still happens, only unembedded). */
   embedder?: Embedder | null;
+  /** How this answer is sent (spec 2026-09-26 concierge memory §6): a click (`'card'`, the default),
+   *  or the countdown's sender (`'auto'`, `sendDueAutoAnswers` only) — stored as `answered_via`, and
+   *  never recorded as a decision (D11): the memory must not feed on itself. */
+  via?: 'card' | 'auto';
 }
 
 /**
@@ -137,6 +141,7 @@ export interface AnswerDeps {
  * against it, the tab through the scope (404), still open and still the tab's latest (409), still on
  * the live screen (409), the claim (409 for the loser of a double click), then the keys. A failure
  * after the claim leaves the row `failed` with the code and answers 502. Logs ids, kind and counts.
+ * A click on a card with a running countdown cancels the countdown just before the claim.
  */
 export async function answerTabQuestion(ctx: ControlContext, id: string, raw: unknown, deps: AnswerDeps): Promise<TabQuestionView> {
   // Answering types into a terminal: the same grant as the MCP write tools (send_input, send_key).
@@ -171,7 +176,11 @@ export async function answerTabQuestion(ctx: ControlContext, id: string, raw: un
   }
 
   deps.beforeSend?.(row, answer);
-  const claimed = await ctx.repos.tabQuestions.claim(row.id, userId, answer);
+  const via = deps.via ?? 'card';
+  // The person answered while a countdown runs: it ends first, so the card never shows a countdown for
+  // an answered question. The claim below would stop a second send anyway (it needs the row `open`).
+  if (via === 'card' && row.auto_answer?.status === 'scheduled') await ctx.repos.tabQuestions.cancelAutoAnswer(row.id, userId);
+  const claimed = await ctx.repos.tabQuestions.claim(row.id, userId, answer, undefined, via);
   if (!claimed) throw promptChanged();
 
   const steps = row.kind === 'choice' ? choiceKeyPlan(row.payload as ChoicePayload, answer as ChoiceAnswer) : permissionKeyPlan(answer as PermissionAnswer);
@@ -190,8 +199,9 @@ export async function answerTabQuestion(ctx: ControlContext, id: string, raw: un
     throw new HttpError(502, 'Não foi possível responder na aba', code);
   }
   deps.log.info({ tabQuestionId: row.id, tabId: tab.id, kind: row.kind, steps: steps.length }, 'tab question answered');
-  // Remembering the decision is best effort (spec 2026-09-26 §4.3): the keys are already in the tab.
-  if (claimed.kind === 'choice') await recordDecisions(ctx.repos, claimed, { embedder: deps.embedder !== undefined ? deps.embedder : defaultEmbedder(), log: deps.log });
+  // Remembering the decision is best effort (spec 2026-09-26 §4.3): the keys are already in the tab. An
+  // automatic answer is not the person's decision (D11): its sources are counted by the sender instead.
+  if (claimed.kind === 'choice' && via === 'card') await recordDecisions(ctx.repos, claimed, { embedder: deps.embedder !== undefined ? deps.embedder : defaultEmbedder(), log: deps.log });
   // The keys are in the tab: announcing it is best effort and can no longer turn the answer into an error.
   try {
     const [view] = await publishTabQuestions(ctx.repos, 'tab_question_answered', [claimed]);

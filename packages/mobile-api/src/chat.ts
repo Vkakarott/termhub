@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments.js';
+import { tabQuestionSchema } from './events.js';
 
 /** `POST chat/messages`: text, or attachments, or both (spec 2026-09-26 §5.5). An empty text with ids
  * is a message made of files alone; neither is refused before anything is stored. */
@@ -82,6 +83,11 @@ export const tabQuestionAnswerBody = z.union([
   z.object({ answers: z.array(z.object({ selected: z.array(z.number().int().min(0).max(3)).max(4), text: z.string().max(2000).optional() })).min(1).max(4) }),
   z.object({ allow: z.boolean(), text: z.string().max(2000).optional() }),
 ]);
+/** `POST chat/tab-questions/:id/auto-answer/cancel` (no body): "Cancelar" on a countdown (spec 2026-09-26
+ * concierge memory §6). Answers the card, `auto_answer.status: 'cancelled'`, the proposed answer kept as
+ * the pre-selection; 404 for a card not the user's, 409 `NOT_SCHEDULED` when no countdown runs. "Responder
+ * agora" is the ordinary answer route, which cancels the countdown itself. */
+export const tabQuestionAutoAnswerCancelResponse = z.object({ tab_question: tabQuestionSchema });
 /** `GET chat/tab-questions/:id/screen`: the last lines of the tab, live, for a permission card. */
 export const tabQuestionScreenResponse = z.object({ text: z.string() });
 
@@ -111,8 +117,28 @@ export const decisionViewSchema = z.object({
  * last page). */
 export const decisionsResponse = z.object({ decisions: z.array(decisionViewSchema), next_cursor: z.string().nullable() });
 
-/** `GET`/`PATCH chat/memory`: the suggestion switch, whether embeddings are configured on this server
- * at all (`available: false` hides the switch rather than offering one that can never do anything),
- * and how many decisions are remembered. */
-export const chatMemoryResponse = z.object({ enabled: z.boolean(), available: z.boolean(), count: z.number().int() });
-export const chatMemoryPatchBody = z.object({ enabled: z.boolean() });
+/** `GET`/`PATCH chat/memory`: the suggestion switch, "Responder sozinho quando houver precedente"
+ * (spec D8), whether embeddings are configured on this server at all (`available: false` hides both
+ * switches rather than offering ones that can never do anything), how many decisions are remembered,
+ * and how many concierge notes (spec D12) are. */
+export const chatMemoryResponse = z.object({ enabled: z.boolean(), autodecide: z.boolean(), available: z.boolean(), count: z.number().int(), notes: z.number().int() });
+/** At least one of the two switches, never neither — an empty body is refused rather than a silent no-op. */
+export const chatMemoryPatchBody = z
+  .object({ enabled: z.boolean().optional(), autodecide: z.boolean().optional() })
+  .refine((b) => b.enabled !== undefined || b.autodecide !== undefined, { message: 'Informe enabled ou autodecide' });
+
+/** "Anotações do concierge" (spec D12/§8): one `record_decision` note, as the list shows it —
+ * `question` is the note's title; `decision`/`reason` are parsed back out of the stored text's
+ * `Decisão:`/`Motivo:` lines server-side (never the embedding, the owning user or the raw text). */
+export const conciergeNoteView = z.object({
+  id: z.string(),
+  project_id: z.string().nullable(),
+  project_name: z.string().nullable(),
+  question: z.string(),
+  decision: z.string(),
+  reason: z.string(),
+  created_at: z.string(),
+});
+/** `GET chat/notes`: newest first, 50 per page, with a keyset `next_cursor` (opaque, `null` on the
+ * last page) — the same pagination shape as `decisionsResponse`. */
+export const notesResponse = z.object({ notes: z.array(conciergeNoteView), next_cursor: z.string().nullable() });

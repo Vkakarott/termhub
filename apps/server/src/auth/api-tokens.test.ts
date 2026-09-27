@@ -35,4 +35,8 @@ describe('toScopes', () => {
     expect(toScopes(['terminals', 'read', 'read', 'admin', 'tasks'])).toEqual(['read', 'tasks', 'terminals']);
     expect(toScopes([])).toEqual([]);
   });
+
+  it('accepts the memory scope, last in catalog order', () => {
+    expect(toScopes(['memory', 'read'])).toEqual(['read', 'memory']);
+  });
 });

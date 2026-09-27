@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
-import { chatGrantListResponse, decisionProofMessage } from '@termhub/mobile-api';
+import { chatGrantListResponse, decisionProofMessage, tabQuestionAutoAnswerCancelResponse } from '@termhub/mobile-api';
 import type { Device } from '../db/repositories/devices.js';
 import { applyErrorHandler, HttpError } from '../lib/errors.js';
 import { chatBus, type ChatEvent } from '../chat/bus.js';
@@ -173,9 +173,10 @@ function build(opts: {
     (req as unknown as { scope: unknown }).scope = { user, viewAs: opts.viewAsOwner ? { kind: 'user', userId: ownerId } : { kind: 'self' }, ownerId, createAs: ownerId };
     req.mobile = { device, user } as never;
   });
-  app.register((a) => mobileChatRoutes(a, repos as never, { chat: service as never, agents, session: session as never }), { prefix: '/chat' });
+  const indexActions = vi.fn(async () => {});
+  app.register((a) => mobileChatRoutes(a, repos as never, { chat: service as never, agents, session: session as never, indexActions }), { prefix: '/chat' });
   app.register((a) => mobileMeRoutes(a, repos as never), { prefix: '' });
-  return { app, service, session, agents, repos, decide, findByIdForUser, resumeAfterDecision, start, setHost };
+  return { app, service, session, agents, repos, decide, findByIdForUser, resumeAfterDecision, start, setHost, indexActions };
 }
 
 const approve = { decision: 'approve', challenge: 'chal-1', pin_proof: 'proof-1' };
@@ -375,7 +376,7 @@ describe('POST /chat/messages', () => {
 
 describe('POST /chat/actions/:id/decision', () => {
   it('deny: decides, publishes the event and resumes, with no PIN involvement', async () => {
-    const { app, decide, resumeAfterDecision, session } = build();
+    const { app, decide, resumeAfterDecision, session, indexActions } = build();
     const events: ChatEvent[] = [];
     const unsubscribe = chatBus.subscribe((e) => events.push(e));
     let res;
@@ -392,6 +393,8 @@ describe('POST /chat/actions/:id/decision', () => {
     expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
     expect(session.checkPin).not.toHaveBeenCalled();
     expect(session.consumeDecisionChallenge).not.toHaveBeenCalled();
+    // Memory (spec 2026-09-26 concierge memory §4): the decided row is indexed, fire-and-forget.
+    expect(indexActions).toHaveBeenCalledWith('u1', [expect.objectContaining({ id: 'act1', status: 'denied' })]);
   });
 
   it('deny: 404 for an unknown row and 409 for a decided one', async () => {
@@ -780,7 +783,7 @@ describe('POST /chat/actions/decisions (batch)', () => {
 
   it('proves the approval, decides both, resumes once and answers queued', async () => {
     const decide = decideById();
-    const { app, session, resumeAfterDecision } = build({ decide, findByIdForUser: rowsOf({ a1: { status: 'pending' }, a2: { status: 'pending' } }) });
+    const { app, session, resumeAfterDecision, indexActions } = build({ decide, findByIdForUser: rowsOf({ a1: { status: 'pending' }, a2: { status: 'pending' } }) });
     const res = await post(app, [{ id: 'a1', decision: 'approve', challenge: 'ch1', pin_proof: 'pp1' }, { id: 'a2', decision: 'deny' }]);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ actions: [{ id: 'a1', status: 'approved' }, { id: 'a2', status: 'denied' }], skipped: [], queued: true, note: 'A decisão foi registrada; a resposta chega pelo chat.' });
@@ -792,6 +795,11 @@ describe('POST /chat/actions/decisions (batch)', () => {
     expect(decide).toHaveBeenCalledWith('a2', 'u1', 'denied');
     expect(session.checkPin.mock.invocationCallOrder[0]).toBeLessThan(decide.mock.invocationCallOrder[0]);
     expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+    // Memory (spec 2026-09-26 concierge memory §4): the whole decided batch is indexed, fire-and-forget.
+    expect(indexActions).toHaveBeenCalledWith('u1', [
+      expect.objectContaining({ id: 'a1', status: 'approved' }),
+      expect.objectContaining({ id: 'a2', status: 'denied' }),
+    ]);
   });
 
   it('a wrong PIN on the second approval is 401 and decides nothing', async () => {
@@ -1094,5 +1102,46 @@ describe('GET /me', () => {
     expect(res.body).not.toContain('public_key');
     expect(res.body).not.toContain('pin_secret_enc');
     expect(res.body).not.toContain('secret-hash');
+  });
+});
+
+describe('POST /chat/tab-questions/:id/auto-answer/cancel (mobile)', () => {
+  const countdown = { answer: { answers: [{ selected: [0] }] }, by: 'memory', reason: 'Mesma pergunta respondida antes', sources: [{ kind: 'decision', id: 'd1' }], due_at: '2026-09-26T12:01:00.000Z', status: 'scheduled' };
+  const q = { id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice', payload: { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: false }] }] }, tool_use_id: null, status: 'open', answer: null, error_code: null, answered_by: null, answered_at: null, closed_at: null, injected_at: null, created_at: '2026-09-26T12:00:00.000Z', suggestion: null, auto_answer: countdown, answered_via: null, woken_at: null };
+  const setup = (cancelled: unknown) => {
+    const built = build({ tabs: [{ id: 't1', project_id: 'p1', name: 'api' }] });
+    const tq = built.repos.tabQuestions as Record<string, unknown>;
+    tq.findByIdForUser = vi.fn(async (id: string, userId: string) => (id === 'q1' && userId === 'u1' ? q : undefined));
+    tq.cancelAutoAnswer = vi.fn(async () => cancelled);
+    return { ...built, tq };
+  };
+
+  it('cancels the countdown and answers the card', async () => {
+    const { app, tq } = setup({ ...q, auto_answer: { ...countdown, status: 'cancelled', decided_by: 'u1' } });
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/q1/auto-answer/cancel' });
+    off();
+    expect(res.statusCode).toBe(200);
+    expect(res.json().tab_question).toMatchObject({ id: 'q1', tab_name: 'api', status: 'open', auto_answer: { status: 'cancelled', answer: { answers: [{ selected: [0] }] } } });
+    expect(tq.cancelAutoAnswer).toHaveBeenCalledWith('q1', 'u1');
+    expect(events).toEqual([expect.objectContaining({ type: 'tab_question', question: expect.objectContaining({ id: 'q1' }) })]);
+    // What the phone parses (`@termhub/mobile-api`).
+    const parsed = tabQuestionAutoAnswerCancelResponse.safeParse(res.json());
+    expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+  });
+
+  it('404 for a foreign or missing id', async () => {
+    const { app, tq } = setup(undefined);
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/other/auto-answer/cancel' });
+    expect(res.statusCode).toBe(404);
+    expect(tq.cancelAutoAnswer).not.toHaveBeenCalled();
+  });
+
+  it('409 NOT_SCHEDULED when no countdown is running', async () => {
+    const { app } = setup(undefined);
+    const res = await app.inject({ method: 'POST', url: '/chat/tab-questions/q1/auto-answer/cancel' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('NOT_SCHEDULED');
   });
 });

@@ -31,6 +31,10 @@ export type TabQuestion = TTabQuestion;
  * carried on an `open` question — suggest only, never sent on its own. */
 export type TabQuestionSuggestion = TTabQuestionSuggestion;
 export type TabQuestionSuggestionItem = TabQuestionSuggestion['items'][number];
+/** A countdown that sends `answer` by itself at `due_at` unless the person cancels it (concierge
+ * memory spec 2026-09-26 §6). `by`/`status` are plain strings on the wire (a newer server may add a
+ * value this app does not know), copied from `apps/web/src/lib/types.ts`'s `TabQuestionAutoAnswer`. */
+export type TabQuestionAutoAnswer = NonNullable<TabQuestion['auto_answer']>;
 /** One question of a choice card, as `payload.questions` holds it. */
 export type TabQuestionItem = Extract<TabQuestion, { kind: 'choice' }>['payload']['questions'][number];
 /** Claude Code's dimmed next prompt in a tab (spec 2026-09-25 tab suggestions). */

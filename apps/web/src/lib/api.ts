@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary, SubagentView } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, ConciergeNote, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary, SubagentView } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -269,6 +269,9 @@ export const api = {
     request<{ grants: ChatGrantListItem[]; next_cursor: string | null }>('GET', `/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}&kinds=all`),
   /** Answers a tab's question from its card (409 `TAB_PROMPT_CHANGED` when the tab moved on). */
   answerTabQuestion: (id: string, body: TabQuestionAnswer) => request<{ tab_question: TabQuestion }>('POST', `/chat/tab-questions/${encodeURIComponent(id)}/answer`, body),
+  /** "Cancelar" on a countdown (spec 2026-09-26 concierge memory §6): nothing is sent, the proposed
+   *  answer stays as the pre-selection. 409 `NOT_SCHEDULED` when no countdown is running. */
+  cancelAutoAnswer: (id: string) => request<{ tab_question: TabQuestion }>('POST', `/chat/tab-questions/${encodeURIComponent(id)}/auto-answer/cancel`, {}),
   /** The last lines of the tab, live, for a permission card; 409 once the question is closed. */
   tabQuestionScreen: (id: string) => request<{ text: string }>('GET', `/chat/tab-questions/${encodeURIComponent(id)}/screen`),
   /** Sends a tab's suggestion, as edited (409 `TAB_PROMPT_CHANGED` when the tab's prompt changed). */
@@ -287,7 +290,20 @@ export const api = {
   /** "Esquecer esta decisão": hard delete, 204 even if it was already gone. */
   forgetChatDecision: (id: string) => request<void>('DELETE', `/chat/decisions/${encodeURIComponent(id)}`),
   chatMemory: () => request<ChatMemory>('GET', '/chat/memory'),
-  setChatMemory: (enabled: boolean) => request<ChatMemory>('PATCH', '/chat/memory', { enabled }),
+  /** A plain boolean is the same as `{ enabled: boolean }` (the pre-D8 shape every caller still
+   *  uses); `{ enabled?, autodecide? }` is the D8 shape for "Responder sozinho quando houver
+   *  precedente" — the server refuses a body with neither key. */
+  setChatMemory: (body: boolean | { enabled?: boolean; autodecide?: boolean }) =>
+    request<ChatMemory>('PATCH', '/chat/memory', typeof body === 'boolean' ? { enabled: body } : body),
+  /** "Anotações do concierge" (spec D12/§8): newest first, 50 per page, keyset `cursor` like `chatDecisions`. */
+  chatNotes: (cursor?: string | null) => {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString();
+    return request<{ notes: ConciergeNote[]; next_cursor: string | null }>('GET', `/chat/notes${qs ? `?${qs}` : ''}`);
+  },
+  /** "Esquecer" a concierge note: hard delete, 204 even if it was already gone or someone else's. */
+  forgetChatNote: (id: string) => request<void>('DELETE', `/chat/notes/${encodeURIComponent(id)}`),
   monitor: {
     tabs: () => request<{ items: MonitorItem[] }>('GET', '/monitor/tabs'),
     /** every open terminal tab of the scope, reported a state or not (the sidebar's agents) */

@@ -5,17 +5,21 @@ import type { ChatAction } from '../db/repositories/chat-actions.js';
 import type { Device } from '../db/repositories/devices.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { chatMemoryRoutes } from './chat-memory.js';
+import { type IndexActionsFn } from './chat.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions, splitTabRows } from '../db/repositories/tab-questions-view.js';
 import { controlContextFor } from '../control/context.js';
 import { answerTabQuestion, requirePinFor, tabQuestionScreen } from '../chat/tab-question-answer.js';
+import { cancelAutoAnswer } from '../chat/auto-answer.js';
 import { dismissTabSuggestion, sendTabSuggestion } from '../chat/tab-suggestion-send.js';
 import { permissionsOf } from '../auth/permissions.js';
 import type { HostAgents } from '../chat/host.js';
 import { failureLabel, type ChatService } from '../chat/service.js';
+import { defaultEmbedder } from '../chat/embeddings.js';
 import { chatBus } from '../chat/bus.js';
 import { decideMany, pendingBatch } from '../chat/decisions.js';
 import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectGrantableAction, grantProject, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
+import { indexActions as indexActionsWrite } from '../memory/index-items.js';
 import { HttpError, conflict, notFound, unauthorized } from '../lib/errors.js';
 import { DeviceLockedError, PinInvalidError, deviceRevoked, type SessionService } from '../mobile/session.js';
 
@@ -37,6 +41,10 @@ export interface MobileChatDeps {
   chat: ChatService;
   agents: HostAgents;
   session: SessionService;
+  /** Indexes decided gate actions (spec 2026-09-26 concierge memory §4), best effort. Defaults to the
+   *  real writer, bound to `repos` and this plugin's own logger, so a test needs to override it only
+   *  to observe the call. */
+  indexActions?: IndexActionsFn;
 }
 
 /** The device the mobile auth hook authenticated for this request (every route here is `mobileAuth: 'device'`). */
@@ -77,6 +85,7 @@ const toDeviceSelf = (d: Device) => deviceSelf.parse({ id: d.id, name: d.name, p
 export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories, deps: MobileChatDeps) {
   // "Memória do chat" (spec 2026-09-26 §4.6): list/forget decisions, read/set the suggestion switch.
   await chatMemoryRoutes(app, repos);
+  const indexActions: IndexActionsFn = deps.indexActions ?? ((userId, actions) => indexActionsWrite(repos, userId, actions, { embedder: defaultEmbedder(), log: app.log }));
 
   app.get('/', async (request) => {
     const { project } = scopeQuery.parse(request.query);
@@ -231,6 +240,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     }
 
     chatBus.publish({ type: 'decision', user_id: user.id, conversation_id: action.conversation_id, action_id: action.id, status });
+    void indexActions(user.id, [action]);
     const actionId = action.id;
     // Same rule as the web route: the approval is already decided and published, so a grant that fails
     // to be written degrades to a plain approval — logged by code only — and the resume still runs.
@@ -287,6 +297,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     if (toDecide.length === 0) throw conflict('Estas ações já foram decididas');
     const result = await decideMany(repos, user.id, toDecide);
     const decided = result.decided;
+    void indexActions(user.id, decided);
     const skippedIds = new Set(firstSkipped.map((s) => s.id));
     const skipped = [...firstSkipped, ...result.skipped.filter((s) => !skippedIds.has(s.id))];
     const first = decided[0]!;
@@ -328,6 +339,15 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       if (requirePinFor(row.kind, answer)) throw new HttpError(403, 'Esta resposta precisa do PIN', 'PIN_REQUIRED');
     };
     return { tab_question: await answerTabQuestion(ctx, id, request.body, { log: request.log, beforeSend }) };
+  });
+
+  /**
+   * "Cancelar" on a countdown (spec 2026-09-26 concierge memory §6): nothing is sent, the proposed answer
+   * stays as the pre-selection. `create`, like answering; 404 for another user's card, 409 `NOT_SCHEDULED`.
+   */
+  app.post('/tab-questions/:id/auto-answer/cancel', { config: { action: 'create' } }, async (request) => {
+    const { id } = tabQuestionIdParam.parse(request.params);
+    return { tab_question: await cancelAutoAnswer(controlContextFor(repos, request.scope.user), id) };
   });
 
   /** The live excerpt a permission card shows (spec §6.1): read now, never stored nor logged. */

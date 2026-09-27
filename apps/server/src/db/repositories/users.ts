@@ -152,4 +152,15 @@ export class UsersRepository {
   async setChatSuggestions(userId: string, enabled: boolean): Promise<void> {
     await this.db.user.update({ where: { id: userId }, data: { chatSuggestions: enabled } });
   }
+
+  /** "Responder sozinho quando houver precedente" (spec 2026-09-26 concierge memory D8): false when
+   *  the row is missing too — off is the safe default, never send keys without an explicit opt-in. */
+  async chatAutodecide(userId: string): Promise<boolean> {
+    const u = await this.db.user.findUnique({ where: { id: userId }, select: { chatAutodecide: true } });
+    return u?.chatAutodecide ?? false;
+  }
+
+  async setChatAutodecide(userId: string, enabled: boolean): Promise<void> {
+    await this.db.user.update({ where: { id: userId }, data: { chatAutodecide: enabled } });
+  }
 }

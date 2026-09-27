@@ -1,10 +1,17 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import type { Waker } from '../chat/wake.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { unauthorized } from '../lib/errors.js';
 import { ingestHookEvent } from '../monitor/ingest.js';
 import { HOOK_TOOLS } from '../monitor/state.js';
 import { HOOK_TOKEN_PREFIX, hashHookToken } from '../monitor/token.js';
+
+/** `waker` (spec 2026-09-26 concierge memory §7): optional, since a test with no `ChatService`
+ *  instance to build one from simply omits it, and no card is ever woken for. */
+export interface HooksDeps {
+  waker?: Waker;
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -30,7 +37,7 @@ export const HOOK_BODY_LIMIT = 256 * 1024;
  * their hook install got — the proxy forwards termhub.dev/api/hooks/events to the app so the
  * calls do not go through Cloudflare Access. Only the token's hash is stored.
  */
-export async function hooksRoutes(app: FastifyInstance, repos: Repositories) {
+export async function hooksRoutes(app: FastifyInstance, repos: Repositories, deps: HooksDeps = {}) {
   /** Token check runs at onRequest, before the body is read: an unauthenticated caller never gets a JSON parse. */
   const authenticate = async (request: FastifyRequest) => {
     const auth = request.headers.authorization ?? '';
@@ -46,7 +53,7 @@ export async function hooksRoutes(app: FastifyInstance, repos: Repositories) {
     if (!machineId) throw unauthorized();
 
     const body = hookEventBody.parse(request.body);
-    const result = await ingestHookEvent(repos, request.log, { machineId, tool: body.tool, session: body.session, event: body.event });
+    const result = await ingestHookEvent(repos, request.log, { machineId, tool: body.tool, session: body.session, event: body.event }, deps.waker);
     if (!result.ok) return reply.code(202).send({ ok: false, reason: result.reason });
     return { ok: true, tab_id: result.tab.id, state: result.tab.state };
   });

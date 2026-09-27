@@ -1,8 +1,8 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
-import { answerSummary, statusLabel, suggestionLine, tabLabel } from '../model/tab-question-text';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerDescription, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from '../model/tab-question-text';
 import type { TabQuestion, TabQuestionSuggestionItem } from '../model/types';
 
 type Props = {
@@ -18,6 +18,11 @@ type Props = {
    *  regardless of whether the call succeeds — the server answers 204 even for a decision already
    *  gone. Omitted on a permission card, which never carries a suggestion. */
   onForget?(decisionId: string): Promise<void>;
+  /** "Cancelar" on a countdown (concierge memory spec 2026-09-26 §6): like `onAnswer`, fire-and-forget —
+   *  the store calls the API, updates this question from the response and surfaces a failure through
+   *  `error` (409 `NOT_SCHEDULED` — the countdown already sent — gets its own sentence). Omitted on a
+   *  permission card, which never carries a countdown. */
+  onCancelAutoAnswer?(questionId: string): void;
 };
 type Choice = Extract<TabQuestion, { kind: 'choice' }>;
 type Permission = Extract<TabQuestion, { kind: 'permission' }>;
@@ -40,7 +45,7 @@ export const TabQuestionCard = memo(function TabQuestionCard(props: Props) {
   );
 });
 
-function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: Choice }) {
+function ChoiceBody({ question, busy, onAnswer, onForget, onCancelAutoAnswer }: Props & { question: Choice }) {
   const items = question.payload.questions;
   const [current, setCurrent] = useState(0);
   // Pre-selected from a similar past decision (chat decision memory spec 2026-09-26 §4.2/§5.1): only
@@ -52,14 +57,115 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
   // Which questions the person has looked at (the first one is shown at once). A pre-selected answer on
   // a tab never opened must not go out with "Responder", so it waits until every suggested one was seen.
   const [viewed, setViewed] = useState<boolean[]>(() => items.map((_, i) => i === 0));
+  // A suggestion can land after the card is on screen (the concierge's wake → `answer_tab_question`
+  // path, 10–60 s later): `hint` follows it, keyed by its items' contents so a republish of the same
+  // suggestion changes nothing (and never brings back one the person forgot). It also becomes the
+  // pre-selection — but only while the person has not edited the card: their own choice always wins.
+  const touched = useRef(false);
+  const suggestionStamp = JSON.stringify(question.suggestion?.items ?? []);
+  const seededStamp = useRef(suggestionStamp);
+  useEffect(() => {
+    if (seededStamp.current === suggestionStamp) return;
+    seededStamp.current = suggestionStamp;
+    const next = question.suggestion?.items ?? [];
+    setHint(next);
+    if (touched.current) return;
+    setSelected(items.map((_, i) => next.find((s) => s.question_index === i)?.selected ?? []));
+    setTexts(items.map((_, i) => next.find((s) => s.question_index === i)?.text ?? ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestionStamp]);
+  /** Automatic answer countdown (concierge memory spec 2026-09-26 §6/§8): unlike the pre-selection
+   *  above, this one tracks `question.auto_answer` on every render — the store owns the cancel call and
+   *  hands this card the updated question back, so the countdown/cancelled/sent/failed state always
+   *  follows the current prop (a socket event updates it exactly the same way). */
+  const auto = question.auto_answer ?? null;
+  const [seconds, setSeconds] = useState(() => (auto?.status === 'scheduled' ? autoAnswerSeconds(auto.due_at) : 0));
+  const [forgettingPrecedent, setForgettingPrecedent] = useState(false);
+  useEffect(() => {
+    if (auto?.status !== 'scheduled') return;
+    const dueAt = auto.due_at;
+    const tick = () => setSeconds(autoAnswerSeconds(dueAt));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [auto?.status, auto?.status === 'scheduled' ? auto.due_at : null]);
+  // "Cancelar" resolved (or a socket event landed): the proposed answer becomes this question's own
+  // pre-selection, now editable — regardless of whether a matching `suggestion` item also exists.
+  useEffect(() => {
+    if (auto?.status !== 'cancelled') return;
+    const a = auto.answer;
+    setSelected(items.map((_, i) => a.answers[i]?.selected ?? []));
+    setTexts(items.map((_, i) => a.answers[i]?.text ?? ''));
+    setViewed(items.map(() => true));
+    // Only the transition into `cancelled` re-seeds the pre-selection — once there, the person's own
+    // edits (toggling an option, forgetting a suggestion) must not be overwritten by this effect again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto?.status]);
   const title = <AppText variant="label">{`${tabLabel(question)} perguntou`}</AppText>;
   if (question.status !== 'open') {
+    // The countdown is over, but a `failed` one is never shown on a closed card (controller ruling): it
+    // only ever explains why *this still-open card* has not answered itself; a `sent` one is the
+    // successful automatic answer below (`answered_via: 'auto'`).
+    const autoAnswered = question.answered_via === 'auto' && question.auto_answer;
+    const forgetPrecedent = async () => {
+      if (!question.auto_answer) return;
+      setForgettingPrecedent(true);
+      try {
+        await Promise.allSettled(question.auto_answer.sources.filter((s) => s.kind === 'decision').map((s) => onForget?.(s.id)));
+      } finally {
+        setForgettingPrecedent(false);
+      }
+    };
     return (
       <View className="gap-1">
         {title}
         {answerSummary(question).map((line, i) => (
           <AppText key={i}>{line}</AppText>
         ))}
+        {autoAnswered ? (
+          <View className="gap-1">
+            <AppText variant="muted">{`Respondida automaticamente: «${choiceAnswerLabel(question.payload, question.auto_answer!.answer)}» — motivo ${question.auto_answer!.reason}`}</AppText>
+            <Button label="Esquecer o precedente" variant="ghost" disabled={forgettingPrecedent} onPress={() => void forgetPrecedent()} />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+  // A countdown `scheduled`, or `sent` on a card still open (the send is in flight): no interactive
+  // options. While the server still says `scheduled` — even past 0:00 on this device's clock, which
+  // may run ahead of the sweeper's — the line, "Cancelar" and "Responder agora" stay (the cancel can
+  // still win), with "Enviando…" beside them once the clock ran out; only `sent` leaves "Enviando…"
+  // alone (concierge memory spec 2026-09-26 §6/§8).
+  const sending = auto?.status === 'sent';
+  const counting = auto?.status === 'scheduled';
+  if (counting || sending) {
+    const description = choiceAnswerDescription(question.payload, auto!.answer);
+    let line = `Resposta automática em ${formatCountdown(seconds)} — «${choiceAnswerLabel(question.payload, auto!.answer)}»${description ? ` (${description})` : ''}. Motivo: ${auto!.reason}`;
+    if (auto!.by === 'memory') {
+      const decisionIds = new Set(auto!.sources.filter((s) => s.kind === 'decision').map((s) => s.id));
+      const idx = items.findIndex((_, i) => hint.some((h) => h.question_index === i && decisionIds.has(h.decision_id)));
+      const backing = idx === -1 ? undefined : hint.find((h) => h.question_index === idx);
+      if (backing) line += ` Fonte: ${suggestionSourceSentence(items[idx]!, backing)}`;
+    }
+    return (
+      <View className="gap-2">
+        {title}
+        {sending ? (
+          <AppText variant="muted">Enviando…</AppText>
+        ) : (
+          <View className="gap-2">
+            <AppText>{line}</AppText>
+            <View className="flex-row gap-2">
+              <View className="flex-1">
+                <Button label="Cancelar" variant="secondary" disabled={busy} onPress={() => onCancelAutoAnswer?.(question.id)} />
+              </View>
+              <View className="flex-1">
+                <Button label="Responder agora" disabled={busy} onPress={() => onAnswer(question.id, auto!.answer)} />
+              </View>
+            </View>
+            {seconds <= 0 ? <AppText variant="muted">Enviando…</AppText> : null}
+          </View>
+        )}
       </View>
     );
   }
@@ -72,16 +178,20 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
     setCurrent(i);
     setViewed((prev) => prev.map((v, j) => v || j === i));
   };
-  const toggle = (option: number) =>
+  const toggle = (option: number) => {
+    touched.current = true;
     setSelected((prev) => prev.map((s, j) => (j !== current ? s : item.multi_select ? (s.includes(option) ? s.filter((x) => x !== option) : [...s, option]) : [option])));
+  };
   const currentHint = hint.find((s) => s.question_index === current);
   const forget = (h: TabQuestionSuggestionItem) => {
+    touched.current = true;
     const clear = () => {
       setHint((prev) => prev.filter((s) => s !== h));
       setSelected((prev) => prev.map((s, j) => (j === h.question_index ? [] : s)));
       setTexts((prev) => prev.map((t, j) => (j === h.question_index ? '' : t)));
     };
-    const result = onForget?.(h.decision_id);
+    // An empty id (a concierge suggestion that cited no decision): forgetting only clears the pre-selection.
+    const result = h.decision_id ? onForget?.(h.decision_id) : undefined;
     if (result) void result.then(clear, clear);
     else clear();
   };
@@ -134,16 +244,23 @@ function ChoiceBody({ question, busy, onAnswer, onForget }: Props & { question: 
         value={texts[current]}
         maxLength={2000}
         editable={!busy}
-        onChangeText={(t) => setTexts((prev) => prev.map((x, j) => (j === current ? t : x)))}
+        onChangeText={(t) => {
+          touched.current = true;
+          setTexts((prev) => prev.map((x, j) => (j === current ? t : x)));
+        }}
         className={INPUT}
       />
       {currentHint ? (
         <View className="gap-1">
           <AppText variant="muted">{suggestionLine(item, currentHint)}</AppText>
-          <Button label="Esquecer esta decisão" variant="ghost" disabled={busy} onPress={() => forget(currentHint)} />
+          {/* A concierge suggestion that cited no decision (`decision_id: ""`) has nothing to forget. */}
+          {!(currentHint.by === 'concierge' && !currentHint.decision_id) ? (
+            <Button label="Esquecer esta decisão" variant="ghost" disabled={busy} onPress={() => forget(currentHint)} />
+          ) : null}
         </View>
       ) : null}
       <Button label="Responder" onPress={() => onAnswer(question.id, { answers })} disabled={busy || !complete || suggestedUnseen} />
+      {auto?.status === 'failed' ? <AppText className="text-app-danger">{autoAnswerFailureText(auto.error_code)}</AppText> : null}
     </View>
   );
 }

@@ -79,4 +79,19 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ProjectMachinesRepository
     expect((await tabs.findByIdsForOwner([t2.id], ownerId)).length).toBe(1);
     expect((await tabs.findByIdsForOwner([t2.id], 'someone-else')).length).toBe(0);
   });
+
+  it('listAllWithOwner returns each link with its project owner and machine, never an orphaned project', async () => {
+    const link = await repo.link({ project_id: projectId, machine_id: m1, cwd: '/a' });
+    const orphan = newId();
+    await db.project.create({ data: { id: orphan, key: 'O' + orphan.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase(), name: 'orphan' } });
+    try {
+      await repo.link({ project_id: orphan, machine_id: m2, cwd: '/o' });
+      const all = await repo.listAllWithOwner();
+      const mine = all.find((l) => l.id === link.id);
+      expect(mine).toMatchObject({ project_id: projectId, machine_id: m1, cwd: '/a', owner_id: ownerId, machine: { id: m1, type: 'agent' } });
+      expect(all.some((l) => l.project_id === orphan)).toBe(false);
+    } finally {
+      await db.project.deleteMany({ where: { id: orphan } });
+    }
+  });
 });

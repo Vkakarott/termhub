@@ -8,6 +8,14 @@ export interface ItemAnswer {
   text?: string;
 }
 
+/**
+ * One pre-selected answer on a card. TER-57's own comes from a similar past decision. A concierge
+ * suggestion (`answer_tab_question`, spec 2026-09-26 concierge memory §5.4) also carries `by:
+ * 'concierge'`, its `reason` and the `sources` refs it cited. `decision_id` and `similarity` stay
+ * required on the wire (installed mobile builds parse them as such): a concierge item has the first
+ * cited decision's id, or `""` when it cited none, and `similarity: 0` — readers skip an empty id.
+ * `source` is always there: the past question (or the cited item's title), project and date.
+ */
 export interface SuggestionItem {
   question_index: number;
   decision_id: string;
@@ -15,6 +23,9 @@ export interface SuggestionItem {
   selected: number[];
   text?: string;
   source: { question: string; project_name: string | null; answered_at: string };
+  by?: 'concierge';
+  reason?: string;
+  sources?: string[];
 }
 
 export interface TabQuestionSuggestion {

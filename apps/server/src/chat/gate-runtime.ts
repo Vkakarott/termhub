@@ -407,8 +407,11 @@ async function projectGrantCovering(ctx: ControlContext, conversationId: string,
 export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<GateOutcome> {
   const cls = actionClass(call.tool, call.args);
   // Reads are never gated, whatever the token; and a person's own MCP session acts unmediated —
-  // they are the one calling, and asking them to confirm their own keystroke is nonsense.
-  if (cls === 'read' || !call.token.gated) return { ok: true, value: await call.run() };
+  // they are the one calling, and asking them to confirm their own keystroke is nonsense. A
+  // self-mediated call (spec 2026-09-26 concierge memory D13) is let through the same way even on a
+  // gated token: its own effect is already the mediation (a visible, forgettable note; a cancellable
+  // countdown, or a suggestion), so a confirmation card here would only double the question.
+  if (cls === 'read' || cls === 'self_mediated' || !call.token.gated) return { ok: true, value: await call.run() };
 
   // The token names the conversation it was minted for (spec 2026-09-23 §4.2): that is the chat the
   // question belongs in. A gated token with none predates per-conversation tokens (24 h at most) and

@@ -1,5 +1,5 @@
 import type { TabQuestion } from './types';
-import { answerSummary, statusLabel, tabLabel } from './tab-question-text';
+import { answerSummary, choiceAnswerDescription, statusLabel, tabLabel } from './tab-question-text';
 
 const base = { id: 'q1', tab_id: 't1', tab_name: 'api', error_code: null, created_at: '', answered_at: null, closed_at: null };
 const choice = (over: Partial<TabQuestion> = {}) =>
@@ -26,4 +26,18 @@ it('summarises what was answered', () => {
   expect(answerSummary(permission({ status: 'answered', answer: { allow: false, text: 'use pnpm' } }))).toEqual(['Negado: «use pnpm»']);
   expect(answerSummary(permission({ status: 'answered', answer: { allow: false } }))).toEqual(['Negado']);
   expect(answerSummary(permission({ status: 'expired' }))).toEqual([]);
+});
+
+it('reads the chosen options\' descriptions for the countdown line, each cut at 80 characters (same as the web)', () => {
+  const opt = (label: string, description: string) => ({ label, description, recommended: false });
+  const payload = {
+    questions: [
+      { question: 'Como seguir?', header: 'Passo', multi_select: false, options: [opt('Opção 1', 'faz merge e push para main'), opt('Opção 2', '')] },
+      { question: 'E depois?', header: 'Depois', multi_select: true, options: [opt('A', 'x'.repeat(90)), opt('B', 'b')] },
+    ],
+  };
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [0] }] })).toBe('faz merge e push para main');
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [1] }] })).toBeNull();
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [], text: 'livre' }] })).toBeNull();
+  expect(choiceAnswerDescription(payload, { answers: [{ selected: [0] }, { selected: [0, 1] }] })).toBe(`faz merge e push para main / ${'x'.repeat(80)}… / b`);
 });

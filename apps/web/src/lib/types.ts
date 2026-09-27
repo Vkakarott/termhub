@@ -1006,14 +1006,35 @@ export type TabQuestionAnswer = ChoiceAnswer | PermissionAnswer;
  * indexes (the mapping is done server-side); `text` is set instead for a free-text past answer. */
 export interface TabQuestionSuggestionItem {
   question_index: number;
+  /** `""` on a concierge suggestion that cited no decision (spec 2026-09-26 concierge memory §3.2). */
   decision_id: string;
   similarity: number;
   selected: number[];
   text?: string;
   source: { question: string; project_name: string | null; answered_at: string };
+  /** Set on a concierge call to `answer_tab_question` (mode "suggest"): its own line and reason replace
+   *  the TER-57 "Sugestão da memória" one. Absent = the ordinary past-decision suggestion. */
+  by?: 'concierge';
+  reason?: string;
+  /** The concierge's cited refs, `"kind:id"` each (spec 2026-09-26 concierge memory §5.4); never rendered. */
+  sources?: string[];
 }
 export interface TabQuestionSuggestion {
   items: TabQuestionSuggestionItem[];
+}
+
+/** A countdown that sends `answer` by itself at `due_at` unless the person cancels it (spec 2026-09-26
+ * concierge memory §6). `by: 'memory'` is a near-verbatim repeat, `'concierge'` the concierge's call. */
+export interface TabQuestionAutoAnswer {
+  answer: ChoiceAnswer;
+  by: 'memory' | 'concierge';
+  reason: string;
+  sources: { kind: string; id: string }[];
+  due_at: string;
+  status: 'scheduled' | 'cancelled' | 'sent' | 'failed';
+  error_code?: string;
+  decided_by?: string;
+  claimed_at?: string;
 }
 
 interface TabQuestionBase {
@@ -1028,6 +1049,10 @@ interface TabQuestionBase {
   closed_at: string | null;
   /** Only while the card is `open`; absent from a server that predates it, so treat undefined as null. */
   suggestion?: TabQuestionSuggestion | null;
+  /** The countdown while the card is open (or once sent/failed); absent from an older server. */
+  auto_answer?: TabQuestionAutoAnswer | null;
+  /** `'auto'` when the countdown sent the answer; absent from an older server. */
+  answered_via?: 'card' | 'auto' | null;
 }
 export type TabQuestionChoice = TabQuestionBase & { kind: 'choice'; payload: { questions: TabQuestionItem[] }; answer: ChoiceAnswer | null };
 export type TabQuestionPermission = TabQuestionBase & { kind: 'permission'; payload: { tool_name: string }; answer: PermissionAnswer | null };
@@ -1060,13 +1085,29 @@ export interface ChatDecision {
   accepted_count: number;
   created_at: string;
 }
-/** `GET /chat/memory`: the suggestion switch, whether embeddings are configured on this server at all
- * (`available: false` hides the switch rather than offering one that can never do anything), and how
- * many decisions are remembered. */
+/** `GET /chat/memory`: the suggestion switch, "Responder sozinho quando houver precedente" (spec D8),
+ * whether embeddings are configured on this server at all (`available: false` hides both switches
+ * rather than offering ones that can never do anything), how many decisions are remembered, and how
+ * many concierge notes (spec D12) there are. */
 export interface ChatMemory {
   enabled: boolean;
+  autodecide: boolean;
   available: boolean;
   count: number;
+  notes: number;
+}
+
+/** "Anotações do concierge" (spec D12/§8): one `record_decision` note, as the list shows it —
+ * `question` is the note's title; `decision`/`reason` are parsed server-side out of the stored text's
+ * `Decisão:`/`Motivo:` lines. */
+export interface ConciergeNote {
+  id: string;
+  project_id: string | null;
+  project_name: string | null;
+  question: string;
+  decision: string;
+  reason: string;
+  created_at: string;
 }
 
 export type TabSuggestionStatus = TabQuestionStatus | 'dismissed';
@@ -1217,7 +1258,7 @@ export interface DevicesSummary {
   active_devices: number;
 }
 
-export type ApiTokenScope = 'read' | 'tasks' | 'terminals';
+export type ApiTokenScope = 'read' | 'tasks' | 'terminals' | 'memory';
 
 /** Personal API token as the server lists it (never the secret). */
 export interface ApiToken {
