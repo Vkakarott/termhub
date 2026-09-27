@@ -21,10 +21,16 @@ export function mockProgress(now: number): TProgressResponse {
             units: { done: 3, total: 5 }, percent: 60, started_at: minutesAgo(90), done_at: null, active_seconds: 1800,
             estimate: { kind: 'range', low_s: 1200, high_s: 2700, basis: 'agent_time', samples: 3 },
             agents: [{ tab_id: 't-api', tab_name: 'api', machine_name: 'jarvis', subtask_ref: null, state: 'waiting_input', state_at: minutesAgo(12), needs_you: true, activity: null, activity_verb: null, rate_limited: false }],
-            pull_requests: [],
+            pull_requests: [
+              {
+                number: 12, url: 'https://github.com/acme/app/pull/12', title: 'Painel', state: 'open', draft: false,
+                ci_state: 'failed', ci_summary: { total: 2, passed: 1, failed: 1, running: 0, failing: ['lint'] },
+                deploy_state: 'none', deploy_url: null,
+              },
+            ],
           },
         ],
-        ci: null,
+        ci: { open: 1, failed: 1, running: 0, deployed: 0 },
         ci_error: null,
       },
     ],

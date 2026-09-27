@@ -1,9 +1,9 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Linking, Pressable, RefreshControl, Text, View } from 'react-native';
 import { relativeTime } from '@/features/shared/relative-time';
 import type { TAgentOnCard, TEpicProgress } from '@/services/api/contract';
-import { formatEstimate, stateLabel } from '../model/format';
+import { ciLabel, epicCiLine, formatEstimate, stateLabel } from '../model/format';
 import { useProgressStore } from '../viewmodel/useProgressStore';
 
 function Bar({ percent }: { percent: number }) {
@@ -38,6 +38,8 @@ function Epic({ epic }: { epic: TEpicProgress }) {
           <Bar percent={epic.percent} />
         </View>
         <Text className="text-xs text-zinc-400">{formatEstimate(epic.estimate)}</Text>
+        {epic.ci && <Text className="text-xs text-zinc-400">{epicCiLine(epic.ci)}</Text>}
+        {epic.ci_error && <Text className="text-xs text-red-400">{epic.ci_error}</Text>}
         {waiting > 0 && <Text className="text-xs text-amber-400">{waiting === 1 ? '1 agente esperando você' : `${waiting} agentes esperando você`}</Text>}
       </Pressable>
       {open &&
@@ -47,6 +49,11 @@ function Epic({ epic }: { epic: TEpicProgress }) {
             <Bar percent={c.percent} />
             <Text className="text-xs text-zinc-400">{`${c.units.done}/${c.units.total} · ${formatEstimate(c.estimate)}`}</Text>
             {c.agents?.map((a) => <Agent key={a.tab_id} agent={a} />)}
+            {c.pull_requests.map((p) => (
+              <Pressable key={p.number} onPress={() => void Linking.openURL(p.state === 'merged' && p.deploy_url ? p.deploy_url : p.url)}>
+                <Text className="text-xs text-indigo-300">{`PR #${p.number} · ${ciLabel(p)}`}</Text>
+              </Pressable>
+            ))}
           </View>
         ))}
     </View>
