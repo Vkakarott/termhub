@@ -218,6 +218,7 @@ model Project {
   agentColumn    TaskColumn?   @relation("ProjectAgentColumn", fields: [agentColumnId], references: [id], onDelete: SetNull)
   /// The project's board columns, in `position` order.
   columns        TaskColumn[]  @relation("ProjectColumns")
+  pullRequests   TaskPullRequest[]
 
   @@index([ownerId])
   @@map("projects")
@@ -437,6 +438,7 @@ model Task {
   /// Board column; null in the backlog and on subtasks.
   columnId    String?    @map("column_id")
   column      TaskColumn? @relation(fields: [columnId], references: [id], onDelete: SetNull)
+  pullRequests TaskPullRequest[]
 
   @@unique([projectId, externalKey])
   @@unique([projectId, number])
@@ -446,6 +448,39 @@ model Task {
   @@index([epicId, status, position])
   @@index([tabId])
   @@map("tasks")
+}
+
+/// A GitHub pull request linked to a card by its ref (spec 2026-09-26 progress-panel §5.2). Written only by the CI sync.
+model TaskPullRequest {
+  id             String    @id
+  projectId      String    @map("project_id")
+  taskId         String    @map("task_id")
+  /// owner/repo
+  repo           String
+  number         Int
+  url            String
+  title          String
+  headRef        String    @map("head_ref")
+  headSha        String    @map("head_sha")
+  /// open | closed | merged
+  state          String
+  draft          Boolean   @default(false)
+  mergedAt       DateTime? @map("merged_at")
+  mergeCommitSha String?   @map("merge_commit_sha")
+  /// none | running | passed | failed — GitHub Actions runs of head_sha
+  ciState        String    @default("none") @map("ci_state")
+  /// { total, passed, failed, running, failing: string[] (≤ 5 workflow names) }
+  ciSummary      Json      @default("{}") @map("ci_summary")
+  /// none | running | passed | failed — the setup's deploy workflow on merge_commit_sha
+  deployState    String    @default("none") @map("deploy_state")
+  deployUrl      String?   @map("deploy_url")
+  syncedAt       DateTime  @default(now()) @map("synced_at")
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, repo, number])
+  @@index([projectId, state])
+  @@map("task_pull_requests")
 }
 
 model Note {

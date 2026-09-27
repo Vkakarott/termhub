@@ -412,6 +412,7 @@ export const ModelName = {
   Ticket: 'Ticket',
   TaskColumn: 'TaskColumn',
   Task: 'Task',
+  TaskPullRequest: 'TaskPullRequest',
   Note: 'Note',
   Integration: 'Integration',
   ProjectSetup: 'ProjectSetup',
@@ -452,7 +453,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatGrant" | "chatProjectGrant" | "tabQuestion" | "chatDecision" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatGrant" | "chatProjectGrant" | "tabQuestion" | "chatDecision" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1563,6 +1564,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.TaskCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.TaskCountAggregateOutputType> | number
+        }
+      }
+    }
+    TaskPullRequest: {
+      payload: Prisma.$TaskPullRequestPayload<ExtArgs>
+      fields: Prisma.TaskPullRequestFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TaskPullRequestFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TaskPullRequestFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>
+        }
+        findFirst: {
+          args: Prisma.TaskPullRequestFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TaskPullRequestFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>
+        }
+        findMany: {
+          args: Prisma.TaskPullRequestFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>[]
+        }
+        create: {
+          args: Prisma.TaskPullRequestCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>
+        }
+        createMany: {
+          args: Prisma.TaskPullRequestCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TaskPullRequestCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>[]
+        }
+        delete: {
+          args: Prisma.TaskPullRequestDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>
+        }
+        update: {
+          args: Prisma.TaskPullRequestUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>
+        }
+        deleteMany: {
+          args: Prisma.TaskPullRequestDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TaskPullRequestUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TaskPullRequestUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>[]
+        }
+        upsert: {
+          args: Prisma.TaskPullRequestUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TaskPullRequestPayload>
+        }
+        aggregate: {
+          args: Prisma.TaskPullRequestAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTaskPullRequest>
+        }
+        groupBy: {
+          args: Prisma.TaskPullRequestGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TaskPullRequestGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TaskPullRequestCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TaskPullRequestCountAggregateOutputType> | number
         }
       }
     }
@@ -3698,6 +3773,30 @@ export const TaskScalarFieldEnum = {
 export type TaskScalarFieldEnum = (typeof TaskScalarFieldEnum)[keyof typeof TaskScalarFieldEnum]
 
 
+export const TaskPullRequestScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  taskId: 'taskId',
+  repo: 'repo',
+  number: 'number',
+  url: 'url',
+  title: 'title',
+  headRef: 'headRef',
+  headSha: 'headSha',
+  state: 'state',
+  draft: 'draft',
+  mergedAt: 'mergedAt',
+  mergeCommitSha: 'mergeCommitSha',
+  ciState: 'ciState',
+  ciSummary: 'ciSummary',
+  deployState: 'deployState',
+  deployUrl: 'deployUrl',
+  syncedAt: 'syncedAt'
+} as const
+
+export type TaskPullRequestScalarFieldEnum = (typeof TaskPullRequestScalarFieldEnum)[keyof typeof TaskPullRequestScalarFieldEnum]
+
+
 export const NoteScalarFieldEnum = {
   id: 'id',
   projectId: 'projectId',
@@ -4539,6 +4638,7 @@ export type GlobalOmitConfig = {
   ticket?: Prisma.TicketOmit
   taskColumn?: Prisma.TaskColumnOmit
   task?: Prisma.TaskOmit
+  taskPullRequest?: Prisma.TaskPullRequestOmit
   note?: Prisma.NoteOmit
   integration?: Prisma.IntegrationOmit
   projectSetup?: Prisma.ProjectSetupOmit
