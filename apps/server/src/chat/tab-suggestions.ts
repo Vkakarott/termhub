@@ -20,7 +20,7 @@ export const SUGGESTION_CAPTURE_LINES = 15;
 export const SUGGESTION_MAX = ANSWER_TEXT_MAX;
 /** The first agent release whose `tmux.capture` keeps attributes (`escapes`): an older one answers plain text, so the RPC is skipped (spec 2026-09-26 §5.5). */
 export const STYLED_CAPTURE_MIN_AGENT_VERSION = '0.5.2';
-/** Claude Code's `Notification idle_prompt` text: it says nothing about what the suggestion answers. */
+/** Claude Code's `Notification idle_prompt` text: never a context (defensive since TER-203 — the context now comes from the Stop). */
 export const CLAUDE_IDLE_MESSAGE = 'Claude is waiting for your input';
 
 type Log = Pick<FastifyBaseLogger, 'info' | 'warn'>;
@@ -62,16 +62,24 @@ export async function readSuggestion(machine: Machine, session: string): Promise
   return styled ? cleanSuggestion(promptSuggestion(text)) : null;
 }
 
+/** What the Claude `Stop` that schedules a check says about itself (spec 2026-09-26 TER-203 §4.2). */
+export interface StopFacts {
+  /** Its `last_assistant_message`, as interpreted (null when it sent none). */
+  context: string | null;
+  /** How many of its `background_tasks` still run. */
+  backgroundTasks: number;
+}
+
 /**
  * The delayed half of a Claude `Stop` (spec §6.1): when the tab still waits for input and its prompt
  * shows a suggestion, a row opens in the project owner's most recently active conversation — the same
- * owner rule as a question — and the card reaches every screen showing it. The row also keeps the message
- * the suggestion answers (TER-96): the tab's `state_text`, which any hook event since the `Stop` would have
- * cancelled this check, so it is that `Stop`'s message — only when the wait is Claude's own. An agent older
+ * owner rule as a question — and the card reaches every screen showing it. `context` is that `Stop`'s own
+ * message, already cleaned by `scheduleTabSuggestion` (spec 2026-09-26 TER-203 §4.2): the tab row is not
+ * read for it, since anything that reached the row in between would be the wrong message. An agent older
  * than 0.5.2 cannot keep attributes and is not asked. `still` is false once another hook event of the tab
  * arrived (the screen moved on). Never throws; logs ids and counts only.
  */
-export async function checkTabSuggestion(repos: Repositories, log: Log, tabId: string, still: () => boolean = () => true): Promise<void> {
+export async function checkTabSuggestion(repos: Repositories, log: Log, tabId: string, context: string, still: () => boolean = () => true): Promise<void> {
   try {
     const tab = await repos.tabs.findById(tabId);
     if (!tab || tab.kind !== 'terminal' || !tab.tmux_session || tab.state !== 'waiting_input') return;
@@ -88,12 +96,11 @@ export async function checkTabSuggestion(repos: Repositories, log: Log, tabId: s
     const text = await readSuggestion(machine, tab.tmux_session);
     // Claude Code also suggests slash commands ("/compact"); sending refuses a leading / or !, so no card.
     if (text === null || /^[/!]/.test(text) || !still()) return;
-    const context = tab.state_tool === 'claude' ? cleanContext(tab.state_text) : null;
     const { question, closed } = await repos.tabQuestions.open({ tab_id: tab.id, project_id: tab.project_id, conversation_id: conversation.id, kind: 'suggestion', payload: { text, context }, tool_use_id: null });
     await publishTabQuestions(repos, 'tab_question_closed', closed);
     if (question) {
       await publishTabQuestions(repos, 'tab_question', [question]);
-      log.info({ tabId: tab.id, tabQuestionId: question.id, kind: 'suggestion', chars: text.length, contextChars: context?.length ?? 0 }, 'tab suggestion opened');
+      log.info({ tabId: tab.id, tabQuestionId: question.id, kind: 'suggestion', chars: text.length, contextChars: context.length }, 'tab suggestion opened');
     }
   } catch (err) {
     log.warn({ tabId, code: failureLabel(err) }, 'tab suggestion check failed');
@@ -111,12 +118,26 @@ export function cancelTabSuggestion(tabId: string): void {
   pending.delete(tabId);
 }
 
-/** After a Claude `Stop`: fire-and-forget, never delays the hook POST. A second Stop restarts the wait. */
-export function scheduleTabSuggestion(repos: Repositories, log: Log, tabId: string): void {
+/**
+ * After a Claude `Stop`: fire-and-forget, never delays the hook POST. A second Stop restarts the wait —
+ * and a Stop that opens nothing still cancels the previous one's check. No card for a Stop whose tab has
+ * background work running (it resumes by itself on the next task notification) or that carries no message
+ * (a card could not say what it answers) — spec 2026-09-26 TER-203 §3.
+ */
+export function scheduleTabSuggestion(repos: Repositories, log: Log, tabId: string, stop: StopFacts): void {
   cancelTabSuggestion(tabId);
+  if (stop.backgroundTasks > 0) {
+    log.info({ tabId, reason: 'background', count: stop.backgroundTasks }, 'tab suggestion skipped');
+    return;
+  }
+  const context = cleanContext(stop.context);
+  if (context === null) {
+    log.info({ tabId, reason: 'no_context' }, 'tab suggestion skipped');
+    return;
+  }
   const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
     const still = () => pending.get(tabId) === timer;
-    void checkTabSuggestion(repos, log, tabId, still).finally(() => {
+    void checkTabSuggestion(repos, log, tabId, context, still).finally(() => {
       if (still()) pending.delete(tabId);
     });
   }, SUGGESTION_DELAY_MS);

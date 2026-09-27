@@ -192,8 +192,16 @@ describe('ingestHookEvent — suggestions', () => {
     const { r } = repos(tab({ state: 'working' }));
     await ingestHookEvent(r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event: { hook_event_name: 'Stop' } });
     expect(cancel).toHaveBeenCalledWith('t1');
-    expect(schedule).toHaveBeenCalledWith(r, log, 't1');
+    expect(schedule).toHaveBeenCalledWith(r, log, 't1', { context: null, backgroundTasks: 0 });
     expect(cancel.mock.invocationCallOrder[0]!).toBeLessThan(schedule.mock.invocationCallOrder[0]!);
+  });
+
+  it("hands the Stop's own message and running background count to the check", async () => {
+    schedule.mockClear();
+    const { r } = repos(tab({ state: 'working' }));
+    const event = { hook_event_name: 'Stop', last_assistant_message: 'Vigiando o CI.', background_tasks: [{ id: 'b1', type: 'shell', status: 'running' }] };
+    await ingestHookEvent(r, log, { machineId: 'm1', tool: 'claude', session: 'th-t1', event });
+    expect(schedule).toHaveBeenCalledWith(r, log, 't1', { context: 'Vigiando o CI.', backgroundTasks: 1 });
   });
 
   it('any other event only cancels — even one the interpreter ignores', async () => {
