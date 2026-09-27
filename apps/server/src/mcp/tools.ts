@@ -8,6 +8,7 @@ import { readScreen, SCREEN_MAX_LINES, WAIT_MAX_SECONDS, waitForState } from '..
 import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendInput, sendKey } from '../control/terminals.js';
 import { linkProjectMachine, PROJECT_CWD, setProjectMachineCwd, unlinkProjectMachine } from '../control/project-links.js';
 import { addSubtasks, createTask, deleteTask, listTasks, moveTask, TASK_DESCRIPTION_MAX, TASK_POSITION_MAX, TASK_TITLE_MAX, updateTask, type CreatableType, type WorkType } from '../control/tasks.js';
+import { getTicket, importTickets, listTickets, pushTicketStatus, syncTickets, TICKET_IMPORT_MAX, TICKET_LIST_MAX } from '../control/tickets.js';
 import { PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
 import { readAttachment } from '../chat/attachments/read-tool.js';
 import { MAX_SUBTASKS_PER_CALL } from '../db/repositories/tasks.js';
@@ -79,13 +80,15 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'find',
-    description: 'Resolve names to ids in one call — e.g. "MacBook Pro M4", "Hub Community", "pedrogoiania", "TER-12" — across machines, projects (name or key), AI accounts and cards (exact ref only) (case- and accent-insensitive, best matches first).',
+    description:
+      'Resolve names to ids in one call — e.g. "MacBook Pro M4", "Hub Community", "pedrogoiania", "TER-12" — across machines, projects (name or key), AI accounts and cards (exact ref only), and external tickets by exact key or URL (kinds: [\'ticket\']) (case- and accent-insensitive, best matches first). A ticket match also carries its project_id (what import_tickets needs) and card ({ id, ref } once imported — the id is the task_id for start_agent — or null); get_ticket gives its full description.',
     // find narrows the kinds it searches to what the user can read, so any one of them is enough
     scope: 'read', resource: 'projects', action: 'read',
-    allowedIf: async (ctx) => (await Promise.all([ctx.can('machines', 'read'), ctx.can('projects', 'read'), ctx.can('tasks', 'read'), ctx.can('ai_accounts', 'read')])).some(Boolean),
-    grantText: 'de leitura de máquinas, projetos, tarefas ou contas de IA',
-    input: { query: z.string().min(1).max(200), kinds: z.array(z.enum(['machine', 'project', 'ai_account', 'task'])).optional() },
-    run: (ctx, a) => find(ctx, a as { query: string; kinds?: ('machine' | 'project' | 'ai_account' | 'task')[] }),
+    allowedIf: async (ctx) =>
+      (await Promise.all([ctx.can('machines', 'read'), ctx.can('projects', 'read'), ctx.can('tasks', 'read'), ctx.can('ai_accounts', 'read'), ctx.can('tickets', 'read')])).some(Boolean),
+    grantText: 'de leitura de máquinas, projetos, tarefas, tickets ou contas de IA',
+    input: { query: z.string().min(1).max(200), kinds: z.array(z.enum(['machine', 'project', 'ai_account', 'task', 'ticket'])).optional() },
+    run: (ctx, a) => find(ctx, a as { query: string; kinds?: ('machine' | 'project' | 'ai_account' | 'task' | 'ticket')[] }),
   },
   {
     name: 'read_screen',
@@ -171,7 +174,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_tasks',
     description:
-      "List a project's cards as the board and backlog show them. Epics group the work; stories, tasks, bugs and spikes are the work; subtasks come nested as a checklist. Each card has a type, a ref (TER-12), its url, its epic_id and its board column ({ id, name, category } — the board shows columns by the user's names, the category todo/doing/done is what they mean; backlog cards have no column). The result also lists the project's columns in order. status, type and epic_id filter the top-level cards.",
+      "List a project's cards as the board and backlog show them. Epics group the work; stories, tasks, bugs and spikes are the work; subtasks come nested as a checklist. Each card has a type, a ref (TER-12), its url, its epic_id, its board column ({ id, name, category } — the board shows columns by the user's names, the category todo/doing/done is what they mean; backlog cards have no column) and its ticket ({ key, url, state, provider } when it came from Linear/Jira/GitHub). The result also lists the project's columns in order. status, type and epic_id filter the top-level cards.",
     scope: 'tasks', resource: 'tasks', action: 'read',
     input: { project_id: id, status: taskStatus.optional(), type: taskType.optional(), epic_id: id.optional() },
     run: (ctx, a) => listTasks(ctx, a as { project_id: string; status?: TaskStatus; type?: TaskType; epic_id?: string }),
@@ -220,6 +223,48 @@ export const TOOLS: ToolDef[] = [
     scope: 'tasks', resource: 'tasks', action: 'delete',
     input: { task_id: id, confirm: z.boolean().optional() },
     run: (ctx, a) => deleteTask(ctx, a as { task_id: string; confirm?: boolean }),
+  },
+  {
+    name: 'list_tickets',
+    description: `List the external tickets (Linear, Jira, GitHub issues) synced into a project — open tickets only, from every source in the project setup. These are not cards: a ticket becomes a card only through import_tickets (card: null until then). source: a scope ("EI", "PROJ", "owner/repo"); imported: false = still to triage; query: key or title. limit default 50, max ${TICKET_LIST_MAX}; total counts all matches. last_sync.sources[].truncated = that source has more than 500 open tickets and the list is partial. Call sync_tickets first when freshness matters.`,
+    scope: 'read', resource: 'tickets', action: 'read',
+    input: { project_id: id, source: z.string().trim().min(1).max(200).optional(), status: taskStatus.optional(), imported: z.boolean().optional(), query: z.string().trim().min(1).max(200).optional(), limit: z.number().int().min(1).max(TICKET_LIST_MAX).optional() },
+    run: (ctx, a) => listTickets(ctx, a as { project_id: string; source?: string; status?: TaskStatus; imported?: boolean; query?: string; limit?: number }),
+  },
+  {
+    name: 'get_ticket',
+    description: 'One external ticket with its full description. key: "EI-123", "PROJ-45", "owner/repo#12" or the ticket URL; with project_id also "repo#12" or "#12". An ambiguous key answers with the candidates. To work on it: import_tickets, then start_agent with the card\'s task id.',
+    scope: 'read', resource: 'tickets', action: 'read',
+    input: { key: z.string().trim().min(1).max(300), project_id: id.optional() },
+    run: (ctx, a) => getTicket(ctx, a as { key: string; project_id?: string }),
+  },
+  {
+    name: 'sync_tickets',
+    description: 'Fetch the open tickets of every source of the project now (Linear, Jira, GitHub). A sync younger than 60 s is reused (cached: true). One failing source does not stop the others: see sources[].error.',
+    scope: 'tasks', resource: 'tickets', action: 'update',
+    input: { project_id: id },
+    run: (ctx, a) => syncTickets(ctx, a as { project_id: string }),
+  },
+  {
+    name: 'import_tickets',
+    description: `Send external tickets to the project backlog as cards linked to them (default epic). keys (same forms as get_ticket) or ticket_ids — exactly one — max ${TICKET_IMPORT_MAX}. A ticket already imported returns its card with created: false.`,
+    scope: 'tasks', resource: 'tasks', action: 'create',
+    input: { project_id: id, keys: z.array(z.string().trim().min(1).max(300)).min(1).max(TICKET_IMPORT_MAX).optional(), ticket_ids: z.array(id).min(1).max(TICKET_IMPORT_MAX).optional() },
+    // the raw `task` (sync key, raw link meta) is for the REST route; the model gets the card
+    run: async (ctx, a) => {
+      const r = await importTickets(ctx, a as { project_id: string; keys?: string[]; ticket_ids?: string[] });
+      return { cards: r.cards.map(({ ticket_key, card, created }) => ({ ticket_key, card, created })) };
+    },
+  },
+  {
+    name: 'push_ticket_status',
+    description: "Change the external ticket's state (Linear/Jira/GitHub) to match its card's current column. It writes to a third-party system and notifies people there: the person always confirms it.",
+    scope: 'tasks', resource: 'tasks', action: 'update',
+    input: { task_id: id },
+    run: async (ctx, a) => {
+      const { card, ticket_key, state } = await pushTicketStatus(ctx, a as { task_id: string });
+      return { card, ticket_key, state };
+    },
   },
 ];
 

@@ -4,6 +4,7 @@ import { listTmuxSessions } from '../terminal/machine-exec.js';
 import { parseRef } from '../db/repositories/task-rules.js';
 import { HttpError } from '../lib/errors.js';
 import { ControlError, type ControlContext } from './context.js';
+import { cardsOf, resolveTickets } from './tickets.js';
 
 export interface MachineSummary {
   id: string;
@@ -126,7 +127,7 @@ function score(name: string, query: string): number {
   return words.every((w) => n.includes(w)) ? 1 : 0;
 }
 
-export type FindKind = 'machine' | 'project' | 'ai_account' | 'task';
+export type FindKind = 'machine' | 'project' | 'ai_account' | 'task' | 'ticket';
 export interface FindMatch {
   kind: FindKind;
   id: string;
@@ -134,6 +135,10 @@ export interface FindMatch {
   machine_id: string | null;
   machine_name: string | null;
   score: number;
+  /** ticket matches only: the project it belongs to (what import_tickets needs) */
+  project_id?: string;
+  /** ticket matches only: its card when imported, null when not yet */
+  card?: { id: string; ref: string } | null;
 }
 
 const FIND_LIMIT = 10;
@@ -142,12 +147,14 @@ const FIND_LIMIT = 10;
 export async function find(ctx: ControlContext, input: { query: string; kinds?: FindKind[] }): Promise<{ matches: FindMatch[] }> {
   const query = normalizeName(input.query);
   if (!query) throw new ControlError('BAD_REQUEST', 'Informe o que procurar');
+  // tickets are opt-in: a machine named like a key must not drown in tickets
   const kinds = new Set<FindKind>(input.kinds?.length ? input.kinds : ['machine', 'project', 'ai_account', 'task']);
-  const [canMachines, canProjects, canAccounts, canTasks] = await Promise.all([
+  const [canMachines, canProjects, canAccounts, canTasks, canTickets] = await Promise.all([
     ctx.can('machines', 'read'),
     ctx.can('projects', 'read'),
     ctx.can('ai_accounts', 'read'),
     ctx.can('tasks', 'read'),
+    ctx.can('tickets', 'read'),
   ]);
   const machines = await ctx.repos.machines.list(ctx.scope.ownerId);
   const names = new Map(machines.map((m) => [m.id, m.name]));
@@ -166,6 +173,16 @@ export async function find(ctx: ControlContext, input: { query: string; kinds?: 
       matches.push({ kind: 'task', id: task.id, name: `${task.ref} ${task.title}`, machine_id: null, machine_name: null, score: 3 });
     } catch (e) {
       if (!(e instanceof HttpError && e.statusCode === 404)) throw e;
+    }
+  }
+  // A ticket only by its exact key or URL ("EI-123", "owner/repo#12"), across the user's projects.
+  if (kinds.has('ticket') && canTickets) {
+    const projectIds = (await ctx.repos.projects.list({ owner: ctx.scope.ownerId })).map((p) => p.id);
+    const found = await resolveTickets(ctx, input.query, projectIds, false);
+    const cards = await cardsOf(ctx, found);
+    for (const t of found) {
+      const card = t.task_id ? cards.get(t.task_id) : undefined;
+      matches.push({ kind: 'ticket', id: t.id, name: `${t.key} ${t.title}`, machine_id: null, machine_name: null, score: 3, project_id: t.project_id, card: card ? { id: card.id, ref: card.ref } : null });
     }
   }
   matches.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));

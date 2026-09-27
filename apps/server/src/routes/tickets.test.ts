@@ -1,5 +1,11 @@
 import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// control/tickets.js (imported by routes/tickets.js) pulls in control/tasks.js for cardUrl(), which
+// reads config.publicUrl; config.js itself validates process.env (DATABASE_URL etc.) on import, so a
+// unit test that never boots the app needs this mock, same as control/tickets.test.ts.
+vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
+
 import type { Repositories } from '../db/repositories/index.js';
 import type { Machine, Project, ProjectMachine, Tab, Task } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
@@ -34,6 +40,7 @@ function buildApp(links: ProjectMachine[]) {
   const tasks: Record<string, Task> = {
     t1: task({ id: 't1', project_id: 'p1', title: 'Corrigir o build' }),
     t9: task({ id: 't9', project_id: 'p1', title: 'Já tem terminal', tab_id: 'live' }),
+    t2: task({ id: 't2', project_id: 'p1', external_ref: { provider: 'github', id: '4', identifier: '#4', url: 'u', state: 'open', status: 'backlog', scope: 'acme/api' } }),
   };
   let tabs: Tab[] = [liveTab];
 
@@ -112,6 +119,15 @@ describe('POST /tasks/:id/terminal', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('NO_MACHINE');
     expect(createTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /tasks/:id/terminal names the tab by the ticket key', () => {
+  it('uses the key of a legacy GitHub link', async () => {
+    const { app, createTab } = buildApp([link('p1', 'm1')]);
+    const res = await app.inject({ method: 'POST', url: '/tasks/t2/terminal' });
+    expect(res.statusCode).toBe(200);
+    expect(createTab).toHaveBeenCalledWith('p1', 'm1', 'acme/api#4');
   });
 });
 

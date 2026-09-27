@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../terminal/machine-exec.js', () => ({ listTmuxSessions: vi.fn() }));
 vi.mock('../agent/registry.js', () => ({ agents: { isOnline: vi.fn() } }));
+// inventory -> tickets.ts -> tasks.ts -> config.js (same pattern as control/tasks.test.ts)
+vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
 
 import { agents } from '../agent/registry.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -65,8 +67,20 @@ function ctx(grants: string[] = ['machines:read', 'projects:read', 'terminals:re
     aiAccounts: { list: vi.fn(async (owner: string | null) => accounts.filter((a) => owner === null || machines.find((m) => m.id === a.machine_id)!.owner_id === owner)) },
     tasks: {
       listByProject: vi.fn(async (pid: string) => (pid === 'p1' ? [{ id: 'k1', title: 'XPTO', status: 'doing', tab_id: 't1', subtasks: [] }] : [])),
+      findByIds: vi.fn(async (ids: string[]) => (ids.includes('k12') ? [{ id: 'k12', project_id: 'p1', ref: 'P1-12', title: 'Checkout' }] : [])),
       findByRef: vi.fn(async (pid: string, n: number) =>
         pid === 'p1' && n === 12 ? { id: 'k12', project_id: 'p1', ref: 'P1-12', title: 'Checkout' } : pid === 'px' && n === 1 ? { id: 'kx1', project_id: 'px', ref: 'PX-1', title: 'Deles' } : undefined,
+      ),
+    },
+    tickets: {
+      findByKeyish: vi.fn(async (pids: string[], q: { key?: string; url?: string; suffix?: string }) =>
+        !q.key || !pids.includes('p1')
+          ? []
+          : q.key.toLowerCase() === 'ei-5'
+            ? [{ id: 'tk-ei5', project_id: 'p1', key: 'EI-5', title: 'Corrigir bug', task_id: 'k12' }]
+            : q.key.toLowerCase() === 'ei-6'
+              ? [{ id: 'tk-ei6', project_id: 'p1', key: 'EI-6', title: 'Novo', task_id: null }]
+              : [],
       ),
     },
   } as unknown as Repositories;
@@ -199,5 +213,18 @@ describe('find', () => {
     expect((await find(ctx(grants), { query: 'PX-1', kinds: ['task'] })).matches).toEqual([]); // another user's project
     expect((await find(ctx(grants), { query: 'P1-99', kinds: ['task'] })).matches).toEqual([]);
     expect((await find(ctx(), { query: 'P1-12', kinds: ['task'] })).matches).toEqual([]); // no tasks:read
+  });
+
+  it('finds an external ticket by its exact key, only with kinds: ["ticket"] and the tickets:read grant', async () => {
+    const grants = ['machines:read', 'projects:read', 'ai_accounts:read', 'tasks:read', 'tickets:read'];
+    expect((await find(ctx(grants), { query: 'EI-5', kinds: ['ticket'] })).matches).toEqual([
+      { kind: 'ticket', id: 'tk-ei5', name: 'EI-5 Corrigir bug', machine_id: null, machine_name: null, score: 3, project_id: 'p1', card: { id: 'k12', ref: 'P1-12' } },
+    ]);
+    // not imported yet: its project (for import_tickets) and no card
+    expect((await find(ctx(grants), { query: 'EI-6', kinds: ['ticket'] })).matches).toEqual([
+      { kind: 'ticket', id: 'tk-ei6', name: 'EI-6 Novo', machine_id: null, machine_name: null, score: 3, project_id: 'p1', card: null },
+    ]);
+    // no tickets:read grant: no ticket match, even asking for it explicitly
+    expect((await find(ctx(), { query: 'EI-5', kinds: ['ticket'] })).matches).toEqual([]);
   });
 });

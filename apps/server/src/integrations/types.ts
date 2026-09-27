@@ -1,14 +1,17 @@
 export type IntegrationProvider = 'github' | 'linear' | 'jira';
 export type KanbanStatus = 'backlog' | 'todo' | 'doing' | 'done';
 
+/** Caps how many tickets a single source contributes to one sync/list call. */
+export const MAX_TICKETS_PER_SOURCE = 500;
+
 /** Ticket normalizado vindo de Linear/Jira/GitHub. */
 export interface ExternalTicket {
-  /** chave estável: "linear:<id>" | "jira:<KEY>" | "github:<owner/repo>#<n>" */
-  key: string;
+  /** stable key: linear:<id> | jira:<KEY> | github:<owner/repo>#<n> */
+  sync_key: string;
   provider: IntegrationProvider;
-  id: string;
-  /** identificador humano: EI-123, PROJ-45, #12 */
-  identifier: string;
+  provider_id: string;
+  /** what people type: EI-123, PROJ-45, owner/repo#12 */
+  key: string;
   title: string;
   description: string | null;
   url: string;
@@ -38,19 +41,24 @@ export interface TicketSourceConfig {
   scope: string;
   /** filtro extra: Linear = nomes de estados; Jira = JQL adicional; GitHub = labels */
   filter?: string | null;
-  /** incluir tickets concluídos (default: só os abertos + concluídos recentemente) */
-  include_done?: boolean;
+}
+
+/** One page of tickets from a source, capped at MAX_TICKETS_PER_SOURCE. */
+export interface TicketPage {
+  tickets: ExternalTicket[];
+  /** true when the source has more tickets than the cap allowed us to fetch */
+  truncated: boolean;
 }
 
 export interface TicketProvider {
   provider: IntegrationProvider;
   /** valida credenciais e devolve opções para o setup */
   testConnection(secret: string, config: Record<string, unknown>): Promise<ConnectionInfo>;
-  /** lista tickets do escopo configurado */
-  listTickets(secret: string, config: Record<string, unknown>, source: TicketSourceConfig): Promise<ExternalTicket[]>;
+  /** lista tickets abertos do escopo configurado, paginando até MAX_TICKETS_PER_SOURCE */
+  listTickets(secret: string, config: Record<string, unknown>, source: TicketSourceConfig): Promise<TicketPage>;
   /**
    * Atualiza o estado do ticket no provedor para refletir a coluna do kanban.
    * Só é chamado por ação explícita do usuário. Devolve o novo estado bruto.
    */
-  updateStatus(secret: string, config: Record<string, unknown>, ticket: { id: string; identifier: string; scope: string }, status: KanbanStatus): Promise<string>;
+  updateStatus(secret: string, config: Record<string, unknown>, ticket: { provider_id: string; key: string; scope: string }, status: KanbanStatus): Promise<string>;
 }

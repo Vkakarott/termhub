@@ -136,6 +136,35 @@ describe('TasksBoard — columns, cards and filter', () => {
     await waitFor(() => expect(moveMock).toHaveBeenCalledWith('t1', { column_id: 'c2' }, 0));
     expect(within(screen.getByRole('region', { name: 'Em revisão' })).getByText('t1')).toBeInTheDocument();
   });
+
+  it('shows a legacy GitHub link\'s key as a subtitle under the title, without repeating it in the title', async () => {
+    listMock.mockResolvedValue(
+      board([
+        epic('e1', 'Geral', 1),
+        task({ id: 'a', title: 'Login quebra', external_ref: { provider: 'github', id: '4', identifier: '#4', url: 'https://x', state: 'open', status: 'todo', scope: 'acme/api' } }),
+      ]),
+    );
+    mount();
+    expect(await screen.findByText('Login quebra')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'acme/api#4' });
+    expect(link).toHaveAttribute('href', 'https://x');
+  });
+
+  it('a card imported before the change ("EI-123 Título") shows the title without the key prefix', async () => {
+    listMock.mockResolvedValue(
+      board([
+        epic('e1', 'Geral', 1),
+        task({ id: 'a', title: 'EI-123 Login quebra', external_ref: { provider: 'linear', id: 'u', identifier: 'EI-123', url: 'https://l', state: 'Todo', status: 'todo' } }),
+        task({ id: 'b', title: '#12 Safari trava', external_ref: { provider: 'github', id: '12', identifier: '#12', url: 'https://g', state: 'open', status: 'todo', scope: 'acme/api' } }),
+      ]),
+    );
+    mount();
+    expect(await screen.findByText('Login quebra')).toBeInTheDocument();
+    expect(screen.getByText('Safari trava')).toBeInTheDocument();
+    expect(screen.queryByText(/EI-123 Login quebra/)).toBeNull();
+    expect(screen.getByRole('link', { name: 'EI-123' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'acme/api#12' })).toBeInTheDocument();
+  });
 });
 
 describe('TasksBoard — drag and drop', () => {

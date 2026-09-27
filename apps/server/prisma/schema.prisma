@@ -336,9 +336,13 @@ model Ticket {
   projectId     String              @map("project_id")
   integrationId String              @map("integration_id")
   provider      IntegrationProvider
-  /// "linear:<id>" | "jira:<KEY>" | "github:<owner/repo>#<n>"
-  externalKey   String              @map("external_key")
-  identifier    String
+  /// "linear:<id>" | "jira:<KEY>" | "github:<owner/repo>#<n>" — the sync's dedup key, never shown
+  syncKey       String              @map("external_key")
+  /// what people type and see: EI-123, PROJ-45, owner/repo#12
+  key           String              @map("identifier")
+  /// the setup source it came from (Linear team, Jira project, GitHub owner/repo); null only on rows
+  /// written before 2026-09-26 whose meta lacked it
+  scope         String?
   title         String
   description   String?
   url           String
@@ -352,8 +356,8 @@ model Ticket {
   createdAt     DateTime            @default(now()) @map("created_at")
   project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@unique([projectId, externalKey])
-  @@index([projectId, integrationId])
+  @@unique([projectId, syncKey])
+  @@index([projectId, integrationId, scope])
   @@map("tickets")
 }
 

@@ -35,6 +35,8 @@ const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'Terminal 2', 
 const project = { id: 'p1', name: 'reactivando' };
 const machine = { id: 'm1', name: 'macbook m3' };
 const task = { id: 'tk1', project_id: 'p1', title: 'Corrigir o build', ref: 'REA-7' };
+const linkedTask = { id: 'tk2', project_id: 'p1', title: 'Ajustar layout', ref: 'REA-8', status: 'doing', external_ref: { provider: 'linear', key: 'EI-1', provider_id: 'u', status: 'done' } };
+const ticketRows = Array.from({ length: 12 }, (_, i) => ({ id: `ticket-${i + 1}`, key: `EI-${i + 1}` }));
 
 // Another user's rows — a proposed action naming one of these ids must never surface its name,
 // title, or existence on this owner's card (the cross-tenant disclosure this fix closes).
@@ -58,7 +60,18 @@ function fakeRepos(tabOverride?: Partial<typeof tab>) {
     tabs: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(t.id) ? [t] : [])) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(project.id) ? [project] : [])) },
     machines: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(machine.id) ? [machine] : [])) },
-    tasks: { findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === OWNER && ids.includes(task.id) ? [task] : [])) },
+    tasks: {
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => {
+        if (ownerId !== OWNER) return [];
+        return [task, linkedTask].filter((k) => ids.includes(k.id));
+      }),
+    },
+    tickets: {
+      findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => {
+        if (ownerId !== OWNER) return [];
+        return ticketRows.filter((k) => ids.includes(k.id));
+      }),
+    },
     apiTokens: { listByUser: vi.fn(async (userId: string) => (userId === OWNER ? [{ id: 'tokChat', gated: true }, { id: 'tokMine', gated: false }] : [])) },
   } as never;
 }
@@ -251,6 +264,65 @@ it('names every other task tool by the task\'s title too', async () => {
 
   const [moveTask] = await describeActions(repos, [action({ tool: 'move_task', args: { task_id: 'tk1', status: 'done' } })], OWNER);
   expect(moveTask.summary).toBe('mover a tarefa REA-7 "Corrigir o build" no projeto reactivando');
+});
+
+it('sync_tickets reads as fetching every source, no task or location involved', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'sync_tickets', args: { project_id: 'p1' } })], OWNER);
+  expect(card.summary.startsWith('sincronizar os tickets de todas as fontes')).toBe(true);
+});
+
+it('import_tickets names the keys and how many, pluralizing the noun', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'import_tickets', args: { project_id: 'p1', keys: ['EI-1', 'EI-2'] } })], OWNER);
+  expect(card.summary.startsWith('importar 2 tickets para o backlog: EI-1, EI-2')).toBe(true);
+});
+
+it('import_tickets uses the singular noun for one ticket', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'import_tickets', args: { project_id: 'p1', keys: ['EI-1'] } })], OWNER);
+  expect(card.summary.startsWith('importar 1 ticket para o backlog: EI-1')).toBe(true);
+});
+
+// The gap the fix closes: with ticket_ids (no keys) the old sentence named nothing at all —
+// "importar N tickets para o backlog" — so the person approved blind. Resolving them through the
+// same owner-scoped batch as tabs/tasks means the card names exactly what would be imported.
+it('import_tickets with ticket_ids resolves them to keys through the owner-scoped batch', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'import_tickets', args: { project_id: 'p1', ticket_ids: ['ticket-1', 'ticket-2'] } })], OWNER);
+  expect(card.summary.startsWith('importar 2 tickets para o backlog: EI-1, EI-2')).toBe(true);
+});
+
+it('import_tickets lists at most 10 keys, then "e mais N" for the rest', async () => {
+  const repos = fakeRepos();
+  const ids = ticketRows.map((t) => t.id); // 12 tickets
+  const [card] = await describeActions(repos, [action({ tool: 'import_tickets', args: { project_id: 'p1', ticket_ids: ids } })], OWNER);
+  expect(card.summary.startsWith('importar 12 tickets para o backlog: EI-1, EI-2, EI-3, EI-4, EI-5, EI-6, EI-7, EI-8, EI-9, EI-10 e mais 2')).toBe(true);
+});
+
+it('a foreign or gone ticket id in ticket_ids simply does not resolve, never leaking it, while the count still reflects what was asked', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'import_tickets', args: { project_id: 'p1', ticket_ids: ['ticket-1', 'nope'] } })], OWNER);
+  expect(card.summary.startsWith('importar 2 tickets para o backlog: EI-1')).toBe(true);
+  expect(card.summary).not.toContain('nope');
+});
+
+it('push_ticket_status names the ticket, its provider, the target state and the card', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'push_ticket_status', args: { task_id: 'tk2' } })], OWNER);
+  expect(card.summary).toContain('mudar o EI-1 no Linear para "Fazendo" (como a tarefa REA-8 "Ajustar layout")');
+});
+
+it('push_ticket_status on a card without a ticket link names the card plainly', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'push_ticket_status', args: { task_id: 'tk1' } })], OWNER);
+  expect(card.summary).toContain('atualizar o ticket da tarefa');
+});
+
+it('push_ticket_status on a task that no longer exists says so plainly, rather than a bare id', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'push_ticket_status', args: { task_id: 'gone' } })], OWNER);
+  expect(card.summary).toBe('atualizar o ticket de uma tarefa que não existe mais');
 });
 
 it('says plainly that a deleted task no longer exists, rather than falling back to its bare id — itself useful for deciding', async () => {

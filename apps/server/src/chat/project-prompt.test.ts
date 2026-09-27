@@ -40,6 +40,12 @@ it('tells the concierge that ⟦…⟧ is a dimmed suggestion, never typed text 
   expect(text).toMatch(/styled: false, text after ❯ may be such a suggestion too/);
 });
 
+it('tells the concierge external tickets are not cards and how to bring them in', () => {
+  const text = projectSystemPrompt({ name: 'X', key: 'X' }, []);
+  expect(text).toContain('list_tickets');
+  expect(text).toContain('import_tickets');
+});
+
 it('stays under the protocol cap with a long name and many long paths, and keeps the whole tail', () => {
   const links = Array.from({ length: 200 }, (_, i) => ({ machine: `m${i}`, cwd: `/very/long/path/${'d'.repeat(40)}/${i}` }));
   const text = projectSystemPrompt({ name: 'N'.repeat(200), key: 'X' }, links);

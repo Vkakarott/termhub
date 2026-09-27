@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { TaskRuleError } from '../db/repositories/tasks.js';
 import type { ColumnCategory, Task, TaskColumn, TaskStatus, TaskType, TaskWithSubtasks } from '../db/repositories/types.js';
+import { readTicketLink } from '../integrations/ticket-link.js';
 import { ControlError, type ControlContext } from './context.js';
 
 /** Field limits, the same the REST routes enforce (`routes/tasks.ts`). */
@@ -34,7 +35,8 @@ export interface TaskOut {
   epic_id: string | null;
   column_id: string | null;
   tab_id: string | null;
-  external_key: string | null;
+  /** the external ticket this card came from (Linear/Jira/GitHub), or null */
+  ticket: { key: string; url: string; state: string; provider: string } | null;
   created_at: string;
   updated_at: string;
 }
@@ -66,12 +68,13 @@ export function boardUrl(projectId: string): string {
   return `${config.publicUrl}/projects/${projectId}/tasks`;
 }
 
-const out = (t: Task): TaskOut => ({
+export const taskOut = (t: Task): TaskOut => ({
   id: t.id, project_id: t.project_id, type: t.type, ref: t.ref, url: cardUrl(t.ref), title: t.title, description: t.description, status: t.status,
-  position: t.position, parent_id: t.parent_id, epic_id: t.epic_id, column_id: t.column_id, tab_id: t.tab_id, external_key: t.external_key,
+  position: t.position, parent_id: t.parent_id, epic_id: t.epic_id, column_id: t.column_id, tab_id: t.tab_id,
+  ticket: (() => { const l = readTicketLink(t.external_ref); return l ? { key: l.key, url: l.url, state: l.state, provider: l.provider } : null; })(),
   created_at: t.created_at, updated_at: t.updated_at,
 });
-const outTree = (t: TaskWithSubtasks): TaskTreeOut => ({ ...out(t), subtasks: t.subtasks.map(out), subtask_counts: t.subtask_counts });
+const outTree = (t: TaskWithSubtasks): TaskTreeOut => ({ ...taskOut(t), subtasks: t.subtasks.map(taskOut), subtask_counts: t.subtask_counts });
 const columnOut = (c: TaskColumn): ColumnOut => ({ id: c.id, name: c.name, category: c.category });
 
 /** Board rules live in the repository; a broken one is the caller's mistake, said in pt-BR. */
@@ -117,7 +120,7 @@ export async function createTask(
 export async function addSubtasks(ctx: ControlContext, input: { task_id: string; subtasks: SubtaskIn[] }): Promise<{ task_id: string; subtasks: TaskOut[]; board_url: string }> {
   const { task } = await ctx.scoped.task(input.task_id);
   const created = await rules(() => ctx.repos.tasks.createSubtasks(task.id, input.subtasks, task.project_id));
-  return { task_id: task.id, subtasks: created.map(out), board_url: boardUrl(task.project_id) };
+  return { task_id: task.id, subtasks: created.map(taskOut), board_url: boardUrl(task.project_id) };
 }
 
 export async function updateTask(
@@ -132,7 +135,7 @@ export async function updateTask(
     ctx.repos.tasks.update(task.id, { title: input.title, description: input.description, status: input.status, type: input.type, epic_id: input.epic_id }),
   );
   if (!updated) throw new ControlError('NOT_FOUND', 'Tarefa não encontrada');
-  return { task: out(updated), board_url: boardUrl(task.project_id) };
+  return { task: taskOut(updated), board_url: boardUrl(task.project_id) };
 }
 
 /** Top-level cards only: the repository refuses a subtask (they have no column of their own). */
@@ -145,7 +148,7 @@ export async function moveTask(
   const target = input.column_id !== undefined ? { column_id: input.column_id } : { status: input.status as TaskStatus };
   const moved = await rules(() => ctx.repos.tasks.move(task.id, target, input.position ?? 0));
   if (!moved) throw new ControlError('NOT_FOUND', 'Tarefa não encontrada');
-  return { task: out(moved), board_url: boardUrl(task.project_id) };
+  return { task: taskOut(moved), board_url: boardUrl(task.project_id) };
 }
 
 const subtaskCount = (n: number) => (n === 1 ? '1 subtarefa' : `${n} subtarefas`);

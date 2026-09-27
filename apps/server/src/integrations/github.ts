@@ -1,4 +1,5 @@
-import type { ConnectionInfo, ExternalTicket, TicketProvider, TicketSourceConfig } from './types.js';
+import type { ConnectionInfo, ExternalTicket, TicketProvider } from './types.js';
+import { collectPages } from './paginate.js';
 
 const API = 'https://api.github.com';
 
@@ -27,32 +28,35 @@ export const github: TicketProvider = {
   async listTickets(secret, _config, source) {
     const [owner, repo] = source.scope.split('/');
     if (!owner || !repo) throw new Error('scope do GitHub deve ser owner/repo');
-    const state = source.include_done ? 'all' : 'open';
     const labels = source.filter ? `&labels=${encodeURIComponent(source.filter)}` : '';
-    const issues = await gh<
-      { number: number; title: string; body: string | null; html_url: string; state: string; updated_at: string; pull_request?: unknown; labels: { name: string }[]; assignee: { login: string } | null }[]
-    >(secret, `/repos/${owner}/${repo}/issues?state=${state}&per_page=100${labels}`);
-    return issues
-      .filter((i) => !i.pull_request)
-      .map<ExternalTicket>((i) => ({
-        key: `github:${owner}/${repo}#${i.number}`,
+    type Issue = { number: number; title: string; body: string | null; html_url: string; state: string; updated_at: string; pull_request?: unknown; labels: { name: string }[]; assignee: { login: string } | null };
+    const { items, truncated } = await collectPages<Issue, number>(async (page) => {
+      const p = page ?? 1;
+      const raw = await gh<Issue[]>(secret, `/repos/${owner}/${repo}/issues?state=open&per_page=100&page=${p}${labels}`);
+      return { items: raw.filter((i) => !i.pull_request), next: raw.length === 100 ? p + 1 : null };
+    });
+    return {
+      truncated,
+      tickets: items.map<ExternalTicket>((i) => ({
+        sync_key: `github:${owner}/${repo}#${i.number}`,
         provider: 'github',
-        id: String(i.number),
-        identifier: `#${i.number}`,
+        provider_id: String(i.number),
+        key: `${owner}/${repo}#${i.number}`,
         title: i.title,
         description: i.body,
         url: i.html_url,
         state: i.state,
-        status: i.state === 'closed' ? 'done' : i.assignee ? 'doing' : 'backlog',
+        status: i.assignee ? 'doing' : 'backlog',
         updatedAt: i.updated_at,
         meta: { labels: i.labels.map((l) => l.name), assignee: i.assignee?.login ?? null },
-      }));
+      })),
+    };
   },
 
   async updateStatus(secret, _config, ticket, status) {
     const [owner, repo] = ticket.scope.split('/');
     const state = status === 'done' ? 'closed' : 'open';
-    await gh(secret, `/repos/${owner}/${repo}/issues/${ticket.id}`, { method: 'PATCH', body: JSON.stringify({ state }) });
+    await gh(secret, `/repos/${owner}/${repo}/issues/${ticket.provider_id}`, { method: 'PATCH', body: JSON.stringify({ state }) });
     return state;
   },
 };

@@ -13,6 +13,8 @@ const readTools = new Set([
   'read_screen',
   'wait_for_state',
   'list_tasks',
+  'list_tickets',
+  'get_ticket',
   'read_attachment',
 ]);
 
@@ -27,13 +29,15 @@ const writeTools = new Set([
   'move_task',
   'link_project_machine',
   'set_project_machine_cwd',
+  'sync_tickets',
+  'import_tickets',
 ]);
 
 // close_tab must stay irreversible and never become grantable (or otherwise auto-approved):
 // control/terminals.ts skips its per-token ownership check for a gated token because every gated
 // close_tab is asked here. Letting it through without a question would let the chat close any of the
 // user's tabs. Revisit control/terminals.ts's `!ctx.token.gated` check first.
-const irreversibleTools = new Set(['close_tab', 'delete_task']);
+const irreversibleTools = new Set(['close_tab', 'delete_task', 'push_ticket_status']);
 
 // Keys that interrupt the running process and cannot be undone
 const interruptingKeys = new Set(['C-c', 'Escape']);

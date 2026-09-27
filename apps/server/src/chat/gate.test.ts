@@ -54,6 +54,14 @@ it('decides from the row: nothing asks, pending waits, approved allows, denied r
   expect(gateDecision({ status: 'expired' } as never, 'write')).toBe('refuse');
 });
 
+it('classifies the ticket tools', () => {
+  expect(actionClass('list_tickets', {})).toBe('read');
+  expect(actionClass('get_ticket', {})).toBe('read');
+  expect(actionClass('sync_tickets', {})).toBe('write');
+  expect(actionClass('import_tickets', {})).toBe('write');
+  expect(actionClass('push_ticket_status', {})).toBe('irreversible');
+});
+
 describe('grantable', () => {
   it('is only send_input to a named tab that is not answering a permission', () => {
     expect(grantable('send_input', { tab_id: 't1', text: 'oi' })).toBe(true);

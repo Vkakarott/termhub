@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api';
 import { applyMove, cardPath, cardsIn, dropPosition, epicsOf, FILTER_TYPES, nextColumn, openCount, readBoardFilter, visible, writeBoardFilter, type BoardFilter } from '../lib/board';
 import { useData } from '../lib/data';
 import { readLastMachine, writeLastMachine } from '../lib/last-machine';
+import { cardTitle, ticketKey } from '../lib/ticket-link';
 import { COLUMN_CATEGORY_LABEL, PROVIDER_LABEL, TASK_TYPE_LABEL, type ColumnCategory, type Task, type TaskColumn, type TaskPatchInput, type TaskType } from '../lib/types';
 import { MachinePicker } from './MachinePicker';
 import { TaskEditor, type PlaceTarget } from './TaskEditor';
@@ -411,7 +412,7 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, n
       }}
       role="button"
       tabIndex={0}
-      aria-label={`${task.ref} ${task.title}`}
+      aria-label={`${task.ref} ${cardTitle(task.title, task.external_ref)}`}
       onClick={() => {
         if (draggedRef.current) return;
         onOpen();
@@ -432,19 +433,7 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, n
         <TypeBadge type={task.type} />
         <span className="flex-1 break-words">
           <span className="mr-1.5 font-mono text-[10px] text-fg-dim">{task.ref}</span>
-          {task.external_ref && (
-            <a
-              href={task.external_ref.url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="mr-1.5 rounded bg-accent/15 px-1 font-mono text-[10px] text-accent hover:bg-accent/25"
-              title={`${task.external_ref.provider}: ${task.external_ref.state}`}
-            >
-              {task.external_ref.identifier}
-            </a>
-          )}
-          {task.external_ref ? task.title.replace(task.external_ref.identifier, '').trim() : task.title}
+          {cardTitle(task.title, task.external_ref)}
         </span>
         {total > 0 && (
           <span className="shrink-0 rounded bg-bg-4 px-1 text-[10px] tabular-nums text-fg-muted" title={`${done} de ${total} subtarefas concluídas`}>
@@ -481,6 +470,18 @@ function TaskCard({ task, epicTitle, dragging, onDragStart, onDragEnd, onOpen, n
           </button>
         )}
       </div>
+      {task.external_ref && (
+        <a
+          href={task.external_ref.url}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="mt-0.5 block truncate font-mono text-[10px] text-accent hover:underline"
+          title={`${PROVIDER_LABEL[task.external_ref.provider]}: ${task.external_ref.state}`}
+        >
+          {ticketKey(task.external_ref)}
+        </a>
+      )}
       {epicTitle && (
         <p className="mt-0.5 truncate text-[10px] text-fg-dim" title={`Épico: ${epicTitle}`}>
           {epicTitle}

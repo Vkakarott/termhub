@@ -1,4 +1,5 @@
 import type { ConnectionInfo, ExternalTicket, TicketProvider, TicketSourceConfig } from './types.js';
+import { collectPages } from './paginate.js';
 
 const API = 'https://api.linear.app/graphql';
 
@@ -44,47 +45,39 @@ export const linear: TicketProvider = {
   },
 
   async listTickets(secret, _config, source: TicketSourceConfig) {
-    const stateFilter = source.include_done ? {} : { state: { type: { nin: ['completed', 'canceled'] } } };
-    const nameFilter = source.filter
-      ? { state: { name: { in: source.filter.split(',').map((s) => s.trim()).filter(Boolean) } } }
-      : {};
-    const data = await gql<{
-      issues: {
-        nodes: {
-          id: string;
-          identifier: string;
-          title: string;
-          description: string | null;
-          url: string;
-          updatedAt: string;
-          priority: number;
-          state: { name: string; type: string };
-          assignee: { name: string } | null;
-          labels: { nodes: { name: string }[] };
-        }[];
-      };
-    }>(
-      secret,
-      `query($filter: IssueFilter) {
-        issues(filter: $filter, first: 100, orderBy: updatedAt) {
-          nodes { id identifier title description url updatedAt priority state { name type } assignee { name } labels { nodes { name } } }
-        }
-      }`,
-      { filter: { team: { key: { eq: source.scope } }, ...stateFilter, ...nameFilter } },
-    );
-    return data.issues.nodes.map<ExternalTicket>((i) => ({
-      key: `linear:${i.id}`,
-      provider: 'linear',
-      id: i.id,
-      identifier: i.identifier,
-      title: i.title,
-      description: i.description,
-      url: i.url,
-      state: i.state.name,
-      status: mapState(i.state.type),
-      updatedAt: i.updatedAt,
-      meta: { priority: i.priority, assignee: i.assignee?.name ?? null, labels: i.labels.nodes.map((l) => l.name) },
-    }));
+    const names = source.filter ? source.filter.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    // one `state` object: a separate name filter would overwrite the open-only one
+    const state = { type: { nin: ['completed', 'canceled'] }, ...(names.length ? { name: { in: names } } : {}) };
+    type Node = { id: string; identifier: string; title: string; description: string | null; url: string; updatedAt: string; priority: number; state: { name: string; type: string }; assignee: { name: string } | null; labels: { nodes: { name: string }[] } };
+    const { items, truncated } = await collectPages<Node, string>(async (after) => {
+      const data = await gql<{ issues: { nodes: Node[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }>(
+        secret,
+        `query($filter: IssueFilter, $after: String) {
+          issues(filter: $filter, first: 100, after: $after, orderBy: updatedAt) {
+            nodes { id identifier title description url updatedAt priority state { name type } assignee { name } labels { nodes { name } } }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`,
+        { filter: { team: { key: { eq: source.scope } }, state }, after },
+      );
+      return { items: data.issues.nodes, next: data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null };
+    });
+    return {
+      truncated,
+      tickets: items.map<ExternalTicket>((i) => ({
+        sync_key: `linear:${i.id}`,
+        provider: 'linear',
+        provider_id: i.id,
+        key: i.identifier,
+        title: i.title,
+        description: i.description,
+        url: i.url,
+        state: i.state.name,
+        status: mapState(i.state.type),
+        updatedAt: i.updatedAt,
+        meta: { priority: i.priority, assignee: i.assignee?.name ?? null, labels: i.labels.nodes.map((l) => l.name) },
+      })),
+    };
   },
 
   async updateStatus(secret, _config, ticket, status) {
@@ -96,7 +89,7 @@ export const linear: TicketProvider = {
     const target = data.workflowStates.nodes.filter((s) => s.type === STATE_TYPE[status]).sort((a, b) => a.position - b.position)[0];
     if (!target) throw new Error(`Linear: time ${ticket.scope} não tem estado do tipo ${STATE_TYPE[status]}`);
     await gql(secret, `mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }`, {
-      id: ticket.id,
+      id: ticket.provider_id,
       stateId: target.id,
     });
     return target.name;
