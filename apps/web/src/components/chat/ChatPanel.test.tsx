@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
 import type { ChatAction, ChatGrant, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from '../../lib/types';
 
@@ -24,6 +24,7 @@ const uploadMock = vi.fn();
 const removeAttachmentMock = vi.fn();
 const forgetDecisionMock = vi.fn();
 const cancelSubagentMock = vi.fn();
+const compactMock = vi.fn();
 
 vi.mock('../../lib/api', () => {
   // Same signature as the real one: the page shows `message`, so a stand-in that swallows it would
@@ -52,6 +53,7 @@ vi.mock('../../lib/api', () => {
       decideChatActions: (...a: unknown[]) => decideManyMock(...a),
       setChatHost: (...a: unknown[]) => setHostMock(...a),
       resetChat: (...a: unknown[]) => resetMock(...a),
+      compactChat: (...a: unknown[]) => compactMock(...a),
       revokeChatGrant: (...a: unknown[]) => revokeMock(...a),
       answerTabQuestion: (...a: unknown[]) => answerMock(...a),
       tabQuestionScreen: (...a: unknown[]) => screenMock(...a),
@@ -144,6 +146,8 @@ beforeEach(() => {
   removeAttachmentMock.mockReset();
   forgetDecisionMock.mockReset();
   cancelSubagentMock.mockReset();
+  compactMock.mockReset();
+  compactMock.mockResolvedValue({ conversation_id: 'c1' });
   screenMock.mockResolvedValue({ text: 'Do you want to proceed?' });
   accountsMock.mockResolvedValue({ accounts: [] });
   auth.state = { user: { id: 'u1' }, viewAs: null };
@@ -1003,4 +1007,97 @@ it('the subagents popover is a labelled dialog the toggle points at', async () =
   const dialog = await screen.findByRole('dialog', { name: 'Subagentes' });
   expect(toggle).toHaveAttribute('aria-expanded', 'true');
   expect(toggle.getAttribute('aria-controls')).toBe(dialog.id);
+});
+
+describe('context meter and "Compactar" (TER-315)', () => {
+  /** The account-wide chat with a fill of 170k in a 200k window, and the socket's `onEvent`. */
+  const renderFull = async (over: Record<string, unknown> = {}) => {
+    let onEvent!: (e: unknown) => void;
+    streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+      onEvent = cb;
+      return { connected: true };
+    });
+    chatMock.mockResolvedValue({
+      conversation: { id: 'c1', project_id: null, ai_account_id: null, context_tokens: 170_000, context_window: 200_000 },
+      messages: [msg({ id: 'm1', role: 'user', text: 'oi' }), msg({ id: 'm2', role: 'assistant', text: 'olá' })],
+      actions: [],
+      host: READY,
+      ...over,
+    });
+    render(
+      <MemoryRouter>
+        <ChatPanel projectId={null} />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('meter');
+    return { emit: (e: unknown) => act(() => onEvent(e)) };
+  };
+
+  it('shows the fill from GET /chat, highlighted above 80%, and follows the context event', async () => {
+    const { emit } = await renderFull();
+    expect(screen.getByRole('meter')).toHaveTextContent('170 mil / 200 mil · 85%');
+    expect(screen.getByRole('meter').className).toContain('text-warn');
+    emit({ type: 'context', conversation_id: 'c1', tokens: 40_000, window: 200_000 });
+    expect(screen.getByRole('meter')).toHaveTextContent('40 mil / 200 mil · 20%');
+    emit({ type: 'context', conversation_id: 'c_other', tokens: 1, window: 200_000 });
+    expect(screen.getByRole('meter')).toHaveTextContent('40 mil');
+  });
+
+  it('Compactar asks the server, says it is compacting, then shows the new fill and what it did', async () => {
+    const { emit } = await renderFull();
+    fireEvent.click(screen.getByRole('button', { name: 'Compactar' }));
+    await waitFor(() => expect(compactMock).toHaveBeenCalledWith(null));
+    expect(screen.getByRole('button', { name: 'Compactando…' })).toBeDisabled();
+    expect(screen.getByText('Compactando a conversa…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeDisabled();
+    emit({ type: 'compact', conversation_id: 'c1', state: 'started', tokens_before: null, tokens: null, error_code: null });
+    emit({ type: 'context', conversation_id: 'c1', tokens: 12_000, window: 200_000 });
+    emit({ type: 'compact', conversation_id: 'c1', state: 'done', tokens_before: 170_000, tokens: 12_000, error_code: null });
+    expect(screen.getByRole('meter')).toHaveTextContent('12 mil / 200 mil · 6%');
+    expect(screen.getByText('Conversa compactada: 170 mil → 12 mil tokens')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compactar' })).toBeEnabled();
+  });
+
+  it('a compaction that failed says why in the status line', async () => {
+    const { emit } = await renderFull();
+    fireEvent.click(screen.getByRole('button', { name: 'Compactar' }));
+    await waitFor(() => expect(compactMock).toHaveBeenCalled());
+    emit({ type: 'compact', conversation_id: 'c1', state: 'failed', tokens_before: null, tokens: null, error_code: 'HOST_GONE' });
+    expect(screen.getByText('A máquina do chat saiu do ar durante a compactação')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compactar' })).toBeEnabled();
+  });
+
+  it('a refused compaction shows the server sentence and lets go of the button', async () => {
+    await renderFull();
+    const { ApiError } = await import('../../lib/api');
+    compactMock.mockRejectedValueOnce(new ApiError(409, 'O concierge ainda está respondendo: compacte quando ele terminar', 'CHAT_BUSY'));
+    fireEvent.click(screen.getByRole('button', { name: 'Compactar' }));
+    expect(await screen.findByText('O concierge ainda está respondendo: compacte quando ele terminar')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compactar' })).toBeEnabled();
+  });
+
+  it('Alt+Shift+C in the panel compacts', async () => {
+    await renderFull();
+    fireEvent.keyDown(screen.getByRole('textbox'), { code: 'KeyC', key: 'Ç', altKey: true, shiftKey: true });
+    await waitFor(() => expect(compactMock).toHaveBeenCalledWith(null));
+  });
+
+  it('/compact typed in the box compacts, and nothing is sent', async () => {
+    await renderFull();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '/compact' } });
+    fireEvent.click(screen.getByRole('button', { name: /enviar/i }));
+    await waitFor(() => expect(compactMock).toHaveBeenCalledWith(null));
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox')).toHaveValue('');
+  });
+
+  it('a screen opened during a compaction shows it under way', async () => {
+    await renderFull({ compacting: true });
+    expect(screen.getByRole('button', { name: 'Compactando…' })).toBeDisabled();
+  });
+
+  it('no Compactar before the first message', async () => {
+    await renderFull({ messages: [], conversation: { id: 'c1', project_id: null, ai_account_id: null, context_tokens: 5, context_window: null } });
+    expect(screen.getByRole('button', { name: 'Compactar' })).toBeDisabled();
+  });
 });

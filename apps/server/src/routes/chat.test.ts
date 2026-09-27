@@ -64,6 +64,8 @@ function build(opts: {
     projectStatuses: vi.fn(async () => [{ project_id: 'p1', busy: true, pending_confirmations: 1 }]),
     subagentsFor: opts.subagentsFor ?? vi.fn(async () => []),
     cancelSubagent: opts.cancelSubagent ?? vi.fn(async () => ({ id: 'sub1', description: 'Escrever testes', subagent_type: null, status: 'stopping', started_at: '2026-09-26T12:00:00.000Z', ended_at: null })),
+    isCompacting: vi.fn(() => false),
+    compact: vi.fn(async () => ({ conversation_id: 'c1', done: Promise.resolve() })),
   };
   const tabs = opts.tabs ?? [];
   const projects = opts.projects ?? [];
@@ -810,4 +812,30 @@ describe('subagents panel (spec 2026-09-26 §4)', () => {
     expect(res.statusCode).toBe(400);
     expect(cancelSubagent).not.toHaveBeenCalled();
   });
+});
+
+it('GET / says whether the conversation is being compacted', async () => {
+  const { app, service } = build();
+  expect((await app.inject({ method: 'GET', url: '/chat' })).json().compacting).toBe(false);
+  service.isCompacting.mockReturnValue(true);
+  expect((await app.inject({ method: 'GET', url: '/chat' })).json().compacting).toBe(true);
+  expect(service.isCompacting).toHaveBeenCalledWith('c1');
+});
+
+it('POST /compact starts the compaction of the scope and answers 202', async () => {
+  const { app, service } = build();
+  const res = await app.inject({ method: 'POST', url: '/chat/compact', payload: { project_id: 'p1' } });
+  expect(res.statusCode).toBe(202);
+  expect(res.json()).toEqual({ conversation_id: 'c1' });
+  expect(service.compact).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'p1');
+  await app.inject({ method: 'POST', url: '/chat/compact' });
+  expect(service.compact).toHaveBeenLastCalledWith(expect.anything(), null);
+});
+
+it('POST /compact passes the service refusal through with its code', async () => {
+  const { app, service } = build();
+  service.compact.mockRejectedValueOnce(new HttpError(409, 'Ainda não há contexto para compactar nesta conversa', 'CHAT_NOTHING_TO_COMPACT'));
+  const res = await app.inject({ method: 'POST', url: '/chat/compact', payload: {} });
+  expect(res.statusCode).toBe(409);
+  expect(res.json().code).toBe('CHAT_NOTHING_TO_COMPACT');
 });

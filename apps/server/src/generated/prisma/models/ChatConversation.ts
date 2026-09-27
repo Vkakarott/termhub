@@ -32,8 +32,20 @@ export type ChatConversationModel = runtime.Types.Result.DefaultSelection<Prisma
 
 export type AggregateChatConversation = {
   _count: ChatConversationCountAggregateOutputType | null
+  _avg: ChatConversationAvgAggregateOutputType | null
+  _sum: ChatConversationSumAggregateOutputType | null
   _min: ChatConversationMinAggregateOutputType | null
   _max: ChatConversationMaxAggregateOutputType | null
+}
+
+export type ChatConversationAvgAggregateOutputType = {
+  contextTokens: number | null
+  contextWindow: number | null
+}
+
+export type ChatConversationSumAggregateOutputType = {
+  contextTokens: number | null
+  contextWindow: number | null
 }
 
 export type ChatConversationMinAggregateOutputType = {
@@ -48,6 +60,8 @@ export type ChatConversationMinAggregateOutputType = {
   archivedAt: Date | null
   tabId: string | null
   reviewMode: boolean | null
+  contextTokens: number | null
+  contextWindow: number | null
   lastMessageAt: Date | null
   createdAt: Date | null
 }
@@ -64,6 +78,8 @@ export type ChatConversationMaxAggregateOutputType = {
   archivedAt: Date | null
   tabId: string | null
   reviewMode: boolean | null
+  contextTokens: number | null
+  contextWindow: number | null
   lastMessageAt: Date | null
   createdAt: Date | null
 }
@@ -80,11 +96,23 @@ export type ChatConversationCountAggregateOutputType = {
   archivedAt: number
   tabId: number
   reviewMode: number
+  contextTokens: number
+  contextWindow: number
   lastMessageAt: number
   createdAt: number
   _all: number
 }
 
+
+export type ChatConversationAvgAggregateInputType = {
+  contextTokens?: true
+  contextWindow?: true
+}
+
+export type ChatConversationSumAggregateInputType = {
+  contextTokens?: true
+  contextWindow?: true
+}
 
 export type ChatConversationMinAggregateInputType = {
   id?: true
@@ -98,6 +126,8 @@ export type ChatConversationMinAggregateInputType = {
   archivedAt?: true
   tabId?: true
   reviewMode?: true
+  contextTokens?: true
+  contextWindow?: true
   lastMessageAt?: true
   createdAt?: true
 }
@@ -114,6 +144,8 @@ export type ChatConversationMaxAggregateInputType = {
   archivedAt?: true
   tabId?: true
   reviewMode?: true
+  contextTokens?: true
+  contextWindow?: true
   lastMessageAt?: true
   createdAt?: true
 }
@@ -130,6 +162,8 @@ export type ChatConversationCountAggregateInputType = {
   archivedAt?: true
   tabId?: true
   reviewMode?: true
+  contextTokens?: true
+  contextWindow?: true
   lastMessageAt?: true
   createdAt?: true
   _all?: true
@@ -173,6 +207,18 @@ export type ChatConversationAggregateArgs<ExtArgs extends runtime.Types.Extensio
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: ChatConversationAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: ChatConversationSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: ChatConversationMinAggregateInputType
@@ -203,6 +249,8 @@ export type ChatConversationGroupByArgs<ExtArgs extends runtime.Types.Extensions
   take?: number
   skip?: number
   _count?: ChatConversationCountAggregateInputType | true
+  _avg?: ChatConversationAvgAggregateInputType
+  _sum?: ChatConversationSumAggregateInputType
   _min?: ChatConversationMinAggregateInputType
   _max?: ChatConversationMaxAggregateInputType
 }
@@ -219,9 +267,13 @@ export type ChatConversationGroupByOutputType = {
   archivedAt: Date | null
   tabId: string | null
   reviewMode: boolean
+  contextTokens: number | null
+  contextWindow: number | null
   lastMessageAt: Date | null
   createdAt: Date
   _count: ChatConversationCountAggregateOutputType | null
+  _avg: ChatConversationAvgAggregateOutputType | null
+  _sum: ChatConversationSumAggregateOutputType | null
   _min: ChatConversationMinAggregateOutputType | null
   _max: ChatConversationMaxAggregateOutputType | null
 }
@@ -256,6 +308,8 @@ export type ChatConversationWhereInput = {
   archivedAt?: Prisma.DateTimeNullableFilter<"ChatConversation"> | Date | string | null
   tabId?: Prisma.StringNullableFilter<"ChatConversation"> | string | null
   reviewMode?: Prisma.BoolFilter<"ChatConversation"> | boolean
+  contextTokens?: Prisma.IntNullableFilter<"ChatConversation"> | number | null
+  contextWindow?: Prisma.IntNullableFilter<"ChatConversation"> | number | null
   lastMessageAt?: Prisma.DateTimeNullableFilter<"ChatConversation"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatConversation"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -286,6 +340,8 @@ export type ChatConversationOrderByWithRelationInput = {
   archivedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   tabId?: Prisma.SortOrderInput | Prisma.SortOrder
   reviewMode?: Prisma.SortOrder
+  contextTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  contextWindow?: Prisma.SortOrderInput | Prisma.SortOrder
   lastMessageAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
@@ -319,6 +375,8 @@ export type ChatConversationWhereUniqueInput = Prisma.AtLeast<{
   archivedAt?: Prisma.DateTimeNullableFilter<"ChatConversation"> | Date | string | null
   tabId?: Prisma.StringNullableFilter<"ChatConversation"> | string | null
   reviewMode?: Prisma.BoolFilter<"ChatConversation"> | boolean
+  contextTokens?: Prisma.IntNullableFilter<"ChatConversation"> | number | null
+  contextWindow?: Prisma.IntNullableFilter<"ChatConversation"> | number | null
   lastMessageAt?: Prisma.DateTimeNullableFilter<"ChatConversation"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatConversation"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -349,11 +407,15 @@ export type ChatConversationOrderByWithAggregationInput = {
   archivedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   tabId?: Prisma.SortOrderInput | Prisma.SortOrder
   reviewMode?: Prisma.SortOrder
+  contextTokens?: Prisma.SortOrderInput | Prisma.SortOrder
+  contextWindow?: Prisma.SortOrderInput | Prisma.SortOrder
   lastMessageAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.ChatConversationCountOrderByAggregateInput
+  _avg?: Prisma.ChatConversationAvgOrderByAggregateInput
   _max?: Prisma.ChatConversationMaxOrderByAggregateInput
   _min?: Prisma.ChatConversationMinOrderByAggregateInput
+  _sum?: Prisma.ChatConversationSumOrderByAggregateInput
 }
 
 export type ChatConversationScalarWhereWithAggregatesInput = {
@@ -371,6 +433,8 @@ export type ChatConversationScalarWhereWithAggregatesInput = {
   archivedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ChatConversation"> | Date | string | null
   tabId?: Prisma.StringNullableWithAggregatesFilter<"ChatConversation"> | string | null
   reviewMode?: Prisma.BoolWithAggregatesFilter<"ChatConversation"> | boolean
+  contextTokens?: Prisma.IntNullableWithAggregatesFilter<"ChatConversation"> | number | null
+  contextWindow?: Prisma.IntNullableWithAggregatesFilter<"ChatConversation"> | number | null
   lastMessageAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ChatConversation"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ChatConversation"> | Date | string
 }
@@ -383,6 +447,8 @@ export type ChatConversationCreateInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -413,6 +479,8 @@ export type ChatConversationUncheckedCreateInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -435,6 +503,8 @@ export type ChatConversationUpdateInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -465,6 +535,8 @@ export type ChatConversationUncheckedUpdateInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -491,6 +563,8 @@ export type ChatConversationCreateManyInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
 }
@@ -503,6 +577,8 @@ export type ChatConversationUpdateManyMutationInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -519,6 +595,8 @@ export type ChatConversationUncheckedUpdateManyInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -550,8 +628,15 @@ export type ChatConversationCountOrderByAggregateInput = {
   archivedAt?: Prisma.SortOrder
   tabId?: Prisma.SortOrder
   reviewMode?: Prisma.SortOrder
+  contextTokens?: Prisma.SortOrder
+  contextWindow?: Prisma.SortOrder
   lastMessageAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+}
+
+export type ChatConversationAvgOrderByAggregateInput = {
+  contextTokens?: Prisma.SortOrder
+  contextWindow?: Prisma.SortOrder
 }
 
 export type ChatConversationMaxOrderByAggregateInput = {
@@ -566,6 +651,8 @@ export type ChatConversationMaxOrderByAggregateInput = {
   archivedAt?: Prisma.SortOrder
   tabId?: Prisma.SortOrder
   reviewMode?: Prisma.SortOrder
+  contextTokens?: Prisma.SortOrder
+  contextWindow?: Prisma.SortOrder
   lastMessageAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -582,8 +669,15 @@ export type ChatConversationMinOrderByAggregateInput = {
   archivedAt?: Prisma.SortOrder
   tabId?: Prisma.SortOrder
   reviewMode?: Prisma.SortOrder
+  contextTokens?: Prisma.SortOrder
+  contextWindow?: Prisma.SortOrder
   lastMessageAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+}
+
+export type ChatConversationSumOrderByAggregateInput = {
+  contextTokens?: Prisma.SortOrder
+  contextWindow?: Prisma.SortOrder
 }
 
 export type ChatConversationScalarRelationFilter = {
@@ -775,6 +869,14 @@ export type ChatConversationUpdateOneWithoutApiTokensNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.ChatConversationUpdateToOneWithWhereWithoutApiTokensInput, Prisma.ChatConversationUpdateWithoutApiTokensInput>, Prisma.ChatConversationUncheckedUpdateWithoutApiTokensInput>
 }
 
+export type NullableIntFieldUpdateOperationsInput = {
+  set?: number | null
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
+}
+
 export type ChatConversationCreateNestedOneWithoutMessagesInput = {
   create?: Prisma.XOR<Prisma.ChatConversationCreateWithoutMessagesInput, Prisma.ChatConversationUncheckedCreateWithoutMessagesInput>
   connectOrCreate?: Prisma.ChatConversationCreateOrConnectWithoutMessagesInput
@@ -911,6 +1013,8 @@ export type ChatConversationCreateWithoutUserInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   machine?: Prisma.MachineCreateNestedOneWithoutChatConversationsInput
@@ -939,6 +1043,8 @@ export type ChatConversationUncheckedCreateWithoutUserInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -994,6 +1100,8 @@ export type ChatConversationScalarWhereInput = {
   archivedAt?: Prisma.DateTimeNullableFilter<"ChatConversation"> | Date | string | null
   tabId?: Prisma.StringNullableFilter<"ChatConversation"> | string | null
   reviewMode?: Prisma.BoolFilter<"ChatConversation"> | boolean
+  contextTokens?: Prisma.IntNullableFilter<"ChatConversation"> | number | null
+  contextWindow?: Prisma.IntNullableFilter<"ChatConversation"> | number | null
   lastMessageAt?: Prisma.DateTimeNullableFilter<"ChatConversation"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"ChatConversation"> | Date | string
 }
@@ -1006,6 +1114,8 @@ export type ChatConversationCreateWithoutMachineInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1034,6 +1144,8 @@ export type ChatConversationUncheckedCreateWithoutMachineInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1082,6 +1194,8 @@ export type ChatConversationCreateWithoutProjectInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1110,6 +1224,8 @@ export type ChatConversationUncheckedCreateWithoutProjectInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1158,6 +1274,8 @@ export type ChatConversationCreateWithoutAiAccountInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1186,6 +1304,8 @@ export type ChatConversationUncheckedCreateWithoutAiAccountInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1234,6 +1354,8 @@ export type ChatConversationCreateWithoutApiTokensInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1263,6 +1385,8 @@ export type ChatConversationUncheckedCreateWithoutApiTokensInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   messages?: Prisma.ChatMessageUncheckedCreateNestedManyWithoutConversationInput
@@ -1300,6 +1424,8 @@ export type ChatConversationUpdateWithoutApiTokensInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -1329,6 +1455,8 @@ export type ChatConversationUncheckedUpdateWithoutApiTokensInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   messages?: Prisma.ChatMessageUncheckedUpdateManyWithoutConversationNestedInput
@@ -1350,6 +1478,8 @@ export type ChatConversationCreateWithoutMessagesInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1379,6 +1509,8 @@ export type ChatConversationUncheckedCreateWithoutMessagesInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1416,6 +1548,8 @@ export type ChatConversationUpdateWithoutMessagesInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -1445,6 +1579,8 @@ export type ChatConversationUncheckedUpdateWithoutMessagesInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -1466,6 +1602,8 @@ export type ChatConversationCreateWithoutAttachmentsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1495,6 +1633,8 @@ export type ChatConversationUncheckedCreateWithoutAttachmentsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1532,6 +1672,8 @@ export type ChatConversationUpdateWithoutAttachmentsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -1561,6 +1703,8 @@ export type ChatConversationUncheckedUpdateWithoutAttachmentsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -1582,6 +1726,8 @@ export type ChatConversationCreateWithoutActionsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1611,6 +1757,8 @@ export type ChatConversationUncheckedCreateWithoutActionsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1648,6 +1796,8 @@ export type ChatConversationUpdateWithoutActionsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -1677,6 +1827,8 @@ export type ChatConversationUncheckedUpdateWithoutActionsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -1698,6 +1850,8 @@ export type ChatConversationCreateWithoutSubagentsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1727,6 +1881,8 @@ export type ChatConversationUncheckedCreateWithoutSubagentsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1764,6 +1920,8 @@ export type ChatConversationUpdateWithoutSubagentsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -1793,6 +1951,8 @@ export type ChatConversationUncheckedUpdateWithoutSubagentsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -1814,6 +1974,8 @@ export type ChatConversationCreateWithoutLiveRunInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1843,6 +2005,8 @@ export type ChatConversationUncheckedCreateWithoutLiveRunInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1880,6 +2044,8 @@ export type ChatConversationUpdateWithoutLiveRunInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -1909,6 +2075,8 @@ export type ChatConversationUncheckedUpdateWithoutLiveRunInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -1930,6 +2098,8 @@ export type ChatConversationCreateWithoutGrantsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -1959,6 +2129,8 @@ export type ChatConversationUncheckedCreateWithoutGrantsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -1996,6 +2168,8 @@ export type ChatConversationUpdateWithoutGrantsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -2025,6 +2199,8 @@ export type ChatConversationUncheckedUpdateWithoutGrantsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2046,6 +2222,8 @@ export type ChatConversationCreateWithoutProjectGrantsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -2075,6 +2253,8 @@ export type ChatConversationUncheckedCreateWithoutProjectGrantsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -2112,6 +2292,8 @@ export type ChatConversationUpdateWithoutProjectGrantsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -2141,6 +2323,8 @@ export type ChatConversationUncheckedUpdateWithoutProjectGrantsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2162,6 +2346,8 @@ export type ChatConversationCreateWithoutTabQuestionsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -2191,6 +2377,8 @@ export type ChatConversationUncheckedCreateWithoutTabQuestionsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -2228,6 +2416,8 @@ export type ChatConversationUpdateWithoutTabQuestionsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -2257,6 +2447,8 @@ export type ChatConversationUncheckedUpdateWithoutTabQuestionsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2278,6 +2470,8 @@ export type ChatConversationCreateWithoutChatDecisionsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutChatConversationsInput
@@ -2307,6 +2501,8 @@ export type ChatConversationUncheckedCreateWithoutChatDecisionsInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
   apiTokens?: Prisma.ApiTokenUncheckedCreateNestedManyWithoutChatConversationInput
@@ -2344,6 +2540,8 @@ export type ChatConversationUpdateWithoutChatDecisionsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -2373,6 +2571,8 @@ export type ChatConversationUncheckedUpdateWithoutChatDecisionsInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2397,6 +2597,8 @@ export type ChatConversationCreateManyUserInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
 }
@@ -2409,6 +2611,8 @@ export type ChatConversationUpdateWithoutUserInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   machine?: Prisma.MachineUpdateOneWithoutChatConversationsNestedInput
@@ -2437,6 +2641,8 @@ export type ChatConversationUncheckedUpdateWithoutUserInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2462,6 +2668,8 @@ export type ChatConversationUncheckedUpdateManyWithoutUserInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -2477,6 +2685,8 @@ export type ChatConversationCreateManyMachineInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
 }
@@ -2489,6 +2699,8 @@ export type ChatConversationUpdateWithoutMachineInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -2517,6 +2729,8 @@ export type ChatConversationUncheckedUpdateWithoutMachineInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2542,6 +2756,8 @@ export type ChatConversationUncheckedUpdateManyWithoutMachineInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -2557,6 +2773,8 @@ export type ChatConversationCreateManyProjectInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
 }
@@ -2569,6 +2787,8 @@ export type ChatConversationUpdateWithoutProjectInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -2597,6 +2817,8 @@ export type ChatConversationUncheckedUpdateWithoutProjectInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2622,6 +2844,8 @@ export type ChatConversationUncheckedUpdateManyWithoutProjectInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -2637,6 +2861,8 @@ export type ChatConversationCreateManyAiAccountInput = {
   archivedAt?: Date | string | null
   tabId?: string | null
   reviewMode?: boolean
+  contextTokens?: number | null
+  contextWindow?: number | null
   lastMessageAt?: Date | string | null
   createdAt?: Date | string
 }
@@ -2649,6 +2875,8 @@ export type ChatConversationUpdateWithoutAiAccountInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutChatConversationsNestedInput
@@ -2677,6 +2905,8 @@ export type ChatConversationUncheckedUpdateWithoutAiAccountInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   apiTokens?: Prisma.ApiTokenUncheckedUpdateManyWithoutChatConversationNestedInput
@@ -2702,6 +2932,8 @@ export type ChatConversationUncheckedUpdateManyWithoutAiAccountInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   tabId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   reviewMode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  contextTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  contextWindow?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   lastMessageAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -2821,6 +3053,8 @@ export type ChatConversationSelect<ExtArgs extends runtime.Types.Extensions.Inte
   archivedAt?: boolean
   tabId?: boolean
   reviewMode?: boolean
+  contextTokens?: boolean
+  contextWindow?: boolean
   lastMessageAt?: boolean
   createdAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -2852,6 +3086,8 @@ export type ChatConversationSelectCreateManyAndReturn<ExtArgs extends runtime.Ty
   archivedAt?: boolean
   tabId?: boolean
   reviewMode?: boolean
+  contextTokens?: boolean
+  contextWindow?: boolean
   lastMessageAt?: boolean
   createdAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -2872,6 +3108,8 @@ export type ChatConversationSelectUpdateManyAndReturn<ExtArgs extends runtime.Ty
   archivedAt?: boolean
   tabId?: boolean
   reviewMode?: boolean
+  contextTokens?: boolean
+  contextWindow?: boolean
   lastMessageAt?: boolean
   createdAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -2892,11 +3130,13 @@ export type ChatConversationSelectScalar = {
   archivedAt?: boolean
   tabId?: boolean
   reviewMode?: boolean
+  contextTokens?: boolean
+  contextWindow?: boolean
   lastMessageAt?: boolean
   createdAt?: boolean
 }
 
-export type ChatConversationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "title" | "cliSessionId" | "model" | "machineId" | "aiAccountId" | "projectId" | "archivedAt" | "tabId" | "reviewMode" | "lastMessageAt" | "createdAt", ExtArgs["result"]["chatConversation"]>
+export type ChatConversationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "title" | "cliSessionId" | "model" | "machineId" | "aiAccountId" | "projectId" | "archivedAt" | "tabId" | "reviewMode" | "contextTokens" | "contextWindow" | "lastMessageAt" | "createdAt", ExtArgs["result"]["chatConversation"]>
 export type ChatConversationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   machine?: boolean | Prisma.ChatConversation$machineArgs<ExtArgs>
@@ -2972,6 +3212,12 @@ export type $ChatConversationPayload<ExtArgs extends runtime.Types.Extensions.In
     archivedAt: Date | null
     tabId: string | null
     reviewMode: boolean
+    /**
+     * How many tokens the CLI session's context held after its last turn (or compaction), and the
+     * model's context window then (TER-315). Null until a turn reports them; cleared with the session.
+     */
+    contextTokens: number | null
+    contextWindow: number | null
     lastMessageAt: Date | null
     createdAt: Date
   }, ExtArgs["result"]["chatConversation"]>
@@ -3422,6 +3668,8 @@ export interface ChatConversationFieldRefs {
   readonly archivedAt: Prisma.FieldRef<"ChatConversation", 'DateTime'>
   readonly tabId: Prisma.FieldRef<"ChatConversation", 'String'>
   readonly reviewMode: Prisma.FieldRef<"ChatConversation", 'Boolean'>
+  readonly contextTokens: Prisma.FieldRef<"ChatConversation", 'Int'>
+  readonly contextWindow: Prisma.FieldRef<"ChatConversation", 'Int'>
   readonly lastMessageAt: Prisma.FieldRef<"ChatConversation", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"ChatConversation", 'DateTime'>
 }

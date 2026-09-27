@@ -21,9 +21,23 @@ export interface ChatConversation {
   /** Set by "Nova conversa": the row is kept, but it is no longer the scope's active conversation. */
   archived_at: string | null;
   review_mode: boolean;
+  /** How many tokens the CLI session's context held after its last turn or compaction (TER-315). Null
+   *  until a turn reports it, and again once the session is dropped. */
+  context_tokens: number | null;
+  /** The model's context window as that turn reported it; null when the CLI did not say. */
+  context_window: number | null;
   last_message_at: string | null;
   created_at: string;
 }
+
+/** A session's context fill, as the chat screen shows it (TER-315). */
+export interface ChatContextUsage {
+  tokens: number;
+  window: number | null;
+}
+
+/** What dropping a CLI session drops with it: the fill belonged to that session. */
+const NO_SESSION = { cliSessionId: null, contextTokens: null, contextWindow: null } as const;
 
 export interface ChatMessage {
   id: string;
@@ -48,6 +62,8 @@ const mapConversation = (c: PrismaConversation): ChatConversation => ({
   project_id: c.projectId,
   archived_at: c.archivedAt?.toISOString() ?? null,
   review_mode: c.reviewMode,
+  context_tokens: c.contextTokens,
+  context_window: c.contextWindow,
   last_message_at: c.lastMessageAt?.toISOString() ?? null,
   created_at: c.createdAt.toISOString(),
 });
@@ -120,7 +136,7 @@ export class ChatRepository {
   /** A host change moves every project conversation too: their CLI sessions live in the old host's
    * config dir and cannot be resumed anywhere else (user-hosted spec §3). */
   async clearProjectSessions(userId: string): Promise<void> {
-    await this.db.chatConversation.updateMany({ where: { userId, projectId: { not: null }, archivedAt: null }, data: { cliSessionId: null } });
+    await this.db.chatConversation.updateMany({ where: { userId, projectId: { not: null }, archivedAt: null }, data: NO_SESSION });
   }
 
   /** The user's active project conversations, with when each last saw a message (null = none yet). */
@@ -142,8 +158,20 @@ export class ChatRepository {
     return rows.map(mapMessage);
   }
 
+  /** A null session also clears the context fill: it described the session that is gone. */
   async setCliSession(id: string, sessionId: string | null): Promise<void> {
-    await this.db.chatConversation.update({ where: { id }, data: { cliSessionId: sessionId } });
+    await this.db.chatConversation.update({ where: { id }, data: sessionId === null ? NO_SESSION : { cliSessionId: sessionId } });
+  }
+
+  /** Stores how full the session's context is (TER-315). A turn that did not report the window keeps
+   *  the one stored before. Answers the stored pair. */
+  async setContext(id: string, usage: { tokens: number; window?: number | null }): Promise<ChatContextUsage> {
+    const row = await this.db.chatConversation.update({
+      where: { id },
+      data: { contextTokens: usage.tokens, ...(usage.window != null ? { contextWindow: usage.window } : {}) },
+      select: { contextTokens: true, contextWindow: true },
+    });
+    return { tokens: row.contextTokens ?? usage.tokens, window: row.contextWindow };
   }
 
   /**
@@ -203,7 +231,7 @@ export class ChatRepository {
       const moved = machineMoved || accountMoved;
       const row = await tx.chatConversation.update({
         where: { id },
-        data: { machineId: host.machine_id, aiAccountId: host.ai_account_id, ...(moved ? { cliSessionId: null } : {}) },
+        data: { machineId: host.machine_id, aiAccountId: host.ai_account_id, ...(moved ? NO_SESSION : {}) },
       });
       return { conversation: mapConversation(row), moved };
     });

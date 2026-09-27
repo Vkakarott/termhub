@@ -216,6 +216,18 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('subagent'), user_id: z.string(), conversation_id: z.string(), subagent: subagentViewSchema }),
   /** A cancel did not happen: the row is running again ("Não foi possível cancelar"). */
   z.object({ type: z.literal('subagent_cancel_failed'), user_id: z.string(), conversation_id: z.string(), subagent_id: z.string() }),
+  /** How full the conversation's CLI session is (TER-315): after a turn or a compaction. */
+  z.object({ type: z.literal('context'), user_id: z.string(), conversation_id: z.string(), tokens: z.number(), window: z.number().nullable() }),
+  /** "Compactar" (TER-315): started, done or failed. */
+  z.object({
+    type: z.literal('compact'),
+    user_id: z.string(),
+    conversation_id: z.string(),
+    state: z.enum(['started', 'done', 'failed']),
+    tokens_before: z.number().nullable(),
+    tokens: z.number().nullable(),
+    error_code: z.string().nullable(),
+  }),
   z.object({
     type: z.literal('run_finished'),
     user_id: z.string(),

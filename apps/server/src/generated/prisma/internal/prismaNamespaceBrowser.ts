@@ -507,6 +507,8 @@ export const ChatConversationScalarFieldEnum = {
   archivedAt: 'archivedAt',
   tabId: 'tabId',
   reviewMode: 'reviewMode',
+  contextTokens: 'contextTokens',
+  contextWindow: 'contextWindow',
   lastMessageAt: 'lastMessageAt',
   createdAt: 'createdAt'
 } as const

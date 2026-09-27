@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ChatActionCard } from './ChatActionCard';
 import { ChatActionGroup, type BatchDecision } from './ChatActionGroup';
 import { ChatComposer } from './ChatComposer';
+import { ChatContextMeter } from './ChatContextMeter';
 import { ChatHost } from './ChatHost';
 import { ChatSubagents } from './ChatSubagents';
 import { ChatThread } from './ChatThread';
@@ -13,6 +14,7 @@ import { ConfirmDialog } from '../Modal';
 import { api, ApiError } from '../../lib/api';
 import { patchMessageAttachment } from '../../lib/attachments';
 import { useChatStream } from '../../lib/chat';
+import { compactDoneText, compactFailedText, isCompactCommand, isCompactShortcut } from '../../lib/chat-context';
 import { useChatLive } from '../../lib/chat-live';
 import { mergeMessage } from '../../lib/chat-merge';
 import { chatTimeline, groupPendingActions } from '../../lib/chat-timeline';
@@ -143,6 +145,14 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
    * session: never pruned, and nothing reads it but the composer.
    */
   const [attachmentStatuses, setAttachmentStatuses] = useState<Record<string, ChatAttachment>>({});
+  /** How full the session is (TER-315), from `GET /api/chat` and the `context` event; null until an
+   *  answer reports it. */
+  const [context, setContext] = useState<{ tokens: number; window: number | null } | null>(null);
+  /** "Compactar" is under way: from the click (or `GET /api/chat`, for a screen opened meanwhile) until
+   *  its `compact` event says done or failed. */
+  const [compacting, setCompacting] = useState(false);
+  /** What the last compaction did, in the composer's status line until the next message goes. */
+  const [compactNote, setCompactNote] = useState<string | null>(null);
 
   /**
    * Which machine and which account run this conversation, or why none can — resolved by the server on
@@ -199,7 +209,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const load = useCallback(async () => {
     // No project = the account-wide chat: called with no argument, because the response must be
     // `request<...>('GET', '/chat')` exactly — a server that predates project chats knows nothing else.
-    const { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents } = projectId ? await api.chat(projectId) : await api.chat();
+    const { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents, compacting } = projectId ? await api.chat(projectId) : await api.chat();
     setMessages(messages);
     setActions(actions ?? []);
     setGrants(grants ?? []);
@@ -209,6 +219,8 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     setSubagents(subagents ?? []);
     setHost(host ?? null);
     setHostAccountId(conversation.ai_account_id ?? null);
+    setContext(typeof conversation.context_tokens === 'number' ? { tokens: conversation.context_tokens, window: conversation.context_window ?? null } : null);
+    setCompacting(compacting === true);
     setConversationId(conversation.id);
     setLoaded(true);
   }, [projectId]);
@@ -286,6 +298,13 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         // Whatever this row is now, a stale "Cancelar" failure from before no longer applies.
         setCancelFailed((prev) => (prev.has(e.subagent.id) ? new Set([...prev].filter((id) => id !== e.subagent.id)) : prev));
       } else if (e.type === 'subagent_cancel_failed') setCancelFailed((prev) => new Set(prev).add(e.subagent_id));
+      else if (e.type === 'context') setContext({ tokens: e.tokens, window: e.window });
+      else if (e.type === 'compact') {
+        // Every open screen of this conversation hears it, not only the one that clicked.
+        setCompacting(e.state === 'started');
+        if (e.state === 'done') setCompactNote(compactDoneText(e.tokens_before, e.tokens));
+        else if (e.state === 'failed') setError(compactFailedText(e.error_code));
+      }
     },
     [conversationId, mine, push],
   );
@@ -582,6 +601,8 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
    * "take me to the bottom".
    */
   const stick = useRef(true);
+  /** `compact` below, for `send`: typing `/compact` runs it (declared after `send`, which it needs nothing from). */
+  const compactRef = useRef<() => Promise<void>>(async () => undefined);
 
   /**
    * The composer's `onSend`: the text and the ids of its uploaded chips are the composer's own (it
@@ -593,6 +614,12 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const send = useCallback(
     async (value: string, attachmentIds: string[]): Promise<boolean> => {
       if (!value && attachmentIds.length === 0) return false;
+      // `/compact` alone is the command, as in Claude Code: it compacts, and nothing is sent.
+      if (attachmentIds.length === 0 && isCompactCommand(value)) {
+        void compactRef.current();
+        return true;
+      }
+      setCompactNote(null);
       // Sending is the reader's own way of saying "take me to the bottom" — the answer will stream
       // in below whatever they typed.
       stick.current = true;
@@ -646,12 +673,40 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       setSubagents([]);
       setCancelFailed(new Set());
       setSubagentsOpen(false);
+      setCompactNote(null);
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Não foi possível começar uma nova conversa');
     } finally {
       setResetting(false);
     }
+  };
+
+  /** "Compactar" is offered once there is a conversation to compact and nothing else holds its session. */
+  const canCompact = !compacting && !answering && !resetting && messages.length > 0 && host?.kind === 'ready';
+  /**
+   * "Compactar" (TER-315): asks the server and waits for its `compact` event. A refusal (an answer being
+   * written, no session yet, the host) comes back with its own pt-BR sentence, in the status line.
+   */
+  const compact = useCallback(async () => {
+    setCompacting(true);
+    setError(null);
+    setCompactNote(null);
+    try {
+      await api.compactChat(projectId);
+    } catch (e) {
+      setCompacting(false);
+      setError(e instanceof ApiError ? e.message : 'Não foi possível compactar a conversa');
+    }
+  }, [projectId]);
+  // `send` (declared above, for `/compact` typed in the box) reaches the current `compact` through this.
+  compactRef.current = compact;
+  /** Alt+Shift+C anywhere in this panel (the box, a card, the thread): only while it has focus, so a
+   *  terminal next to the dock keeps every key it gets. */
+  const onPanelKeyDown = (e: ReactKeyboardEvent) => {
+    if (!isCompactShortcut(e)) return;
+    e.preventDefault();
+    if (canCompact) void compact();
   };
 
   const activeGrantCount = grants.filter((g) => isGrantActive(g)).length + projectGrants.filter((g) => isGrantActive(g)).length;
@@ -669,12 +724,16 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     // spec, `overflow-wrap` never shrinks min-content). So one unbreakable token in an answer — a
     // `waiting_permission` in backticks, a long path — widened this column past the viewport and
     // took the composer's send button off screen with it.
-    <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-3xl flex-1 flex-col px-4">
+    <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-3xl flex-1 flex-col px-4" onKeyDown={onPanelKeyDown}>
       {/* "Começar do zero" without losing the transcript: it stays server-side, just off this screen.
        *  Disabled while an answer is being written (the server would 409) or with nothing yet to reset. */}
       {/* The conversation's trusted tabs used to be a strip above the box; now one link, only while any is
        *  in force (a tab grant or a project grant), to the list in Configurações (spec 2026-09-26 §4.1, §6). */}
       <div className="relative flex items-center justify-end gap-1 pt-2">
+        {/* How full the session is, and "Compactar" (TER-315): on the left, apart from the links. */}
+        <div className="mr-auto min-w-0">
+          <ChatContextMeter tokens={context?.tokens ?? null} window={context?.window ?? null} compacting={compacting} canCompact={canCompact} onCompact={() => void compact()} />
+        </div>
         {/* The subagents panel (spec 2026-09-26 §4): the toggle appears once something is running or
          *  being cancelled, and — while it is open — stays even after every one of them ended, so the
          *  panel it opened always has a way to close it again. */}
@@ -695,7 +754,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
             {activeGrantsLabel(activeGrantCount)}
           </Link>
         )}
-        <button type="button" className="rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg disabled:opacity-50" disabled={answering || resetting || messages.length === 0} onClick={() => setConfirmReset(true)}>
+        <button type="button" className="rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg disabled:opacity-50" disabled={answering || resetting || compacting || messages.length === 0} onClick={() => setConfirmReset(true)}>
           Nova conversa
         </button>
         {subagentsOpen && (
@@ -829,7 +888,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       {/* A host that cannot run the message is why the box refuses, and the box says so. The send and
        *  decision errors go in its status line too: a line that mounts above the thread shifts it.
        *  `projectId` travels with every upload, so a file lands in this project's conversation. */}
-      <ChatComposer onSend={send} blockedReason={host && host.kind !== 'ready' ? COMPOSER_REASON[host.kind] : null} status={error ?? actionError} projectId={projectId} attachmentStatuses={attachmentStatuses} />
+      <ChatComposer onSend={send} blockedReason={host && host.kind !== 'ready' ? COMPOSER_REASON[host.kind] : null} status={error ?? actionError} notice={compacting ? 'Compactando a conversa…' : compactNote} projectId={projectId} attachmentStatuses={attachmentStatuses} />
     </div>
   );
 }

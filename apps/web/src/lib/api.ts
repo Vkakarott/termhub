@@ -181,7 +181,7 @@ export const api = {
    * tabs, or trusted projects, has none. */
   chat: Object.assign(
     (projectId?: string | null) =>
-      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; project_grants?: ChatProjectGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[]; subagents?: SubagentView[] }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
+      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; project_grants?: ChatProjectGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[]; subagents?: SubagentView[]; compacting?: boolean }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
     {
       /** Files attached to a message before it is sent (spec §5.3). */
       attachments: {
@@ -238,6 +238,10 @@ export const api = {
    *  fresh one. 409 CHAT_BUSY while an answer is being written, 409 CHAT_ARCHIVED if the send that lost
    *  the race already ran against the conversation this call just archived. */
   resetChat: (projectId?: string | null) => request<{ conversation: ChatConversation }>('POST', '/chat/reset', projectId ? { project_id: projectId } : {}),
+  /** "Compactar" (TER-315): runs `/compact` on the scope's session. 202 once it started; the end comes
+   *  over /ws/chat (`compact`, `context`). 409 CHAT_BUSY while an answer is being written,
+   *  CHAT_NOTHING_TO_COMPACT before the first answer, and the host 409s (each with its pt-BR sentence). */
+  compactChat: (projectId?: string | null) => request<{ conversation_id: string }>('POST', '/chat/compact', projectId ? { project_id: projectId } : {}),
   /** Which project chats have anything going on right now, for a sidebar badge. */
   chatProjects: () => request<{ projects: ProjectChatStatus[] }>('GET', '/chat/projects'),
   /** "Cancelar" on a subagent's row in the panel (spec 2026-09-26 §4): 404 unknown/not yours, 409

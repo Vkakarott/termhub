@@ -9,7 +9,10 @@ export type ChatFrame =
   | { type: 'text'; delta: string }
   | { type: 'action'; tool: string; tool_use_id: string; args: unknown }
   | { type: 'action_result'; tool_use_id: string; ok: boolean }
-  | { type: 'done'; session_id?: string; usage?: unknown }
+  /** `context`: how full the session is after this turn (see `contextUsage`), when the CLI said. */
+  | { type: 'done'; session_id?: string; usage?: unknown; context?: ContextFill }
+  /** `/compact` finished (`compact_boundary`): the context before and after, when the CLI said. */
+  | { type: 'compacted'; tokens_before?: number; tokens?: number }
   /** `reason` is the runner's machine-readable classification of the failure (never stderr's
    * text): `missing_session` is the one the service acts on, by retrying on a fresh CLI session.
    * `session_id` is carried for the same reason as on `done`: a run can fail with its session, and
@@ -89,6 +92,43 @@ void PROTOCOL_REASONS_COVERED;
 
 const KNOWN = new Set<string>(REASONS);
 
+/** How full a session's context is: tokens in it, and the model's window (null when not reported). */
+export interface ContextFill {
+  tokens: number;
+  window: number | null;
+}
+
+const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+const TOKEN_FIELDS = ['input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'] as const;
+const tokensOf = (u: Record<string, unknown>) => TOKEN_FIELDS.reduce((sum, k) => sum + count(u[k]), 0);
+
+/**
+ * The context fill a `result` frame reports (TER-315). `usage` adds up every API call of the turn, so
+ * it overcounts a turn that used tools (twice the cache reads for one tool call, see the tool-call
+ * fixture); `usage.iterations` holds the turn's last call (Claude Code 2.1.283), whose input (fresh,
+ * cached and cache-written) plus its output is what the session holds now. An empty list is a turn
+ * with no API call (`/compact`'s own result): nothing to say. A CLI without the list gives the total,
+ * exact for a turn of one call. The window is `modelUsage`'s: the largest one listed, since a
+ * subagent on a smaller model shows up there too.
+ */
+export function contextUsage(result: Record<string, unknown>): ContextFill | undefined {
+  const usage = result.usage;
+  if (typeof usage !== 'object' || usage === null) return undefined;
+  const iterations = (usage as { iterations?: unknown }).iterations;
+  let tokens: number;
+  if (Array.isArray(iterations)) {
+    const last = iterations[iterations.length - 1];
+    if (typeof last !== 'object' || last === null) return undefined;
+    tokens = tokensOf(last as Record<string, unknown>);
+  } else tokens = tokensOf(usage as Record<string, unknown>);
+  if (tokens === 0) return undefined;
+  const models = typeof result.modelUsage === 'object' && result.modelUsage !== null ? Object.values(result.modelUsage as Record<string, unknown>) : [];
+  const windows = models.map((m) => count((m as { contextWindow?: unknown } | null)?.contextWindow)).filter((w) => w > 0);
+  return { tokens, window: windows.length ? Math.max(...windows) : null };
+}
+
+const positive = (v: unknown): number | undefined => (count(v) > 0 ? (v as number) : undefined);
+
 const toReason = (raw: unknown): ChatFailureReason | undefined => (typeof raw === 'string' && KNOWN.has(raw) ? (raw as ChatFailureReason) : undefined);
 
 /** `mcp__termhub__list_tabs` -> `list_tabs`; anything else is kept as it came. */
@@ -152,6 +192,10 @@ export function parseFrame(line: string): ChatFrame | null {
     const r = f.response as { subtype?: unknown; request_id?: unknown } | undefined;
     return typeof r?.request_id === 'string' ? { type: 'control_response', request_id: r.request_id, ok: r.subtype === 'success' } : null;
   }
+  if (type === 'system' && f.subtype === 'compact_boundary') {
+    const meta = (f.compact_metadata ?? {}) as { pre_tokens?: unknown; post_tokens?: unknown };
+    return { type: 'compacted', tokens_before: positive(meta.pre_tokens), tokens: positive(meta.post_tokens) };
+  }
   if (type === 'system' && f.subtype === 'background_tasks_changed') return { type: 'background', count: Array.isArray(f.tasks) ? f.tasks.length : 0 };
   if (type === 'result') {
     // A `result` frame is not by itself an answer: `is_error` marks a run that ended badly (max
@@ -160,7 +204,8 @@ export function parseFrame(line: string): ChatFrame | null {
     // The session id is kept: the run failed, but the session it ran in is still on disk with the
     // whole conversation in it, and the next message must resume that thread.
     if (f.is_error === true) return { type: 'error', message: 'run ended with is_error', reason: 'run_failed', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, turn_ended: true };
-    return { type: 'done', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, usage: f.usage };
+    const context = contextUsage(f);
+    return { type: 'done', session_id: typeof f.session_id === 'string' ? f.session_id : undefined, usage: f.usage, ...(context ? { context } : {}) };
   }
   if (type === 'termhub_error') return { type: 'error', message: String(f.message ?? 'runner failed'), reason: toReason(f.reason) };
   return null;
