@@ -855,6 +855,45 @@ it('answerTabQuestion answers over the mock and the card turns answered; a secon
   expect(chat.getState().error).toBeNull();
 });
 
+describe('cancelAutoAnswer (concierge memory spec 2026-09-26 §6)', () => {
+  it('replaces the question in the store with the API response, and clears the busy flag', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    await chat.getState().send('tem alguma pergunta?');
+    await jest.advanceTimersByTimeAsync(5000);
+    const q = slot(chat, 'p-termhub').tabQuestions.find((x) => x.status === 'open')!;
+    const cancelled = { ...q, auto_answer: { answer: { answers: [{ selected: [0] }] }, by: 'memory', reason: 'x', sources: [], due_at: '2026-09-24T12:00:42.000Z', status: 'cancelled' } };
+    jest.spyOn(api, 'cancelAutoAnswer').mockResolvedValueOnce({ tab_question: cancelled });
+
+    await chat.getState().cancelAutoAnswer(q.id);
+
+    expect(slot(chat, 'p-termhub').tabQuestions.find((x) => x.id === q.id)).toEqual(cancelled);
+    expect(chat.getState().answeringQuestionIds).toEqual([]);
+    expect(chat.getState().questionErrors).toEqual({});
+  });
+
+  it('409 NOT_SCHEDULED reads as its own sentence, on the card, not the banner', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    jest.spyOn(api, 'cancelAutoAnswer').mockRejectedValueOnce(new ApiError(409, 'NOT_SCHEDULED', 'Não há resposta automática em contagem nesta pergunta'));
+
+    await chat.getState().cancelAutoAnswer('q1');
+
+    expect(chat.getState().questionErrors).toEqual({ q1: 'A resposta automática já foi enviada.' });
+    expect(chat.getState().error).toBeNull();
+  });
+
+  it('any other failure shows the server\'s own message', async () => {
+    const { chat, api } = await setup();
+    await openAndConnect(chat, 'p-termhub');
+    jest.spyOn(api, 'cancelAutoAnswer').mockRejectedValueOnce(new ApiError(404, 'NOT_FOUND', 'Pergunta não encontrada'));
+
+    await chat.getState().cancelAutoAnswer('q1');
+
+    expect(chat.getState().questionErrors).toEqual({ q1: 'Pergunta não encontrada' });
+  });
+});
+
 it('loadTabQuestionScreen answers the excerpt while open, null once it is not', async () => {
   const { chat } = await setup();
   await openAndConnect(chat, 'p-termhub');

@@ -74,6 +74,7 @@ export function ConversationScreen() {
   const answeringQuestionIds = useChatStore((s) => s.answeringQuestionIds);
   const questionErrors = useChatStore((s) => s.questionErrors);
   const answerTabQuestion = useChatStore((s) => s.answerTabQuestion);
+  const cancelAutoAnswer = useChatStore((s) => s.cancelAutoAnswer);
   const loadTabQuestionScreen = useChatStore((s) => s.loadTabQuestionScreen);
   const busySuggestionIds = useChatStore((s) => s.busySuggestionIds);
   const suggestionErrors = useChatStore((s) => s.suggestionErrors);
@@ -138,6 +139,7 @@ export function ConversationScreen() {
   const onDecideMany = useCallback((d: { id: string; decision: 'approve' | 'deny' }[]) => void decideMany(d), [decideMany]);
   const onRevoke = useCallback((grantId: string) => void revokeGrant(grantId), [revokeGrant]);
   const onAnswer = useCallback((id: string, body: TTabQuestionAnswerBody) => void answerTabQuestion(id, body), [answerTabQuestion]);
+  const onCancelAutoAnswer = useCallback((id: string) => void cancelAutoAnswer(id), [cancelAutoAnswer]);
   const onForget = useCallback((decisionId: string) => forgetDecision(decisionId), [forgetDecision]);
   const onSendSuggestion = useCallback((id: string, text: string) => void sendTabSuggestion(id, text), [sendTabSuggestion]);
   const onDismissSuggestion = useCallback((id: string) => void dismissTabSuggestion(id), [dismissTabSuggestion]);
@@ -172,6 +174,7 @@ export function ConversationScreen() {
           onAnswer={onAnswer}
           loadScreen={loadTabQuestionScreen}
           onForget={onForget}
+          onCancelAutoAnswer={onCancelAutoAnswer}
         />
       ) : item.kind === 'message' ? (
         <MessageRow message={item.message} />
@@ -198,6 +201,7 @@ export function ConversationScreen() {
       projectGrantIndex,
       loadTabQuestionScreen,
       onAnswer,
+      onCancelAutoAnswer,
       onDecide,
       onForget,
       onDecideMany,

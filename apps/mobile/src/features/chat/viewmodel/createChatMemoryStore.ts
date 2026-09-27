@@ -26,7 +26,7 @@
 // visit re-reads everything from scratch anyway.
 import { create } from 'zustand';
 import { sessionEnded } from '@/features/shared/signals';
-import type { TChatDecision, TChatMemory } from '@/services/api/contract';
+import type { TChatDecision, TChatMemory, TConciergeNote } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import type { Auth, MobileApi } from '@/services/api/types';
 
@@ -56,6 +56,16 @@ export interface ChatMemoryState {
   forgettingId: string | null;
   error: string | null;
 
+  /** "Anotações do concierge" (spec D12/§8): its own list, independent of the search box above
+   * (which only ever filters decisions) — read by its own `loadNotes()`, not `load()`, same as the
+   * web page's own effect for `api.chatNotes()`. */
+  notes: TConciergeNote[] | null;
+  notesCursor: string | null;
+  loadingMoreNotes: boolean;
+  /** The note whose "Esquecer" is in flight. */
+  forgettingNoteId: string | null;
+  notesError: string | null;
+
   /** The first read: both the switch/count and the (possibly already filtered, by `q`) list, at
    * once — call once when the screen mounts. */
   load(): Promise<void>;
@@ -66,8 +76,19 @@ export interface ChatMemoryState {
   loadMore(): Promise<void>;
   /** Flips the suggestion switch. */
   toggle(): Promise<void>;
+  /** "Responder sozinho quando houver precedente" (spec D8): flips at once (optimistic — no PATCH to
+   * wait on before the switch itself moves), then keeps the server's confirmed value; a failure rolls
+   * the switch back and shows "Não foi possível alterar a configuração". Ignored while another call
+   * to it is in flight (the memory it would roll back to would be the wrong one). */
+  setAutodecide(next: boolean): Promise<void>;
   /** "Esquecer": the same hard delete as a card's "Esquecer esta decisão". */
   forget(id: string): Promise<void>;
+  /** "Anotações do concierge": the first page — call once when the screen mounts, alongside `load()`. */
+  loadNotes(): Promise<void>;
+  /** The next page of notes, appended; a no-op with no cursor or while one is already loading. */
+  loadMoreNotes(): Promise<void>;
+  /** "Esquecer" on a note: the same hard delete as a decision's, its own busy id and error line. */
+  forgetNote(id: string): Promise<void>;
   /** Cancels a pending debounce timer and drops any first-page/"more" response still in flight,
    * without touching what is currently shown. Call this from the screen's unmount — see the note
    * above `toggle()`/`forget()` for why they are not affected. */
@@ -76,7 +97,21 @@ export interface ChatMemoryState {
 
 type Data = Omit<ChatMemoryState, { [K in keyof ChatMemoryState]: ChatMemoryState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatMemoryState]>;
 
-const initialData = (): Data => ({ memory: null, decisions: null, cursor: null, q: '', loadingMore: false, switching: false, forgettingId: null, error: null });
+const initialData = (): Data => ({
+  memory: null,
+  decisions: null,
+  cursor: null,
+  q: '',
+  loadingMore: false,
+  switching: false,
+  forgettingId: null,
+  error: null,
+  notes: null,
+  notesCursor: null,
+  loadingMoreNotes: false,
+  forgettingNoteId: null,
+  notesError: null,
+});
 
 const isApiError = (e: unknown): e is ApiError => e instanceof ApiError;
 
@@ -87,6 +122,10 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
   let gen = 0;
   let toggles = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /** `setAutodecide`'s own in-flight guard: a second call while the first's PATCH is still out would
+   * capture a `previous` memory to roll back to that is itself unconfirmed. Not reactive state — the
+   * switch already shows the optimistic value the instant the first call sets it. */
+  let settingAutodecide = false;
 
   /** Clears a pending debounce timer and bumps `gen`, so a first-page/"more" response already in
    * flight is dropped by its own `gen !== myGen` check once it resolves. Shared by `cancel()` and
@@ -164,6 +203,23 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
         }
       },
 
+      async setAutodecide(next) {
+        const previous = get().memory;
+        if (!previous || settingAutodecide) return;
+        settingAutodecide = true;
+        set({ memory: { ...previous, autodecide: next }, error: null }); // optimistic
+        try {
+          const updated = await api.setChatMemory(session().auth(), { autodecide: next });
+          toggles++;
+          set({ memory: updated });
+        } catch (e) {
+          set({ memory: previous }); // rollback
+          if (!session().handleApiError(e)) set({ error: isApiError(e) ? e.message : 'Não foi possível alterar a configuração' });
+        } finally {
+          settingAutodecide = false;
+        }
+      },
+
       async forget(id) {
         if (get().forgettingId !== null) return;
         set({ forgettingId: id, error: null });
@@ -174,6 +230,44 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
           set({ forgettingId: null });
           if (session().handleApiError(e)) return;
           set({ error: isApiError(e) ? e.message : 'Não foi possível esquecer a decisão' });
+        }
+      },
+
+      async loadNotes() {
+        set({ notesError: null });
+        try {
+          const page = await api.chatNotes(session().auth());
+          set({ notes: page.notes, notesCursor: page.next_cursor });
+        } catch (e) {
+          if (session().handleApiError(e)) return;
+          set({ notesError: isApiError(e) ? e.message : 'Não foi possível carregar as anotações do concierge' });
+        }
+      },
+
+      async loadMoreNotes() {
+        const cursor = get().notesCursor;
+        if (!cursor || get().loadingMoreNotes) return;
+        set({ loadingMoreNotes: true, notesError: null });
+        try {
+          const page = await api.chatNotes(session().auth(), cursor);
+          set((s) => ({ notes: [...(s.notes ?? []), ...page.notes], notesCursor: page.next_cursor, loadingMoreNotes: false }));
+        } catch (e) {
+          set({ loadingMoreNotes: false });
+          if (session().handleApiError(e)) return;
+          set({ notesError: isApiError(e) ? e.message : 'Não foi possível carregar mais anotações' });
+        }
+      },
+
+      async forgetNote(id) {
+        if (get().forgettingNoteId !== null) return;
+        set({ forgettingNoteId: id, notesError: null });
+        try {
+          await api.forgetChatNote(session().auth(), id);
+          set((s) => ({ notes: (s.notes ?? []).filter((n) => n.id !== id), forgettingNoteId: null }));
+        } catch (e) {
+          set({ forgettingNoteId: null });
+          if (session().handleApiError(e)) return;
+          set({ notesError: isApiError(e) ? e.message : 'Não foi possível esquecer a anotação' });
         }
       },
 

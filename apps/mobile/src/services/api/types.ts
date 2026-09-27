@@ -29,6 +29,7 @@ import type {
   TSetHostBody,
   TSubagentView,
   TTabQuestionAnswerBody,
+  TTabQuestionAutoAnswerCancelResponse,
   TTabQuestionScreenResponse,
   TTabSuggestionSendBody,
   TTokenBody,
@@ -86,6 +87,10 @@ export interface MobileApi {
   /** Answers a tab's question from its card — no PIN (spec 2026-09-25 §2). 409 `TAB_PROMPT_CHANGED`
    * when the tab moved on, 404 unknown. */
   answerTabQuestion(auth: Auth, questionId: string, body: TTabQuestionAnswerBody): Promise<void>;
+  /** "Cancelar" on a countdown (concierge memory spec 2026-09-26 §6): nothing is sent, the proposed
+   * answer stays on the card as its own pre-selection. No PIN. 404 for another user's card, 409
+   * `NOT_SCHEDULED` when no countdown runs (already sent, failed, cancelled, or never scheduled). */
+  cancelAutoAnswer(auth: Auth, questionId: string): Promise<TTabQuestionAutoAnswerCancelResponse>;
   /** The tab's last lines, live, for a permission card; 409 once the question is closed. */
   tabQuestionScreen(auth: Auth, questionId: string): Promise<TTabQuestionScreenResponse>;
   /** Sends a tab's suggestion, as edited — no PIN. 409 `TAB_PROMPT_CHANGED` when the tab's prompt changed, 404 unknown. */

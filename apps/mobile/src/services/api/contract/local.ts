@@ -48,6 +48,7 @@ import {
   sendAccepted,
   subagentViewSchema,
   tabQuestionAnswerBody,
+  tabQuestionAutoAnswerCancelResponse,
   tabQuestionSchema,
   tabQuestionScreenResponse,
   tabQuestionSuggestionSchema,
@@ -211,6 +212,8 @@ export type TTabQuestion = z.infer<typeof tabQuestionSchema>;
 export type TTabQuestionAnswerBody = z.infer<typeof tabQuestionAnswerBody>;
 export type TTabQuestionScreenResponse = z.infer<typeof tabQuestionScreenResponse>;
 export type TTabQuestionSuggestion = z.infer<typeof tabQuestionSuggestionSchema>;
+/** `POST chat/tab-questions/:id/auto-answer/cancel` (concierge memory spec 2026-09-26 §6). */
+export type TTabQuestionAutoAnswerCancelResponse = z.infer<typeof tabQuestionAutoAnswerCancelResponse>;
 
 // "Memória do chat" (spec 2026-09-26 §4.6/§5.2, concierge memory D8/D12): a remembered decision, its
 // page, the suggestion/autodecide switches and a concierge note's page — mirrors

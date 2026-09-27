@@ -631,6 +631,24 @@ it('a message containing pergunta raises a tab question; answering it once works
   collected.close();
 });
 
+it('cancelAutoAnswer is 404 for an unknown question and 409 NOT_SCHEDULED for a card with no countdown running (concierge memory spec 2026-09-26 §6)', async () => {
+  const clock = { value: START };
+  const { api, auth } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+
+  await api.sendMessage(auth, { text: 'tem alguma pergunta pendente?', project_id: 'p-termhub' });
+  await jest.advanceTimersByTimeAsync(5000);
+  const opened = collected.events.find((e): e is Extract<TChatEvent, { type: 'tab_question' }> => e.type === 'tab_question');
+  const id = opened!.question.id;
+
+  await expect(api.cancelAutoAnswer(auth, 'nope')).rejects.toMatchObject({ status: 404 });
+  // The canned card carries no `auto_answer` at all: nothing is counting down.
+  await expect(api.cancelAutoAnswer(auth, id)).rejects.toMatchObject({ status: 409, code: 'NOT_SCHEDULED' });
+
+  collected.close();
+});
+
 it('a message containing permissão raises a permission question for Bash', async () => {
   const clock = { value: START };
   const { api, auth } = await enrol(clock);

@@ -910,6 +910,21 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     return { status: 200, body: { tab_question: view } };
   });
 
+  /** "Cancelar" on a countdown (concierge memory spec 2026-09-26 §6): keeps the card open, the
+   * proposed answer stays as its own pre-selection; 404 unknown, 409 `NOT_SCHEDULED` when no
+   * countdown is running (already sent, failed, cancelled, or never scheduled) — mirrors the
+   * server's `cancelAutoAnswer` (apps/server/src/chat/auto-answer.ts). */
+  router.route('POST', '/api/m/v1/chat/tab-questions/:id/auto-answer/cancel', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
+    const question = state.tabQuestions.find((q) => q.id === ctx.params.id);
+    if (!question) throw new WireError(404, 'NOT_FOUND', 'Pergunta não encontrada');
+    if (question.auto_answer?.status !== 'scheduled') throw new WireError(409, 'NOT_SCHEDULED', 'Não há resposta automática em contagem nesta pergunta');
+    question.auto_answer = { ...question.auto_answer, status: 'cancelled', decided_by: USER_ID };
+    const view = tabQuestionView(question);
+    broadcast(state, { type: 'tab_question', user_id: USER_ID, conversation_id: question.conversation_id, question: view });
+    return { status: 200, body: { tab_question: view } };
+  });
+
   router.route('GET', '/api/m/v1/chat/tab-questions/:id/screen', (ctx) => {
     verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
     const question = state.tabQuestions.find((q) => q.id === ctx.params.id);

@@ -2,7 +2,7 @@
 // `HttpMobileApi` + `MockTransport` with an enrolled session, same setup as the notifications
 // store's own tests (`createNotificationsStore.test.ts`).
 import { sessionEnded } from '@/features/shared/signals';
-import type { TChatDecision, TChatMemory, TDecisionsResponse } from '@/services/api/contract';
+import type { TChatDecision, TChatMemory, TConciergeNote, TDecisionsResponse, TNotesResponse } from '@/services/api/contract';
 import { enrol, setupSession } from '../../../../test/helpers/enrolled-session';
 import { createChatMemoryStore } from './createChatMemoryStore';
 
@@ -24,6 +24,18 @@ function decision(over: Partial<TChatDecision> & { id: string }): TChatDecision 
     answer: { labels: ['Não'] },
     suggested_count: 2,
     accepted_count: 1,
+    created_at: '2026-09-20T10:00:00.000Z',
+    ...over,
+  };
+}
+
+function note(over: Partial<TConciergeNote> & { id: string }): TConciergeNote {
+  return {
+    project_id: 'p-termhub',
+    project_name: 'termhub',
+    question: 'Usar worktree?',
+    decision: 'Sim',
+    reason: 'Você sempre isola em worktree',
     created_at: '2026-09-20T10:00:00.000Z',
     ...over,
   };
@@ -246,6 +258,94 @@ it('forgetting, then a search that completes before the DELETE does, still remov
   expect(store.getState().decisions?.some((d) => d.id === target.id)).toBe(false);
 });
 
+describe('setAutodecide (concierge memory spec 2026-09-26 §6, D8)', () => {
+  it('flips the switch at once (optimistic), then keeps the server\'s confirmed value', async () => {
+    const { store, api } = await setup();
+    await store.getState().load();
+    expect(store.getState().memory?.autodecide).toBe(false);
+    let resolveSet!: (v: TChatMemory) => void;
+    const spy = jest.spyOn(api, 'setChatMemory').mockImplementationOnce(() => new Promise((resolve) => (resolveSet = resolve)));
+
+    const p = store.getState().setAutodecide(true);
+    expect(store.getState().memory?.autodecide).toBe(true); // optimistic, before the PATCH resolves
+    expect(spy).toHaveBeenCalledWith(expect.anything(), { autodecide: true });
+
+    resolveSet({ enabled: true, autodecide: true, available: true, count: 2, notes: 0 });
+    await p;
+    expect(store.getState().memory?.autodecide).toBe(true);
+    expect(store.getState().error).toBeNull();
+  });
+
+  it('rolls back and shows "Não foi possível alterar a configuração" on failure', async () => {
+    const { store, api } = await setup();
+    await store.getState().load();
+    jest.spyOn(api, 'setChatMemory').mockRejectedValueOnce(new Error('boom'));
+
+    await store.getState().setAutodecide(true);
+
+    expect(store.getState().memory?.autodecide).toBe(false); // rolled back
+    expect(store.getState().error).toBe('Não foi possível alterar a configuração');
+  });
+});
+
+describe('"Anotações do concierge" (spec D12/§8)', () => {
+  it('loadNotes reads the first page', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatNotes').mockResolvedValueOnce({ notes: [note({ id: 'n1' })], next_cursor: 'n1' });
+
+    await store.getState().loadNotes();
+
+    expect(store.getState().notes?.map((n) => n.id)).toEqual(['n1']);
+    expect(store.getState().notesCursor).toBe('n1');
+  });
+
+  it('loadMoreNotes appends the next page and next_cursor null stops it (a further call is a no-op)', async () => {
+    const { store, api } = await setup();
+    const first = note({ id: 'n1' });
+    const second = note({ id: 'n2', question: 'Outra pergunta?' });
+    const spy = jest.spyOn(api, 'chatNotes').mockImplementation(async (_auth, cursor) => {
+      if (!cursor) return { notes: [first], next_cursor: 'n1' } satisfies TNotesResponse;
+      expect(cursor).toBe('n1');
+      return { notes: [second], next_cursor: null } satisfies TNotesResponse;
+    });
+
+    await store.getState().loadNotes();
+    expect(store.getState().notes).toEqual([first]);
+
+    await store.getState().loadMoreNotes();
+    expect(store.getState().notes).toEqual([first, second]);
+    expect(store.getState().notesCursor).toBeNull();
+
+    const callsBefore = spy.mock.calls.length;
+    await store.getState().loadMoreNotes(); // no cursor: no-op
+    expect(spy.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('forgetNote deletes and removes the row locally', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatNotes').mockResolvedValueOnce({ notes: [note({ id: 'n1' })], next_cursor: null });
+    await store.getState().loadNotes();
+    const spy = jest.spyOn(api, 'forgetChatNote');
+
+    await store.getState().forgetNote('n1');
+
+    expect(spy).toHaveBeenCalledWith(expect.anything(), 'n1');
+    expect(store.getState().notes!.some((n) => n.id === 'n1')).toBe(false);
+  });
+
+  it('forgetNote failure shows "Não foi possível esquecer a anotação"', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatNotes').mockResolvedValueOnce({ notes: [note({ id: 'n1' })], next_cursor: null });
+    await store.getState().loadNotes();
+    jest.spyOn(api, 'forgetChatNote').mockRejectedValueOnce(new Error('boom'));
+
+    await store.getState().forgetNote('n1');
+
+    expect(store.getState().notesError).toBe('Não foi possível esquecer a anotação');
+    expect(store.getState().notes!.some((n) => n.id === 'n1')).toBe(true); // still there: the delete failed
+  });
+});
+
 it('resets on sessionEnded', async () => {
   const { store } = await setup();
   await store.getState().load();
@@ -253,5 +353,5 @@ it('resets on sessionEnded', async () => {
 
   sessionEnded.emit();
 
-  expect(store.getState()).toMatchObject({ memory: null, decisions: null, cursor: null, q: '', error: null });
+  expect(store.getState()).toMatchObject({ memory: null, decisions: null, cursor: null, q: '', error: null, notes: null, notesCursor: null, notesError: null });
 });

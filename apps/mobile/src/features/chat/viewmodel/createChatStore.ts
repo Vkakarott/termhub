@@ -20,7 +20,7 @@ import { ApiError } from '@/services/api/errors';
 import { randomId } from '@/services/crypto/random';
 import type { MobileApi } from '@/services/api/types';
 import { mmkvStateStorage } from '@/services/storage';
-import { applyEvent, mergeThread, settlePending } from '../model/events';
+import { applyEvent, mergeThread, settlePending, upsertTabQuestion } from '../model/events';
 import { belongsTo } from '../model/filter';
 import { CHAT_MSG } from '../model/messages';
 import { emptyFold, pruneLive, type LiveFold } from '../model/live';
@@ -122,6 +122,11 @@ export interface ChatState {
   revokeGrant(grantId: string): Promise<void>;
   /** Answers a tab's question from its card — no PIN. A question the tab moved past (409) says so in its card and re-reads. */
   answerTabQuestion(questionId: string, body: TTabQuestionAnswerBody): Promise<void>;
+  /** "Cancelar" on a countdown (concierge memory spec 2026-09-26 §6): nothing is sent, the proposed
+   * answer stays on the card as its own pre-selection. The returned card replaces the question in
+   * the store; 409 `NOT_SCHEDULED` (the countdown already sent, or someone else cancelled it first)
+   * reads as its own sentence, in the card like `answerTabQuestion`'s own failures. */
+  cancelAutoAnswer(questionId: string): Promise<void>;
   /** The tab's live excerpt for a permission card; null when it cannot be read (closed, offline). */
   loadTabQuestionScreen(questionId: string): Promise<string | null>;
   /** Sends a tab's suggestion, as edited — no PIN. A suggestion the tab moved past (409) says so in its card and re-reads. */
@@ -626,6 +631,24 @@ export function createChatStore(deps: ChatDeps) {
               if (text === null) return;
               set((s) => ({ questionErrors: { ...s.questionErrors, [questionId]: text } }));
               if (isApiError(e, 'TAB_PROMPT_CHANGED')) void reread(key); // show how it ended
+            } finally {
+              if (gen === generation) set((s) => ({ answeringQuestionIds: s.answeringQuestionIds.filter((id) => id !== questionId) }));
+            }
+          },
+
+          async cancelAutoAnswer(questionId) {
+            const projectId = get().activeProject;
+            if (projectId === undefined || get().answeringQuestionIds.includes(questionId)) return;
+            const key = keyOf(projectId);
+            const gen = generation;
+            set((s) => ({ answeringQuestionIds: [...s.answeringQuestionIds, questionId], questionErrors: without(s.questionErrors, questionId) }));
+            try {
+              const { tab_question } = await api.cancelAutoAnswer(session().auth(), questionId);
+              if (gen === generation) patchSlot(key, (slot) => ({ tabQuestions: upsertTabQuestion(slot.tabQuestions, tab_question) }));
+            } catch (e) {
+              if (gen !== generation || isLocked(e) || session().handleApiError(e)) return;
+              const text = isApiError(e, 'NOT_SCHEDULED') ? CHAT_MSG.autoAnswerAlreadySent : isApiError(e) ? e.message : CHAT_MSG.network;
+              set((s) => ({ questionErrors: { ...s.questionErrors, [questionId]: text } }));
             } finally {
               if (gen === generation) set((s) => ({ answeringQuestionIds: s.answeringQuestionIds.filter((id) => id !== questionId) }));
             }

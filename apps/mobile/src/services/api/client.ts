@@ -26,6 +26,7 @@ import {
   notificationsResponse,
   progressResponse,
   sendAccepted,
+  tabQuestionAutoAnswerCancelResponse,
   tabQuestionScreenResponse,
   tokenResponse,
   transcriptionConfigResponse,
@@ -255,6 +256,8 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
       call('GET', `/api/m/v1/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}&kinds=all`, chatGrantListResponse, { token: a.accessToken }),
     answerTabQuestion: (a: Auth, id: string, body: TTabQuestionAnswerBody) =>
       empty('POST', `/api/m/v1/chat/tab-questions/${encodeURIComponent(id)}/answer`, { token: a.accessToken, body }),
+    cancelAutoAnswer: (a: Auth, id: string) =>
+      call('POST', `/api/m/v1/chat/tab-questions/${encodeURIComponent(id)}/auto-answer/cancel`, tabQuestionAutoAnswerCancelResponse, { token: a.accessToken, body: {} }),
     tabQuestionScreen: (a: Auth, id: string) =>
       call('GET', `/api/m/v1/chat/tab-questions/${encodeURIComponent(id)}/screen`, tabQuestionScreenResponse, { token: a.accessToken }),
     sendTabSuggestion: (a: Auth, id: string, body: TTabSuggestionSendBody) =>

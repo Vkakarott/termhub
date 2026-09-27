@@ -7,7 +7,7 @@ jest.mock('@/features/chat/viewmodel/useChatMemoryStore', () => ({ useChatMemory
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: jest.fn(() => true) };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
-import type { TChatDecision, TDecisionsResponse } from '@/services/api/contract';
+import type { TChatDecision, TConciergeNote, TDecisionsResponse } from '@/services/api/contract';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { useChatMemoryStore } from '../viewmodel/useChatMemoryStore';
 import { ChatMemoryScreen } from './chat-memory-screen';
@@ -30,18 +30,46 @@ function dec(over: Partial<TChatDecision> & { id: string; question: string }): T
   };
 }
 
+function note(over: Partial<TConciergeNote> & { id: string; question: string }): TConciergeNote {
+  return {
+    project_id: null,
+    project_name: null,
+    decision: 'Sim',
+    reason: 'Você sempre isola em worktree',
+    created_at: new Date().toISOString(),
+    ...over,
+  };
+}
+
 beforeAll(async () => {
   await enrolStores();
 });
 
 beforeEach(() => {
   for (const fn of Object.values(mockRouter)) fn.mockClear();
+  // Every test starts from an empty notes list unless it seeds its own — this file's shared mock
+  // backend carries no note fixtures (unlike decisions).
+  jest.spyOn(stores.api, 'chatNotes').mockResolvedValue({ notes: [], next_cursor: null });
 });
 
 afterEach(() => {
   jest.restoreAllMocks();
   // Every test starts from a clean slate: the store is a singleton shared across this file's tests.
-  useChatMemoryStore.setState({ memory: null, decisions: null, cursor: null, q: '', loadingMore: false, switching: false, forgettingId: null, error: null });
+  useChatMemoryStore.setState({
+    memory: null,
+    decisions: null,
+    cursor: null,
+    q: '',
+    loadingMore: false,
+    switching: false,
+    forgettingId: null,
+    error: null,
+    notes: null,
+    notesCursor: null,
+    loadingMoreNotes: false,
+    forgettingNoteId: null,
+    notesError: null,
+  });
 });
 
 describe('Memória do chat', () => {
@@ -121,6 +149,40 @@ describe('Memória do chat', () => {
     await act(async () => useChatMemoryStore.setState((s) => ({ memory: s.memory ? { ...s.memory, available: false } : s.memory })));
     expect(screen.getByText('Sugestões indisponíveis neste servidor')).toBeTruthy();
     expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it('the "Responder sozinho" switch reflects autodecide and calls setAutodecide(true)', async () => {
+    const spy = jest.spyOn(stores.api, 'setChatMemory').mockResolvedValue({ enabled: true, autodecide: true, available: true, count: 2, notes: 0 });
+    await render(<ChatMemoryScreen />);
+    const sw = await screen.findByRole('switch', { name: 'Responder sozinho quando houver precedente' }, LOAD);
+    expect(sw.props.value).toBe(false);
+    await act(async () => fireEvent(sw, 'valueChange', true));
+    expect(spy).toHaveBeenCalledWith(expect.anything(), { autodecide: true });
+    expect(screen.getByText(/O concierge espera|espera 60 segundos/)).toBeTruthy();
+  });
+
+  it('"Anotações do concierge" lists question, decision, reason and date, and "Esquecer" removes the row after confirming', async () => {
+    jest.spyOn(stores.api, 'chatNotes').mockResolvedValueOnce({ notes: [note({ id: 'n1', question: 'Usar worktree para essa tarefa?' })], next_cursor: null });
+    const forgetNote = jest.spyOn(stores.api, 'forgetChatNote').mockResolvedValue(undefined);
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation((_title, _msg, buttons) => {
+      buttons?.find((b) => b.style === 'destructive')?.onPress?.();
+    });
+    await render(<ChatMemoryScreen />);
+    await screen.findByText('Anotações do concierge', undefined, LOAD);
+    await screen.findByText(/Você sempre isola em worktree/, undefined, LOAD);
+    expect(screen.getByText('→ Sim')).toBeTruthy();
+
+    // Two "Esquecer" buttons on screen: the decisions' and this note's own. The note's row is the last.
+    const forgetButtons = screen.getAllByRole('button', { name: 'Esquecer' });
+    await act(async () => fireEvent.press(forgetButtons[forgetButtons.length - 1]!));
+    expect(alert).toHaveBeenCalled();
+    await waitFor(() => expect(forgetNote).toHaveBeenCalledWith(expect.anything(), 'n1'), LOAD);
+    await waitFor(() => expect(screen.queryByText(/Você sempre isola em worktree/)).toBeNull(), LOAD);
+  });
+
+  it('no notes shows "Nenhuma anotação ainda."', async () => {
+    await render(<ChatMemoryScreen />);
+    expect(await screen.findByText('Nenhuma anotação ainda.', undefined, LOAD)).toBeTruthy();
   });
 
   it('"Carregar mais" appears with a next_cursor and appends the next page', async () => {
