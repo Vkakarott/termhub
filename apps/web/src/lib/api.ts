@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary, SubagentView } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -181,7 +181,7 @@ export const api = {
    * tabs, or trusted projects, has none. */
   chat: Object.assign(
     (projectId?: string | null) =>
-      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; project_grants?: ChatProjectGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[] }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
+      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; project_grants?: ChatProjectGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[]; subagents?: SubagentView[] }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
     {
       /** Files attached to a message before it is sent (spec §5.3). */
       attachments: {
@@ -240,6 +240,9 @@ export const api = {
   resetChat: (projectId?: string | null) => request<{ conversation: ChatConversation }>('POST', '/chat/reset', projectId ? { project_id: projectId } : {}),
   /** Which project chats have anything going on right now, for a sidebar badge. */
   chatProjects: () => request<{ projects: ProjectChatStatus[] }>('GET', '/chat/projects'),
+  /** "Cancelar" on a subagent's row in the panel (spec 2026-09-26 §4): 404 unknown/not yours, 409
+   *  `SUBAGENT_NOT_RUNNING` (already at rest) or `SUBAGENT_GONE` (its process is no longer around). */
+  cancelSubagent: (id: string) => request<{ subagent: SubagentView }>('POST', `/chat/subagents/${encodeURIComponent(id)}/cancel`, {}),
   /**
    * 200 normally; 200 with `queued: true` and a pt-BR `note` when a run is in flight (the decision is
    * recorded and will be applied once it finishes); 404 unknown/not yours; 409 already decided (400

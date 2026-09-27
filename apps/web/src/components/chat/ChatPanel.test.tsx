@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
-import type { ChatAction, ChatGrant, ChatMessage, ChatProjectGrant, TabQuestion, TabSuggestion } from '../../lib/types';
+import type { ChatAction, ChatGrant, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from '../../lib/types';
 
 const chatMock = vi.fn();
 const sendMock = vi.fn();
@@ -23,6 +23,7 @@ const dismissSuggestionMock = vi.fn();
 const uploadMock = vi.fn();
 const removeAttachmentMock = vi.fn();
 const forgetDecisionMock = vi.fn();
+const cancelSubagentMock = vi.fn();
 
 vi.mock('../../lib/api', () => {
   // Same signature as the real one: the page shows `message`, so a stand-in that swallows it would
@@ -57,6 +58,7 @@ vi.mock('../../lib/api', () => {
       sendTabSuggestion: (...a: unknown[]) => sendSuggestionMock(...a),
       dismissTabSuggestion: (...a: unknown[]) => dismissSuggestionMock(...a),
       forgetChatDecision: (...a: unknown[]) => forgetDecisionMock(...a),
+      cancelSubagent: (...a: unknown[]) => cancelSubagentMock(...a),
       machines: { list: (...a: unknown[]) => machinesMock(...a) },
       aiAccounts: { list: (...a: unknown[]) => accountsMock(...a) },
     },
@@ -95,6 +97,15 @@ const action = (over: Partial<ChatAction> & { id: string }): ChatAction => ({
 /** A host that can run the conversation, reused across the tests below that don't care what it is. */
 const READY = { kind: 'ready', machine: { id: 'm1', name: 'jarvis' }, configDir: null, account: { kind: 'default' }, sessionAtStake: false };
 
+const sub = (over: Partial<SubagentView> & { id: string }): SubagentView => ({
+  description: 'Buscar CI',
+  subagent_type: null,
+  status: 'running',
+  started_at: '2026-09-21T00:00:00.000Z',
+  ended_at: null,
+  ...over,
+});
+
 const grant = (over: Partial<ChatGrant> & { id: string }): ChatGrant => ({
   tab_id: 't1',
   tool: 'send_input',
@@ -132,6 +143,7 @@ beforeEach(() => {
   uploadMock.mockReset();
   removeAttachmentMock.mockReset();
   forgetDecisionMock.mockReset();
+  cancelSubagentMock.mockReset();
   screenMock.mockResolvedValue({ text: 'Do you want to proceed?' });
   accountsMock.mockResolvedValue({ accounts: [] });
   auth.state = { user: { id: 'u1' }, viewAs: null };
@@ -753,4 +765,101 @@ it('feeds an attachment status to the chip still in the box, and only for its ow
   act(() => onEvent({ type: 'attachment_status', conversation_id: 'c_p1', attachment: attachment({ id: 'att1', status: 'ready', meta: { pages: 2 } }) }));
   await waitFor(() => expect(screen.queryByText('processando…')).toBeNull());
   expect(screen.getByText('relatorio.pdf')).toBeTruthy();
+});
+
+it('shows the subagents toolbar button while one is active, and clicking it lists it', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  const button = await screen.findByRole('button', { name: 'Subagentes (1)' });
+  fireEvent.click(button);
+  expect(await screen.findByText('Buscar CI')).toBeInTheDocument();
+});
+
+it('a subagent event turning it completed drops the toolbar button once nothing is active', async () => {
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    return { connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Subagentes (1)' });
+  act(() => onEvent({ type: 'subagent', conversation_id: 'c_p1', subagent: sub({ id: 's1', status: 'completed', ended_at: '2026-09-21T00:01:00.000Z' }) }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: /Subagentes/ })).toBeNull());
+});
+
+it('Cancelar on a subagent row calls api.cancelSubagent with its id', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  cancelSubagentMock.mockResolvedValue({ subagent: sub({ id: 's1', status: 'stopping' }) });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Subagentes (1)' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancelar Buscar CI' }));
+  await waitFor(() => expect(cancelSubagentMock).toHaveBeenCalledWith('s1'));
+});
+
+it('a subagent_cancel_failed event shows "Não foi possível cancelar" on that row', async () => {
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    return { connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Subagentes (1)' }));
+  act(() => onEvent({ type: 'subagent_cancel_failed', conversation_id: 'c_p1', subagent_id: 's1' }));
+  expect(await screen.findByText('Não foi possível cancelar')).toBeInTheDocument();
+});
+
+it('a repeated confirmation event merges a later subagent into the existing card', async () => {
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    return { connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(chatMock).toHaveBeenCalled());
+  act(() =>
+    onEvent({ type: 'confirmation', conversation_id: 'c_p1', action_id: 'a1', tool: 'send_input', args: {}, class: 'write', machine_id: null, project_id: null, tab_id: null, summary: 'digitar `npm test`', subagent: null, created_at: '' }),
+  );
+  expect(await screen.findByText('digitar `npm test`')).toBeInTheDocument();
+  expect(screen.queryByText(/Pedido pelo subagente/)).toBeNull();
+
+  act(() =>
+    onEvent({
+      type: 'confirmation',
+      conversation_id: 'c_p1',
+      action_id: 'a1',
+      tool: 'send_input',
+      args: {},
+      class: 'write',
+      machine_id: null,
+      project_id: null,
+      tab_id: null,
+      summary: 'digitar `npm test`',
+      subagent: { id: 's1', description: 'Buscar CI' },
+      created_at: '',
+    }),
+  );
+  expect(await screen.findByText('Pedido pelo subagente «Buscar CI»')).toBeInTheDocument();
 });

@@ -64,3 +64,12 @@ it('labels a call run under a project grant', () => {
   render(<ChatActionCard action={card({ tool: 'update_task', status: 'executed', grant_id: 'pg1' })} deciding={false} onDecide={vi.fn()} />);
   expect(screen.getByText(/quadro confiado/)).toBeInTheDocument();
 });
+
+it('names the subagent that proposed the action', () => {
+  render(<ChatActionCard action={{ ...base, subagent: { id: 's1', description: 'Buscar CI' } }} deciding={false} onDecide={vi.fn()} />);
+  expect(screen.getByText('Pedido pelo subagente «Buscar CI»')).toBeInTheDocument();
+});
+it('no origin line without a subagent', () => {
+  render(<ChatActionCard action={base} deciding={false} onDecide={vi.fn()} />);
+  expect(screen.queryByText(/Pedido pelo subagente/)).toBeNull();
+});

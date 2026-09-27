@@ -21,8 +21,12 @@ export function ChatActionGroup({ actions, deciding, onDecide, onShowSeparately 
           <li key={a.id}>
             <label className="flex items-start gap-2">
               <input type="checkbox" className="mt-1" checked={isChecked(a)} disabled={deciding} onChange={(e) => setChecked((prev) => ({ ...prev, [a.id]: e.target.checked }))} />
-              {/* Plain text only — never HTML: a summary can carry a command read off a real terminal screen. */}
-              <span className="whitespace-pre-wrap text-fg">{a.summary}</span>
+              <span className="flex-1">
+                {/* Plain text only — never HTML: a summary can carry a command read off a real terminal screen. */}
+                <span className="whitespace-pre-wrap text-fg">{a.summary}</span>
+                {/* The subagent whose turn proposed this action (spec 2026-09-26 §4), when there is one. */}
+                {a.subagent && <span className="block text-xs text-fg-dim">Pedido pelo subagente «{a.subagent.description}»</span>}
+              </span>
               {a.class === 'irreversible' && <span className="ml-auto shrink-0 text-xs text-danger">irreversível</span>}
             </label>
           </li>

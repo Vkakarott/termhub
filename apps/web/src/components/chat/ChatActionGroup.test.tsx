@@ -42,3 +42,12 @@ it('disables everything while deciding', () => {
   render(<ChatActionGroup actions={[action('a1'), action('a2')]} deciding onDecide={vi.fn()} onShowSeparately={vi.fn()} />);
   expect(screen.getByRole('button', { name: 'Recusar todas' })).toBeDisabled();
 });
+
+it('names the subagent that proposed an action', () => {
+  render(<ChatActionGroup actions={[action('a1', { subagent: { id: 's1', description: 'Buscar CI' } })]} deciding={false} onDecide={vi.fn()} onShowSeparately={vi.fn()} />);
+  expect(screen.getByText('Pedido pelo subagente «Buscar CI»')).toBeInTheDocument();
+});
+it('no origin line without a subagent', () => {
+  render(<ChatActionGroup actions={[action('a1')]} deciding={false} onDecide={vi.fn()} onShowSeparately={vi.fn()} />);
+  expect(screen.queryByText(/Pedido pelo subagente/)).toBeNull();
+});
