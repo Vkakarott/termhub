@@ -12,6 +12,8 @@ import { ProjectSettings } from '../components/ProjectSettings';
 import { PublishControl } from '../components/PublishControl';
 import { FullScreenMessage } from '../components/Layout';
 import { PageHeader } from '../components/PageHeader';
+import { useChatScope } from '../lib/project-chat';
+import { ChatToggleButton } from '../components/chat/ChatToggleButton';
 
 export type ProjectSection = 'terminals' | 'tasks' | 'backlog' | 'progress' | 'tickets' | 'notes' | 'settings';
 
@@ -37,6 +39,10 @@ export function ProjectPage({ card }: Props = {}) {
   const { projects, machinesOf, statuses, loading, refresh } = useData();
   const project = projects.find((p) => p.id === id);
   const current: ProjectSection = SECTIONS.find((s) => s.path === (section ?? ''))?.key ?? 'terminals';
+
+  // Says which project's window is on screen, so the docked chat shows this project's chat (spec
+  // 2026-09-26 project chat dock §4.4). Only for a project that exists: "não encontrado" has no chat.
+  useChatScope(project?.id ?? null);
 
   // the list is read when the app opens: a project made since (another tab, the phone, an agent)
   // is not in it yet, so an id it lacks is asked for once more before the page says it is not there
@@ -86,6 +92,7 @@ export function ProjectPage({ card }: Props = {}) {
               />
             )}
             <PublishControl project={project} />
+            <ChatToggleButton projectId={project.id} />
           </>
         }
       />
