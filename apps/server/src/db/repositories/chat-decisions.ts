@@ -169,26 +169,32 @@ export class ChatDecisionsRepository {
     await this.db.$executeRaw`UPDATE "chat_decisions" SET "embedding" = ${v}::vector, "embed_model" = ${model} WHERE "id" = ${id}`;
   }
 
-  /** Not yet embedded (the sweeper's backlog), oldest first — `embedding` is `Unsupported` in Prisma,
-   *  so this and every other read that touches it goes through raw SQL. */
-  async listToEmbed(limit: number): Promise<Pick<ChatDecision, 'id' | 'header' | 'question' | 'options'>[]> {
+  /** The sweeper's backlog, at most `limit` rows: never embedded (first, oldest first), then embedded
+   *  under another text version — `embed_model` not ending with `tag` (`'#q1'`), e.g. a row the previous
+   *  release wrote untagged during a blue/green overlap (TER-204). `embedding` is `Unsupported` in
+   *  Prisma, so this and every other read that touches it goes through raw SQL. */
+  async listToEmbed(limit: number, tag: string): Promise<Pick<ChatDecision, 'id' | 'header' | 'question' | 'options'>[]> {
     const rows = await this.db.$queryRaw<{ id: string; header: string; question: string; options: unknown }[]>`
-      SELECT id, header, question, options FROM "chat_decisions" WHERE embedding IS NULL ORDER BY created_at ASC LIMIT ${limit}`;
+      SELECT id, header, question, options FROM "chat_decisions"
+      WHERE embedding IS NULL OR embed_model IS NULL OR right(embed_model, length(${tag})) <> ${tag}
+      ORDER BY (embedding IS NULL) DESC, created_at ASC LIMIT ${limit}`;
     return rows.map((r) => ({ id: r.id, header: r.header, question: r.question, options: r.options as DecisionOption[] }));
   }
 
   /** The `k` nearest decisions of this user, same `multi_select` shape, best (highest cosine similarity)
    *  first. Never another user's rows, never the other `multi_select` shape, never an unembedded row.
-   *  An exact scan over the user's rows, on purpose: no ANN index, so no row of this user is ever lost to
-   *  an approximate index's post-filtering, and one person's decisions are few enough to scan. */
-  async nearest(userId: string, vector: number[], opts: { multiSelect: boolean; k: number }): Promise<DecisionNeighbour[]> {
+   *  Only rows embedded with exactly `embedModel` (model + text version, `embedTag`): a vector of another
+   *  model or text version is not comparable. An exact scan over the user's rows, on purpose: no ANN
+   *  index, so no row of this user is ever lost to an approximate index's post-filtering, and one
+   *  person's decisions are few enough to scan. */
+  async nearest(userId: string, vector: number[], opts: { multiSelect: boolean; k: number; embedModel: string }): Promise<DecisionNeighbour[]> {
     const v = toVector(vector);
     const rows = await this.db.$queryRaw<(RawRow & { similarity: number | string })[]>`
       SELECT d.id, d.user_id, d.project_id, p.name AS project_name, d.conversation_id, d.tab_question_id, d.question_index,
              d.header, d.question, d.options, d.multi_select, d.answer, d.embed_model, d.suggested_count, d.accepted_count, d.created_at,
              1 - (d.embedding <=> ${v}::vector) AS similarity
       FROM "chat_decisions" d LEFT JOIN "projects" p ON p.id = d.project_id
-      WHERE d.user_id = ${userId} AND d.embedding IS NOT NULL AND d.multi_select = ${opts.multiSelect}
+      WHERE d.user_id = ${userId} AND d.embedding IS NOT NULL AND d.multi_select = ${opts.multiSelect} AND d.embed_model = ${opts.embedModel}
       ORDER BY d.embedding <=> ${v}::vector
       LIMIT ${opts.k}`;
     return rows.map((r) => ({ ...mapRaw(r), similarity: Number(r.similarity) }));
