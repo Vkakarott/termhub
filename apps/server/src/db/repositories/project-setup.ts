@@ -38,4 +38,12 @@ export class ProjectSetupRepository {
       .map((r) => ({ project_id: r.projectId, sources: normalizeSetup(r.data, r.version).ticket_sources.filter((s) => s.sync_minutes > 0) }))
       .filter((r) => r.sources.length > 0);
   }
+
+  /** Projects whose setup names a repository and the integration to read it with (CI panel). */
+  async listWithRepo(): Promise<{ project_id: string; data: ProjectSetupData }[]> {
+    const rows = await this.db.projectSetup.findMany();
+    return rows
+      .map((r) => ({ project_id: r.projectId, data: normalizeSetup(r.data, r.version) }))
+      .filter((r) => !!r.data.repo?.integration_id && !!r.data.repo.full_name);
+  }
 }

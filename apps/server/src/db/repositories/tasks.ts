@@ -406,6 +406,11 @@ export class TasksRepository {
     return rows.map(toTask);
   }
 
+  /** Whether the project has a top-level work card in a doing column (the CI poll's "work in progress"). */
+  async hasDoing(projectId: string): Promise<boolean> {
+    return (await this.db.task.count({ where: { projectId, status: 'doing', ...WORK }, take: 1 })) > 0;
+  }
+
   /**
    * What the office floor shows of the board: per project, how many top-level tasks sit in
    * todo/doing/done (the backlog is not work in progress); per tab, the `doing` task bound to it
