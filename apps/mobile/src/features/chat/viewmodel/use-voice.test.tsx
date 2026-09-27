@@ -6,7 +6,7 @@ import { requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio'
 import * as SecureStore from 'expo-secure-store';
 import { mmkv } from '@/services/storage';
 import { enrol, setupSession } from '../../../../test/helpers/enrolled-session';
-import { MAX_RECORDING_S, useRecorder, useVoice, VOICE_MIME, type RecordedClip } from './use-voice';
+import { levelFromDb, MAX_RECORDING_S, useRecorder, useVoice, VOICE_MIME, type RecordedClip } from './use-voice';
 
 const mockRecorder = {
   uri: 'file:///cache/clip.m4a' as string | null,
@@ -15,6 +15,9 @@ const mockRecorder = {
   prepareToRecordAsync: jest.fn(async () => undefined),
   record: jest.fn(),
   stop: jest.fn(async () => undefined),
+  /** the metering reading (dBFS) the status carries; `undefined` is a recorder that reports none */
+  metering: undefined as number | undefined,
+  getStatus: jest.fn((): { metering: number | undefined } => ({ metering: mockRecorder.metering })),
 };
 const mockPermission = { granted: true };
 jest.mock('expo-audio', () => ({
@@ -43,6 +46,7 @@ beforeEach(() => {
   secureItems.clear();
   mockPermission.granted = true;
   mockRecorder.uri = 'file:///cache/clip.m4a';
+  mockRecorder.metering = undefined;
   jest.clearAllMocks();
 });
 
@@ -108,6 +112,27 @@ describe('useRecorder audio session', () => {
   afterEach(() => {
     mockRecorder.stop.mockImplementation(async () => undefined);
     (setAudioModeAsync as jest.Mock).mockImplementation(async () => undefined);
+  });
+
+  it('reads the input level while recording (null when the recorder reports none) and drops it when stopped', async () => {
+    const { result } = await renderHook(() => useRecorder());
+    expect(result.current.level).toBeNull();
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(100);
+    });
+    expect(result.current.level).toBeNull();
+    mockRecorder.metering = -25;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(100);
+    });
+    expect(result.current.level).toBe(0.5);
+    await act(async () => {
+      await result.current.stop();
+    });
+    expect(result.current.level).toBeNull();
   });
 
   it('stops the recorder before releasing the audio session, on stop and on cancel', async () => {
@@ -249,5 +274,20 @@ describe('useVoice', () => {
     jest.spyOn(ctx.api, 'transcriptionConfig').mockResolvedValue({ enabled: false });
     const { result } = await renderHook(() => useVoice(jest.fn(), ctx.deps));
     await waitFor(() => expect(result.current.state).toBe('off'));
+  });
+});
+
+describe('levelFromDb', () => {
+  it('maps the metering reading to 0–1: -50 dBFS and below is silence, 0 is the loudest', () => {
+    expect(levelFromDb(-160)).toBe(0);
+    expect(levelFromDb(-50)).toBe(0);
+    expect(levelFromDb(-25)).toBe(0.5);
+    expect(levelFromDb(0)).toBe(1);
+    expect(levelFromDb(3)).toBe(1);
+  });
+
+  it('is null when the recorder reports no level', () => {
+    expect(levelFromDb(undefined)).toBeNull();
+    expect(levelFromDb(Number.NaN)).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activeGrantsLabel } from '@/features/chat-grants/model/labels';
@@ -81,6 +81,10 @@ export function ConversationScreen() {
   /** "Ver separadas" holds only for the cards it was clicked on: a new or decided card groups again. */
   const [separate, setSeparate] = useState(false);
   const insets = useSafeAreaInsets();
+  /** Where the keyboard-avoiding view's parent starts on screen; `null` until measured. */
+  const bodyRef = useRef<View>(null);
+  const [bodyTop, setBodyTop] = useState<number | null>(null);
+  const measureBody = useCallback(() => bodyRef.current?.measureInWindow((_x, y) => setBodyTop(y)), []);
 
   useEffect(() => {
     if (id) void openByRoute(id);
@@ -198,10 +202,13 @@ export function ConversationScreen() {
   return (
     <Screen padded={false}>
       {/* `padding` on iOS, `height` on Android (spec §4.2 "Keyboard"): stock behaviour on both, no
-          extra native module. The avoiding view measures its frame relative to its parent, which
-          already sits below the top safe area: without this offset it lifts the composer short by
-          that inset, behind the keyboard. */}
-      <KeyboardAvoidingView testID="conversation-keyboard" className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={insets.top}>
+          extra native module. The avoiding view compares its frame, relative to its parent, with the
+          keyboard's top on screen: the offset is where that parent really starts on screen, measured,
+          so the composer lands right on the keyboard. It used to be assumed to be the top safe-area
+          inset; wherever the screen really starts elsewhere, the pill floated off the keyboard by the
+          difference. */}
+      <View ref={bodyRef} testID="conversation-body" className="flex-1" onLayout={measureBody}>
+      <KeyboardAvoidingView testID="conversation-keyboard" className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={bodyTop ?? insets.top}>
         {/* The header block — title, host line, error — and the footer block below — grants, composer —
             are siblings of the list, never rows inside it: a line appearing there changes the list's
             frame, not its content, and the inverted list keeps its end pinned through that. */}
@@ -243,6 +250,7 @@ export function ConversationScreen() {
           <Composer sending={sending} onSend={send} uploadAttachment={uploadAttachment} deleteAttachment={deleteAttachment} attachmentStatuses={attachmentStatuses} />
         </View>
       </KeyboardAvoidingView>
+      </View>
       <Sheet open={confirmingReset} onClose={() => setConfirmingReset(false)} title="Começar uma nova conversa?">
         <View className="gap-3">
           <AppText variant="muted">A conversa atual fica arquivada e o chat começa do zero.</AppText>

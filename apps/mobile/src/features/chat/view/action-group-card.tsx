@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { AppText, Button } from '@/ui';
+import { AppText, Button, Icon } from '@/ui';
 import type { ChatAction } from '../model/types';
 
 type Decision = { id: string; decision: 'approve' | 'deny' };
@@ -26,7 +26,7 @@ export const ActionGroupCard = memo(function ActionGroupCard({ actions, busy, on
           onPress={() => setChecked((prev) => ({ ...prev, [a.id]: !isChecked(a) }))}
           className="flex-row items-start gap-2"
         >
-          <AppText>{isChecked(a) ? '☑' : '☐'}</AppText>
+          <Icon name={isChecked(a) ? { ios: 'checkmark.square.fill', android: 'check_box' } : { ios: 'square', android: 'check_box_outline_blank' }} tone={isChecked(a) ? 'accent' : 'muted'} />
           <AppText className="flex-1">{a.summary}</AppText>
           {a.class === 'irreversible' ? <AppText variant="muted">irreversível</AppText> : null}
         </Pressable>

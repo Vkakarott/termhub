@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { DeviceEventEmitter, StyleSheet } from 'react-native';
+import { getAnimatedStyle } from 'react-native-reanimated';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: require('../../../../test/helpers/ui-stores').stores.chat }));
@@ -31,6 +32,12 @@ import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { emptyFold, foldLive } from '../model/live';
 import type { ChatMessage } from '../model/types';
 import { ConversationScreen } from './conversation-screen';
+
+/** The composer's text frame (composer.tsx `textFrame`): sharing the buttons' row, or on its own line above it. */
+const BESIDE_BUTTONS = { marginLeft: 40, marginRight: 40, marginBottom: 0, height: 36 };
+const ABOVE_BUTTONS = { marginLeft: 8, marginRight: 8, marginBottom: 40 };
+/** A glide is 220 ms; the wait leaves room for a slow CI runner. */
+const SETTLE = { timeout: 3000 };
 
 const SEEDED_USER = 'Como estão as abas do projeto?';
 const SEEDED_ASSISTANT = 'A aba api está esperando sua confirmação pra rodar `npm test`.';
@@ -303,7 +310,7 @@ describe('Conversa', () => {
     expect(screen.queryByRole('button', { name: 'Permitir sempre nesta aba' })).toBeNull();
   });
 
-  it('an empty box offers Ditar; typing turns it into Enviar, which sends and empties the box at once', async () => {
+  it('an empty box offers Ditar; typing adds Enviar beside it, which sends and empties the box at once', async () => {
     const sent = jest.spyOn(stores.api, 'sendMessage').mockResolvedValue({ conversation_id: 'c-termhub', user_message_id: 'u', assistant_message_id: 'a' });
     await render(<ConversationScreen />);
     await screen.findByText(SEEDED_USER, undefined, LOAD);
@@ -313,7 +320,8 @@ describe('Conversa', () => {
     expect(screen.queryByRole('button', { name: 'Enviar' })).toBeNull();
 
     await fireEvent.changeText(screen.getByLabelText('Mensagem'), 'como está o deploy?');
-    expect(screen.queryByRole('button', { name: 'Ditar' })).toBeNull();
+    // The microphone stays: dictating adds to what is typed.
+    expect(screen.getByRole('button', { name: 'Ditar' }).props.accessibilityState.disabled).toBe(false);
     await fireEvent.press(screen.getByRole('button', { name: 'Enviar' }));
     expect(sent).toHaveBeenCalledWith(expect.anything(), { text: 'como está o deploy?', project_id: 'p-termhub' });
     expect(screen.getByLabelText('Mensagem').props.value).toBe('');
@@ -330,6 +338,8 @@ describe('Conversa', () => {
     await act(() => mockOnText!('roda os testes')); // a re-render: the hook's state is read again
     expect(screen.getByLabelText('Mensagem').props.value).toBe('roda os testes');
     expect(screen.getByText('1:05')).toBeTruthy();
+    // Listening never sends mid-sentence: ↑ steps aside while recording, even with text in the box.
+    expect(screen.queryByRole('button', { name: 'Enviar' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'Parar' }));
     expect(mockVoice.stop).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByRole('button', { name: 'Cancelar gravação' }));
@@ -363,18 +373,52 @@ describe('Conversa', () => {
     expect(await screen.findByRole('button', { name: 'Fechar imagem' })).toBeTruthy();
   });
 
-  it('the box grows with its content between one and six lines', async () => {
+  it('the box grows with its content between one and six lines, then scrolls; wrapping moves the text above the buttons', async () => {
     await render(<ConversationScreen />);
     const input = await screen.findByLabelText('Mensagem', undefined, LOAD);
     // NativeWind hands the host element an array of styles: flatten before reading.
-    const height = () => StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height;
-    expect(height()).toBe(22);
+    const style = () => StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style);
+    const scrolls = () => screen.getByLabelText('Mensagem').props.scrollEnabled;
+    // The text's frame glides (composer.motion.test.tsx looks at the motion): wait for where it lands.
+    const lands = (frame: object) => waitFor(() => expect(getAnimatedStyle(screen.getByTestId('composer-text'))).toMatchObject(frame), SETTLE);
+    // One line: no padding of its own, the text between 📎 and the button, on their row.
+    expect(style()).toMatchObject({ height: 22, lineHeight: 22, padding: 0, paddingTop: 0, paddingBottom: 0 });
+    expect(screen.getByLabelText('Mensagem').props.textAlignVertical).toBe('top');
+    expect(scrolls()).toBe(false);
+    await lands(BESIDE_BUTTONS);
+
     await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 66 } } });
-    expect(height()).toBe(66);
+    expect(style().height).toBe(66);
+    expect(scrolls()).toBe(false);
+    await lands({ ...ABOVE_BUTTONS, height: 72 });
+    // The input survived the switch: the same host element, not a remount (the keyboard stays up).
+    expect(screen.getByLabelText('Mensagem')).toBe(input);
+
     await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 400 } } });
-    expect(height()).toBe(132);
+    expect(style().height).toBe(132);
+    expect(scrolls()).toBe(true);
+    await lands({ height: 138 });
     await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 10 } } });
-    expect(height()).toBe(22);
+    expect(style().height).toBe(22);
+    // Still above: the text only goes back beside the buttons once the box is emptied.
+    await lands({ ...ABOVE_BUTTONS, height: 28 });
+  });
+
+  it('sending a long message brings the box back to one line, beside the buttons', async () => {
+    jest.spyOn(stores.api, 'sendMessage').mockResolvedValue({ conversation_id: 'c-termhub', user_message_id: 'u', assistant_message_id: 'a' });
+    await render(<ConversationScreen />);
+    const input = await screen.findByLabelText('Mensagem', undefined, LOAD);
+    await fireEvent.changeText(input, 'uma mensagem longa '.repeat(30));
+    await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 400 } } });
+    expect(StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height).toBe(132);
+    await waitFor(() => expect(getAnimatedStyle(screen.getByTestId('composer-text'))).toMatchObject(ABOVE_BUTTONS), SETTLE);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Enviar' }));
+    expect(screen.getByLabelText('Mensagem').props.value).toBe('');
+    expect(StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height).toBe(22);
+    expect(screen.getByLabelText('Mensagem').props.scrollEnabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Ditar' })).toBeTruthy();
+    await waitFor(() => expect(getAnimatedStyle(screen.getByTestId('composer-text'))).toMatchObject(BESIDE_BUTTONS), SETTLE);
   });
 
   it('avoids the keyboard with padding on iOS', async () => {
@@ -383,6 +427,42 @@ describe('Conversa', () => {
     // RNTL only sees host views: the `padding` behaviour is the one that pads the bottom by the
     // keyboard's height (0 while it is down); `height` and no behaviour leave the padding unset.
     expect(StyleSheet.flatten(screen.getByTestId('conversation-keyboard').props.style).paddingBottom).toBe(0);
+  });
+
+  it('lifts the composer right onto the keyboard, from where the conversation really starts on screen (measured)', async () => {
+    // Host views' native methods are jest mocks shared by every view: this one says the conversation
+    // starts 91 pt down the screen — more than the (zero) top inset jest reports.
+    const nativeMethods = require('@react-native/jest-preset/jest/MockNativeMethods').default as { measureInWindow: jest.Mock };
+    nativeMethods.measureInWindow.mockImplementation((cb: (x: number, y: number, w: number, h: number) => void) => cb(0, 91, 390, 700));
+    try {
+      await render(<ConversationScreen />);
+      await screen.findByText(SEEDED_USER, undefined, LOAD);
+      const layout = { persist: () => undefined, nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 700 } } };
+      await fireEvent(screen.getByTestId('conversation-body'), 'layout', layout);
+      await fireEvent(screen.getByTestId('conversation-keyboard'), 'layout', layout);
+      // The keyboard's top at 500 on screen; the avoiding view's bottom is at 91 + 700 = 791 on screen.
+      await act(() => {
+        DeviceEventEmitter.emit('keyboardWillShow', {
+          duration: 0,
+          easing: 'keyboard',
+          startCoordinates: { screenX: 0, screenY: 844, width: 390, height: 0 },
+          endCoordinates: { screenX: 0, screenY: 500, width: 390, height: 344 },
+          isEventFromThisApp: true,
+        });
+      });
+      await waitFor(() => expect(StyleSheet.flatten(screen.getByTestId('conversation-keyboard').props.style).paddingBottom).toBe(291));
+    } finally {
+      nativeMethods.measureInWindow.mockReset();
+    }
+  });
+
+  it('keeps nothing empty under the box: the dictation error and notice lines only show with text', async () => {
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    expect(screen.queryByText('Nenhuma fala reconhecida')).toBeNull();
+    mockVoice.notice = 'Nenhuma fala reconhecida';
+    await act(() => useChatStore.setState({ sending: true }));
+    expect(screen.getByText('Nenhuma fala reconhecida')).toBeTruthy();
   });
 
   it('Nova conversa asks first, then resets', async () => {

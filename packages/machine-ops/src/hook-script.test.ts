@@ -3,7 +3,7 @@
  * name as $1, a fake `tmux` and a fake `curl` first on PATH. The fake curl appends each request
  * body to a log, so the assertions are about what would have reached the server.
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,20 +20,24 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Runs the script as Claude Code would: event JSON on stdin, `claude` as $1. */
 function run(event: unknown): void {
-  execFileSync('sh', [join(bin, 'termhub-hook'), 'claude'], {
+  runAs('claude', event);
+}
+
+/**
+ * Runs the script as another tool would ($1 = tool) and answers what it wrote on stdout. A path with
+ * nothing to send (no hook env, say) exits without reading stdin, so writing the event can fail with
+ * EPIPE: that is the harness losing the race to a script that already finished, not a failure of the
+ * script — which must still exit 0.
+ */
+function runAs(tool: string, event: unknown): string {
+  const r = spawnSync('sh', [join(bin, 'termhub-hook'), tool], {
     input: JSON.stringify(event),
     env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp },
     timeout: 5000,
   });
-}
-
-/** Runs the script as another tool would ($1 = tool) and answers what it wrote on stdout. */
-function runAs(tool: string, event: unknown): string {
-  return execFileSync('sh', [join(bin, 'termhub-hook'), tool], {
-    input: JSON.stringify(event),
-    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, TMUX_PANE: '%1', TMPDIR: tmp },
-    timeout: 5000,
-  }).toString();
+  if (r.error && (r.error as NodeJS.ErrnoException).code !== 'EPIPE') throw r.error;
+  expect(r.status).toBe(0);
+  return r.stdout.toString();
 }
 
 /** `run`, with extra environment, answering what the script wrote to stderr. */
@@ -88,16 +92,34 @@ beforeEach(() => {
   writeFileSync(join(bin, 'termhub-hook'), HOOK_SCRIPT);
   // capture-pane prints the fake screen (nothing, and a failure, when there is none); anything else is display-message
   writeFileSync(join(bin, 'tmux'), `#!/bin/sh\ncase "$1" in capture-pane) cat "${pane}" 2>/dev/null ;; *) echo th-abc ;; esac\n`);
-  // a synchronous fake: reads the body from stdin (--data-binary @-) and appends it as one line
-  writeFileSync(join(bin, 'curl'), `#!/bin/sh\ncat >> "${log}"; printf '\\n' >> "${log}"\n`);
+  // A synchronous fake: reads the body from stdin (--data-binary @-) and appends it as one line, in a
+  // single write. Body and newline used to be two appends: a test saw the body, finished, and the
+  // newline's append recreated the log inside the directory afterEach was removing (ENOTEMPTY on CI).
+  writeFileSync(join(bin, 'curl'), `#!/bin/sh\nbody=$(cat); printf '%s\\n' "$body" >> "${log}"\n`);
   for (const f of ['termhub-hook', 'tmux', 'curl']) chmodSync(join(bin, f), 0o755);
 });
-afterEach(() => {
-  // The script posts in the background: a fake curl from the last run may still be appending to
-  // the log while the directory is removed (ENOTEMPTY on CI), so the removal retries briefly.
-  const opts = { recursive: true, force: true, maxRetries: 20, retryDelay: 25 } as const;
-  rmSync(home, opts);
-  rmSync(tmp, opts);
+/**
+ * Removes a test's directory. The script posts in the background, and a test that never waits for a
+ * POST (it only checks stdout, say) can end while that fake curl is still starting: its append can
+ * land in the middle of the removal. So a directory that turns out not to be empty is removed again,
+ * for up to five seconds (curl's own `-m 5`), yielding to the event loop in between.
+ */
+async function removeDir(dir: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOTEMPTY' || Date.now() > deadline) throw e;
+      await sleep(25);
+    }
+  }
+}
+
+afterEach(async () => {
+  await removeDir(home);
+  await removeDir(tmp);
 });
 
 describe('termhub-hook script', () => {
@@ -200,7 +222,8 @@ describe('termhub-hook script', () => {
       run({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
       await bodies(3);
       await sleep(200);
-      expect(logged().map((b) => eventOf(b).tool_name)).toEqual(['Edit', 'AskUserQuestion', 'AskUserQuestion']);
+      // The POSTs run in the background, so they may land in any order: what counts is which went out.
+      expect(logged().map((b) => eventOf(b).tool_name).sort()).toEqual(['AskUserQuestion', 'AskUserQuestion', 'Edit']);
       expect(readFileSync(join(tmp, readdirSync(tmp)[0]), 'utf8')).toBe('Edit');
     });
 
