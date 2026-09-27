@@ -54,6 +54,10 @@ module.exports = {
       preset: 'jest-expo',
       testMatch: ['<rootDir>/(app|src)/**/*.test.tsx'],
       setupFiles: ['<rootDir>/test/ui-setup.js'],
+      // Reanimated 4 runs its worklets through react-native-worklets, whose `.native` files need the
+      // native runtime; the package's resolver picks its plain-JS twins, so animations run under
+      // Jest's timers (fake ones step them frame by frame).
+      resolver: 'react-native-worklets/jest/resolver.js',
       transformIgnorePatterns: uiTransformIgnore,
       moduleNameMapper: { ...moduleNameMapper, '\\.css$': '<rootDir>/test/css-stub.js' },
     },
