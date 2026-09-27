@@ -410,6 +410,12 @@ model Task {
   externalRef Json?      @map("external_ref")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @default(now()) @updatedAt @map("updated_at")
+  /// First time the row went to doing; set by the tasks_track_progress_times trigger, never cleared.
+  startedAt     DateTime? @map("started_at")
+  /// When the row last became done; set by the trigger, cleared when it leaves done.
+  doneAt        DateTime? @map("done_at")
+  /// Seconds an agent tab linked to this card (or to one of its subtasks) spent working (monitor/recordEvent).
+  activeSeconds Int       @default(0) @map("active_seconds")
   project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   /// chave estável do ticket externo ("linear:<id>", "jira:<key>") para upsert no sync
