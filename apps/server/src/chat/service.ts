@@ -4,6 +4,7 @@ import type { ChatAttachment } from '@termhub/mobile-api';
 import type { Repositories } from '../db/repositories/index.js';
 import type { ChatConversation, ChatMessage } from '../db/repositories/chat.js';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
+import type { ChatLiveRun, StoredTurn } from '../db/repositories/chat-live-runs.js';
 import { isAttachable, toPublicAttachment, type AttachmentRow } from '../db/repositories/chat-attachments.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import { describeTabQuestions } from '../db/repositories/tab-questions-view.js';
@@ -15,6 +16,7 @@ import { streamedSystemPrompt } from './concierge-prompt.js';
 import { hostFailure, resolveHost, type HostAgents, type HostChoice } from './host.js';
 import { LiveRun, type LiveTurn } from './live-run.js';
 import { projectSystemPrompt } from './project-prompt.js';
+import { RESUME_WINDOW_MS, STALE_MS, resumeNote } from './resume.js';
 import { codeForReason, parseFrame, type ChatErrorCode, type ChatFailureReason } from './stream.js';
 import { toSubagentView, type SubagentView } from './subagent-view.js';
 import { tabQuestionContext } from './tab-question-context.js';
@@ -124,6 +126,8 @@ const isSetupFailure = (e: unknown): e is HttpError =>
  *  `runText` is set when its tab-question context was already read (and stamped) for it; until then
  *  `attachments` (the rows bound to `question`) are what its attachment block is built from. */
 interface QueuedTurn {
+  /** Whose message it is: what a suspended instance stores its row under when no process holds it. */
+  userId: string;
   text: string;
   runText?: string;
   attachments: AttachmentRow[];
@@ -241,6 +245,13 @@ export class ChatService {
   /** Decisions whose `markInjectedMany` failed in this process — see `drainNextDecision`. In memory on
    * purpose: the row itself is untouched, so a restart tries it again with a healthy database. */
   private unmarkable = new Set<string>();
+  /** Who this process is in `chat_live_runs` (spec 2026-09-26 panel §3): a random id per process. */
+  readonly instanceId = randomUUID();
+  /** Set by `suspendAll` (a graceful shutdown): a run that ends now leaves its turns open for the
+   *  instance that resumes them, and nothing new is launched here. */
+  private suspending = false;
+  /** Each live run's row writes, chained so they land in order; `suspendAll` waits for them. */
+  private saves = new Map<string, Promise<void>>();
 
   constructor(
     private deps: {
@@ -630,7 +641,7 @@ export class ChatService {
       runText ??= await this.runTextFor(user, conversation.id, text, attachable.rows);
       if (this.live.get(conversation.id) === now && now.add({ uuid: randomUUID(), text: runText, question, answer, settle: d.settle })) return started;
     }
-    this.enqueue(conversation.id, { text, runText, attachments: attachable.rows, question, answer, settle: d.settle });
+    this.enqueue(conversation.id, { userId: user.id, text, runText, attachments: attachable.rows, question, answer, settle: d.settle });
     // The process may already be gone, with the lock released during the awaits above.
     if (!this.running.has(conversation.id)) void this.launchQueued(user, conversation.id);
     return started;
@@ -905,8 +916,18 @@ export class ChatService {
    * it lives. Holds the lock `startIn` or `launchQueued` took and releases it in every path. One
    * retry on a fresh session when the resumed one is missing, exactly as `finishRun` does.
    */
-  private async runLive(user: User, conversation: ChatConversation, runner: RunnerClient, configDir: string | null, appendSystemPrompt: string, turns: LiveTurn[]): Promise<void> {
-    const live = new LiveRun({
+  private async runLive(
+    user: User,
+    conversation: ChatConversation,
+    runner: RunnerClient,
+    configDir: string | null,
+    appendSystemPrompt: string,
+    turns: LiveTurn[],
+    opts: { note?: string } = {},
+  ): Promise<void> {
+    /** Off until the initial turns are in: then one save, and one per change after that. */
+    let persist = false;
+    const live: LiveRun = new LiveRun({
       userId: user.id,
       conversationId: conversation.id,
       sessionId: conversation.cli_session_id,
@@ -939,9 +960,16 @@ export class ChatService {
           });
         }
       },
+      onTurnsChanged: (stored) => {
+        if (persist) this.saveLiveRun(user, conversation.id, stored);
+      },
     });
+    // The server note of a resumed run goes first, before any turn (see `resume`).
+    if (opts.note) live.addNote(opts.note);
     for (const t of turns) live.add(t);
     this.live.set(conversation.id, live);
+    persist = true;
+    this.saveLiveRun(user, conversation.id, live.storedTurns());
     try {
       let token: string;
       try {
@@ -949,7 +977,7 @@ export class ChatService {
         // `gated: true` — every write this token can attempt still stops at the chat's gate.
         token = await mintConciergeToken(this.deps.repos, user.id, conversation.id, ['read', 'tasks', 'terminals'], { accountWide: conversation.project_id === null });
       } catch {
-        await live.failOpen('TOKEN_FAILED');
+        if (!this.suspending) await live.failOpen('TOKEN_FAILED');
         return;
       }
       for (let attempt = 0; ; attempt++) {
@@ -975,6 +1003,8 @@ export class ChatService {
           }
           outcome = { code: 'RUNNER_FAILED', missingSession: false };
         }
+        // A graceful shutdown killed the process: its turns stay open, for the instance that resumes them.
+        if (this.suspending) return;
         if (resume && outcome.missingSession && live.endedTurns === 0 && attempt === 0) {
           await live.restart();
           continue;
@@ -986,10 +1016,176 @@ export class ChatService {
       // A database failure mid-run must not leave `done` hanging for ever, nor escape as an unhandled
       // rejection: the open turns are failed as a runner failure, and only the label is logged.
       console.error('chat: live run failed', { conversation_id: conversation.id, error: failureLabel(err) });
-      await live.failOpen('RUNNER_FAILED').catch(() => {});
+      if (!this.suspending) await live.failOpen('RUNNER_FAILED').catch(() => {});
     } finally {
       this.live.delete(conversation.id);
+      persist = false;
+      // A normal end: the row goes (after any save still on its way, which would recreate it). A
+      // suspended one stays, released, for the instance that takes over.
+      if (!this.suspending) {
+        const pending = this.saves.get(conversation.id);
+        this.saves.delete(conversation.id);
+        await pending;
+        await this.deps.repos.chatLiveRuns.delete(conversation.id, this.instanceId).catch((e) => console.error('chat: live run row not deleted', { conversation_id: conversation.id, error: failureLabel(e) }));
+      }
       this.releaseLock(user, conversation.id);
+    }
+  }
+
+  /** Fire-and-forget, in order per conversation: the open turns of a live run, so another instance can
+   *  resume them. Nothing is written once this instance is suspending — `suspendAll` wrote the last word. */
+  private saveLiveRun(user: User, conversationId: string, turns: StoredTurn[]): void {
+    if (this.suspending) return;
+    const prev = this.saves.get(conversationId) ?? Promise.resolve();
+    const next = prev.then(() =>
+      this.suspending
+        ? undefined
+        : this.deps.repos.chatLiveRuns
+            .save({ conversation_id: conversationId, user_id: user.id, instance_id: this.instanceId, turns })
+            .catch((e) => console.error('chat: live run not saved', { conversation_id: conversationId, error: failureLabel(e) })),
+    );
+    this.saves.set(conversationId, next);
+  }
+
+  /** Proves this instance's live runs are alive (spec 2026-09-26 panel §3): a peer never takes them. */
+  async heartbeat(): Promise<void> {
+    await this.deps.repos.chatLiveRuns.heartbeat(this.instanceId);
+  }
+
+  /**
+   * A graceful shutdown (`preClose`): every conversation this instance holds — a live process, or
+   * messages queued for one — is released with its open turns, for another instance to resume at once
+   * instead of after the heartbeat goes stale. Their running subagents are marked interrupted (the
+   * process dies with this instance), and the runs' own ends leave the turns open from now on. Never
+   * throws: a shutdown must go on.
+   */
+  async suspendAll(): Promise<void> {
+    this.suspending = true;
+    try {
+      await Promise.all(this.saves.values());
+      const turns = new Map<string, StoredTurn[]>();
+      for (const [conversationId, live] of this.live) turns.set(conversationId, live.storedTurns());
+      for (const [conversationId, queue] of this.queued) {
+        if (queue.length === 0) continue;
+        const stored = queue.map((q) => ({
+          question_id: q.question.id,
+          answer_id: q.answer.id,
+          text: q.runText ?? [attachmentContext(q.attachments), q.text].filter(Boolean).join('\n\n'),
+        }));
+        const live = turns.get(conversationId);
+        if (live) {
+          turns.set(conversationId, [...live, ...stored]);
+          continue;
+        }
+        // No process holds these (an old agent's one-shot run, or a launch in between): a row of their own.
+        turns.set(conversationId, stored);
+        await this.deps.repos.chatLiveRuns.save({ conversation_id: conversationId, user_id: queue[0].userId, instance_id: this.instanceId, turns: stored });
+      }
+      if (turns.size === 0) return;
+      await this.deps.repos.chatLiveRuns.release(this.instanceId, turns);
+      for (const conversationId of turns.keys()) await this.deps.repos.chatSubagents.interruptRunning(conversationId);
+    } catch (err) {
+      console.error('chat: live runs could not be suspended', { error: failureLabel(err) });
+    }
+  }
+
+  /**
+   * Every instance, at boot and then every `SWEEP_MS` (spec 2026-09-26 panel §3): picks up the live runs
+   * another instance released (a deploy) or stopped proving alive (a crash). A row whose host is ready
+   * and streams is claimed — a conditional update, so of two instances sweeping at once only one wins —
+   * and resumed; a row whose host did not come back within `RESUME_WINDOW_MS` closes its turns with
+   * `HOST_GONE`. Never throws, and one bad row never stops the others; logs ids and labels only.
+   */
+  async resumeSweep(now = new Date()): Promise<void> {
+    const staleBefore = new Date(now.getTime() - STALE_MS);
+    let rows: ChatLiveRun[];
+    try {
+      rows = await this.deps.repos.chatLiveRuns.listResumable(this.instanceId, staleBefore);
+    } catch (err) {
+      console.error('chat: live runs could not be listed', { error: failureLabel(err) });
+      return;
+    }
+    for (const row of rows) {
+      if (this.suspending) return;
+      try {
+        if (this.running.has(row.conversation_id)) continue;
+        const age = now.getTime() - Date.parse(row.released_at ?? row.heartbeat_at);
+        const user = await this.deps.repos.users.findById(row.user_id);
+        const conversation = user ? await this.deps.repos.chat.findByIdForUser(row.conversation_id, user.id) : undefined;
+        const host = user && conversation && conversation.archived_at === null ? await this.hostForConversation(user, conversation) : null;
+        if (!user || !conversation || !host || host.kind !== 'ready' || !this.streams(host.machine.id)) {
+          if (age > RESUME_WINDOW_MS && (await this.deps.repos.chatLiveRuns.claim(row.conversation_id, row.instance_id, this.instanceId, staleBefore))) await this.giveUp(row);
+          continue;
+        }
+        // The lock first, the claim second: nothing can start a run of its own in between.
+        if (this.running.has(row.conversation_id)) continue;
+        this.running.add(row.conversation_id);
+        let claimed = false;
+        try {
+          claimed = await this.deps.repos.chatLiveRuns.claim(row.conversation_id, row.instance_id, this.instanceId, staleBefore);
+        } finally {
+          if (!claimed) this.releaseLock(user, row.conversation_id);
+        }
+        if (claimed) await this.resume(user, conversation, host, row);
+      } catch (err) {
+        console.error('chat: a live run could not be resumed', { conversation_id: row.conversation_id, error: failureLabel(err) });
+      }
+    }
+  }
+
+  /** A row that will not run (its host never came back, or its resume failed): each answer still open
+   *  says why, and the row goes — a row this instance owns is never listed to it again. */
+  private async giveUp(row: ChatLiveRun, code: 'HOST_GONE' | 'RUNNER_FAILED' = 'HOST_GONE'): Promise<void> {
+    const ids = row.turns.map((t) => t.answer_id).filter((id): id is string => id !== null);
+    for (const answer of await this.deps.repos.chat.findMessagesByIds(row.conversation_id, ids)) {
+      if (answer.text !== '' || answer.error_code !== null) continue;
+      const final = await this.deps.repos.chat.updateMessage(answer.id, { text: '', usage: null, error_code: code });
+      chatBus.publish({ type: 'message', user_id: row.user_id, conversation_id: row.conversation_id, message: final });
+      chatBus.publish({ type: 'run_finished', user_id: row.user_id, conversation_id: row.conversation_id, message_id: final.id, ok: false, error_code: code });
+    }
+    // A crash left them `running`: nothing will ever report on them now.
+    await this.deps.repos.chatSubagents.interruptRunning(row.conversation_id);
+    await this.deps.repos.chatLiveRuns.delete(row.conversation_id, this.instanceId);
+  }
+
+  /**
+   * Starts the claimed row's run in the same session (spec 2026-09-26 panel §3): the server note first,
+   * then every turn whose answer is still open, each with a fresh uuid, into its existing answer row. An
+   * answer that already has text or an error (the old instance finished it) is skipped. Nobody awaits
+   * these turns any more, so their `done` is a no-op. Holds the lock the sweep took and hands it to the
+   * run, or releases it on a failure before that.
+   */
+  private async resume(user: User, conversation: ChatConversation, host: Extract<HostChoice, { kind: 'ready' }>, row: ChatLiveRun): Promise<void> {
+    let handedOff = false;
+    try {
+      const ids = row.turns.flatMap((t) => [t.question_id, t.answer_id]).filter((id): id is string => id !== null);
+      const byId = new Map((await this.deps.repos.chat.findMessagesByIds(conversation.id, ids)).map((m) => [m.id, m]));
+      const turns: LiveTurn[] = [];
+      for (const t of row.turns) {
+        const answer = t.answer_id === null ? undefined : byId.get(t.answer_id);
+        if (!answer || answer.text !== '' || answer.error_code !== null) continue;
+        const d = deferred();
+        d.promise.catch(() => {});
+        turns.push({ uuid: randomUUID(), text: t.text, question: (t.question_id && byId.get(t.question_id)) || null, answer, settle: d.settle });
+      }
+      // A crash left them `running`; a graceful shutdown already marked them.
+      for (const s of await this.deps.repos.chatSubagents.interruptRunning(conversation.id)) chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: conversation.id, subagent: toSubagentView(s) });
+      const interrupted = (await this.deps.repos.chatSubagents.listForPanel(conversation.id)).filter((s) => s.status === 'interrupted').map((s) => s.description);
+      if (turns.length === 0 && interrupted.length === 0) {
+        await this.deps.repos.chatLiveRuns.delete(conversation.id, this.instanceId);
+        return;
+      }
+      const appendSystemPrompt = await this.promptFor(user, conversation);
+      const runner = this.deps.runnerFor(host.machine.id);
+      void this.runLive(user, conversation, runner, host.configDir, streamedSystemPrompt(appendSystemPrompt), turns, { note: resumeNote(interrupted, turns.length) });
+      handedOff = true;
+    } catch (err) {
+      // Claimed but not started: left as it is, the row would be this instance's for good and never
+      // listed again — its answers would think for ever. They close instead, and the error is logged.
+      await this.giveUp(row, 'RUNNER_FAILED').catch(() => {});
+      throw err;
+    } finally {
+      if (!handedOff) this.releaseLock(user, conversation.id);
     }
   }
 
@@ -1064,6 +1260,8 @@ export class ChatService {
   /** Frees a conversation's run lock and hands the conversation to its queue, or else the decision drain. */
   private releaseLock(user: User, conversationId: string): void {
     this.running.delete(conversationId);
+    // Shutting down: what is queued was released with the row, for the instance that takes over.
+    if (this.suspending) return;
     // Messages typed while the process could not take them come first: the person is waiting on
     // them. The decision drain runs once nothing is queued (its own comment below still applies).
     if (this.queued.get(conversationId)?.length) {
