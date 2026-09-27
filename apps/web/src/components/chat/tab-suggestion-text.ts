@@ -9,11 +9,17 @@ const FAILURE_TEXT: Record<string, string> = {
   AGENT_OUTDATED: 'o agente da máquina está desatualizado',
 };
 
-/** While open the card asks for an answer (spec 2026-09-26 §6.4); once closed it says what the tab had suggested. */
+/**
+ * While open the card offers Claude Code's suggestion for a tab that finished its turn — it asks nothing (spec
+ * 2026-09-26 TER-203 §5); once closed it says what the tab had suggested. Keep in step with the app's copy.
+ */
 export const suggestionTitle = (s: TabSuggestion): string => {
-  if (s.status === 'open') return s.tab_name ? `«${s.tab_name}» está esperando sua resposta` : 'Uma aba está esperando sua resposta';
+  if (s.status === 'open') return s.tab_name ? `«${s.tab_name}» terminou — o Claude Code sugere:` : 'Uma aba terminou — o Claude Code sugere:';
   return s.tab_name ? `«${s.tab_name}» sugere:` : 'Uma aba sugere:';
 };
+
+/** Under an open card's title: a suggestion never needs an answer (spec 2026-09-26 TER-203 §5). */
+export const SUGGESTION_HINT = 'Não precisa responder.';
 
 /** How much of the agent's message a collapsed card shows. */
 export const CONTEXT_PREVIEW_MAX = 400;

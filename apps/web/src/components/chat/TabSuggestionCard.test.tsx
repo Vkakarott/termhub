@@ -13,7 +13,7 @@ it('"«api» sugere:" with the text editable; Enviar sends it as edited, Dispens
   const onSend = vi.fn();
   const onDismiss = vi.fn();
   render(<TabSuggestionCard suggestion={open()} busy={false} onSend={onSend} onDismiss={onDismiss} />);
-  expect(screen.getByText('«api» está esperando sua resposta')).toBeInTheDocument();
+  expect(screen.getByText('«api» terminou — o Claude Code sugere:')).toBeInTheDocument();
   const field = screen.getByLabelText('Sugestão do Claude Code (opcional — edite ou dispense)');
   expect(field).toHaveValue('commit it');
   fireEvent.change(field, { target: { value: '  commit it and push ' } });
@@ -32,9 +32,16 @@ it('Enviar is disabled while sending or with an empty field', () => {
   expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled();
 });
 
-it('a card with no tab name says "Uma aba está esperando sua resposta"', () => {
+it('a card with no tab name says "Uma aba terminou — o Claude Code sugere:"', () => {
   render(<TabSuggestionCard suggestion={open({ tab_name: null })} busy={false} onSend={vi.fn()} onDismiss={vi.fn()} />);
-  expect(screen.getByText('Uma aba está esperando sua resposta')).toBeInTheDocument();
+  expect(screen.getByText('Uma aba terminou — o Claude Code sugere:')).toBeInTheDocument();
+});
+
+it('says an open suggestion needs no answer; a closed card does not', () => {
+  const { rerender } = render(<TabSuggestionCard suggestion={open()} busy={false} onSend={vi.fn()} onDismiss={vi.fn()} />);
+  expect(screen.getByText('Não precisa responder.')).toBeInTheDocument();
+  rerender(<TabSuggestionCard suggestion={open({ id: 's2', status: 'dismissed' })} busy={false} onSend={vi.fn()} onDismiss={vi.fn()} />);
+  expect(screen.queryByText('Não precisa responder.')).not.toBeInTheDocument();
 });
 
 it.each([

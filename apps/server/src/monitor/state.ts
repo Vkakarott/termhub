@@ -34,6 +34,12 @@ export interface Interpreted {
    */
   keepsWaitText?: true;
   /**
+   * Only on a Claude `Stop`, only when > 0: how many of its `background_tasks` still run (a `Monitor`, a
+   * `run_in_background` shell). The tab is not blocked — the next task notification wakes it — so no suggestion
+   * card opens for this Stop (spec 2026-09-26 TER-203 §3). The count is all that leaves the payload.
+   */
+  backgroundTasks?: number;
+  /**
    * A question the tab put to the person (spec 2026-09-25 §4.2): an `AskUserQuestion` card or a
    * permission prompt. For the tab-question service only — never stored on the tab nor its events.
    */
@@ -82,6 +88,15 @@ export function claudeSessionOf(ev: unknown): { session_id: string; transcript_p
   return isClaudeTranscriptPath(ev.transcript_path, sid) ? { session_id: sid, transcript_path: ev.transcript_path } : null;
 }
 
+/**
+ * How many entries of a Claude `Stop`'s `background_tasks` have `status: "running"` (Claude Code 2.1.283 sends
+ * `[{ id, type, status, description, command }]`). Anything else counts as 0. Descriptions and commands are the
+ * person's and are never read.
+ */
+export function runningBackgroundTasks(v: unknown): number {
+  return Array.isArray(v) ? v.filter((t) => isObj(t) && t.status === 'running').length : 0;
+}
+
 /** Claude Code hook payloads (stdin JSON): https://docs.claude.com/en/docs/claude-code/hooks */
 function interpretClaudeEvent(ev: Record<string, unknown>): Interpreted | null {
   const name = str(ev.hook_event_name);
@@ -123,10 +138,14 @@ function interpretClaudeEvent(ev: Record<string, unknown>): Interpreted | null {
       if (type === 'elicitation_dialog') return { kind: 'waiting_input', text: message, meta: { event: name, type } };
       return null; // auth_success and friends: nothing the user has to act on
     }
-    case 'Stop':
+    case 'Stop': {
       // A finished turn is the tool waiting for the person (same as Codex); the idle_prompt
       // notification only comes about a minute later. The last answer, when sent, is the question.
-      return { kind: 'waiting_input', text: cap(str(ev.last_assistant_message)), meta: { event: name } };
+      const text = cap(str(ev.last_assistant_message));
+      const background = runningBackgroundTasks(ev.background_tasks);
+      if (background === 0) return { kind: 'waiting_input', text, meta: { event: name } };
+      return { kind: 'waiting_input', text, meta: { event: name, background_tasks: background }, backgroundTasks: background };
+    }
     case 'StopFailure': {
       // An API error ended the turn (spec 2026-09-26 account swap). On a usage limit Claude Code does
       // not exit: it waits for the reset, so the tab waits for the person (or the automatic swap).

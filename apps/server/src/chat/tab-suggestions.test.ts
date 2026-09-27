@@ -15,6 +15,7 @@ const fx = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures/ta
 const screens = { suggestion: fx('screen-suggestion.ansi'), typed: fx('screen-typed.ansi') };
 
 const CONTEXT = 'Criei o notes.txt.\n\nQuer que eu faça o commit?';
+const STOP = { context: CONTEXT, backgroundTasks: 0 };
 const tab = { id: 't1', project_id: 'p1', machine_id: 'm1', name: 'api', kind: 'terminal', tmux_session: 'th-t1', state: 'waiting_input', state_tool: 'claude', state_text: CONTEXT };
 const machine = { id: 'm1', type: 'agent', owner_id: 'u1' };
 const opened = (over: Partial<TabQuestion> = {}): TabQuestion => ({
@@ -76,7 +77,7 @@ describe('checkTabSuggestion', () => {
   it("opens a suggestion row in the project's latest conversation and announces it on its own event", async () => {
     const repos = fakeRepos();
     const l = log();
-    await checkTabSuggestion(asRepos(repos), l, 't1');
+    await checkTabSuggestion(asRepos(repos), l, 't1', CONTEXT);
     expect(captureStyledScreen).toHaveBeenCalledWith(machine, 'th-t1', 15);
     expect(repos.chat.findLatestActiveForProject).toHaveBeenCalledWith('p1', 'u1');
     expect(repos.tabQuestions.open).toHaveBeenCalledWith({ tab_id: 't1', project_id: 'p1', conversation_id: 'c1', kind: 'suggestion', payload: { text: 'commit it', context: CONTEXT }, tool_use_id: null });
@@ -97,30 +98,30 @@ describe('checkTabSuggestion', () => {
   ])('opens nothing for %s', async (_label, shot) => {
     captureStyledScreen.mockResolvedValue(shot);
     const repos = fakeRepos();
-    await checkTabSuggestion(asRepos(repos), log(), 't1');
+    await checkTabSuggestion(asRepos(repos), log(), 't1', CONTEXT);
     expect(repos.tabQuestions.open).not.toHaveBeenCalled();
     expect(events).toEqual([]);
   });
 
   it('reads nothing when the tab is gone or busy again, the project has no conversation, or the agent is offline', async () => {
-    await checkTabSuggestion(asRepos(fakeRepos({ tab: undefined })), log(), 't1');
-    await checkTabSuggestion(asRepos(fakeRepos({ tab: { ...tab, state: 'working' } })), log(), 't1');
-    await checkTabSuggestion(asRepos(fakeRepos({ conversation: null })), log(), 't1');
+    await checkTabSuggestion(asRepos(fakeRepos({ tab: undefined })), log(), 't1', CONTEXT);
+    await checkTabSuggestion(asRepos(fakeRepos({ tab: { ...tab, state: 'working' } })), log(), 't1', CONTEXT);
+    await checkTabSuggestion(asRepos(fakeRepos({ conversation: null })), log(), 't1', CONTEXT);
     vi.mocked(agents.isOnline).mockReturnValue(false);
-    await checkTabSuggestion(asRepos(fakeRepos()), log(), 't1');
+    await checkTabSuggestion(asRepos(fakeRepos()), log(), 't1', CONTEXT);
     expect(captureStyledScreen).not.toHaveBeenCalled();
   });
 
   it('opens nothing when the tab moved while its screen was read', async () => {
     const repos = fakeRepos();
-    await checkTabSuggestion(asRepos(repos), log(), 't1', () => false);
+    await checkTabSuggestion(asRepos(repos), log(), 't1', CONTEXT, () => false);
     expect(repos.tabQuestions.open).not.toHaveBeenCalled();
   });
 
   it('never throws, and logs by code only', async () => {
     captureStyledScreen.mockRejectedValueOnce(Object.assign(new Error('❯ commit it'), { code: 'MACHINE_FAILED' }));
     const l = log();
-    await expect(checkTabSuggestion(asRepos(fakeRepos()), l, 't1')).resolves.toBeUndefined();
+    await expect(checkTabSuggestion(asRepos(fakeRepos()), l, 't1', CONTEXT)).resolves.toBeUndefined();
     expect(l.warn).toHaveBeenCalledWith({ tabId: 't1', code: 'MACHINE_FAILED' }, 'tab suggestion check failed');
   });
 });
@@ -133,7 +134,7 @@ describe('scheduleTabSuggestion', () => {
   it(`reads the prompt ${SUGGESTION_DELAY_MS} ms after the Stop, not before`, async () => {
     fakeTimers();
     const repos = fakeRepos();
-    scheduleTabSuggestion(asRepos(repos), log(), 't1');
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', STOP);
     await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS - 1);
     expect(repos.tabs.findById).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -144,7 +145,7 @@ describe('scheduleTabSuggestion', () => {
   it('any event of the tab meanwhile cancels it', async () => {
     fakeTimers();
     const repos = fakeRepos();
-    scheduleTabSuggestion(asRepos(repos), log(), 't1');
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', STOP);
     await vi.advanceTimersByTimeAsync(1000);
     cancelTabSuggestion('t1');
     await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS);
@@ -155,9 +156,9 @@ describe('scheduleTabSuggestion', () => {
   it("a second Stop restarts the wait; another tab's event does not touch it", async () => {
     fakeTimers();
     const repos = fakeRepos();
-    scheduleTabSuggestion(asRepos(repos), log(), 't1');
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', STOP);
     await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS - 1000);
-    scheduleTabSuggestion(asRepos(repos), log(), 't1');
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', STOP);
     cancelTabSuggestion('t2');
     await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS - 1);
     expect(repos.tabs.findById).not.toHaveBeenCalled();
@@ -171,7 +172,7 @@ describe('scheduleTabSuggestion', () => {
     let release!: (v: unknown) => void;
     captureStyledScreen.mockReturnValue(new Promise((r) => (release = r)));
     const repos = fakeRepos();
-    scheduleTabSuggestion(asRepos(repos), log(), 't1');
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', STOP);
     await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS);
     await settle();
     expect(captureStyledScreen).toHaveBeenCalled();
@@ -184,8 +185,8 @@ describe('scheduleTabSuggestion', () => {
   it('stopTabSuggestions: a scheduled check never runs after it', async () => {
     fakeTimers();
     const repos = fakeRepos();
-    scheduleTabSuggestion(asRepos(repos), log(), 't1');
-    scheduleTabSuggestion(asRepos(repos), log(), 't2');
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', STOP);
+    scheduleTabSuggestion(asRepos(repos), log(), 't2', STOP);
     stopTabSuggestions();
     await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS * 2);
     await settle();
@@ -215,28 +216,75 @@ describe('cleanContext (spec 2026-09-26 §6.2)', () => {
 
 describe('checkTabSuggestion — context and old agents', () => {
   it.each([
-    ["the wait is another tool's (Codex)", { ...tab, state_tool: 'codex' }],
-    ["the text is Claude's idle reminder", { ...tab, state_text: 'Claude is waiting for your input' }],
-    ['there is no text (Claude Code older than 2.1.47)', { ...tab, state_text: null }],
-  ])('stores no context when %s', async (_label, t) => {
-    const repos = fakeRepos({ tab: t });
-    await checkTabSuggestion(asRepos(repos), log(), 't1');
-    expect(repos.tabQuestions.open).toHaveBeenCalledWith(expect.objectContaining({ payload: { text: 'commit it', context: null } }));
-  });
-
-  it.each([
     ['older than 0.5.2: no capture at all', '0.5.1', 0],
     ['0.5.2: captures', '0.5.2', 1],
     ['newer: captures', '0.5.3', 1],
   ])('an agent %s', async (_label, version, captures) => {
     vi.spyOn(agents, 'info').mockReturnValue({ agent_version: version, os: 'linux', tools: [], connected_at: '2026-09-26T00:00:00.000Z' });
-    await checkTabSuggestion(asRepos(fakeRepos()), log(), 't1');
+    await checkTabSuggestion(asRepos(fakeRepos()), log(), 't1', CONTEXT);
     expect(captureStyledScreen).toHaveBeenCalledTimes(captures);
   });
 
   it('an agent whose version is unknown still tries (its plain answer opens nothing)', async () => {
     vi.spyOn(agents, 'info').mockReturnValue(null);
-    await checkTabSuggestion(asRepos(fakeRepos()), log(), 't1');
+    await checkTabSuggestion(asRepos(fakeRepos()), log(), 't1', CONTEXT);
     expect(captureStyledScreen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the Stop decides (spec 2026-09-26 TER-203 §4.2)', () => {
+  it("stores the Stop's message whatever the tab row says by then", async () => {
+    const repos = fakeRepos({ tab: { ...tab, state_text: CLAUDE_IDLE_MESSAGE, state_tool: 'codex' } });
+    await checkTabSuggestion(asRepos(repos), log(), 't1', CONTEXT);
+    expect(repos.tabQuestions.open).toHaveBeenCalledWith(expect.objectContaining({ payload: { text: 'commit it', context: CONTEXT } }));
+  });
+
+  it('schedules with the cleaned message', async () => {
+    fakeTimers();
+    const repos = fakeRepos();
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', { context: ' Pronto.\u0007\n\nQuer o commit? ', backgroundTasks: 0 });
+    await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS);
+    await settle();
+    expect(repos.tabQuestions.open).toHaveBeenCalledWith(expect.objectContaining({ payload: { text: 'commit it', context: 'Pronto.\n\nQuer o commit?' } }));
+  });
+
+  it('running background work: no timer, no capture, a reason in the log', async () => {
+    fakeTimers();
+    const repos = fakeRepos();
+    const l = log();
+    scheduleTabSuggestion(asRepos(repos), l, 't1', { context: CONTEXT, backgroundTasks: 2 });
+    await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS * 2);
+    await settle();
+    expect(repos.tabs.findById).not.toHaveBeenCalled();
+    expect(captureStyledScreen).not.toHaveBeenCalled();
+    expect(l.info).toHaveBeenCalledWith({ tabId: 't1', reason: 'background', count: 2 }, 'tab suggestion skipped');
+    expect(JSON.stringify(l.info.mock.calls)).not.toContain('commit');
+  });
+
+  it.each([
+    ['no message (a Stop without last_assistant_message)', null],
+    ['a blank message', ' \n​ '],
+    ["Claude's idle reminder", CLAUDE_IDLE_MESSAGE],
+  ])('%s: no timer, reason no_context', async (_label, context) => {
+    fakeTimers();
+    const repos = fakeRepos();
+    const l = log();
+    scheduleTabSuggestion(asRepos(repos), l, 't1', { context, backgroundTasks: 0 });
+    await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS * 2);
+    await settle();
+    expect(repos.tabs.findById).not.toHaveBeenCalled();
+    expect(l.info).toHaveBeenCalledWith({ tabId: 't1', reason: 'no_context' }, 'tab suggestion skipped');
+  });
+
+  it('a skipped Stop still cancels the pending check of an earlier one', async () => {
+    fakeTimers();
+    const repos = fakeRepos();
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', STOP);
+    await vi.advanceTimersByTimeAsync(1000);
+    scheduleTabSuggestion(asRepos(repos), log(), 't1', { context: null, backgroundTasks: 0 });
+    await vi.advanceTimersByTimeAsync(SUGGESTION_DELAY_MS * 2);
+    await settle();
+    expect(repos.tabs.findById).not.toHaveBeenCalled();
+    expect(repos.tabQuestions.open).not.toHaveBeenCalled();
   });
 });

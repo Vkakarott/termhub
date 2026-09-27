@@ -31,8 +31,9 @@ export async function ingestHookEvent(
   // After the tab row (spec 2026-09-25 §4.2): a question opens a card in the project's chat, any
   // other event closes the one on screen. Never throws.
   await noteHookEvent(repos, log, updated, interpreted);
-  // Claude Code draws its suggested next prompt shortly after the turn ends: look in a few seconds.
-  if (input.tool === 'claude' && interpreted.meta.event === 'Stop') scheduleTabSuggestion(repos, log, updated.id);
+  // Claude Code draws its suggested next prompt shortly after the turn ends: look in a few seconds, with the
+  // Stop's own message and background count (spec 2026-09-26 TER-203 §4.2).
+  if (input.tool === 'claude' && interpreted.meta.event === 'Stop') scheduleTabSuggestion(repos, log, updated.id, { context: interpreted.text, backgroundTasks: interpreted.backgroundTasks ?? 0 });
   if (isRateLimit(interpreted)) autoSwapOnLimit(repos, log, updated);
   return { ok: true, tab: updated };
 }
