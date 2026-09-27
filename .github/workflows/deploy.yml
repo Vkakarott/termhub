@@ -26,7 +26,13 @@ jobs:
       - name: Gerar Prisma Client
         run: npm run prisma:generate
       - name: Generated Prisma client is committed
-        run: git diff --exit-code -- apps/server/src/generated
+        run: |
+          stale="$(git status --porcelain -- apps/server/src/generated)"
+          if [ -n "$stale" ]; then
+            echo "The committed Prisma client is stale; run npm run prisma:generate -w @termhub/server and commit:"
+            echo "$stale"
+            exit 1
+          fi
       - name: Build dos pacotes compartilhados
         run: npm run build:packages
       - name: Testes agent
