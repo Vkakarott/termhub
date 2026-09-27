@@ -80,8 +80,8 @@ ticked straight from todo to done has `done_at` but no `started_at` — that is 
 only needs finish times.
 
 Prisma: `startedAt DateTime? @map("started_at")`, `doneAt DateTime? @map("done_at")`,
-`activeSeconds Int @default(0) @map("active_seconds")`. `mapTask` exposes `started_at`, `done_at`,
-`active_seconds` (web `Task` type too).
+`activeSeconds Int @default(0) @map("active_seconds")`. The shared `Task` type does not change (dozens of
+test factories build it); only the progress read model (§4.5) reads the new columns.
 
 ### 4.2 Accumulating agent time
 
@@ -128,11 +128,13 @@ it in `lib/types.ts` like every other type.
 
 ### 4.5 Server
 
-- `TasksRepository.listForProgress({ owner, projectId })`: epics and their non-subtask cards and
-  subtasks, only of the owner's projects, one query per level, project key and column name joined.
+- `ProgressRepository.list({ owner, projectId })` (new `db/repositories/progress.ts`): the epics and
+  every non-epic card of the owner's projects with their subtasks, each row with its project key and
+  name, column name, `started_at`/`done_at`/`active_seconds`, and its linked tab (with the machine
+  name) through a Prisma `include` — the tab of a card always belongs to the card's project, so the
+  owner filter on the project covers it. One query for epics, one for cards + subtasks.
 - `progress/build.ts` — `buildProgress(repos, { owner, projectId, scope, includeAgents }, now)`:
-  loads rows, the tabs referenced by `tab_id` (batched `findByIdsForOwner`), their machines' names,
-  runs `aggregate`, filters by scope, sorts epics by "needs you" then most recent activity.
+  loads the rows, runs `aggregate`, filters by scope, sorts epics by "needs you" then most recent activity.
 - `routes/progress.ts` at `/progress`, `guarded('tasks', …)` (add nothing to `RESOURCES`): zod query
   `{ project_id?: id, scope?: 'active'|'all' }`; a `project_id` goes through
   `scoped(repos, request).project(id)` (404 outside the scope); `includeAgents =
