@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useMonitor } from '../lib/monitor';
@@ -116,12 +116,18 @@ export function ProgressPanel({ projectId }: { projectId: string }) {
   const [data, setData] = useState<ProgressResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { tabState } = useMonitor();
+  // Only the latest request may write: a "Só ativos"/"Todos" toggle or a poll can overtake one in flight.
+  const latest = useRef(0);
 
   const load = useCallback(async () => {
+    const mine = ++latest.current;
     try {
-      setData(await api.progress({ project_id: projectId, scope }));
+      const res = await api.progress({ project_id: projectId, scope });
+      if (mine !== latest.current) return;
+      setData(res);
       setError(null);
     } catch {
+      if (mine !== latest.current) return;
       setError('Não foi possível carregar o progresso.');
     }
   }, [projectId, scope]);
@@ -131,7 +137,10 @@ export function ProgressPanel({ projectId }: { projectId: string }) {
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') void load();
     }, PROGRESS_REFRESH_MS);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      latest.current++;
+    };
   }, [load]);
 
   const epics = (data?.epics ?? []).map((e) => ({

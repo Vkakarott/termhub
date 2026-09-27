@@ -69,6 +69,20 @@ describe('ProgressPanel', () => {
     await waitFor(() => expect(progressMock).toHaveBeenLastCalledWith({ project_id: 'p1', scope: 'all' }));
   });
 
+  it('keeps the current scope when the previous scope answers last', async () => {
+    let answerActive!: (r: ProgressResponse) => void;
+    progressMock.mockReturnValueOnce(new Promise<ProgressResponse>((r) => (answerActive = r)));
+    const all = response();
+    all.epics[0]!.title = 'Épico encerrado';
+    progressMock.mockResolvedValueOnce(all);
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Todos' }));
+    expect(await screen.findByText('Épico encerrado')).toBeInTheDocument();
+    await act(async () => answerActive(response()));
+    expect(screen.getByText('Épico encerrado')).toBeInTheDocument();
+    expect(screen.queryByText('Visão gerencial')).not.toBeInTheDocument();
+  });
+
   it('says so when nothing is running', async () => {
     progressMock.mockResolvedValue({ generated_at: '', epics: [] });
     mount();
