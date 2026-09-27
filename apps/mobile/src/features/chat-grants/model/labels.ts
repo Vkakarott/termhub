@@ -5,8 +5,8 @@ type ChatGrantState = ChatGrantListItem['state'];
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** The chat header's link to "Abas confiáveis". */
-export const trustedTabsLabel = (n: number): string => (n === 1 ? '1 aba confiável' : `${n} abas confiáveis`);
+/** The chat header's link to "Permissões do chat": tab grants and project grants together. */
+export const activeGrantsLabel = (n: number): string => (n === 1 ? '1 permissão ativa' : `${n} permissões ativas`);
 
 export const grantTabLabel = (g: Pick<ChatGrantListItem, 'tab_name'>): string => (g.tab_name ? `Aba ${g.tab_name}` : 'Aba que não existe mais');
 

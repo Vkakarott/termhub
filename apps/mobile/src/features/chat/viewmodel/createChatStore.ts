@@ -26,10 +26,11 @@ import { CHAT_MSG } from '../model/messages';
 import { emptyFold, pruneLive, type LiveFold } from '../model/live';
 import type { PickedFile } from './attachments';
 import { createThrottledStorage } from './throttled-storage';
-import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, TabQuestion, TabSuggestion } from '../model/types';
+import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, TabQuestion, TabSuggestion } from '../model/types';
 
-/** `approve_tab` approves the card *and* trusts its tab for send_input ("Permitir sempre nesta aba"). */
-export type ChatDecision = 'approve' | 'deny' | 'approve_tab';
+/** `approve_tab` approves the card *and* trusts its tab for send_input ("Permitir sempre nesta aba");
+ * `approve_project` approves it *and* trusts its project's board ("Permitir sempre neste projeto"). */
+export type ChatDecision = 'approve' | 'deny' | 'approve_tab' | 'approve_project';
 
 /** What the chat store needs from the session store (read through a getter, so tests can inject
  * a session store built over the same mock transport). */
@@ -46,6 +47,9 @@ export interface ConversationSlot {
   actions: ChatAction[];
   /** The tabs trusted in this conversation (the server lists those still in force). */
   grants: ChatGrant[];
+  /** The projects' boards trusted in this conversation ("Permitir sempre neste projeto", design spec
+   * 2026-09-26 §7); the server lists those still in force. */
+  projectGrants: ChatProjectGrant[];
   /** The tabs' questions pushed into this conversation (spec 2026-09-25 §6.3). */
   tabQuestions: TabQuestion[];
   /** The tabs' suggestions pushed into this conversation. */
@@ -107,8 +111,8 @@ export interface ChatState {
   /** A grouped confirmation of the open conversation: one request, and one PIN entry for all its
    * approvals (none for a batch of denials). `decidingId` holds the first id while it is in flight. */
   decideMany(decisions: { id: string; decision: 'approve' | 'deny' }[]): Promise<void>;
-  /** "Revogar" a trusted tab of the open conversation. A grant already revoked elsewhere (409) is
-   * dropped quietly: it is gone either way. */
+  /** "Revogar" a trusted tab or a trusted project's board of the open conversation. A grant already
+   * revoked elsewhere (409) is dropped quietly: it is gone either way. */
   revokeGrant(grantId: string): Promise<void>;
   /** Answers a tab's question from its card — no PIN. A question the tab moved past (409) says so in its card and re-reads. */
   answerTabQuestion(questionId: string, body: TTabQuestionAnswerBody): Promise<void>;
@@ -140,7 +144,7 @@ export interface ChatState {
 
 type Data = Omit<ChatState, { [K in keyof ChatState]: ChatState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatState]>;
 
-type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'tabQuestions' | 'tabSuggestions' | 'host'>;
+type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'projectGrants' | 'tabQuestions' | 'tabSuggestions' | 'host'>;
 type Persisted = { projects: TChatProjectItem[]; conversations: Record<string, PersistedSlot> };
 
 const initialData = (): Data => ({
@@ -162,7 +166,7 @@ const initialData = (): Data => ({
   attachmentStatuses: {},
 });
 
-const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], tabQuestions: [], tabSuggestions: [], host: null, loaded: false, error: null });
+const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], host: null, loaded: false, error: null });
 const keyOf = (projectId: string | null): string => projectId ?? '';
 const projectOf = (key: string): string | null => (key === '' ? null : key);
 
@@ -238,6 +242,7 @@ export function createChatStore(deps: ChatDeps) {
               messages: same ? mergeThread(slot.messages, res.messages) : [...res.messages, ...slot.messages.filter((m) => m.local !== undefined)],
               actions: res.actions,
               grants: res.grants,
+              projectGrants: res.project_grants,
               tabQuestions: res.tab_questions,
               tabSuggestions: res.tab_suggestions,
               host: res.host,
@@ -261,13 +266,26 @@ export function createChatStore(deps: ChatDeps) {
           if (key === null) return;
           const current = get().conversations[key] ?? emptySlot();
           if (!belongsTo(current.conversation?.id ?? null)(e)) return;
-          const before = { messages: current.messages, actions: current.actions, live: get().live, grants: current.grants, tabQuestions: current.tabQuestions, tabSuggestions: current.tabSuggestions };
+          const before = {
+            messages: current.messages,
+            actions: current.actions,
+            live: get().live,
+            grants: current.grants,
+            projectGrants: current.projectGrants,
+            tabQuestions: current.tabQuestions,
+            tabSuggestions: current.tabSuggestions,
+          };
           const slice = applyEvent(before, e);
           // One `set` per event, touching only what changed: a delta used to cost two (the slot,
           // then `live`), each one a persist write, and a new slot object for rows that did not move.
           const liveChanged = slice.live !== before.live;
           const slotChanged =
-            slice.messages !== before.messages || slice.actions !== before.actions || slice.grants !== before.grants || slice.tabQuestions !== before.tabQuestions || slice.tabSuggestions !== before.tabSuggestions;
+            slice.messages !== before.messages ||
+            slice.actions !== before.actions ||
+            slice.grants !== before.grants ||
+            slice.projectGrants !== before.projectGrants ||
+            slice.tabQuestions !== before.tabQuestions ||
+            slice.tabSuggestions !== before.tabSuggestions;
           if (liveChanged || slotChanged) {
             set((s) => ({
               ...(liveChanged ? { live: slice.live } : {}),
@@ -275,7 +293,15 @@ export function createChatStore(deps: ChatDeps) {
                 ? {
                     conversations: {
                       ...s.conversations,
-                      [key]: { ...(s.conversations[key] ?? emptySlot()), messages: slice.messages, actions: slice.actions, grants: slice.grants, tabQuestions: slice.tabQuestions, tabSuggestions: slice.tabSuggestions },
+                      [key]: {
+                        ...(s.conversations[key] ?? emptySlot()),
+                        messages: slice.messages,
+                        actions: slice.actions,
+                        grants: slice.grants,
+                        projectGrants: slice.projectGrants,
+                        tabQuestions: slice.tabQuestions,
+                        tabSuggestions: slice.tabSuggestions,
+                      },
                     },
                   }
                 : {}),
@@ -476,7 +502,8 @@ export function createChatStore(deps: ChatDeps) {
                 } else {
                   // The session store performs the call with the proof while its PIN sheet stays open:
                   // a wrong PIN is answered there, and this only resolves once the server accepted it.
-                  // The proof signs the decision word, so `approve_tab` asks the PIN for exactly that.
+                  // The proof signs the decision word, so `approve_tab`/`approve_project` asks the PIN
+                  // for exactly that.
                   await withPin();
                 }
               }
@@ -484,8 +511,9 @@ export function createChatStore(deps: ChatDeps) {
               // The `decision` event confirms it; this only saves a flicker back to "pending". Only a
               // card still pending moves: a re-read may already have it executed, failed or expired.
               patchSlot(key, (slot) => ({ actions: settlePending(slot.actions, actionId, decision === 'deny' ? 'denied' : 'approved') }));
-              // The `grant` event brings the trusted tab; the re-read puts it on screen even if the socket is down.
-              if (decision === 'approve_tab') void reread(key);
+              // The `grant`/`project_grant` event brings the trusted tab or project; the re-read puts
+              // it on screen even if the socket is down.
+              if (decision === 'approve_tab' || decision === 'approve_project') void reread(key);
             } catch (e) {
               if (gen !== generation || isCancelled(e)) return;
               if (isApiError(e) && e.status === 409) {
@@ -554,7 +582,7 @@ export function createChatStore(deps: ChatDeps) {
             const key = keyOf(projectId);
             const gen = generation;
             set({ revokingId: grantId, error: null });
-            const drop = () => patchSlot(key, (slot) => ({ grants: slot.grants.filter((g) => g.id !== grantId) }));
+            const drop = () => patchSlot(key, (slot) => ({ grants: slot.grants.filter((g) => g.id !== grantId), projectGrants: slot.projectGrants.filter((g) => g.id !== grantId) }));
             try {
               await api.revokeGrant(session().auth(), grantId);
               if (gen === generation) drop();
@@ -656,7 +684,7 @@ export function createChatStore(deps: ChatDeps) {
               await api.reset(session().auth(), projectId);
               if (gen !== generation) return;
               set({ live: emptyFold() });
-              patchSlot(key, () => ({ messages: [], actions: [], grants: [], tabQuestions: [], tabSuggestions: [] })); // a reset ends the old conversation's grants too
+              patchSlot(key, () => ({ messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] })); // a reset ends the old conversation's grants too
               await reread(key);
             } catch (e) {
               fail(gen, e);
@@ -712,7 +740,10 @@ export function createChatStore(deps: ChatDeps) {
           projects: s.projects,
           conversations: Object.fromEntries(
             // A row still in flight, or one that failed, is this device's alone: not worth a restart.
-            Object.entries(s.conversations).map(([key, c]) => [key, { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, host: c.host }]),
+            Object.entries(s.conversations).map(([key, c]) => [
+              key,
+              { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, projectGrants: c.projectGrants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, host: c.host },
+            ]),
           ),
         }),
         merge: (persisted, current) => {

@@ -360,6 +360,58 @@ it('approve_tab on an action that is not send_input to a tab is 400 GRANT_NOT_AL
   collected.close();
 });
 
+it('approve_project approves and trusts the project\'s board with a proof for approve_project only; revokeGrant ends it once', async () => {
+  const clock = { value: START };
+  const { api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+
+  // a-termhub-2 is the fixture's move_task (a board tool) on p-termhub.
+  // A proof signed for `approve` cannot be spent on `approve_project`.
+  const first = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-2' });
+  await expect(
+    api.decide(auth, 'a-termhub-2', { decision: 'approve_project', challenge: first.challenge, pin_proof: decisionProof(secret, first.challenge, 'a-termhub-2', 'approve') }),
+  ).rejects.toMatchObject({ status: 401, code: 'PIN_INVALID' });
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([]);
+
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-2' });
+  await api.decide(auth, 'a-termhub-2', { decision: 'approve_project', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-2', 'approve_project') });
+
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.actions.find((a) => a.id === 'a-termhub-2')!.status).toBe('approved');
+  expect(chat.project_grants).toEqual([expect.objectContaining({ project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2' })]);
+  const grantId = chat.project_grants[0]!.id;
+  // Only the conversation that granted it sees it.
+  expect((await api.chat(auth, null)).project_grants).toEqual([]);
+
+  await api.revokeGrant(auth, grantId);
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([]);
+  await expect(api.revokeGrant(auth, grantId)).rejects.toMatchObject({ status: 409 });
+  await expect(api.revokeGrant(auth, 'nope')).rejects.toMatchObject({ status: 404 });
+
+  const own = collected.events.filter((e) => e.type === 'decision' || e.type === 'project_grant' || e.type === 'project_grant_revoked');
+  expect(own.map((e) => e.type)).toEqual(['decision', 'project_grant', 'project_grant_revoked']);
+  expect(own[1]).toMatchObject({ type: 'project_grant', conversation_id: 'c-termhub', grant: { id: grantId, project_id: 'p-termhub' } });
+  expect(own[2]).toMatchObject({ type: 'project_grant_revoked', conversation_id: 'c-termhub', grant_id: grantId });
+
+  collected.close();
+});
+
+it('approve_project on a tool outside the board set, or with no resolvable project, is 400 GRANT_NOT_ALLOWED before the challenge is spent', async () => {
+  const clock = { value: START };
+  const { api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+
+  // a-termhub-1 is send_input, not a board tool.
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-1' });
+  await expect(
+    api.decide(auth, 'a-termhub-1', { decision: 'approve_project', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-1', 'approve_project') }),
+  ).rejects.toMatchObject({ status: 400, code: 'GRANT_NOT_ALLOWED' });
+  // the same challenge still approves it plainly
+  await api.decide(auth, 'a-termhub-1', { decision: 'approve', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-1', 'approve') });
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([]);
+});
+
 it('reset archives the conversation: chat() afterwards has no messages and a new conversation id', async () => {
   const clock = { value: START };
   const { api, auth } = await enrol(clock);

@@ -1,8 +1,8 @@
-import { endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTabLabel, trustedTabsLabel } from './labels';
+import { endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTabLabel, activeGrantsLabel } from './labels';
 
-it('counts trusted tabs in pt-BR', () => {
-  expect(trustedTabsLabel(1)).toBe('1 aba confiável');
-  expect(trustedTabsLabel(3)).toBe('3 abas confiáveis');
+it('counts active grants (tab and project together) in pt-BR', () => {
+  expect(activeGrantsLabel(1)).toBe('1 permissão ativa');
+  expect(activeGrantsLabel(3)).toBe('3 permissões ativas');
 });
 it('names the tab, the origin and the state', () => {
   expect(grantTabLabel({ tab_name: 'api' })).toBe('Aba api');

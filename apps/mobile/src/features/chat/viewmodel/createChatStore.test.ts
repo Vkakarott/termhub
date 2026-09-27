@@ -397,6 +397,50 @@ it("decide(id, 'approve_tab') asks the PIN for approve_tab and, once resolved, t
   expect(slot(chat, 'p-termhub').grants).toEqual([expect.objectContaining({ tab_id: 't-api', source_action_id: 'a-termhub-1' })]);
 });
 
+it("decide(id, 'approve_project') asks the PIN for approve_project and, once resolved, the project is trusted (a-termhub-2 is move_task, a board tool)", async () => {
+  const { chat, store } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const deciding = chat.getState().decide('a-termhub-2', 'approve_project');
+  expect(store.getState().pinPrompt).toEqual({ actionId: 'a-termhub-2', decision: 'approve_project' });
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  expect(slot(chat, 'p-termhub').actions.find((a) => a.id === 'a-termhub-2')!.status).toBe('approved');
+  expect(slot(chat, 'p-termhub').projectGrants).toEqual([expect.objectContaining({ project_id: 'p-termhub', source_action_id: 'a-termhub-2' })]);
+});
+
+it('project_grant / project_grant_revoked events update the slot', async () => {
+  const { chat, handlers } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const pg = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: new Date().toISOString(), expires_at: '2099-01-01T00:00:00.000Z' };
+  handlers().onEvent({ type: 'project_grant', user_id: 'u1', conversation_id: 'c-termhub', grant: pg });
+  expect(slot(chat, 'p-termhub').projectGrants).toEqual([pg]);
+  handlers().onEvent({ type: 'project_grant_revoked', user_id: 'u1', conversation_id: 'c-termhub', grant_id: pg.id });
+  expect(slot(chat, 'p-termhub').projectGrants).toEqual([]);
+});
+
+it('revokeGrant drops a project grant too', async () => {
+  const { chat, store } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const deciding = chat.getState().decide('a-termhub-2', 'approve_project');
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  const [pg] = slot(chat, 'p-termhub').projectGrants;
+  await chat.getState().revokeGrant(pg!.id);
+  expect(slot(chat, 'p-termhub').projectGrants).toEqual([]);
+  expect(chat.getState()).toMatchObject({ revokingId: null, error: null });
+});
+
+it('reset clears project grants too', async () => {
+  const { chat, store } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const deciding = chat.getState().decide('a-termhub-2', 'approve_project');
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  expect(slot(chat, 'p-termhub').projectGrants).toHaveLength(1);
+  await chat.getState().reset();
+  expect(slot(chat, 'p-termhub').projectGrants).toEqual([]);
+});
+
 it('revokeGrant(id) drops the grant', async () => {
   const { chat, store } = await setup();
   await openAndConnect(chat, 'p-termhub');
@@ -747,7 +791,7 @@ it('persists projects and each conversation, never live or transient state', asy
 
   const saved = JSON.parse(mmkv.getString('chat')!).state;
   expect(Object.keys(saved).sort()).toEqual(['conversations', 'projects']);
-  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'tabQuestions', 'tabSuggestions']);
+  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'projectGrants', 'tabQuestions', 'tabSuggestions']);
 
   // A cold start shows the thread before any fetch.
   const again = createChatStore({ api, session: () => ({ phase: 'locked', auth: () => { throw new Error('LOCKED'); }, handleApiError: () => false, requestPinProof: async () => { throw new Error('CANCELLED'); }, requestPinProofs: async () => { throw new Error('CANCELLED'); }, tokenStale: () => true, renewToken: async () => null }) });

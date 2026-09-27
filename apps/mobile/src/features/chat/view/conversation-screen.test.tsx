@@ -25,7 +25,7 @@ jest.mock('expo-router', () => ({
 
 import { useChatStore } from '@/features/chat/viewmodel/useChatStore';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
-import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatResponse, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatProjectGrant, TChatResponse, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { emptyFold, foldLive } from '../model/live';
@@ -62,11 +62,12 @@ function stubAction<K extends 'decide' | 'decideMany' | 'reset' | 'setHost' | 'r
   return fn;
 }
 
-/** Serves the open project's `GET chat` with its actions and grants changed — the screen re-reads
- * on open, so a slot seeded straight into the store would be overwritten by the mock's answer.
- * These tests look at one pending card: the seed's second one (`a-termhub-2`) is always left out,
- * unless `keepBoth` is set (the grouped-card tests want both pending actions on screen). */
-function serveChat(patch: (res: TChatResponse) => Pick<TChatResponse, 'actions' | 'grants'> = (res) => res, keepBoth = false) {
+/** Serves the open project's `GET chat` with its actions, grants and project grants changed — the
+ * screen re-reads on open, so a slot seeded straight into the store would be overwritten by the
+ * mock's answer. These tests look at one pending card: the seed's second one (`a-termhub-2`) is
+ * always left out, unless `keepBoth` is set (the grouped-card tests want both pending actions on
+ * screen). A patch may leave `project_grants` out: it then keeps whatever the real mock answered. */
+function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'actions' | 'grants' | 'project_grants'>> = (res) => res, keepBoth = false) {
   const real = stores.api.chat.bind(stores.api);
   jest.spyOn(stores.api, 'chat').mockImplementation(async (auth, projectId) => {
     const res = await real(auth, projectId);
@@ -77,6 +78,7 @@ function serveChat(patch: (res: TChatResponse) => Pick<TChatResponse, 'actions' 
 }
 
 const GRANT: TChatGrant = { id: 'g1', tab_id: 't-api', tool: 'send_input', source_action_id: 'a-termhub-1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
+const PROJECT_GRANT: TChatProjectGrant = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z' };
 const withAction = (res: TChatResponse, patch: Partial<TChatAction>): TChatAction[] => res.actions.map((a) => (a.id === 'a-termhub-1' ? { ...a, ...patch } : a));
 
 /** The first load of a file signs its first P-256 proof, slow while other suites share the CPU. */
@@ -234,11 +236,19 @@ describe('Conversa', () => {
     expect(decide).toHaveBeenCalledWith('a-termhub-1', 'approve_tab');
   });
 
-  it('counts the active grant in the header, opens Abas confiáveis, and keeps the card\'s Revogar', async () => {
+  it('offers "Permitir sempre neste projeto" on a pending move_task; it calls decide(id, approve_project)', async () => {
+    serveChat((res) => ({ actions: res.actions.filter((a) => a.id === 'a-termhub-2') }), true);
+    const decide = stubAction('decide');
+    await render(<ConversationScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Permitir sempre neste projeto' }, LOAD));
+    expect(decide).toHaveBeenCalledWith('a-termhub-2', 'approve_project');
+  });
+
+  it("counts the active grant in the header, opens Permissões do chat, and keeps the card's Revogar", async () => {
     serveChat((res) => ({ actions: withAction(res, { status: 'approved' }), grants: [GRANT] }));
     const revokeGrant = stubAction('revokeGrant');
     await render(<ConversationScreen />);
-    const link = await screen.findByRole('button', { name: '1 aba confiável' }, LOAD);
+    const link = await screen.findByRole('button', { name: '1 permissão ativa' }, LOAD);
     expect(screen.queryByText(/^Enviando direto para/)).toBeNull();
     await fireEvent.press(link);
     expect(mockRouter.push).toHaveBeenCalledWith('/chat-grants');
@@ -248,11 +258,26 @@ describe('Conversa', () => {
     expect(revokeGrant).toHaveBeenCalledWith('g1');
   });
 
+  it('counts a tab grant and a project grant together: "2 permissões ativas"', async () => {
+    serveChat((res) => ({ actions: withAction(res, { status: 'approved' }), grants: [GRANT], project_grants: [PROJECT_GRANT] }));
+    await render(<ConversationScreen />);
+    expect(await screen.findByRole('button', { name: '2 permissões ativas' }, LOAD)).toBeTruthy();
+  });
+
+  it('shows the project grant on the card that created it, with Revogar', async () => {
+    serveChat((res) => ({ actions: res.actions.filter((a) => a.id === 'a-termhub-2'), grants: [], project_grants: [PROJECT_GRANT] }), true);
+    const revokeGrant = stubAction('revokeGrant');
+    await render(<ConversationScreen />);
+    expect(await screen.findByText(/^Permitido neste projeto/, undefined, LOAD)).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Revogar' }));
+    expect(revokeGrant).toHaveBeenCalledWith('pg1');
+  });
+
   it('shows no header button without an active grant', async () => {
     serveChat((res) => ({ actions: res.actions, grants: [] }));
     await render(<ConversationScreen />);
     await screen.findByText(SEEDED_USER, undefined, LOAD);
-    expect(screen.queryByRole('button', { name: /aba(s)? confiáve/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /permiss(ão|ões) ativa/ })).toBeNull();
   });
 
   it('a card run under a grant reads "executada · aba confiada"', async () => {

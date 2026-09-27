@@ -7,6 +7,7 @@ import { randomId } from '../../../crypto/random';
 import {
   chatGrantListQuery,
   chatMemoryPatchBody,
+  isBoardGrantable,
   isTabGrantable,
   kindFromNameAndMime,
   mobileBatchDecisionBody,
@@ -22,11 +23,12 @@ import {
   type TChatGrantListItem,
   type TChatHostState,
   type TChatMemory,
+  type TChatProjectGrant,
   type TTabQuestion,
   type TTabSuggestion,
 } from '../../contract';
 import type { MockRouter } from '../router';
-import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
+import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockProjectGrant, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
 import { pushConfirmationNotification, pushReplyNotification } from './notifications';
 
 const USER_ID = 'u1';
@@ -168,6 +170,44 @@ function grantTab(state: MockState, action: MockAction, now: number): MockGrant 
     revoked_by_user: false,
   };
   state.grants.push(grant);
+  return grant;
+}
+
+/** The wire shape of a project grant (the server's `ChatProjectGrantView`): `project_name` resolved
+ * from the mock's own project fixtures, null once the project is gone. */
+function projectGrantView(state: MockState, g: MockProjectGrant): TChatProjectGrant {
+  return { id: g.id, project_id: g.project_id, project_name: state.projects.get(g.project_id)?.name ?? null, source_action_id: g.source_action_id, created_at: g.created_at, expires_at: g.expires_at };
+}
+
+/** `GET chat`'s `project_grants`: the conversation's project grants still in force, oldest first. */
+function activeProjectGrantsFor(state: MockState, conversationId: string, now: number): TChatProjectGrant[] {
+  return state.projectGrants.filter((g) => g.conversation_id === conversationId && !g.revoked && Date.parse(g.expires_at) > now).map((g) => projectGrantView(state, g));
+}
+
+/** Trusts the project of `action` (just approved): any other grant of the same project in that
+ * conversation is revoked first — at most one per project, mirroring `grantTab`. The mock resolves
+ * the project straight from `action.project_id`, set by the fixtures the way the server would
+ * resolve it from the card's own tool arguments (design spec 2026-09-26 §2). */
+function grantProject(state: MockState, action: MockAction, now: number): MockProjectGrant {
+  for (const g of state.projectGrants) {
+    if (g.conversation_id === action.conversation_id && g.project_id === action.project_id && !g.revoked) {
+      g.revoked = true;
+      g.revoked_at = new Date(now).toISOString();
+      g.revoked_by_user = true;
+    }
+  }
+  const grant: MockProjectGrant = {
+    id: randomId(10),
+    conversation_id: action.conversation_id,
+    project_id: action.project_id!,
+    source_action_id: action.id,
+    created_at: new Date(now).toISOString(),
+    expires_at: new Date(now + GRANT_TTL_MS).toISOString(),
+    revoked: false,
+    revoked_at: null,
+    revoked_by_user: false,
+  };
+  state.projectGrants.push(grant);
   return grant;
 }
 
@@ -450,7 +490,7 @@ function checkDecisionProof(
   state: MockState,
   device: MockDevice,
   actionId: string,
-  decision: 'approve' | 'approve_tab',
+  decision: 'approve' | 'approve_tab' | 'approve_project',
   body: { challenge: string; pin_proof: string },
   now: number,
 ): void {
@@ -505,6 +545,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
         messages: state.messages.get(conversation.id) ?? [],
         actions: actionsFor(state, conversation.id),
         grants: activeGrantsFor(state, conversation.id, ctx.now()),
+        project_grants: activeProjectGrantsFor(state, conversation.id, ctx.now()),
         tab_questions: state.tabQuestions.filter((q) => q.conversation_id === conversation.id).map(tabQuestionView),
         tab_suggestions: state.tabSuggestions.filter((s) => s.conversation_id === conversation.id).map(tabSuggestionView),
         host: hostFor(conversation),
@@ -626,8 +667,16 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     const projectId = body.project_id ?? null;
     const previous = conversationFor(state, projectId);
     previous.archived_at = new Date(ctx.now()).toISOString();
-    // A reset ends the old conversation's trusted tabs too (the server's `revokeForConversation`).
+    // A reset ends the old conversation's trusted tabs and project boards too (the server's
+    // `revokeForConversation`, called for both repositories).
     for (const g of state.grants) {
+      if (g.conversation_id === previous.id && !g.revoked) {
+        g.revoked = true;
+        g.revoked_at = new Date(ctx.now()).toISOString();
+        g.revoked_by_user = false;
+      }
+    }
+    for (const g of state.projectGrants) {
       if (g.conversation_id === previous.id && !g.revoked) {
         g.revoked = true;
         g.revoked_at = new Date(ctx.now()).toISOString();
@@ -668,21 +717,22 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       return { status: 200, body: {} };
     }
 
-    // The mock does not grant projects yet: refused like an ineligible card, before any PIN handling.
-    if (body.decision === 'approve_project') throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Não dá para permitir sempre neste projeto aqui');
-
     const hasProof = 'challenge' in body && body.challenge !== undefined && body.pin_proof !== undefined;
     if (!hasProof) {
       // Mirrors the server (TER-92): only a `write` card approves with the session alone.
-      if (body.decision === 'approve_tab' || action.class !== 'write') throw new WireError(401, 'PIN_REQUIRED', 'Confirme com o PIN para autorizar esta ação.');
+      if (body.decision === 'approve_tab' || body.decision === 'approve_project' || action.class !== 'write') throw new WireError(401, 'PIN_REQUIRED', 'Confirme com o PIN para autorizar esta ação.');
       action.status = 'approved';
       broadcast(state, { type: 'decision', user_id: USER_ID, conversation_id: action.conversation_id, action_id: action.id, status: 'approved' });
       return { status: 200, body: {} };
     }
 
-    // An ineligible grant is refused before the challenge is spent or the PIN checked.
+    // An ineligible grant is refused before the challenge is spent or the PIN checked (design spec
+    // 2026-09-26 §2, §5): the four board tools, and the card's project must resolve.
     if (body.decision === 'approve_tab' && !isTabGrantable({ tool: action.tool, args: action.args, tab_id: action.tab_id })) {
       throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Só dá para permitir sempre o envio de texto para uma aba');
+    }
+    if (body.decision === 'approve_project' && (!isBoardGrantable({ tool: action.tool }) || action.project_id === null)) {
+      throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Não dá para permitir sempre neste projeto aqui');
     }
 
     checkDecisionProof(state, device, action.id, body.decision, { challenge: body.challenge!, pin_proof: body.pin_proof! }, now);
@@ -691,8 +741,14 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     broadcast(state, { type: 'decision', user_id: USER_ID, conversation_id: action.conversation_id, action_id: action.id, status: 'approved' });
     if (body.decision === 'approve') return { status: 200, body: {} };
 
-    const grant = grantView(grantTab(state, action, now));
-    broadcast(state, { type: 'grant', user_id: USER_ID, conversation_id: action.conversation_id, grant });
+    if (body.decision === 'approve_tab') {
+      const grant = grantView(grantTab(state, action, now));
+      broadcast(state, { type: 'grant', user_id: USER_ID, conversation_id: action.conversation_id, grant });
+      return { status: 200, body: { grant } };
+    }
+
+    const grant = projectGrantView(state, grantProject(state, action, now));
+    broadcast(state, { type: 'project_grant', user_id: USER_ID, conversation_id: action.conversation_id, grant });
     return { status: 200, body: { grant } };
   });
 
@@ -751,17 +807,28 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     return { status: 200, body: { grants: page, next_cursor: more ? page[page.length - 1]!.id : null } };
   });
 
-  /** "Revogar" (no PIN: it only takes power away): 404 unknown, 409 already revoked. */
+  /** "Revogar" (no PIN: it only takes power away): looks in both repositories, like the server's
+   * `revokeGrant` — ids never collide (`randomId`). 404 unknown, 409 already revoked. */
   router.route('DELETE', '/api/m/v1/chat/grants/:id', (ctx) => {
     verifyAuth(state, { headers: ctx.headers, htm: 'DELETE', htu: ctx.htu, now: ctx.now() });
     const grant = state.grants.find((g) => g.id === ctx.params.id);
-    if (!grant) throw new WireError(404, 'NOT_FOUND', 'Permissão não encontrada');
-    if (grant.revoked) throw new WireError(409, 'CONFLICT', 'Esta permissão já foi revogada');
-    grant.revoked = true;
-    grant.revoked_at = new Date(ctx.now()).toISOString();
-    grant.revoked_by_user = true;
-    broadcast(state, { type: 'grant_revoked', user_id: USER_ID, conversation_id: grant.conversation_id, grant_id: grant.id });
-    return { status: 200, body: { grant: grantView(grant) } };
+    if (grant) {
+      if (grant.revoked) throw new WireError(409, 'CONFLICT', 'Esta permissão já foi revogada');
+      grant.revoked = true;
+      grant.revoked_at = new Date(ctx.now()).toISOString();
+      grant.revoked_by_user = true;
+      broadcast(state, { type: 'grant_revoked', user_id: USER_ID, conversation_id: grant.conversation_id, grant_id: grant.id });
+      return { status: 200, body: { grant: grantView(grant) } };
+    }
+
+    const projectGrant = state.projectGrants.find((g) => g.id === ctx.params.id);
+    if (!projectGrant) throw new WireError(404, 'NOT_FOUND', 'Permissão não encontrada');
+    if (projectGrant.revoked) throw new WireError(409, 'CONFLICT', 'Esta permissão já foi revogada');
+    projectGrant.revoked = true;
+    projectGrant.revoked_at = new Date(ctx.now()).toISOString();
+    projectGrant.revoked_by_user = true;
+    broadcast(state, { type: 'project_grant_revoked', user_id: USER_ID, conversation_id: projectGrant.conversation_id, grant_id: projectGrant.id });
+    return { status: 200, body: { grant: projectGrantView(state, projectGrant) } };
   });
 
   /** Answers a tab's question (no PIN): 404 unknown, 409 once it is closed, 400 a body of the other kind. */

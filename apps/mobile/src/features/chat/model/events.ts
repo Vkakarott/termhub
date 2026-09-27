@@ -4,7 +4,7 @@
 import type { TChatAttachment } from '@/services/api/contract';
 import { applyLive, type LiveFold } from './live';
 import { upsertTabSuggestion } from './tab-suggestion-text';
-import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, TabQuestion, TabSuggestion } from './types';
+import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, ChatProjectGrant, TabQuestion, TabSuggestion } from './types';
 
 export interface EventSlice {
   messages: ChatMessage[];
@@ -13,6 +13,9 @@ export interface EventSlice {
   live: LiveFold;
   /** The conversation's trusted tabs; at most one per tab (a new grant replaces the old one). */
   grants: ChatGrant[];
+  /** The conversation's trusted projects' boards ("Permitir sempre neste projeto"); at most one per
+   * project (a new grant replaces the old one). */
+  projectGrants: ChatProjectGrant[];
   /** The tabs' questions pushed into this conversation (spec 2026-09-25 §6.3). */
   tabQuestions: TabQuestion[];
   /** The tabs' suggestions pushed into this conversation (spec 2026-09-25 tab suggestions §6.4). */
@@ -127,6 +130,10 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
       return { ...slice, grants: [...slice.grants.filter((g) => g.id !== e.grant.id && g.tab_id !== e.grant.tab_id), e.grant] };
     case 'grant_revoked':
       return { ...slice, grants: slice.grants.filter((g) => g.id !== e.grant_id) };
+    case 'project_grant':
+      return { ...slice, projectGrants: [...slice.projectGrants.filter((g) => g.id !== e.grant.id && g.project_id !== e.grant.project_id), e.grant] };
+    case 'project_grant_revoked':
+      return { ...slice, projectGrants: slice.projectGrants.filter((g) => g.id !== e.grant_id) };
     case 'granted_action':
       // A send_input run under a grant never asked: its card arrives whole, already executed.
       return { ...slice, actions: slice.actions.some((a) => a.id === e.action.id) ? slice.actions.map((a) => (a.id === e.action.id ? e.action : a)) : [...slice.actions, e.action] };

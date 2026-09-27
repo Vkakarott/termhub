@@ -7,7 +7,7 @@ const base = { user_id: 'u1', conversation_id: 'c1' };
 const row = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ id, conversation_id: 'c1', role: 'assistant', text: '', usage: null, error_code: null, created_at: at, ...extra });
 const action = (id: string, status: ChatAction['status'] = 'pending'): ChatAction => ({ id, tool: 't', args: {}, class: 'write', status, machine_id: null, project_id: null, tab_id: null, grant_id: null, summary: 's', created_at: at });
 const delta = (messageId: string, text: string): ChatEvent => ({ type: 'delta', ...base, message_id: messageId, delta: text });
-const empty: EventSlice = { messages: [], actions: [], live: emptyFold(), grants: [], tabQuestions: [], tabSuggestions: [] };
+const empty: EventSlice = { messages: [], actions: [], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
 const att = { id: 'att1', name: 'relatorio.pdf', mime: 'application/pdf', kind: 'pdf' as const, bytes: 10, status: 'pending' as const, error_code: null, meta: null, created_at: at };
 
 describe('mergeMessage', () => {
@@ -126,7 +126,7 @@ it('a decision only settles a pending card: a card that already ran is never mov
 });
 
 it('a run_finished event neither crashes nor changes the thread', () => {
-  const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: foldLive([delta('m1', 'oi')]), grants: [], tabQuestions: [], tabSuggestions: [] };
+  const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: foldLive([delta('m1', 'oi')]), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
   const finished: ChatEvent = { type: 'run_finished', ...base, message_id: 'm1', ok: true, error_code: null };
   const failed: ChatEvent = { type: 'run_finished', ...base, message_id: null, ok: false, error_code: 'HOST_GONE' };
   expect(applyEvent(thread, finished)).toBe(thread);
@@ -135,7 +135,7 @@ it('a run_finished event neither crashes nor changes the thread', () => {
 
 describe('tab grants', () => {
   const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
-  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], tabQuestions: [], tabSuggestions: [] };
+  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
 
   it('a grant event adds it; a second grant for the same tab replaces the first', () => {
     const added = applyEvent(slice, { type: 'grant', ...base, grant });
@@ -156,6 +156,24 @@ describe('tab grants', () => {
     expect(appended).toEqual({ ...slice, actions: [action('a1'), ran] });
     const replaced = applyEvent(slice, { type: 'granted_action', ...base, action: { ...action('a1', 'executed'), grant_id: 'g1' } });
     expect(replaced.actions).toEqual([{ ...action('a1', 'executed'), grant_id: 'g1' }]);
+  });
+});
+
+describe('project grants', () => {
+  const pg = { id: 'pg1', project_id: 'p1', project_name: 'termhub', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z' };
+  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
+
+  it('a project_grant event adds it; a second grant for the same project replaces the first', () => {
+    const added = applyEvent(slice, { type: 'project_grant', ...base, grant: pg });
+    expect(added).toEqual({ ...slice, projectGrants: [pg] });
+    const again = applyEvent(added, { type: 'project_grant', ...base, grant: { ...pg, id: 'pg2' } });
+    expect(again.projectGrants).toEqual([{ ...pg, id: 'pg2' }]);
+  });
+
+  it('project_grant_revoked removes it by id', () => {
+    const granted: EventSlice = { ...slice, projectGrants: [pg, { ...pg, id: 'pg2', project_id: 'p2' }] };
+    const revoked = applyEvent(granted, { type: 'project_grant_revoked', ...base, grant_id: 'pg1' });
+    expect(revoked).toEqual({ ...granted, projectGrants: [{ ...pg, id: 'pg2', project_id: 'p2' }] });
   });
 });
 

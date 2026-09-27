@@ -3,7 +3,7 @@
 // `copy.ts`) is a line-for-line copy of the web's own modules, and matching its type names is what
 // keeps that copy readable side by side with the source it was copied from. Delete this file once
 // `@termhub/mobile-api` exports these types directly (design spec §6).
-import type { TChatAction, TChatConversation, TChatDecision, TChatEvent, TChatGrant, TChatHostState, TChatMemory, TChatMessage, TTabQuestion, TTabQuestionSuggestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatConversation, TChatDecision, TChatEvent, TChatGrant, TChatHostState, TChatMemory, TChatMessage, TChatProjectGrant, TTabQuestion, TTabQuestionSuggestion, TTabSuggestion } from '@/services/api/contract';
 
 /**
  * A message row, plus what only this device knows about a row it inserted before the server echoed
@@ -22,6 +22,9 @@ export type ChatHostState = TChatHostState;
 export type ChatEvent = TChatEvent;
 /** A tab trusted for `send_input` in this conversation ("Permitir sempre nesta aba"). */
 export type ChatGrant = TChatGrant;
+/** A project's board trusted in this conversation ("Permitir sempre neste projeto", design spec
+ * 2026-09-26 §7): the four board tools, up to 24 h, at most 30 calls/hour (server-enforced). */
+export type ChatProjectGrant = TChatProjectGrant;
 /** A question an agent in a tab asked (spec 2026-09-25). */
 export type TabQuestion = TTabQuestion;
 /** A pre-selected answer from a similar past decision (chat decision memory spec 2026-09-26 §4.2),
