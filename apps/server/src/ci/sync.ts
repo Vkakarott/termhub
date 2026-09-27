@@ -20,6 +20,8 @@ const MESSAGES: Record<GithubCiError['kind'], (status: number) => string> = {
   http: (status) => `GitHub: falha ao consultar (HTTP ${status})`,
 };
 
+const NOT_ALLOWED = 'GitHub: a integração do projeto não é do dono do projeto';
+
 const infoOf = (repo: string, p: GithubPull): PullRequestInfo => ({
   repo,
   number: p.number,
@@ -48,11 +50,18 @@ async function cardsNamed(repos: Repositories, projectId: string, key: string, p
 export async function syncProjectCi(deps: CiSyncDeps, projectId: string): Promise<CiSyncResult> {
   const { repos } = deps;
   const repo = (await repos.projectSetup.get(projectId)).data.repo;
-  if (!repo?.integration_id || !repo.full_name) return { skipped: 'no_repo' };
+  if (!repo?.integration_id || !repo.full_name) {
+    setCiError(projectId, null);
+    return { skipped: 'no_repo' };
+  }
   const [project, integration] = await Promise.all([repos.projects.findById(projectId), repos.integrations.findById(repo.integration_id)]);
-  if (!project || !integration || integration.provider !== 'github' || integration.owner_id !== project.owner_id) return { skipped: 'not_allowed' };
-  const token = await repos.integrations.getSecret(integration.id);
-  if (!token) return { skipped: 'not_allowed' };
+  // Two missing owners (legacy or orphaned rows) never match.
+  const allowed = !!project && !!integration && integration.provider === 'github' && project.owner_id !== null && integration.owner_id === project.owner_id;
+  const token = allowed ? await repos.integrations.getSecret(integration.id) : null;
+  if (!project || !token) {
+    setCiError(projectId, NOT_ALLOWED); // spec §7: a permission problem is never a silent "no PR"
+    return { skipped: 'not_allowed' };
+  }
 
   try {
     let pulls: number | null = null;

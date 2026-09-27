@@ -15,15 +15,15 @@ const cards: Record<number, { id: string; type: string; parent_id: string | null
   3: { id: 'sub3', type: 'subtask', parent_id: 'card2' },
 };
 
-function setup(over: { integrationOwner?: string; provider?: string; repo?: object | null } = {}) {
+function setup(over: { integrationOwner?: string | null; projectOwner?: string | null; provider?: string; repo?: object | null } = {}) {
   const replaceLinks = vi.fn(async () => {});
   const updateCi = vi.fn(async () => {});
   const listWatched = vi.fn(async () => [] as unknown[]);
   const repos = {
     projectSetup: { get: vi.fn(async () => ({ data: { repo: over.repo === undefined ? { integration_id: 'i1', full_name: 'acme/app', deploy_workflow: 'deploy.yml' } : over.repo } })) },
-    projects: { findById: vi.fn(async () => ({ id: 'p1', key: 'TER', owner_id: 'u1' })) },
+    projects: { findById: vi.fn(async () => ({ id: 'p1', key: 'TER', owner_id: over.projectOwner === undefined ? 'u1' : over.projectOwner })) },
     integrations: {
-      findById: vi.fn(async () => ({ id: 'i1', provider: over.provider ?? 'github', owner_id: over.integrationOwner ?? 'u1' })),
+      findById: vi.fn(async () => ({ id: 'i1', provider: over.provider ?? 'github', owner_id: over.integrationOwner === undefined ? 'u1' : over.integrationOwner })),
       getSecret: vi.fn(async () => 'tok'),
     },
     tasks: { findByRef: vi.fn(async (_p: string, n: number) => cards[n]) },
@@ -88,6 +88,17 @@ describe('syncProjectCi', () => {
     const noDeploy = setup({ repo: { integration_id: 'i1', full_name: 'acme/new', deploy_workflow: null } });
     await syncProjectCi(noDeploy.deps, 'p1');
     expect(noDeploy.listWatched).toHaveBeenCalledWith('p1', { repo: 'acme/new', includeMerged: false }, new Date('2026-09-27T12:00:00Z'));
+  });
+
+  it('never matches two missing owners', async () => {
+    expect(await syncProjectCi(setup({ projectOwner: null, integrationOwner: null }).deps, 'p1')).toEqual({ skipped: 'not_allowed' });
+  });
+
+  it('says why nothing shows when not allowed, and clears the error once the repo is removed', async () => {
+    await syncProjectCi(setup({ integrationOwner: 'u2' }).deps, 'p1');
+    expect(ciErrorOf('p1')).toBe('GitHub: a integração do projeto não é do dono do projeto');
+    await syncProjectCi(setup({ repo: null }).deps, 'p1');
+    expect(ciErrorOf('p1')).toBeNull();
   });
 
   it('records a GitHub failure for the panel, keeps the links, and clears it after a good sync', async () => {
