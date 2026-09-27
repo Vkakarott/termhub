@@ -25,6 +25,7 @@ const removeAttachmentMock = vi.fn();
 const forgetDecisionMock = vi.fn();
 const cancelSubagentMock = vi.fn();
 const compactMock = vi.fn();
+const cancelAutoAnswerMock = vi.fn();
 
 vi.mock('../../lib/api', () => {
   // Same signature as the real one: the page shows `message`, so a stand-in that swallows it would
@@ -61,6 +62,7 @@ vi.mock('../../lib/api', () => {
       dismissTabSuggestion: (...a: unknown[]) => dismissSuggestionMock(...a),
       forgetChatDecision: (...a: unknown[]) => forgetDecisionMock(...a),
       cancelSubagent: (...a: unknown[]) => cancelSubagentMock(...a),
+      cancelAutoAnswer: (...a: unknown[]) => cancelAutoAnswerMock(...a),
       machines: { list: (...a: unknown[]) => machinesMock(...a) },
       aiAccounts: { list: (...a: unknown[]) => accountsMock(...a) },
     },
@@ -148,6 +150,7 @@ beforeEach(() => {
   cancelSubagentMock.mockReset();
   compactMock.mockReset();
   compactMock.mockResolvedValue({ conversation_id: 'c1' });
+  cancelAutoAnswerMock.mockReset();
   screenMock.mockResolvedValue({ text: 'Do you want to proceed?' });
   accountsMock.mockResolvedValue({ accounts: [] });
   auth.state = { user: { id: 'u1' }, viewAs: null };
@@ -553,6 +556,47 @@ it('"Esquecer esta decisão" on a suggested answer calls the forget API', async 
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Esquecer esta decisão' }));
   await waitFor(() => expect(forgetDecisionMock).toHaveBeenCalledWith('d1'));
+});
+
+const yesNo = { question: 'Usar worktree?', header: 'Worktree', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] };
+const autoAnswer = (over: Partial<NonNullable<TabQuestion['auto_answer']>> = {}): NonNullable<TabQuestion['auto_answer']> => ({
+  answer: { answers: [{ selected: [0] }] },
+  by: 'memory',
+  reason: 'Mesma pergunta respondida antes',
+  sources: [{ kind: 'decision', id: 'd1' }],
+  due_at: new Date(Date.now() + 42_000).toISOString(),
+  status: 'scheduled',
+  ...over,
+});
+
+it('"Cancelar" on a countdown calls the API and, with the returned view, shows the card pre-selected and enabled', async () => {
+  const choiceQuestion = question({ id: 'q1', kind: 'choice', payload: { questions: [yesNo] }, auto_answer: autoAnswer() } as unknown as Partial<TabQuestion> & { id: string });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [], tab_questions: [choiceQuestion] });
+  cancelAutoAnswerMock.mockResolvedValue({ tab_question: { ...choiceQuestion, auto_answer: autoAnswer({ status: 'cancelled' }) } });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancelar' }));
+  await waitFor(() => expect(cancelAutoAnswerMock).toHaveBeenCalledWith('q1'));
+  const radio = await screen.findByRole('radio', { name: 'Sim' });
+  expect(radio).toBeChecked();
+  expect(radio).toBeEnabled();
+});
+
+it('a 409 NOT_SCHEDULED on "Cancelar" shows "A resposta automática já foi enviada."', async () => {
+  const { ApiError } = await import('../../lib/api');
+  const choiceQuestion = question({ id: 'q1', kind: 'choice', payload: { questions: [yesNo] }, auto_answer: autoAnswer() } as unknown as Partial<TabQuestion> & { id: string });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [], tab_questions: [choiceQuestion] });
+  cancelAutoAnswerMock.mockRejectedValue(new ApiError(409, 'A resposta automática já foi enviada', 'NOT_SCHEDULED'));
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancelar' }));
+  expect(await screen.findByText('A resposta automática já foi enviada.')).toBeInTheDocument();
 });
 
 it('tab question events add and update the card; another conversation\'s are ignored', async () => {

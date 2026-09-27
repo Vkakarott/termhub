@@ -5,11 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TabQuestionCard } from './TabQuestionCard';
 import type { TabQuestion, TabQuestionAutoAnswer } from '../../lib/types';
 
-const cancelAutoAnswerMock = vi.fn();
-vi.mock('../../lib/api', () => ({
-  api: { cancelAutoAnswer: (...a: unknown[]) => cancelAutoAnswerMock(...a) },
-}));
-
 afterEach(() => cleanup());
 
 const base = { tab_id: 't1', tab_name: 'api', error_code: null, created_at: '', answered_at: null, closed_at: null };
@@ -231,7 +226,6 @@ describe('automatic answer countdown (spec 2026-09-26 concierge memory §6/§8)'
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    cancelAutoAnswerMock.mockReset();
   });
   afterEach(() => vi.useRealTimers());
 
@@ -245,14 +239,19 @@ describe('automatic answer countdown (spec 2026-09-26 concierge memory §6/§8)'
     expect(screen.getByText(/0:41/)).toBeInTheDocument();
   });
 
-  it('"Cancelar" cancels the countdown and, with the returned view, shows the normal card pre-selected and enabled', async () => {
-    cancelAutoAnswerMock.mockResolvedValue({ tab_question: { ...card({}), auto_answer: auto({ status: 'cancelled' }) } });
-    render(<TabQuestionCard question={card({ auto_answer: auto() } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+  it('"Cancelar" calls onCancelAutoAnswer with the question id (the API call and error handling are ChatPanel\'s)', () => {
+    const onCancelAutoAnswer = vi.fn();
+    render(<TabQuestionCard question={card({ auto_answer: auto() } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} onCancelAutoAnswer={onCancelAutoAnswer} />);
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
-    expect(cancelAutoAnswerMock).toHaveBeenCalledWith('q1');
-    // `vi.waitFor` (unlike `findBy*`) advances Vitest's own fake timers while it polls.
-    await vi.waitFor(() => expect(screen.getByRole('radio', { name: 'Sim' })).toBeChecked());
-    expect(screen.getByRole('radio', { name: 'Sim' })).toBeEnabled();
+    expect(onCancelAutoAnswer).toHaveBeenCalledWith('q1');
+  });
+
+  it('once `auto_answer.status` becomes "cancelled" (ChatPanel updates the question from the API response), the card shows the proposed answer pre-selected and enabled', () => {
+    const { rerender } = render(<TabQuestionCard question={card({ auto_answer: auto() } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    rerender(<TabQuestionCard question={card({ auto_answer: auto({ status: 'cancelled' }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    const radio = screen.getByRole('radio', { name: 'Sim' });
+    expect(radio).toBeChecked();
+    expect(radio).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Responder' })).toBeEnabled();
   });
 

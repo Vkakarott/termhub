@@ -1,6 +1,5 @@
 import { memo, useEffect, useState, type KeyboardEvent } from 'react';
-import { api } from '../../lib/api';
-import type { TabQuestion, TabQuestionAnswer, TabQuestionAutoAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
+import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
 import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
 
 export interface TabQuestionCardProps {
@@ -16,6 +15,10 @@ export interface TabQuestionCardProps {
   /** "Esquecer esta decisão" on a suggestion line (chat decision memory spec §5.1): forgets the past
    *  decision it came from, then the card clears that question's pre-selection. */
   onForget?: (decisionId: string) => Promise<void>;
+  /** "Cancelar" on a countdown (spec 2026-09-26 concierge memory §6): like `onAnswer`, fire-and-forget —
+   *  `ChatPanel` calls the API, updates this question from the response and surfaces a failure through
+   *  `error` (409 `NOT_SCHEDULED` — the countdown already sent — gets its own sentence). */
+  onCancelAutoAnswer?: (id: string) => void;
 }
 
 /**
@@ -33,7 +36,7 @@ export const TabQuestionCard = memo(function TabQuestionCard(props: TabQuestionC
   );
 });
 
-function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCardProps & { question: TabQuestionChoice }) {
+function ChoiceBody({ question, answering, onAnswer, onForget, onCancelAutoAnswer }: TabQuestionCardProps & { question: TabQuestionChoice }) {
   const items = question.payload.questions;
   const [current, setCurrent] = useState(0);
   // Pre-selected from a similar past decision (spec 2026-09-26 §4.2/§5.1): only present while the card
@@ -44,13 +47,12 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
   // Which questions the person has looked at (the first one is shown at once). A pre-selected answer on
   // a tab never opened must not go out with "Responder", so it waits until every suggested one was seen.
   const [viewed, setViewed] = useState<boolean[]>(() => items.map((_, i) => i === 0));
-  /** Automatic answer countdown (spec 2026-09-26 concierge memory §6/§8). `autoOverride` is set once,
-   *  by "Cancelar" (from the server's own response) — like `hint` above, this card does not resync from
-   *  a later `question.auto_answer` prop; a websocket event refreshes the surrounding list instead. */
-  const [autoOverride, setAutoOverride] = useState<TabQuestionAutoAnswer | null | undefined>(undefined);
-  const auto = autoOverride !== undefined ? autoOverride : question.auto_answer ?? null;
+  /** Automatic answer countdown (spec 2026-09-26 concierge memory §6/§8): unlike `hint` above, this one
+   *  *does* track `question.auto_answer` on every render — `ChatPanel` owns the cancel call and hands
+   *  this card the updated question back, so the countdown/cancelled/sent/failed state always follows
+   *  the current prop (a websocket event updates it exactly the same way). */
+  const auto = question.auto_answer ?? null;
   const [seconds, setSeconds] = useState(() => (auto?.status === 'scheduled' ? autoAnswerSeconds(auto.due_at) : 0));
-  const [cancelling, setCancelling] = useState(false);
   const [forgettingPrecedent, setForgettingPrecedent] = useState(false);
   useEffect(() => {
     if (auto?.status !== 'scheduled') return;
@@ -60,6 +62,18 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [auto?.status, auto?.status === 'scheduled' ? auto.due_at : null]);
+  // "Cancelar" resolved (or a websocket event landed): the proposed answer becomes this question's own
+  // pre-selection, now editable — regardless of whether a matching `suggestion` item also exists.
+  useEffect(() => {
+    if (auto?.status !== 'cancelled') return;
+    const a = auto.answer;
+    setSelected(items.map((_, i) => a.answers[i]?.selected ?? []));
+    setTexts(items.map((_, i) => a.answers[i]?.text ?? ''));
+    setViewed(items.map(() => true));
+    // Only the transition into `cancelled` re-seeds the pre-selection — once there, the person's own
+    // edits (toggling an option, forgetting a suggestion) must not be overwritten by this effect again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto?.status]);
   const title = <p className="font-medium text-fg">{`${tabLabel(question)} perguntou`}</p>;
   if (question.status !== 'open') {
     // The countdown is over, but a `failed` one is never shown on a closed card (controller ruling): it
@@ -100,24 +114,6 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
   const sending = auto?.status === 'sent' || (auto?.status === 'scheduled' && seconds <= 0);
   const counting = auto?.status === 'scheduled' && !sending;
   if (counting || sending) {
-    const cancel = async () => {
-      setCancelling(true);
-      try {
-        const { tab_question } = await api.cancelAutoAnswer(question.id);
-        const cancelled = tab_question.auto_answer ?? null;
-        setAutoOverride(cancelled);
-        // The proposed answer stays on the card as its pre-selection, now editable (spec §6): it is
-        // shown regardless of whether a matching `suggestion` item also exists.
-        if (cancelled?.answer) {
-          const a = cancelled.answer;
-          setSelected(items.map((_, i) => a.answers[i]?.selected ?? []));
-          setTexts(items.map((_, i) => a.answers[i]?.text ?? ''));
-          setViewed(items.map(() => true));
-        }
-      } finally {
-        setCancelling(false);
-      }
-    };
     let line = `Resposta automática em ${formatCountdown(seconds)} — «${choiceAnswerLabel(question.payload, auto!.answer)}». Motivo: ${auto!.reason}`;
     if (auto!.by === 'memory') {
       const decisionIds = new Set(auto!.sources.filter((s) => s.kind === 'decision').map((s) => s.id));
@@ -134,10 +130,10 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
           <>
             <p className="mt-1 whitespace-pre-wrap text-fg">{line}</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <button type="button" className="btn-ghost" disabled={cancelling || answering} onClick={() => void cancel()}>
+              <button type="button" className="btn-ghost" disabled={answering} onClick={() => onCancelAutoAnswer?.(question.id)}>
                 Cancelar
               </button>
-              <button type="button" className="btn-primary" disabled={cancelling || answering} onClick={() => onAnswer(question.id, auto!.answer)}>
+              <button type="button" className="btn-primary" disabled={answering} onClick={() => onAnswer(question.id, auto!.answer)}>
                 Responder agora
               </button>
             </div>

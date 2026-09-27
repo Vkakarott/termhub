@@ -406,6 +406,23 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       setAnsweringQuestionId(null);
     }
   }, []);
+  /** "Cancelar" on a countdown (spec 2026-09-26 concierge memory §6): nothing is sent, the proposed
+   *  answer stays on the card as its own pre-selection. 409 `NOT_SCHEDULED` — the countdown already sent,
+   *  or someone else cancelled it first — gets its own sentence; anything else is the server's message,
+   *  same as `answerQuestion` above. */
+  const cancelAutoAnswer = useCallback(async (id: string) => {
+    setAnsweringQuestionId(id);
+    setQuestionErrors(({ [id]: _dropped, ...rest }) => rest);
+    try {
+      const { tab_question } = await api.cancelAutoAnswer(id);
+      setTabQuestions((prev) => upsertTabQuestion(prev, tab_question));
+    } catch (e) {
+      const text = e instanceof ApiError && e.code === 'NOT_SCHEDULED' ? 'A resposta automática já foi enviada.' : e instanceof ApiError ? e.message : 'Não foi possível cancelar';
+      setQuestionErrors((prev) => ({ ...prev, [id]: text }));
+    } finally {
+      setAnsweringQuestionId(null);
+    }
+  }, []);
   /** Stable, so the permission card's effect runs once per question. */
   const loadTabQuestionScreen = useCallback(async (id: string) => (await api.tabQuestionScreen(id)).text, []);
 
@@ -852,7 +869,18 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
           }
           if (entry.kind === 'tab_question') {
             const q = entry.question;
-            return <TabQuestionCard key={`q:${q.id}`} question={q} answering={answeringQuestionId === q.id} error={questionErrors[q.id]} onAnswer={answerQuestion} loadScreen={loadTabQuestionScreen} onForget={forgetDecision} />;
+            return (
+              <TabQuestionCard
+                key={`q:${q.id}`}
+                question={q}
+                answering={answeringQuestionId === q.id}
+                error={questionErrors[q.id]}
+                onAnswer={answerQuestion}
+                loadScreen={loadTabQuestionScreen}
+                onForget={forgetDecision}
+                onCancelAutoAnswer={cancelAutoAnswer}
+              />
+            );
           }
           if (entry.kind === 'action') {
             const g = grantByAction.get(entry.action.id);
