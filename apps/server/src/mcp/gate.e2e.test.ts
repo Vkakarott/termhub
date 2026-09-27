@@ -6,6 +6,7 @@ import { hashApiToken } from '../auth/api-tokens.js';
 import { canAccess } from '../auth/permissions.js';
 import { chatBus } from '../chat/bus.js';
 import { idempotencyKeyFor } from '../chat/gate.js';
+import { subagentOrigins } from '../chat/subagent-origin.js';
 import type { ChatAction, InsertApprovedInput, InsertPendingInput } from '../db/repositories/chat-actions.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { applyErrorHandler } from '../lib/errors.js';
@@ -18,6 +19,10 @@ const CONVERSATION = 'c1';
 /** What `insertPending` stamps a new pending row with: a value nothing else in a run can produce. */
 const PENDING_CREATED_AT = '2020-05-05T05:05:05.050Z';
 const machine = { id: 'm1', name: 'jarvis', type: 'agent', os: 'linux', capabilities: ['tmux'], owner_id: 'u1' };
+// A subagent row (`chat_subagents`, spec 2026-09-26 §4): one in this test's conversation, one in
+// another — resolving the second one's origin must read as "no subagent", never leak its description.
+const SUBAGENT = { id: 'sub1', conversation_id: CONVERSATION, task_id: 't1', tool_use_id: 'toolu_S', description: 'Escrever testes', subagent_type: null, status: 'running' as const, started_at: '', ended_at: null };
+const OTHER_CONVERSATION_SUBAGENT = { ...SUBAGENT, id: 'sub9', conversation_id: 'c_other', description: 'De outra conversa' };
 const project = { id: 'p1', name: 'app', status: 'active', owner_id: 'u1', key: 'APP', next_task_number: 1 };
 const link = { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd: '/home/u/app', position: 0, created_at: '' };
 
@@ -102,6 +107,9 @@ function fakeChatActions() {
         duration_ms: null,
         decided_by: null,
         decided_at: null,
+        injected_at: null,
+        tool_use_id: input.tool_use_id ?? null,
+        subagent_id: input.subagent_id ?? null,
         // Distinctive and fixed, never "now": the card's timestamp must be read off the row, and
         // publishing `new Date().toISOString()` instead would be indistinguishable from that if this
         // were the current time — the row and "now" land in the same millisecond in practically
@@ -134,6 +142,9 @@ function fakeChatActions() {
         duration_ms: null,
         decided_by: input.decided_by,
         decided_at: new Date().toISOString(),
+        injected_at: null,
+        tool_use_id: input.tool_use_id ?? null,
+        subagent_id: input.subagent_id ?? null,
         created_at: PENDING_CREATED_AT,
       };
       rows.push(row);
@@ -170,6 +181,9 @@ function fakeChatActions() {
         duration_ms: null,
         decided_by: status === 'expired' ? null : 'u1',
         decided_at: status === 'expired' ? null : decidedAt,
+        injected_at: null,
+        tool_use_id: null,
+        subagent_id: null,
         created_at: decidedAt,
       };
       rows.push(row);
@@ -225,6 +239,7 @@ function build(opts: { gated: boolean; conversationId?: string }) {
     chatActions: actions,
     chatGrants: grants,
     chatProjectGrants: { findActive: vi.fn(async () => undefined) },
+    chatSubagents: { listByIds: vi.fn(async (ids: string[]) => [SUBAGENT, OTHER_CONVERSATION_SUBAGENT].filter((s) => ids.includes(s.id))) },
     users: { findById: vi.fn(async () => ({ id: 'u1', role_id: 'r' })) },
     machines: {
       findById: vi.fn(async () => machine),
@@ -258,12 +273,14 @@ function build(opts: { gated: boolean; conversationId?: string }) {
  * state (spec §2 "Agent tabs only"): the fake tabs start at `null`, a bare shell. */
 const agentIn = (tabs: Map<string, Record<string, unknown>>, id: string, state: 'working' | 'waiting_input' = 'working') => Object.assign(tabs.get(id)!, { state });
 
-const callTool = (app: ReturnType<typeof Fastify>, name: string, args: object) =>
+/** `meta` mirrors what the Claude Code CLI sends as `params._meta` on every tools/call — in
+ * particular `claudecode/toolUseId`, which is how the gate learns which subagent (if any) is calling. */
+const callTool = (app: ReturnType<typeof Fastify>, name: string, args: object, meta?: Record<string, unknown>) =>
   app.inject({
     method: 'POST',
     url: '/mcp',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${SECRET}` },
-    payload: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+    payload: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args, ...(meta ? { _meta: meta } : {}) } },
   });
 
 type Injected = Awaited<ReturnType<typeof callTool>>;
@@ -652,7 +669,7 @@ it('publishes the question to the chat, with the arguments and no terminal conte
   await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
 
   expect(collected).toHaveLength(1);
-  expect(Object.keys(collected[0]).sort()).toEqual(['action_id', 'args', 'class', 'conversation_id', 'created_at', 'machine_id', 'project_id', 'summary', 'tab_id', 'tool', 'type', 'user_id']);
+  expect(Object.keys(collected[0]).sort()).toEqual(['action_id', 'args', 'class', 'conversation_id', 'created_at', 'machine_id', 'project_id', 'subagent', 'summary', 'tab_id', 'tool', 'type', 'user_id']);
   expect(collected[0]).toEqual({
     type: 'confirmation',
     user_id: 'u1',
@@ -666,9 +683,55 @@ it('publishes the question to the chat, with the arguments and no terminal conte
     tab_id: 't1',
     // Enriched through the tab: t1 belongs to project "app" on machine "jarvis" (this test's fixtures).
     summary: 'digitar `npm test` na aba Terminal 1 do projeto app, no jarvis',
+    subagent: null,
     created_at: actions.rows[0].created_at,
   });
   expect(JSON.stringify(collected[0])).not.toContain('segredo na tela');
+});
+
+// The gate origin (spec 2026-09-26 §4): a live run's stream tells `subagentOrigins` which subagent's
+// turn is making a tool_use_id's call before the gate ever sees the call itself (or after — either
+// order is possible), and the gate reads it back here through the MCP `_meta` the CLI sends.
+
+it('ties a gated call to the subagent whose turn made it, and the confirmation carries it', async () => {
+  attachFakeTmux([]);
+  const { app, actions } = build({ gated: true });
+  subagentOrigins.clear();
+  subagentOrigins.remember('toolu_S', { conversationId: CONVERSATION, subagentId: SUBAGENT.id });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' }, { 'claudecode/toolUseId': 'toolu_S' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(actions.rows[0]).toMatchObject({ tool_use_id: 'toolu_S', subagent_id: SUBAGENT.id });
+  const confirmation = collected.find((e) => e.type === 'confirmation') as { subagent: { id: string; description: string } | null } | undefined;
+  expect(confirmation?.subagent).toEqual({ id: SUBAGENT.id, description: SUBAGENT.description });
+});
+
+it('never attributes a call to a subagent of another conversation', async () => {
+  attachFakeTmux([]);
+  const { app, actions } = build({ gated: true }); // token names CONVERSATION ('c1')
+  subagentOrigins.clear();
+  subagentOrigins.remember('toolu_S', { conversationId: 'c_other', subagentId: OTHER_CONVERSATION_SUBAGENT.id });
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' }, { 'claudecode/toolUseId': 'toolu_S' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(actions.rows[0]).toMatchObject({ tool_use_id: 'toolu_S', subagent_id: null });
+  const confirmation = collected.find((e) => e.type === 'confirmation') as { subagent: unknown } | undefined;
+  expect(confirmation?.subagent).toBeNull();
+});
+
+it('carries no origin at all when the call has no tool_use_id (today\'s card)', async () => {
+  attachFakeTmux([]);
+  const { app, actions } = build({ gated: true });
+  subagentOrigins.clear();
+
+  const res = await callTool(app, 'send_input', { tab_id: 't1', text: 'npm test' });
+
+  expect(resultOf(res).isError).toBe(true);
+  expect(actions.rows[0]).toMatchObject({ tool_use_id: null, subagent_id: null });
+  const confirmation = collected.find((e) => e.type === 'confirmation') as { subagent: unknown } | undefined;
+  expect(confirmation?.subagent).toBeNull();
 });
 
 it('stops honouring an approval nobody consumed for a day, and asks again instead of executing', async () => {

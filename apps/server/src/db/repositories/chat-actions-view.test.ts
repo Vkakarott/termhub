@@ -25,6 +25,8 @@ const action = (over: Partial<ChatAction>): ChatAction => ({
   decided_by: null,
   decided_at: null,
   injected_at: null,
+  tool_use_id: null,
+  subagent_id: null,
   created_at: '2026-09-21T00:00:00.000Z',
   ...over,
 });
@@ -45,6 +47,12 @@ const foreignTab = { id: 't9', project_id: 'p9', machine_id: 'm9', name: 'Aba Al
 const foreignProject = { id: 'p9', name: 'Projeto Alheio' };
 const foreignMachine = { id: 'm9', name: 'Máquina Alheia' };
 const foreignTask = { id: 'tk9', project_id: 'p9', title: 'Tarefa Alheia' };
+
+// A subagent (`chat_subagents`, spec 2026-09-26 §4) that proposed an action, and one that belongs to
+// another conversation entirely — resolving that one must read as "no subagent", exactly like every
+// other cross-scope reference this view is careful never to disclose.
+const subagent = { id: 'sub1', conversation_id: 'c1', description: 'Escrever testes' };
+const otherConversationSubagent = { id: 'sub9', conversation_id: 'c9', description: 'De outra conversa' };
 
 /** Each fake filters by `ownerId` exactly like the real `findByIdsForOwner` methods do: another
  * owner's id, or the wrong owner altogether, comes back empty — indistinguishable from "does not
@@ -74,6 +82,10 @@ function fakeRepos(tabOverride?: Partial<typeof tab>) {
       }),
     },
     apiTokens: { listByUser: vi.fn(async (userId: string) => (userId === OWNER ? [{ id: 'tokChat', gated: true }, { id: 'tokMine', gated: false }] : [])) },
+    // No owner scoping of its own (chat_subagents belongs to a conversation, not a user) — the
+    // conversation check inside `describeActions` is what keeps a foreign-conversation row from
+    // ever being named on a card.
+    chatSubagents: { listByIds: vi.fn(async (ids: string[]) => [subagent, otherConversationSubagent].filter((s) => ids.includes(s.id))) },
   } as never;
 }
 
@@ -403,6 +415,27 @@ it('batches: one lookup per repository for the whole list, never one per action,
   expect(repos2.tabs.findByIdsForOwner).not.toHaveBeenCalled(); // nothing to resolve: no query at all
   expect(repos2.tasks.findByIdsForOwner).not.toHaveBeenCalled();
   expect(repos2.machines.findByIdsForOwner).not.toHaveBeenCalled();
+});
+
+// The card's origin (spec 2026-09-26 §4): which subagent's turn proposed the action, resolved the
+// same batched, scoped way as every other reference this view names.
+
+it('resolves the subagent that proposed an action', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ subagent_id: subagent.id })], OWNER);
+  expect(card.subagent).toEqual({ id: 'sub1', description: 'Escrever testes' });
+});
+
+it('resolves no subagent when the row belongs to another conversation, never leaking its description', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ conversation_id: 'c1', subagent_id: otherConversationSubagent.id })], OWNER);
+  expect(card.subagent).toBeNull();
+});
+
+it('never calls chatSubagents.listByIds when no action names one', async () => {
+  const repos = fakeRepos();
+  await describeActions(repos, [action({ tool: 'send_input', args: { tab_id: 't1', text: 'a' }, tab_id: 't1' })], OWNER);
+  expect(repos.chatSubagents.listByIds).not.toHaveBeenCalled();
 });
 
 it('passes whichever owner the caller gives it straight through to every repository call, never a hardcoded one', async () => {

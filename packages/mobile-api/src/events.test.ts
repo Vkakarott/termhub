@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, tabQuestionSchema, tabSuggestionSchema } from './events.js';
+import { chatActionSchema, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, tabQuestionSchema, tabSuggestionSchema } from './events.js';
 
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', tab_name: 'api' };
@@ -24,6 +24,34 @@ describe('chatEventSchema: grants', () => {
   it('keeps grant_id on the card', () => {
     const r = chatEventSchema.parse({ type: 'granted_action', ...base, action: card });
     expect(r.type === 'granted_action' && r.action.grant_id).toBe('g1');
+  });
+});
+
+// The card's origin (spec 2026-09-26 §4): which subagent's turn proposed the action. Optional and
+// nullable on both `chatActionSchema` and the `confirmation` event, so an older server (neither field
+// nor value) and a current one saying "no subagent" both still parse.
+describe('chatActionSchema / confirmation: subagent', () => {
+  const subagent = { id: 'sub1', description: 'Escrever testes' };
+  it.each([
+    ['with a subagent', { ...card, subagent }],
+    ['with no subagent (null)', { ...card, subagent: null }],
+    ['without the field at all (an older server)', card],
+  ])('accepts a card %s', (_label, c) => {
+    const r = chatActionSchema.safeParse(c);
+    expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
+  });
+  it('parses the subagent through to the card', () => {
+    expect(chatActionSchema.parse({ ...card, subagent }).subagent).toEqual(subagent);
+  });
+
+  const confirmation = { type: 'confirmation', ...base, action_id: 'a1', tool: 'run_command', args: { command: 'ls' }, class: 'write', machine_id: null, project_id: null, tab_id: null, summary: 'Rodar ls', created_at: '2026-09-24T12:00:00.000Z' };
+  it.each([
+    ['with a subagent', { ...confirmation, subagent }],
+    ['with no subagent (null)', { ...confirmation, subagent: null }],
+    ['without the field at all (an older server)', confirmation],
+  ])('accepts a confirmation %s', (_label, e) => {
+    const r = chatEventSchema.safeParse(e);
+    expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
   });
 });
 

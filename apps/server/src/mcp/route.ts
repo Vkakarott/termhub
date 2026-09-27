@@ -7,6 +7,7 @@ import type { ApiToken } from '../db/repositories/api-tokens.js';
 import { isToolContent, type ToolContent } from '../chat/attachments/read-tool.js';
 import type { AttachmentStore } from '../chat/attachments/store.js';
 import { applyGate } from '../chat/gate-runtime.js';
+import { toolUseIdOf } from '../chat/subagent-origin.js';
 import { controlContextFor, ControlError, type ControlContext } from '../control/context.js';
 import { HttpError } from '../lib/errors.js';
 import { authenticateToken } from './auth.js';
@@ -103,7 +104,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
     // With no tools at all the SDK would answer "Method not found" to tools/list; answer an empty list instead.
     if (tools.length === 0) server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
     for (const tool of tools) {
-      server.registerTool(tool.name, { description: tool.description, inputSchema: tool.input }, async (args: Record<string, unknown>, extra: { signal: AbortSignal }) => {
+      server.registerTool(tool.name, { description: tool.description, inputSchema: tool.input }, async (args: Record<string, unknown>, extra: { signal: AbortSignal; _meta?: unknown }) => {
         const started = Date.now();
         let errorCode: string | null = null;
         let out: ToolResult;
@@ -117,7 +118,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
             // validation, around the one place a tool actually runs. On a gated token a write is
             // answered as pending instead of being executed — the row in chat_actions remembers it,
             // and this request does not wait for the user (spec §5.2). One audit row either way.
-            const gated = await applyGate(ctx, { token, tool: tool.name, args, run: () => tool.run(ctx, args, extra.signal) });
+            const gated = await applyGate(ctx, { token, tool: tool.name, args, tool_use_id: toolUseIdOf(extra._meta), run: () => tool.run(ctx, args, extra.signal) });
             if (gated.ok) {
               // A tool that already answers MCP content (read_attachment's image or paged text) is passed through as it is.
               out = isToolContent(gated.value) ? { content: gated.value.content } : text(JSON.stringify(gated.value, null, 2));

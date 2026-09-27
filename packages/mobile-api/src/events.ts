@@ -21,7 +21,8 @@ export const chatActionStatus = z.enum(['pending', 'approved', 'denied', 'expire
 
 /** Mirrors the server's `ChatActionCard` (chat-actions-view.ts): a write the concierge proposed, with
  * the server-composed pt-BR `summary`. `grant_id` names the tab grant it ran under (optional: older
- * servers do not send it). */
+ * servers do not send it). `subagent` names which subagent's turn proposed it (spec 2026-09-26 §4) —
+ * optional and nullable: null when the top-level run proposed it, absent from an older server. */
 export const chatActionSchema = z.object({
   id: z.string(),
   tool: z.string(),
@@ -33,6 +34,7 @@ export const chatActionSchema = z.object({
   tab_id: z.string().nullable(),
   grant_id: z.string().nullable().optional(),
   summary: z.string(),
+  subagent: z.object({ id: z.string(), description: z.string() }).nullable().optional(),
   created_at: z.string(),
 });
 
@@ -180,6 +182,7 @@ export const chatEventSchema = z.discriminatedUnion('type', [
     project_id: z.string().nullable(),
     tab_id: z.string().nullable(),
     summary: z.string(),
+    subagent: z.object({ id: z.string(), description: z.string() }).nullable().optional(),
     created_at: z.string(),
   }),
   z.object({ type: z.literal('decision'), user_id: z.string(), conversation_id: z.string(), action_id: z.string(), status: z.enum(['approved', 'denied']) }),

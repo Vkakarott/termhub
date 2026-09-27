@@ -15,6 +15,7 @@ import { chatBus } from './bus.js';
 import { boardProjectOf } from './board-project.js';
 import { actionClass, BOARD_GRANT_BUDGET, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor } from './gate.js';
 import { ACTION_TTL_MS } from './service.js';
+import { subagentOrigins } from './subagent-origin.js';
 
 /** What the gate did: the tool's own value, or a pt-BR error for the caller to answer with. The
  * error's `code` is what the existing per-call audit row records; the gate writes no audit row. */
@@ -26,6 +27,10 @@ export interface GatedCall {
   token: { gated: boolean; chat_conversation_id?: string | null };
   tool: string;
   args: Record<string, unknown>;
+  /** The CLI's tool_use_id for this call (`_meta['claudecode/toolUseId']`, spec 2026-09-26 §4), when
+   * the transport carried one — set only by the MCP route. Used to look up which subagent's turn (if
+   * any) is making this call, through `subagentOrigins`. */
+  tool_use_id?: string;
   /** The tool call itself, already scope-checked and argument-validated by the caller. */
   run(): Promise<unknown>;
 }
@@ -152,6 +157,14 @@ const targetOf = (args: Record<string, unknown>) => ({
   tab_id: targetId(args.tab_id),
 });
 
+/** The subagent that made this call, if the live run saw its tool frame first and it is this
+ * conversation's. */
+const originFor = (call: GatedCall, conversationId: string) => {
+  if (!call.tool_use_id) return { tool_use_id: null, subagent_id: null };
+  const o = subagentOrigins.originOf(call.tool_use_id);
+  return { tool_use_id: call.tool_use_id, subagent_id: o && o.conversationId === conversationId ? o.subagentId : null };
+};
+
 /**
  * Tools that type free text at the prompt — exactly what must not land in a permission dialog.
  * `send_key`, and `send_input` with `answering_permission`, are how a pending permission is meant to
@@ -256,7 +269,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
   let row: ChatAction;
   try {
     // `args` is the proposal exactly as the concierge made it — the command, the prompt, the target.
-    row = await ctx.repos.chatActions.insertPending({ conversation_id: conversationId, tool: call.tool, args: call.args, class: cls, idempotency_key: key, ...target });
+    row = await ctx.repos.chatActions.insertPending({ conversation_id: conversationId, tool: call.tool, args: call.args, class: cls, idempotency_key: key, ...target, ...originFor(call, conversationId) });
   } catch {
     // Two calls of the same proposal can both read "no open row" before either inserts; the partial
     // unique index then refuses the loser. The winner's question is already in the chat, so this call
@@ -283,6 +296,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
     project_id: row.project_id,
     tab_id: row.tab_id,
     summary: card.summary,
+    subagent: card.subagent,
     created_at: row.created_at,
   });
   return { ok: false, code: 'CONFIRMATION_PENDING', message: PENDING(call.tool) };
@@ -298,7 +312,7 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
 async function executeGranted(ctx: ControlContext, call: GatedCall, conversationId: string, key: string, cls: ChatActionClass, grantId: string): Promise<GateOutcome> {
   let row: ChatAction;
   try {
-    row = await ctx.repos.chatActions.insertApproved({ conversation_id: conversationId, tool: call.tool, args: call.args, class: cls, idempotency_key: key, ...targetOf(call.args), grant_id: grantId, decided_by: ctx.scope.user.id });
+    row = await ctx.repos.chatActions.insertApproved({ conversation_id: conversationId, tool: call.tool, args: call.args, class: cls, idempotency_key: key, ...targetOf(call.args), ...originFor(call, conversationId), grant_id: grantId, decided_by: ctx.scope.user.id });
   } catch {
     // Either reading of a failed insert: the partial unique index refused it because an identical
     // call arrived in the same instant and its (approved) row already occupies the key — the same
