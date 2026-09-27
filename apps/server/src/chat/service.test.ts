@@ -2091,6 +2091,29 @@ describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () =
     run.push(backgroundTasks([]));
     run.end();
   });
+
+  it('a late origin re-publishes only the still-pending cards, marked origin_update', async () => {
+    const { run, chatActions } = await withRunningSubagent();
+    const bound = [
+      action({ id: 'a_pending', status: 'pending', decided_by: null, decided_at: null, tool_use_id: 'toolu_X', subagent_id: 'sub1' }),
+      action({ id: 'a_approved', status: 'approved', tool_use_id: 'toolu_X', subagent_id: 'sub1' }),
+    ];
+    chatActions.setSubagentByToolUse.mockResolvedValueOnce(bound as never);
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      run.push(JSON.stringify({ type: 'assistant', parent_tool_use_id: 'tu1', message: { content: [{ type: 'tool_use', id: 'toolu_X', name: 'mcp__termhub__send_input', input: {} }] } }));
+      await settled();
+    } finally {
+      off();
+    }
+    expect(chatActions.setSubagentByToolUse).toHaveBeenCalledWith('c1', 'toolu_X', 'sub1');
+    const confirmations = events.filter((e): e is Extract<ChatEvent, { type: 'confirmation' }> => e.type === 'confirmation');
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0]).toMatchObject({ action_id: 'a_pending', origin_update: true, subagent: { id: 'sub1', description: 'Escrever testes' } });
+    run.push(backgroundTasks([]));
+    run.end();
+  });
 });
 
 describe('resume (spec 2026-09-26 panel §3)', () => {

@@ -40,6 +40,11 @@ export type ChatEvent =
        * to this same conversation. Null for an action proposed by the top-level run. */
       subagent: { id: string; description: string } | null;
       created_at: string;
+      /** Set only on the re-publish of a card whose subagent origin was learned after the gate had
+       * already published it: screens merge it by `action_id` like any other, but it is the same
+       * question, so the push service must not notify (or write a history row for) it again. Never
+       * part of the mobile contract — its schema strips it. */
+      origin_update?: true;
     }
   /** The user answered a pending action. Every open tab gets this, not only the one that clicked —
    * the confirmation card in each of them must update the same way. */

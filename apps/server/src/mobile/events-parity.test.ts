@@ -89,6 +89,11 @@ describe('ChatEvent / chatEventSchema parity', () => {
     expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
   });
 
+  it('a confirmation re-published with origin_update still parses (the app ignores the flag)', () => {
+    const r = chatEventSchema.safeParse({ ...samples.confirmation, origin_update: true });
+    expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
+  });
+
   it('run_finished also parses with a message id and no error', () => {
     expect(chatEventSchema.safeParse({ type: 'run_finished', ...base, message_id: 'm1', ok: true, error_code: null }).success).toBe(true);
   });

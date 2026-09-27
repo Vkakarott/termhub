@@ -982,7 +982,8 @@ export class ChatService {
       // A gate call the CLI made before its subagent frame told us whose turn it was: the action was
       // already stored (and its confirmation published) with no `subagent`, so the card is republished
       // once bound — only while it is still `pending`, since a card already decided has nothing left
-      // for the person to answer differently now that it names who proposed it.
+      // for the person to answer differently now that it names who proposed it. `origin_update` keeps
+      // the push service from notifying the same question twice.
       describeLate: async (actions) => {
         const pending = actions.filter((a) => a.status === 'pending');
         if (pending.length === 0) return;
@@ -1002,6 +1003,7 @@ export class ChatService {
             summary: c.summary,
             subagent: c.subagent,
             created_at: c.created_at,
+            origin_update: true,
           });
         }
       },
