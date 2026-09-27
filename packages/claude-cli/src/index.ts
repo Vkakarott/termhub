@@ -118,5 +118,7 @@ export function classifyFailure(stderr: string): ClaudeFailureReason {
   // The CLI rejecting our own flags is our bug, not the user's, and it exits before doing any work.
   // Classifying it apart is what makes it findable in one query instead of a container probe.
   if (/^Error: --/m.test(stderr)) return 'cli_rejected';
+  // A CLI older than one of our flags (`--tools`, TER-127) refuses it in commander's wording.
+  if (/^error: unknown option/m.test(stderr)) return 'cli_rejected';
   return 'run_failed';
 }
