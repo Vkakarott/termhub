@@ -13,6 +13,21 @@ export const progressEstimate = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('range'), low_s: count, high_s: count, basis: z.enum(['agent_time', 'wall_clock']), samples: z.number().int().positive() }),
 ]);
 
+const ciState = z.enum(['none', 'running', 'passed', 'failed']);
+
+/** A GitHub PR linked to a card, with its CI and deploy status (spec 2026-09-26 progress-panel §5.2). */
+export const pullRequestBadge = z.object({
+  number: z.number().int().positive(),
+  url: z.string(),
+  title: z.string(),
+  state: z.enum(['open', 'closed', 'merged']),
+  draft: z.boolean(),
+  ci_state: ciState,
+  ci_summary: z.object({ total: count, passed: count, failed: count, running: count, failing: z.array(z.string()) }),
+  deploy_state: ciState,
+  deploy_url: z.string().nullable(),
+});
+
 export const agentOnCard = z.object({
   tab_id: z.string(),
   tab_name: z.string(),
@@ -42,6 +57,7 @@ export const cardProgress = z.object({
   estimate: progressEstimate,
   /** null = the caller cannot read terminals */
   agents: z.array(agentOnCard).nullable(),
+  pull_requests: z.array(pullRequestBadge).default([]),
 });
 
 export const epicProgress = z.object({
@@ -55,6 +71,9 @@ export const epicProgress = z.object({
   cards_without_estimate: count,
   agents: z.object({ working: count, needs_you: count, idle: count }).nullable(),
   cards: z.array(cardProgress),
+  /** distinct PR numbers across the epic's cards; null when none has a PR */
+  ci: z.object({ open: count, failed: count, running: count, deployed: count }).nullable().default(null),
+  ci_error: z.string().nullable().default(null),
 });
 
 export const progressResponse = z.object({ epics: z.array(epicProgress), generated_at: z.string() });
@@ -62,6 +81,7 @@ export const progressResponse = z.object({ epics: z.array(epicProgress), generat
 export type ProgressScope = z.infer<typeof progressScope>;
 export type ProgressEstimate = z.infer<typeof progressEstimate>;
 export type AgentOnCard = z.infer<typeof agentOnCard>;
+export type PullRequestBadge = z.infer<typeof pullRequestBadge>;
 export type CardProgress = z.infer<typeof cardProgress>;
 export type EpicProgress = z.infer<typeof epicProgress>;
 export type ProgressResponse = z.infer<typeof progressResponse>;

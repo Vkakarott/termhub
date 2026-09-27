@@ -9,6 +9,7 @@ vi.mock('../auth/permissions.js', async (orig) => ({
   ...(await orig<typeof import('../auth/permissions.js')>()),
   canAccess: vi.fn(async (_r: unknown, _u: unknown, resource: string, action: string) => (resource === 'terminals' && action === 'read' ? perms.terminals : true)),
 }));
+vi.mock('../ci/status.js', () => ({ ciErrorOf: (id: string) => (id === 'p1' ? 'GitHub: repositório não encontrado' : null) }));
 
 import { progressRoutes } from './progress.js';
 
@@ -18,11 +19,11 @@ const rows: ProgressEpicRow[] = [
     id: 'e1', ref: 'TER-1', title: 'Épico', project: { id: 'p1', key: 'TER', name: 'termhub' },
     cards: [{
       id: 'c1', ref: 'TER-2', title: 'Card', type: 'story', status: 'doing', position: 0, column_name: 'Fazendo',
-      started_at: null, done_at: null, active_seconds: 0, subtasks: [],
+      started_at: null, done_at: null, active_seconds: 0, subtasks: [], pull_requests: [],
       tab: { id: 't1', name: 'agent', machine_name: 'jarvis', state: 'waiting_input', state_at: NOW, activity: null, activity_verb: null, rate_limited_at: null },
     }],
   },
-  { id: 'e2', ref: 'TER-3', title: 'Parado', project: { id: 'p1', key: 'TER', name: 'termhub' }, cards: [{ id: 'c2', ref: 'TER-4', title: 'x', type: 'task', status: 'todo', position: 0, column_name: 'A fazer', started_at: null, done_at: null, active_seconds: 0, subtasks: [], tab: null }] },
+  { id: 'e2', ref: 'TER-3', title: 'Parado', project: { id: 'p1', key: 'TER', name: 'termhub' }, cards: [{ id: 'c2', ref: 'TER-4', title: 'x', type: 'task', status: 'todo', position: 0, column_name: 'A fazer', started_at: null, done_at: null, active_seconds: 0, subtasks: [], pull_requests: [], tab: null }] },
 ];
 const projects = [{ id: 'p1', owner_id: 'u1' }, { id: 'p2', owner_id: 'u2' }];
 
@@ -54,6 +55,7 @@ describe('GET /progress', () => {
     expect(body.epics.map((e: { ref: string }) => e.ref)).toEqual(['TER-1']);
     expect(body.epics[0].agents).toEqual({ working: 0, needs_you: 1, idle: 0 });
     expect(body.epics[0].cards[0].agents[0]).toMatchObject({ tab_id: 't1', needs_you: true });
+    expect(body.epics[0].ci_error).toBe('GitHub: repositório não encontrado');
   });
 
   it('scope=all keeps epics without a card in doing', async () => {

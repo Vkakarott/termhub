@@ -1,3 +1,4 @@
+import type { PullRequestBadge } from '@termhub/mobile-api';
 import type { PrismaClient } from '../prisma.js';
 import type { ProgressEpicRow, ProgressTabRow } from '../../progress/aggregate.js';
 
@@ -35,7 +36,12 @@ export class ProgressRepository {
     if (epics.length === 0) return [];
     const cards = await this.db.task.findMany({
       where: { epicId: { in: epics.map((e) => e.id) }, parentId: null, type: { not: 'epic' } },
-      include: { column: { select: { name: true } }, tab: TAB, subtasks: { include: { tab: TAB }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] } },
+      include: {
+        column: { select: { name: true } },
+        tab: TAB,
+        subtasks: { include: { tab: TAB }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
+        pullRequests: { orderBy: [{ number: 'desc' }] },
+      },
     });
     const byEpic = new Map<string, typeof cards>();
     for (const c of cards) {
@@ -63,6 +69,19 @@ export class ProgressRepository {
           active_seconds: c.activeSeconds,
           tab: toTab(c.tab),
           subtasks: c.subtasks.map((s) => ({ id: s.id, ref: ref(s.number), status: s.status, done_at: s.doneAt, tab: toTab(s.tab) })),
+          pull_requests: c.pullRequests.map(
+            (p): PullRequestBadge => ({
+              number: p.number,
+              url: p.url,
+              title: p.title,
+              state: p.state as 'open' | 'closed' | 'merged',
+              draft: p.draft,
+              ci_state: p.ciState as PullRequestBadge['ci_state'],
+              ci_summary: { total: 0, passed: 0, failed: 0, running: 0, failing: [], ...(p.ciSummary as object) },
+              deploy_state: p.deployState as PullRequestBadge['deploy_state'],
+              deploy_url: p.deployUrl,
+            }),
+          ),
         })),
       };
     });
