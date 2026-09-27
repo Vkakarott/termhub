@@ -31,5 +31,6 @@ describe('classifyFailure', () => {
     // Anchored at the start of a line: the phrase inside other text is not the CLI refusing argv.
     expect(classifyFailure('the model said: error: unknown option is a commander message')).toBe('run_failed');
     expect(classifyFailure('error: rate limited')).toBe('run_failed');
+    expect(classifyFailure('Error: unknown model foo\n')).toBe('run_failed');
   });
 });

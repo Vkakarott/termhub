@@ -30,7 +30,8 @@ export interface ClaudeRunSpec {
  * ships Glob and Grep, which read any file under the working directory without asking — and the
  * agent's working directory is the person's home. The CLI applies it to the subagents too.
  * Left out on purpose: ToolSearch (the MCP tools load without it), TaskStop (cancelling a subagent
- * is TER-64/65's design to add), Skill, Workflow and the cron and task-list tools.
+ * is TER-64/65's design to add), SendMessage (the CLI's background-launch result mentions it, but
+ * the orchestrator prompt starts a new subagent instead), Skill, Workflow and the cron and task-list tools.
  */
 export const CONCIERGE_TOOLS = 'Agent';
 
