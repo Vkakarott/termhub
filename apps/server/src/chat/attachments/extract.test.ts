@@ -59,7 +59,9 @@ describe('extract: image and text', () => {
   });
 });
 
-describe('extract: pdf, docx, xlsx', () => {
+// Each pdf/docx/xlsx extract spawns a real worker, loaded through tsx in tests: slower than an
+// in-thread call, so the whole block gets one raised timeout instead of one per slow test.
+describe('extract: pdf, docx, xlsx', { timeout: 30_000 }, () => {
   it('pdf: the page text and the page count', async () => {
     const r = await extract('pdf', minimalPdf('Relatorio anual'), 'application/pdf', noWhisper);
     expect(r.text).toContain('Relatorio anual');
@@ -95,7 +97,7 @@ describe('extract: pdf, docx, xlsx', () => {
     const xlsx = Buffer.from(await wb.xlsx.writeBuffer());
     expect(await code(extract('xlsx', xlsx, 'application/x', withBudget))).toBe('ATTACHMENT_INVALID');
     expect((await extract('xlsx', xlsx, 'application/x', { ...noWhisper, zipExpandedMaxBytes: 8 * 1024 * 1024 })).meta).toMatchObject({ sheets: [{ name: 'S', rows: 1, cols: 1 }] });
-  }, 20_000);
+  });
   it('docx and xlsx: an unlisted entry or bytes the directory does not account for are an invalid attachment', async () => {
     const docx = minimalDocx(['Olá'], { deflate: true });
     expect(await code(extract('docx', withUnlistedEntry(docx, 'word/extra.xml', 'x'.repeat(100)), 'application/x', noWhisper))).toBe('ATTACHMENT_INVALID');
@@ -160,7 +162,7 @@ describe('extract: pdf, docx, xlsx', () => {
     // Only the worker path says this: the in-thread unpdf would fail at once with its own error name.
     expect((err as ExtractError).message).toBe('extraction timed out');
     expect(Date.now() - started).toBeLessThan(5_000);
-  }, 20_000);
+  });
   it('a file that is a view into a larger buffer is extracted, and the caller’s buffer is left intact', async () => {
     const doc = minimalDocx(['Olá mundo'], { deflate: true });
     const slab = Buffer.alloc(doc.length + 64, 7);
@@ -170,7 +172,7 @@ describe('extract: pdf, docx, xlsx', () => {
     expect(slab.byteLength).toBe(doc.length + 64);
     expect(slab[0]).toBe(7);
     expect(view.equals(doc)).toBe(true);
-  }, 20_000);
+  });
 });
 
 describe('extract: audio and video go to whisper', () => {
