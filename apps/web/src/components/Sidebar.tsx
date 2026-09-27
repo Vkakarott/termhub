@@ -1,6 +1,6 @@
 import { ChevronsLeft } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type HTMLAttributes } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useData } from '../lib/data';
 import { useMonitor } from '../lib/monitor';
@@ -73,6 +73,16 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   // every open terminal tab, reported a state or not: "Em execução" means a tab is open
   const agents = useMemo(() => agentsByProject(openTabs), [openTabs]);
   const projectChat = useProjectChat();
+  const navigate = useNavigate();
+  // The chat lives in the project's window now (spec 2026-09-26 project chat dock §4.7): from anywhere
+  // else, 💬 goes to the project with its chat open; on the project already on screen, it toggles.
+  const openChat = (id: string) => {
+    if (projectChat.currentProjectId === id) projectChat.toggle(id);
+    else {
+      projectChat.setOpen(id, true);
+      navigate(`/projects/${id}`);
+    }
+  };
   const [projectFormOpen, setProjectFormOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [collapsed, setCollapsedState] = useState<Set<string>>(loadCollapsedProjects);
@@ -251,7 +261,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         waiting={waiting.get(p.id) ?? 0}
         expanded={!collapsed.has(p.id)}
         onToggle={() => toggleProject(p.id)}
-        chat={can('chat') ? { status: projectChat.status(p.id), open: projectChat.openProjectId === p.id, onToggle: () => projectChat.toggle(p.id) } : null}
+        chat={can('chat') ? { status: projectChat.status(p.id), open: projectChat.pref(p.id).open, onToggle: () => openChat(p.id) } : null}
         favorite={isFavorite(p.id)}
         onToggleFavorite={() => void toggleFavorite(p.id)}
         // the same button closes it; any other ⋯ (even the same project in another section) moves it there

@@ -12,7 +12,8 @@ function Shell() {
   const { pathname, search } = useLocation();
   const [dialog, setDialog] = useState(false);
   const [drawer, setDrawer] = useState(false);
-  // stands in for the chat drawer: a non-modal dialog mounted in Layout that answers Esc itself
+  // A generic non-modal dialog mounted in Layout that answers Esc itself, the way the project chat
+  // used to before it became a dock that ignores Escape (ChatDock).
   useEscapeLayer(drawer, () => setDrawer(false));
   return (
     <>
@@ -132,7 +133,7 @@ describe('useSettingsExit', () => {
     expect(where()).toBe('/machines');
   });
 
-  it('lets the chat drawer, opened before entering settings, take Esc first', () => {
+  it('lets a non-modal dialog, opened before entering settings, take Esc first', () => {
     mount('/machines');
     fireEvent.click(screen.getByText('abrir gaveta'));
     enterSettings();

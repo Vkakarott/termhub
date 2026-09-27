@@ -13,8 +13,9 @@ export const APP_HEIGHT_VAR = '--app-height';
 
 /**
  * Keeps `--app-height` on `<html>` up to date until the returned function is called. Only the
- * routes that need it install this (ChatLayout, next to its `chat-locked` body class), so every
- * other screen — the terminals above all — keeps the sizing it already had.
+ * screens that need it install this (ChatLayout, and ChatDock's full-screen chat on a narrow window),
+ * next to their `chat-locked` body class, so every other screen — the terminals above all — keeps
+ * the sizing it already had.
  */
 export function trackAppHeight(win: Window = window): () => void {
   const viewport = win.visualViewport ?? null;

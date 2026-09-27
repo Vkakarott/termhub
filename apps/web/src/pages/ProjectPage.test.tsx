@@ -20,9 +20,15 @@ const { patchMock, dataState, authState } = vi.hoisted(() => {
       refresh: async () => {},
     },
   };
-  const authState = { current: { user: null as User | null } };
+  const authState = { current: { user: null as User | null, can: undefined as ((r: string, a?: string) => boolean) | undefined } };
   return { patchMock, dataState, authState };
 });
+
+const chatScope = vi.hoisted(() => ({ calls: [] as (string | null)[] }));
+vi.mock('../lib/project-chat', () => ({
+  useChatScope: (id: string | null) => void chatScope.calls.push(id),
+  useProjectChat: () => ({ pref: () => ({ open: false, width: 420, maximized: false }), toggle: () => {}, status: () => ({ busy: false, pending: 0 }) }),
+}));
 
 vi.mock('../lib/data', () => ({ useData: () => dataState.current }));
 vi.mock('../lib/auth', () => ({ useAuth: () => authState.current }));
@@ -93,7 +99,10 @@ beforeEach(() => {
   patchMock.mockReset();
   patchMock.mockImplementation(async (_id, input) => ({ ...input }));
   dataState.current = { ...dataState.current, machines: [machine('m1', 'jarvis')] };
-  authState.current = { user: { id: 'u1', email: 'a@b.c', name: 'Pedro', avatar_url: null, role: 'owner', role_info: null, permissions: [], has_password: true, has_google: false, invited_at: null, last_login_at: null, nickname: 'pedro' } };
+  authState.current = {
+    user: { id: 'u1', email: 'a@b.c', name: 'Pedro', avatar_url: null, role: 'owner', role_info: null, permissions: [], has_password: true, has_google: false, invited_at: null, last_login_at: null, nickname: 'pedro' },
+    can: () => true,
+  };
 });
 
 afterEach(() => {
@@ -138,7 +147,7 @@ describe('ProjectPage publish switch', () => {
   it('opens the nickname dialog straight away when the account has none yet, without asking the server', async () => {
     const proj = project();
     dataState.current = { ...dataState.current, projects: [proj] };
-    authState.current = { user: { ...authState.current.user!, nickname: null } };
+    authState.current = { ...authState.current, user: { ...authState.current.user!, nickname: null } };
     renderPage(proj);
 
     fireEvent.click(screen.getByRole('switch', { name: /publicar/i }));
@@ -243,6 +252,17 @@ describe('ProjectPage with a card', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('board k3')).toBeTruthy();
+  });
+});
+
+describe('ProjectPage chat', () => {
+  it('says its project is on screen and has the 💬 in the header', () => {
+    const proj = project();
+    dataState.current = { ...dataState.current, projects: [proj] };
+    chatScope.calls = [];
+    renderPage(proj);
+    expect(chatScope.calls).toContain('p1');
+    expect(screen.getByRole('button', { name: 'Chat do projeto' }).closest('header')).not.toBeNull();
   });
 });
 

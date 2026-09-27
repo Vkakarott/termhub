@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ProjectChatProvider, useProjectChat } from './project-chat';
+import { ProjectChatProvider, useChatScope, useProjectChat } from './project-chat';
 
 const projectsMock = vi.fn();
 const useChatStreamMock = vi.fn((_r: unknown, cb: (e: unknown) => void) => ((emit = cb), { connected: true }));
@@ -18,31 +18,94 @@ afterEach(() => {
   canMock = () => true;
   projectsMock.mockReset();
   useChatStreamMock.mockClear();
+  localStorage.clear();
 });
 
 function Probe() {
-  const { openProjectId, toggle, status } = useProjectChat();
+  const c = useProjectChat();
   return (
     <>
-      <span data-testid="open">{openProjectId ?? 'none'}</span>
-      <span data-testid="p1">{JSON.stringify(status('p1'))}</span>
-      <button onClick={() => toggle('p1')}>p1</button>
-      <button onClick={() => toggle('p2')}>p2</button>
+      <span data-testid="current">{c.currentProjectId ?? 'none'}</span>
+      <span data-testid="shown">{c.shownProjectId ?? 'none'}</span>
+      <span data-testid="alive">{c.alive.join(',')}</span>
+      <span data-testid="pref-p1">{JSON.stringify(c.pref('p1'))}</span>
+      <span data-testid="p1">{JSON.stringify(c.status('p1'))}</span>
+      <button onClick={() => c.toggle('p1')}>toggle p1</button>
+      <button onClick={() => c.setOpen('p2', true)}>open p2</button>
+      <button onClick={() => c.setWidth('p1', 999)}>wide p1</button>
+      <button onClick={() => c.setMaximized('p1', true)}>max p1</button>
     </>
   );
 }
 
-it('toggle opens, swaps and closes', () => {
+/** A page that says which project is on screen, like ProjectPage. */
+function Page({ id }: { id: string | null }) {
+  useChatScope(id);
+  return null;
+}
+
+const text = (id: string) => screen.getByTestId(id).textContent;
+const click = (name: string) => act(() => screen.getByRole('button', { name }).click());
+
+it('toggle opens and closes a project chat and remembers it in localStorage', () => {
   projectsMock.mockResolvedValue({ projects: [] });
   render(<ProjectChatProvider><Probe /></ProjectChatProvider>);
-  // `getByRole('button', ...)`, not `getByText`: once `open` reads "p2" the plain text query would
-  // also match that status span, since it shows the very string being clicked.
-  act(() => screen.getByRole('button', { name: 'p1' }).click());
-  expect(screen.getByTestId('open').textContent).toBe('p1');
-  act(() => screen.getByRole('button', { name: 'p2' }).click());
-  expect(screen.getByTestId('open').textContent).toBe('p2');
-  act(() => screen.getByRole('button', { name: 'p2' }).click());
-  expect(screen.getByTestId('open').textContent).toBe('none');
+  click('toggle p1');
+  expect(text('pref-p1')).toBe('{"open":true,"width":420,"maximized":false}');
+  expect(JSON.parse(localStorage.getItem('termhub:project-chat')!).p1.open).toBe(true);
+  click('toggle p1');
+  expect(JSON.parse(localStorage.getItem('termhub:project-chat')!).p1.open).toBe(false);
+});
+
+it('starts from what localStorage remembers', () => {
+  projectsMock.mockResolvedValue({ projects: [] });
+  localStorage.setItem('termhub:project-chat', JSON.stringify({ p1: { open: true, width: 500, maximized: true } }));
+  render(<ProjectChatProvider><Probe /></ProjectChatProvider>);
+  expect(text('pref-p1')).toBe('{"open":true,"width":500,"maximized":true}');
+});
+
+it('clamps the width and stores maximized', () => {
+  projectsMock.mockResolvedValue({ projects: [] });
+  render(<ProjectChatProvider><Probe /></ProjectChatProvider>);
+  click('wide p1');
+  click('max p1');
+  expect(text('pref-p1')).toBe('{"open":false,"width":720,"maximized":true}');
+});
+
+it('shows the chat of the project on screen only when it is open there', () => {
+  projectsMock.mockResolvedValue({ projects: [] });
+  const { rerender } = render(<ProjectChatProvider><Page id="p1" /><Probe /></ProjectChatProvider>);
+  expect(text('current')).toBe('p1');
+  expect(text('shown')).toBe('none');
+  click('toggle p1');
+  expect(text('shown')).toBe('p1');
+  expect(text('alive')).toBe('p1');
+  // p2's chat is open, but p2 is not on screen: nothing mounts for it yet
+  click('open p2');
+  expect(text('alive')).toBe('p1');
+  rerender(<ProjectChatProvider><Page id="p2" /><Probe /></ProjectChatProvider>);
+  expect(text('shown')).toBe('p2');
+  // p1 stays mounted behind p2
+  expect(text('alive')).toBe('p2,p1');
+});
+
+it('closing a chat unmounts it', () => {
+  projectsMock.mockResolvedValue({ projects: [] });
+  render(<ProjectChatProvider><Page id="p1" /><Probe /></ProjectChatProvider>);
+  click('toggle p1');
+  expect(text('alive')).toBe('p1');
+  click('toggle p1');
+  expect(text('alive')).toBe('');
+  expect(text('shown')).toBe('none');
+});
+
+it('a page that goes away clears the current project; the next page takes over', () => {
+  projectsMock.mockResolvedValue({ projects: [] });
+  const { rerender } = render(<ProjectChatProvider><Page id="p1" /><Probe /></ProjectChatProvider>);
+  rerender(<ProjectChatProvider><Probe /></ProjectChatProvider>);
+  expect(text('current')).toBe('none');
+  rerender(<ProjectChatProvider><Page id="p2" /><Probe /></ProjectChatProvider>);
+  expect(text('current')).toBe('p2');
 });
 
 it('reads statuses on load and re-reads them on chat events', async () => {
@@ -70,10 +133,21 @@ it('does not re-read on a suggestion event: suggestions are not counted', async 
   expect(projectsMock).toHaveBeenCalledTimes(1);
 });
 
-it('works without a provider (the sidebar in isolation): closed, no status', () => {
+it('works without a provider (a component in isolation): nothing current, closed, no status', () => {
   render(<Probe />);
-  expect(screen.getByTestId('open').textContent).toBe('none');
-  expect(screen.getByTestId('p1').textContent).toBe('{"busy":false,"pending":0}');
+  expect(text('current')).toBe('none');
+  expect(text('shown')).toBe('none');
+  expect(text('pref-p1')).toBe('{"open":false,"width":420,"maximized":false}');
+  expect(text('p1')).toBe('{"busy":false,"pending":0}');
+});
+
+it('without chat permission, the shown project and alive list stay empty even with an open pref (a stored pref is per browser, not per user: an admin "ver como" a member without chat)', () => {
+  projectsMock.mockResolvedValue({ projects: [] });
+  canMock = (r) => r !== 'chat';
+  localStorage.setItem('termhub:project-chat', JSON.stringify({ p1: { open: true, width: 420, maximized: false } }));
+  render(<ProjectChatProvider><Page id="p1" /><Probe /></ProjectChatProvider>);
+  expect(text('shown')).toBe('none');
+  expect(text('alive')).toBe('');
 });
 
 it('without chat permission, neither /chat/projects nor the ws stream is touched, and status stays idle', async () => {
