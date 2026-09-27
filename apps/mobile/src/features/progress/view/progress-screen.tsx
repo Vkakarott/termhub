@@ -28,7 +28,7 @@ function Epic({ epic }: { epic: TEpicProgress }) {
   const waiting = epic.agents?.needs_you ?? 0;
   return (
     <View className="mx-4 my-2 rounded-xl bg-zinc-900 p-4">
-      <Pressable onPress={() => setOpen((v) => !v)} accessibilityRole="button">
+      <Pressable onPress={() => setOpen((v) => !v)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
         <View className="flex-row items-baseline justify-between">
           <Text className="flex-1 text-base font-semibold text-white">{epic.title}</Text>
           <Text className="text-lg font-semibold text-white">{`${epic.percent}%`}</Text>
@@ -57,6 +57,7 @@ function Epic({ epic }: { epic: TEpicProgress }) {
 export function ProgressScreen() {
   const epics = useProgressStore((s) => s.epics);
   const loading = useProgressStore((s) => s.loading);
+  const refreshing = useProgressStore((s) => s.refreshing);
   const error = useProgressStore((s) => s.error);
   useFocusEffect(
     useCallback(() => {
@@ -66,11 +67,12 @@ export function ProgressScreen() {
   );
   return (
     <FlatList
+      testID="progress-list"
       className="flex-1 bg-[#0B0E17]"
       data={epics}
       keyExtractor={(e) => e.id}
       renderItem={({ item }) => <Epic epic={item} />}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void useProgressStore.getState().load()} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void useProgressStore.getState().refresh()} />}
       ListHeaderComponent={error ? <Text className="px-4 pt-4 text-sm text-red-400">{error}</Text> : null}
       ListEmptyComponent={!loading ? <Text className="px-4 pt-8 text-center text-sm text-zinc-500">Nenhum épico em andamento</Text> : null}
     />

@@ -18,7 +18,7 @@ beforeAll(async () => {
   await enrolStores();
 });
 beforeEach(() => {
-  useProgressStore.setState({ epics: [], loading: false, error: null });
+  useProgressStore.setState({ epics: [], loading: false, refreshing: false, error: null });
 });
 afterEach(() => {
   useProgressStore.getState().stopPolling();
@@ -42,6 +42,28 @@ describe('Progresso', () => {
     expect(screen.getByText('TER-183 Painel de progresso')).toBeTruthy();
     expect(screen.getByText(/api · esperando você/)).toBeTruthy();
     expect(screen.getAllByText('~20–45 min de trabalho').length).toBeGreaterThan(0);
+  });
+
+  it('tells assistive tech whether an epic is expanded', async () => {
+    await render(<ProgressScreen />);
+    await screen.findByText('Visão gerencial', {}, LOAD);
+    const epic = screen.getByRole('button', { expanded: false });
+    await act(async () => fireEvent.press(epic));
+    expect(screen.getByRole('button', { expanded: true })).toBeTruthy();
+  });
+
+  it('spins only for a pull, not for the background poll, and a pull refreshes', async () => {
+    await render(<ProgressScreen />);
+    await screen.findByText('Visão gerencial', {}, LOAD);
+    const control = () => screen.getByTestId('progress-list').props.refreshControl;
+    await act(async () => useProgressStore.setState({ loading: true }));
+    expect(control().props.refreshing).toBe(false);
+    await act(async () => useProgressStore.setState({ loading: false, refreshing: true }));
+    expect(control().props.refreshing).toBe(true);
+    await act(async () => useProgressStore.setState({ refreshing: false }));
+    const refresh = jest.spyOn(useProgressStore.getState(), 'refresh');
+    await act(async () => control().props.onRefresh());
+    expect(refresh).toHaveBeenCalled();
   });
 
   it('shows the empty state', async () => {
