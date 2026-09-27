@@ -5,7 +5,8 @@ import type { SubagentStatus } from '../../chat/stream.js';
 import { PANEL_MAX, PANEL_RECENT_MS } from '../../chat/subagent-view.js';
 
 const FINAL_STATUSES: SubagentStatus[] = ['completed', 'failed', 'stopped', 'interrupted'];
-const OPEN_STATUSES: SubagentStatus[] = ['running', 'stopping'];
+/** Still going (or being cancelled): the states a final status or an interruption may land from. */
+export const OPEN_STATUSES: SubagentStatus[] = ['running', 'stopping'];
 
 /** A Task-tool subagent run inside a conversation's CLI session (spec 2026-09-26 §4). */
 export interface ChatSubagent {
@@ -66,11 +67,17 @@ export class ChatSubagentsRepository {
 
   /** `ended_at` follows the status: set the moment it lands on one of the final states, cleared if it
    * is ever reported running again (a CLI that revives a task id it once ended). Undefined when the
-   * row is already gone (its conversation was deleted). */
-  async setStatus(id: string, status: SubagentStatus): Promise<ChatSubagent | undefined> {
+   * row is already gone (its conversation was deleted).
+   *
+   * `from` makes it a transition: one conditional `UPDATE` that only lands while the row is still in
+   * one of those states, undefined otherwise. That is what keeps a cancel's writes from overwriting
+   * each other when they race (spec 2026-09-26 panel §5.4): `running → stopping` only from running, a
+   * rollback only from stopping, the CLI's final status from any open state — so a late write finds
+   * nothing to change instead of undoing what already happened. */
+  async setStatus(id: string, status: SubagentStatus, opts: { from?: SubagentStatus[] } = {}): Promise<ChatSubagent | undefined> {
     const ended = FINAL_STATUSES.includes(status);
     const { count } = await this.db.chatSubagent.updateMany({
-      where: { id },
+      where: { id, ...(opts.from ? { status: { in: opts.from } } : {}) },
       data: { status, endedAt: ended ? new Date() : null },
     });
     if (count === 0) return undefined;
@@ -106,7 +113,7 @@ export class ChatSubagentsRepository {
     if (rows.length === 0) return [];
     const now = new Date();
     await this.db.chatSubagent.updateMany({
-      where: { id: { in: rows.map((r) => r.id) } },
+      where: { id: { in: rows.map((r) => r.id) }, status: { in: OPEN_STATUSES } },
       data: { status: 'interrupted' satisfies SubagentStatus, endedAt: now },
     });
     return rows.map((r) => mapSubagent({ ...r, status: 'interrupted', endedAt: now }));

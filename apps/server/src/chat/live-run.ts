@@ -3,7 +3,7 @@ import { STREAM_END_INPUT_LINE, streamUserMessageLine } from '@termhub/agent-pro
 import type { ChatMessage, ChatRepository } from '../db/repositories/chat.js';
 import type { ChatAction, ChatActionsRepository } from '../db/repositories/chat-actions.js';
 import type { StoredTurn } from '../db/repositories/chat-live-runs.js';
-import type { ChatSubagent, ChatSubagentsRepository } from '../db/repositories/chat-subagents.js';
+import { OPEN_STATUSES, type ChatSubagent, type ChatSubagentsRepository } from '../db/repositories/chat-subagents.js';
 import { chatBus } from './bus.js';
 import { actionClass } from './gate.js';
 import { failureLabel, type RunStream } from './service.js';
@@ -138,15 +138,20 @@ export class LiveRun {
   }
 
   /** A stop that failed (refused by the CLI, or never answered in time): back to running, and every
-   *  open screen says it could not cancel. A no-op once the stop settled either way. Never throws. */
+   *  open screen says it could not cancel. A no-op once the stop settled either way — and only ever
+   *  from `stopping`, so a row something else already settled (a final status, an interruption) is
+   *  left as it is and nobody is told the cancel failed. Never throws. */
   async rollbackStop(subagentId: string): Promise<void> {
     if (!this.stopping.delete(subagentId)) return;
     const { userId, conversationId } = this.deps;
+    let rolledBack = false;
     await this.bookkeeping(async () => {
-      const row = await this.deps.subagents.setStatus(subagentId, 'running');
-      if (row) this.remember(row);
+      const row = await this.deps.subagents.setStatus(subagentId, 'running', { from: ['stopping'] });
+      if (!row) return;
+      rolledBack = true;
+      this.remember(row);
     });
-    chatBus.publish({ type: 'subagent_cancel_failed', user_id: userId, conversation_id: conversationId, subagent_id: subagentId });
+    if (rolledBack) chatBus.publish({ type: 'subagent_cancel_failed', user_id: userId, conversation_id: conversationId, subagent_id: subagentId });
   }
 
   /** The turns still open, in order: the one being answered (and those folded into it), then those waiting. */
@@ -243,7 +248,8 @@ export class LiveRun {
           if (!known) continue;
           this.stopping.delete(known.id);
           await this.bookkeeping(async () => {
-            const row = await this.deps.subagents.setStatus(known.id, frame.status);
+            // From any open state: the CLI's own word beats a cancel still in flight.
+            const row = await this.deps.subagents.setStatus(known.id, frame.status, { from: OPEN_STATUSES });
             if (row) this.remember(row);
           });
         } else if (frame.type === 'subagent_tool') {

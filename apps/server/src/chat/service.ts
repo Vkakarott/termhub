@@ -363,8 +363,8 @@ export class ChatService {
   }
 
   /**
-   * "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4): asks the live process to stop it,
-   * marks the row `stopping` and tells every open screen, then gives the CLI `CANCEL_TIMEOUT_MS` to
+   * "Cancelar" on a subagent's row (spec 2026-09-26 panel §5.4): marks the row `stopping` and tells
+   * every open screen, asks the live process to stop it, then gives the CLI `CANCEL_TIMEOUT_MS` to
    * confirm before rolling the row back to `running` (`LiveRun.rollbackStop`, itself a no-op once the
    * CLI's own status frame already settled it).
    *
@@ -379,15 +379,24 @@ export class ChatService {
     if (!row) throw notFound('Subagente não encontrado');
     if (row.status !== 'running') throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING');
     const live = this.live.get(row.conversation_id);
-    if (!live || !live.stopTask(row.task_id, row.id)) {
-      const gone = await this.deps.repos.chatSubagents.setStatus(row.id, 'interrupted');
-      if (gone) chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: row.conversation_id, subagent: toSubagentView(gone) });
-      throw new HttpError(409, 'O processo deste subagente já terminou', 'SUBAGENT_GONE');
-    }
-    const stopping = (await this.deps.repos.chatSubagents.setStatus(row.id, 'stopping')) ?? row;
+    if (!live) return this.subagentGone(user, row.id, row.conversation_id);
+    // `stopping` is persisted before the stop line is written: the CLI's answer to that line (its final
+    // status, or a refusal rolled back to running) can then never be overwritten by a late `stopping`.
+    // Only from running — a row that ended in the meantime has nothing left to cancel.
+    const stopping = await this.deps.repos.chatSubagents.setStatus(row.id, 'stopping', { from: ['running'] });
+    if (!stopping) throw new HttpError(409, 'Este subagente não está rodando', 'SUBAGENT_NOT_RUNNING');
     chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: row.conversation_id, subagent: toSubagentView(stopping) });
+    if (!live.stopTask(row.task_id, row.id)) return this.subagentGone(user, row.id, row.conversation_id);
     setTimeout(() => void live.rollbackStop(row.id).catch(() => {}), CANCEL_TIMEOUT_MS).unref?.();
     return toSubagentView(stopping);
+  }
+
+  /** A subagent whose process is no longer around to ask: marked `interrupted` (from any open state,
+   *  so a final status that already landed stays) and answered with `SUBAGENT_GONE`. */
+  private async subagentGone(user: User, subagentId: string, conversationId: string): Promise<never> {
+    const gone = await this.deps.repos.chatSubagents.setStatus(subagentId, 'interrupted', { from: ['running', 'stopping'] });
+    if (gone) chatBus.publish({ type: 'subagent', user_id: user.id, conversation_id: conversationId, subagent: toSubagentView(gone) });
+    throw new HttpError(409, 'O processo deste subagente já terminou', 'SUBAGENT_GONE');
   }
 
   /**

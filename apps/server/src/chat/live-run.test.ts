@@ -44,8 +44,11 @@ function harness(sessionId: string | null = null) {
       subagentRows.set(row.id, row);
       return row;
     }),
-    setStatus: vi.fn(async (id: string, status: SubagentStatus) => {
-      const row = { ...(subagentRows.get(id) ?? subagentRow(id, status)), status };
+    /** Conditional like the repository's: with `from`, a row in any other state is left alone. */
+    setStatus: vi.fn(async (id: string, status: SubagentStatus, opts?: { from?: SubagentStatus[] }) => {
+      const existing = subagentRows.get(id);
+      if (existing && opts?.from && !opts.from.includes(existing.status)) return undefined;
+      const row = { ...(existing ?? subagentRow(id, status)), status };
       subagentRows.set(id, row);
       return row;
     }),
@@ -495,7 +498,7 @@ it('registers a started subagent, updates its status and publishes both', async 
   s.end();
   await consumed;
   expect(h.subagents.start).toHaveBeenCalledWith({ conversation_id: 'c1', task_id: 't1', tool_use_id: 'u1', description: 'Buscar CI', subagent_type: 'general-purpose' });
-  expect(h.subagents.setStatus).toHaveBeenCalledWith('sa-t1', 'completed');
+  expect(h.subagents.setStatus).toHaveBeenCalledWith('sa-t1', 'completed', { from: ['running', 'stopping'] });
   expect(subagentEvents().map((e) => [e.user_id, e.conversation_id, e.subagent.id, e.subagent.status])).toEqual([
     ['u1', 'c1', 'sa-t1', 'running'],
     ['u1', 'c1', 'sa-t1', 'completed'],
@@ -606,10 +609,11 @@ it('rolls a failed stop back to running and says so', async () => {
   const { s, consumed } = await running();
   s.push(taskStarted('t1', 'u1', 'Buscar CI'));
   await settle();
+  await h.subagents.setStatus('sa-t1', 'stopping'); // the service persists it before the stop line
   expect(h.live.stopTask('t1', 'sa-t1')).toBe(true);
   s.push(controlResponse('stop-sa-t1', false));
   await settle();
-  expect(h.subagents.setStatus).toHaveBeenCalledWith('sa-t1', 'running');
+  expect(h.subagents.setStatus).toHaveBeenCalledWith('sa-t1', 'running', { from: ['stopping'] });
   expect(h.events.filter((e) => e.type === 'subagent_cancel_failed')).toEqual([{ type: 'subagent_cancel_failed', user_id: 'u1', conversation_id: 'c1', subagent_id: 'sa-t1' }]);
   expect(subagentEvents().at(-1)!.subagent.status).toBe('running');
   // Rolled back once: a second rollback (the timeout) finds nothing to undo.
@@ -626,10 +630,28 @@ it('a successful stop waits for the status frame', async () => {
   h.live.stopTask('t1', 'sa-t1');
   s.push(controlResponse('stop-sa-t1', true)); s.push(taskUpdated('t1', 'killed'));
   await settle();
-  expect(h.subagents.setStatus.mock.calls).toEqual([['sa-t1', 'stopped']]);
+  expect(h.subagents.setStatus.mock.calls).toEqual([['sa-t1', 'stopped', { from: ['running', 'stopping'] }]]);
   // The stop settled: the timeout's rollback does nothing now.
   await h.live.rollbackStop('sa-t1');
   expect(h.events.some((e) => e.type === 'subagent_cancel_failed')).toBe(false);
+  s.end();
+  await consumed;
+});
+
+it('a rollback that finds the row no longer stopping changes nothing and says nothing', async () => {
+  const { s, consumed } = await running();
+  s.push(taskStarted('t1', 'u1', 'Buscar CI'));
+  await settle();
+  // The service persisted `stopping`, then the stop was written…
+  await h.subagents.setStatus('sa-t1', 'stopping');
+  expect(h.live.stopTask('t1', 'sa-t1')).toBe(true);
+  // …and something else already settled the row (another path wrote a final state) before the timeout.
+  await h.subagents.setStatus('sa-t1', 'stopped');
+  h.subagents.setStatus.mockClear();
+  const before = h.events.length;
+  await h.live.rollbackStop('sa-t1');
+  expect(h.subagents.setStatus).toHaveBeenCalledWith('sa-t1', 'running', { from: ['stopping'] });
+  expect(h.events.slice(before)).toEqual([]);
   s.end();
   await consumed;
 });

@@ -176,9 +176,9 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
       subagentsStore.push(row);
       return row;
     }),
-    setStatus: vi.fn(async (id: string, status: SubagentStatus) => {
+    setStatus: vi.fn(async (id: string, status: SubagentStatus, opts?: { from?: SubagentStatus[] }) => {
       const row = subagentsStore.find((s) => s.id === id);
-      if (!row) return undefined;
+      if (!row || (opts?.from && !opts.from.includes(row.status))) return undefined;
       row.status = status;
       row.ended_at = FINAL_STATUSES.includes(status) ? new Date().toISOString() : null;
       return { ...row };
@@ -2005,7 +2005,7 @@ describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () =
     } finally {
       off();
     }
-    expect(chatSubagents.setStatus).toHaveBeenCalledWith('sub1', 'interrupted');
+    expect(chatSubagents.setStatus).toHaveBeenCalledWith('sub1', 'interrupted', { from: ['running', 'stopping'] });
     expect(events).toContainEqual({ type: 'subagent', user_id: 'u1', conversation_id: 'c1', subagent: expect.objectContaining({ id: 'sub1', status: 'interrupted' }) });
   });
 
@@ -2085,9 +2085,82 @@ describe('subagentsFor / cancelSubagent (spec 2026-09-26 panel §4/§5.4)', () =
       off();
       timeoutSpy.mockRestore();
     }
-    expect(chatSubagents.setStatus).toHaveBeenCalledWith('sub1', 'stopped');
-    expect(chatSubagents.setStatus).not.toHaveBeenCalledWith('sub1', 'running');
+    expect(chatSubagents.setStatus).toHaveBeenCalledWith('sub1', 'stopped', { from: ['running', 'stopping'] });
+    expect(chatSubagents.setStatus.mock.calls.some((c) => c[1] === 'running')).toBe(false);
     expect(events.some((e) => e.type === 'subagent_cancel_failed')).toBe(false);
+    run.push(backgroundTasks([]));
+    run.end();
+  });
+
+  /** Makes the CLI answer the stop line the instant it is written, and holds every `stopping` write
+   *  until the stream had time to handle that answer: the window in which a late `stopping` used to
+   *  overwrite whatever the answer settled. */
+  function answerStopAtOnce(built: Awaited<ReturnType<typeof withRunningSubagent>>, answer: string) {
+    const push = built.run.written.push.bind(built.run.written);
+    built.run.written.push = (...lines: string[]) => {
+      const n = push(...lines);
+      if (lines.some((l) => l.includes('stop_task'))) built.run.push(answer);
+      return n;
+    };
+    const setStatus = built.chatSubagents.setStatus.getMockImplementation()!;
+    built.chatSubagents.setStatus.mockImplementation(async (id, status, opts) => {
+      if (status === 'stopping') await settled();
+      return setStatus(id, status, opts);
+    });
+  }
+  const controlResponse = (requestId: string, ok: boolean) => JSON.stringify({ type: 'control_response', response: ok ? { subtype: 'success', request_id: requestId } : { subtype: 'error', request_id: requestId, error: 'nope' } });
+
+  it('the CLI stopping the task right after the stop line leaves the row stopped, never stuck stopping', async () => {
+    const built = await withRunningSubagent();
+    answerStopAtOnce(built, taskNotification('task1', 'stopped'));
+    await built.service.cancelSubagent(user, 'sub1');
+    await settled();
+    expect(built.subagentsStore.find((s) => s.id === 'sub1')?.status).toBe('stopped');
+    built.run.push(backgroundTasks([]));
+    built.run.end();
+  });
+
+  it('the CLI refusing the stop right after the stop line rolls the row back to running and says so', async () => {
+    const built = await withRunningSubagent();
+    answerStopAtOnce(built, controlResponse('stop-sub1', false));
+    const events: ChatEvent[] = [];
+    const off = chatBus.subscribe((e) => events.push(e));
+    try {
+      await built.service.cancelSubagent(user, 'sub1');
+      await settled();
+    } finally {
+      off();
+    }
+    expect(built.subagentsStore.find((s) => s.id === 'sub1')?.status).toBe('running');
+    expect(events).toContainEqual({ type: 'subagent_cancel_failed', user_id: 'u1', conversation_id: 'c1', subagent_id: 'sub1' });
+    expect(events.filter((e) => e.type === 'subagent').at(-1)).toMatchObject({ subagent: { id: 'sub1', status: 'running' } });
+    built.run.push(backgroundTasks([]));
+    built.run.end();
+  });
+
+  it('the timeout firing after the row already stopped changes nothing', async () => {
+    const { service, run, subagentsStore, chatSubagents } = await withRunningSubagent();
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const events: ChatEvent[] = [];
+    try {
+      await service.cancelSubagent(user, 'sub1');
+      const i = timeoutSpy.mock.calls.findIndex((c) => c[1] === CANCEL_TIMEOUT_MS);
+      clearTimeout(timeoutSpy.mock.results[i]!.value as NodeJS.Timeout);
+      // Another path settled the row (not the task's own frame, which would also clear the stop).
+      subagentsStore.find((s) => s.id === 'sub1')!.status = 'stopped';
+      chatSubagents.setStatus.mockClear();
+      const off = chatBus.subscribe((e) => events.push(e));
+      try {
+        (timeoutSpy.mock.calls[i]![0] as () => void)();
+        await settled();
+      } finally {
+        off();
+      }
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+    expect(subagentsStore.find((s) => s.id === 'sub1')?.status).toBe('stopped');
+    expect(events).toEqual([]);
     run.push(backgroundTasks([]));
     run.end();
   });

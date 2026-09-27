@@ -48,6 +48,19 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatSubagentsRepository (
     expect((await repo.setStatus(s.id, 'stopped'))?.ended_at).not.toBeNull();
   });
 
+  it('with `from`, changes the status only from one of those states, else leaves the row untouched', async () => {
+    const s = await repo.start({ conversation_id: conv, task_id: 't8', tool_use_id: 'u8', description: 'd', subagent_type: null });
+    expect((await repo.setStatus(s.id, 'stopping', { from: ['running'] }))?.status).toBe('stopping');
+    // The CLI's final status lands from any open state.
+    expect((await repo.setStatus(s.id, 'stopped', { from: ['running', 'stopping'] }))?.status).toBe('stopped');
+    // A late rollback (stopping → running) and a late stopping write both find nothing to change.
+    expect(await repo.setStatus(s.id, 'running', { from: ['stopping'] })).toBeUndefined();
+    expect(await repo.setStatus(s.id, 'stopping', { from: ['running'] })).toBeUndefined();
+    const row = await repo.findByIdForUser(s.id, userId);
+    expect(row?.status).toBe('stopped');
+    expect(row?.ended_at).not.toBeNull();
+  });
+
   it('finds by id only for the owner and interrupts running ones', async () => {
     const s = await repo.start({ conversation_id: conv, task_id: 't5', tool_use_id: 'u5', description: 'd', subagent_type: null });
     expect(await repo.findByIdForUser(s.id, otherUserId)).toBeUndefined();
