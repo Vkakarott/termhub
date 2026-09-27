@@ -31,7 +31,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** Ajustes (spec §11.2, design spec §7): this device, biometrics, the general chat's machine and
- * its trusted tabs, the theme, the key diagnostic, the version and leaving. */
+ * "Permissões do chat" (its trusted tabs and projects), the theme, the key diagnostic, the version
+ * and leaving. */
 export function SettingsScreen() {
   const router = useRouter();
   const device = useSettingsStore((s) => s.device);
@@ -93,7 +94,7 @@ export function SettingsScreen() {
           <AppText variant="muted">{host ? hostLine(host).text : 'Escolhendo a máquina do chat geral…'}</AppText>
           <Button label="Trocar máquina ou conta" variant="secondary" onPress={() => setPickingHost(true)} />
           <HostSheet open={pickingHost} onClose={() => setPickingHost(false)} />
-          <Button label="Abas confiáveis" variant="secondary" onPress={() => router.push('/chat-grants')} />
+          <Button label="Permissões do chat" variant="secondary" onPress={() => router.push('/chat-grants')} />
           {/* chat decision memory spec 2026-09-26 §5.2: "Memória do chat" is reached from here, no PIN. */}
           <Button label="Memória do chat" variant="secondary" onPress={() => router.push('/chat-memory')} />
         </Section>

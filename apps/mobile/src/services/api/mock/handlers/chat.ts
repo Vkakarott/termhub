@@ -446,14 +446,42 @@ function grantListItem(state: MockState, g: MockGrant, now: number): TChatGrantL
   const conversation = state.conversations.get(g.conversation_id);
   const project = conversation?.project_id ? state.projects.get(conversation.project_id) : undefined;
   return {
-    // The mock only ever models tab grants (project grants are server-side, Task 6/7); a mobile task
-    // for "Permitir sempre neste projeto" would add project rows here too.
     kind: 'tab',
     ...grantView(g),
     project_id: project?.id ?? null,
     project_name: project?.name ?? null,
     conversation_id: g.conversation_id,
     conversation_project_name: project?.name ?? null,
+    conversation_archived: conversation?.archived_at != null,
+    state: s,
+    ended_at: s === 'active' ? null : s === 'expired' ? g.expires_at : g.revoked_at,
+  };
+}
+
+/** The mock's `ChatGrantListItem` for a project grant ("Permitir sempre neste projeto", design spec
+ * 2026-09-26 §7): `project_id`/`project_name` name the *trusted* project, which need not be the
+ * conversation's own (`conversation_project_name`) — a project grant can be created from a board
+ * card in the account-wide chat. */
+function projectGrantListItem(state: MockState, g: MockProjectGrant, now: number): TChatGrantListItem {
+  const expiresAt = Date.parse(g.expires_at);
+  const revokedFirst = g.revoked && g.revoked_at !== null && Date.parse(g.revoked_at) < expiresAt;
+  const s = revokedFirst ? (g.revoked_by_user ? 'revoked' : 'ended') : !g.revoked && expiresAt > now ? 'active' : 'expired';
+  const conversation = state.conversations.get(g.conversation_id);
+  const conversationProject = conversation?.project_id ? state.projects.get(conversation.project_id) : undefined;
+  const grantedProject = state.projects.get(g.project_id);
+  return {
+    kind: 'project',
+    id: g.id,
+    tab_id: null,
+    tool: null,
+    source_action_id: g.source_action_id,
+    created_at: g.created_at,
+    expires_at: g.expires_at,
+    tab_name: null,
+    project_id: grantedProject?.id ?? null,
+    project_name: grantedProject?.name ?? null,
+    conversation_id: g.conversation_id,
+    conversation_project_name: conversationProject?.name ?? null,
     conversation_archived: conversation?.archived_at != null,
     state: s,
     ended_at: s === 'active' ? null : s === 'expired' ? g.expires_at : g.revoked_at,
@@ -795,12 +823,19 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     return { status: 200, body: { actions, skipped, queued: true, note: 'A decisão foi registrada; a resposta chega pelo chat.' } };
   });
 
-  /** "Abas confiáveis": the server's paging (newest first, cursor = the last id of the page). */
+  /** "Permissões do chat": the server's paging (newest first, cursor = the last row's id). With
+   * `kinds=all` (the default is `tab`, for an app or a server predating project grants), tab and
+   * project rows are merged by `created_at` before paging — mirrors the server's cursor, valid for
+   * both tables since it is just `(created_at, id)`. */
   router.route('GET', '/api/m/v1/chat/grants', (ctx) => {
     verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
     const q = chatGrantListQuery.parse(ctx.query);
     const now = ctx.now();
-    const rows = [...state.grants].reverse().map((g) => grantListItem(state, g, now)).filter((g) => (q.state === 'active' ? g.state === 'active' : g.state !== 'active'));
+    const tabRows = state.grants.map((g) => grantListItem(state, g, now));
+    const projectRows = q.kinds === 'all' ? state.projectGrants.map((g) => projectGrantListItem(state, g, now)) : [];
+    const rows = [...tabRows, ...projectRows]
+      .sort((a, b) => (a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1))
+      .filter((g) => (q.state === 'active' ? g.state === 'active' : g.state !== 'active'));
     const start = q.state === 'ended' && q.cursor ? rows.findIndex((g) => g.id === q.cursor) + 1 : 0;
     const page = rows.slice(start, start + q.limit);
     const more = q.state === 'ended' && start + q.limit < rows.length;

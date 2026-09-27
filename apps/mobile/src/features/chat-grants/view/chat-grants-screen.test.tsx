@@ -38,11 +38,37 @@ afterEach(() => {
   for (const fn of Object.values(mockRouter)) fn.mockClear();
 });
 
-describe('Abas confiáveis', () => {
-  it('says so when nothing is active and the history is empty', async () => {
+describe('Permissões do chat', () => {
+  it('titles the screen and says so when nothing is active and the history is empty', async () => {
     await render(<ChatGrantsScreen />);
-    expect(await screen.findByText('Nenhuma aba confiável agora.', undefined, LOAD)).toBeTruthy();
+    expect(screen.getByText('Permissões do chat')).toBeTruthy();
+    expect(await screen.findByText('Nenhuma permissão ativa agora.', undefined, LOAD)).toBeTruthy();
     expect(screen.getByText('Nada no histórico ainda.')).toBeTruthy();
+  });
+
+  it('renders a project grant row, named by its project, next to a tab row', async () => {
+    const projectRow = {
+      kind: 'project' as const,
+      id: 'pg1',
+      tab_id: null,
+      tool: null,
+      source_action_id: null,
+      created_at: '2026-09-25T11:00:00.000Z',
+      expires_at: '2099-01-01T00:00:00.000Z',
+      tab_name: null,
+      project_id: 'p-termhub',
+      project_name: 'termhub',
+      conversation_id: 'c1',
+      conversation_project_name: null,
+      conversation_archived: false,
+      state: 'active' as const,
+      ended_at: null,
+    };
+    jest.spyOn(stores.api, 'listGrants').mockImplementation(async (_a, q) => (q.state === 'active' ? { grants: [projectRow, ACTIVE], next_cursor: null } : { grants: [], next_cursor: null }));
+    await render(<ChatGrantsScreen />);
+    expect(await screen.findByText('Quadro do projeto termhub', undefined, LOAD)).toBeTruthy();
+    expect(screen.getByText('Aba api · termhub')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Revogar' })).toHaveLength(2);
   });
 
   it('shows an active grant with its origin and revokes it without a PIN', async () => {

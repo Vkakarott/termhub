@@ -96,9 +96,9 @@ describe('Ajustes', () => {
     expect(useChatStore.getState().activeProject).toBe('p-termhub');
   });
 
-  it('opens Abas confiáveis', async () => {
+  it('opens Permissões do chat', async () => {
     await render(<SettingsScreen />);
-    await fireEvent.press(await screen.findByRole('button', { name: 'Abas confiáveis' }, LOAD));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Permissões do chat' }, LOAD));
     expect(mockRouter.push).toHaveBeenCalledWith('/chat-grants');
     // Waits for this render's own device load, so nothing is left in flight for the next test.
     await screen.findByText('iPhone de teste', undefined, LOAD);

@@ -636,6 +636,36 @@ it('listGrants lists active and ended grants, newest first, paging the history',
   expect(ended.next_cursor).toBeNull();
 });
 
+it("listGrants asks for kinds=all and gets both kinds merged; without it, the mock hides project rows (an old app's request)", async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+
+  const tabChal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-1' });
+  await api.decide(auth, 'a-termhub-1', { decision: 'approve_tab', challenge: tabChal.challenge, pin_proof: decisionProof(secret, tabChal.challenge, 'a-termhub-1', 'approve_tab') });
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-2' });
+  await api.decide(auth, 'a-termhub-2', { decision: 'approve_project', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-2', 'approve_project') });
+
+  const withAll = await api.listGrants(auth, { state: 'active' });
+  expect(withAll.grants.map((g) => g.kind).sort()).toEqual(['project', 'tab']);
+
+  // The client always asks `kinds=all`; capture the request it *would* make, without letting it
+  // reach the mock (its DPoP proof's jti must stay unspent), then fire it once ourselves with
+  // `kinds` stripped — the query is not part of the DPoP proof (`canonicalHtu` drops it), so the
+  // same signed request still authenticates with a different query string. This is how an older
+  // app's request (no `kinds` at all) reaches the server.
+  let captured: Parameters<typeof transport.fetch>[0] | undefined;
+  const fetchSpy = jest.spyOn(transport, 'fetch').mockImplementationOnce(async (req) => {
+    captured = req;
+    return { status: 200, headers: {}, text: JSON.stringify({ grants: [], next_cursor: null }) };
+  });
+  await api.listGrants(auth, { state: 'active' });
+  fetchSpy.mockRestore();
+  const withoutKinds = { ...captured!, url: captured!.url.replace(/[?&]kinds=all/, '') };
+  const res = await transport.fetch(withoutKinds);
+  const body = JSON.parse(res.text) as { grants: Array<{ kind: string }> };
+  expect(body.grants.map((g) => g.kind)).toEqual(['tab']);
+});
+
 it('uploads an attachment, reports its extraction over the socket, and echoes it on the sent message', async () => {
   const clock = { value: START };
   const { api, auth } = await enrol(clock);
