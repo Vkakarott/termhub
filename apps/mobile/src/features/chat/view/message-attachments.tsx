@@ -1,9 +1,10 @@
 import { memo, useEffect, useReducer, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
 import type { TChatAttachment } from '@/services/api/contract';
+import { Icon } from '@/ui';
 import { attachmentStatusText, formatBytes, thumbSize } from '../viewmodel/attachments';
 import { useChatStore } from '../viewmodel/useChatStore';
-import { KIND_GLYPH } from './attachment-chip';
+import { ATTACHMENT_ICON, KIND_ICON } from './attachment-chip';
 
 type Source = { uri: string; headers: Record<string, string> };
 
@@ -81,7 +82,7 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
         const tone = a.status === 'failed' ? 'text-app-danger' : 'text-white/70';
         return (
           <View key={a.id} className="flex-row items-center gap-2 rounded-lg bg-black/10 px-2 py-1">
-            <Text className="text-base">{KIND_GLYPH[a.kind] ?? '📎'}</Text>
+            <Icon name={KIND_ICON[a.kind] ?? ATTACHMENT_ICON} size={18} color="rgba(255,255,255,0.85)" />
             <View className="shrink">
               <Text className="text-sm text-white" numberOfLines={1}>
                 {a.name}

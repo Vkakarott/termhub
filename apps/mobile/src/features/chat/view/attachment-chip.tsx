@@ -1,10 +1,20 @@
 import { Image, Pressable, Text, View } from 'react-native';
+import { Icon, type IconName } from '@/ui';
 import { attachmentStatusText, formatBytes, type DraftAttachment } from '../viewmodel/attachments';
 
-/** One glyph per kind; the web has icons, the phone a character. */
-export const KIND_GLYPH: Record<string, string> = { image: '🖼', pdf: '📄', docx: '📝', xlsx: '📊', audio: '🎙', video: '🎬', text: '📃' };
+/** One symbol per kind, and the paperclip for a kind the list does not know. */
+export const KIND_ICON: Record<string, IconName> = {
+  image: { ios: 'photo', android: 'image' },
+  pdf: { ios: 'doc.richtext', android: 'picture_as_pdf' },
+  docx: { ios: 'doc.text', android: 'description' },
+  xlsx: { ios: 'tablecells', android: 'table_chart' },
+  audio: { ios: 'waveform', android: 'graphic_eq' },
+  video: { ios: 'film', android: 'movie' },
+  text: { ios: 'doc.plaintext', android: 'article' },
+};
+export const ATTACHMENT_ICON: IconName = { ios: 'paperclip', android: 'attach_file' };
 
-/** One file in the box: thumbnail or glyph, name, size, and what is happening to it. ✕ in every state.
+/** One file in the box: thumbnail or symbol, name, size, and what is happening to it. ✕ in every state.
  * Each piece of the second line is its own `Text` (the `·` too), so a size, a status or an error reads
  * as exactly that text. */
 export function AttachmentChip({ draft, onRemove, onRetry }: { draft: DraftAttachment; onRemove(): void; onRetry(): void }) {
@@ -19,7 +29,7 @@ export function AttachmentChip({ draft, onRemove, onRetry }: { draft: DraftAttac
       {draft.kind === 'image' ? (
         <Image source={{ uri: draft.file.uri }} accessibilityLabel={draft.file.name} className="h-9 w-9 rounded" />
       ) : (
-        <Text className="text-lg">{(draft.kind && KIND_GLYPH[draft.kind]) ?? '📎'}</Text>
+        <Icon name={(draft.kind && KIND_ICON[draft.kind]) || ATTACHMENT_ICON} size={22} tone="muted" />
       )}
       <View className="shrink">
         <Text className="text-sm text-app-text" numberOfLines={1}>
@@ -45,7 +55,7 @@ export function AttachmentChip({ draft, onRemove, onRetry }: { draft: DraftAttac
         ) : null}
       </View>
       <Pressable accessibilityRole="button" accessibilityLabel={`Remover ${draft.file.name}`} onPress={onRemove} hitSlop={8} className="px-1">
-        <Text className="text-base text-app-muted">✕</Text>
+        <Icon name={{ ios: 'xmark', android: 'close' }} size={14} tone="muted" />
       </Pressable>
     </View>
   );

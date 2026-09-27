@@ -3,6 +3,7 @@ export * from './button';
 export * from './countdown';
 export * from './empty-state';
 export * from './field';
+export * from './icon';
 export * from './pin-dots';
 export * from './pin-input';
 export * from './screen';

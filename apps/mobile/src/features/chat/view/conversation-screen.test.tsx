@@ -363,18 +363,50 @@ describe('Conversa', () => {
     expect(await screen.findByRole('button', { name: 'Fechar imagem' })).toBeTruthy();
   });
 
-  it('the box grows with its content between one and six lines', async () => {
+  it('the box grows with its content between one and six lines, then scrolls; wrapping moves the buttons under the text', async () => {
     await render(<ConversationScreen />);
     const input = await screen.findByLabelText('Mensagem', undefined, LOAD);
     // NativeWind hands the host element an array of styles: flatten before reading.
-    const height = () => StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height;
-    expect(height()).toBe(22);
+    const style = () => StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style);
+    const scrolls = () => screen.getByLabelText('Mensagem').props.scrollEnabled;
+    // One line: no padding of its own, text and buttons side by side.
+    expect(style()).toMatchObject({ height: 22, lineHeight: 22, padding: 0, paddingTop: 0, paddingBottom: 0 });
+    expect(screen.getByLabelText('Mensagem').props.textAlignVertical).toBe('top');
+    expect(scrolls()).toBe(false);
+    expect(screen.queryByTestId('composer-button-row')).toBeNull();
+
     await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 66 } } });
-    expect(height()).toBe(66);
+    expect(style().height).toBe(66);
+    expect(scrolls()).toBe(false);
+    const row = screen.getByTestId('composer-button-row');
+    expect(within(row).getByRole('button', { name: 'Anexar' })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: 'Ditar' })).toBeTruthy();
+    // The input survived the switch: the same host element, not a remount (the keyboard stays up).
+    expect(screen.getByLabelText('Mensagem')).toBe(input);
+
     await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 400 } } });
-    expect(height()).toBe(132);
+    expect(style().height).toBe(132);
+    expect(scrolls()).toBe(true);
     await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 10 } } });
-    expect(height()).toBe(22);
+    expect(style().height).toBe(22);
+    // Still below: the buttons only come back beside the text once the box is emptied.
+    expect(screen.getByTestId('composer-button-row')).toBeTruthy();
+  });
+
+  it('sending a long message brings the box back to one line, buttons beside the text', async () => {
+    jest.spyOn(stores.api, 'sendMessage').mockResolvedValue({ conversation_id: 'c-termhub', user_message_id: 'u', assistant_message_id: 'a' });
+    await render(<ConversationScreen />);
+    const input = await screen.findByLabelText('Mensagem', undefined, LOAD);
+    await fireEvent.changeText(input, 'uma mensagem longa '.repeat(30));
+    await fireEvent(input, 'contentSizeChange', { nativeEvent: { contentSize: { width: 300, height: 400 } } });
+    expect(StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height).toBe(132);
+
+    await fireEvent.press(within(screen.getByTestId('composer-button-row')).getByRole('button', { name: 'Enviar' }));
+    expect(screen.getByLabelText('Mensagem').props.value).toBe('');
+    expect(StyleSheet.flatten(screen.getByLabelText('Mensagem').props.style).height).toBe(22);
+    expect(screen.getByLabelText('Mensagem').props.scrollEnabled).toBe(false);
+    expect(screen.queryByTestId('composer-button-row')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Ditar' })).toBeTruthy();
   });
 
   it('avoids the keyboard with padding on iOS', async () => {
