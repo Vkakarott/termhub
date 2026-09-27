@@ -1,6 +1,7 @@
 import { memo, useEffect, useState, type KeyboardEvent } from 'react';
-import type { TabQuestion, TabQuestionAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
-import { answerSummary, statusLabel, suggestionLine, tabLabel } from './tab-question-text';
+import { api } from '../../lib/api';
+import type { TabQuestion, TabQuestionAnswer, TabQuestionAutoAnswer, TabQuestionChoice, TabQuestionPermission, TabQuestionSuggestionItem } from '../../lib/types';
+import { answerSummary, autoAnswerFailureText, autoAnswerSeconds, choiceAnswerLabel, formatCountdown, statusLabel, suggestionLine, suggestionSourceSentence, tabLabel } from './tab-question-text';
 
 export interface TabQuestionCardProps {
   question: TabQuestion;
@@ -43,8 +44,37 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
   // Which questions the person has looked at (the first one is shown at once). A pre-selected answer on
   // a tab never opened must not go out with "Responder", so it waits until every suggested one was seen.
   const [viewed, setViewed] = useState<boolean[]>(() => items.map((_, i) => i === 0));
+  /** Automatic answer countdown (spec 2026-09-26 concierge memory §6/§8). `autoOverride` is set once,
+   *  by "Cancelar" (from the server's own response) — like `hint` above, this card does not resync from
+   *  a later `question.auto_answer` prop; a websocket event refreshes the surrounding list instead. */
+  const [autoOverride, setAutoOverride] = useState<TabQuestionAutoAnswer | null | undefined>(undefined);
+  const auto = autoOverride !== undefined ? autoOverride : question.auto_answer ?? null;
+  const [seconds, setSeconds] = useState(() => (auto?.status === 'scheduled' ? autoAnswerSeconds(auto.due_at) : 0));
+  const [cancelling, setCancelling] = useState(false);
+  const [forgettingPrecedent, setForgettingPrecedent] = useState(false);
+  useEffect(() => {
+    if (auto?.status !== 'scheduled') return;
+    const dueAt = auto.due_at;
+    const tick = () => setSeconds(autoAnswerSeconds(dueAt));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [auto?.status, auto?.status === 'scheduled' ? auto.due_at : null]);
   const title = <p className="font-medium text-fg">{`${tabLabel(question)} perguntou`}</p>;
   if (question.status !== 'open') {
+    // The countdown is over, but a `failed` one is never shown on a closed card (controller ruling): it
+    // only ever explains why *this still-open card* has not answered itself; a `sent` one is the
+    // successful automatic answer below (`answered_via: 'auto'`).
+    const autoAnswered = question.answered_via === 'auto' && question.auto_answer;
+    const forgetPrecedent = async () => {
+      if (!question.auto_answer) return;
+      setForgettingPrecedent(true);
+      try {
+        await Promise.allSettled(question.auto_answer.sources.filter((s) => s.kind === 'decision').map((s) => onForget?.(s.id)));
+      } finally {
+        setForgettingPrecedent(false);
+      }
+    };
     return (
       <>
         {title}
@@ -53,6 +83,66 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
             <li key={i}>{line}</li>
           ))}
         </ul>
+        {autoAnswered && (
+          <>
+            <p className="mt-1 text-fg-dim">{`Respondida automaticamente: «${choiceAnswerLabel(question.payload, question.auto_answer!.answer)}» — motivo ${question.auto_answer!.reason}`}</p>
+            <button type="button" className="btn-ghost mt-1 text-xs" disabled={forgettingPrecedent} onClick={() => void forgetPrecedent()}>
+              Esquecer o precedente
+            </button>
+          </>
+        )}
+      </>
+    );
+  }
+  // A countdown still `scheduled` past its own clock, or `sent` on a card still open (the send is in
+  // flight): no interactive options, just the countdown (or "Enviando…") and, while there is still time,
+  // "Cancelar" / "Responder agora" (spec 2026-09-26 concierge memory §6/§8).
+  const sending = auto?.status === 'sent' || (auto?.status === 'scheduled' && seconds <= 0);
+  const counting = auto?.status === 'scheduled' && !sending;
+  if (counting || sending) {
+    const cancel = async () => {
+      setCancelling(true);
+      try {
+        const { tab_question } = await api.cancelAutoAnswer(question.id);
+        const cancelled = tab_question.auto_answer ?? null;
+        setAutoOverride(cancelled);
+        // The proposed answer stays on the card as its pre-selection, now editable (spec §6): it is
+        // shown regardless of whether a matching `suggestion` item also exists.
+        if (cancelled?.answer) {
+          const a = cancelled.answer;
+          setSelected(items.map((_, i) => a.answers[i]?.selected ?? []));
+          setTexts(items.map((_, i) => a.answers[i]?.text ?? ''));
+          setViewed(items.map(() => true));
+        }
+      } finally {
+        setCancelling(false);
+      }
+    };
+    let line = `Resposta automática em ${formatCountdown(seconds)} — «${choiceAnswerLabel(question.payload, auto!.answer)}». Motivo: ${auto!.reason}`;
+    if (auto!.by === 'memory') {
+      const decisionIds = new Set(auto!.sources.filter((s) => s.kind === 'decision').map((s) => s.id));
+      const idx = items.findIndex((_, i) => hint.some((h) => h.question_index === i && decisionIds.has(h.decision_id)));
+      const backing = idx === -1 ? undefined : hint.find((h) => h.question_index === idx);
+      if (backing) line += ` Fonte: ${suggestionSourceSentence(items[idx]!, backing)}`;
+    }
+    return (
+      <>
+        {title}
+        {sending ? (
+          <p className="mt-1 text-fg-dim">Enviando…</p>
+        ) : (
+          <>
+            <p className="mt-1 whitespace-pre-wrap text-fg">{line}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className="btn-ghost" disabled={cancelling || answering} onClick={() => void cancel()}>
+                Cancelar
+              </button>
+              <button type="button" className="btn-primary" disabled={cancelling || answering} onClick={() => onAnswer(question.id, auto!.answer)}>
+                Responder agora
+              </button>
+            </div>
+          </>
+        )}
       </>
     );
   }
@@ -155,14 +245,18 @@ function ChoiceBody({ question, answering, onAnswer, onForget }: TabQuestionCard
       {currentHint && (
         <div className="mt-2">
           <p className="text-xs text-fg-dim">{suggestionLine(item, currentHint)}</p>
-          <button type="button" className="btn-ghost mt-1 text-xs" disabled={answering} onClick={() => forget(currentHint)}>
-            Esquecer esta decisão
-          </button>
+          {/* A concierge suggestion that cited no decision (`decision_id: ""`) has nothing to forget. */}
+          {!(currentHint.by === 'concierge' && !currentHint.decision_id) && (
+            <button type="button" className="btn-ghost mt-1 text-xs" disabled={answering} onClick={() => forget(currentHint)}>
+              Esquecer esta decisão
+            </button>
+          )}
         </div>
       )}
       <button type="button" className="btn-primary mt-2" disabled={answering || !complete || suggestedUnseen} onClick={() => onAnswer(question.id, { answers })}>
         Responder
       </button>
+      {auto?.status === 'failed' && <p className="mt-2 text-xs text-danger">{autoAnswerFailureText(auto.error_code)}</p>}
     </>
   );
 }

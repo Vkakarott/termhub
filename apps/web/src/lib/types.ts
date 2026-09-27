@@ -1012,6 +1012,12 @@ export interface TabQuestionSuggestionItem {
   selected: number[];
   text?: string;
   source: { question: string; project_name: string | null; answered_at: string };
+  /** Set on a concierge call to `answer_tab_question` (mode "suggest"): its own line and reason replace
+   *  the TER-57 "Sugestão da memória" one. Absent = the ordinary past-decision suggestion. */
+  by?: 'concierge';
+  reason?: string;
+  /** The concierge's cited refs, `"kind:id"` each (spec 2026-09-26 concierge memory §5.4); never rendered. */
+  sources?: string[];
 }
 export interface TabQuestionSuggestion {
   items: TabQuestionSuggestionItem[];

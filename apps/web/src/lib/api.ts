@@ -269,6 +269,9 @@ export const api = {
     request<{ grants: ChatGrantListItem[]; next_cursor: string | null }>('GET', `/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}&kinds=all`),
   /** Answers a tab's question from its card (409 `TAB_PROMPT_CHANGED` when the tab moved on). */
   answerTabQuestion: (id: string, body: TabQuestionAnswer) => request<{ tab_question: TabQuestion }>('POST', `/chat/tab-questions/${encodeURIComponent(id)}/answer`, body),
+  /** "Cancelar" on a countdown (spec 2026-09-26 concierge memory §6): nothing is sent, the proposed
+   *  answer stays as the pre-selection. 409 `NOT_SCHEDULED` when no countdown is running. */
+  cancelAutoAnswer: (id: string) => request<{ tab_question: TabQuestion }>('POST', `/chat/tab-questions/${encodeURIComponent(id)}/auto-answer/cancel`, {}),
   /** The last lines of the tab, live, for a permission card; 409 once the question is closed. */
   tabQuestionScreen: (id: string) => request<{ text: string }>('GET', `/chat/tab-questions/${encodeURIComponent(id)}/screen`),
   /** Sends a tab's suggestion, as edited (409 `TAB_PROMPT_CHANGED` when the tab's prompt changed). */

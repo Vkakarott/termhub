@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TabQuestionCard } from './TabQuestionCard';
-import type { TabQuestion } from '../../lib/types';
+import type { TabQuestion, TabQuestionAutoAnswer } from '../../lib/types';
+
+const cancelAutoAnswerMock = vi.fn();
+vi.mock('../../lib/api', () => ({
+  api: { cancelAutoAnswer: (...a: unknown[]) => cancelAutoAnswerMock(...a) },
+}));
 
 afterEach(() => cleanup());
 
@@ -189,4 +194,119 @@ it('a tab without a suggestion carries no mark and does not hold Responder back'
 it('an answered card shows no suggestion line', () => {
   render(<TabQuestionCard question={choice({ status: 'answered', answer: { answers: [{ selected: [1] }] }, suggestion: { items: [suggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
   expect(screen.queryByText(/Sugestão da memória/)).toBeNull();
+});
+
+it('a concierge suggestion shows its own line and reason, with no "Esquecer esta decisão" link when it cited no decision', () => {
+  const conciergeSuggestion = {
+    question_index: 0,
+    decision_id: '',
+    similarity: 0,
+    selected: [1],
+    by: 'concierge' as const,
+    reason: 'Você sempre usa branch em vez de worktree',
+    sources: ['doc:i1'],
+    source: { question: 'Usar worktree?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00Z' },
+  };
+  render(<TabQuestionCard question={choice({ payload: { questions: [colors] }, suggestion: { items: [conciergeSuggestion] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+  expect(screen.getByText('Sugestão do concierge: «Green». Motivo: Você sempre usa branch em vez de worktree')).toBeInTheDocument();
+  expect(screen.queryByText(/Sugestão da memória/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Esquecer esta decisão' })).toBeNull();
+});
+
+describe('automatic answer countdown (spec 2026-09-26 concierge memory §6/§8)', () => {
+  const now = new Date('2026-09-27T10:00:00.000Z');
+  const yesNo = { question: 'Usar worktree?', header: 'Worktree', multi_select: false, options: [{ label: 'Sim', description: '', recommended: false }, { label: 'Não', description: '', recommended: false }] };
+  const auto = (over: Partial<TabQuestionAutoAnswer> = {}): TabQuestionAutoAnswer => ({
+    answer: { answers: [{ selected: [0] }] },
+    by: 'memory',
+    reason: 'Mesma pergunta respondida antes',
+    sources: [{ kind: 'decision', id: 'd1' }],
+    due_at: new Date(now.getTime() + 42_000).toISOString(),
+    status: 'scheduled',
+    ...over,
+  });
+  const memorySource = { question_index: 0, decision_id: 'd1', similarity: 0.99, selected: [0], source: { question: 'Usar worktree?', project_name: 'termhub', answered_at: '2026-09-20T10:00:00Z' } };
+  const card = (over: Partial<TabQuestion> = {}) => choice({ payload: { questions: [yesNo] }, ...over } as Partial<TabQuestion>);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    cancelAutoAnswerMock.mockReset();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('shows the countdown, its reason, the memory source, both buttons, no interactive options, and ticks down', async () => {
+    render(<TabQuestionCard question={card({ auto_answer: auto(), suggestion: { items: [memorySource] } } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText(/Resposta automática em 0:42 — «Sim»\. Motivo: Mesma pergunta respondida antes Fonte: você respondeu «Sim» a «Usar worktree\?» em termhub, 20\/09\/2026/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Responder agora' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.getByText(/0:41/)).toBeInTheDocument();
+  });
+
+  it('"Cancelar" cancels the countdown and, with the returned view, shows the normal card pre-selected and enabled', async () => {
+    cancelAutoAnswerMock.mockResolvedValue({ tab_question: { ...card({}), auto_answer: auto({ status: 'cancelled' }) } });
+    render(<TabQuestionCard question={card({ auto_answer: auto() } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(cancelAutoAnswerMock).toHaveBeenCalledWith('q1');
+    // `vi.waitFor` (unlike `findBy*`) advances Vitest's own fake timers while it polls.
+    await vi.waitFor(() => expect(screen.getByRole('radio', { name: 'Sim' })).toBeChecked());
+    expect(screen.getByRole('radio', { name: 'Sim' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Responder' })).toBeEnabled();
+  });
+
+  it('"Responder agora" answers with the proposed answer', () => {
+    const onAnswer = vi.fn();
+    render(<TabQuestionCard question={card({ auto_answer: auto() } as Partial<TabQuestion>)} answering={false} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Responder agora' }));
+    expect(onAnswer).toHaveBeenCalledWith('q1', { answers: [{ selected: [0] }] });
+  });
+
+  it('a countdown at 0:00 shows "Enviando…" (no negative numbers) with no buttons', () => {
+    render(<TabQuestionCard question={card({ auto_answer: auto({ due_at: now.toISOString() }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText('Enviando…')).toBeInTheDocument();
+    expect(screen.queryByText(/-\d/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).toBeNull();
+  });
+
+  it('a "sent" countdown on a still-open card shows "Enviando…" with no buttons', () => {
+    render(<TabQuestionCard question={card({ auto_answer: auto({ status: 'sent' }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByText('Enviando…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Responder agora' })).toBeNull();
+  });
+
+  it('an answered card with answered_via "auto" shows the automatic-answer line and forgets each decision source', () => {
+    const onForget = vi.fn(async () => {});
+    render(
+      <TabQuestionCard
+        question={
+          card({
+            status: 'answered',
+            answer: { answers: [{ selected: [0] }] },
+            answered_via: 'auto',
+            auto_answer: auto({ status: 'sent', sources: [{ kind: 'decision', id: 'd1' }, { kind: 'decision', id: 'd2' }] }),
+          }) as TabQuestion
+        }
+        answering={false}
+        onAnswer={vi.fn()}
+        onForget={onForget}
+      />,
+    );
+    expect(screen.getByText('Respondida automaticamente: «Sim» — motivo Mesma pergunta respondida antes')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Esquecer o precedente' }));
+    expect(onForget).toHaveBeenCalledWith('d1');
+    expect(onForget).toHaveBeenCalledWith('d2');
+  });
+
+  it.each([
+    ['TAB_PROMPT_CHANGED', 'Não consegui responder sozinho: a pergunta mudou na aba.'],
+    ['SOMETHING_ELSE', 'Não consegui responder sozinho.'],
+  ])('auto_answer.status "failed" (%s) shows the normal, editable card plus its own line', (code, text) => {
+    render(<TabQuestionCard question={card({ auto_answer: auto({ status: 'failed', error_code: code }) } as Partial<TabQuestion>)} answering={false} onAnswer={vi.fn()} />);
+    expect(screen.getByRole('radio', { name: 'Sim' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Sim' })).toBeEnabled();
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
 });

@@ -3,12 +3,14 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ChatMemoryPage } from './ChatMemoryPage';
-import type { ChatDecision } from '../lib/types';
+import type { ChatDecision, ConciergeNote } from '../lib/types';
 
 const chatMemoryMock = vi.fn();
 const chatDecisionsMock = vi.fn();
 const setChatMemoryMock = vi.fn();
 const forgetChatDecisionMock = vi.fn();
+const chatNotesMock = vi.fn();
+const forgetChatNoteMock = vi.fn();
 
 vi.mock('../lib/api', () => {
   class ApiError extends Error {
@@ -27,6 +29,8 @@ vi.mock('../lib/api', () => {
       chatDecisions: (...a: unknown[]) => chatDecisionsMock(...a),
       setChatMemory: (...a: unknown[]) => setChatMemoryMock(...a),
       forgetChatDecision: (...a: unknown[]) => forgetChatDecisionMock(...a),
+      chatNotes: (...a: unknown[]) => chatNotesMock(...a),
+      forgetChatNote: (...a: unknown[]) => forgetChatNoteMock(...a),
     },
   };
 });
@@ -48,11 +52,26 @@ const dec = (over: Partial<ChatDecision> & { id: string }): ChatDecision => ({
   ...over,
 });
 
+const note = (over: Partial<ConciergeNote> & { id: string }): ConciergeNote => ({
+  project_id: 'p1',
+  project_name: 'termhub',
+  question: 'Usar worktree?',
+  decision: 'Sim',
+  reason: 'Você sempre usa worktree para isolar o trabalho',
+  created_at: '2026-09-21T10:00:00.000Z',
+  ...over,
+});
+
 beforeEach(() => {
   chatMemoryMock.mockReset();
   chatDecisionsMock.mockReset();
   setChatMemoryMock.mockReset();
   forgetChatDecisionMock.mockReset();
+  chatNotesMock.mockReset();
+  forgetChatNoteMock.mockReset();
+  // Every test that does not care about notes gets an empty, immediately-resolved list — the search and
+  // toggle tests below never mock `chatNotes` themselves.
+  chatNotesMock.mockResolvedValue({ notes: [], next_cursor: null });
 });
 
 afterEach(() => {
@@ -62,7 +81,7 @@ afterEach(() => {
 });
 
 it('loads GET /memory and GET /decisions and lists question, answer, project, date and counts', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [dec({ id: 'd1' })], next_cursor: null });
   render(<ChatMemoryPage />);
   expect(await screen.findByText('Usar worktree?')).toBeInTheDocument();
@@ -75,14 +94,14 @@ it('loads GET /memory and GET /decisions and lists question, answer, project, da
 });
 
 it('shows a free-text answer as the text, not the labels', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [dec({ id: 'd1', answer: { labels: [], text: 'Usar branch' } })], next_cursor: null });
   render(<ChatMemoryPage />);
   expect(await screen.findByText('→ Usar branch')).toBeInTheDocument();
 });
 
 it('typing in "Buscar" re-queries with q, debounced', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   render(<ChatMemoryPage />);
   await screen.findByLabelText('Buscar');
@@ -97,7 +116,7 @@ it('typing in "Buscar" re-queries with q, debounced', async () => {
 });
 
 it('"Esquecer" asks window.confirm and removes the row after the DELETE', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [dec({ id: 'd1' })], next_cursor: null });
   forgetChatDecisionMock.mockResolvedValue(undefined);
   vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -109,7 +128,7 @@ it('"Esquecer" asks window.confirm and removes the row after the DELETE', async 
 });
 
 it('the switch PATCHes { enabled: false }', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   setChatMemoryMock.mockResolvedValue({ enabled: false, available: true, count: 0 });
   render(<ChatMemoryPage />);
@@ -118,7 +137,7 @@ it('the switch PATCHes { enabled: false }', async () => {
 });
 
 it('shows the unavailable note and hides the switch when available is false', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: false, available: false, count: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: false, available: false, count: 0, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   render(<ChatMemoryPage />);
   expect(await screen.findByText('Sugestões indisponíveis neste servidor')).toBeInTheDocument();
@@ -128,7 +147,7 @@ it('shows the unavailable note and hides the switch when available is false', as
 it("shows the later search's results even if the earlier one resolves after it", async () => {
   // The debounce only ever cancels the *timer*; once both requests are in flight, only a
   // request-generation check (not the timer) can stop a slow, superseded search from winning.
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
   type Page = { decisions: ChatDecision[]; next_cursor: string | null };
   const deferred: Array<(v: Page) => void> = [];
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [], next_cursor: null }); // initial load on mount
@@ -154,7 +173,7 @@ it("shows the later search's results even if the earlier one resolves after it",
 });
 
 it('never updates state after unmounting while a search is still in flight', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
   type Page = { decisions: ChatDecision[]; next_cursor: string | null };
   let resolveSearch!: (v: Page) => void;
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [], next_cursor: null }); // initial load on mount
@@ -177,7 +196,7 @@ it('never updates state after unmounting while a search is still in flight', asy
 it("toggling, then a search that completes before the PATCH does, still shows the toggle's own result", async () => {
   // Regression: toggle/forget must not share the search's request-generation guard — a concurrent
   // search finishing first must never make the switch fall back to its pre-toggle value.
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   let resolveToggle!: (v: { enabled: boolean; available: boolean; count: number }) => void;
   setChatMemoryMock.mockImplementationOnce(() => new Promise((resolve) => (resolveToggle = resolve)));
@@ -199,7 +218,7 @@ it("toggling, then a search that completes before the PATCH does, still shows th
 });
 
 it('a search that started before a toggle completed never flips the switch back when it resolves later', async () => {
-  chatMemoryMock.mockResolvedValueOnce({ enabled: true, available: true, count: 0 }); // initial load
+  chatMemoryMock.mockResolvedValueOnce({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 }); // initial load
   chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
   render(<ChatMemoryPage />);
   const sw = await screen.findByRole('switch', { name: 'Sugerir respostas com base nas minhas decisões' });
@@ -224,7 +243,7 @@ it('a search that started before a toggle completed never flips the switch back 
 });
 
 it('forgetting, then a search that completes before the DELETE does, still removes the row', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 1, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: null }); // initial load
   let resolveForget!: () => void;
   forgetChatDecisionMock.mockImplementationOnce(() => new Promise<void>((resolve) => (resolveForget = resolve)));
@@ -249,7 +268,7 @@ it('forgetting, then a search that completes before the DELETE does, still remov
 });
 
 it('"Carregar mais" appears with next_cursor and appends the next page', async () => {
-  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 2 });
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 2, autodecide: false, notes: 0 });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd1' })], next_cursor: 'c2' });
   chatDecisionsMock.mockResolvedValueOnce({ decisions: [dec({ id: 'd2', question: 'Outra pergunta?' })], next_cursor: null });
   render(<ChatMemoryPage />);
@@ -258,4 +277,54 @@ it('"Carregar mais" appears with next_cursor and appends the next page', async (
   expect(screen.getByText('Usar worktree?')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Carregar mais' })).toBeNull();
   expect(chatDecisionsMock).toHaveBeenLastCalledWith(undefined, 'c2');
+});
+
+it('the "Responder sozinho" switch reflects autodecide and PATCHes it', async () => {
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 0 });
+  chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
+  setChatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: true, notes: 0 });
+  render(<ChatMemoryPage />);
+  const sw = await screen.findByRole('switch', { name: 'Responder sozinho quando houver precedente' });
+  expect(sw).toHaveAttribute('aria-checked', 'false');
+  expect(screen.getByText(/60 segundos/)).toBeInTheDocument();
+  fireEvent.click(sw);
+  expect(setChatMemoryMock).toHaveBeenCalledWith({ autodecide: true });
+  await waitFor(() => expect(sw).toHaveAttribute('aria-checked', 'true'));
+});
+
+it('shows the unavailable note and hides both switches when available is false', async () => {
+  chatMemoryMock.mockResolvedValue({ enabled: false, available: false, count: 0, autodecide: false, notes: 0 });
+  chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
+  render(<ChatMemoryPage />);
+  expect(await screen.findByText('Sugestões indisponíveis neste servidor')).toBeInTheDocument();
+  expect(screen.queryByRole('switch')).toBeNull();
+  expect(screen.queryByText('Responder sozinho quando houver precedente')).toBeNull();
+});
+
+it('"Anotações do concierge" lists question, decision, reason and date, and "Esquecer" removes the row after confirming', async () => {
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 1 });
+  chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
+  chatNotesMock.mockResolvedValue({ notes: [note({ id: 'n1' })], next_cursor: null });
+  forgetChatNoteMock.mockResolvedValue(undefined);
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<ChatMemoryPage />);
+  expect(await screen.findByText('Usar worktree?')).toBeInTheDocument();
+  expect(screen.getByText('→ Sim')).toBeInTheDocument();
+  expect(screen.getByText(/Você sempre usa worktree para isolar o trabalho/)).toBeInTheDocument();
+  expect(screen.getByText(/21\/09\/2026/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Esquecer' }));
+  expect(window.confirm).toHaveBeenCalled();
+  await waitFor(() => expect(forgetChatNoteMock).toHaveBeenCalledWith('n1'));
+  await waitFor(() => expect(screen.queryByText('Usar worktree?')).toBeNull());
+});
+
+it('"Esquecer" on a note asks nothing back when the person declines the confirm', async () => {
+  chatMemoryMock.mockResolvedValue({ enabled: true, available: true, count: 0, autodecide: false, notes: 1 });
+  chatDecisionsMock.mockResolvedValue({ decisions: [], next_cursor: null });
+  chatNotesMock.mockResolvedValue({ notes: [note({ id: 'n1' })], next_cursor: null });
+  vi.spyOn(window, 'confirm').mockReturnValue(false);
+  render(<ChatMemoryPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Esquecer' }));
+  expect(forgetChatNoteMock).not.toHaveBeenCalled();
+  expect(screen.getByText('Usar worktree?')).toBeInTheDocument();
 });
