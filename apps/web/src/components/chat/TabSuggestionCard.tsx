@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { TabSuggestion } from '../../lib/types';
-import { CONTEXT_PREVIEW_MAX, lastParagraph, suggestionStatusLabel, suggestionTitle } from './tab-suggestion-text';
+import { CONTEXT_PREVIEW_MAX, SUGGESTION_HINT, lastParagraph, suggestionStatusLabel, suggestionTitle } from './tab-suggestion-text';
 
 export interface TabSuggestionCardProps {
   suggestion: TabSuggestion;
@@ -13,9 +13,9 @@ export interface TabSuggestionCardProps {
 }
 
 /**
- * Claude Code's dimmed next prompt in a tab, inline in the thread (spec 2026-09-25 tab suggestions §6.4), with
- * the agent's message it answers (spec 2026-09-26 §6.4): the text editable, Enviar / Dispensar. Presentational:
- * the requests live in `ChatPanel`. Plain text only.
+ * Claude Code's dimmed next prompt in a tab that finished its turn — an offer, not a question (spec 2026-09-26
+ * TER-203 §5) —, inline in the thread, with the agent's message it answers (spec 2026-09-26 §6.4): the text
+ * editable, Enviar / Dispensar. Presentational: the requests live in `ChatPanel`. Plain text only.
  */
 export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, busy, error, onSend, onDismiss }: TabSuggestionCardProps) {
   const [text, setText] = useState(suggestion.payload.text);
@@ -23,8 +23,9 @@ export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, b
   const trimmed = text.trim();
   const context = suggestion.payload.context?.trim() || null;
   return (
-    <li className="rounded-xl border border-accent/40 bg-bg-2 px-4 py-3 text-sm">
+    <li className="rounded-xl border border-line bg-bg-2 px-4 py-3 text-sm">
       <p className="font-medium text-fg">{suggestionTitle(suggestion)}</p>
+      {open && <p className="text-xs text-fg-dim">{SUGGESTION_HINT}</p>}
       {context && <SuggestionContext text={context} />}
       {open ? (
         <>

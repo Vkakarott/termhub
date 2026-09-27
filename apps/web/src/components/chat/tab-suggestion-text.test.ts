@@ -26,9 +26,9 @@ describe('lastParagraph (spec 2026-09-26 §6.4)', () => {
 });
 
 describe('suggestionTitle', () => {
-  it('asks for an answer while open, and says what the tab suggested once closed', () => {
-    expect(suggestionTitle(s())).toBe('«api» está esperando sua resposta');
-    expect(suggestionTitle(s({ tab_name: null }))).toBe('Uma aba está esperando sua resposta');
+  it('offers the suggestion while open (it asks nothing), and says what the tab suggested once closed', () => {
+    expect(suggestionTitle(s())).toBe('«api» terminou — o Claude Code sugere:');
+    expect(suggestionTitle(s({ tab_name: null }))).toBe('Uma aba terminou — o Claude Code sugere:');
     expect(suggestionTitle(s({ status: 'answered' }))).toBe('«api» sugere:');
     expect(suggestionTitle(s({ status: 'dismissed', tab_name: null }))).toBe('Uma aba sugere:');
   });

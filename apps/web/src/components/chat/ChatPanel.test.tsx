@@ -525,7 +525,7 @@ it('tab question events add and update the card; another conversation\'s are ign
 });
 
 const suggestion = (over: Partial<TabSuggestion> & { id: string }): TabSuggestion => ({ tab_id: 't1', tab_name: 'api', kind: 'suggestion', payload: { text: 'commit it' }, status: 'open', answer: null, error_code: null, created_at: '2026-09-21T00:00:00.000Z', answered_at: null, closed_at: null, ...over });
-const card = async () => (await screen.findByText('«api» está esperando sua resposta')).closest('li') as HTMLElement;
+const card = async () => (await screen.findByText('«api» terminou — o Claude Code sugere:')).closest('li') as HTMLElement;
 
 it('shows a tab suggestion from GET /chat and sends it, as edited, with one click', async () => {
   chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [], tab_questions: [], tab_suggestions: [suggestion({ id: 's1' })] });
@@ -555,7 +555,7 @@ it('Dispensar closes the card; a stale suggestion reads "A sugestão mudou na ab
   fireEvent.click(within(await card()).getByRole('button', { name: 'Dispensar' }));
   expect(await screen.findByText('Dispensada')).toBeInTheDocument();
   expect(dismissSuggestionMock).toHaveBeenCalledWith('s1');
-  const other = (await screen.findByText('«web» está esperando sua resposta')).closest('li') as HTMLElement;
+  const other = (await screen.findByText('«web» terminou — o Claude Code sugere:')).closest('li') as HTMLElement;
   fireEvent.click(within(other).getByRole('button', { name: 'Enviar' }));
   expect(await screen.findByText('A sugestão mudou na aba')).toBeInTheDocument();
 });
@@ -576,7 +576,7 @@ it("tab suggestion events add and update the card; another conversation's are ig
   onEvent({ type: 'tab_suggestion', conversation_id: 'c_other', suggestion: suggestion({ id: 's9', tab_name: 'OUTRA' }) });
   expect(screen.queryByText(/OUTRA/)).toBeNull();
   onEvent({ type: 'tab_suggestion', conversation_id: 'c_p1', suggestion: suggestion({ id: 's1' }) });
-  expect(await screen.findByText('«api» está esperando sua resposta')).toBeInTheDocument();
+  expect(await screen.findByText('«api» terminou — o Claude Code sugere:')).toBeInTheDocument();
   onEvent({ type: 'tab_suggestion_closed', conversation_id: 'c_p1', suggestion: suggestion({ id: 's1', status: 'answered_in_tab' }) });
   expect(await screen.findByText('Respondida na aba')).toBeInTheDocument();
 });
