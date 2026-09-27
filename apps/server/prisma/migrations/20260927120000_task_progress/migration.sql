@@ -27,3 +27,5 @@ END $$;
 
 CREATE TRIGGER "tasks_track_progress_times" BEFORE INSERT OR UPDATE OF "status" ON "tasks"
   FOR EACH ROW EXECUTE FUNCTION "tasks_track_progress_times"();
+
+CREATE INDEX "tasks_tab_id_idx" ON "tasks"("tab_id");

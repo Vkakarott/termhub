@@ -444,6 +444,7 @@ model Task {
   @@index([parentId, position])
   @@index([columnId, position])
   @@index([epicId, status, position])
+  @@index([tabId])
   @@map("tasks")
 }
 
