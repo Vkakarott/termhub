@@ -90,6 +90,22 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MemoryItemsRepository (Po
     expect((await repo.listToEmbed(1000)).map((r) => r.id)).toContain(id);
   });
 
+  it('upsertMany (fix round 1): owner_id follows the caller on conflict, not just title/text/project_id', async () => {
+    const sourceId = newId();
+    const [row] = await repo.upsertMany([item({ owner_id: userId, source_id: sourceId, title: 'Card', text: 'Body' })]);
+    expect(row!.owner_id).toBe(userId);
+
+    // The project this item came from changed owner: re-indexing it with the new owner_id must update
+    // the existing row in place — otherwise it would keep showing up in the old owner's search (and
+    // never the new owner's) until some other, unrelated write happened to touch it.
+    const [moved] = await repo.upsertMany([item({ owner_id: otherUserId, source_id: sourceId, title: 'Card', text: 'Body' })]);
+    expect(moved!.id).toBe(row!.id); // same row, not a new one
+    expect(moved!.owner_id).toBe(otherUserId);
+
+    const stored = await db.memoryItem.findUniqueOrThrow({ where: { id: row!.id } });
+    expect(stored.ownerId).toBe(otherUserId);
+  });
+
   it('deleteChunksFrom removes chunks from an index on, keeping the earlier ones; deleteBySource removes every chunk', async () => {
     const sourceId = 'pm1:docs/a.md';
     await repo.upsertMany([0, 1, 2, 3].map((i) => item({ kind: 'doc', source_id: sourceId, chunk_index: i, title: `a.md #${i}`, text: `chunk ${i}` })));

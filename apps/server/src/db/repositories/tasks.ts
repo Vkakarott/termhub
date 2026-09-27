@@ -154,14 +154,22 @@ export class TasksRepository {
   }
 
   /**
-   * Cards of this owner's projects whose `updated_at` is at least `since`, oldest first, capped at
-   * `limit` — the memory sweeper's read for indexing cards (spec 2026-09-26 concierge memory §4):
-   * ordering by `updated_at` means a backlog larger than `limit` is caught up over successive sweeps
-   * instead of the same newest rows winning every tick.
+   * Cards of this owner's projects at or after the `(since, afterId)` cursor, oldest first, capped at
+   * `limit` — the memory sweeper's read for indexing cards (spec 2026-09-26 concierge memory §4, fix
+   * round 1). Ordered by `(updated_at, id)`, and the cursor is that same pair: with `afterId` given, a
+   * row exactly at `since` only counts once its id is past `afterId`, so a page boundary that lands
+   * mid-tie (several cards updated in the very same millisecond) never re-reads a row it already
+   * returned nor skips one it has not. Without `afterId` (the very first page a caller ever asks for),
+   * `since` alone is inclusive. The caller (`indexTasks`) is what turns a backlog bigger than `limit`
+   * into full, forward-only coverage: advancing this cursor from the *last* row of each page it reads,
+   * never from anything computed independently of what was actually fetched.
    */
-  async listChangedForOwner(ownerId: string, since: Date, limit = 200): Promise<Task[]> {
+  async listChangedForOwner(ownerId: string, since: Date, limit = 200, afterId?: string): Promise<Task[]> {
     const rows = await this.db.task.findMany({
-      where: { project: { ownerId }, updatedAt: { gte: since } },
+      where: {
+        project: { ownerId },
+        OR: afterId !== undefined ? [{ updatedAt: { gt: since } }, { updatedAt: since, id: { gt: afterId } }] : [{ updatedAt: { gte: since } }],
+      },
       orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
       take: limit,
       include: KEY,

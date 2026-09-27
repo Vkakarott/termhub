@@ -66,6 +66,12 @@ describe('indexMessage', () => {
     expect(items.every((i) => i.text.length <= ITEM_TEXT_MAX)).toBe(true);
   });
 
+  it('indexes nothing for an attachment-only message (fix round 1: no text, only files)', async () => {
+    const memoryItems = fakeMemoryItems();
+    await indexMessage({ memoryItems } as never, { ...msg, text: '' }, { embedder: null, log: log() });
+    expect(memoryItems.upsertMany).not.toHaveBeenCalled();
+  });
+
   it('resolves and logs only a code when the embedder rejects, never the text or the title', async () => {
     const memoryItems = fakeMemoryItems();
     const failing = { embed: vi.fn(async () => { throw new EmbedError('EMBED_UNREACHABLE'); }) };
@@ -224,6 +230,101 @@ describe('indexTasks', () => {
     await indexTasks({ memoryItems, tasks } as never, 'u1', { embedder: e, log: log() });
     await new Promise((r) => setTimeout(r, 0));
     expect(memoryItems.setEmbedding).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('indexTasks pagination (fix round 1: a backlog bigger than one page)', () => {
+  /**
+   * A faithful in-memory stand-in for `TasksRepository.listChangedForOwner` and `MemoryItemsRepository`
+   * (`listSourceAt`/`upsertMany`/`deleteBySource`), so this exercises `indexTasks`'s own paging logic —
+   * not just whatever a fixed-return `vi.fn()` happens to hand back. `listChangedForOwner` mirrors the
+   * repository's `(since, afterId)` cursor exactly: without `afterId`, `since` is inclusive; with it,
+   * only rows strictly after `since`, or at `since` with a bigger id, count — the same tuple order the
+   * real SQL now uses.
+   */
+  function harness(count: number, pageLimit = 200) {
+    const tasksById = new Map<string, Task>();
+    for (let i = 0; i < count; i++) {
+      const id = `t${String(i).padStart(5, '0')}`;
+      tasksById.set(id, task({ id, title: `Task ${i}`, description: `Body ${i}`, updated_at: new Date(2026, 0, 1, 0, 0, i).toISOString() }));
+    }
+    const itemsBySourceId = new Map<string, { source_at: string }>();
+    const memoryItems = {
+      listSourceAt: vi.fn(async () => new Map([...itemsBySourceId].map(([id, v]) => [id, v.source_at]))),
+      upsertMany: vi.fn(async (items: NewMemoryItem[]) => {
+        for (const it of items) itemsBySourceId.set(it.source_id, { source_at: it.source_at.toISOString() });
+        return items.map(toRow);
+      }),
+      setEmbedding: vi.fn(async () => {}),
+      deleteBySource: vi.fn(async (_kind: string, ids: string[]) => {
+        for (const id of ids) itemsBySourceId.delete(id);
+        return ids.length;
+      }),
+    };
+    const tasks = {
+      listChangedForOwner: vi.fn(async (_ownerId: string, since: Date, limit = pageLimit, afterId?: string) => {
+        const sinceMs = since.getTime();
+        const all = [...tasksById.values()].sort((a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at) || a.id.localeCompare(b.id));
+        const matching = all.filter((t) => {
+          const at = Date.parse(t.updated_at);
+          if (afterId === undefined) return at >= sinceMs;
+          return at > sinceMs || (at === sinceMs && t.id > afterId);
+        });
+        return matching.slice(0, limit);
+      }),
+      findByIdsForOwner: vi.fn(async (ids: string[]) => ids.map((id) => tasksById.get(id)).filter((t): t is Task => t !== undefined)),
+    };
+    return { tasksById, itemsBySourceId, memoryItems, tasks };
+  }
+
+  it('indexes every card of a backlog bigger than one page, in a single sweep', async () => {
+    const h = harness(250, 200);
+    const n = await indexTasks({ memoryItems: h.memoryItems, tasks: h.tasks } as never, 'u1', { embedder: null, log: log() });
+    expect(n).toBe(250);
+    expect(h.itemsBySourceId.size).toBe(250);
+    // A second sweep, nothing changed: no re-indexing, and the watermark never looks backwards.
+    const again = await indexTasks({ memoryItems: h.memoryItems, tasks: h.tasks } as never, 'u1', { embedder: null, log: log() });
+    expect(again).toBe(0);
+    expect(h.itemsBySourceId.size).toBe(250);
+  });
+
+  it('over successive sweeps every card gets indexed, never stalling on the same page (the fix round 1 bug)', async () => {
+    const h = harness(450, 200);
+    let rounds = 0;
+    let lastCount = -1;
+    // With the original bug (cursor = the *earliest* known source_at), this loop would plateau at 200
+    // forever — the same query, same `ORDER BY updated_at ASC LIMIT 200`, would keep returning the same
+    // 200 oldest rows every round, and `h.itemsBySourceId.size` would never move past 200.
+    while (h.itemsBySourceId.size < 450 && rounds < 10 && h.itemsBySourceId.size !== lastCount) {
+      lastCount = h.itemsBySourceId.size;
+      await indexTasks({ memoryItems: h.memoryItems, tasks: h.tasks } as never, 'u1', { embedder: null, log: log() });
+      rounds += 1;
+    }
+    expect(h.itemsBySourceId.size).toBe(450);
+  });
+
+  it('a card edited later (its updated_at jumps to "now") is re-indexed on the next sweep', async () => {
+    const h = harness(5, 200);
+    await indexTasks({ memoryItems: h.memoryItems, tasks: h.tasks } as never, 'u1', { embedder: null, log: log() });
+    expect(h.itemsBySourceId.get('t00002')!.source_at).toBe(h.tasksById.get('t00002')!.updated_at);
+
+    const edited = { ...h.tasksById.get('t00002')!, title: 'Renamed', updated_at: new Date(2026, 0, 2, 0, 0, 0).toISOString() };
+    h.tasksById.set('t00002', edited);
+
+    const n = await indexTasks({ memoryItems: h.memoryItems, tasks: h.tasks } as never, 'u1', { embedder: null, log: log() });
+    expect(n).toBe(1);
+    expect(h.itemsBySourceId.get('t00002')!.source_at).toBe(edited.updated_at);
+  });
+
+  it('a card deleted after being indexed is dropped even mid-backlog', async () => {
+    const h = harness(250, 200);
+    await indexTasks({ memoryItems: h.memoryItems, tasks: h.tasks } as never, 'u1', { embedder: null, log: log() });
+    expect(h.itemsBySourceId.has('t00010')).toBe(true);
+    h.tasksById.delete('t00010');
+
+    await indexTasks({ memoryItems: h.memoryItems, tasks: h.tasks } as never, 'u1', { embedder: null, log: log() });
+    expect(h.itemsBySourceId.has('t00010')).toBe(false);
+    expect(h.itemsBySourceId.size).toBe(249);
   });
 });
 

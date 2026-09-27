@@ -39,6 +39,10 @@ async function embedInserted(repos: Pick<Repositories, 'memoryItems'>, embedder:
  * chunks (`chunk_index` 0, 1, …) of the same message id, exactly like a doc's chunks. Never throws: a
  * db hiccup or a failing embed service must not turn a message that was already sent and stored into a
  * failed request — this always runs fire-and-forget from the caller. Never logs the message text.
+ *
+ * An attachment-only message (fix round 1) — files with no words, `text === ''` — cleans to nothing and
+ * indexes nothing: an empty "Mensagem" item would be pure noise (nothing to match a future search
+ * against) and would still cost a chunk 0 row forever, since nothing ever overwrites it.
  */
 export async function indexMessage(
   repos: Pick<Repositories, 'memoryItems'>,
@@ -47,9 +51,9 @@ export async function indexMessage(
 ): Promise<void> {
   try {
     const cleaned = cleanMemoryText(m.text);
+    if (cleaned.length === 0) return;
     const pieces: string[] = [];
     for (let i = 0; i < cleaned.length; i += ITEM_TEXT_MAX) pieces.push(cleaned.slice(i, i + ITEM_TEXT_MAX));
-    if (pieces.length === 0) pieces.push('');
     const items: NewMemoryItem[] = pieces.map((text, chunk_index) => ({
       owner_id: m.owner_id,
       project_id: m.project_id,
@@ -107,40 +111,87 @@ export async function indexActions(repos: Repositories, userId: string, actions:
   }
 }
 
+/** One page of `listChangedForOwner` (spec §4, fix round 1): kept as its own constant so the per-tick
+ *  cap below is stated in the same unit. */
+const TASK_PAGE_LIMIT = 200;
+
+/** How many pages one `indexTasks` call (one owner, one tick of the sweeper) will walk at most: bounds
+ *  a single sweep's own work even for a very large backlog, while still making forward, monotonic
+ *  progress every tick — a backlog bigger than this converges over the next tick(s) instead of never
+ *  reaching past the first page at all (the fix round 1 bug: see below). */
+const TASK_MAX_PAGES_PER_TICK = 25;
+
 /**
  * Indexes this owner's changed cards and drops the ones whose task is gone (spec §4): a task whose
  * `updated_at` moved past its item's stored `source_at` (or that has no item yet) is upserted; one
- * whose `updated_at` did not move is left alone. `since` is the oldest `source_at` this owner's task
- * items already carry (or the epoch, the first time), so `listChangedForOwner`'s cap of `limit` rows
- * catches a large backlog up over several sweeps instead of the same newest cards winning every tick.
+ * whose `updated_at` did not move is left alone.
+ *
+ * The cursor is the **latest** `source_at` this owner's task items already carry (the epoch, the first
+ * time) — never the earliest. Fix round 1: starting from the earliest known `source_at` re-asks for
+ * "everything at or after the oldest thing I've already indexed", which for an owner with more cards
+ * than one page is the *same* oldest page every single tick (that query's own `ORDER BY updated_at ASC
+ * LIMIT` always lands on the same rows, since nothing about the query changed), so cards past the first
+ * page were never indexed, however many times the sweeper ran. Starting from the latest known
+ * `source_at` instead means a fresh tick only ever asks for cards this owner has not fully accounted
+ * for yet — a brand new card, or an edited one (`updated_at` always jumps to "now", past any previous
+ * watermark) — so the watermark only ever advances, and it advances *because the table itself changed*,
+ * not because of anything this function remembers between calls: a restart loses nothing. Ties at the
+ * exact watermark millisecond (several cards touched together, e.g. `add_subtasks`) are broken by the
+ * largest id already recorded at that instant, so a page starting there does not re-read a sibling row
+ * stamped the same millisecond — only the rare case of such a tie itself spanning more than one page
+ * (over `TASK_PAGE_LIMIT` cards touched in the very same millisecond) is left as a known, narrow gap.
+ *
+ * A backlog bigger than one page is walked across as many pages as `TASK_MAX_PAGES_PER_TICK` allows,
+ * in this same call: each page's cursor comes from the *last row that page actually returned*, never
+ * recomputed independently, so pages never overlap and never skip. A backlog bigger than the whole
+ * per-tick cap converges over the following tick(s) instead, since the watermark it leaves behind is
+ * exactly where this call stopped.
+ *
  * Deletion is a separate, exact check — every item's task id this owner still has, checked for
  * existence with the same owner-scoped `findByIdsForOwner` every other card lookup uses — so a card
- * merely older than `since` is never mistaken for one that is gone. Called by the sweeper, once per
- * owner; propagates its own failures so the sweeper's own try/catch can log them and move on to the
- * next owner without this one silently doing nothing. Returns how many cards were (re-)indexed.
+ * merely not reached by this call's watermark yet is never mistaken for one that is gone. Called by the
+ * sweeper, once per owner; propagates its own failures so the sweeper's own try/catch can log them and
+ * move on to the next owner without this one silently doing nothing. Returns how many cards were
+ * (re-)indexed.
  */
 export async function indexTasks(repos: Repositories, ownerId: string, deps: MemoryDeps): Promise<number> {
   const sourceAt = await repos.memoryItems.listSourceAt('task', ownerId);
-  const since = sourceAt.size > 0 ? new Date(Math.min(...[...sourceAt.values()].map((s) => Date.parse(s)))) : new Date(0);
-  const tasks = await repos.tasks.listChangedForOwner(ownerId, since);
-  const changed = tasks.filter((t) => {
-    const known = sourceAt.get(t.id);
-    return known === undefined || Date.parse(t.updated_at) > Date.parse(known);
-  });
-  if (changed.length > 0) {
-    const items: NewMemoryItem[] = changed.map((t) => ({
-      owner_id: ownerId,
-      project_id: t.project_id,
-      kind: 'task',
-      source_id: t.id,
-      chunk_index: 0,
-      title: cleanMemoryText(`${t.ref} · ${t.title}`),
-      text: cut(t.description ?? ''),
-      trust: 'derived',
-      source_at: new Date(t.updated_at),
-    }));
-    const inserted = await repos.memoryItems.upsertMany(items);
-    if (deps.embedder) void embedInserted(repos, deps.embedder, inserted, deps.log);
+  let since = new Date(0);
+  let afterId: string | undefined;
+  if (sourceAt.size > 0) {
+    const maxAt = Math.max(...[...sourceAt.values()].map((s) => Date.parse(s)));
+    since = new Date(maxAt);
+    for (const [id, at] of sourceAt) if (Date.parse(at) === maxAt && (afterId === undefined || id > afterId)) afterId = id;
+  }
+
+  let changed = 0;
+  for (let page = 0; page < TASK_MAX_PAGES_PER_TICK; page++) {
+    const tasks = await repos.tasks.listChangedForOwner(ownerId, since, TASK_PAGE_LIMIT, afterId);
+    if (tasks.length === 0) break;
+    const toWrite = tasks.filter((t) => {
+      const known = sourceAt.get(t.id);
+      return known === undefined || Date.parse(t.updated_at) > Date.parse(known);
+    });
+    if (toWrite.length > 0) {
+      const items: NewMemoryItem[] = toWrite.map((t) => ({
+        owner_id: ownerId,
+        project_id: t.project_id,
+        kind: 'task',
+        source_id: t.id,
+        chunk_index: 0,
+        title: cleanMemoryText(`${t.ref} · ${t.title}`),
+        text: cut(t.description ?? ''),
+        trust: 'derived',
+        source_at: new Date(t.updated_at),
+      }));
+      const inserted = await repos.memoryItems.upsertMany(items);
+      if (deps.embedder) void embedInserted(repos, deps.embedder, inserted, deps.log);
+      changed += toWrite.length;
+    }
+    const last = tasks[tasks.length - 1]!;
+    since = new Date(last.updated_at);
+    afterId = last.id;
+    if (tasks.length < TASK_PAGE_LIMIT) break; // caught up: nothing newer left to see this tick
   }
 
   const knownIds = [...sourceAt.keys()];
@@ -151,7 +202,7 @@ export async function indexTasks(repos: Repositories, ownerId: string, deps: Mem
     if (goneIds.length > 0) await repos.memoryItems.deleteBySource('task', goneIds);
   }
 
-  return changed.length;
+  return changed;
 }
 
 /**

@@ -141,8 +141,10 @@ export class MemoryItemsRepository {
   /**
    * Insert or update on `(kind, source_id, chunk_index)`. An unchanged `content_hash` keeps the
    * embedding (the writer re-sent the same text); a changed one clears it, so the sweeper picks the
-   * row up again. Returns only the rows whose embedding is now null — the ones the sweeper still owes
-   * an embedding, never the ones that kept theirs.
+   * row up again. `owner_id` (fix round 1) always follows the caller's latest write too — a card whose
+   * project changed owner must stop showing in the old owner's search on the very next re-index, not
+   * once a second, unrelated sweep of the new owner happens to run first. Returns only the rows whose
+   * embedding is now null — the ones the sweeper still owes an embedding, never the ones that kept theirs.
    */
   async upsertMany(items: NewMemoryItem[]): Promise<MemoryItem[]> {
     if (items.length === 0) return [];
@@ -154,7 +156,7 @@ export class MemoryItemsRepository {
           INSERT INTO "memory_items" ("id","owner_id","project_id","kind","source_id","chunk_index","title","text","trust","content_hash","source_hash","source_at","updated_at")
           VALUES (${it.id ?? newId()}, ${it.owner_id}, ${it.project_id}, ${it.kind}, ${it.source_id}, ${it.chunk_index}, ${it.title}, ${it.text}, ${it.trust}, ${hash}, ${it.source_hash ?? null}, ${it.source_at}, now())
           ON CONFLICT ("kind","source_id","chunk_index") DO UPDATE SET
-            "title" = EXCLUDED."title", "text" = EXCLUDED."text", "trust" = EXCLUDED."trust", "project_id" = EXCLUDED."project_id",
+            "title" = EXCLUDED."title", "text" = EXCLUDED."text", "trust" = EXCLUDED."trust", "owner_id" = EXCLUDED."owner_id", "project_id" = EXCLUDED."project_id",
             "source_at" = EXCLUDED."source_at", "updated_at" = now(), "content_hash" = EXCLUDED."content_hash", "source_hash" = EXCLUDED."source_hash",
             "embedding" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embedding" ELSE NULL END,
             "embed_model" = CASE WHEN "memory_items"."content_hash" = EXCLUDED."content_hash" THEN "memory_items"."embed_model" ELSE NULL END
