@@ -58,7 +58,11 @@ export function ciOf(runs: WorkflowRun[]): { state: CiState; summary: CiSummary 
 /** The deploy: the latest run of the setup's workflow, matched by file name or display name. */
 export function deployOf(runs: WorkflowRun[], workflow: string | null): { state: CiState; url: string | null } {
   if (!workflow) return { state: 'none', url: null };
-  const mine = latestPerWorkflow(runs.filter((r) => r.name === workflow || r.path === workflow || r.path.endsWith(`/${workflow}`)));
+  // A cancelled deploy was superseded by a newer one (deploy workflows use cancel-in-progress), so it is
+  // not a failure: the merge's code ships with the next run. CI (`ciOf`) keeps cancelled = failed.
+  const mine = latestPerWorkflow(runs.filter((r) => r.name === workflow || r.path === workflow || r.path.endsWith(`/${workflow}`))).filter(
+    (r) => r.conclusion !== 'cancelled',
+  );
   if (mine.length === 0) return { state: 'none', url: null };
   return { state: stateOf(mine), url: mine[0].html_url };
 }

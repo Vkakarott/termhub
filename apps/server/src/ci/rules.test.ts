@@ -49,4 +49,9 @@ describe('deployOf', () => {
     expect(deployOf(runs, 'deploy.yml')).toEqual({ state: 'running', url: runs[0].html_url });
     expect(deployOf(runs, 'Publish').state).toBe('passed');
   });
+  it('treats a cancelled deploy as superseded (none), while CI keeps cancelled as failed', () => {
+    const cancelled = [run({ id: 3, status: 'completed', conclusion: 'cancelled' })];
+    expect(deployOf(cancelled, 'deploy.yml')).toEqual({ state: 'none', url: null });
+    expect(ciOf(cancelled).state).toBe('failed');
+  });
 });
