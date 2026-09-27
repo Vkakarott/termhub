@@ -12,6 +12,11 @@ describe('autoAnswerBlocked', () => {
     ['Rodar rm -rf dist?'],
     ['Publicar no npm?'],
     ['Remover a migração?'],
+    ['Confirmar exclusão do card?'],
+    ['Remoção do worktree?'],
+    ['Pushing now?'],
+    ['Merged into main?'],
+    ['Publicado?'],
   ])('blocks %s', (q) => expect(autoAnswerBlocked(['Ação', q, 'Sim'])).toBe(true));
 
   it.each([
@@ -19,6 +24,7 @@ describe('autoAnswerBlocked', () => {
     ['Seguir com TDD?'],
     ['Onde salvar o spec?'],
     ['Qual abordagem?'],
+    ['Qual produto usar?'],
   ])('allows %s', (q) => expect(autoAnswerBlocked(['Plano', q, 'Sim'])).toBe(false));
 
   it('checks the chosen labels too', () =>

@@ -26,4 +26,9 @@ describe('chunkMarkdown', () => {
       { index: 1, title: 'a.md › Full', text: 'body' },
     ]);
   });
+  it('preserves blank lines inside code fences', () => {
+    const md = '# T\n```\nline1\n\nline2\n```\nafter';
+    const chunks = chunkMarkdown('a.md', md);
+    expect(chunks[0]!.text).toContain('line1\n\nline2');
+  });
 });

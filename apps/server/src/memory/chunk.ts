@@ -26,11 +26,30 @@ export function chunkMarkdown(path: string, md: string, max = 1200): Chunk[] {
 
   const flushCurrentSection = () => {
     if (currentSectionText.trim()) {
-      // Split by blank lines (paragraphs)
-      const paragraphs = currentSectionText
-        .split(/\n\n+/)
-        .map((p) => p.trim())
-        .filter(Boolean);
+      // Split by blank lines (paragraphs), but preserve blank lines inside code fences
+      const lines = currentSectionText.split('\n');
+      let fenceActive = false;
+      const paragraphs: string[] = [];
+      let currentPara = '';
+
+      for (const line of lines) {
+        if (line.trim().startsWith('```')) {
+          fenceActive = !fenceActive;
+          currentPara += (currentPara ? '\n' : '') + line;
+        } else if (!fenceActive && line.trim() === '') {
+          // Blank line outside fence: end paragraph
+          if (currentPara.trim()) {
+            paragraphs.push(currentPara.trim());
+            currentPara = '';
+          }
+        } else {
+          // Regular line or blank line inside fence
+          currentPara += (currentPara ? '\n' : '') + line;
+        }
+      }
+      if (currentPara.trim()) {
+        paragraphs.push(currentPara.trim());
+      }
 
       if (paragraphs.length > 0) {
         // Pack paragraphs

@@ -3,8 +3,10 @@
  * chosen labels name an irreversible act is never answered automatically, only suggested. Crude on
  * purpose — it cannot tell "não fazer deploy" from "fazer deploy", and that is the safe direction.
  */
+const EXACT_ONLY = new Set(['rm', 'prod']);
 const STEMS = [
   'deploy',
+  'deplo',
   'producao',
   'production',
   'prod',
@@ -13,20 +15,26 @@ const STEMS = [
   'delete',
   'deletar',
   'apagar',
+  'apag',
   'remover',
+  'remov',
+  'remocao',
   'remove',
   'excluir',
+  'exclu',
   'drop',
   'reset',
   'force',
   'rm',
   'publicar',
+  'publi',
   'publish',
   'release',
   'pagar',
   'pay',
   'destroy',
   'destruir',
+  'destr',
 ];
 
 /**
@@ -46,6 +54,15 @@ const words = (s: string): string[] =>
  */
 export function autoAnswerBlocked(parts: string[]): boolean {
   return parts.some((p) =>
-    words(p).some((w) => STEMS.some((s) => w === s || (s.length >= 5 && w.startsWith(s)))),
+    words(p).some((w) =>
+      STEMS.some((s) => {
+        // Exact-only stems (rm, prod) must match exactly
+        if (EXACT_ONLY.has(s)) {
+          return w === s;
+        }
+        // Other stems match exactly or as prefix if >= 4 chars
+        return w === s || (s.length >= 4 && w.startsWith(s));
+      }),
+    ),
   );
 }
