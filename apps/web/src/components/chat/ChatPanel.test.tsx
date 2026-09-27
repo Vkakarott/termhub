@@ -863,3 +863,124 @@ it('a repeated confirmation event merges a later subagent into the existing card
   );
   expect(await screen.findByText('Pedido pelo subagente «Buscar CI»')).toBeInTheDocument();
 });
+
+it('the toggle stays after the last active subagent completes, so the panel it opened can still be closed', async () => {
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    return { connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Subagentes (1)' }));
+  await screen.findByText('Buscar CI');
+  act(() => onEvent({ type: 'subagent', conversation_id: 'c_p1', subagent: sub({ id: 's1', status: 'completed', ended_at: '2026-09-21T00:01:00.000Z' }) }));
+  // Still open, still there, at n = 0 — and the row itself is still visible, now reading "concluído".
+  expect(await screen.findByRole('button', { name: 'Subagentes (0)' })).toBeInTheDocument();
+  expect(screen.getByText('Buscar CI')).toBeInTheDocument();
+  expect(screen.getByText(/concluído/)).toBeInTheDocument();
+});
+
+it('Escape closes the subagents panel and returns focus to the toggle', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  const toggle = await screen.findByRole('button', { name: 'Subagentes (1)' });
+  fireEvent.click(toggle);
+  await screen.findByText('Buscar CI');
+  fireEvent.keyDown(window, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByText('Buscar CI')).toBeNull());
+  expect(toggle).toHaveFocus();
+});
+
+it('a click outside the popover closes it', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Subagentes (1)' }));
+  await screen.findByText('Buscar CI');
+  fireEvent.mouseDown(document.body);
+  await waitFor(() => expect(screen.queryByText('Buscar CI')).toBeNull());
+});
+
+it('once the panel is closed with nothing active, the toggle disappears', async () => {
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    return { connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Subagentes (1)' }));
+  act(() => onEvent({ type: 'subagent', conversation_id: 'c_p1', subagent: sub({ id: 's1', status: 'completed', ended_at: '2026-09-21T00:01:00.000Z' }) }));
+  await screen.findByRole('button', { name: 'Subagentes (0)' });
+  fireEvent.keyDown(window, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('button', { name: /Subagentes/ })).toBeNull());
+});
+
+it('Nova conversa closes the subagents panel too', async () => {
+  chatMock
+    .mockResolvedValueOnce({
+      conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null },
+      messages: [{ id: 'm1', conversation_id: 'c_p1', role: 'user', text: 'antigo', error_code: null, created_at: '' }],
+      actions: [],
+      host: READY,
+      subagents: [sub({ id: 's1' })],
+    })
+    .mockResolvedValue({ conversation: { id: 'c_new', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [] });
+  resetMock.mockResolvedValue({ conversation: { id: 'c_new', project_id: 'p1' } });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Subagentes (1)' }));
+  await screen.findByText('Buscar CI');
+  fireEvent.click(screen.getByRole('button', { name: 'Nova conversa' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Começar de novo' }));
+  await waitFor(() => expect(resetMock).toHaveBeenCalled());
+  expect(screen.queryByText('Buscar CI')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Subagentes/ })).toBeNull();
+});
+
+it('a non-409 failure on cancel shows "Não foi possível cancelar" on that row', async () => {
+  const { ApiError } = await import('../../lib/api');
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  cancelSubagentMock.mockRejectedValue(new ApiError(500, 'Erro interno'));
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Subagentes (1)' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancelar Buscar CI' }));
+  expect(await screen.findByText('Não foi possível cancelar')).toBeInTheDocument();
+});
+
+it('the subagents popover is a labelled dialog the toggle points at', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, subagents: [sub({ id: 's1' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  const toggle = await screen.findByRole('button', { name: 'Subagentes (1)' });
+  fireEvent.click(toggle);
+  const dialog = await screen.findByRole('dialog', { name: 'Subagentes' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(toggle.getAttribute('aria-controls')).toBe(dialog.id);
+});

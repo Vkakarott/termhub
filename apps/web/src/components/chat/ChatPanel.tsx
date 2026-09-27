@@ -419,15 +419,19 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const sendSuggestion = useCallback((id: string, text: string) => void actOnSuggestion(id, () => api.sendTabSuggestion(id, text), 'Não foi possível enviar'), [actOnSuggestion]);
   const dismissSuggestion = useCallback((id: string) => void actOnSuggestion(id, () => api.dismissTabSuggestion(id), 'Não foi possível dispensar'), [actOnSuggestion]);
 
-  /** "Cancelar" on a subagent's row (spec 2026-09-26 §4): the row itself updates from the `subagent`
-   *  event the server publishes for the same call, so this only has to handle the one case that
-   *  publishes none — the CLI already at rest — by re-reading the trail. */
+  /**
+   * "Cancelar" on a subagent's row (spec 2026-09-26 §4): a 409 (already at rest) re-reads the trail,
+   * since the server publishes no `subagent` event for that case. Any other failure (404 gone, 5xx, a
+   * dropped connection) gets the same treatment as a real `subagent_cancel_failed`: the row is not
+   * updated (nothing changed), but the click itself did not go through, so it reads that way.
+   */
   const cancelSubagent = useCallback(
     async (id: string) => {
       try {
         await api.cancelSubagent(id);
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) await load();
+        else setCancelFailed((prev) => new Set(prev).add(id));
       }
     },
     [load],
@@ -440,6 +444,29 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     if (!subagentsOpen) return;
     const id = setInterval(() => setSubagentsNow(Date.now()), SUBAGENTS_REFRESH_MS);
     return () => clearInterval(id);
+  }, [subagentsOpen]);
+  /** The toggle button and the popover it opens, so Escape/outside-click can tell "inside" from "outside"
+   *  and hand focus back — same pattern as `ProjectGroupsMenu`. */
+  const subagentsToggleRef = useRef<HTMLButtonElement>(null);
+  const subagentsPanelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!subagentsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setSubagentsOpen(false);
+      subagentsToggleRef.current?.focus();
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (subagentsPanelRef.current?.contains(t) || subagentsToggleRef.current?.contains(t)) return;
+      setSubagentsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+    };
   }, [subagentsOpen]);
 
   /**
@@ -616,6 +643,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       setSuggestionErrors({});
       setSubagents([]);
       setCancelFailed(new Set());
+      setSubagentsOpen(false);
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Não foi possível começar uma nova conversa');
@@ -645,10 +673,18 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       {/* The conversation's trusted tabs used to be a strip above the box; now one link, only while any is
        *  in force (a tab grant or a project grant), to the list in Configurações (spec 2026-09-26 §4.1, §6). */}
       <div className="relative flex items-center justify-end gap-1 pt-2">
-        {/* The subagents panel (spec 2026-09-26 §4): only while at least one is running or being
-         *  cancelled — a row that only just ended is not something to open the panel for on its own. */}
-        {activeSubagents.length > 0 && (
-          <button type="button" className="rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg" aria-expanded={subagentsOpen} onClick={() => setSubagentsOpen((open) => !open)}>
+        {/* The subagents panel (spec 2026-09-26 §4): the toggle appears once something is running or
+         *  being cancelled, and — while it is open — stays even after every one of them ended, so the
+         *  panel it opened always has a way to close it again. */}
+        {(activeSubagents.length > 0 || subagentsOpen) && (
+          <button
+            type="button"
+            ref={subagentsToggleRef}
+            className="rounded px-2 py-1 text-xs text-fg-dim hover:bg-bg-3 hover:text-fg"
+            aria-expanded={subagentsOpen}
+            aria-controls="chat-subagents-panel"
+            onClick={() => setSubagentsOpen((open) => !open)}
+          >
             {`Subagentes (${activeSubagents.length})`}
           </button>
         )}
@@ -661,7 +697,13 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
           Nova conversa
         </button>
         {subagentsOpen && (
-          <div className="absolute right-0 top-full z-10 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-bg-1 p-2 shadow-lg">
+          <div
+            id="chat-subagents-panel"
+            ref={subagentsPanelRef}
+            role="dialog"
+            aria-label="Subagentes"
+            className="absolute right-0 top-full z-10 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-bg-1 p-2 shadow-lg"
+          >
             <ChatSubagents subagents={subagents} failed={cancelFailed} onCancel={cancelSubagent} now={subagentsNow} />
           </div>
         )}
