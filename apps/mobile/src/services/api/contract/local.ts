@@ -5,6 +5,8 @@
 // the server serialises for both clients.
 import { z } from 'zod';
 import {
+  agentOnCard,
+  cardProgress,
   challengeBody,
   challengeResponse,
   chatActionClass,
@@ -28,6 +30,7 @@ import {
   deviceRequestResponse,
   devicePollResponse,
   deviceSelf,
+  epicProgress,
   hostOptionsResponse,
   mobileBatchDecisionBody,
   mobileDecisionBody,
@@ -35,6 +38,8 @@ import {
   notificationRow,
   notificationsResponse,
   p256Jwk,
+  progressEstimate,
+  progressResponse,
   pushTokenBody,
   sendAccepted,
   tabQuestionAnswerBody,
@@ -212,3 +217,11 @@ export type TTranscriptionResponse = z.infer<typeof transcriptionResponse>;
 export type TTranscriptionConfigResponse = z.infer<typeof transcriptionConfigResponse>;
 export type TChatAttachment = z.infer<typeof chatAttachment>;
 export type TChatAttachmentResponse = z.infer<typeof chatAttachmentResponse>;
+
+// Progress panel (spec 2026-09-26 progress-panel D10): `@termhub/mobile-api`'s schemas, under this
+// file's `T`-prefixed convention.
+export type TProgressResponse = z.infer<typeof progressResponse>;
+export type TEpicProgress = z.infer<typeof epicProgress>;
+export type TCardProgress = z.infer<typeof cardProgress>;
+export type TAgentOnCard = z.infer<typeof agentOnCard>;
+export type TProgressEstimate = z.infer<typeof progressEstimate>;

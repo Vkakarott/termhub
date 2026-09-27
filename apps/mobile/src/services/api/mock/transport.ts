@@ -10,6 +10,7 @@ import { registerChatRoutes } from './handlers/chat';
 import { registerDeviceRoutes } from './handlers/devices';
 import { registerMeRoutes } from './handlers/me';
 import { registerNotificationRoutes } from './handlers/notifications';
+import { registerProgressRoutes } from './handlers/progress';
 import { registerSessionRoutes } from './handlers/session';
 import { registerTranscriptionRoutes } from './handlers/transcriptions';
 import { createRouter, type MockUploadBody } from './router';
@@ -43,6 +44,7 @@ export function createMockTransport(opts: CreateMockTransportOptions = {}): Tran
   registerMeRoutes(router, state);
   registerChatRoutes(router, state, { maxLatency });
   registerNotificationRoutes(router, state);
+  registerProgressRoutes(router, state);
   registerTranscriptionRoutes(router, state);
 
   const waitForLatency = (): Promise<void> => {
