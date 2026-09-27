@@ -714,3 +714,21 @@ it('a turn with no question (resumed after a restart) still gets its answer', as
   await h.live.abandon(err);
   await expect(a.done).rejects.toBe(err);
 });
+
+it('a note replayed while a person\'s turn has said nothing yet leaves the reply in that turn', async () => {
+  const a = await h.turn(U1, 'a');
+  h.live.add(a.t);
+  const s = manualStream();
+  const consumed = h.live.consume(s.stream);
+  s.push(replay(U1));
+  await settle();
+  expect(h.live.addNote('nota')).toBe(true);
+  const note = JSON.parse(s.written.at(-1)!).uuid;
+  s.push(replay(note)); s.push(delta('resposta')); s.push(result());
+  await settle();
+  s.end();
+  await consumed;
+  expect(await a.done).toMatchObject({ id: a.t.answer.id, text: 'resposta', error_code: null });
+  expect(h.rows.filter((r) => r.role === 'assistant').map((r) => r.id)).toEqual([a.t.answer.id]);
+  expect(h.events.filter((e) => e.type === 'run_finished')).toHaveLength(1);
+});

@@ -169,10 +169,12 @@ export class LiveRun {
         if (!frame) continue;
         if (frame.type === 'turn_started') {
           if (this.notes.delete(frame.uuid)) {
-            // A note: the turn before it ends here, and what the CLI says next goes to a message of
-            // its own (`answering`).
+            // A note: a turn that already said something (or one the CLI started on its own) ends
+            // here, and what the CLI says next goes to a message of its own (`answering`). A person's
+            // turn that has said nothing yet stays current: the reply is still its answer.
             this.replayed = true;
-            if (this.current) await this.finish(this.current, null);
+            const cur = this.current;
+            if (cur && !(cur.turn && cur.collected === '')) await this.finish(cur, null);
             continue;
           }
           const i = this.waiting.findIndex((t) => t.uuid === frame.uuid);
