@@ -511,7 +511,8 @@ describe('Conversa', () => {
     const sendSuggestion = stubAction('sendTabSuggestion');
     const dismissSuggestion = stubAction('dismissTabSuggestion');
     await render(<ConversationScreen />);
-    expect(await screen.findByText('«api» está esperando sua resposta', undefined, LOAD)).toBeTruthy();
+    expect(await screen.findByText('«api» terminou — o Claude Code sugere:', undefined, LOAD)).toBeTruthy();
+    expect(screen.getByText('Não precisa responder.')).toBeTruthy();
     await fireEvent.changeText(screen.getByLabelText('Sugestão do Claude Code (opcional — edite ou dispense)'), '  commit it and push ');
     // Scoped to the card: the composer has its own "Enviar" button on screen at the same time.
     await fireEvent.press(within(screen.getByTestId('tab-suggestion-s1')).getByRole('button', { name: 'Enviar' }));

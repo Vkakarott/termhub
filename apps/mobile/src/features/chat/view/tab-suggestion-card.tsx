@@ -1,7 +1,7 @@
 import { memo, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { AppText, Button } from '@/ui';
-import { CONTEXT_PREVIEW_MAX, lastParagraph, suggestionStatusLabel, suggestionTitle } from '../model/tab-suggestion-text';
+import { CONTEXT_PREVIEW_MAX, SUGGESTION_HINT, lastParagraph, suggestionStatusLabel, suggestionTitle } from '../model/tab-suggestion-text';
 import type { TabSuggestion } from '../model/types';
 
 type Props = {
@@ -17,9 +17,9 @@ type Props = {
 const INPUT = 'rounded-xl border border-app-border bg-app-surface px-4 py-3 text-base text-app-text placeholder:text-app-muted';
 const FIELD_LABEL = 'Sugestão do Claude Code (opcional — edite ou dispense)';
 
-/** Claude Code's dimmed next prompt in a tab (spec 2026-09-25 tab suggestions §6.4), the web card's twin, with the
- * agent's message it answers (spec 2026-09-26 §6.4): the text editable, Enviar / Dispensar — no PIN. Memoised:
- * `onSend` and `onDismiss` are stable. */
+/** Claude Code's dimmed next prompt in a tab that finished its turn — an offer, not a question (spec 2026-09-26
+ * TER-203 §5) —, the web card's twin, with the agent's message it answers (spec 2026-09-26 §6.4): the text
+ * editable, Enviar / Dispensar — no PIN. Memoised: `onSend` and `onDismiss` are stable. */
 export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, busy, error, onSend, onDismiss }: Props) {
   const [text, setText] = useState(suggestion.payload.text);
   const open = suggestion.status === 'open';
@@ -27,8 +27,9 @@ export const TabSuggestionCard = memo(function TabSuggestionCard({ suggestion, b
   const context = suggestion.payload.context?.trim() || null;
   return (
     // The testID tells this card's "Enviar" from the composer's, both on screen at once.
-    <View testID={`tab-suggestion-${suggestion.id}`} className="gap-3 rounded-2xl border border-app-accent bg-app-surface2 p-4">
+    <View testID={`tab-suggestion-${suggestion.id}`} className="gap-3 rounded-2xl border border-app-border bg-app-surface2 p-4">
       <AppText variant="label">{suggestionTitle(suggestion)}</AppText>
+      {open ? <AppText variant="muted">{SUGGESTION_HINT}</AppText> : null}
       {context ? <SuggestionContext text={context} /> : null}
       {open ? (
         <View className="gap-2">
