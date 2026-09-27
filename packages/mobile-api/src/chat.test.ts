@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decisionsResponse, isTabGrantable, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody } from './chat.js';
+import { decisionsResponse, isBoardGrantable, isTabGrantable, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody } from './chat.js';
 import { tabQuestionSchema } from './events.js';
 
 describe('mobileDecisionBody', () => {
@@ -13,6 +13,26 @@ describe('mobileDecisionBody', () => {
     expect(mobileDecisionBody.safeParse({ decision: 'approve', challenge: 'c', pin_proof: 'p' }).success).toBe(true);
     expect(mobileDecisionBody.safeParse({ decision: 'approve', challenge: 'c' }).success).toBe(false);
     expect(mobileDecisionBody.safeParse({ decision: 'approve', pin_proof: 'p' }).success).toBe(false);
+  });
+});
+
+describe('mobileDecisionBody: approve_project', () => {
+  it('approve_project always carries a proof', () => {
+    expect(mobileDecisionBody.safeParse({ decision: 'approve_project' }).success).toBe(false);
+    expect(mobileDecisionBody.safeParse({ decision: 'approve_project', challenge: 'c' }).success).toBe(false);
+    expect(mobileDecisionBody.parse({ decision: 'approve_project', challenge: 'c', pin_proof: 'p' }).decision).toBe('approve_project');
+  });
+  it('batches never take approve_project', () => {
+    expect(mobileBatchDecisionBody.safeParse({ decisions: [{ id: 'a', decision: 'approve_project', challenge: 'c', pin_proof: 'p' }] }).success).toBe(false);
+  });
+});
+
+describe('isBoardGrantable', () => {
+  it('the four board tools only', () => {
+    expect(['create_task', 'add_subtasks', 'update_task', 'move_task'].every((tool) => isBoardGrantable({ tool }))).toBe(true);
+    expect(isBoardGrantable({ tool: 'delete_task' })).toBe(false);
+    expect(isBoardGrantable({ tool: 'start_agent' })).toBe(false);
+    expect(isBoardGrantable({ tool: 'send_input' })).toBe(false);
   });
 });
 

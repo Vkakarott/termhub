@@ -102,10 +102,10 @@ describe('SettingsPage', () => {
     expect(screen.getByText('integrations-view')).toBeTruthy();
   });
 
-  it('opens Abas confiáveis as a section', () => {
+  it('opens Permissões do chat as a section', () => {
     authState.current = { can: (r) => r === 'chat' };
     renderAt('/settings/chat-grants');
     expect(screen.getByText('chat-grants-view')).toBeTruthy();
-    expect(titles()).toEqual(['Abas confiáveis']);
+    expect(titles()).toEqual(['Permissões do chat']);
   });
 });

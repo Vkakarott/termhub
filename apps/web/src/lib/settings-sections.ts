@@ -19,7 +19,7 @@ export const SETTINGS_SECTIONS: SettingsSectionInfo[] = [
   { key: 'integrations', label: 'Integrações', resource: 'integrations', group: 'account' },
   { key: 'api-tokens', label: 'Tokens de API', resource: 'api_tokens', group: 'account' },
   { key: 'devices', label: 'Aparelhos', resource: 'devices', group: 'account' },
-  { key: 'chat-grants', label: 'Abas confiáveis', resource: 'chat', group: 'account' },
+  { key: 'chat-grants', label: 'Permissões do chat', resource: 'chat', group: 'account' },
   { key: 'ai', label: 'Contas de IA', resource: 'ai_accounts', group: 'account' },
   { key: 'hardware', label: 'Hardware', resource: 'hardware', group: 'account' },
   { key: 'users', label: 'Usuários', resource: 'users', group: 'admin' },

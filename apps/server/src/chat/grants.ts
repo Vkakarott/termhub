@@ -1,12 +1,13 @@
 import type { z } from 'zod';
 import type { chatGrantListQuery } from '@termhub/mobile-api';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
-import { describeGrantList, describeGrants, type ChatGrantListItem, type ChatGrantView } from '../db/repositories/chat-actions-view.js';
+import { describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, type ChatGrantListItem, type ChatGrantView, type ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
 import { GRANT_LIST_MAX, type GrantCursor } from '../db/repositories/chat-grants.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
+import { boardProjectOf } from './board-project.js';
 import { chatBus } from './bus.js';
-import { grantable, GRANTABLE_TOOL } from './gate.js';
+import { boardGrantable, grantable, GRANTABLE_TOOL } from './gate.js';
 
 /**
  * "Permitir sempre nesta aba" is only for what the gate will honour (`grantable`): checked on the row
@@ -31,17 +32,51 @@ export async function grantTab(repos: Repositories, userId: string, action: Chat
   return grant;
 }
 
-/** "Revogar", from the strip or from the card that granted it. 404 unknown or not this user's,
- * 409 already revoked. */
-export async function revokeGrant(repos: Repositories, userId: string, grantId: string): Promise<ChatGrantView> {
-  const revoked = await repos.chatGrants.revoke(grantId, userId);
-  if (!revoked) {
-    const existing = await repos.chatGrants.findByIdForUser(grantId, userId);
-    throw existing ? conflict('Esta permissão já foi revogada') : notFound('Permissão não encontrada');
-  }
-  chatBus.publish({ type: 'grant_revoked', user_id: userId, conversation_id: revoked.conversation_id, grant_id: revoked.id });
-  const [grant] = await describeGrants(repos, [revoked], userId);
+const PROJECT_GRANT_NOT_ALLOWED = () => new HttpError(400, 'Só dá para permitir sempre neste projeto ações de quadro de um projeto seu', 'GRANT_NOT_ALLOWED');
+
+/** "Permitir sempre neste projeto" only for a pending board card whose project resolves (spec 2026-09-26
+ * project grant §5): checked before anything is decided, and before the phone's PIN challenge is spent.
+ * Resolved with the caller's own user id, exactly as the gate does — never a "view as" owner id — so
+ * the button is accepted for exactly the grants the gate will honour. */
+export async function assertProjectGrantableAction(repos: Repositories, userId: string, actionId: string): Promise<{ action: ChatAction; projectId: string }> {
+  const row = await repos.chatActions.findByIdForUser(actionId, userId);
+  if (!row) throw notFound('Ação não encontrada');
+  if (row.status !== 'pending') throw conflict('Esta ação já foi decidida');
+  if (!boardGrantable(row.tool)) throw PROJECT_GRANT_NOT_ALLOWED();
+  const projectId = await boardProjectOf(repos, userId, row.tool, (row.args ?? {}) as Record<string, unknown>);
+  if (!projectId) throw PROJECT_GRANT_NOT_ALLOWED();
+  return { action: row, projectId };
+}
+
+/** Trusts the project of an action the user just approved, and tells every open screen (web and phone).
+ * Created before the decision is re-injected, so the injected sentence can mention it. */
+export async function grantProject(repos: Repositories, userId: string, action: ChatAction, projectId: string): Promise<ChatProjectGrantView> {
+  const created = await repos.chatProjectGrants.grant({ conversation_id: action.conversation_id, project_id: projectId, source_action_id: action.id, granted_by: userId });
+  const [grant] = await describeProjectGrants(repos, [created], userId);
+  chatBus.publish({ type: 'project_grant', user_id: userId, conversation_id: action.conversation_id, grant });
   return grant;
+}
+
+/** The conversation's project grants still in force, as `GET /chat` (web and phone) returns them. */
+export async function activeProjectGrants(repos: Repositories, userId: string, conversationId: string): Promise<ChatProjectGrantView[]> {
+  return describeProjectGrants(repos, await repos.chatProjectGrants.listActive(conversationId), userId);
+}
+
+/** "Revogar", either kind: tab grants first, then project grants (ids never collide). 404 unknown or
+ * not this user's, 409 already revoked. */
+export async function revokeGrant(repos: Repositories, userId: string, grantId: string): Promise<ChatGrantView | ChatProjectGrantView> {
+  const tab = await repos.chatGrants.revoke(grantId, userId);
+  if (tab) {
+    chatBus.publish({ type: 'grant_revoked', user_id: userId, conversation_id: tab.conversation_id, grant_id: tab.id });
+    return (await describeGrants(repos, [tab], userId))[0];
+  }
+  const project = await repos.chatProjectGrants.revoke(grantId, userId);
+  if (project) {
+    chatBus.publish({ type: 'project_grant_revoked', user_id: userId, conversation_id: project.conversation_id, grant_id: project.id });
+    return (await describeProjectGrants(repos, [project], userId))[0];
+  }
+  const existing = (await repos.chatGrants.findByIdForUser(grantId, userId)) ?? (await repos.chatProjectGrants.findByIdForUser(grantId, userId));
+  throw existing ? conflict('Esta permissão já foi revogada') : notFound('Permissão não encontrada');
 }
 
 /** The conversation's grants still in force, as `GET /chat` (web and phone) returns them. */
@@ -70,10 +105,26 @@ export function decodeGrantCursor(s: string): GrantCursor {
 /** "Abas confiáveis" (spec 2026-09-26 §3.3): one page of this user's grants, web and phone alike.
  * `active` is never paged — the repository caps it at `GRANT_LIST_MAX` on its own, and this always
  * asks for that same cap rather than the query's `limit`, so the query's default (50) can never
- * silently truncate the active list. */
+ * silently truncate the active list.
+ *
+ * `kinds: 'all'` (spec 2026-09-26 project grant §5) adds project grants: both tables are read with the
+ * same cursor and `limit` each (each returns at most `limit` rows after the cursor, so the merged first
+ * `limit` rows of both pages together are exactly the next page), merged newest first by `(created_at,
+ * id)` and cut to `limit`; the cut row's own `(created_at, id)` is a valid cursor for both tables. An
+ * old app that never sends `kinds` keeps seeing tab grants only. */
 export async function listGrants(repos: Repositories, userId: string, query: z.infer<typeof chatGrantListQuery>, now = new Date()): Promise<{ grants: ChatGrantListItem[]; next_cursor: string | null }> {
   const cursor = query.cursor ? decodeGrantCursor(query.cursor) : null;
   const limit = query.state === 'active' ? GRANT_LIST_MAX : query.limit;
-  const { grants, next } = await repos.chatGrants.listForUser(userId, { state: query.state, cursor, limit }, now);
-  return { grants: await describeGrantList(repos, grants, userId, now), next_cursor: next ? encodeGrantCursor(next) : null };
+  const opts = { state: query.state, cursor, limit };
+  const tabs = await repos.chatGrants.listForUser(userId, opts, now);
+  const tabItems = await describeGrantList(repos, tabs.grants, userId, now);
+  if (query.kinds !== 'all') return { grants: tabItems, next_cursor: tabs.next ? encodeGrantCursor(tabs.next) : null };
+  const projects = await repos.chatProjectGrants.listForUser(userId, opts, now);
+  const merged = [...tabItems, ...(await describeProjectGrantList(repos, projects.grants, userId, now))].sort((a, b) =>
+    a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1,
+  );
+  const page = merged.slice(0, limit);
+  const more = merged.length > limit || tabs.next !== null || projects.next !== null;
+  const last = page[page.length - 1];
+  return { grants: page, next_cursor: query.state === 'ended' && more && last ? encodeGrantCursor({ created_at: last.created_at, id: last.id }) : null };
 }

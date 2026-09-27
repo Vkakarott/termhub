@@ -1,6 +1,7 @@
-// "Abas confiáveis" (spec 2026-09-26 §5): this user's chat grants, active and a paged history. A
-// factory over injected services like the other feature stores; `useChatGrantsStore.ts` builds the
-// app's one instance. Revoking needs no PIN: it only takes power away.
+// "Permissões do chat" (spec 2026-09-26 §5, design spec 2026-09-26 §7): this user's chat grants —
+// tab and project — active and a paged history. A factory over injected services like the other
+// feature stores; `useChatGrantsStore.ts` builds the app's one instance. Revoking needs no PIN: it
+// only takes power away.
 import { create } from 'zustand';
 import { sessionEnded } from '@/features/shared/signals';
 import type { TChatGrantListItem } from '@/services/api/contract';

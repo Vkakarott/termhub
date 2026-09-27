@@ -10,7 +10,7 @@ import { answerTabQuestion, tabQuestionScreen } from '../chat/tab-question-answe
 import { dismissTabSuggestion, sendTabSuggestion } from '../chat/tab-suggestion-send.js';
 import { failureLabel, type ChatService } from '../chat/service.js';
 import { chatBus } from '../chat/bus.js';
-import { activeGrants, assertGrantableAction, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
+import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectGrantableAction, grantProject, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
 import { decideMany } from '../chat/decisions.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
 
@@ -29,7 +29,7 @@ const messageBody = z
 const scopeQuery = z.object({ project: z.string().min(1).max(64).optional() });
 const resetBody = z.object({ project_id: z.string().min(1).max(64).nullish() });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
-const decisionBody = z.object({ decision: z.enum(['approve', 'deny', 'approve_tab']) });
+const decisionBody = z.object({ decision: z.enum(['approve', 'deny', 'approve_tab', 'approve_project']) });
 const batchBody = z.object({
   decisions: z
     .array(z.object({ id: z.string().min(1).max(64), decision: z.enum(['approve', 'deny']) }))
@@ -62,7 +62,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // The trail comes from here, not from live events (which only update what is already on
     // screen): a reload must see every pending/decided action exactly as the server has it,
     // including an old denied row sitting beside a newer pending one for the same proposal.
-    const [messages, rows, host, grants, questionRows] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, questionRows] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       // The state, not a rendered sentence: which machine will run the next message, or which of the
@@ -71,12 +71,13 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       // instead of only after a message fails.
       deps.service.hostFor(request.scope.user, projectId),
       activeGrants(repos, request.scope.user.id, conversation.id),
+      activeProjectGrants(repos, request.scope.user.id, conversation.id),
       repos.tabQuestions.listByConversation(conversation.id),
     ]);
     // Scoped to this request's own user: a card must never resolve a name this user cannot see.
     const actions = await describeActions(repos, rows, request.scope.user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, request.scope.user.id));
-    return { conversation, messages, actions, host, grants, tab_questions, tab_suggestions };
+    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions };
   });
 
   /**
@@ -149,6 +150,9 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // "Permitir sempre nesta aba" is only for what the gate will honour — checked before anything is
     // decided, so a refused request changes nothing (404 not found, 400 GRANT_NOT_ALLOWED otherwise).
     if (decision === 'approve_tab') await assertGrantableAction(repos, user.id, id);
+    // "Permitir sempre neste projeto" likewise, and the project it trusts is resolved here, with the
+    // user's own id (never a "view as" owner), exactly as the gate will resolve the next board call.
+    const projectCheck = decision === 'approve_project' ? await assertProjectGrantableAction(repos, user.id, id) : undefined;
 
     // The decision itself, and only it, decides who may answer this row — `decide` filters by the
     // owning conversation's user_id in SQL, so wrong id, another user's row and an already-decided
@@ -166,7 +170,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     chatBus.publish({ type: 'decision', user_id: user.id, conversation_id: action.conversation_id, action_id: action.id, status });
     // The approval above already happened and is already published: a grant that fails to be written
     // must not turn it into an error, nor keep the model from being resumed. It degrades to a plain
-    // "Autorizar" — the card shows no grant and the user can trust the tab again from the next one.
+    // "Autorizar" — the card shows no grant and the user can trust the tab (or project) from the next one.
     let grant: Awaited<ReturnType<typeof grantTab>> | undefined;
     if (decision === 'approve_tab') {
       try {
@@ -175,15 +179,23 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
         request.log.warn({ code: failureLabel(err), actionId: action.id }, 'chat grant failed after approval');
       }
     }
+    let project_grant: Awaited<ReturnType<typeof grantProject>> | undefined;
+    if (projectCheck) {
+      try {
+        project_grant = await grantProject(repos, user.id, action, projectCheck.projectId);
+      } catch (err) {
+        request.log.warn({ code: failureLabel(err), actionId: action.id }, 'chat project grant failed after approval');
+      }
+    }
 
     try {
       const message = await deps.service.resumeAfterDecision(user, action);
-      return { action, message, grant };
+      return { action, message, grant, project_grant };
     } catch (err) {
       // The decision above already happened and was already published — a busy run must not turn a
       // successful decision into a 409. The row stays approved/denied with no injection yet; the run
       // holding the lock will pick it up and inject it through `drainNextDecision` once it finishes.
-      if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { action, queued: true, note: QUEUED_NOTE, grant };
+      if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { action, queued: true, note: QUEUED_NOTE, grant, project_grant };
       throw err;
     }
   });

@@ -157,6 +157,12 @@ export class ChatActionsRepository {
     return mapAction(row);
   }
 
+  /** How many calls a grant already covered since `since` — the project grant's hourly budget (spec
+   * 2026-09-26 project grant §2). Keyed by the conversation too, so it rides `(conversation_id, created_at)`. */
+  async countForGrantSince(conversationId: string, grantId: string, since: Date): Promise<number> {
+    return this.db.chatAction.count({ where: { conversationId, grantId, createdAt: { gt: since } } });
+  }
+
   /**
    * Records the user's decision on a pending action. Filtered by `id` **and** the owning
    * conversation's `user_id` in the same query, so another user's row is refused in SQL — a

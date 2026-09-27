@@ -12,7 +12,8 @@ import { describeActions } from '../db/repositories/chat-actions-view.js';
 import type { Tab } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
-import { actionClass, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor } from './gate.js';
+import { boardProjectOf } from './board-project.js';
+import { actionClass, BOARD_GRANT_BUDGET, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor } from './gate.js';
 import { ACTION_TTL_MS } from './service.js';
 
 /** What the gate did: the tool's own value, or a pt-BR error for the caller to answer with. The
@@ -288,7 +289,8 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
 }
 
 /**
- * Runs a call a tab grant already answered ("Permitir sempre nesta aba", spec 2026-09-25). The row is
+ * Runs a call a grant (tab or project) already answered ("Permitir sempre nesta aba", spec 2026-09-25;
+ * "Permitir sempre neste projeto", spec 2026-09-26). The row is
  * born `approved` and goes through `execute()` like a clicked approval — the claim, `staleApproval`
  * (so a dead tab or a tab waiting on a permission still blocks) and the audit — and the trail is told
  * live, since no card was ever shown for it.
@@ -351,6 +353,21 @@ async function grantCoversTab(ctx: ControlContext, tabId: string): Promise<boole
   return tab.state === 'working' || tab.state === 'waiting_input' || tab.state === 'waiting_permission';
 }
 
+/**
+ * The project grant that answers a board call, if any (spec 2026-09-26 project grant §4): the project
+ * the call writes into, resolved owner-scoped (an unresolved one is never covered), an active grant for
+ * it in this conversation, and budget left. Not atomic with the insert — parallel calls at the edge can
+ * overshoot by their number, which a brake tolerates.
+ */
+async function projectGrantCovering(ctx: ControlContext, conversationId: string, call: GatedCall): Promise<string | null> {
+  const projectId = await boardProjectOf(ctx.repos, ctx.scope.user.id, call.tool, call.args);
+  if (!projectId) return null;
+  const grant = await ctx.repos.chatProjectGrants.findActive(conversationId, projectId);
+  if (!grant) return null;
+  const used = await ctx.repos.chatActions.countForGrantSince(conversationId, grant.id, new Date(Date.now() - BOARD_GRANT_BUDGET.windowMs));
+  return used < BOARD_GRANT_BUDGET.calls ? grant.id : null;
+}
+
 /** The gate itself: run the call, or answer why it did not run. */
 export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<GateOutcome> {
   const cls = actionClass(call.tool, call.args);
@@ -381,6 +398,10 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
     if (!row && grantable(call.tool, call.args) && !textOutsideGrant(call.args)) {
       const grant = await ctx.repos.chatGrants.findActive(conversationId, call.args.tab_id, GRANTABLE_TOOL);
       if (grant && (await grantCoversTab(ctx, call.args.tab_id))) return executeGranted(ctx, call, conversationId, key, cls, grant.id);
+    }
+    if (!row && boardGrantable(call.tool)) {
+      const grantId = await projectGrantCovering(ctx, conversationId, call);
+      if (grantId) return executeGranted(ctx, call, conversationId, key, cls, grantId);
     }
     return ask(ctx, call, conversationId, key, cls);
   }

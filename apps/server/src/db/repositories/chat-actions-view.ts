@@ -2,6 +2,7 @@ import { readTicketLink } from '../../integrations/ticket-link.js';
 import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
+import type { ChatProjectGrant, ChatProjectGrantWithConversation } from './chat-project-grants.js';
 import type { Task, Ticket } from './types.js';
 
 /**
@@ -354,9 +355,19 @@ export function grantState(g: Pick<ChatGrant, 'expires_at' | 'revoked_at' | 'rev
   return expiresAt > now.getTime() && g.revoked_at === null ? 'active' : 'expired';
 }
 
-/** A grant as "Abas confiáveis" lists it: the chat's view plus the tab's project, the conversation that
- * granted it and how it stands. No user ids. */
-export interface ChatGrantListItem extends ChatGrantView {
+/** A grant as "Abas confiáveis" lists it, either kind: the chat's view (tab grant) or a project grant
+ * (spec 2026-09-26 project grant §5) — `tab_id`/`tool`/`tab_name` are null for the latter, since it
+ * carries no tab. Plus the project, the conversation that granted it and how it stands. No user ids. */
+export interface ChatGrantListItem {
+  kind: 'tab' | 'project';
+  id: string;
+  tab_id: string | null;
+  tool: string | null;
+  source_action_id: string | null;
+  created_at: string;
+  expires_at: string;
+  /** Null when the tab is gone (or not this user's) — or, for a project grant, always. */
+  tab_name: string | null;
   project_id: string | null;
   project_name: string | null;
   conversation_id: string;
@@ -382,6 +393,7 @@ export async function describeGrantList(repos: Repositories, grants: ChatGrantWi
     const state = grantState(g, now);
     const projectId = tab?.project_id ?? null;
     return {
+      kind: 'tab',
       id: g.id,
       tab_id: g.tab_id,
       tool: g.tool,
@@ -393,6 +405,55 @@ export async function describeGrantList(repos: Repositories, grants: ChatGrantWi
       project_name: projectId ? (projectName.get(projectId) ?? null) : null,
       conversation_id: g.conversation_id,
       conversation_project_name: g.conversation_project_id ? (projectName.get(g.conversation_project_id) ?? null) : null,
+      conversation_archived: g.conversation_archived,
+      state,
+      ended_at: state === 'active' ? null : state === 'expired' ? g.expires_at : g.revoked_at,
+    };
+  });
+}
+
+/** "Permitir sempre neste projeto" as the chat shows it: the project by name (owner-scoped), no user ids. */
+export interface ChatProjectGrantView {
+  id: string;
+  project_id: string;
+  /** Null when the project is gone or not this user's. */
+  project_name: string | null;
+  source_action_id: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+/** Enriches a batch of project grants with the project's name, exactly like `describeGrants` — one
+ * batched, owner-scoped lookup, never one per grant. */
+export async function describeProjectGrants(repos: Repositories, grants: ChatProjectGrant[], ownerId: string): Promise<ChatProjectGrantView[]> {
+  const ids = [...new Set(grants.map((g) => g.project_id))];
+  const projects = ids.length ? await repos.projects.findByIdsForOwner(ids, ownerId) : [];
+  const name = new Map(projects.map((p) => [p.id, p.name]));
+  return grants.map((g) => ({ id: g.id, project_id: g.project_id, project_name: name.get(g.project_id) ?? null, source_action_id: g.source_action_id, created_at: g.created_at, expires_at: g.expires_at }));
+}
+
+/** Enriches a page of project grants like `describeGrantList`, for `kinds=all` (spec 2026-09-26 project
+ * grant §5): one owner-scoped lookup for the grant's own project and the conversation's, never one per
+ * grant. Always `kind: 'project'`, with no tab of its own. */
+export async function describeProjectGrantList(repos: Repositories, grants: ChatProjectGrantWithConversation[], ownerId: string, now = new Date()): Promise<ChatGrantListItem[]> {
+  const ids = [...new Set(grants.flatMap((g) => [g.project_id, ...(g.conversation_project_id ? [g.conversation_project_id] : [])]))];
+  const projects = ids.length ? await repos.projects.findByIdsForOwner(ids, ownerId) : [];
+  const name = new Map(projects.map((p) => [p.id, p.name]));
+  return grants.map((g) => {
+    const state = grantState(g, now);
+    return {
+      kind: 'project',
+      id: g.id,
+      tab_id: null,
+      tool: null,
+      tab_name: null,
+      source_action_id: g.source_action_id,
+      created_at: g.created_at,
+      expires_at: g.expires_at,
+      project_id: g.project_id,
+      project_name: name.get(g.project_id) ?? null,
+      conversation_id: g.conversation_id,
+      conversation_project_name: g.conversation_project_id ? (name.get(g.conversation_project_id) ?? null) : null,
       conversation_archived: g.conversation_archived,
       state,
       ended_at: state === 'active' ? null : state === 'expired' ? g.expires_at : g.revoked_at,

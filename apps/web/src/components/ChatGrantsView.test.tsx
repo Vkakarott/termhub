@@ -19,7 +19,7 @@ import { ApiError } from '../lib/api';
 import { ChatGrantsView } from './ChatGrantsView';
 
 const item = (over: Partial<ChatGrantListItem> & { id: string }): ChatGrantListItem => ({
-  tab_id: 't1', tool: 'send_input', source_action_id: null, created_at: '2026-09-25T10:00:00.000Z', expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+  kind: 'tab', tab_id: 't1', tool: 'send_input', source_action_id: null, created_at: '2026-09-25T10:00:00.000Z', expires_at: new Date(Date.now() + 3_600_000).toISOString(),
   tab_name: 'api', project_id: 'p1', project_name: 'termhub', conversation_id: 'c1', conversation_project_name: null, conversation_archived: false,
   state: 'active', ended_at: null, ...over,
 });
@@ -50,7 +50,7 @@ it('lists active grants with tab, project, origin and validity, and the history 
 it('shows the empty states', async () => {
   serve([], [{ grants: [], next_cursor: null }]);
   render(<ChatGrantsView />);
-  expect(await screen.findByText('Nenhuma aba confiável agora.')).toBeInTheDocument();
+  expect(await screen.findByText('Nenhuma permissão ativa agora.')).toBeInTheDocument();
   expect(screen.getByText('Nada no histórico ainda.')).toBeInTheDocument();
 });
 
@@ -74,11 +74,30 @@ it('Revogar revokes and reloads; a 409 counts as done', async () => {
   expect(screen.queryByText(/Não foi possível/)).toBeNull();
 });
 
+it('titles a project row with its project, or "Projeto que não existe mais" when it is gone', async () => {
+  serve([item({ id: 'g1', kind: 'project', tab_id: null, tab_name: null, tool: null, project_id: 'p1', project_name: 'App' })], [{ grants: [item({ id: 'g2', kind: 'project', tab_id: null, tab_name: null, tool: null, project_id: 'p2', project_name: null, state: 'ended', ended_at: '2026-09-24T10:00:00.000Z' })], next_cursor: null }]);
+  render(<ChatGrantsView />);
+  const active = await screen.findByRole('region', { name: 'Ativas' });
+  expect(within(active).getByText('Quadro do projeto App')).toBeInTheDocument();
+  const history = screen.getByRole('region', { name: 'Histórico' });
+  expect(within(history).getByText('Projeto que não existe mais')).toBeInTheDocument();
+});
+
+it('revoking a project row that was already revoked (409) re-reads the list', async () => {
+  serve([item({ id: 'g1', kind: 'project', tab_id: null, tab_name: null, tool: null, project_id: 'p1', project_name: 'App' })], [{ grants: [], next_cursor: null }]);
+  revokeMock.mockRejectedValueOnce(new ApiError(409, 'Esta permissão já foi revogada'));
+  render(<ChatGrantsView />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Revogar' }));
+  await waitFor(() => expect(revokeMock).toHaveBeenCalledWith('g1'));
+  await waitFor(() => expect(listMock).toHaveBeenCalledTimes(4));
+  expect(screen.queryByText(/Não foi possível/)).toBeNull();
+});
+
 it('a failed load says so and retries', async () => {
   listMock.mockRejectedValueOnce(new Error('offline'));
   render(<ChatGrantsView />);
   expect(await screen.findByText('Não foi possível carregar as permissões.')).toBeInTheDocument();
   serve([], [{ grants: [], next_cursor: null }]);
   fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
-  expect(await screen.findByText('Nenhuma aba confiável agora.')).toBeInTheDocument();
+  expect(await screen.findByText('Nenhuma permissão ativa agora.')).toBeInTheDocument();
 });

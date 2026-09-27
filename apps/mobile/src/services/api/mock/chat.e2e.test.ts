@@ -360,6 +360,64 @@ it('approve_tab on an action that is not send_input to a tab is 400 GRANT_NOT_AL
   collected.close();
 });
 
+it('approve_project approves and trusts the project\'s board with a proof for approve_project only; revokeGrant ends it once', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  const fetches = jest.spyOn(transport, 'fetch');
+
+  // a-termhub-2 is the fixture's move_task (a board tool) on p-termhub.
+  // A proof signed for `approve` cannot be spent on `approve_project`.
+  const first = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-2' });
+  await expect(
+    api.decide(auth, 'a-termhub-2', { decision: 'approve_project', challenge: first.challenge, pin_proof: decisionProof(secret, first.challenge, 'a-termhub-2', 'approve') }),
+  ).rejects.toMatchObject({ status: 401, code: 'PIN_INVALID' });
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([]);
+
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-2' });
+  await api.decide(auth, 'a-termhub-2', { decision: 'approve_project', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-2', 'approve_project') });
+  // The decision answers the grant under the server's own key, `project_grant` (routes/m-chat.ts).
+  const decided = fetches.mock.calls.findLastIndex(([input]) => input.url.endsWith('/chat/actions/a-termhub-2/decision'));
+  const decisionBody = JSON.parse((await fetches.mock.results[decided]!.value).text);
+  expect(decisionBody.project_grant).toMatchObject({ project_id: 'p-termhub', source_action_id: 'a-termhub-2' });
+  expect(decisionBody.grant).toBeUndefined();
+
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.actions.find((a) => a.id === 'a-termhub-2')!.status).toBe('approved');
+  expect(chat.project_grants).toEqual([expect.objectContaining({ project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2' })]);
+  const grantId = chat.project_grants[0]!.id;
+  // Only the conversation that granted it sees it.
+  expect((await api.chat(auth, null)).project_grants).toEqual([]);
+
+  await api.revokeGrant(auth, grantId);
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([]);
+  await expect(api.revokeGrant(auth, grantId)).rejects.toMatchObject({ status: 409 });
+  await expect(api.revokeGrant(auth, 'nope')).rejects.toMatchObject({ status: 404 });
+
+  const own = collected.events.filter((e) => e.type === 'decision' || e.type === 'project_grant' || e.type === 'project_grant_revoked');
+  expect(own.map((e) => e.type)).toEqual(['decision', 'project_grant', 'project_grant_revoked']);
+  expect(own[1]).toMatchObject({ type: 'project_grant', conversation_id: 'c-termhub', grant: { id: grantId, project_id: 'p-termhub' } });
+  expect(own[2]).toMatchObject({ type: 'project_grant_revoked', conversation_id: 'c-termhub', grant_id: grantId });
+
+  collected.close();
+});
+
+it('approve_project on a tool outside the board set, or with no resolvable project, is 400 GRANT_NOT_ALLOWED before the challenge is spent', async () => {
+  const clock = { value: START };
+  const { api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+
+  // a-termhub-1 is send_input, not a board tool.
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-1' });
+  await expect(
+    api.decide(auth, 'a-termhub-1', { decision: 'approve_project', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-1', 'approve_project') }),
+  ).rejects.toMatchObject({ status: 400, code: 'GRANT_NOT_ALLOWED' });
+  // the same challenge still approves it plainly
+  await api.decide(auth, 'a-termhub-1', { decision: 'approve', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-1', 'approve') });
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([]);
+});
+
 it('reset archives the conversation: chat() afterwards has no messages and a new conversation id', async () => {
   const clock = { value: START };
   const { api, auth } = await enrol(clock);
@@ -582,6 +640,36 @@ it('listGrants lists active and ended grants, newest first, paging the history',
   const ended = await api.listGrants(auth, { state: 'ended' });
   expect(ended.grants).toEqual([expect.objectContaining({ id: active!.id, state: 'revoked' })]);
   expect(ended.next_cursor).toBeNull();
+});
+
+it("listGrants asks for kinds=all and gets both kinds merged; without it, the mock hides project rows (an old app's request)", async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+
+  const tabChal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-1' });
+  await api.decide(auth, 'a-termhub-1', { decision: 'approve_tab', challenge: tabChal.challenge, pin_proof: decisionProof(secret, tabChal.challenge, 'a-termhub-1', 'approve_tab') });
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-termhub-2' });
+  await api.decide(auth, 'a-termhub-2', { decision: 'approve_project', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-termhub-2', 'approve_project') });
+
+  const withAll = await api.listGrants(auth, { state: 'active' });
+  expect(withAll.grants.map((g) => g.kind).sort()).toEqual(['project', 'tab']);
+
+  // The client always asks `kinds=all`; capture the request it *would* make, without letting it
+  // reach the mock (its DPoP proof's jti must stay unspent), then fire it once ourselves with
+  // `kinds` stripped — the query is not part of the DPoP proof (`canonicalHtu` drops it), so the
+  // same signed request still authenticates with a different query string. This is how an older
+  // app's request (no `kinds` at all) reaches the server.
+  let captured: Parameters<typeof transport.fetch>[0] | undefined;
+  const fetchSpy = jest.spyOn(transport, 'fetch').mockImplementationOnce(async (req) => {
+    captured = req;
+    return { status: 200, headers: {}, text: JSON.stringify({ grants: [], next_cursor: null }) };
+  });
+  await api.listGrants(auth, { state: 'active' });
+  fetchSpy.mockRestore();
+  const withoutKinds = { ...captured!, url: captured!.url.replace(/[?&]kinds=all/, '') };
+  const res = await transport.fetch(withoutKinds);
+  const body = JSON.parse(res.text) as { grants: Array<{ kind: string }> };
+  expect(body.grants.map((g) => g.kind)).toEqual(['tab']);
 });
 
 it('uploads an attachment, reports its extraction over the socket, and echoes it on the sent message', async () => {

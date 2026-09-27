@@ -659,6 +659,7 @@ model ChatConversation {
   messages      ChatMessage[]
   actions       ChatAction[]
   grants        ChatGrant[]
+  projectGrants ChatProjectGrant[]
   tabQuestions  TabQuestion[]
   attachments   ChatAttachment[]
   chatDecisions ChatDecision[]
@@ -775,6 +776,25 @@ model ChatGrant {
 
   @@index([conversationId])
   @@map("chat_grants")
+}
+
+/// "Permitir sempre neste projeto": board tools in one project, in one conversation (spec 2026-09-26
+/// project grant). Its own table so the previous release, which maps every chat_grants row with a
+/// tab, never sees one of these.
+model ChatProjectGrant {
+  id             String           @id
+  conversationId String           @map("conversation_id")
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  projectId      String           @map("project_id")
+  sourceActionId String?          @map("source_action_id")
+  grantedBy      String           @map("granted_by")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  expiresAt      DateTime         @map("expires_at")
+  revokedAt      DateTime?        @map("revoked_at")
+  revokedBy      String?          @map("revoked_by")
+
+  @@index([conversationId])
+  @@map("chat_project_grants")
 }
 
 /// A question an agent in a tab put to the person — Claude Code's AskUserQuestion (`choice`) or a

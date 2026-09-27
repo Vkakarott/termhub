@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -177,10 +177,11 @@ export const api = {
   /** The active conversation of a scope: no project = the account-wide chat (`/chat`); a project id =
    * that project's own chat (404 when it is not the signed-in user's). `actions` is the trail as it
    * truly is server-side (survives a reload); live socket events only update it, they are never its
-   * source of truth. `grants` is optional: an older server that predates trusted tabs has none. */
+   * source of truth. `grants` and `project_grants` are optional: an older server that predates trusted
+   * tabs, or trusted projects, has none. */
   chat: Object.assign(
     (projectId?: string | null) =>
-      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[] }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
+      request<{ conversation: ChatConversation; messages: ChatMessage[]; actions: ChatAction[]; host: ChatHostState; grants?: ChatGrant[]; project_grants?: ChatProjectGrant[]; tab_questions?: TabQuestion[]; tab_suggestions?: TabSuggestion[] }>('GET', projectId ? `/chat?project=${encodeURIComponent(projectId)}` : '/chat'),
     {
       /** Files attached to a message before it is sent (spec §5.3). */
       attachments: {
@@ -242,21 +243,23 @@ export const api = {
   /**
    * 200 normally; 200 with `queued: true` and a pt-BR `note` when a run is in flight (the decision is
    * recorded and will be applied once it finishes); 404 unknown/not yours; 409 already decided (400
-   * `GRANT_NOT_ALLOWED` for `approve_tab` on an action the server does not consider grantable).
-   * `action` is the raw decided row (not the enriched card `GET /api/chat` returns — no `summary`
-   * here): only its `id`/`status` are honoured, and the card's summary is kept as already known.
-   * `grant` is the new (or renewed) trusted-tab grant, present only for `approve_tab`.
+   * `GRANT_NOT_ALLOWED` for `approve_tab`/`approve_project` on an action the server does not consider
+   * grantable that way). `action` is the raw decided row (not the enriched card `GET /api/chat`
+   * returns — no `summary` here): only its `id`/`status` are honoured, and the card's summary is kept
+   * as already known. `grant` is the new (or renewed) trusted-tab grant, present only for
+   * `approve_tab`; `project_grant` is the trusted-project one, present only for `approve_project`.
    */
-  decideChatAction: (id: string, decision: 'approve' | 'deny' | 'approve_tab') =>
-    request<{ action: { id: string; status: ChatActionStatus }; message?: ChatMessage; queued?: true; note?: string; grant?: ChatGrant }>('POST', `/chat/actions/${id}/decision`, { decision }),
+  decideChatAction: (id: string, decision: 'approve' | 'deny' | 'approve_tab' | 'approve_project') =>
+    request<{ action: { id: string; status: ChatActionStatus }; message?: ChatMessage; queued?: true; note?: string; grant?: ChatGrant; project_grant?: ChatProjectGrant }>('POST', `/chat/actions/${id}/decision`, { decision }),
   /** A grouped confirmation: every decision of the batch in one request, injected as one sentence. */
   decideChatActions: (decisions: { id: string; decision: 'approve' | 'deny' }[]) =>
     request<{ actions: { id: string; status: ChatActionStatus }[]; skipped: { id: string; reason: string }[]; message?: ChatMessage; queued?: true; note?: string }>('POST', '/chat/actions/decisions', { decisions }),
   /** "Revogar": 404 unknown/not yours, 409 already revoked. */
   revokeChatGrant: (id: string) => request<{ grant: ChatGrant }>('DELETE', `/chat/grants/${encodeURIComponent(id)}`),
-  /** "Abas confiáveis": the grants in force, or the paged history (`state: 'ended'` also covers expired/revoked). */
+  /** "Permissões do chat": the grants in force, or the paged history (`state: 'ended'` also covers
+   *  expired/revoked). `kinds=all` always: tab grants and project grants together. */
   listChatGrants: (q: { state: 'active' | 'ended'; cursor?: string | null }) =>
-    request<{ grants: ChatGrantListItem[]; next_cursor: string | null }>('GET', `/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}`),
+    request<{ grants: ChatGrantListItem[]; next_cursor: string | null }>('GET', `/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}&kinds=all`),
   /** Answers a tab's question from its card (409 `TAB_PROMPT_CHANGED` when the tab moved on). */
   answerTabQuestion: (id: string, body: TabQuestionAnswer) => request<{ tab_question: TabQuestion }>('POST', `/chat/tab-questions/${encodeURIComponent(id)}/answer`, body),
   /** The last lines of the tab, live, for a permission card; 409 once the question is closed. */

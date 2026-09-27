@@ -76,6 +76,15 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     expect(await repo.claimApproved(row.id)).toBe(true);
   });
 
+  it('countForGrantSince counts only that grant, in that conversation, after the cutoff', async () => {
+    const base = { conversation_id: conversationId, tool: 'move_task', class: 'write' as const, decided_by: userId };
+    await repo.insertApproved({ ...base, args: { task_id: 'x1' }, idempotency_key: 'k-g1-a', grant_id: 'pg1' });
+    await repo.insertApproved({ ...base, args: { task_id: 'x2' }, idempotency_key: 'k-g1-b', grant_id: 'pg1' });
+    await repo.insertApproved({ ...base, args: { task_id: 'x3' }, idempotency_key: 'k-g2', grant_id: 'pg2' });
+    expect(await repo.countForGrantSince(conversationId, 'pg1', new Date(Date.now() - 60_000))).toBe(2);
+    expect(await repo.countForGrantSince(conversationId, 'pg1', new Date(Date.now() + 60_000))).toBe(0);
+  });
+
   it('finds a denial by its key, with when it was decided, and ignores an executed row', async () => {
     const refused = await pending('k8');
     await repo.decide(refused.id, userId, 'denied');

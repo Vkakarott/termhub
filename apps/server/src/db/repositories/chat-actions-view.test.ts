@@ -1,7 +1,8 @@
 import { expect, it, vi } from 'vitest';
 import type { ChatAction } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
-import { describeActions, describeGrantList, describeGrants, grantState } from './chat-actions-view.js';
+import type { ChatProjectGrant, ChatProjectGrantWithConversation } from './chat-project-grants.js';
+import { describeActions, describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, grantState } from './chat-actions-view.js';
 
 const OWNER = 'u1';
 const OTHER_OWNER = 'u2';
@@ -477,7 +478,7 @@ it('describeGrantList names the tab, its project and the origin conversation, wi
     NOW,
   );
   expect(active).toEqual({
-    id: 'g1', tab_id: tab.id, tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
+    kind: 'tab', id: 'g1', tab_id: tab.id, tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
     tab_name: tab.name, project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
     conversation_archived: false, state: 'active', ended_at: null,
   });
@@ -495,5 +496,78 @@ it('describeGrantList batches one lookup per kind, owner-scoped, and none for an
   const empty = fakeRepos();
   expect(await describeGrantList(empty, [], OWNER, NOW)).toEqual([]);
   expect(empty.tabs.findByIdsForOwner).not.toHaveBeenCalled();
+  expect(empty.projects.findByIdsForOwner).not.toHaveBeenCalled();
+});
+
+const projectGrant = (over: Partial<ChatProjectGrant>): ChatProjectGrant => ({
+  id: 'pg1',
+  conversation_id: 'c1',
+  project_id: 'p1',
+  source_action_id: 'a1',
+  granted_by: OWNER,
+  created_at: '2026-09-25T10:00:00.000Z',
+  expires_at: '2026-09-26T10:00:00.000Z',
+  revoked_at: null,
+  revoked_by: null,
+  ...over,
+});
+
+it('describeProjectGrants names the grant\'s project, dropping every user id', async () => {
+  const repos = fakeRepos();
+  const [view] = await describeProjectGrants(repos, [projectGrant({ project_id: project.id })], OWNER);
+  expect(view).toEqual({ id: 'pg1', project_id: project.id, project_name: project.name, source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z' });
+});
+
+it('describeProjectGrants says the project does not exist for a gone or foreign project, never leaking its name', async () => {
+  const repos = fakeRepos();
+  const [view] = await describeProjectGrants(repos, [projectGrant({ project_id: foreignProject.id })], OWNER);
+  expect(view.project_name).toBeNull();
+  expect(JSON.stringify(view)).not.toContain(foreignProject.name);
+});
+
+it('describeProjectGrants batches: one lookup for the whole list, deduped, and none at all for an empty list', async () => {
+  const repos = fakeRepos();
+  await describeProjectGrants(repos, [projectGrant({ id: 'pg1', project_id: project.id }), projectGrant({ id: 'pg2', project_id: project.id })], OWNER);
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledTimes(1);
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledWith([project.id], OWNER);
+
+  const empty = fakeRepos();
+  expect(await describeProjectGrants(empty, [], OWNER)).toEqual([]);
+  expect(empty.projects.findByIdsForOwner).not.toHaveBeenCalled();
+});
+
+const listedProject = (over: Partial<ChatProjectGrantWithConversation>): ChatProjectGrantWithConversation => ({ ...projectGrant({}), conversation_project_id: null, conversation_archived: false, ...over });
+
+it('describeProjectGrantList names the project and the origin conversation, with state and ended_at — no tab, ever', async () => {
+  const repos = fakeRepos();
+  const [active, revoked, expiredThenReset] = await describeProjectGrantList(
+    repos,
+    [
+      listedProject({ id: 'pg1', project_id: project.id, conversation_project_id: project.id }),
+      listedProject({ id: 'pg2', project_id: project.id, revoked_at: '2026-09-25T11:00:00.000Z', revoked_by: OWNER, conversation_archived: true }),
+      listedProject({ id: 'pg3', project_id: foreignProject.id, expires_at: '2026-09-25T09:00:00.000Z', revoked_at: '2026-09-25T11:00:00.000Z', revoked_by: null }),
+    ],
+    OWNER,
+    NOW,
+  );
+  expect(active).toEqual({
+    kind: 'project', id: 'pg1', tab_id: null, tool: null, tab_name: null, source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
+    project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
+    conversation_archived: false, state: 'active', ended_at: null,
+  });
+  expect(revoked).toMatchObject({ state: 'revoked', ended_at: '2026-09-25T11:00:00.000Z', conversation_project_name: null, conversation_archived: true, tab_id: null, tab_name: null, tool: null });
+  // A gone or foreign project: project_name (and the derived conversation_project_name) never leak it —
+  // exactly like describeGrantList above — while the state rule (expired before a later reset) still holds.
+  expect(expiredThenReset).toMatchObject({ state: 'expired', ended_at: '2026-09-25T09:00:00.000Z', project_id: foreignProject.id, project_name: null });
+  expect(JSON.stringify(expiredThenReset)).not.toContain(foreignProject.name);
+});
+
+it('describeProjectGrantList batches one lookup for both the grant\'s and the conversation\'s projects, owner-scoped, and none for an empty list', async () => {
+  const repos = fakeRepos();
+  await describeProjectGrantList(repos, [listedProject({ id: 'pg1', project_id: project.id, conversation_project_id: project.id }), listedProject({ id: 'pg2', project_id: project.id })], OWNER, NOW);
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledTimes(1);
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledWith([project.id], OWNER);
+  const empty = fakeRepos();
+  expect(await describeProjectGrantList(empty, [], OWNER, NOW)).toEqual([]);
   expect(empty.projects.findByIdsForOwner).not.toHaveBeenCalled();
 });

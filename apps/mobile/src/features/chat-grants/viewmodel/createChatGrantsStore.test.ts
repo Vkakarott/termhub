@@ -1,4 +1,4 @@
-// The "Abas confiáveis" store over a hand-made `api` fake: only `listGrants` and `revokeGrant`
+// The "Permissões do chat" store over a hand-made `api` fake: only `listGrants` and `revokeGrant`
 // matter here, and the fake lets a test hold a revoke in flight.
 import { ApiError } from '@/services/api/errors';
 import { createChatGrantsStore } from './createChatGrantsStore';

@@ -2,16 +2,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { ChatGrantListItem } from '../lib/types';
 import { untilLabel } from './chat/grant-time';
-import { endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTabLabel } from './chat/grant-list-text';
+import { endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTitleLabel } from './chat/grant-list-text';
 
 const LOAD_FAILED = 'Não foi possível carregar as permissões.';
 
-const title = (g: ChatGrantListItem) => `${grantTabLabel(g)}${g.project_name ? ` · ${g.project_name}` : ''}`;
+// A tab row also names its project (a tab grant is always inside one); a project row's title already
+// names the project, so nothing is appended there.
+const title = (g: ChatGrantListItem) => `${grantTitleLabel(g)}${g.kind === 'tab' && g.project_name ? ` · ${g.project_name}` : ''}`;
 
 /**
- * "Abas confiáveis" (spec 2026-09-26 §4.2): what the chat was allowed to type into without asking, in
- * every conversation — the grants in force, with Revogar, and the paged history. Reads on open, after a
- * revoke and on "Carregar mais"; no live updates.
+ * "Permissões do chat" (spec 2026-09-26 §4.2, §6): what the chat was allowed to do without asking, in
+ * every conversation — trusted tabs and trusted projects, the grants in force with Revogar, and the
+ * paged history. Reads on open, after a revoke and on "Carregar mais"; no live updates.
  */
 export function ChatGrantsView() {
   const [active, setActive] = useState<ChatGrantListItem[] | null>(null);
@@ -84,14 +86,14 @@ export function ChatGrantsView() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <p className="text-sm text-fg-muted">Abas em que o chat pode digitar sem pedir confirmação. Cada permissão vale para uma conversa, por até 24 horas.</p>
+      <p className="text-sm text-fg-muted">O que o chat pode fazer sem pedir confirmação. Cada permissão vale para uma conversa, por até 24 horas.</p>
       {error && <p className="text-sm text-danger">{error}</p>}
       <section aria-labelledby="chat-grants-active" className="space-y-2">
         <h2 id="chat-grants-active" className="text-sm font-semibold text-fg">
           Ativas
         </h2>
         {active.length === 0 ? (
-          <p className="text-sm text-fg-dim">Nenhuma aba confiável agora.</p>
+          <p className="text-sm text-fg-dim">Nenhuma permissão ativa agora.</p>
         ) : (
           <ul className="space-y-2">
             {active.map((g) => (

@@ -20,13 +20,15 @@ export const mobileDecisionBody = z
     z.object({ decision: z.literal('approve'), challenge: proof.challenge.optional(), pin_proof: proof.pin_proof.optional() }),
     /** Approve *and* trust the tab for send_input in this conversation (24 h max). Always PIN-proven. */
     z.object({ decision: z.literal('approve_tab'), ...proof }),
+    /** Approve *and* trust the project's board in this conversation (24 h max). Always PIN-proven. */
+    z.object({ decision: z.literal('approve_project'), ...proof }),
   ])
   .refine((b) => b.decision !== 'approve' || (b.challenge === undefined) === (b.pin_proof === undefined), { message: 'challenge e pin_proof vão juntos' });
 
 /** A grouped confirmation from the phone (spec 2026-09-26 §7). Each approval follows the single
  * decision's rule (TER-92): a `write` card approves with the session alone, an irreversible one
  * carries its own proof, bound to that action and the word `approve` (the server decides). There is
- * no `approve_tab` here: "Permitir sempre" is always a single, PIN-proven decision. */
+ * no `approve_tab` nor `approve_project` here: "Permitir sempre" is always a single, PIN-proven decision. */
 export const mobileBatchDecisionBody = z.object({
   decisions: z
     .array(
@@ -47,6 +49,11 @@ export function isTabGrantable(action: { tool: string; args: unknown; tab_id: st
   const args = (action.args ?? {}) as Record<string, unknown>;
   return action.tool === 'send_input' && args.answering_permission !== true && Boolean(action.tab_id);
 }
+
+/** Mirrors the server's `BOARD_GRANT_TOOLS` (apps/server/src/chat/gate.ts); the server is the judge
+ * and refuses a card whose project does not resolve. */
+export const BOARD_GRANT_TOOLS = ['create_task', 'add_subtasks', 'update_task', 'move_task'] as const;
+export const isBoardGrantable = (action: { tool: string }): boolean => (BOARD_GRANT_TOOLS as readonly string[]).includes(action.tool);
 
 export const chatProjectItem = z.object({
   id: z.string(),

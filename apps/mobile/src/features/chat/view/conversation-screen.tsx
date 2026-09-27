@@ -2,7 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { trustedTabsLabel } from '@/features/chat-grants/model/labels';
+import { activeGrantsLabel } from '@/features/chat-grants/model/labels';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Banner, Button, EmptyState, Screen, Sheet } from '@/ui';
 import { activeGrantIndex, isGrantActive } from '../model/grant-time';
@@ -89,20 +89,22 @@ export function ConversationScreen() {
   const messages = slot?.messages;
   const actions = slot?.actions;
   const grants = useMemo(() => slot?.grants ?? [], [slot?.grants]);
-  const activeGrantCount = useMemo(() => grants.filter((g) => isGrantActive(g)).length, [grants]);
+  const projectGrants = useMemo(() => slot?.projectGrants ?? [], [slot?.projectGrants]);
+  const activeGrantCount = useMemo(() => grants.filter((g) => isGrantActive(g)).length + projectGrants.filter((g) => isGrantActive(g)).length, [grants, projectGrants]);
   const tabQuestions = slot?.tabQuestions;
   const tabSuggestions = slot?.tabSuggestions;
 
-  // The grants still in force, by the card that created them: built when `grants` change and every
-  // 30 s while there are any (a grant runs out on its own), never inside a row's render.
+  // The grants still in force, by the card that created them: built when `grants`/`projectGrants`
+  // change and every 30 s while there are any (a grant runs out on its own), never inside a row's render.
   const [grantTick, setGrantTick] = useState(0);
   useEffect(() => {
-    if (grants.length === 0) return;
+    if (grants.length === 0 && projectGrants.length === 0) return;
     const timer = setInterval(() => setGrantTick((t) => t + 1), GRANT_TICK_MS);
     return () => clearInterval(timer);
-  }, [grants.length]);
+  }, [grants.length, projectGrants.length]);
   // `grantTick` is a dependency on purpose: it is what re-checks expiry.
   const grantIndex = useMemo(() => activeGrantIndex(grants), [grants, grantTick]);
+  const projectGrantIndex = useMemo(() => activeGrantIndex(projectGrants), [projectGrants, grantTick]);
 
   // A deep link followed after unlock replaces `/unlock` with this screen: nothing behind it.
   const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
@@ -150,13 +152,39 @@ export function ConversationScreen() {
       ) : item.kind === 'action_group' ? (
         <ActionGroupCard actions={item.actions} busy={decidingId !== null} onDecide={onDecideMany} onShowSeparately={onShowSeparately} />
       ) : (
-        <ActionCard action={item.action} busy={decidingId !== null} onDecide={onDecide} grant={grantIndex.get(item.action.id)} revoking={revokingId !== null} onRevoke={onRevoke} />
+        <ActionCard
+          action={item.action}
+          busy={decidingId !== null}
+          onDecide={onDecide}
+          grant={grantIndex.get(item.action.id)}
+          projectGrant={projectGrantIndex.get(item.action.id)}
+          revoking={revokingId !== null}
+          onRevoke={onRevoke}
+        />
       ),
-    [answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors, decidingId, grantIndex, loadTabQuestionScreen, onAnswer, onDecide, onForget, onDecideMany, onShowSeparately, onDismissSuggestion, onRevoke, onSendSuggestion, revokingId],
+    [
+      answeringQuestionIds,
+      questionErrors,
+      busySuggestionIds,
+      suggestionErrors,
+      decidingId,
+      grantIndex,
+      projectGrantIndex,
+      loadTabQuestionScreen,
+      onAnswer,
+      onDecide,
+      onForget,
+      onDecideMany,
+      onShowSeparately,
+      onDismissSuggestion,
+      onRevoke,
+      onSendSuggestion,
+      revokingId,
+    ],
   );
   const extra = useMemo(
-    () => ({ decidingId, grantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors }),
-    [decidingId, grantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors],
+    () => ({ decidingId, grantIndex, projectGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors }),
+    [decidingId, grantIndex, projectGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors],
   );
 
   const title = activeProject ? (projects.find((p) => p.id === activeProject)?.name ?? 'Conversa') : 'Chat geral';
@@ -183,7 +211,7 @@ export function ConversationScreen() {
             <AppText variant="title" className="flex-1 text-xl" numberOfLines={1}>
               {title}
             </AppText>
-            {activeGrantCount > 0 ? <Button label={trustedTabsLabel(activeGrantCount)} variant="ghost" onPress={() => router.push('/chat-grants')} /> : null}
+            {activeGrantCount > 0 ? <Button label={activeGrantsLabel(activeGrantCount)} variant="ghost" onPress={() => router.push('/chat-grants')} /> : null}
             <Button label="Nova conversa" variant="ghost" onPress={() => setConfirmingReset(true)} />
           </View>
           {/* Only when something stands in the way (offline, no machine, none chosen, an old agent): where a

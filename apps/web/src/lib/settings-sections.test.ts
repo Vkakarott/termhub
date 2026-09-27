@@ -51,8 +51,8 @@ describe('settings sections', () => {
     expect(visibleSettingsSections((r) => r === 'users').map((s) => s.key)).toEqual(['profile', 'city', 'users']);
   });
 
-  it('puts Abas confiáveis under Conta, gated by the chat resource', () => {
-    expect(SETTINGS_SECTIONS.find((s) => s.key === 'chat-grants')).toEqual({ key: 'chat-grants', label: 'Abas confiáveis', resource: 'chat', group: 'account' });
+  it('puts Permissões do chat under Conta, gated by the chat resource', () => {
+    expect(SETTINGS_SECTIONS.find((s) => s.key === 'chat-grants')).toEqual({ key: 'chat-grants', label: 'Permissões do chat', resource: 'chat', group: 'account' });
     expect(visibleSettingsSections((r) => r === 'chat').map((s) => s.key)).toEqual(['profile', 'city', 'chat-grants']);
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionClass, gateDecision, grantable, idempotencyKeyFor } from './gate.js';
+import { actionClass, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, idempotencyKeyFor } from './gate.js';
 
 it('classifies every tool the MCP exposes, and defaults an unknown one to irreversible', () => {
   expect(actionClass('list_machines', {})).toBe('read');
@@ -78,5 +78,13 @@ describe('grantable', () => {
     expect(actionClass('close_tab', { tab_id: 't1' })).toBe('irreversible');
     expect(grantable('close_tab', { tab_id: 't1' })).toBe(false);
     expect(grantable('close_tab', { tab_id: 't1', force: true })).toBe(false);
+  });
+});
+
+describe('boardGrantable', () => {
+  it.each(['create_task', 'add_subtasks', 'update_task', 'move_task'])('covers %s', (t) => expect(boardGrantable(t)).toBe(true));
+  it.each(['delete_task', 'start_agent', 'send_input', 'run_command', 'list_tasks', 'close_tab'])('never covers %s', (t) => expect(boardGrantable(t)).toBe(false));
+  it('covered tools are all write-class', () => {
+    for (const t of BOARD_GRANT_TOOLS) expect(actionClass(t, {})).toBe('write');
   });
 });

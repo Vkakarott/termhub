@@ -4,12 +4,15 @@ import { ActivityIndicator, View } from 'react-native';
 import { untilLabel } from '@/features/chat/model/grant-time';
 import type { TChatGrantListItem } from '@/services/api/contract';
 import { AppText, Banner, Button, Screen } from '@/ui';
-import { endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTabLabel } from '../model/labels';
+import { endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTitleLabel } from '../model/labels';
 import { useChatGrantsStore } from '../viewmodel/useChatGrantsStore';
 
-const title = (g: TChatGrantListItem) => `${grantTabLabel(g)}${g.project_name ? ` · ${g.project_name}` : ''}`;
+// A tab row also names its project (a tab grant is always inside one); a project row's title
+// already names the project, so nothing is appended there — mirrors the web's own `title`.
+const title = (g: TChatGrantListItem) => `${grantTitleLabel(g)}${g.kind === 'tab' && g.project_name ? ` · ${g.project_name}` : ''}`;
 
-/** "Abas confiáveis" (spec 2026-09-26 §5): the phone's copy of the web list. Revogar needs no PIN. */
+/** "Permissões do chat" (design spec 2026-09-26 §7, spec 2026-09-26 §5): the phone's copy of the
+ * web list — tab and project grants together. Revogar needs no PIN. */
 export function ChatGrantsScreen() {
   const router = useRouter();
   const { active, history, next, loadingMore, revokingId, error, load, loadMore, revoke } = useChatGrantsStore();
@@ -24,10 +27,10 @@ export function ChatGrantsScreen() {
         <View className="flex-row items-center gap-2">
           <Button label="Voltar" variant="ghost" onPress={() => router.back()} />
           <AppText variant="title" className="flex-1">
-            Abas confiáveis
+            Permissões do chat
           </AppText>
         </View>
-        <AppText variant="muted">Abas em que o chat pode digitar sem pedir confirmação. Cada permissão vale para uma conversa, por até 24 horas.</AppText>
+        <AppText variant="muted">O que o chat pode fazer sem pedir confirmação. Cada permissão vale para uma conversa, por até 24 horas.</AppText>
         {error ? <Banner tone="danger" text={error} /> : null}
         {active === null || history === null ? (
           error ? <Button label="Tentar de novo" variant="secondary" onPress={() => void load()} /> : <ActivityIndicator />
@@ -36,7 +39,7 @@ export function ChatGrantsScreen() {
             <View className="gap-2">
               <AppText variant="label">Ativas</AppText>
               {active.length === 0 ? (
-                <AppText variant="muted">Nenhuma aba confiável agora.</AppText>
+                <AppText variant="muted">Nenhuma permissão ativa agora.</AppText>
               ) : (
                 active.map((g) => (
                   <View key={g.id} className="flex-row items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface2 px-3 py-2">

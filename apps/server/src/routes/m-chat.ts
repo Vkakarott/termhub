@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { chatGrantListQuery, chatGrantListResponse, chatProjectsResponse, decisionProofMessage, deviceSelf, hostOptionsResponse, mobileBatchDecisionBody, mobileDecisionBody, mobileMessageBody, sendAccepted, type PinDecision } from '@termhub/mobile-api';
+import type { ChatAction } from '../db/repositories/chat-actions.js';
 import type { Device } from '../db/repositories/devices.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { chatMemoryRoutes } from './chat-memory.js';
@@ -14,7 +15,7 @@ import type { HostAgents } from '../chat/host.js';
 import { failureLabel, type ChatService } from '../chat/service.js';
 import { chatBus } from '../chat/bus.js';
 import { decideMany, pendingBatch } from '../chat/decisions.js';
-import { activeGrants, assertGrantableAction, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
+import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectGrantableAction, grantProject, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
 import { HttpError, conflict, notFound, unauthorized } from '../lib/errors.js';
 import { DeviceLockedError, PinInvalidError, deviceRevoked, type SessionService } from '../mobile/session.js';
 
@@ -81,16 +82,17 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     const projectId = project ?? null;
     const user = request.scope.user;
     const conversation = await deps.chat.conversationFor(user, projectId);
-    const [messages, rows, host, grants, questionRows] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, questionRows] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       deps.chat.hostFor(user, projectId),
       activeGrants(repos, user.id, conversation.id),
+      activeProjectGrants(repos, user.id, conversation.id),
       repos.tabQuestions.listByConversation(conversation.id),
     ]);
     const actions = await describeActions(repos, rows, user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, user.id));
-    return { conversation, messages, actions, host, grants, tab_questions, tab_suggestions };
+    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions };
   });
 
   /** The user's projects, with their chat's status; a project with no conversation yet is idle. */
@@ -184,8 +186,8 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
    * Deny is the web's decision as is. Approve first makes sure there is still something to approve
    * (404 / 409 before any challenge or PIN work, so a stale card never burns a challenge or a PIN
    * attempt). A `write` card approves with the session alone, like deny; an irreversible card (or
-   * any non-`write` class) and a tab grant still need the PIN proof — a proof sent anyway (an older
-   * app) is checked and counted as before. Only a good proof reaches `decide`, which stays
+   * any non-`write` class) and a tab or project grant still need the PIN proof — a proof sent anyway
+   * (an older app) is checked and counted as before. Only a good proof reaches `decide`, which stays
    * conditional in SQL: a race with the web ends in the same 409. Once decided, the resumed run goes
    * to the background: the answer is `{ action, queued: true, note }` for both approve and deny, and
    * the run reaches the phone over the socket. A CHAT_BUSY there is normal — the drain injects the
@@ -196,18 +198,24 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
     const body = mobileDecisionBody.parse(request.body);
     const user = request.scope.user;
 
-    if (body.decision === 'approve' || body.decision === 'approve_tab') {
+    let projectId: string | undefined;
+    if (body.decision !== 'deny') {
       const device = deviceOf(request);
-      // An ineligible grant is refused before the challenge is spent or the PIN checked.
-      const existing = body.decision === 'approve_tab' ? await assertGrantableAction(repos, user.id, id) : await repos.chatActions.findByIdForUser(id, user.id);
+      // An ineligible grant is refused before the challenge is spent or the PIN checked. The project a
+      // grant trusts is resolved here, with the user's own id, exactly as the gate will resolve it.
+      let existing: ChatAction | undefined;
+      if (body.decision === 'approve_tab') existing = await assertGrantableAction(repos, user.id, id);
+      else if (body.decision === 'approve_project') ({ action: existing, projectId } = await assertProjectGrantableAction(repos, user.id, id));
+      else existing = await repos.chatActions.findByIdForUser(id, user.id);
       if (!existing) throw notFound('Ação não encontrada');
       if (existing.status !== 'pending') throw conflict('Esta ação já foi decidida');
 
       // TER-92: a `write` card approves with the session alone (token + hardware-key proof, like deny);
-      // an irreversible card and a tab grant still need the PIN. A proof that comes anyway (an older
-      // app) is checked and counted as before; the action stays pending on every failure.
+      // an irreversible card and a tab or project grant still need the PIN, each proven over its own
+      // decision word. A proof that comes anyway (an older app) is checked and counted as before; the
+      // action stays pending on every failure.
       const hasProof = body.challenge !== undefined && body.pin_proof !== undefined;
-      const needsPin = body.decision === 'approve_tab' || existing.class !== 'write';
+      const needsPin = body.decision === 'approve_tab' || body.decision === 'approve_project' || existing.class !== 'write';
       if (needsPin && !hasProof) throw new HttpError(401, 'Confirme com o PIN para autorizar esta ação.', 'PIN_REQUIRED');
       if (hasProof && !(await proofOk(deps, request, reply, device, id, body.decision, { challenge: body.challenge!, pin_proof: body.pin_proof! }))) return reply;
     }
@@ -231,10 +239,18 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
         request.log.warn({ code: failureLabel(err), actionId }, 'chat grant failed after approval');
       }
     }
+    let project_grant: Awaited<ReturnType<typeof grantProject>> | undefined;
+    if (projectId) {
+      try {
+        project_grant = await grantProject(repos, user.id, action, projectId);
+      } catch (err) {
+        request.log.warn({ code: failureLabel(err), actionId }, 'chat project grant failed after approval');
+      }
+    }
     void Promise.resolve()
       .then(() => deps.chat.resumeAfterDecision(user, action))
       .catch((err) => request.log.warn({ code: failureLabel(err), actionId }, 'mobile decision resume failed'));
-    return { action, queued: true, note: DECISION_NOTE, grant };
+    return { action, queued: true, note: DECISION_NOTE, grant, project_grant };
   });
 
   /**

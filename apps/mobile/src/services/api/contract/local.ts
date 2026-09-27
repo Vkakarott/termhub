@@ -19,6 +19,7 @@ import {
   chatMemoryPatchBody,
   chatMemoryResponse,
   chatMessage,
+  chatProjectGrantSchema,
   chatProjectItem,
   chatProjectsResponse,
   decisionsResponse,
@@ -102,6 +103,9 @@ export const chatResponse = z.object({
   messages: z.array(chatMessageSchema),
   actions: z.array(chatActionSchema),
   grants: z.array(chatGrantSchema).default([]),
+  /** "Permitir sempre neste projeto" grants still in force for this conversation (design spec
+   * 2026-09-26 §7). Defaulted: an older server never sends the field. */
+  project_grants: z.array(chatProjectGrantSchema).default([]),
   tab_questions: z.array(tabQuestionSchema).default([]),
   tab_suggestions: z.array(tabSuggestionSchema).default([]),
   host: chatHostStateSchema,
@@ -190,6 +194,8 @@ export type TNotificationsResponse = z.infer<typeof notificationsResponse>;
 export type TChatHostState = z.infer<typeof chatHostStateSchema>;
 export type TChatAction = z.infer<typeof chatActionSchema>;
 export type TChatGrant = z.infer<typeof chatGrantSchema>;
+/** "Permitir sempre neste projeto" (server `ChatProjectGrantView`). */
+export type TChatProjectGrant = z.infer<typeof chatProjectGrantSchema>;
 export type TChatGrantListItem = z.infer<typeof chatGrantListItemSchema>;
 export type TChatGrantListResponse = z.infer<typeof chatGrantListResponse>;
 export type TTabQuestion = z.infer<typeof tabQuestionSchema>;

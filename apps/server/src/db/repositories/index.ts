@@ -23,6 +23,7 @@ import { ApiTokensRepository } from './api-tokens.js';
 import { ChatRepository } from './chat.js';
 import { ChatActionsRepository } from './chat-actions.js';
 import { ChatGrantsRepository } from './chat-grants.js';
+import { ChatProjectGrantsRepository } from './chat-project-grants.js';
 import { TabQuestionsRepository } from './tab-questions.js';
 import { ChatAttachmentsRepository, type ChatAttachmentsRepo } from './chat-attachments.js';
 import { ChatDecisionsRepository } from './chat-decisions.js';
@@ -59,6 +60,7 @@ export interface Repositories {
   chat: ChatRepository;
   chatActions: ChatActionsRepository;
   chatGrants: ChatGrantsRepository;
+  chatProjectGrants: ChatProjectGrantsRepository;
   tabQuestions: TabQuestionsRepository;
   chatAttachments: ChatAttachmentsRepo;
   chatDecisions: ChatDecisionsRepository;
@@ -97,6 +99,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     chat: new ChatRepository(db),
     chatActions: new ChatActionsRepository(db),
     chatGrants: new ChatGrantsRepository(db),
+    chatProjectGrants: new ChatProjectGrantsRepository(db),
     tabQuestions: new TabQuestionsRepository(db),
     chatAttachments: new ChatAttachmentsRepository(db),
     chatDecisions: new ChatDecisionsRepository(db),

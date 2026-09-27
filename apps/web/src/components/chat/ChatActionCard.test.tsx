@@ -9,6 +9,7 @@ afterEach(() => cleanup());
 
 const base: ChatAction = { id: 'a1', tool: 'send_input', args: { tab_id: 't1', text: 'oi' }, class: 'write', status: 'pending', machine_id: null, project_id: null, tab_id: 't1', summary: 'digitar `oi` na aba Terminal 1', created_at: '' };
 const grant: ChatGrant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '', expires_at: new Date(Date.now() + 3_600_000).toISOString(), tab_name: 'Terminal 1' };
+const card = (over: Partial<ChatAction> = {}): ChatAction => ({ ...base, ...over });
 
 it('offers "Permitir sempre nesta aba" on a pending send_input to a tab', () => {
   const onDecide = vi.fn();
@@ -34,4 +35,32 @@ it('the card that granted shows until when and revokes', () => {
 it('an action run under a grant reads "aba confiada"', () => {
   render(<ChatActionCard action={{ ...base, status: 'executed', grant_id: 'g1' }} deciding={false} onDecide={vi.fn()} />);
   expect(screen.getByText('Executado · aba confiada')).toBeInTheDocument();
+});
+
+it('offers "Permitir sempre neste projeto" on a pending board card only', () => {
+  const onDecide = vi.fn();
+  render(<ChatActionCard action={card({ tool: 'move_task', args: { task_id: 'k1' } })} deciding={false} onDecide={onDecide} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Permitir sempre neste projeto' }));
+  expect(onDecide).toHaveBeenCalledWith('a1', 'approve_project');
+  cleanup();
+  render(<ChatActionCard action={card({ tool: 'delete_task', args: { task_id: 'k1' }, class: 'irreversible' })} deciding={false} onDecide={onDecide} />);
+  expect(screen.queryByRole('button', { name: 'Permitir sempre neste projeto' })).toBeNull();
+});
+
+it('shows the project grant it created, with Revogar', () => {
+  render(
+    <ChatActionCard
+      action={card({ tool: 'move_task', status: 'executed' })}
+      projectGrant={{ id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: 'x', expires_at: new Date(Date.now() + 3_600_000).toISOString() }}
+      deciding={false}
+      onDecide={vi.fn()}
+      onRevoke={vi.fn()}
+    />,
+  );
+  expect(screen.getByText(/Permitido neste projeto até/)).toBeInTheDocument();
+});
+
+it('labels a call run under a project grant', () => {
+  render(<ChatActionCard action={card({ tool: 'update_task', status: 'executed', grant_id: 'pg1' })} deciding={false} onDecide={vi.fn()} />);
+  expect(screen.getByText(/quadro confiado/)).toBeInTheDocument();
 });

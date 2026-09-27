@@ -115,6 +115,21 @@ export interface MockGrant extends TChatGrant {
   revoked_by_user: boolean;
 }
 
+/** A trusted project's board ("Permitir sempre neste projeto", design spec 2026-09-26 §7): the wire
+ * shape (minus `project_name`, resolved at read time from `state.projects`) plus what the server
+ * keeps beside it — the same shape as `MockGrant`, for the same reasons. */
+export interface MockProjectGrant {
+  id: string;
+  conversation_id: string;
+  project_id: string;
+  source_action_id: string | null;
+  created_at: string;
+  expires_at: string;
+  revoked: boolean;
+  revoked_at: string | null;
+  revoked_by_user: boolean;
+}
+
 /** Field-for-field the wire shape of a notification row (contract `notifications.ts`). */
 export type MockNotification = TNotificationRow;
 
@@ -160,6 +175,9 @@ export interface MockState {
   actions: Map<string, MockAction>;
   /** Oldest first; revoked rows stay (a second revoke is a 409, as on the server). */
   grants: MockGrant[];
+  /** "Permitir sempre neste projeto" grants (design spec 2026-09-26 §7): oldest first, revoked rows
+   * stay, same rule as `grants`. */
+  projectGrants: MockProjectGrant[];
   /** Oldest first; answered rows stay (a second answer is a 409, as on the server). */
   tabQuestions: MockTabQuestion[];
   /** Oldest first; closed rows stay (a second send is a 409, as on the server). */
@@ -194,6 +212,7 @@ export function createMockState(): MockState {
     messages: new Map(),
     actions: new Map(),
     grants: [],
+    projectGrants: [],
     tabQuestions: [],
     tabSuggestions: [],
     attachments: new Map(),

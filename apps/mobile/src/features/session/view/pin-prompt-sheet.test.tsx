@@ -69,11 +69,15 @@ describe('PinPromptSheet', () => {
     expect(screen.getByRole('button', { name: 'Cancelar' }).props.accessibilityState.disabled).toBe(true);
   });
 
-  it('says "Permitir sempre nesta aba" for approve_tab and "Autorizar esta ação" for approve', async () => {
+  it('says "Permitir sempre nesta aba" for approve_tab, "Permitir sempre neste projeto" for approve_project, and "Autorizar esta ação" for approve', async () => {
     useSessionStore.setState({ pinPrompt: { actionId: 'a1', decision: 'approve_tab' } });
     await render(<PinPromptSheet />);
     expect(screen.getByText('Permitir sempre nesta aba')).toBeTruthy();
     expect(screen.queryByText('Autorizar esta ação')).toBeNull();
+    await act(async () => {
+      useSessionStore.setState({ pinPrompt: { actionId: 'a1', decision: 'approve_project' } });
+    });
+    expect(screen.getByText('Permitir sempre neste projeto')).toBeTruthy();
     await act(async () => {
       useSessionStore.setState({ pinPrompt: { actionId: 'a1', decision: 'approve' } });
     });
