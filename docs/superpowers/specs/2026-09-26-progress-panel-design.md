@@ -95,7 +95,7 @@ the next one). No row linked = nothing written. `clearState` (tmux gone) does no
 ### 4.3 Pure core (`apps/server/src/progress/`)
 
 - `estimate.ts` — `estimateCard(input, now)` → `{ kind: 'done' } | { kind: 'none', reason: 'not_started' | 'few_samples' } | { kind: 'range', low_s, high_s, basis: 'agent_time' | 'wall_clock', samples }`. Rules of D4. Rounding: below 1 h, to 5 min (min 5 min); from 1 h, to 30 min.
-- `aggregate.ts` — `aggregateEpic(epic, cards, tabsById, now)` builds the read model: per card units, %, estimate, agents (distinct tabs of the card and of its subtasks, still existing), and per epic units (with backlog units apart), %, estimate (D5), agent counts (`working`, `needs_you`, `idle`), `needs_you` list first.
+- `aggregate.ts` — `aggregateCard(card, includeAgents)` / `aggregateEpic(epic, includeAgents)` build the read model from the repository rows: per card units, %, estimate, agents (distinct tabs of the card and of its subtasks, needs-you first), and per epic units (with backlog units apart), %, estimate (D5), agent counts (`working`, `needs_you`, `idle`). `selectEpics(epics, scope)` filters by scope (D7) and sorts: finished epics last, then more agents needing the user, then more agents working, then ref.
 
 Both are pure and unit-tested; no Prisma.
 
@@ -133,8 +133,7 @@ it in `lib/types.ts` like every other type.
   name, column name, `started_at`/`done_at`/`active_seconds`, and its linked tab (with the machine
   name) through a Prisma `include` — the tab of a card always belongs to the card's project, so the
   owner filter on the project covers it. One query for epics, one for cards + subtasks.
-- `progress/build.ts` — `buildProgress(repos, { owner, projectId, scope, includeAgents }, now)`:
-  loads the rows, runs `aggregate`, filters by scope, sorts epics by "needs you" then most recent activity.
+- The route composes it: `repos.progress.list` → `aggregateEpic` → `selectEpics` (no separate service).
 - `routes/progress.ts` at `/progress`, `guarded('tasks', …)` (add nothing to `RESOURCES`): zod query
   `{ project_id?: id, scope?: 'active'|'all' }`; a `project_id` goes through
   `scoped(repos, request).project(id)` (404 outside the scope); `includeAgents =
@@ -226,7 +225,7 @@ ones whose card no longer matches), `updateCi(projectId, repo, number, fields)`,
   `ci_error` on the epic ("GitHub: sem acesso ao repositório"); 403 with `x-ratelimit-remaining: 0`
   → skip the project until `x-ratelimit-reset`.
 
-### 5.4 Pure rules (`progress/ci.ts`)
+### 5.4 Pure rules (`ci/rules.ts`)
 
 - `refsIn(text, key)` → card numbers (`\b${key}-(\d+)\b`, `i`), from head ref, title, body.
 - `ciStateOf(runs)` → `none` (no runs) | `running` (any queued/in_progress) | `failed` (any
@@ -249,7 +248,7 @@ a watched PR). Both colours may poll during a blue/green grace period: writes ar
   deployed } | null` and `ci_error: string | null`. Contract updated in `mobile-api`.
 - Web panel: badges "PR #12", CI dot (verde/amarelo/vermelho, tooltip with failing workflow names),
   "deploy ✓/…/✗" linking to GitHub.
-- Card page: section "Pull requests" from `GET /api/tasks/:id/pull-requests` (guarded `tasks`).
+- Card (the card opens in `TaskEditor`, also from `/project/:ref`): section "Pull requests" from `GET /api/tasks/:id/pull-requests` (guarded `tasks`; a subtask answers its parent's PRs).
 - Phone: same badges, links open in the browser.
 
 ### 5.7 Testing (phase 2)
