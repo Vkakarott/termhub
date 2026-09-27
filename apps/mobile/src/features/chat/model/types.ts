@@ -3,7 +3,7 @@
 // `copy.ts`) is a line-for-line copy of the web's own modules, and matching its type names is what
 // keeps that copy readable side by side with the source it was copied from. Delete this file once
 // `@termhub/mobile-api` exports these types directly (design spec §6).
-import type { TChatAction, TChatConversation, TChatDecision, TChatEvent, TChatGrant, TChatHostState, TChatMemory, TChatMessage, TChatProjectGrant, TTabQuestion, TTabQuestionSuggestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatConversation, TChatDecision, TChatEvent, TChatGrant, TChatHostState, TChatMemory, TChatMessage, TChatProjectGrant, TSubagentView, TTabQuestion, TTabQuestionSuggestion, TTabSuggestion } from '@/services/api/contract';
 
 /**
  * A message row, plus what only this device knows about a row it inserted before the server echoed
@@ -35,6 +35,11 @@ export type TabQuestionSuggestionItem = TabQuestionSuggestion['items'][number];
 export type TabQuestionItem = Extract<TabQuestion, { kind: 'choice' }>['payload']['questions'][number];
 /** Claude Code's dimmed next prompt in a tab (spec 2026-09-25 tab suggestions). */
 export type TabSuggestion = TTabSuggestion;
+
+/** One row of the subagents panel (spec 2026-09-26 panel §4): its description and type, never its
+ * prompt nor its work. */
+export type SubagentView = TSubagentView;
+export type SubagentStatus = SubagentView['status'];
 
 /** "Memória do chat" (spec 2026-09-26 §4.6/§5.2): one remembered decision, and the suggestion
  * switch, as the list and the "Memória do chat" screen show them. */

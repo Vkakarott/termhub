@@ -27,7 +27,11 @@ export const ActionGroupCard = memo(function ActionGroupCard({ actions, busy, on
           className="flex-row items-start gap-2"
         >
           <Icon name={isChecked(a) ? { ios: 'checkmark.square.fill', android: 'check_box' } : { ios: 'square', android: 'check_box_outline_blank' }} tone={isChecked(a) ? 'accent' : 'muted'} />
-          <AppText className="flex-1">{a.summary}</AppText>
+          <View className="flex-1">
+            <AppText>{a.summary}</AppText>
+            {/* The subagent whose turn proposed this action (spec 2026-09-26 §4), when there is one. */}
+            {a.subagent ? <AppText variant="muted">{`Pedido pelo subagente «${a.subagent.description}»`}</AppText> : null}
+          </View>
           {a.class === 'irreversible' ? <AppText variant="muted">irreversível</AppText> : null}
         </Pressable>
       ))}

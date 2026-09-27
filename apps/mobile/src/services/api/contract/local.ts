@@ -44,6 +44,7 @@ import {
   pullRequestBadge,
   pushTokenBody,
   sendAccepted,
+  subagentViewSchema,
   tabQuestionAnswerBody,
   tabQuestionSchema,
   tabQuestionScreenResponse,
@@ -98,7 +99,8 @@ export const chatConversationSchema = z.object({
   last_message_at: z.string().nullable(),
 });
 
-/** `GET chat` and `POST chat/host`'s payload (P§6). */
+/** `GET chat` and `POST chat/host`'s payload (P§6). `subagents` (spec 2026-09-26 panel §4) defaults
+ * to `[]`, like the other panel arrays, so a server that predates it still parses. */
 export const chatResponse = z.object({
   conversation: chatConversationSchema,
   messages: z.array(chatMessageSchema),
@@ -109,8 +111,12 @@ export const chatResponse = z.object({
   project_grants: z.array(chatProjectGrantSchema).default([]),
   tab_questions: z.array(tabQuestionSchema).default([]),
   tab_suggestions: z.array(tabSuggestionSchema).default([]),
+  subagents: z.array(subagentViewSchema).default([]),
   host: chatHostStateSchema,
 });
+
+/** `POST chat/subagents/:id/cancel`'s `202` payload (spec 2026-09-26 panel §5.4). */
+export const cancelSubagentResponse = z.object({ subagent: subagentViewSchema });
 
 /** `GET me` (P§6). */
 export const meResponse = z.object({
@@ -233,3 +239,4 @@ export type TCardProgress = z.infer<typeof cardProgress>;
 export type TAgentOnCard = z.infer<typeof agentOnCard>;
 export type TProgressEstimate = z.infer<typeof progressEstimate>;
 export type TPullRequestBadge = z.infer<typeof pullRequestBadge>;
+export type TCancelSubagentResponse = z.infer<typeof cancelSubagentResponse>;

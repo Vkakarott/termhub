@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../../crypto/encoding';
 import type { P256Jwk } from '../../key/types';
 import { verifyProof } from '../dpop';
-import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TDeviceInfo, TNotificationRow, TTabQuestion, TTabSuggestion } from '../contract';
+import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TDeviceInfo, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
 
 /** Every non-2xx answer the mock throws (design spec ruling): mapped to the wire shape by
  * `transport.ts`. `error` is pt-BR text; `extra` carries `attempts_left` / `retry_after`, spread
@@ -141,6 +141,10 @@ export type MockDecision = TChatDecision;
 /** A tab's question (spec 2026-09-25): the wire shape plus the conversation it was pushed into. */
 export type MockTabQuestion = TTabQuestion & { conversation_id: string };
 
+/** A concierge subagent (spec 2026-09-26 panel §4): the wire shape plus the conversation it belongs
+ * to (the mock filters `GET chat`'s `subagents` by it, like every other panel array). */
+export type MockSubagent = TSubagentView & { conversation_id: string };
+
 /** A tab's suggestion (spec 2026-09-25 tab suggestions): the wire shape plus the conversation it was pushed into. */
 export type MockTabSuggestion = TTabSuggestion & { conversation_id: string };
 
@@ -182,6 +186,8 @@ export interface MockState {
   tabQuestions: MockTabQuestion[];
   /** Oldest first; closed rows stay (a second send is a 409, as on the server). */
   tabSuggestions: MockTabSuggestion[];
+  /** Oldest first (push order); `GET chat` lists a conversation's own, `subagentView`'d. */
+  subagents: MockSubagent[];
   attachments: Map<string, MockAttachment>;
   transcriptions: Map<string, MockTranscription>;
   /** Oldest first (push order); routes read it newest-first by reversing. */
@@ -215,6 +221,7 @@ export function createMockState(): MockState {
     projectGrants: [],
     tabQuestions: [],
     tabSuggestions: [],
+    subagents: [],
     attachments: new Map(),
     transcriptions: new Map(),
     notifications: [],

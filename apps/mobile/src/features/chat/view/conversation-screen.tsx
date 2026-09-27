@@ -6,6 +6,7 @@ import { activeGrantsLabel } from '@/features/chat-grants/model/labels';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
 import { AppText, Banner, Button, EmptyState, Screen, Sheet } from '@/ui';
 import { activeGrantIndex, isGrantActive } from '../model/grant-time';
+import { isActive } from '../model/subagents';
 import { chatTimeline, groupPendingActions, type ChatEntry } from '../model/timeline';
 import type { ChatMessage } from '../model/types';
 import type { ChatDecision } from '../viewmodel/createChatStore';
@@ -15,11 +16,14 @@ import { ActionGroupCard } from './action-group-card';
 import { Composer } from './composer';
 import { HostLine } from './host-line';
 import { MessageBubble } from './message-bubble';
+import { SubagentsSheet } from './subagents-sheet';
 import { TabQuestionCard } from './tab-question-card';
 import { TabSuggestionCard } from './tab-suggestion-card';
 
 /** How often the grant index re-checks expiry (spec §4.2 "Stable rows"): never during render. */
 const GRANT_TICK_MS = 30_000;
+/** How often the subagents sheet's elapsed labels refresh while it is open (spec 2026-09-26 panel §4). */
+const SUBAGENTS_TICK_MS = 30_000;
 
 const entryKey = (entry: ChatEntry) =>
   entry.kind === 'message'
@@ -77,6 +81,7 @@ export function ConversationScreen() {
   const sendTabSuggestion = useChatStore((s) => s.sendTabSuggestion);
   const dismissTabSuggestion = useChatStore((s) => s.dismissTabSuggestion);
   const reset = useChatStore((s) => s.reset);
+  const cancelSubagent = useChatStore((s) => s.cancelSubagent);
   const [confirmingReset, setConfirmingReset] = useState(false);
   /** "Ver separadas" holds only for the cards it was clicked on: a new or decided card groups again. */
   const [separate, setSeparate] = useState(false);
@@ -85,6 +90,21 @@ export function ConversationScreen() {
   const bodyRef = useRef<View>(null);
   const [bodyTop, setBodyTop] = useState<number | null>(null);
   const measureBody = useCallback(() => bodyRef.current?.measureInWindow((_x, y) => setBodyTop(y)), []);
+
+  // The subagents panel (spec 2026-09-26 panel §4): always closable — the header button stays up
+  // while it is open (even once every subagent has ended), the sheet has its own close control
+  // (`Sheet`'s backdrop), and "Nova conversa" closes it too, below.
+  const [subagentsOpen, setSubagentsOpen] = useState(false);
+  const subagents = useMemo(() => slot?.subagents ?? [], [slot?.subagents]);
+  const cancelFailed = useMemo(() => slot?.cancelFailed ?? [], [slot?.cancelFailed]);
+  const activeSubagents = useMemo(() => subagents.filter(isActive), [subagents]);
+  const [subagentsNow, setSubagentsNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!subagentsOpen) return;
+    const timer = setInterval(() => setSubagentsNow(Date.now()), SUBAGENTS_TICK_MS);
+    return () => clearInterval(timer);
+  }, [subagentsOpen]);
+  const onCancelSubagent = useCallback((id: string) => void cancelSubagent(id), [cancelSubagent]);
 
   useEffect(() => {
     if (id) void openByRoute(id);
@@ -196,6 +216,7 @@ export function ConversationScreen() {
 
   const confirmReset = () => {
     setConfirmingReset(false);
+    setSubagentsOpen(false);
     void reset();
   };
 
@@ -218,6 +239,10 @@ export function ConversationScreen() {
             <AppText variant="title" className="flex-1 text-xl" numberOfLines={1}>
               {title}
             </AppText>
+            {/* The subagents panel (spec 2026-09-26 panel §4): the button appears once something is
+                running or being cancelled, and — while the sheet is open — stays even after every one
+                of them ended, so the sheet it opened always has a way to close it again. */}
+            {activeSubagents.length > 0 || subagentsOpen ? <Button label={`Subagentes (${activeSubagents.length})`} variant="ghost" onPress={() => setSubagentsOpen((o) => !o)} /> : null}
             {activeGrantCount > 0 ? <Button label={activeGrantsLabel(activeGrantCount)} variant="ghost" onPress={() => router.push('/chat-grants')} /> : null}
             <Button label="Nova conversa" variant="ghost" onPress={() => setConfirmingReset(true)} />
           </View>
@@ -258,6 +283,7 @@ export function ConversationScreen() {
           <Button label="Cancelar" variant="ghost" onPress={() => setConfirmingReset(false)} />
         </View>
       </Sheet>
+      <SubagentsSheet open={subagentsOpen} onClose={() => setSubagentsOpen(false)} subagents={subagents} cancelFailed={cancelFailed} onCancel={onCancelSubagent} now={subagentsNow} />
     </Screen>
   );
 }

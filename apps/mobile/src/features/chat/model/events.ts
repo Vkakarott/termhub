@@ -3,8 +3,9 @@
 // answer being written. The store decides which events reach here (`belongsTo`) and does the I/O.
 import type { TChatAttachment } from '@/services/api/contract';
 import { applyLive, type LiveFold } from './live';
+import { upsertSubagent } from './subagents';
 import { upsertTabSuggestion } from './tab-suggestion-text';
-import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, ChatProjectGrant, TabQuestion, TabSuggestion } from './types';
+import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from './types';
 
 export interface EventSlice {
   messages: ChatMessage[];
@@ -20,6 +21,12 @@ export interface EventSlice {
   tabQuestions: TabQuestion[];
   /** The tabs' suggestions pushed into this conversation (spec 2026-09-25 tab suggestions §6.4). */
   tabSuggestions: TabSuggestion[];
+  /** The subagents panel of this conversation, newest first (spec 2026-09-26 panel §4). */
+  subagents: SubagentView[];
+  /** Ids whose "Cancelar" came back with `subagent_cancel_failed`, or any other cancel failure the
+   * store marks the same way (spec 2026-09-26 panel §5.4); cleared once a fresh `subagent` event
+   * for that id arrives. */
+  cancelFailed: string[];
 }
 
 const NO_ATTACHMENTS: readonly TChatAttachment[] = [];
@@ -103,6 +110,9 @@ function actionFromConfirmation(e: Extract<ChatEvent, { type: 'confirmation' }>)
     tab_id: e.tab_id,
     grant_id: null,
     summary: e.summary,
+    // Which subagent's turn proposed it (spec 2026-09-26 §4), when there is one — carried through
+    // verbatim, including its absence (`undefined`) on an older server.
+    subagent: e.subagent,
     created_at: e.created_at,
   };
 }
@@ -119,9 +129,15 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
       const live = applyLive(slice.live, e);
       return messages === slice.messages && live === slice.live ? slice : { ...slice, messages, live };
     }
-    case 'confirmation':
-      if (slice.actions.some((a) => a.id === e.action_id)) return slice;
-      return { ...slice, actions: [...slice.actions, actionFromConfirmation(e)] };
+    case 'confirmation': {
+      const existing = slice.actions.find((a) => a.id === e.action_id);
+      if (!existing) return { ...slice, actions: [...slice.actions, actionFromConfirmation(e)] };
+      // The live run learned which subagent proposed a card already on screen, after the card was
+      // already published with none (spec 2026-09-26 §4): merged in, the card's status untouched. A
+      // repeat with nothing new changes nothing.
+      if (!e.subagent) return slice;
+      return { ...slice, actions: slice.actions.map((a) => (a.id === e.action_id ? { ...a, subagent: e.subagent } : a)) };
+    }
     case 'decision': {
       const actions = settlePending(slice.actions, e.action_id, e.status);
       return actions === slice.actions ? slice : { ...slice, actions };
@@ -148,6 +164,14 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
       const messages = patchMessageAttachment(slice.messages, e.attachment);
       return messages === slice.messages ? slice : { ...slice, messages };
     }
+    case 'subagent': {
+      const subagents = upsertSubagent(slice.subagents, e.subagent);
+      // Whatever this row is now, a stale "Cancelar" failure from before no longer applies.
+      const cancelFailed = slice.cancelFailed.includes(e.subagent.id) ? slice.cancelFailed.filter((id) => id !== e.subagent.id) : slice.cancelFailed;
+      return subagents === slice.subagents && cancelFailed === slice.cancelFailed ? slice : { ...slice, subagents, cancelFailed };
+    }
+    case 'subagent_cancel_failed':
+      return slice.cancelFailed.includes(e.subagent_id) ? slice : { ...slice, cancelFailed: [...slice.cancelFailed, e.subagent_id] };
     case 'delta':
     case 'action':
     case 'reset': {

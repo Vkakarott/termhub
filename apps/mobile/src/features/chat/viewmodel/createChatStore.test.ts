@@ -791,7 +791,7 @@ it('persists projects and each conversation, never live or transient state', asy
 
   const saved = JSON.parse(mmkv.getString('chat')!).state;
   expect(Object.keys(saved).sort()).toEqual(['conversations', 'projects']);
-  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'projectGrants', 'tabQuestions', 'tabSuggestions']);
+  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'projectGrants', 'subagents', 'tabQuestions', 'tabSuggestions']);
 
   // A cold start shows the thread before any fetch.
   const again = createChatStore({ api, session: () => ({ phase: 'locked', auth: () => { throw new Error('LOCKED'); }, handleApiError: () => false, requestPinProof: async () => { throw new Error('CANCELLED'); }, requestPinProofs: async () => { throw new Error('CANCELLED'); }, tokenStale: () => true, renewToken: async () => null }) });
@@ -954,6 +954,65 @@ it('suggestions too: per card busy, per card error', async () => {
   await sending;
   expect(chat.getState().busySuggestionIds).toEqual([]);
   expect(chat.getState().error).toBeNull();
+});
+
+it('GET chat fills subagents; a message that starts one is reflected there too (spec 2026-09-26 panel §4)', async () => {
+  const { chat } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  expect(slot(chat, 'p-termhub').subagents).toEqual([]);
+
+  await chat.getState().send('chame uma subagente para isso');
+  await jest.advanceTimersByTimeAsync(5000);
+  expect(slot(chat, 'p-termhub').subagents).toEqual([expect.objectContaining({ status: 'running' })]);
+
+  // A fresh GET (a re-open) still lists it: the server's `subagents` array, not only the live event.
+  await chat.getState().refresh('p-termhub');
+  expect(slot(chat, 'p-termhub').subagents).toEqual([expect.objectContaining({ status: 'running' })]);
+});
+
+it("cancelSubagent calls the client; the row turns stopping right away and stopped once the mock's cancel settles", async () => {
+  const { chat, api } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  await chat.getState().send('chame uma subagente para isso');
+  await jest.advanceTimersByTimeAsync(5000);
+  const sub = slot(chat, 'p-termhub').subagents[0]!;
+  const cancel = jest.spyOn(api, 'cancelSubagent');
+
+  await chat.getState().cancelSubagent(sub.id);
+  expect(cancel).toHaveBeenCalledWith(expect.anything(), sub.id);
+  expect(slot(chat, 'p-termhub').subagents[0]!.status).toBe('stopping');
+
+  await jest.advanceTimersByTimeAsync(5000);
+  expect(slot(chat, 'p-termhub').subagents[0]!.status).toBe('stopped');
+});
+
+it('a non-409 cancel failure marks the row cancelFailed, never the banner; a 409 (already at rest) reloads instead', async () => {
+  const { chat, api } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  await chat.getState().send('chame uma subagente para isso');
+  await jest.advanceTimersByTimeAsync(5000);
+  const sub = slot(chat, 'p-termhub').subagents[0]!;
+
+  jest.spyOn(api, 'cancelSubagent').mockRejectedValueOnce(new ApiError(500, 'INTERNAL', 'Falhou.'));
+  await chat.getState().cancelSubagent(sub.id);
+  expect(slot(chat, 'p-termhub').cancelFailed).toEqual([sub.id]);
+  expect(chat.getState().error).toBeNull();
+
+  const read = jest.spyOn(api, 'chat');
+  jest.spyOn(api, 'cancelSubagent').mockRejectedValueOnce(new ApiError(409, 'SUBAGENT_NOT_RUNNING', 'Este subagente não está rodando.'));
+  await chat.getState().cancelSubagent(sub.id);
+  expect(read).toHaveBeenCalled();
+  // The stale mark survives the reread: nothing published a fresh `subagent` event for this click.
+  expect(slot(chat, 'p-termhub').cancelFailed).toEqual([sub.id]);
+});
+
+it('keeps the subagents of a slot across a restart (persisted with the thread)', async () => {
+  const { chat } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  await chat.getState().send('chame uma subagente para isso');
+  await jest.advanceTimersByTimeAsync(5000);
+  const saved = JSON.parse(mmkv.getString('chat')!).state as { conversations: Record<string, { subagents?: unknown[] }> };
+  expect(saved.conversations['p-termhub']!.subagents!.length).toBe(1);
 });
 
 it('a delta is one set and no MMKV write; the persisted slice lands within 2 s, once, without live', async () => {

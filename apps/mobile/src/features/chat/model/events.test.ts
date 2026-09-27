@@ -1,14 +1,15 @@
 import { applyEvent, mergeMessage, mergeThread, type EventSlice } from './events';
 import { emptyFold, foldLive } from './live';
-import type { ChatAction, ChatEvent, ChatMessage, TabQuestion, TabSuggestion } from './types';
+import type { ChatAction, ChatEvent, ChatMessage, SubagentView, TabQuestion, TabSuggestion } from './types';
 
 const at = '2026-09-24T12:00:00.000Z';
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const row = (id: string, extra: Partial<ChatMessage> = {}): ChatMessage => ({ id, conversation_id: 'c1', role: 'assistant', text: '', usage: null, error_code: null, created_at: at, ...extra });
 const action = (id: string, status: ChatAction['status'] = 'pending'): ChatAction => ({ id, tool: 't', args: {}, class: 'write', status, machine_id: null, project_id: null, tab_id: null, grant_id: null, summary: 's', created_at: at });
 const delta = (messageId: string, text: string): ChatEvent => ({ type: 'delta', ...base, message_id: messageId, delta: text });
-const empty: EventSlice = { messages: [], actions: [], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
+const empty: EventSlice = { messages: [], actions: [], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
 const att = { id: 'att1', name: 'relatorio.pdf', mime: 'application/pdf', kind: 'pdf' as const, bytes: 10, status: 'pending' as const, error_code: null, meta: null, created_at: at };
+const subagent = (over: Partial<SubagentView> & { id: string }): SubagentView => ({ description: 'Buscar CI', subagent_type: null, status: 'running', started_at: at, ended_at: null, ...over });
 
 describe('mergeMessage', () => {
   it('appends a new row, replaces a changed one and keeps the other row objects', () => {
@@ -114,6 +115,47 @@ it('confirmations and decisions are idempotent', () => {
   expect(applyEvent(decided, { type: 'decision', ...base, action_id: 'a1', status: 'approved' }).actions).toBe(decided.actions);
 });
 
+describe('confirmation: subagent origin (spec 2026-09-26 §4)', () => {
+  const confirmation = (subagent: { id: string; description: string } | null = null): ChatEvent => ({ type: 'confirmation', ...base, action_id: 'a1', tool: 't', args: {}, class: 'write', machine_id: null, project_id: null, tab_id: null, summary: 's', subagent, created_at: at });
+
+  it('a fresh confirmation carries its subagent through to the card', () => {
+    const once = applyEvent(empty, confirmation({ id: 'sub1', description: 'Buscar CI' }));
+    expect(once.actions).toEqual([{ ...action('a1'), subagent: { id: 'sub1', description: 'Buscar CI' } }]);
+  });
+
+  it('a repeated confirmation merges a later subagent into the existing card, without touching its status', () => {
+    const bare = applyEvent(empty, confirmation());
+    const decided = applyEvent(bare, { type: 'decision', ...base, action_id: 'a1', status: 'approved' });
+    const merged = applyEvent(decided, confirmation({ id: 'sub1', description: 'Buscar CI' }));
+    expect(merged.actions).toEqual([{ ...action('a1', 'approved'), subagent: { id: 'sub1', description: 'Buscar CI' } }]);
+  });
+
+  it('a repeated confirmation with nothing new changes nothing', () => {
+    const once = applyEvent(empty, confirmation({ id: 'sub1', description: 'Buscar CI' }));
+    expect(applyEvent(once, confirmation())).toBe(once);
+  });
+});
+
+describe('subagents panel (spec 2026-09-26 panel §4/§5.4)', () => {
+  it('a subagent event upserts the row by id', () => {
+    const started = applyEvent(empty, { type: 'subagent', ...base, subagent: subagent({ id: 's1' }) });
+    expect(started.subagents).toEqual([subagent({ id: 's1' })]);
+    const updated = applyEvent(started, { type: 'subagent', ...base, subagent: subagent({ id: 's1', status: 'completed', ended_at: at }) });
+    expect(updated.subagents).toEqual([subagent({ id: 's1', status: 'completed', ended_at: at })]);
+  });
+
+  it('subagent_cancel_failed adds the id to cancelFailed; a later subagent event for it clears the mark', () => {
+    const slice: EventSlice = { ...empty, subagents: [subagent({ id: 's1' })] };
+    const failed = applyEvent(slice, { type: 'subagent_cancel_failed', ...base, subagent_id: 's1' });
+    expect(failed.cancelFailed).toEqual(['s1']);
+    // Idempotent: a repeat does not duplicate the id.
+    expect(applyEvent(failed, { type: 'subagent_cancel_failed', ...base, subagent_id: 's1' })).toBe(failed);
+
+    const cleared = applyEvent(failed, { type: 'subagent', ...base, subagent: subagent({ id: 's1', status: 'stopping' }) });
+    expect(cleared.cancelFailed).toEqual([]);
+  });
+});
+
 it('leaves the slice untouched for events that change nothing here', () => {
   expect(applyEvent(empty, { type: 'hello', protocol: 1, server_time: at })).toBe(empty);
   expect(applyEvent(empty, { type: 'action_result', ...base, message_id: 'm1', tool_use_id: 'x', ok: true })).toBe(empty);
@@ -126,7 +168,7 @@ it('a decision only settles a pending card: a card that already ran is never mov
 });
 
 it('a run_finished event neither crashes nor changes the thread', () => {
-  const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: foldLive([delta('m1', 'oi')]), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
+  const thread: EventSlice = { messages: [row('m1', { text: 'oi' })], actions: [action('a1')], live: foldLive([delta('m1', 'oi')]), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
   const finished: ChatEvent = { type: 'run_finished', ...base, message_id: 'm1', ok: true, error_code: null };
   const failed: ChatEvent = { type: 'run_finished', ...base, message_id: null, ok: false, error_code: 'HOST_GONE' };
   expect(applyEvent(thread, finished)).toBe(thread);
@@ -135,7 +177,7 @@ it('a run_finished event neither crashes nor changes the thread', () => {
 
 describe('tab grants', () => {
   const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
-  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [] };
+  const slice: EventSlice = { messages: [], actions: [action('a1')], live: emptyFold(), grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] };
 
   it('a grant event adds it; a second grant for the same tab replaces the first', () => {
     const added = applyEvent(slice, { type: 'grant', ...base, grant });
