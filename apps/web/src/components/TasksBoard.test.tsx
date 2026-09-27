@@ -9,6 +9,7 @@ const listMock = vi.fn();
 const openTerminalMock = vi.fn();
 const createMock = vi.fn();
 const moveMock = vi.fn();
+const pullRequestsMock = vi.fn();
 vi.mock('../lib/api', () => {
   class ApiError extends Error {}
   return {
@@ -19,6 +20,7 @@ vi.mock('../lib/api', () => {
         openTerminal: (...a: unknown[]) => openTerminalMock(...a),
         create: (...a: unknown[]) => createMock(...a),
         move: (...a: unknown[]) => moveMock(...a),
+        pullRequests: (...a: unknown[]) => pullRequestsMock(...a),
       },
     },
   };
@@ -70,6 +72,7 @@ beforeEach(() => {
   localStorage.clear();
   project = { id: 'p1', key: 'P1', name: 'p1', machines: [{ machine_id: 'm1', cwd: '/a', position: 0 }] } as Project;
   listMock.mockResolvedValue(board([epic('e1', 'Geral', 1), task({ id: 't1' })]));
+  pullRequestsMock.mockResolvedValue({ pull_requests: [] });
 });
 
 afterEach(() => {

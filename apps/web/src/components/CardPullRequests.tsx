@@ -8,10 +8,16 @@ export function CardPullRequests({ taskId }: { taskId: string }) {
   const [pulls, setPulls] = useState<PullRequestBadge[]>([]);
   useEffect(() => {
     let alive = true;
-    api.tasks.pullRequests(taskId).then(
-      (r) => alive && setPulls(r.pull_requests),
-      () => undefined,
-    );
+    // Wrapped in an async IIFE so a synchronous throw from api.tasks.pullRequests
+    // (not just a rejected promise) is also caught: either way the card renders nothing.
+    (async () => {
+      try {
+        const r = await api.tasks.pullRequests(taskId);
+        if (alive) setPulls(r.pull_requests);
+      } catch {
+        // no PRs to show
+      }
+    })();
     return () => {
       alive = false;
     };

@@ -25,4 +25,20 @@ describe('CardPullRequests', () => {
     await vi.waitFor(() => expect(listMock).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('renders nothing when the call rejects', async () => {
+    listMock.mockRejectedValue(new Error('boom'));
+    const { container } = render(<CardPullRequests taskId="t1" />);
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders nothing when the call throws synchronously', async () => {
+    listMock.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    const { container } = render(<CardPullRequests taskId="t1" />);
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+  });
 });
