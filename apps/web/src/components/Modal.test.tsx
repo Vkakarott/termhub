@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog, Modal } from './Modal';
 
@@ -99,6 +99,45 @@ describe('Modal focus', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Excluir' }));
   });
 
+  it("keeps ConfirmDialog on its confirm button under StrictMode's double effect", () => {
+    // StrictMode (apps/web/src/main.tsx) fake-cleans-up and re-runs every effect once in dev, right
+    // after mount. A naive cleanup that unconditionally gives focus back to the opener would fire during
+    // that fake cleanup too — while the dialog is still mounted and the confirm button still has focus —
+    // and steal it. A real (still-connected, still-focusable) opener is needed to catch this: giving
+    // focus back to <body> is a no-op, so an opener captured with nothing focused would hide the bug.
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    render(
+      <StrictMode>
+        <ConfirmDialog open title="Excluir" message="Certeza?" confirmLabel="Excluir" onConfirm={() => {}} onCancel={() => {}} />
+      </StrictMode>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Excluir' }));
+    trigger.remove();
+  });
+
+  it('keeps the newly opened dialog focused when a Modal closes and a ConfirmDialog opens in the same update', () => {
+    function SwapHarness() {
+      const [phase, setPhase] = useState<'closed' | 'modal' | 'confirm'>('closed');
+      return (
+        <>
+          <button onClick={() => setPhase('modal')}>Abrir</button>
+          <Modal title="Renomear" open={phase === 'modal'} onClose={() => setPhase('closed')}>
+            <button onClick={() => setPhase('confirm')}>Excluir…</button>
+          </Modal>
+          <ConfirmDialog open={phase === 'confirm'} title="Excluir" message="Certeza?" confirmLabel="Excluir" onConfirm={() => {}} onCancel={() => {}} />
+        </>
+      );
+    }
+    render(<SwapHarness />);
+    // "Abrir" becomes the Modal's own opener (still connected when it closes), same as the reported
+    // bug: closing the rename Modal from inside it, straight into a confirm dialog, in one update.
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir…' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Excluir' }));
+  });
+
   it('wraps Tab and Shift+Tab inside the dialog', () => {
     render(<FocusHarness />);
     fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
@@ -110,6 +149,23 @@ describe('Modal focus', () => {
     expect(document.activeElement).toBe(close);
     fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(save);
+  });
+
+  it('wraps Tab inside the inner dialog of two nested modals, without the outer one also acting on it', () => {
+    // Modal renders in place (no portal), so a nested Modal's DOM sits inside the outer one's own
+    // container: the same Tab keydown bubbles through both onKeyDown handlers.
+    render(
+      <Modal title="fora" open onClose={() => {}}>
+        <Modal title="dentro" open onClose={() => {}}>
+          <button>Salvar</button>
+        </Modal>
+      </Modal>,
+    );
+    const innerClose = screen.getAllByRole('button', { name: 'Fechar' })[1]!;
+    const innerSave = screen.getByRole('button', { name: 'Salvar' });
+    innerSave.focus();
+    fireEvent.keyDown(innerSave, { key: 'Tab' });
+    expect(document.activeElement).toBe(innerClose);
   });
 
   it('does nothing when the opener is gone', () => {
@@ -134,5 +190,6 @@ describe('Modal focus', () => {
         </Modal>,
       ),
     ).not.toThrow();
+    expect(document.activeElement).toBe(document.body);
   });
 });

@@ -42,8 +42,12 @@ const focusables = (root: HTMLElement) =>
  * Focus for a modal layer (TER-199): on open, focus goes in — unless something inside already took it
  * (an `autoFocus` field; React applies it during commit, before this effect) — to `initialFocusRef` or
  * else the container itself (give it `tabIndex={-1}`). Tab and Shift+Tab wrap inside through the returned
- * `onKeyDown`, which only sees keys pressed inside this dialog, so stacked layers do not fight. On close,
- * focus goes back to what had it before, if that is still in the document.
+ * `onKeyDown`, which only sees keys pressed inside this dialog, so stacked layers do not fight (and a
+ * nested dialog's own wrap, once handled, stops the outer one from also acting on the same key). On
+ * close, focus goes back to what had it before — but only once focus has actually fallen to the page
+ * (`null`/`<body>`): StrictMode's simulated cleanup, and a Modal that closes the same update another
+ * dialog opens in, both run this same cleanup while focus is still meaningfully elsewhere, and must not
+ * steal it back.
  */
 export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElement | null>, initialFocusRef?: RefObject<HTMLElement | null>) {
   // The opener is read during the render that opens the dialog: by the time any effect runs, an
@@ -59,11 +63,17 @@ export function useDialogFocus(open: boolean, containerRef: RefObject<HTMLElemen
     if (container && !container.contains(document.activeElement)) (initialFocusRef?.current ?? container).focus();
     return () => {
       const back = opener.current;
-      if (back && back.isConnected) back.focus();
+      const active = document.activeElement;
+      // Only when focus has nowhere else to be. In StrictMode's simulated cleanup the container is
+      // still mounted and focus is still inside it (not null/body), so this does nothing and the
+      // effect that runs right after is left alone. On a real close the container is already gone
+      // and the browser has already moved focus to body, so the opener gets it back.
+      if (back && back.isConnected && (active === null || active === document.body)) back.focus();
     };
   }, [open, containerRef, initialFocusRef]);
 
   return (e: ReactKeyboardEvent) => {
+    if (e.defaultPrevented) return;
     const container = containerRef.current;
     if (e.key !== 'Tab' || !container) return;
     const items = focusables(container);
