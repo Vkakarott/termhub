@@ -140,6 +140,11 @@ describe('createClaudeManager', () => {
     const argv = argvOf(out);
     const mcpPath = argv[argv.indexOf('--mcp-config') + 1];
     expect(argv).toEqual(buildClaudeArgs({ session_id: baseParams.session_id, resume: false, mcp_config_path: mcpPath, model: 'sonnet' }));
+    // Literal on purpose (TER-127): comparing with buildClaudeArgs alone would pass against a stale
+    // @termhub/claude-cli build too. The spawned CLI must have no built-in but Agent, and must deny
+    // the file tools by name.
+    expect(argv.slice(argv.indexOf('--tools'), argv.indexOf('--tools') + 2)).toEqual(['--tools', 'Agent']);
+    expect(argv[argv.indexOf('--disallowed-tools') + 1].split(',')).toEqual(expect.arrayContaining(['Glob', 'Grep', 'NotebookEdit']));
     expect(readFileSync(join(out, 'cfg'), 'utf8')).toBe(configDir);
     // The token reaches the CLI only through the config file, which is the run's alone to read…
     expect(readFileSync(join(out, 'mcp.json'), 'utf8')).toBe(mcpConfig(baseParams.mcp_url, TOKEN));
@@ -473,6 +478,7 @@ echo '{"type":"result"}'
     expect(readFileSync(join(out, 'stdin'), 'utf8')).toBe('{"type":"user","n":1}\n{"type":"user","n":2}\n');
     const argv = argvOf(out);
     expect(argv).toEqual(buildClaudeArgs({ session_id: baseParams.session_id, resume: false, mcp_config_path: argv[argv.indexOf('--mcp-config') + 1], model: null, stream_input: true }));
+    expect(argv.slice(argv.indexOf('--tools'), argv.indexOf('--tools') + 3)).toEqual(['--tools', 'Agent', '--input-format']);
     // Nothing of what the lines said reaches a log.
     expect(JSON.stringify(log.mock.calls)).not.toContain('"n":2');
   });
