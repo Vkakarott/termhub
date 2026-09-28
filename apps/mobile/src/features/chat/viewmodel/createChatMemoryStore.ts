@@ -26,7 +26,7 @@
 // visit re-reads everything from scratch anyway.
 import { create } from 'zustand';
 import { sessionEnded } from '@/features/shared/signals';
-import type { TChatDecision, TChatMemory, TConciergeNote } from '@/services/api/contract';
+import type { TChatDecision, TChatMemory, TConciergeNote, TLessonItem } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import type { Auth, MobileApi } from '@/services/api/types';
 
@@ -89,6 +89,38 @@ export interface ChatMemoryState {
   loadMoreNotes(): Promise<void>;
   /** "Esquecer" on a note: the same hard delete as a decision's, its own busy id and error line. */
   forgetNote(id: string): Promise<void>;
+
+  /** "Lições" (spec 2026-09-27 failure lessons §6/§8): its own search box and pagination,
+   * independent of both `decisions` and `notes` above — the mobile twin of `ChatMemoryPage`'s own
+   * `lessons`/`lessonsCursor`/`lessonsQ`. */
+  lessons: TLessonItem[] | null;
+  lessonsCursor: string | null;
+  lessonsQ: string;
+  loadingMoreLessons: boolean;
+  /** The lesson whose "Verificar"/"Desfazer verificação" is in flight. */
+  verifyingLessonId: string | null;
+  /** The lesson whose "Esquecer" is in flight. */
+  forgettingLessonId: string | null;
+  lessonsError: string | null;
+  /** The server's `note` from the last successful "Esquecer" (present only for a file-origin
+   * lesson); cleared at the start of every new `forgetLesson`. */
+  lessonsNote: string | null;
+
+  /** The first page — call once when the screen mounts, alongside `load()`/`loadNotes()`. */
+  loadLessons(): Promise<void>;
+  /** Updates `lessonsQ` at once and re-queries after the debounce, same as `search()`. */
+  searchLessons(q: string): void;
+  /** The next page, appended; a no-op with no `lessonsCursor` or while one is already loading. */
+  loadMoreLessons(): Promise<void>;
+  /** "Verificar" / "Desfazer verificação": one call, the direction picked by `verified` (the row's
+   * own current state, mirroring `ChatMemoryPage`'s `toggleLessonVerified`) — `true` unverifies,
+   * `false` verifies. 404 (silently, like every other memory-item id here) is not expected — the
+   * row shown is always this user's own. */
+  toggleLessonVerified(id: string, verified: boolean): Promise<void>;
+  /** "Esquecer": the same hard delete as a decision's/note's, plus the server's `note` (if any) in
+   * `lessonsNote` for the screen to show. */
+  forgetLesson(id: string): Promise<void>;
+
   /** Cancels a pending debounce timer and drops any first-page/"more" response still in flight,
    * without touching what is currently shown. Call this from the screen's unmount — see the note
    * above `toggle()`/`forget()` for why they are not affected. */
@@ -111,6 +143,14 @@ const initialData = (): Data => ({
   loadingMoreNotes: false,
   forgettingNoteId: null,
   notesError: null,
+  lessons: null,
+  lessonsCursor: null,
+  lessonsQ: '',
+  loadingMoreLessons: false,
+  verifyingLessonId: null,
+  forgettingLessonId: null,
+  lessonsError: null,
+  lessonsNote: null,
 });
 
 const isApiError = (e: unknown): e is ApiError => e instanceof ApiError;
@@ -126,6 +166,12 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
    * capture a `previous` memory to roll back to that is itself unconfirmed. Not reactive state — the
    * switch already shows the optimistic value the instant the first call sets it. */
   let settingAutodecide = false;
+  /** "Lições"'s own request-generation counter and debounce timer — kept apart from `gen`/`timer`
+   * above (decisions' own), same reasoning as `ChatMemoryPage`'s `lessonsGenRef` next to `genRef`:
+   * a slow, superseded lessons search must never clobber a newer one, and neither list's search
+   * should ever cancel or supersede the other's. */
+  let lessonsGen = 0;
+  let lessonsTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Clears a pending debounce timer and bumps `gen`, so a first-page/"more" response already in
    * flight is dropped by its own `gen !== myGen` check once it resolves. Shared by `cancel()` and
@@ -136,6 +182,15 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
       timer = null;
     }
     gen++;
+  };
+
+  /** Same as `cancelPending`, for "Lições"'s own `lessonsGen`/`lessonsTimer`. */
+  const cancelLessonsPending = (): void => {
+    if (lessonsTimer) {
+      clearTimeout(lessonsTimer);
+      lessonsTimer = null;
+    }
+    lessonsGen++;
   };
 
   const store = create<ChatMemoryState>()((set, get) => {
@@ -152,6 +207,23 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
         if (gen !== myGen) return;
         if (session().handleApiError(e)) return;
         set({ error: isApiError(e) ? e.message : 'Não foi possível carregar a memória do chat' });
+      }
+    };
+
+    /** "Lições"'s own first-page read, `lessonsGen`-guarded exactly like `runFirstPage` above but
+     * against its own counter — a slow, superseded lessons search must never clobber a newer one,
+     * and neither list's search can ever supersede the other's. */
+    const runLessonsFirstPage = async (query: string): Promise<void> => {
+      const myGen = ++lessonsGen;
+      set({ lessonsError: null });
+      try {
+        const page = await api.chatLessons(session().auth(), query || undefined);
+        if (lessonsGen !== myGen) return; // superseded by a newer search
+        set({ lessons: page.lessons, lessonsCursor: page.next_cursor });
+      } catch (e) {
+        if (lessonsGen !== myGen) return;
+        if (session().handleApiError(e)) return;
+        set({ lessonsError: isApiError(e) ? e.message : 'Não foi possível carregar as lições' });
       }
     };
 
@@ -271,8 +343,65 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
         }
       },
 
+      loadLessons() {
+        return runLessonsFirstPage(get().lessonsQ);
+      },
+
+      searchLessons(q) {
+        set({ lessonsQ: q });
+        if (lessonsTimer) clearTimeout(lessonsTimer);
+        lessonsTimer = setTimeout(() => {
+          lessonsTimer = null;
+          void runLessonsFirstPage(q);
+        }, debounceMs);
+      },
+
+      async loadMoreLessons() {
+        const cursor = get().lessonsCursor;
+        if (!cursor || get().loadingMoreLessons) return;
+        const myGen = lessonsGen; // not bumped: "more" of the search that is current when it starts
+        set({ loadingMoreLessons: true, lessonsError: null });
+        try {
+          const page = await api.chatLessons(session().auth(), get().lessonsQ || undefined, cursor);
+          if (lessonsGen !== myGen) return; // a newer search started (or finished) meanwhile
+          set((s) => ({ lessons: [...(s.lessons ?? []), ...page.lessons], lessonsCursor: page.next_cursor, loadingMoreLessons: false }));
+        } catch (e) {
+          if (lessonsGen !== myGen) return;
+          set({ loadingMoreLessons: false });
+          if (session().handleApiError(e)) return;
+          set({ lessonsError: isApiError(e) ? e.message : 'Não foi possível carregar mais lições' });
+        }
+      },
+
+      async toggleLessonVerified(id, verified) {
+        if (get().verifyingLessonId !== null) return;
+        set({ verifyingLessonId: id, lessonsError: null });
+        try {
+          const updated = verified ? await api.unverifyChatLesson(session().auth(), id) : await api.verifyChatLesson(session().auth(), id);
+          set((s) => ({ lessons: (s.lessons ?? []).map((l) => (l.id === updated.id ? updated : l)), verifyingLessonId: null }));
+        } catch (e) {
+          set({ verifyingLessonId: null });
+          if (session().handleApiError(e)) return;
+          set({ lessonsError: isApiError(e) ? e.message : 'Não foi possível verificar a lição' });
+        }
+      },
+
+      async forgetLesson(id) {
+        if (get().forgettingLessonId !== null) return;
+        set({ forgettingLessonId: id, lessonsError: null, lessonsNote: null });
+        try {
+          const r = await api.forgetChatLesson(session().auth(), id);
+          set((s) => ({ lessons: (s.lessons ?? []).filter((l) => l.id !== id), forgettingLessonId: null, lessonsNote: r.note ?? null }));
+        } catch (e) {
+          set({ forgettingLessonId: null });
+          if (session().handleApiError(e)) return;
+          set({ lessonsError: isApiError(e) ? e.message : 'Não foi possível esquecer a lição' });
+        }
+      },
+
       cancel() {
         cancelPending();
+        cancelLessonsPending();
       },
     };
   });
@@ -281,6 +410,7 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
   // next enrolled device never sees the previous session's decisions.
   sessionEnded.subscribe(() => {
     cancelPending();
+    cancelLessonsPending();
     store.setState(initialData());
   });
 

@@ -9,7 +9,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine, Project, Task } from '../db/repositories/types.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
-import { checkPrompt, launchLine, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent } from './agents.js';
+import { checkPrompt, launchLine, LESSONS_REMINDER, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude', 'codex'], checked_at: null,
@@ -120,6 +120,10 @@ describe('resumeLine', () => {
   it('refuses a session id that is not a uuid', () => {
     expect(() => resumeLine(null, "x'; rm -rf ~", 'x')).toThrow(ControlError);
   });
+
+  it('does not add the lessons reminder: a resumed session already had it', () => {
+    expect(resumeLine(null, SID, RESUME_PROMPT)).not.toContain(LESSONS_REMINDER);
+  });
 });
 
 describe('checkPrompt', () => {
@@ -142,12 +146,18 @@ describe('checkPrompt', () => {
   });
 });
 
+describe('withLessonsReminder', () => {
+  it('appends the reminder after a blank line', () => {
+    expect(withLessonsReminder('write a spec')).toBe(`write a spec\n\n${LESSONS_REMINDER}`);
+  });
+});
+
 describe('startAgent', () => {
   it('opens a tab named after the account, types the launch line and returns where to watch it', async () => {
     const { c } = ctx();
     const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'write a spec' });
     expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', machine_id: 'm1', name: 'claude · pedrogoiania' });
-    expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'write a spec'", true);
+    expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('write a spec')), true);
     expect(r).toEqual({
       tab_id: 't9', tab_name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-t9', tab_url: 'https://app.test/projects/p1', command: 'claude', task_id: null, previous_tab_id: null,
       note: 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.',
@@ -177,14 +187,14 @@ describe('startAgent', () => {
   it('types the codex line for a ChatGPT account without a config dir', async () => {
     const { c } = ctx();
     await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
-    expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', "codex 'fix it'", true);
+    expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', launchLine('chatgpt', null, withLessonsReminder('fix it')), true);
     expect(openTab).toHaveBeenCalledWith(c, { project_id: 'p1', machine_id: 'm1', name: 'codex · ChatGPT' });
   });
 
   it('types the prompt as checked (CRLF folded)', async () => {
     const { c } = ctx();
     await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'one\r\ntwo' });
-    expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), "codex 'one\ntwo'", true);
+    expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), launchLine('chatgpt', null, withLessonsReminder('one\ntwo')), true);
   });
 
   it('cuts a long task title to the tab-name limit', async () => {
@@ -281,6 +291,23 @@ describe('startAgent', () => {
   it('refuses a prompt over the limit before opening anything', async () => {
     const { c } = ctx();
     await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'x'.repeat(PROMPT_MAX_CHARS + 1) })).rejects.toMatchObject({ code: 'PROMPT_TOO_LONG' });
+    expect(openTab).not.toHaveBeenCalled();
+  });
+
+  it('types the launch line with the lessons reminder appended to the prompt', async () => {
+    const { c } = ctx();
+    await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'write a spec' });
+    expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.stringContaining(LESSONS_REMINDER), true);
+  });
+
+  it('refuses a prompt that fits alone but not with the reminder, with the existing too-long error', async () => {
+    const { c } = ctx();
+    // fits PROMPT_MAX_CHARS by itself, but not once the reminder is appended
+    const prompt = 'x'.repeat(PROMPT_MAX_CHARS);
+    const combinedLength = withLessonsReminder(prompt).length;
+    await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt })).rejects.toEqual(
+      new ControlError('PROMPT_TOO_LONG', `Prompt longo demais: ${combinedLength} caracteres, máximo ${PROMPT_MAX_CHARS}`),
+    );
     expect(openTab).not.toHaveBeenCalled();
   });
 

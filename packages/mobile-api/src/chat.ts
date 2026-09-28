@@ -157,3 +157,29 @@ export const conciergeNoteView = z.object({
 /** `GET chat/notes`: newest first, 50 per page, with a keyset `next_cursor` (opaque, `null` on the
  * last page) — the same pagination shape as `decisionsResponse`. */
 export const notesResponse = z.object({ notes: z.array(conciergeNoteView), next_cursor: z.string().nullable() });
+
+/** "Lições" (spec 2026-09-27 failure lessons §6/§8): one `lesson` item (chunk 0), as the "Lições" list
+ * (and the verify/unverify routes, which answer the same shape) show it — never the embedding, the
+ * owning user, `source_id` or the raw `meta`. `project` is `null` for an orphaned project; `path`,
+ * `tab_id`, `card` and `pr` are `null` when the lesson (or its origin) has none. */
+export const lessonItemSchema = z.object({
+  id: z.string(),
+  project: z.object({ id: z.string(), name: z.string() }).nullable(),
+  title: z.string(),
+  excerpt: z.string(),
+  origin: z.enum(['file', 'note']),
+  path: z.string().nullable(),
+  tab_id: z.string().nullable(),
+  card: z.string().nullable(),
+  pr: z.string().nullable(),
+  evidence: z.enum(['observed', 'fixed', 'confirmed']),
+  verified: z.boolean(),
+  verified_at: z.string().nullable(),
+  created_at: z.string(),
+});
+/** `GET chat/lessons`: newest `source_at` first, with a keyset `next_cursor` — the same pagination
+ * shape as `decisionsResponse`/`notesResponse`. */
+export const lessonListSchema = z.object({ lessons: z.array(lessonItemSchema), next_cursor: z.string().nullable() });
+/** `DELETE chat/lessons/:id` ("Esquecer"): `note` is present only for a file lesson, saying the file
+ * itself stays in the repository until a PR removes it. */
+export const lessonForgetSchema = z.object({ ok: z.literal(true), note: z.string().optional() });

@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DOCS_MAX_BYTES, DOCS_MAX_FILES, DOCS_READ_MAX_BYTES, buildDocsReadScript, buildDocsScanScript, parseDocsRead, parseDocsScan } from './docs-script.js';
+import { DOCS_MAX_BYTES, DOCS_MAX_FILES, DOCS_READ_MAX_BYTES, LESSONS_MAX_FILES, buildDocsReadScript, buildDocsScanScript, parseDocsRead, parseDocsScan } from './docs-script.js';
 import { shellQuote } from './shell.js';
 
 // Mirrors @termhub/agent-protocol's MAX_FRAME (frames.ts) without depending on that package —
@@ -89,6 +89,49 @@ describe('buildDocsScanScript / parseDocsScan', () => {
     },
     20_000,
   );
+
+  it(
+    'lessons have their own LESSONS_MAX_FILES budget: more than DOCS_MAX_FILES specs+plans never starve them',
+    () => {
+      for (let i = 0; i < DOCS_MAX_FILES; i++) write(`docs/superpowers/specs/s${String(i).padStart(4, '0')}.md`, 'x');
+      for (let i = 0; i < 5; i++) write(`docs/superpowers/plans/p${i}.md`, 'x');
+      for (let i = 0; i < LESSONS_MAX_FILES + 3; i++) write(`docs/lessons/l${String(i).padStart(4, '0')}.md`, 'x');
+      const paths = parseDocsScan(runScan(dir)).entries.map((e) => e.path);
+      const lessons = paths.filter((p) => p.startsWith('docs/lessons/'));
+      // specs/plans unchanged: the first DOCS_MAX_FILES by name, so every spec and no plan.
+      expect(paths.filter((p) => !p.startsWith('docs/lessons/'))).toHaveLength(DOCS_MAX_FILES);
+      expect(paths.some((p) => p.startsWith('docs/superpowers/plans/'))).toBe(false);
+      expect(lessons).toHaveLength(LESSONS_MAX_FILES);
+      expect(lessons[0]).toBe('docs/lessons/l0000.md');
+    },
+    30_000,
+  );
+
+  it('lists docs/lessons/*.md alongside specs/plans, but never a nested file or README.md', () => {
+    write('docs/lessons/2026-09-27-x.md', 'L');
+    write('docs/lessons/sub/y.md', 'nope');
+    write('docs/lessons/README.md', 'format doc, not a lesson');
+    write('docs/superpowers/specs/a.md', 'A');
+    const { entries, err } = parseDocsScan(runScan(dir));
+    expect(err).toBeNull();
+    expect(entries.map((e) => e.path).sort()).toEqual(['docs/lessons/2026-09-27-x.md', 'docs/superpowers/specs/a.md']);
+  });
+
+  it('a symlinked docs/lessons directory yields nothing from it (scan and read), specs untouched', () => {
+    write('docs/superpowers/specs/a.md', 'A');
+    const secretDir = mkdtempSync(join(tmpdir(), 'docs-lessons-secret-'));
+    writeFileSync(join(secretDir, 'b.md'), 'SECRET');
+    symlinkSync(secretDir, join(dir, 'docs/lessons'));
+    try {
+      const { entries } = parseDocsScan(runScan(dir));
+      expect(entries.map((e) => e.path)).toEqual(['docs/superpowers/specs/a.md']);
+      const map = parseDocsRead(runRead(dir, ['docs/superpowers/specs/a.md', 'docs/lessons/b.md']));
+      expect(map.get('docs/superpowers/specs/a.md')).toBe('A');
+      expect(map.has('docs/lessons/b.md')).toBe(false);
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true });
+    }
+  });
 
   it('a missing docs/superpowers gives zero entries and no ERR', () => {
     const { entries, err } = parseDocsScan(runScan(dir));
@@ -201,6 +244,16 @@ describe('buildDocsReadScript / parseDocsRead', () => {
     write('docs/other/x.md', 'nope');
     const map = parseDocsRead(runRead(dir, ['docs/other/x.md']));
     expect(map.size).toBe(0);
+  });
+
+  it('reads a docs/lessons/*.md file, but never README.md or a nested path', () => {
+    write('docs/lessons/2026-09-27-x.md', 'lição');
+    write('docs/lessons/README.md', 'formato');
+    write('docs/lessons/sub/y.md', 'nope');
+    const map = parseDocsRead(runRead(dir, ['docs/lessons/2026-09-27-x.md', 'docs/lessons/README.md', 'docs/lessons/sub/y.md']));
+    expect(map.get('docs/lessons/2026-09-27-x.md')).toBe('lição');
+    expect(map.has('docs/lessons/README.md')).toBe(false);
+    expect(map.has('docs/lessons/sub/y.md')).toBe(false);
   });
 
   it('rejects a path with an extra slash (traversal), even handed directly to the script', () => {

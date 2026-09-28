@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Machine } from '../db/repositories/types.js';
+import { DOCS_LESSONS_MIN_AGENT_VERSION } from '../memory/docs.js';
 import { AgentRpcError, AgentTimeoutError } from './connection.js';
 import { AgentOfflineError, agents } from './registry.js';
-import { agentRpc, requireSimCapable, toHttpError, versionAtLeast } from './errors.js';
+import { agentRpc, requireAgentVersion, requireSimCapable, toHttpError, versionAtLeast } from './errors.js';
 
 describe('versionAtLeast', () => {
   it('compares dotted numeric versions component by component', () => {
@@ -78,6 +79,21 @@ describe('requireSimCapable', () => {
   it('passes when the agent claims sim', () => {
     attachFake('m-sim', { agent_version: '0.5.0', capabilities: ['sim'] });
     expect(() => requireSimCapable({ ...base, type: 'agent' })).not.toThrow();
+  });
+});
+
+describe('requireAgentVersion', () => {
+  afterEach(() => agents.reset());
+  const base = { id: 'm-docs', name: 'jarvis', host: null, ssh_user: null, ssh_port: 22, type: 'agent' } as unknown as Machine;
+
+  it('refuses an agent on 0.9.0 for a read gated at DOCS_LESSONS_MIN_AGENT_VERSION (0.9.1): it must not get lessons reads', () => {
+    attachFake('m-docs', { agent_version: '0.9.0', capabilities: [] });
+    expect(() => requireAgentVersion(base, DOCS_LESSONS_MIN_AGENT_VERSION)).toThrow(expect.objectContaining({ statusCode: 409, code: 'AGENT_OUTDATED' }));
+  });
+
+  it('passes an agent on 0.9.1, the lessons minimum', () => {
+    attachFake('m-docs', { agent_version: '0.9.1', capabilities: [] });
+    expect(() => requireAgentVersion(base, DOCS_LESSONS_MIN_AGENT_VERSION)).not.toThrow();
   });
 });
 

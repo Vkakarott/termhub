@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashApiToken } from '../auth/api-tokens.js';
 import { canAccess } from '../auth/permissions.js';
+import { withLessonsReminder } from '../control/agents.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { mcpRoutes } from './route.js';
@@ -179,7 +180,8 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
 
     const flat = await screenWith(app, out.tab_id, 'fake-cli args=');
     expect(flat).toContain('fake-cli args=1'); // the prompt is a single argument, not a command line
-    expect(flat).toContain(`fake-cli prompt=[${prompt}]`); // …and arrives exactly as it was sent
+    // …and arrives exactly as it was sent, with the lessons reminder appended in the same argument (D13).
+    expect(flat).toContain(`fake-cli prompt=[${flatten(withLessonsReminder(prompt))}]`);
     expect(flat).toContain(`fake-cli cfg=${cfg}`); // the account chosen through CLAUDE_CONFIG_DIR
     expect(flat).toContain(`fake-cli cwd=${cwd}`); // the session runs in the project's directory
     // If the shell had split at `;` or run the substitution, the rest would have been executed.
@@ -198,10 +200,10 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
 
     const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a1', prompt }));
     const flat = await screenWith(app, out.tab_id, 'fake-cli args=');
-    // The newline only makes the shell show its continuation prompt; the argument stays one.
+    // The newline only makes the shell show its continuation prompt; the argument stays one, and the
+    // lessons reminder (D13) still lands inside it, right after the user's own text.
     expect(flat).toContain('fake-cli args=1');
-    expect(flat).toContain('fake-cli prompt=[linha um');
-    expect(flat).toContain('linha dois]');
+    expect(flat).toContain(`fake-cli prompt=[${flatten(withLessonsReminder(prompt))}]`);
   }, 30_000);
 
   it("expands a config dir stored as ~/x on the machine, not here", async () => {
@@ -218,12 +220,13 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
   it('starts codex under CODEX_HOME for a ChatGPT account', async () => {
     const { app } = build(cwd);
 
-    const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a2', prompt: 'arrume o teste' }));
+    const prompt = 'arrume o teste';
+    const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a2', prompt }));
     expect(out.command).toBe('codex');
 
     const flat = await screenWith(app, out.tab_id, 'fake-cli args=');
     expect(flat).toContain('fake-cli args=1');
-    expect(flat).toContain('fake-cli prompt=[arrume o teste]');
+    expect(flat).toContain(`fake-cli prompt=[${flatten(withLessonsReminder(prompt))}]`);
     expect(flat).toContain(`fake-cli cfg=${cfg}`);
   }, 30_000);
 });

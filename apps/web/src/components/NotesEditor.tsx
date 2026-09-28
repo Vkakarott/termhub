@@ -6,7 +6,10 @@ interface Props {
   projectId: string;
 }
 
-type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+/** `merged`: the server's save answered a content different from what was sent (D9 — it kept a
+ *  lesson block an agent appended concurrently) and nothing was typed since; the textarea has just
+ *  adopted that content, and the status line says so instead of "salvo". */
+type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'merged';
 const DEBOUNCE_MS = 800;
 
 export function NotesEditor({ projectId }: Props) {
@@ -17,6 +20,11 @@ export function NotesEditor({ projectId }: Props) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef('');
   const lastSaved = useRef('');
+  // The note's `updated_at` last loaded or saved (D9): sent back as `base_updated_at` on the next save
+  // (and on the keep-alive unload save), so the server can tell a lesson block appended after this
+  // from one already known. A ref, not state, so the unload handler (registered once per `projectId`)
+  // always reads the latest value rather than the one captured when it was added.
+  const base = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,7 +35,12 @@ export function NotesEditor({ projectId }: Props) {
         setContent(r.note.content);
         latest.current = r.note.content;
         lastSaved.current = r.note.content;
+        // Only a real note has a date worth showing; but the base is always sent (final review fix):
+        // for a project with no note yet the server answers the epoch, and without a base the first
+        // save would be a plain upsert that erases a lesson the concierge appended into the brand-new
+        // note meanwhile. With the epoch, every such block is newer than the base and is kept.
         setUpdatedAt(r.note.id ? r.note.updated_at : null);
+        base.current = r.note.updated_at;
       })
       .catch(() => !cancelled && setContent(''));
     return () => {
@@ -47,9 +60,34 @@ export function NotesEditor({ projectId }: Props) {
     }
     setSaveState('saving');
     try {
-      const r = await api.notes.save(projectId, value);
+      const r = await api.notes.save(projectId, value, base.current);
+      const typedSince = latest.current !== value;
+      const merged = r.note.content !== value;
+      if (merged && !typedSince) {
+        // Nothing typed since this request started (D9): the server kept a lesson block an agent
+        // appended concurrently — adopt it rather than let the next autosave erase it again. This
+        // response's `updated_at` now safely describes what the textarea holds.
+        base.current = r.note.updated_at;
+        setUpdatedAt(r.note.updated_at);
+        latest.current = r.note.content;
+        lastSaved.current = r.note.content;
+        setContent(r.note.content);
+        setSaveState('merged');
+        return;
+      }
+      if (!merged) {
+        // No merge happened (the row still holds exactly what was sent): this response's
+        // `updated_at` is a safe base for the next save, typed-since or not.
+        base.current = r.note.updated_at;
+        setUpdatedAt(r.note.updated_at);
+      }
+      // `merged && typedSince`: the person kept typing, so their newer text stays on screen — but
+      // `base` (and the displayed date) must NOT advance to this response's `updated_at`. That
+      // timestamp is the row's, which already carries the appended block; sending it back as the
+      // next save's `base_updated_at` would tell the server's merge (`mergeNoteSave`, only re-appends
+      // a block newer than the base) that the block is already known and drop it for good. Keeping
+      // `base` at what this request was sent with makes the next save merge against it again.
       lastSaved.current = value;
-      setUpdatedAt(r.note.updated_at);
       setSaveState(latest.current === value ? 'saved' : 'dirty');
     } catch (e) {
       setSaveState('error');
@@ -69,7 +107,7 @@ export function NotesEditor({ projectId }: Props) {
   useEffect(() => {
     const flush = () => {
       if (latest.current !== lastSaved.current) {
-        const body = JSON.stringify({ content: latest.current });
+        const body = JSON.stringify(base.current ? { content: latest.current, base_updated_at: base.current } : { content: latest.current });
         const csrf = document.cookie.match(/(?:^|; )termhub_csrf=([^;]*)/)?.[1] ?? '';
         void fetch(`/api/projects/${projectId}/note`, {
           method: 'PUT',
@@ -96,7 +134,17 @@ export function NotesEditor({ projectId }: Props) {
   if (content === null) return <div className="flex h-full items-center justify-center text-sm text-fg-dim">Carregando notas…</div>;
 
   const status =
-    saveState === 'saving' ? 'salvando…' : saveState === 'dirty' ? 'alterações pendentes' : saveState === 'error' ? 'erro ao salvar' : saveState === 'saved' ? 'salvo' : '';
+    saveState === 'saving'
+      ? 'salvando…'
+      : saveState === 'dirty'
+        ? 'alterações pendentes'
+        : saveState === 'error'
+          ? 'erro ao salvar'
+          : saveState === 'merged'
+            ? 'lição adicionada por um agente'
+            : saveState === 'saved'
+              ? 'salvo'
+              : '';
 
   return (
     <div className="flex h-full flex-col">

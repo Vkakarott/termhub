@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../../crypto/encoding';
 import type { P256Jwk } from '../../key/types';
 import { verifyProof } from '../dpop';
-import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TConciergeNote, TDeviceInfo, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
+import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TConciergeNote, TDeviceInfo, TLessonItem, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
 
 /** Every non-2xx answer the mock throws (design spec ruling): mapped to the wire shape by
  * `transport.ts`. `error` is pt-BR text; `extra` carries `attempts_left` / `retry_after`, spread
@@ -145,6 +145,11 @@ export type MockDecision = TChatDecision;
  * `owner_id` to keep here either. */
 export type MockNote = TConciergeNote;
 
+/** "Lições" (spec 2026-09-27 failure lessons §6/§8): field-for-field the wire shape of one lesson
+ * (contract `chat.ts`'s `lessonItemSchema`) — the mock's single user owns every row, so there is no
+ * `owner_id` to keep here either. */
+export type MockLesson = TLessonItem;
+
 /** A tab's question (spec 2026-09-25): the wire shape plus the conversation it was pushed into. */
 export type MockTabQuestion = TTabQuestion & { conversation_id: string };
 
@@ -216,6 +221,9 @@ export interface MockState {
   /** "Anotações do concierge" (spec D12): the mock's one user's `record_decision` notes, any order
    * (`GET notes` sorts newest first) — "Esquecer" (`DELETE`) removes a row from here. */
   notes: MockNote[];
+  /** "Lições" (spec 2026-09-27 failure lessons §6/§8): the mock's one user's `lesson` items, any
+   * order (`GET lessons` sorts newest first) — "Esquecer" (`DELETE`) removes a row from here. */
+  lessons: MockLesson[];
 }
 
 export function createMockState(): MockState {
@@ -244,6 +252,7 @@ export function createMockState(): MockState {
     chatMemoryEnabled: true,
     chatAutodecideEnabled: false,
     notes: [],
+    lessons: [],
   };
 }
 

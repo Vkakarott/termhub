@@ -62,6 +62,18 @@ export function launchLine(provider: AiProvider, configDir: string | null, promp
   return `${env}${binary} ${shellQuote(prompt)}`;
 }
 
+/**
+ * Appended to a freshly started agent's prompt (spec 2026-09-27 failure lessons D13): points at where
+ * lessons live and how to write one, so a session that never read `CLAUDE.md` still gets the pointer.
+ * Not added to a resumed session (`resumeLine`) — it already had it on its first prompt.
+ */
+export const LESSONS_REMINDER =
+  'Antes de depurar um erro, procure em docs/lessons/ e nas lições do projeto; ao resolver um erro que não era óbvio, registre uma lição (formato em docs/lessons/README.md).';
+
+export function withLessonsReminder(prompt: string): string {
+  return `${prompt}\n\n${LESSONS_REMINDER}`;
+}
+
 /** What the resumed session is told first (spec 2026-09-26 account swap). */
 export const RESUME_PROMPT = 'A conta anterior atingiu o limite de uso. Continue a tarefa de onde parou.';
 
@@ -105,7 +117,9 @@ export async function startAgent(
   ctx: ControlContext,
   input: { project_id: string; machine_id?: string; account_id: string; prompt: string; task_id?: string; tab_name?: string },
 ): Promise<StartAgentResult> {
-  const prompt = checkPrompt(input.prompt);
+  // the reminder is appended and re-checked (spec §8/D13): a prompt that only fits alone is refused
+  // with the same too-long error, counting the reminder in what it reports.
+  const prompt = checkPrompt(withLessonsReminder(checkPrompt(input.prompt)));
   const { project, machine } = await ctx.scoped.projectMachineFor(input.project_id, input.machine_id);
   const account = await accountOnMachine(ctx, input.account_id, machine);
   const { binary } = launcher(account.provider);

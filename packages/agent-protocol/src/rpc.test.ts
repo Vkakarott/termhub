@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RPC, RPC_METHODS, isWdaPort, rpcErrorSchema } from './rpc.js';
+import { RPC, RPC_METHODS, docPath, isWdaPort, rpcErrorSchema } from './rpc.js';
 
 describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
@@ -112,6 +112,13 @@ describe('rpc catalog', () => {
     expect(RPC['docs.read'].params.safeParse({ ...good, paths: Array.from({ length: 21 }, (_, i) => `docs/superpowers/specs/a${i}.md`) }).success).toBe(false);
     expect(RPC['docs.read'].params.safeParse({ ...good, paths: Array.from({ length: 20 }, (_, i) => `docs/superpowers/specs/a${i}.md`) }).success).toBe(true);
     expect(RPC['docs.read'].timeoutMs).toBe(20_000);
+  });
+  it('docPath accepts docs/lessons/<name>.md, never README.md or a nested path (spec 2026-09-27 failure lessons)', () => {
+    expect(docPath.safeParse('docs/lessons/2026-09-27-x.md').success).toBe(true);
+    expect(docPath.safeParse('docs/lessons/README.md').success).toBe(false);
+    expect(docPath.safeParse('docs/lessons/sub/y.md').success).toBe(false);
+    expect(docPath.safeParse('docs/lessons/../x.md').success).toBe(false);
+    expect(docPath.safeParse('docs/superpowers/specs/a.md').success).toBe(true);
   });
   it('shapes rpc errors', () => {
     expect(rpcErrorSchema.parse({ code: 'eperm', message: 'x', path: '/v' }).code).toBe('eperm');

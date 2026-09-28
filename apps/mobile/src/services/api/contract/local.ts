@@ -34,6 +34,9 @@ import {
   deviceSelf,
   epicProgress,
   hostOptionsResponse,
+  lessonForgetSchema,
+  lessonItemSchema,
+  lessonListSchema,
   mobileBatchDecisionBody,
   mobileDecisionBody,
   mobileMessageBody,
@@ -224,6 +227,11 @@ export type TChatMemory = z.infer<typeof chatMemoryResponse>;
 export type TChatMemoryPatchBody = z.infer<typeof chatMemoryPatchBody>;
 export type TConciergeNote = z.infer<typeof conciergeNoteView>;
 export type TNotesResponse = z.infer<typeof notesResponse>;
+// "Lições" (spec 2026-09-27 failure lessons §6/§8): mirrors `apps/web/src/lib/api.ts`'s
+// `api.chat.lessons.list`/`verify`/`unverify`/`forget`.
+export type TLessonItem = z.infer<typeof lessonItemSchema>;
+export type TLessonsResponse = z.infer<typeof lessonListSchema>;
+export type TLessonForgetResponse = z.infer<typeof lessonForgetSchema>;
 export type TTabSuggestion = z.infer<typeof tabSuggestionSchema>;
 export type TTabSuggestionSendBody = z.infer<typeof tabSuggestionSendBody>;
 export type TChatConversation = z.infer<typeof chatConversationSchema>;

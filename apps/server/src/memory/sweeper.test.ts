@@ -190,7 +190,7 @@ describe('startMemorySweeper', () => {
       memoryItems: { ...repos.memoryItems, listSourceHashes: vi.fn(async () => new Map()), deleteDocsNotInLinks: vi.fn(async () => 0) },
       projectMachines: { listAllWithOwner },
     };
-    const exec = { scan: vi.fn(async () => ''), read: vi.fn(async () => '') };
+    const exec = { scan: vi.fn(async () => ''), read: vi.fn(async () => ''), readLessons: vi.fn(async () => '') };
     const stop = startMemorySweeper(built as never, log(), null, 1000, exec);
     await vi.advanceTimersByTimeAsync(0);
     expect(listAllWithOwner).toHaveBeenCalledTimes(1);
@@ -204,6 +204,22 @@ describe('startMemorySweeper', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(listAllWithOwner).toHaveBeenCalledTimes(2);
     expect(repos.listOwnersWithTasksMock).toHaveBeenCalledTimes(4);
+    stop();
+  });
+
+  it('deleteDocsNotInLinks count (docs + file-origin lessons, review fix round 1) flows into the "stale" figure the pass logs', async () => {
+    const repos = fakeRepos();
+    const built = {
+      tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
+      memoryItems: { ...repos.memoryItems, listSourceHashes: vi.fn(async () => new Map()), deleteDocsNotInLinks: vi.fn(async () => 3) },
+      projectMachines: { listAllWithOwner: vi.fn(async () => []) },
+    };
+    const l = log();
+    const stop = startMemorySweeper(built as never, l, null, 1000, { scan: vi.fn(), read: vi.fn(), readLessons: vi.fn() });
+    await vi.advanceTimersByTimeAsync(0);
+    // The sweeper itself does not need to know lessons exist: it just surfaces whatever count the
+    // repository's (now wider) cleanup query removed.
+    expect(l.info).toHaveBeenCalledWith({ links: 0, read: 0, removed: 0, stale: 3 }, 'memory docs indexed');
     stop();
   });
 
@@ -223,7 +239,7 @@ describe('startMemorySweeper', () => {
         ]),
       },
     };
-    const exec = { scan: vi.fn(async () => ''), read: vi.fn(async () => '') };
+    const exec = { scan: vi.fn(async () => ''), read: vi.fn(async () => ''), readLessons: vi.fn(async () => '') };
     const l = log();
     const stop = startMemorySweeper(built as never, l, null, 1000, exec);
     await vi.advanceTimersByTimeAsync(0);
@@ -258,9 +274,118 @@ describe('startMemorySweeper', () => {
       memoryItems: { ...repos.memoryItems, deleteDocsNotInLinks },
       projectMachines: { listAllWithOwner: vi.fn(async () => []) },
     };
-    const stop = startMemorySweeper(built as never, log(), null, 1000, { scan: vi.fn(), read: vi.fn() });
+    const stop = startMemorySweeper(built as never, log(), null, 1000, { scan: vi.fn(), read: vi.fn(), readLessons: vi.fn() });
     await vi.advanceTimersByTimeAsync(0);
     expect(deleteDocsNotInLinks).toHaveBeenCalledWith([]);
     stop();
+  });
+
+  describe('notes pass (spec 2026-09-27 failure lessons)', () => {
+    const emptyExec = () => ({ scan: vi.fn(async () => ''), read: vi.fn(async () => ''), readLessons: vi.fn(async () => '') });
+
+    function notesBuilt(opts: {
+      projects: { id: string; owner_id: string | null }[];
+      latest?: Record<string, Record<string, string>>; // ownerId -> projectId -> source_at
+      notes: Record<string, { id: string; content: string; updated_at: string }>; // projectId -> note
+    }) {
+      const repos = fakeRepos();
+      const list = vi.fn(async () => opts.projects);
+      const findById = vi.fn(async (id: string) => opts.projects.find((p) => p.id === id));
+      const getByProject = vi.fn(async (id: string) => ({ id: opts.notes[id]?.id ?? '', project_id: id, content: opts.notes[id]?.content ?? '', updated_at: opts.notes[id]?.updated_at ?? new Date(0).toISOString() }));
+      const latestSourceAt = vi.fn(async (_kind: 'project_note', ownerId: string) => new Map(Object.entries(opts.latest?.[ownerId] ?? {})));
+      const upsertMany = vi.fn(async (items: { title: string; text: string }[]) => items.map((it, i) => ({ id: `m${i}`, ...it })));
+      const built = {
+        tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
+        memoryItems: { ...repos.memoryItems, upsertMany, latestSourceAt, deleteChunksFrom: vi.fn(async () => 0), deleteBySource: vi.fn(async () => 0), listSourceHashes: vi.fn(async () => new Map()), deleteDocsNotInLinks: vi.fn(async () => 0) },
+        projectMachines: { listAllWithOwner: vi.fn(async () => []) },
+        projects: { list, findById },
+        notes: { getByProject },
+      };
+      return { built, list, findById, getByProject, latestSourceAt, upsertMany };
+    }
+
+    it('a project whose note is newer than the latest indexed project_note item is re-indexed', async () => {
+      const { built, latestSourceAt, getByProject, upsertMany } = notesBuilt({
+        projects: [{ id: 'p1', owner_id: 'u1' }],
+        latest: { u1: { p1: '2026-09-27T00:00:00.000Z' } },
+        notes: { p1: { id: 'n1', content: '# A\ntexto', updated_at: '2026-09-27T01:00:00.000Z' } },
+      });
+      const stop = startMemorySweeper(built as never, log(), null, 1000, emptyExec());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(latestSourceAt).toHaveBeenCalledWith('project_note', 'u1');
+      expect(getByProject).toHaveBeenCalledWith('p1');
+      expect(upsertMany).toHaveBeenCalled();
+      stop();
+    });
+
+    it('a project whose note is not newer than its latest indexed item is left alone', async () => {
+      const { built, upsertMany } = notesBuilt({
+        projects: [{ id: 'p1', owner_id: 'u1' }],
+        latest: { u1: { p1: '2026-09-27T05:00:00.000Z' } },
+        notes: { p1: { id: 'n1', content: '# A\ntexto', updated_at: '2026-09-27T01:00:00.000Z' } },
+      });
+      const stop = startMemorySweeper(built as never, log(), null, 1000, emptyExec());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(upsertMany).not.toHaveBeenCalled();
+      stop();
+    });
+
+    it('a project with no note row yet is skipped, not indexed as an empty note', async () => {
+      const { built, upsertMany, getByProject } = notesBuilt({ projects: [{ id: 'p1', owner_id: 'u1' }], notes: {} });
+      const stop = startMemorySweeper(built as never, log(), null, 1000, emptyExec());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getByProject).toHaveBeenCalledWith('p1');
+      expect(upsertMany).not.toHaveBeenCalled();
+      stop();
+    });
+
+    it('an owner-less (orphaned) project is skipped', async () => {
+      const { built, getByProject } = notesBuilt({ projects: [{ id: 'p1', owner_id: null }], notes: { p1: { id: 'n1', content: '# A\ntexto', updated_at: '2026-09-27T01:00:00.000Z' } } });
+      const stop = startMemorySweeper(built as never, log(), null, 1000, emptyExec());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getByProject).not.toHaveBeenCalled();
+      stop();
+    });
+
+    it('runs only on the docs-pass cadence, not on every tick', async () => {
+      const { built, upsertMany } = notesBuilt({
+        projects: [{ id: 'p1', owner_id: 'u1' }],
+        notes: { p1: { id: 'n1', content: '# A\ntexto', updated_at: '2026-09-27T01:00:00.000Z' } },
+      });
+      const stop = startMemorySweeper(built as never, log(), null, 1000, emptyExec());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(upsertMany).toHaveBeenCalledTimes(2); // sections + lessons, on the first (docs-turn) tick
+      await vi.advanceTimersByTimeAsync(1000); // tick 2: not a docs turn
+      expect(upsertMany).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1000); // tick 3: not a docs turn
+      expect(upsertMany).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1000); // tick 4: docs turn again
+      expect(upsertMany).toHaveBeenCalledTimes(4);
+      stop();
+    });
+
+    it('a failing owner does not stop the next owner, and logs only a code', async () => {
+      const repos = fakeRepos();
+      const list = vi.fn(async () => [{ id: 'p1', owner_id: 'u1' }, { id: 'p2', owner_id: 'u2' }]);
+      const latestSourceAt = vi.fn(async (_k: 'project_note', ownerId: string) => {
+        if (ownerId === 'u1') throw Object.assign(new Error('db down'), { code: 'P2024' });
+        return new Map();
+      });
+      const getByProject = vi.fn(async () => ({ id: 'n2', project_id: 'p2', content: '# B\ntexto', updated_at: '2026-09-27T01:00:00.000Z' }));
+      const upsertMany = vi.fn(async (items: { title: string; text: string }[]) => items.map((it, i) => ({ id: `m${i}`, ...it })));
+      const built = {
+        tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
+        memoryItems: { ...repos.memoryItems, upsertMany, latestSourceAt, deleteChunksFrom: vi.fn(async () => 0), deleteBySource: vi.fn(async () => 0), listSourceHashes: vi.fn(async () => new Map()), deleteDocsNotInLinks: vi.fn(async () => 0) },
+        projectMachines: { listAllWithOwner: vi.fn(async () => []) },
+        projects: { list, findById: vi.fn(async (id: string) => ({ id, owner_id: id === 'p1' ? 'u1' : 'u2' })) },
+        notes: { getByProject },
+      };
+      const l = log();
+      const stop = startMemorySweeper(built as never, l, null, 1000, emptyExec());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getByProject).toHaveBeenCalledWith('p2');
+      expect(l.warn).toHaveBeenCalledWith({ code: 'P2024' }, expect.any(String));
+      stop();
+    });
   });
 });

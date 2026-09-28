@@ -2,8 +2,15 @@ import { EXPAND_HOME } from './fs-script.js';
 
 /** A `docs.read` call never touches a file larger than this (spec D15). Scan still reports its size. */
 export const DOCS_MAX_BYTES = 256 * 1024;
-/** `docs.scan` never lists more than this many files per link (spec D15): the first this-many by name. */
+/** `docs.scan` never lists more than this many `docs/superpowers/{specs,plans}` files per link (spec
+ *  D15): the first this-many by name, specs before plans. `docs/lessons` is counted separately
+ *  (`LESSONS_MAX_FILES`). */
 export const DOCS_MAX_FILES = 200;
+/** `docs.scan`'s own budget for `docs/lessons/*.md` (spec 2026-09-27 failure lessons, final review
+ *  fix): the first this-many by name, independent of `DOCS_MAX_FILES`. Sharing that budget meant a repo
+ *  with 200+ specs and plans never listed a single lesson — and the server reads "not listed" as
+ *  "deleted", so every indexed file lesson would have been dropped. */
+export const LESSONS_MAX_FILES = 200;
 /**
  * Cumulative raw-byte budget for one `docs.read` call. `docs.read`'s result travels as a single
  * control frame (`sendControl` in the agent, never chunked like stream data), and the server's
@@ -19,8 +26,10 @@ export const DOCS_READ_MAX_BYTES = 600 * 1024;
 
 /** Same regex as `docPath`/`DOC_PATH_RE` in `@termhub/agent-protocol` (whose `docPath` uses this
  *  shape too) — duplicated here because `@termhub/machine-ops` has no dependency on that package
- *  (kept dependency-free, same reason `simulator.ts`'s `UDID_RE` is its own copy). Keep both in sync. */
-export const DOC_PATH_RE = /^docs\/superpowers\/(specs|plans)\/[A-Za-z0-9._-]{1,200}\.md$/;
+ *  (kept dependency-free, same reason `simulator.ts`'s `UDID_RE` is its own copy). Keep both in sync.
+ *  `docs/lessons/*.md` (spec 2026-09-27 failure lessons) is included, `docs/lessons/README.md`
+ *  never — that file documents the format itself, not a lesson. */
+export const DOC_PATH_RE = /^docs\/(?:superpowers\/(?:specs|plans)\/[A-Za-z0-9._-]{1,200}\.md|lessons\/(?!README\.md$)[A-Za-z0-9._-]{1,200}\.md)$/;
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 /** A size field must be one or more decimal digits — nothing else. `Number('')`, `Number(' ')` and
@@ -39,32 +48,37 @@ export interface DocEntry {
 }
 
 /**
- * Shell snippet (assumes `cd` already happened): sets `specs_ok`/`plans_ok` to `0` when the
- * matching ancestor directory is itself a symlink. `[ -L "$f" ]` on the leaf file alone is not
- * enough — a symlinked `docs`, `docs/superpowers`, `specs` or `plans` directory would make every
- * file under it resolve outside the intended tree while still passing a plain `-f`/`-d` check
- * (those follow symlinks). Checking a path that does not exist is safe: `-L` on a missing path is
- * simply false, so a link only ever *narrows* which branch is walked, never widens it.
+ * Shell snippet (assumes `cd` already happened): sets `specs_ok`/`plans_ok`/`lessons_ok` to `0` when
+ * the matching ancestor directory is itself a symlink. `[ -L "$f" ]` on the leaf file alone is not
+ * enough — a symlinked `docs`, `docs/superpowers`, `specs`, `plans` or `docs/lessons` directory would
+ * make every file under it resolve outside the intended tree while still passing a plain `-f`/`-d`
+ * check (those follow symlinks). Checking a path that does not exist is safe: `-L` on a missing path
+ * is simply false, so a link only ever *narrows* which branch is walked, never widens it.
  */
 const SYMLINKED_DIR_GUARD = [
-  `specs_ok=1; plans_ok=1`,
-  `[ ! -L docs ] || { specs_ok=0; plans_ok=0; }`,
+  `specs_ok=1; plans_ok=1; lessons_ok=1`,
+  `[ ! -L docs ] || { specs_ok=0; plans_ok=0; lessons_ok=0; }`,
   `[ ! -L docs/superpowers ] || { specs_ok=0; plans_ok=0; }`,
   `[ ! -L docs/superpowers/specs ] || specs_ok=0`,
   `[ ! -L docs/superpowers/plans ] || plans_ok=0`,
+  `[ ! -L docs/lessons ] || lessons_ok=0`,
 ].join('\n');
 
 /**
  * POSIX sh, portable to Linux (`sha256sum`) and macOS (`shasum -a 256`); always exits 0. Walks only
- * `docs/superpowers/specs` and `docs/superpowers/plans` (not recursively, and never `docs/other/…` or
- * a `specs`/`plans` outside that tree — see `SYMLINKED_DIR_GUARD`), skipping symlinked files
- * (`[ -L ]`) and any name the character-class check would refuse (only `A-Za-z0-9._-`, plus `/` for
- * the directory separators the walk itself produces). One line per file: `F\t<sha256>\t<size>\t
- * <relpath>` normally, or `S\t<size>\t<relpath>` (no hash) for a file over `DOCS_MAX_BYTES` — it will
- * never be read, so hashing it would just cost time/IO for nothing. A missing `docs/superpowers` (or
- * either subdir) yields zero lines, not an error — only a missing `cwd` (`ERR:notfound`) or neither
- * hasher being on `PATH` (`ERR:nohash`) does. `"~"`/`"~/…"` in `cwd` are expanded on the machine, the
- * same way `buildFsListScript` does. `parseDocsScan` reads the output back.
+ * `docs/superpowers/specs`, `docs/superpowers/plans` and `docs/lessons` (not recursively, and never
+ * `docs/other/…` or a `specs`/`plans`/`lessons` outside that tree — see `SYMLINKED_DIR_GUARD`),
+ * skipping symlinked files (`[ -L ]`), `docs/lessons/README.md` (the format's own doc, spec
+ * 2026-09-27 failure lessons D14/D4) and any name the character-class check would refuse (only
+ * `A-Za-z0-9._-`, plus `/` for the directory separators the walk itself produces). One line per file:
+ * `F\t<sha256>\t<size>\t<relpath>` normally, or `S\t<size>\t<relpath>` (no hash) for a file over
+ * `DOCS_MAX_BYTES` — it will never be read, so hashing it would just cost time/IO for nothing. A
+ * `docs/superpowers/{specs,plans}` share `DOCS_MAX_FILES` (specs first); `docs/lessons` has its own
+ * `LESSONS_MAX_FILES`, so a big specs/plans tree never crowds lessons out. A
+ * missing `docs/superpowers` (or either subdir) or `docs/lessons` yields zero lines, not an error —
+ * only a missing `cwd` (`ERR:notfound`) or neither hasher being on `PATH` (`ERR:nohash`) does.
+ * `"~"`/`"~/…"` in `cwd` are expanded on the machine, the same way `buildFsListScript` does.
+ * `parseDocsScan` reads the output back.
  */
 export function buildDocsScanScript(cwdQuoted: string): string {
   return [
@@ -76,17 +90,20 @@ export function buildDocsScanScript(cwdQuoted: string): string {
     `else echo 'ERR:nohash'; exit 0`,
     `fi`,
     SYMLINKED_DIR_GUARD,
-    `n=0`,
-    `for d in docs/superpowers/specs docs/superpowers/plans; do`,
+    `n=0; nl=0`,
+    `for d in docs/superpowers/specs docs/superpowers/plans docs/lessons; do`,
     `  [ -d "$d" ] || continue`,
     `  case "$d" in`,
     `    docs/superpowers/specs) [ "$specs_ok" = 1 ] || continue ;;`,
     `    docs/superpowers/plans) [ "$plans_ok" = 1 ] || continue ;;`,
+    `    docs/lessons) [ "$lessons_ok" = 1 ] || continue ;;`,
     `  esac`,
     `  for f in "$d"/*.md; do`,
     `    [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || continue`,
     `    case "$f" in *[!A-Za-z0-9._/-]*) continue;; esac`,
-    `    n=$((n+1)); [ "$n" -le ${DOCS_MAX_FILES} ] || break 2`,
+    `    case "$f" in docs/lessons/README.md) continue;; esac`,
+    `    if [ "$d" = docs/lessons ]; then nl=$((nl+1)); [ "$nl" -le ${LESSONS_MAX_FILES} ] || break`,
+    `    else n=$((n+1)); [ "$n" -le ${DOCS_MAX_FILES} ] || break; fi`,
     `    s=$(wc -c < "$f" | tr -d ' ')`,
     `    [ -n "$s" ] || continue`,
     `    if [ "$s" -le ${DOCS_MAX_BYTES} ]; then`,
@@ -107,8 +124,9 @@ export function buildDocsScanScript(cwdQuoted: string): string {
  * against the same directory prefix, rejects any path with an extra `/` past the file name (blocks
  * `docs/superpowers/specs/../../../x.md` — the character-class check alone would not, since `.` and
  * `/` are both allowed characters; the extra-`/` check is what actually stops traversal), the same
- * character class, the same symlinked-ancestor guard as `buildDocsScanScript`, then `-f`/`-L`/size.
- * Per file: `B\t<size>\t<relpath>\n` + base64 body + `E\n`. A file over `DOCS_MAX_BYTES`, one that
+ * character class, the same symlinked-ancestor guard as `buildDocsScanScript`, then `-f`/`-L`/size —
+ * and, for `docs/lessons`, never `README.md` (spec 2026-09-27 failure lessons). Per file:
+ * `B\t<size>\t<relpath>\n` + base64 body + `E\n`. A file over `DOCS_MAX_BYTES`, one that
  * fails any check, or a symlinked ancestor is skipped silently (the manifest from `docs.scan`
  * already told the caller its size or that it isn't there). The loop also stops — leaving every
  * requested path from there on unread — the moment cumulative raw bytes would cross
@@ -127,9 +145,11 @@ export function buildDocsReadScript(cwdQuoted: string, quotedPaths: string[]): s
     `  case "$f" in`,
     `    docs/superpowers/specs/*.md) [ "$specs_ok" = 1 ] || continue ;;`,
     `    docs/superpowers/plans/*.md) [ "$plans_ok" = 1 ] || continue ;;`,
+    `    docs/lessons/*.md) [ "$lessons_ok" = 1 ] || continue ;;`,
     `    *) continue ;;`,
     `  esac`,
-    `  case "$f" in docs/superpowers/specs/*/*|docs/superpowers/plans/*/*) continue;; esac`,
+    `  case "$f" in docs/superpowers/specs/*/*|docs/superpowers/plans/*/*|docs/lessons/*/*) continue;; esac`,
+    `  case "$f" in docs/lessons/README.md) continue;; esac`,
     `  case "$f" in *[!A-Za-z0-9._/-]*) continue;; esac`,
     `  [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || continue`,
     `  s=$(wc -c < "$f" | tr -d ' ')`,

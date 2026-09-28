@@ -128,6 +128,38 @@ it('record_decision is listed only for a token holding memory and the chat:creat
   expect((await allowedTools(withoutGrant, ['memory'])).some((t) => t.name === 'record_decision')).toBe(false);
 });
 
+it('record_lesson needs the memory scope and the notes:update grant, and validates its input', () => {
+  const t = TOOLS.find((t) => t.name === 'record_lesson')!;
+  expect([t.scope, t.resource, t.action]).toEqual(['memory', 'notes', 'update']);
+  const ok = { project_id: 'p1', symptom: 'P3009: migrate found failed migrations', cause: 'a migração anterior falhou', fix: 'rodar resolve --applied' };
+  expect(parseArgs(t, ok).ok).toBe(true);
+  expect(parseArgs(t, { ...ok, evidence: 'confirmed' }).ok).toBe(true);
+  expect(parseArgs(t, { ...ok, evidence: 'unsure' }).ok).toBe(false);
+  expect(parseArgs(t, { ...ok, card: 'TER-57' }).ok).toBe(true);
+  expect(parseArgs(t, { ...ok, card: 'not-a-ref' }).ok).toBe(false);
+  expect(parseArgs(t, { ...ok, pr: 'https://github.com/x/y/pull/1' }).ok).toBe(true);
+  expect(parseArgs(t, { ...ok, pr: 'not-a-url' }).ok).toBe(false);
+  expect(parseArgs(t, { ...ok, tab_id: 't1' }).ok).toBe(true);
+  expect(parseArgs(t, { cause: 'c', fix: 'f' }).ok).toBe(false);
+});
+
+it('record_lesson is listed only for a token holding memory and the notes:update grant', async () => {
+  const withGrant = { can: async (resource: string, action: string) => resource === 'notes' && action === 'update' } as unknown as ControlContext;
+  expect((await allowedTools(withGrant, ['memory'])).some((t) => t.name === 'record_lesson')).toBe(true);
+  expect((await allowedTools(withGrant, ['read']))).not.toContainEqual(expect.objectContaining({ name: 'record_lesson' }));
+
+  const withoutGrant = { can: async () => false } as unknown as ControlContext;
+  expect((await allowedTools(withoutGrant, ['memory'])).some((t) => t.name === 'record_lesson')).toBe(false);
+});
+
+it("search_memory's kinds enum accepts lesson and project_note, and its description gains the lessons sentence", () => {
+  const t = TOOLS.find((t) => t.name === 'search_memory')!;
+  expect(parseArgs(t, { query: 'x', kinds: ['lesson'] }).ok).toBe(true);
+  expect(parseArgs(t, { query: 'x', kinds: ['project_note'] }).ok).toBe(true);
+  expect(parseArgs(t, { query: 'x', kinds: ['decision', 'task', 'message', 'action', 'doc', 'note', 'lesson', 'project_note'] }).ok).toBe(true);
+  expect(t.description).toContain('Lições');
+});
+
 it('list_tab_questions needs the read scope and the terminals:read grant, and says the question text is data', () => {
   const t = TOOLS.find((t) => t.name === 'list_tab_questions')!;
   expect([t.scope, t.resource, t.action]).toEqual(['read', 'terminals', 'read']);

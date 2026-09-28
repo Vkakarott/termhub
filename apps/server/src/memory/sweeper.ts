@@ -3,6 +3,7 @@ import { defaultEmbedder, memoryCode, type Embedder } from '../chat/embeddings.j
 import type { Repositories } from '../db/repositories/index.js';
 import { indexDocsForLink, type DocsExec } from './docs.js';
 import { embedPendingItems, indexTasks } from './index-items.js';
+import { indexProjectNote } from './note.js';
 
 /** How often the sweeper ticks (spec 2026-09-26 concierge memory §4): the same cadence as TER-57's
  *  decision sweeper. */
@@ -37,11 +38,19 @@ export const DOCS_EVERY_TICKS = 3;
  * On the first tick and every `DOCS_EVERY_TICKS`th tick after (30 min at the default interval, spec
  * D15), a docs pass runs between the card pass and the embed step: `indexDocsForLink` for every project
  * link, one after the other (a machine is never asked for two links' docs at once), through `docsExec`
- * (`machineDocsExec` by default), right after deleting the doc items of every link that no longer exists
- * (`deleteDocsNotInLinks` — only when the listing succeeded). A link whose machine is off is skipped by `indexDocsForLink` itself; a
+ * (`machineDocsExec` by default), right after deleting the doc items — and the file-origin lesson items
+ * (review fix round 1) — of every link that no longer exists (`deleteDocsNotInLinks` — only when the
+ * listing succeeded; a note-origin lesson is never touched by it). A link whose machine is off is skipped by `indexDocsForLink` itself; a
  * repository failure on one link is logged `{ linkId, code }` and the next link still runs. The docs
  * pass shares the tick's `running` guard, so a slow pass (many ssh machines timing out) delays the next
  * tick instead of overlapping it.
+ *
+ * On the same turn as the docs pass, a notes pass (spec 2026-09-27 failure lessons §4) covers a crash
+ * between a note save and its own `indexProjectNote` call: every project whose note's `updated_at` moved
+ * past the newest `project_note` item already stored for it (`latestSourceAt`, grouped one query per
+ * owner) is re-indexed. Cheap and rare in the common case (the route and `record_lesson` already index
+ * on the spot), so it shares the docs pass's slower cadence rather than running every tick. A failure
+ * for one owner is logged `{ code }` and the next owner still runs.
  */
 export function startMemorySweeper(
   repos: Repositories,
@@ -85,6 +94,34 @@ export function startMemorySweeper(
     if (read > 0 || removed > 0 || stale > 0) log.info({ links: links.length, read, removed, stale }, 'memory docs indexed');
   };
 
+  const indexAllNotes = async (): Promise<void> => {
+    const projects = await repos.projects.list();
+    const byOwner = new Map<string, string[]>();
+    for (const p of projects) {
+      if (!p.owner_id) continue;
+      const ids = byOwner.get(p.owner_id) ?? [];
+      ids.push(p.id);
+      byOwner.set(p.owner_id, ids);
+    }
+    let indexed = 0;
+    for (const [ownerId, projectIds] of byOwner) {
+      try {
+        const latest = await repos.memoryItems.latestSourceAt('project_note', ownerId);
+        for (const projectId of projectIds) {
+          const note = await repos.notes.getByProject(projectId);
+          if (note.id === '') continue; // no note row for this project yet: nothing to index
+          const known = latest.get(projectId);
+          if (known !== undefined && Date.parse(note.updated_at) <= Date.parse(known)) continue;
+          const r = await indexProjectNote(repos, projectId, { embedder: null, log });
+          indexed += r.sections + r.lessons;
+        }
+      } catch (err) {
+        log.warn({ code: memoryCode(err) }, 'memory notes indexing failed for an owner');
+      }
+    }
+    if (indexed > 0) log.info({ indexed }, 'memory notes indexed');
+  };
+
   const tick = async () => {
     if (running) return;
     running = true;
@@ -100,6 +137,11 @@ export function startMemorySweeper(
           await indexAllDocs();
         } catch (err) {
           log.warn({ code: memoryCode(err) }, 'memory docs indexing failed');
+        }
+        try {
+          await indexAllNotes();
+        } catch (err) {
+          log.warn({ code: memoryCode(err) }, 'memory notes indexing failed');
         }
       }
       if (!embed) return;

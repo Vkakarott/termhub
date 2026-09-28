@@ -1,10 +1,13 @@
 import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { lessonForgetSchema, lessonItemSchema, lessonListSchema } from '@termhub/mobile-api';
 import { config } from '../config.js';
 import { applyErrorHandler } from '../lib/errors.js';
 
 vi.mock('../chat/tab-questions.js', async (importOriginal) => ({ ...(await importOriginal<typeof import('../chat/tab-questions.js')>()), publishTabQuestions: vi.fn(async () => []) }));
+vi.mock('../memory/note.js', async (importOriginal) => ({ ...(await importOriginal<typeof import('../memory/note.js')>()), indexProjectNote: vi.fn(async () => ({ sections: 0, lessons: 0 })) }));
 const { publishTabQuestions } = await import('../chat/tab-questions.js');
+const { indexProjectNote } = await import('../memory/note.js');
 const { chatRoutes } = await import('./chat.js');
 const { mobileChatRoutes } = await import('./m-chat.js');
 
@@ -19,6 +22,18 @@ function fakeRepos() {
       listNotes: vi.fn(async () => ({ items: [], next_cursor: null })),
       deleteNote: vi.fn(async () => true),
       countNotesSince: vi.fn(async () => 0),
+      listLessons: vi.fn(async () => ({ items: [], next_cursor: null })),
+      findLessonForOwner: vi.fn(async () => null as unknown),
+      setVerified: vi.fn(async () => true),
+      clearVerified: vi.fn(async () => true),
+      hideSource: vi.fn(async () => true),
+      deleteBySource: vi.fn(async () => 0),
+    },
+    notes: {
+      removeBlock: vi.fn(async () => ({ id: 'n1', project_id: 'p1', content: '', updated_at: '2026-09-27T00:00:00.000Z' }) as unknown),
+    },
+    projects: {
+      findById: vi.fn(async (id: string) => (id === 'p1' ? { id: 'p1', owner_id: 'u1', name: 'Proj', key: 'PJ' } : null) as unknown),
     },
     users: {
       chatSuggestions: vi.fn(async () => true),
@@ -29,6 +44,32 @@ function fakeRepos() {
     tabQuestions: {
       cancelScheduledForUser: vi.fn(async (_userId: string) => [] as { id: string }[]),
     },
+  };
+}
+
+/** A `lesson` memory item (chunk 0), as `findLessonForOwner`/`listLessons` return it. */
+function lessonItem(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'l1',
+    owner_id: 'u1',
+    project_id: 'p1',
+    project_name: 'Proj',
+    kind: 'lesson',
+    source_id: 'p1machine:docs/lessons/2026-09-27-x.md',
+    chunk_index: 0,
+    title: 'P3009: migrate found failed migrations',
+    text: 'Causa: ...\nCorreção: ...',
+    trust: 'derived',
+    content_hash: 'h1',
+    source_hash: 'sh1',
+    embed_model: null,
+    meta: { evidence: 'fixed', card: 'TER-57', pr: 'https://github.com/x/y/pull/169', tags: [], agent: 'claude', tab_id: null, origin: 'file', path: 'docs/lessons/2026-09-27-x.md' },
+    verified: false,
+    verified_at: null,
+    source_at: '2026-09-27T00:00:00.000Z',
+    created_at: '2026-09-27T00:00:00.000Z',
+    updated_at: '2026-09-27T00:00:00.000Z',
+    ...overrides,
   };
 }
 
@@ -305,5 +346,167 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     repos2.memoryItems.deleteNote.mockResolvedValueOnce(false);
     const res2 = await build(kind, repos2).inject({ method: 'DELETE', url: '/chat/notes/other' });
     expect(res2.statusCode).toBe(204);
+  });
+
+  it('GET /lessons passes the user, q, cursor and the fixed page size, and maps a file lesson (spec §6/§8)', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.listLessons.mockResolvedValueOnce({ items: [lessonItem()], next_cursor: 'CURSOR' });
+    const res = await build(kind, repos).inject({ method: 'GET', url: '/chat/lessons?q=migrate&cursor=xyz' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.memoryItems.listLessons).toHaveBeenCalledWith('u1', { q: 'migrate', projectId: undefined, cursor: 'xyz', limit: 50 });
+    expect(res.json()).toEqual({
+      lessons: [
+        {
+          id: 'l1',
+          project: { id: 'p1', name: 'Proj' },
+          title: 'P3009: migrate found failed migrations',
+          excerpt: 'Causa: ...\nCorreção: ...',
+          origin: 'file',
+          path: 'docs/lessons/2026-09-27-x.md',
+          tab_id: null,
+          card: 'TER-57',
+          pr: 'https://github.com/x/y/pull/169',
+          evidence: 'fixed',
+          verified: false,
+          verified_at: null,
+          created_at: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+      next_cursor: 'CURSOR',
+    });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonListSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
+  });
+
+  it('GET /lessons defaults evidence to observed and path/tab_id/card/pr to null when meta is missing', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.listLessons.mockResolvedValueOnce({ items: [lessonItem({ meta: null, project_id: null, project_name: null })], next_cursor: null });
+    const res = await build(kind, repos).inject({ method: 'GET', url: '/chat/lessons' });
+    expect(res.statusCode).toBe(200);
+    const lesson = res.json().lessons[0];
+    expect(lesson.project).toBeNull();
+    expect(lesson.evidence).toBe('observed');
+    expect(lesson.path).toBeNull();
+    expect(lesson.tab_id).toBeNull();
+    expect(lesson.card).toBeNull();
+    expect(lesson.pr).toBeNull();
+  });
+
+  it('GET /lessons?project_id checks ownership through scoped(...).project, and passes it through', async () => {
+    const repos = fakeRepos();
+    const res = await build(kind, repos).inject({ method: 'GET', url: '/chat/lessons?project_id=p1' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.projects.findById).toHaveBeenCalledWith('p1');
+    expect(repos.memoryItems.listLessons).toHaveBeenCalledWith('u1', { q: undefined, projectId: 'p1', cursor: undefined, limit: 50 });
+  });
+
+  it('GET /lessons?project_id of another owner is a 404, never an empty list silently', async () => {
+    const repos = fakeRepos();
+    const res = await build(kind, repos).inject({ method: 'GET', url: '/chat/lessons?project_id=other' });
+    expect(res.statusCode).toBe(404);
+    expect(repos.memoryItems.listLessons).not.toHaveBeenCalled();
+  });
+
+  it('POST /lessons/:id/verify verifies this user\'s own lesson and returns it verified', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(lessonItem());
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(lessonItem({ verified: true, verified_at: '2026-09-27T01:00:00.000Z' }));
+    const res = await build(kind, repos).inject({ method: 'POST', url: '/chat/lessons/l1/verify' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.memoryItems.setVerified).toHaveBeenCalledWith('l1', 'u1', 'u1');
+    expect(res.json()).toMatchObject({ verified: true, verified_at: '2026-09-27T01:00:00.000Z' });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonItemSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
+  });
+
+  it('POST /lessons/:id/verify on someone else\'s id (or a non-lesson) is a 404, never a 403', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(null);
+    const res = await build(kind, repos).inject({ method: 'POST', url: '/chat/lessons/other/verify' });
+    expect(res.statusCode).toBe(404);
+    expect(repos.memoryItems.setVerified).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /lessons/:id/verify unverifies this user\'s own lesson and returns it unverified', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(lessonItem({ verified: true, verified_at: '2026-09-27T01:00:00.000Z' }));
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(lessonItem());
+    const res = await build(kind, repos).inject({ method: 'DELETE', url: '/chat/lessons/l1/verify' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.memoryItems.clearVerified).toHaveBeenCalledWith('l1', 'u1');
+    expect(res.json()).toMatchObject({ verified: false, verified_at: null });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonItemSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
+  });
+
+  it('DELETE /lessons/:id/verify on someone else\'s id (or a non-lesson) is a 404, never a 403', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(null);
+    const res = await build(kind, repos).inject({ method: 'DELETE', url: '/chat/lessons/other/verify' });
+    expect(res.statusCode).toBe(404);
+    expect(repos.memoryItems.clearVerified).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /lessons/:id on a note lesson removes the block, deletes the items and re-indexes the note', async () => {
+    const repos = fakeRepos();
+    const item = lessonItem({ source_id: 'note:p1:l2', meta: { evidence: 'observed', card: null, pr: null, tags: [], agent: null, tab_id: 't1', origin: 'note', path: null } });
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(item);
+    const res = await build(kind, repos).inject({ method: 'DELETE', url: '/chat/lessons/l1' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.notes.removeBlock).toHaveBeenCalledWith('p1', 'l2');
+    expect(repos.memoryItems.deleteBySource).toHaveBeenCalledWith('lesson', ['note:p1:l2']);
+    expect(repos.memoryItems.hideSource).not.toHaveBeenCalled();
+    expect(res.json()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(indexProjectNote).toHaveBeenCalledWith(repos, 'p1', expect.anything()));
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonForgetSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
+  });
+
+  it('DELETE /lessons/:id on a note lesson whose block is already gone from the note still deletes the items and succeeds', async () => {
+    const repos = fakeRepos();
+    repos.notes.removeBlock.mockResolvedValueOnce(null);
+    const item = lessonItem({ source_id: 'note:p1:l2', meta: { evidence: 'observed', card: null, pr: null, tags: [], agent: null, tab_id: 't1', origin: 'note', path: null } });
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(item);
+    const res = await build(kind, repos).inject({ method: 'DELETE', url: '/chat/lessons/l1' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.memoryItems.deleteBySource).toHaveBeenCalledWith('lesson', ['note:p1:l2']);
+    expect(res.json()).toEqual({ ok: true });
+  });
+
+  it('DELETE /lessons/:id on a file lesson hides it and warns the file stays in the repository', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(lessonItem());
+    const res = await build(kind, repos).inject({ method: 'DELETE', url: '/chat/lessons/l1' });
+    expect(res.statusCode).toBe(200);
+    expect(repos.memoryItems.hideSource).toHaveBeenCalledWith('l1', 'u1');
+    expect(repos.notes.removeBlock).not.toHaveBeenCalled();
+    expect(repos.memoryItems.deleteBySource).not.toHaveBeenCalled();
+    expect(res.json()).toEqual({ ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonForgetSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
+  });
+
+  it('DELETE /lessons/:id on someone else\'s id (or a non-lesson) is a 404, never a 403', async () => {
+    const repos = fakeRepos();
+    repos.memoryItems.findLessonForOwner.mockResolvedValueOnce(null);
+    const res = await build(kind, repos).inject({ method: 'DELETE', url: '/chat/lessons/other' });
+    expect(res.statusCode).toBe(404);
+    expect(repos.memoryItems.hideSource).not.toHaveBeenCalled();
+    expect(repos.notes.removeBlock).not.toHaveBeenCalled();
   });
 });
