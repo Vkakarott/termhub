@@ -625,6 +625,7 @@ export const ChatProjectGrantScalarFieldEnum = {
   id: 'id',
   conversationId: 'conversationId',
   projectId: 'projectId',
+  scope: 'scope',
   sourceActionId: 'sourceActionId',
   grantedBy: 'grantedBy',
   createdAt: 'createdAt',

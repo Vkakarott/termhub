@@ -188,9 +188,11 @@ export class ChatActionsRepository {
   }
 
   /** How many calls a grant already covered since `since` — the project grant's hourly budget (spec
-   * 2026-09-26 project grant §2). Keyed by the conversation too, so it rides `(conversation_id, created_at)`. */
-  async countForGrantSince(conversationId: string, grantId: string, since: Date): Promise<number> {
-    return this.db.chatAction.count({ where: { conversationId, grantId, createdAt: { gt: since } } });
+   * 2026-09-26 project grant §2). Keyed by the conversation too, so it rides `(conversation_id, created_at)`.
+   * `tools`, when given, counts only those tools — e.g. the shell/keys budget kept separate from the
+   * board budget under the same grant (TER-325). */
+  async countForGrantSince(conversationId: string, grantId: string, since: Date, tools?: readonly string[]): Promise<number> {
+    return this.db.chatAction.count({ where: { conversationId, grantId, createdAt: { gt: since }, ...(tools ? { tool: { in: [...tools] } } : {}) } });
   }
 
   /**

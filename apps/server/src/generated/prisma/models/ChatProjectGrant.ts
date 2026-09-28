@@ -30,6 +30,7 @@ export type ChatProjectGrantMinAggregateOutputType = {
   id: string | null
   conversationId: string | null
   projectId: string | null
+  scope: string | null
   sourceActionId: string | null
   grantedBy: string | null
   createdAt: Date | null
@@ -42,6 +43,7 @@ export type ChatProjectGrantMaxAggregateOutputType = {
   id: string | null
   conversationId: string | null
   projectId: string | null
+  scope: string | null
   sourceActionId: string | null
   grantedBy: string | null
   createdAt: Date | null
@@ -54,6 +56,7 @@ export type ChatProjectGrantCountAggregateOutputType = {
   id: number
   conversationId: number
   projectId: number
+  scope: number
   sourceActionId: number
   grantedBy: number
   createdAt: number
@@ -68,6 +71,7 @@ export type ChatProjectGrantMinAggregateInputType = {
   id?: true
   conversationId?: true
   projectId?: true
+  scope?: true
   sourceActionId?: true
   grantedBy?: true
   createdAt?: true
@@ -80,6 +84,7 @@ export type ChatProjectGrantMaxAggregateInputType = {
   id?: true
   conversationId?: true
   projectId?: true
+  scope?: true
   sourceActionId?: true
   grantedBy?: true
   createdAt?: true
@@ -92,6 +97,7 @@ export type ChatProjectGrantCountAggregateInputType = {
   id?: true
   conversationId?: true
   projectId?: true
+  scope?: true
   sourceActionId?: true
   grantedBy?: true
   createdAt?: true
@@ -177,6 +183,7 @@ export type ChatProjectGrantGroupByOutputType = {
   id: string
   conversationId: string
   projectId: string
+  scope: string
   sourceActionId: string | null
   grantedBy: string
   createdAt: Date
@@ -210,6 +217,7 @@ export type ChatProjectGrantWhereInput = {
   id?: Prisma.StringFilter<"ChatProjectGrant"> | string
   conversationId?: Prisma.StringFilter<"ChatProjectGrant"> | string
   projectId?: Prisma.StringFilter<"ChatProjectGrant"> | string
+  scope?: Prisma.StringFilter<"ChatProjectGrant"> | string
   sourceActionId?: Prisma.StringNullableFilter<"ChatProjectGrant"> | string | null
   grantedBy?: Prisma.StringFilter<"ChatProjectGrant"> | string
   createdAt?: Prisma.DateTimeFilter<"ChatProjectGrant"> | Date | string
@@ -223,6 +231,7 @@ export type ChatProjectGrantOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   conversationId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   sourceActionId?: Prisma.SortOrderInput | Prisma.SortOrder
   grantedBy?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -239,6 +248,7 @@ export type ChatProjectGrantWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.ChatProjectGrantWhereInput | Prisma.ChatProjectGrantWhereInput[]
   conversationId?: Prisma.StringFilter<"ChatProjectGrant"> | string
   projectId?: Prisma.StringFilter<"ChatProjectGrant"> | string
+  scope?: Prisma.StringFilter<"ChatProjectGrant"> | string
   sourceActionId?: Prisma.StringNullableFilter<"ChatProjectGrant"> | string | null
   grantedBy?: Prisma.StringFilter<"ChatProjectGrant"> | string
   createdAt?: Prisma.DateTimeFilter<"ChatProjectGrant"> | Date | string
@@ -252,6 +262,7 @@ export type ChatProjectGrantOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   conversationId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   sourceActionId?: Prisma.SortOrderInput | Prisma.SortOrder
   grantedBy?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -270,6 +281,7 @@ export type ChatProjectGrantScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"ChatProjectGrant"> | string
   conversationId?: Prisma.StringWithAggregatesFilter<"ChatProjectGrant"> | string
   projectId?: Prisma.StringWithAggregatesFilter<"ChatProjectGrant"> | string
+  scope?: Prisma.StringWithAggregatesFilter<"ChatProjectGrant"> | string
   sourceActionId?: Prisma.StringNullableWithAggregatesFilter<"ChatProjectGrant"> | string | null
   grantedBy?: Prisma.StringWithAggregatesFilter<"ChatProjectGrant"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ChatProjectGrant"> | Date | string
@@ -281,6 +293,7 @@ export type ChatProjectGrantScalarWhereWithAggregatesInput = {
 export type ChatProjectGrantCreateInput = {
   id: string
   projectId: string
+  scope?: string
   sourceActionId?: string | null
   grantedBy: string
   createdAt?: Date | string
@@ -294,6 +307,7 @@ export type ChatProjectGrantUncheckedCreateInput = {
   id: string
   conversationId: string
   projectId: string
+  scope?: string
   sourceActionId?: string | null
   grantedBy: string
   createdAt?: Date | string
@@ -305,6 +319,7 @@ export type ChatProjectGrantUncheckedCreateInput = {
 export type ChatProjectGrantUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.StringFieldUpdateOperationsInput | string
   sourceActionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   grantedBy?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -318,6 +333,7 @@ export type ChatProjectGrantUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   conversationId?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.StringFieldUpdateOperationsInput | string
   sourceActionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   grantedBy?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -330,6 +346,7 @@ export type ChatProjectGrantCreateManyInput = {
   id: string
   conversationId: string
   projectId: string
+  scope?: string
   sourceActionId?: string | null
   grantedBy: string
   createdAt?: Date | string
@@ -341,6 +358,7 @@ export type ChatProjectGrantCreateManyInput = {
 export type ChatProjectGrantUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.StringFieldUpdateOperationsInput | string
   sourceActionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   grantedBy?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -353,6 +371,7 @@ export type ChatProjectGrantUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   conversationId?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.StringFieldUpdateOperationsInput | string
   sourceActionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   grantedBy?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -375,6 +394,7 @@ export type ChatProjectGrantCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   conversationId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   sourceActionId?: Prisma.SortOrder
   grantedBy?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -387,6 +407,7 @@ export type ChatProjectGrantMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   conversationId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   sourceActionId?: Prisma.SortOrder
   grantedBy?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -399,6 +420,7 @@ export type ChatProjectGrantMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   conversationId?: Prisma.SortOrder
   projectId?: Prisma.SortOrder
+  scope?: Prisma.SortOrder
   sourceActionId?: Prisma.SortOrder
   grantedBy?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -452,6 +474,7 @@ export type ChatProjectGrantUncheckedUpdateManyWithoutConversationNestedInput = 
 export type ChatProjectGrantCreateWithoutConversationInput = {
   id: string
   projectId: string
+  scope?: string
   sourceActionId?: string | null
   grantedBy: string
   createdAt?: Date | string
@@ -463,6 +486,7 @@ export type ChatProjectGrantCreateWithoutConversationInput = {
 export type ChatProjectGrantUncheckedCreateWithoutConversationInput = {
   id: string
   projectId: string
+  scope?: string
   sourceActionId?: string | null
   grantedBy: string
   createdAt?: Date | string
@@ -504,6 +528,7 @@ export type ChatProjectGrantScalarWhereInput = {
   id?: Prisma.StringFilter<"ChatProjectGrant"> | string
   conversationId?: Prisma.StringFilter<"ChatProjectGrant"> | string
   projectId?: Prisma.StringFilter<"ChatProjectGrant"> | string
+  scope?: Prisma.StringFilter<"ChatProjectGrant"> | string
   sourceActionId?: Prisma.StringNullableFilter<"ChatProjectGrant"> | string | null
   grantedBy?: Prisma.StringFilter<"ChatProjectGrant"> | string
   createdAt?: Prisma.DateTimeFilter<"ChatProjectGrant"> | Date | string
@@ -515,6 +540,7 @@ export type ChatProjectGrantScalarWhereInput = {
 export type ChatProjectGrantCreateManyConversationInput = {
   id: string
   projectId: string
+  scope?: string
   sourceActionId?: string | null
   grantedBy: string
   createdAt?: Date | string
@@ -526,6 +552,7 @@ export type ChatProjectGrantCreateManyConversationInput = {
 export type ChatProjectGrantUpdateWithoutConversationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.StringFieldUpdateOperationsInput | string
   sourceActionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   grantedBy?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -537,6 +564,7 @@ export type ChatProjectGrantUpdateWithoutConversationInput = {
 export type ChatProjectGrantUncheckedUpdateWithoutConversationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.StringFieldUpdateOperationsInput | string
   sourceActionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   grantedBy?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -548,6 +576,7 @@ export type ChatProjectGrantUncheckedUpdateWithoutConversationInput = {
 export type ChatProjectGrantUncheckedUpdateManyWithoutConversationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
+  scope?: Prisma.StringFieldUpdateOperationsInput | string
   sourceActionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   grantedBy?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -562,6 +591,7 @@ export type ChatProjectGrantSelect<ExtArgs extends runtime.Types.Extensions.Inte
   id?: boolean
   conversationId?: boolean
   projectId?: boolean
+  scope?: boolean
   sourceActionId?: boolean
   grantedBy?: boolean
   createdAt?: boolean
@@ -575,6 +605,7 @@ export type ChatProjectGrantSelectCreateManyAndReturn<ExtArgs extends runtime.Ty
   id?: boolean
   conversationId?: boolean
   projectId?: boolean
+  scope?: boolean
   sourceActionId?: boolean
   grantedBy?: boolean
   createdAt?: boolean
@@ -588,6 +619,7 @@ export type ChatProjectGrantSelectUpdateManyAndReturn<ExtArgs extends runtime.Ty
   id?: boolean
   conversationId?: boolean
   projectId?: boolean
+  scope?: boolean
   sourceActionId?: boolean
   grantedBy?: boolean
   createdAt?: boolean
@@ -601,6 +633,7 @@ export type ChatProjectGrantSelectScalar = {
   id?: boolean
   conversationId?: boolean
   projectId?: boolean
+  scope?: boolean
   sourceActionId?: boolean
   grantedBy?: boolean
   createdAt?: boolean
@@ -609,7 +642,7 @@ export type ChatProjectGrantSelectScalar = {
   revokedBy?: boolean
 }
 
-export type ChatProjectGrantOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "conversationId" | "projectId" | "sourceActionId" | "grantedBy" | "createdAt" | "expiresAt" | "revokedAt" | "revokedBy", ExtArgs["result"]["chatProjectGrant"]>
+export type ChatProjectGrantOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "conversationId" | "projectId" | "scope" | "sourceActionId" | "grantedBy" | "createdAt" | "expiresAt" | "revokedAt" | "revokedBy", ExtArgs["result"]["chatProjectGrant"]>
 export type ChatProjectGrantInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   conversation?: boolean | Prisma.ChatConversationDefaultArgs<ExtArgs>
 }
@@ -629,6 +662,10 @@ export type $ChatProjectGrantPayload<ExtArgs extends runtime.Types.Extensions.In
     id: string
     conversationId: string
     projectId: string
+    /**
+     * 'board' (TER-111) or 'all' (TER-325: board + keys and shell on the project's tabs).
+     */
+    scope: string
     sourceActionId: string | null
     grantedBy: string
     createdAt: Date
@@ -1062,6 +1099,7 @@ export interface ChatProjectGrantFieldRefs {
   readonly id: Prisma.FieldRef<"ChatProjectGrant", 'String'>
   readonly conversationId: Prisma.FieldRef<"ChatProjectGrant", 'String'>
   readonly projectId: Prisma.FieldRef<"ChatProjectGrant", 'String'>
+  readonly scope: Prisma.FieldRef<"ChatProjectGrant", 'String'>
   readonly sourceActionId: Prisma.FieldRef<"ChatProjectGrant", 'String'>
   readonly grantedBy: Prisma.FieldRef<"ChatProjectGrant", 'String'>
   readonly createdAt: Prisma.FieldRef<"ChatProjectGrant", 'DateTime'>

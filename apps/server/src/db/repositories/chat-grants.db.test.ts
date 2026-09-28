@@ -73,6 +73,15 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatGrantsRepository (Pos
     expect(await repo.revokeForConversation(conversationId)).toBeGreaterThanOrEqual(2);
     expect(await repo.listActive(conversationId)).toEqual([]);
   });
+
+  it('revokeTool revokes only that tool on that tab', async () => {
+    const narrow = await repo.grant({ conversation_id: conversationId, tab_id: 't1', tool: 'send_input', granted_by: userId });
+    const other = await repo.grant({ conversation_id: conversationId, tab_id: 't2', tool: 'send_input', granted_by: userId });
+    expect(await repo.revokeTool(conversationId, 't1', 'send_input', userId)).toBe(1);
+    expect(await repo.findActive(conversationId, 't1', 'send_input')).toBeUndefined();
+    expect((await repo.findActive(conversationId, 't2', 'send_input'))?.id).toBe(other.id);
+    expect(narrow.id).not.toBe(other.id);
+  });
 });
 
 describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatGrantsRepository.listForUser (Postgres)', () => {
