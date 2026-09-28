@@ -268,6 +268,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
     aiAccounts: { findById: vi.fn(async () => opts.host?.account) },
     chatGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
     chatProjectGrants: { revokeForConversation: vi.fn(async () => 0), findActiveBySourceAction: vi.fn(async () => undefined) },
+    chatStandingGrants: { findActiveBySourceAction: vi.fn(async () => undefined), listActive: vi.fn(async () => []) },
     chatAttachments,
     chatSubagents,
   } as unknown as Repositories;
@@ -1179,6 +1180,90 @@ it('resumeAfterDecision: a "board" project grant keeps today\'s note (TER-325)',
   expect(messages[0].text).not.toContain('120 por hora');
 });
 
+it('resumeAfterDecision appends the standing grant note when the approval created a standing grant (TER-386)', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+  vi.mocked(repos.chatStandingGrants.findActiveBySourceAction).mockResolvedValueOnce({ id: 'sg1', kind: 'board', project_id: 'p1' } as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
+
+  expect(repos.chatStandingGrants.findActiveBySourceAction).toHaveBeenCalledWith('u1', 'a1');
+  expect(messages[0].text).toContain('O usuário também liberou sem prazo mexer no quadro no projeto app:');
+  expect(messages[0].text).toContain(
+    'as próximas chamadas create_task, add_subtasks, update_task ou move_task nesse projeto rodam sem pedir confirmação, em qualquer conversa, até 30 por hora, até ele revogar em Permissões do chat.',
+  );
+  expect(messages[0].text).toContain('delete_task continua pedindo.');
+  expect(messages[0].text.endsWith('só faça o que o usuário pediu.')).toBe(true);
+});
+
+it('resumeAfterDecision says nothing about a standing grant when none is active, and never for a denial (TER-386)', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+
+  await service.resumeAfterDecision(user, action());
+  expect(messages[0].text).not.toContain('liberou sem prazo');
+
+  vi.mocked(repos.chatStandingGrants.findActiveBySourceAction).mockResolvedValue({ id: 'sg1', kind: 'board', project_id: 'p1' } as never);
+  await service.resumeAfterDecision(user, action({ id: 'a2', status: 'denied' }));
+  expect(messages[2].text).not.toContain('liberou sem prazo');
+});
+
+it('resumeAfterDecision appends the standing grant note once for two approvals of the same kind and project (TER-386)', async () => {
+  const waiting = [action({ id: 'a2', tool: 'update_task', tab_id: null, args: { task_id: 'k2', title: 'x' }, decided_at: '2026-09-21T12:01:00.000Z' })];
+  const { service, conversation, messages, repos } = build([delta('feito'), done()], { chatActions: waiting });
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+  vi.mocked(repos.chatStandingGrants.findActiveBySourceAction).mockImplementation(async (_u: string, id: string) => ({ id: `sg-${id}`, kind: 'board', project_id: 'p1' }) as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
+
+  expect(messages[0].text.match(/liberou sem prazo mexer no quadro/g)).toHaveLength(1);
+});
+
+it('resumeAfterDecision appends one standing grant note per distinct kind (TER-386)', async () => {
+  const waiting = [action({ id: 'a2', tool: 'send_key', args: { tab_id: 't1', key: 'enter' }, decided_at: '2026-09-21T12:01:00.000Z' })];
+  const { service, conversation, messages, repos } = build([delta('feito'), done()], { chatActions: waiting });
+  conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+  const kindOf: Record<string, 'board' | 'terminal'> = { a1: 'board', a2: 'terminal' };
+  vi.mocked(repos.chatStandingGrants.findActiveBySourceAction).mockImplementation(async (_u: string, id: string) => ({ id: `sg-${id}`, kind: kindOf[id], project_id: 'p1' }) as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
+
+  expect(messages[0].text).toContain('liberou sem prazo mexer no quadro no projeto app');
+  expect(messages[0].text).toContain('liberou sem prazo teclas e texto nas abas no projeto app');
+  expect(messages[0].text).toContain('send_key e send_input nas abas desse projeto nesse projeto rodam sem pedir confirmação, em qualquer conversa, até 120 por hora');
+  expect(messages[0].text).toContain('Continuam pedindo: responder permissões, texto com "!" ou caracteres de controle, run_command.');
+});
+
+it('resumeAfterDecision reads a standing grant\'s gone project as "que não existe mais" (TER-386)', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+  vi.mocked(repos.chatStandingGrants.findActiveBySourceAction).mockResolvedValueOnce({ id: 'sg1', kind: 'board', project_id: 'p-gone' } as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'move_task', tab_id: null, args: { task_id: 'k1', status: 'done' } }));
+
+  expect(repos.projects.findByIdsForOwner).toHaveBeenCalledWith(['p-gone'], 'u1');
+  expect(messages[0].text).toContain('O usuário também liberou sem prazo mexer no quadro no projeto que não existe mais:');
+});
+
+it('resumeAfterDecision appends the close_tab standing grant note with its own exception (TER-386)', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+  vi.mocked(repos.chatStandingGrants.findActiveBySourceAction).mockResolvedValueOnce({ id: 'sg1', kind: 'close_tab', project_id: 'p1' } as never);
+
+  await service.resumeAfterDecision(user, action({ tool: 'close_tab', tab_id: 't1', args: { tab_id: 't1' } }));
+
+  expect(messages[0].text).toContain('liberou sem prazo fechar abas paradas no projeto app');
+  expect(messages[0].text).toContain('as próximas chamadas close_tab nesse projeto rodam sem pedir confirmação, em qualquer conversa, até 30 por hora');
+  expect(messages[0].text).toContain('Uma aba trabalhando ou esperando permissão continua pedindo.');
+});
+
+it('resumeAfterDecision appends the standing grant note after the existing grant notes (TER-386)', async () => {
+  const { service, messages, repos } = build([delta('feito'), done()]);
+  vi.mocked(repos.chatGrants.findActiveBySourceAction).mockResolvedValueOnce({ id: 'g1', tool: 'send_input' } as never);
+  vi.mocked(repos.chatStandingGrants.findActiveBySourceAction).mockResolvedValueOnce({ id: 'sg1', kind: 'board', project_id: 'p1' } as never);
+
+  await service.resumeAfterDecision(user, action());
+
+  const text = messages[0].text;
+  expect(text.indexOf('O usuário também permitiu digitar nesta aba')).toBeLessThan(text.indexOf('O usuário também liberou sem prazo'));
+});
+
 const answeredQuestion = (): TabQuestion => ({
   id: 'q1', tab_id: 't1', project_id: 'p1', conversation_id: 'c1', user_id: 'u1', kind: 'choice',
   payload: { questions: [{ question: 'Qual cor?', header: 'Cor', multi_select: false, options: [{ label: 'Azul', description: '', recommended: true }, { label: 'Verde', description: '', recommended: false }] }] },
@@ -1225,6 +1310,22 @@ describe('project conversations', () => {
     const { service, inputs } = build([delta('ok'), done()]);
     await service.send(user, 'oi');
     expect(inputs()[0].append_system_prompt ?? null).toBeNull();
+  });
+
+  it('includes this user\'s active standing grants for the project in the prompt (TER-386)', async () => {
+    const { service, inputs, repos } = build([delta('ok'), done()]);
+    vi.mocked(repos.chatStandingGrants.listActive).mockResolvedValueOnce([{ id: 'sg1', kind: 'board' }, { id: 'sg2', kind: 'open_tab' }] as never);
+
+    await service.send(user, 'como está o build?', { projectId: 'p1' });
+
+    expect(repos.chatStandingGrants.listActive).toHaveBeenCalledWith('u1', 'p1');
+    expect(inputs()[0].append_system_prompt).toContain('Liberado sem confirmação neste projeto (o usuário liberou sem prazo): abrir abas, mexer no quadro.');
+  });
+
+  it('says nothing about standing grants in the prompt when none are active (TER-386)', async () => {
+    const { service, inputs } = build([delta('ok'), done()]);
+    await service.send(user, 'oi', { projectId: 'p1' });
+    expect(inputs()[0].append_system_prompt).not.toContain('Liberado sem confirmação');
   });
 
   it('runs a project chat and the account-wide chat at the same time', async () => {
