@@ -3,6 +3,7 @@ import { api } from './api';
 import { useAuth } from './auth';
 import { entersNeedsYou, optimisticSeenAt, shouldMarkSeen, tabNeedsYou } from './needs-you';
 import { applyOpenTabFrame, type OpenTabFrame } from './open-tabs';
+import { reconnectDelay } from './reconnect';
 import type { MonitorItem, Tab } from './types';
 
 /** Called when a push moves a tab into a waiting state (never for the snapshot on load). */
@@ -143,10 +144,10 @@ export function MonitorProvider({ children }: { children: ReactNode }) {
           return next;
         });
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         setConnected(false);
         ws = null;
-        if (!stopped) timer = setTimeout(open, RECONNECT_MS);
+        if (!stopped) timer = setTimeout(open, reconnectDelay(ev.code, RECONNECT_MS));
       };
       ws.onerror = () => ws?.close();
     };

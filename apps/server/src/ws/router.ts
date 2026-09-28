@@ -5,6 +5,7 @@ import { parseCookies, resolveUser, type AuthContext } from '../auth/index.js';
 import { canAccess } from '../auth/permissions.js';
 import { resolveScope, type Scope } from '../auth/scope.js';
 import type { User } from '../db/repositories/types.js';
+import type { Lifecycle } from './drain.js';
 
 export interface UpgradeContext {
   req: IncomingMessage;
@@ -54,7 +55,7 @@ function originAllowed(req: IncomingMessage): boolean {
 }
 
 /** Um único listener de `upgrade`: casa o path, checa origem e auth, e delega ao handler. */
-export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContext }) {
+export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContext; lifecycle?: Lifecycle }) {
   const routes: { pattern: RegExp; handler: UpgradeHandler }[] = [];
   const publicRoutes: { pattern: RegExp; handler: PublicUpgradeHandler }[] = [];
   server.on('upgrade', async (req, socket, head) => {
@@ -64,6 +65,8 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
     // take the whole process down. The error itself needs no handling here: the socket is destroyed
     // and emits `close`, which is what routes release their resources on.
     socket.on('error', () => {});
+    // Draining for a shutdown (spec 2026-09-27 §5.2): the client retries and lands on the other colour.
+    if (deps.lifecycle?.draining) return rejectUpgrade(socket, 503, 'Service Unavailable');
     const url = new URL(req.url ?? '/', 'http://localhost');
 
     // Public routes match first and authenticate themselves (bearer token, not cookie):
@@ -96,6 +99,8 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
     // conversation, so nobody who cannot read a terminal has any business on it either.
     // (The chat's own per-user filter lives in chat/ws.ts; this only decides who may connect.)
     if (!(await canAccess(deps.auth.repos, user, 'terminals', 'read'))) return rejectUpgrade(socket, 403, 'Forbidden');
+    // The awaits above give a drain time to start: a socket admitted now would miss its handover.
+    if (deps.lifecycle?.draining) return rejectUpgrade(socket, 503, 'Service Unavailable');
     try {
       await route.r.handler({ req, socket, head, url, params: route.m.slice(1), user, scope });
     } catch {

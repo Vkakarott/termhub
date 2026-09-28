@@ -79,6 +79,8 @@ export interface Repositories {
   deviceEvents: DeviceEventsRepository;
   userNotifications: UserNotificationsRepository;
   taskPullRequests: TaskPullRequestsRepository;
+  /** Round-trips a trivial query: `/api/ready` asks whether the database answers. */
+  ping(): Promise<void>;
 }
 
 export function createRepositories(db: PrismaClient): Repositories {
@@ -122,6 +124,7 @@ export function createRepositories(db: PrismaClient): Repositories {
     deviceEvents: new DeviceEventsRepository(db),
     userNotifications: new UserNotificationsRepository(db),
     taskPullRequests: new TaskPullRequestsRepository(db),
+    ping: () => db.$queryRaw`SELECT 1`.then(() => undefined),
   };
 }
 

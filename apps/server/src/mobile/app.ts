@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
+import type { WebSocketServer } from 'ws';
 import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
 import type { HostAgents } from '../chat/host.js';
@@ -72,14 +73,15 @@ export function createMobileServices(deps: MobileDeps): MobileServices {
 /**
  * The mobile app's API at /api/m/v1. It lives outside the /api plugin on purpose, so the cookie /
  * Cloudflare `buildAuthHook` never runs here: its only authentication is the device token plus a
- * DPoP proof (`buildMobileAuthHook`). Registered only when `config.mobile` is set.
+ * DPoP proof (`buildMobileAuthHook`). Registered only when `config.mobile` is set. Returns the phone's
+ * chat `WebSocketServer`, for the shutdown drain.
  */
 export async function registerMobileApi(
   fastify: FastifyInstance,
   services: MobileServices,
   deps: MobileDeps,
   routes?: (guardedMobile: GuardedMobile, m: FastifyInstance) => Promise<void>,
-): Promise<void> {
+): Promise<WebSocketServer> {
   const mobile = config.mobile;
   if (!mobile) throw new Error('registerMobileApi requires config.mobile (MOBILE_PUBLIC_URL)');
   const publicUrl = mobile.publicUrl;
@@ -148,4 +150,6 @@ export async function registerMobileApi(
     },
     { prefix: MOBILE_PREFIX },
   );
+  // The shutdown drain closes its clients with the other WebSocket servers' (spec 2026-09-27 §5.2).
+  return chatWs;
 }

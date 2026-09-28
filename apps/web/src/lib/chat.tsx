@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { reconnectDelay } from './reconnect';
 import type { ChatEvent } from './types';
 
 const RECONNECT_MS = 5_000;
@@ -38,10 +39,10 @@ export function useChatStream(onReconnect: () => void, onEvent: (event: ChatEven
           /* ignore a frame we cannot read */
         }
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         setConnected(false);
         ws = null;
-        if (!stopped) timer = setTimeout(open, RECONNECT_MS);
+        if (!stopped) timer = setTimeout(open, reconnectDelay(ev.code, RECONNECT_MS));
       };
       ws.onerror = () => ws?.close();
     };

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpError } from '../lib/errors.js';
 
-const { captureScreen, ensureSession, isOnline, killTmuxSession, requireAgentVersion, sendKeyToSession, sendTextToSession, waitForState } = vi.hoisted(() => ({
+const { captureScreen, ensureSession, awaitAgent, killTmuxSession, requireAgentVersion, sendKeyToSession, sendTextToSession, waitForState } = vi.hoisted(() => ({
   captureScreen: vi.fn(),
   ensureSession: vi.fn(),
-  isOnline: vi.fn(() => true),
+  awaitAgent: vi.fn(async () => true),
   killTmuxSession: vi.fn(),
   requireAgentVersion: vi.fn(),
   sendKeyToSession: vi.fn(),
@@ -12,7 +12,7 @@ const { captureScreen, ensureSession, isOnline, killTmuxSession, requireAgentVer
   waitForState: vi.fn(),
 }));
 vi.mock('../agent/screen.js', () => ({ captureScreen }));
-vi.mock('../agent/registry.js', () => ({ agents: { isOnline } }));
+vi.mock('../agent/registry.js', () => ({ agents: { awaitAgent } }));
 vi.mock('../agent/errors.js', () => ({ requireAgentVersion }));
 vi.mock('../terminal/session-ops.js', () => ({ ensureSession, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION: '0.2.0', INPUT_MAX_CHARS: 4000 }));
 vi.mock('../terminal/machine-exec.js', () => ({ killTmuxSession }));
@@ -76,7 +76,7 @@ beforeEach(() => {
   // clearAllMocks keeps implementations: a test that made requireAgentVersion throw would leak into the next one.
   requireAgentVersion.mockReset();
   waitForState.mockReset();
-  isOnline.mockReturnValue(true);
+  awaitAgent.mockReset().mockResolvedValue(true);
   ensureSession.mockResolvedValue({ created: true });
 });
 
@@ -107,10 +107,23 @@ describe('openTab', () => {
   });
 
   it('refuses when the machine is offline', async () => {
-    isOnline.mockReturnValue(false);
+    awaitAgent.mockResolvedValue(false);
     const ctx = ctxWith();
     await expect(openTab(ctx, { project_id: 'p1' })).rejects.toMatchObject({ code: 'MACHINE_OFFLINE' });
     expect(ctx.repos.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('proceeds once a moving agent (a deploy) attaches within the wait, instead of answering offline at once', async () => {
+    let release!: (v: boolean) => void;
+    awaitAgent.mockReturnValue(new Promise<boolean>((r) => (release = r)));
+    const ctx = ctxWith();
+    const opening = openTab(ctx, { project_id: 'p1' });
+    await Promise.resolve();
+    expect(ctx.repos.tabs.create).not.toHaveBeenCalled();
+    release(true);
+    const r = await opening;
+    expect(r).toMatchObject({ tab_id: 't1', machine_id: 'm1', created: true });
+    expect(awaitAgent).toHaveBeenCalledWith(machine);
   });
 
   it('refuses an outdated agent before creating a tab that could not be used', async () => {

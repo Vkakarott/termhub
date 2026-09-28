@@ -23,10 +23,11 @@ const SETTLE_POLL_MS = 1000;
  * before falling back to the screen poll (spec §4.2 line 118: run_command must actually wait). */
 const WORKING_WAIT_MS = 2 * SETTLE_POLL_MS;
 
-/** Online and new enough to answer the terminal RPCs — checked before anything is created or typed. */
-function assertReady(machine: Machine): void {
+/** Online (or moving between instances — spec 2026-09-27 §5.3) and new enough to answer the terminal
+ *  RPCs — checked before anything is created or typed. */
+async function assertReady(machine: Machine): Promise<void> {
   if (machine.type !== 'agent') return;
-  if (!agents.isOnline(machine.id)) throw offline();
+  if (!(await agents.awaitAgent(machine))) throw offline();
   requireAgentVersion(machine, TERMINAL_RPC_MIN_AGENT_VERSION); // HttpError 409 AGENT_OUTDATED
 }
 
@@ -34,7 +35,7 @@ function assertReady(machine: Machine): void {
 async function terminal(ctx: ControlContext, tabId: string): Promise<{ tab: Tab; machine: Machine; cwd: string; session: string }> {
   const { tab, machine, cwd } = await ctx.scoped.tab(tabId);
   assertTerminal(tab);
-  assertReady(machine);
+  await assertReady(machine);
   return { tab, machine, cwd, session: tab.tmux_session };
 }
 
@@ -60,7 +61,7 @@ export async function openTab(
   input: { project_id: string; machine_id?: string; name?: string },
 ): Promise<{ tab_id: string; name: string; project_id: string; machine_id: string; tmux_session: string | null; created: boolean }> {
   const { project, machine, link } = await ctx.scoped.projectMachineFor(input.project_id, input.machine_id);
-  assertReady(machine);
+  await assertReady(machine);
 
   if (ctx.token) {
     const open = await ctx.repos.tabs.countOpenByToken(ctx.token.id);

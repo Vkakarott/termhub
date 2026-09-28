@@ -28,7 +28,11 @@ export class AgentPtySession implements PtySession {
       { session: tab.tmux_session, cwd, cols, rows },
       {
         onData: (data) => handlers.onData(data.toString('utf8')),
-        onExit: (code) => handlers.onExit(code ?? 1),
+        onExit: (code) => {
+          // null = the agent connection closed under the channel, not the process exiting (spec 2026-09-27 §5.4)
+          if (code === null && handlers.onLost) handlers.onLost();
+          else handlers.onExit(code ?? 1);
+        },
       },
     );
     return new AgentPtySession(channel);

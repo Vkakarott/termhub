@@ -5,10 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on main: it could be mid-switch_proxy/retire_old; queue instead.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # ── Verificação: typecheck + build (GitHub-hosted) ─────────────────
@@ -103,7 +105,8 @@ jobs:
   # ── Deploy no jarvis (runner self-hosted) ──────────────────────────
   deploy:
     needs: check
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # workflow_dispatch: re-run a deploy of main without an empty commit (e.g. to prove a deploy keeps terminals up).
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, termhub]
     timeout-minutes: 30
     env:

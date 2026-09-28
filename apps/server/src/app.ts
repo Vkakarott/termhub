@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { WebSocketServer } from 'ws';
 import fastifyCookie from '@fastify/cookie';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,10 +72,15 @@ import { registerAgentWs } from './agent/ws.js';
 import { agents } from './agent/registry.js';
 import { TranscriptionService } from './terminal/transcription.js';
 import { createUpgradeRouter } from './ws/router.js';
+import { createLifecycle, drain, RESTART_CLOSE, within } from './ws/drain.js';
+import { readyRoutes } from './routes/ready.js';
 import { registerSimulatorWs } from './simulator/ws.js';
 import { SimulatorSessionManager } from './simulator/session-manager.js';
 import { createRealBackend } from './simulator/backend.js';
 import { seed } from './seed.js';
+
+/** How long `preClose` waits on `chat.suspendAll()` before letting the close go on. */
+const PRE_CLOSE_SUSPEND_MS = 5_000;
 
 const SERVER_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'apps', 'server', 'package.json'), 'utf8')).version as string;
 
@@ -82,6 +88,8 @@ export interface App {
   fastify: FastifyInstance;
   repos: Repositories;
   auth: AuthContext;
+  /** The SIGTERM handover (spec 2026-09-27 §5.2): refuse new sockets, release the chat runs, close agents then clients. */
+  drain: () => Promise<void>;
 }
 
 export interface BuildAppOptions {
@@ -154,13 +162,19 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
 
   // --- WebSockets (terminais e simulador) — criados antes do bloco /api para que as rotas HTTP
   // recebam `simulators` e `simWs.closeTab`. `fastify.server` já existe neste ponto.
-  const upgrades = createUpgradeRouter(fastify.server, { auth });
-  registerTerminalWs(upgrades, { repos, log: fastify.log });
-  registerAgentWs(upgrades, { repos, log: fastify.log });
+  // `lifecycle` flips to draining on SIGTERM: new upgrades get 503 and /api/ready answers 503 (spec 2026-09-27 §5).
+  const lifecycle = createLifecycle();
+  const upgrades = createUpgradeRouter(fastify.server, { auth, lifecycle });
   const simWs = registerSimulatorWs(upgrades, { repos, manager: simulators, log: fastify.log });
-  registerMonitorWs(upgrades, { log: fastify.log });
-  registerChatWs(upgrades, { log: fastify.log });
-  registerPublicWs(upgrades, { repos, log: fastify.log });
+  // Every WebSocket server whose clients the drain closes with 1012 (the mobile chat's joins below).
+  const sockets: WebSocketServer[] = [
+    registerTerminalWs(upgrades, { repos, log: fastify.log }),
+    registerAgentWs(upgrades, { repos, log: fastify.log }),
+    simWs.wss,
+    registerMonitorWs(upgrades, { log: fastify.log }),
+    registerChatWs(upgrades, { log: fastify.log }),
+    registerPublicWs(upgrades, { repos, log: fastify.log }),
+  ];
 
   // The conversation runs on a machine of the user's own, on their own Claude account (spec §3):
   // `resolveHost` picks the pair per send, and `agentRunner` drives that machine's agent. No
@@ -246,6 +260,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
       }
       await api.register((a) => publicCityRoutes(a, repos), { prefix: '/public' });
       api.get('/health', { config: { public: true } }, async () => ({ ok: true }));
+      await api.register((a) => readyRoutes(a, { ping: () => repos.ping(), lifecycle }));
       api.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'Rota não encontrada', code: 'NOT_FOUND' }));
     },
     { prefix: '/api' },
@@ -255,7 +270,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   await fastify.register((a) => mcpRoutes(a, { repos, version: SERVER_VERSION, attachments: attachmentStore }));
 
   // --- Mobile app API (/api/m/v1): outside /api, so only its device-token + DPoP hook runs on it ---
-  if (config.mobile && mobile) await registerMobileApi(fastify, mobile, mobileDeps);
+  if (config.mobile && mobile) sockets.push(await registerMobileApi(fastify, mobile, mobileDeps));
 
   // --- Frontend buildado (produção) ---
   const dirs = { ...defaultFrontendDirs(ROOT_DIR), ...opts.frontend };
@@ -296,8 +311,22 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
   liveBeat.unref();
   resumeTimer.unref();
   firstSweep.unref();
+  // Agents reconnecting here (a deploy moved them from the other colour) may be the hosts of released
+  // runs: sweep soon after they arrive instead of waiting for the timer. Trailing edge, one per burst.
+  let onlineSweep: ReturnType<typeof setTimeout> | undefined;
+  const onAgentOnline = () => {
+    if (onlineSweep) return;
+    onlineSweep = setTimeout(() => {
+      onlineSweep = undefined;
+      void chat.resumeSweep().catch(() => {});
+    }, 1000);
+    onlineSweep.unref();
+  };
+  agents.on('online', onAgentOnline);
+  // Usually a no-op: the SIGTERM drain already suspended (suspendAll runs once); this covers a close without it.
+  // Bounded: a hung (memoized) suspend must not keep fastify.close — and the database — from closing.
   fastify.addHook('preClose', async () => {
-    await chat.suspendAll();
+    await within(chat.suspendAll().catch((err: unknown) => fastify.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'preClose: suspend failed')), PRE_CLOSE_SUSPEND_MS, () => fastify.log.warn({}, 'preClose: suspend budget exceeded'));
   });
   // Sends due automatic answers (spec 2026-09-26 concierge memory §6); both colors run it, the claim picks one.
   const stopAutoAnswerSweeper = startAutoAnswerSweeper(repos, fastify.log);
@@ -306,6 +335,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
     clearInterval(liveBeat);
     clearInterval(resumeTimer);
     clearTimeout(firstSweep);
+    agents.off('online', onAgentOnline);
+    clearTimeout(onlineSweep);
     stopSync();
     stopCiSync();
     stopAgentUpdates();
@@ -319,5 +350,17 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<App> {
     await closePrisma();
   });
 
-  return { fastify, repos, auth };
+  return {
+    fastify,
+    repos,
+    auth,
+    drain: () =>
+      drain({
+        lifecycle,
+        suspend: () => chat.suspendAll(),
+        closeAgents: () => agents.closeAll(RESTART_CLOSE, 'service restart'),
+        servers: sockets,
+        log: fastify.log,
+      }),
+  };
 }

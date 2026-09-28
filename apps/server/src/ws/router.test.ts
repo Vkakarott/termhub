@@ -4,6 +4,7 @@ import type { Duplex } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { AuthContext } from '../auth/index.js';
+import { createLifecycle } from './drain.js';
 import { createUpgradeRouter } from './router.js';
 
 const { resolveUserMock, canAccessMock } = vi.hoisted(() => ({ resolveUserMock: vi.fn(), canAccessMock: vi.fn() }));
@@ -304,5 +305,93 @@ describe('createUpgradeRouter', () => {
         expect(outcome.statusCode).toBe(404);
       });
     }
+  });
+  describe('while draining', () => {
+    let drainServer: http.Server;
+    let drainWss: WebSocketServer;
+    let drainPort: number;
+    const handler = vi.fn();
+    const publicHandler = vi.fn();
+
+    beforeEach(async () => {
+      handler.mockReset();
+      publicHandler.mockReset();
+      resolveUserMock.mockResolvedValue({ id: 'u1' });
+      drainServer = http.createServer();
+      const lifecycle = createLifecycle();
+      const router = createUpgradeRouter(drainServer, { auth: {} as AuthContext, lifecycle });
+      drainWss = new WebSocketServer({ noServer: true });
+      const open = ({ req, socket, head }: { req: http.IncomingMessage; socket: Duplex; head: Buffer }) =>
+        drainWss.handleUpgrade(req, socket, head, (ws) => {
+          drainWss.emit('connection', ws, req);
+          ws.send('opened');
+        });
+      router.add(/^\/ws\/ok$/, (ctx) => {
+        handler();
+        open(ctx);
+      });
+      router.addPublic(/^\/agent\/ok$/, (ctx) => {
+        publicHandler();
+        open(ctx);
+      });
+      drainPort = await listen(drainServer);
+      // Open before draining starts, so the routes are known to work.
+      await expect(attempt(`ws://127.0.0.1:${drainPort}/ws/ok`)).resolves.toMatchObject({ opened: true });
+      handler.mockReset();
+      lifecycle.startDraining();
+    });
+
+    afterEach(async () => {
+      drainWss.close();
+      await shutdown(drainServer);
+    });
+
+    it('a cookie route answers 503 and its handler is not called', async () => {
+      const outcome = await attempt(`ws://127.0.0.1:${drainPort}/ws/ok`);
+      expect(outcome.statusCode).toBe(503);
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('a public route answers 503 and its handler is not called', async () => {
+      const outcome = await attempt(`ws://127.0.0.1:${drainPort}/agent/ok`);
+      expect(outcome.statusCode).toBe(503);
+      expect(publicHandler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('when draining starts while the upgrade is being admitted', () => {
+    let server: http.Server;
+    let wss: WebSocketServer;
+    let port: number;
+    const handler = vi.fn();
+    const lifecycle = createLifecycle();
+
+    beforeEach(async () => {
+      handler.mockReset();
+      server = http.createServer();
+      const router = createUpgradeRouter(server, { auth: {} as AuthContext, lifecycle });
+      wss = new WebSocketServer({ noServer: true });
+      router.add(/^\/ws\/ok$/, ({ req, socket, head }) => {
+        handler();
+        wss.handleUpgrade(req, socket, head, (ws) => ws.send('opened'));
+      });
+      port = await listen(server);
+    });
+
+    afterEach(async () => {
+      resolveUserMock.mockReset();
+      wss.close();
+      await shutdown(server);
+    });
+
+    it('a cookie route answers 503 when draining flips during auth, and its handler is not called', async () => {
+      resolveUserMock.mockImplementation(async () => {
+        lifecycle.startDraining();
+        return { id: 'u1' };
+      });
+      const outcome = await attempt(`ws://127.0.0.1:${port}/ws/ok`);
+      expect(outcome.statusCode).toBe(503);
+      expect(handler).not.toHaveBeenCalled();
+    });
   });
 });

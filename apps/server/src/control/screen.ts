@@ -35,7 +35,8 @@ export async function readScreen(
 ): Promise<{ tab_id: string; lines: number; text: string; styled: boolean }> {
   const { tab, machine } = await ctx.scoped.tab(input.tab_id);
   assertTerminal(tab);
-  if (machine.type === 'agent' && !agents.isOnline(machine.id)) throw offline();
+  // A moving agent (a deploy) gets a few seconds to attach before this answers "offline" (spec §5.3).
+  if (machine.type === 'agent' && !(await agents.awaitAgent(machine))) throw offline();
   const lines = clamp(input.lines, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES);
   try {
     if (opts.plain) return { tab_id: tab.id, lines, text: await captureScreen(machine, tab.tmux_session, lines), styled: false };

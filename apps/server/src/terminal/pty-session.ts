@@ -15,6 +15,8 @@ export interface PtySize {
 export interface PtySessionHandlers {
   onData: (data: string) => void;
   onExit: (code: number, signal?: number) => void;
+  /** The connection to the machine dropped (an agent reconnecting, a deploy) — the tmux session itself lives on. */
+  onLost?: () => void;
 }
 
 /** A live PTY attached to a terminal tab, wherever it actually runs (local/ssh spawn or the user's agent). */

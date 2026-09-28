@@ -274,6 +274,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   const agents = {
     capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude', 'claude.system_prompt', ...(opts.streaming ? ['claude.stream_input'] : [])])),
     info: vi.fn(() => ({ agent_version: '0.5.0' })),
+    awaitAgent: vi.fn(async () => true),
   };
   const runner: RunnerClient = {
     // Every run can take more input, like `agentRunner`'s: a one-shot run simply never gets any.
@@ -2441,6 +2442,25 @@ describe('resume (spec 2026-09-26 panel §3)', () => {
     expect(liveRunsStore.get('c1')?.released_at).not.toBeNull();
   });
 
+  it('a second suspendAll writes nothing: a row another instance claimed meanwhile stays its own', async () => {
+    const { service, lr, liveRunsStore } = streamed();
+    const started = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('parcial'));
+    await service.suspendAll();
+    expect(liveRunsStore.get('c1')?.released_at).toEqual(expect.any(String));
+
+    // The other colour's sweep claims the released row before this process closes (drain, then preClose).
+    const claimed = { ...liveRunsStore.get('c1')!, instance_id: 'other-instance', released_at: null };
+    liveRunsStore.set('c1', claimed);
+    await service.suspendAll();
+    expect(liveRunsStore.get('c1')).toEqual(claimed);
+    run.end();
+    await expect(started.done).rejects.toMatchObject({ code: 'SERVER_RESTARTING' });
+    expect(liveRunsStore.get('c1')).toEqual(claimed);
+  });
+
   it('suspendAll keeps a queued message, and nothing is launched for it on this instance', async () => {
     const { service, lr, liveRunsStore, messages } = streamed();
     const first = await service.start(user, 'um');
@@ -2566,6 +2586,87 @@ describe('resume (spec 2026-09-26 panel §3)', () => {
     expect(built.lr.runs).toHaveLength(1);
     expect(built.liveRunsStore.get('c1')?.instance_id).toBe('old-instance');
     run.end();
+  });
+});
+
+describe('waiting for a moving agent (TER-320 final review)', () => {
+  function streamed(opts: Parameters<typeof build>[1] = {}) {
+    const built = build([], { streaming: true, ...opts });
+    const lr = liveRunner();
+    vi.mocked(built.runner.run).mockImplementation(lr.run);
+    return { ...built, lr };
+  }
+  function seedReleased(built: ReturnType<typeof streamed>) {
+    built.messages.push({ id: 'q1', role: 'user', text: 'primeira', error_code: null });
+    built.messages.push({ id: 'a1', role: 'assistant', text: '', error_code: null });
+    const now = new Date().toISOString();
+    built.liveRunsStore.set('c1', { conversation_id: 'c1', user_id: 'u1', instance_id: 'old-instance', heartbeat_at: now, released_at: now, turns: [{ question_id: 'q1', answer_id: 'a1', text: 'primeira' }], created_at: now });
+  }
+
+  it('hostFor (the screen) never waits for the agent', async () => {
+    const { service, agents } = build([]);
+    await service.hostFor(user);
+    await service.hostFor(user, 'p1');
+    expect(agents.awaitAgent).not.toHaveBeenCalled();
+  });
+
+  it('a message about to be sent waits for the agent', async () => {
+    const { service, agents } = build([delta('ok'), done()]);
+    await service.send(user, 'oi');
+    expect(agents.awaitAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it('a compaction about to run waits for the agent', async () => {
+    const { service, agents, conversation, lr } = streamed();
+    conversation.cli_session_id = '3f1e9b1e-0000-4000-8000-000000000001';
+    const started = await service.compact(user, null);
+    expect(agents.awaitAgent).toHaveBeenCalledTimes(1);
+    (await runAt(lr, 0)).end();
+    await started.done;
+  });
+
+  it('a queued message launched after the run ends waits for the agent', async () => {
+    const { service, lr, agents } = streamed();
+    const first = await service.start(user, 'um');
+    const run = await runAt(lr, 0);
+    run.push(replayOf(run.input.text.trim()));
+    run.push(delta('ok'));
+    run.push(done());
+    await first.done;
+    await settled();
+    await service.start(user, 'dois'); // queued behind the closing process
+    agents.awaitAgent.mockClear();
+    run.end();
+    const second = await runAt(lr, 1);
+    expect(agents.awaitAgent).toHaveBeenCalledTimes(1);
+    second.end();
+  });
+
+  it('resumeSweep never waits for the agent of a row', async () => {
+    const built = streamed({ host: { capabilities: null } });
+    seedReleased(built);
+    await built.service.resumeSweep();
+    expect(built.agents.awaitAgent).not.toHaveBeenCalled();
+  });
+
+  it('resumeSweep claims nothing once suspendAll started while it was resolving a row', async () => {
+    const built = streamed();
+    seedReleased(built);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.mocked(built.repos.users.findById).mockImplementationOnce(async (id: string) => {
+      await gate;
+      return id === user.id ? user : undefined;
+    });
+    const sweep = built.service.resumeSweep();
+    await settled();
+    await built.service.suspendAll();
+    release();
+    await sweep;
+    await settled();
+    expect(built.chatLiveRuns.claim).not.toHaveBeenCalled();
+    expect(built.liveRunsStore.get('c1')?.instance_id).toBe('old-instance');
+    expect(built.lr.runs).toHaveLength(0);
   });
 });
 

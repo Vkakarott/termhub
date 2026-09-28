@@ -153,6 +153,29 @@ describe('registerAgentWs', () => {
     ws.terminate();
   });
 
+  it('touches the machine again when the agent disconnects, so the last-seen time reflects when it left', async () => {
+    await start();
+    const res = await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` });
+    const ws = res.ws!;
+    const hello = {
+      type: 'hello',
+      protocol: PROTOCOL_VERSION,
+      agent_version: '0.1.0',
+      os: 'linux',
+      arch: 'x64',
+      hostname: 'box',
+      tmux: true,
+      tools: ['tmux'],
+    };
+    ws.send(encodeFrame(CONTROL_CHANNEL, JSON.stringify(hello)));
+    await vi.waitFor(() => expect(repos.machines.touchAgent).toHaveBeenCalledTimes(1));
+
+    ws.terminate();
+
+    await vi.waitFor(() => expect(repos.machines.touchAgent).toHaveBeenCalledTimes(2));
+    expect(repos.machines.touchAgent).toHaveBeenLastCalledWith('m1', { lastSeenAt: expect.any(Date) });
+  });
+
   it('valid token but no hello within the timeout → closed 1008', async () => {
     await start({ helloTimeoutMs: 200 });
     const res = await open(`ws://127.0.0.1:${port}/agent/ws`, { Authorization: `Bearer ${GOOD}` });
@@ -292,7 +315,9 @@ describe('registerAgentWs', () => {
       releaseTouch?.(); // let the in-flight touch() resolve now that the connection is closed
       await vi.advanceTimersByTimeAsync(70_000); // past both the 20s heartbeat and 60s touch intervals
 
-      expect(repos.machines.touchAgent).toHaveBeenCalledTimes(1);
+      // The initial hello touch (still pending when the socket closed) plus the touch-on-disconnect —
+      // and no more: had an interval been left dangling, this would keep growing.
+      expect(repos.machines.touchAgent).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }

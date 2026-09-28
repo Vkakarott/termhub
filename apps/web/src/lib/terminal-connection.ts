@@ -1,3 +1,5 @@
+import { RESTART_CLOSE, reconnectDelay } from './reconnect';
+
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline' | 'closed';
 
 export interface TerminalConnectionHandlers {
@@ -24,6 +26,8 @@ export class TerminalConnection {
   private size = { cols: 80, rows: 24 };
   private encoder = new TextEncoder();
   private exited = false;
+  /** set when the last close was a 1012 (deploy/agent reconnecting): keep showing "Reconectando…" instead of "Conectando…" */
+  private restarting = false;
   state: ConnectionState = 'connecting';
 
   constructor(
@@ -49,7 +53,7 @@ export class TerminalConnection {
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
-    this.setState(this.attempt === 0 ? 'connecting' : 'reconnecting');
+    this.setState(this.attempt === 0 && !this.restarting ? 'connecting' : 'reconnecting');
 
     // The socket opens before the server has started the terminal, which can still fail on the
     // machine: only `ready` counts as connected and resets the backoff. Resetting on open made a
@@ -64,6 +68,7 @@ export class TerminalConnection {
         const msg = JSON.parse(String(ev.data)) as { type: string; code?: number; message?: string };
         if (msg.type === 'ready') {
           this.attempt = 0;
+          this.restarting = false;
           this.setState('connected');
           this.sendResize(this.size.cols, this.size.rows);
         } else if (msg.type === 'error' && msg.message) {
@@ -91,6 +96,14 @@ export class TerminalConnection {
         this.setState('offline');
         return;
       }
+      // A deploy or an agent reconnecting (1012): not a failure — come back right away and keep the attempts.
+      if (ev.code === RESTART_CLOSE) {
+        this.attempt = 0;
+        this.restarting = true;
+        this.setState('reconnecting');
+        this.timer = setTimeout(() => this.open(), reconnectDelay(ev.code, 0));
+        return;
+      }
       this.scheduleReconnect();
     };
     ws.onerror = () => {
@@ -116,6 +129,7 @@ export class TerminalConnection {
     this.timer = null;
     this.attempt = 0;
     this.exited = false;
+    this.restarting = false;
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;
