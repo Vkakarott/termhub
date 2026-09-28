@@ -100,3 +100,14 @@ describe('boardGrantable', () => {
     for (const t of BOARD_GRANT_TOOLS) expect(actionClass(t, {})).toBe('write');
   });
 });
+
+it('classifies the integration and repository setup tools: reads are reads, writes always ask and are never grantable (spec D6)', () => {
+  expect(actionClass('list_integrations', {})).toBe('read');
+  expect(actionClass('get_project_setup', { project_id: 'p1' })).toBe('read');
+  expect(actionClass('create_integration', { provider: 'github', name: 'x', secret_from: { machine_id: 'm1', source: 'gh_auth_token' } })).toBe('irreversible');
+  expect(actionClass('set_project_repo', { project_id: 'p1', integration_id: 'g1', full_name: 'acme/api' })).toBe('irreversible');
+  for (const tool of ['create_integration', 'set_project_repo']) {
+    expect(grantable(tool, { tab_id: 't1' })).toBe(false);
+    expect(boardGrantable(tool)).toBe(false);
+  }
+});

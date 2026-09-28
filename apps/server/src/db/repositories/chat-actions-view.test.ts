@@ -81,6 +81,7 @@ function fakeRepos(tabOverride?: Partial<typeof tab>) {
         return ticketRows.filter((k) => ids.includes(k.id));
       }),
     },
+    integrations: { list: vi.fn(async (ownerId: string) => (ownerId === OWNER ? [{ id: 'g1', provider: 'github', name: 'GitHub ana', owner_id: OWNER }] : [{ id: 'g9', provider: 'github', name: 'Integração Alheia', owner_id: OTHER_OWNER }])) },
     apiTokens: { listByUser: vi.fn(async (userId: string) => (userId === OWNER ? [{ id: 'tokChat', gated: true }, { id: 'tokMine', gated: false }] : [])) },
     // No owner scoping of its own (chat_subagents belongs to a conversation, not a user) — the
     // conversation check inside `describeActions` is what keeps a foreign-conversation row from
@@ -603,4 +604,43 @@ it('describeProjectGrantList batches one lookup for both the grant\'s and the co
   const empty = fakeRepos();
   expect(await describeProjectGrantList(empty, [], OWNER, NOW)).toEqual([]);
   expect(empty.projects.findByIdsForOwner).not.toHaveBeenCalled();
+});
+
+// create_integration and set_project_repo (spec 2026-09-28 MCP integrations D6) are irreversible: the
+// card is the only thing the person sees before a credential is stored or the CI repository changes.
+const ghArgs = (machine_id: string) => ({ provider: 'github', name: 'GitHub pessoal', secret_from: { machine_id, source: 'gh_auth_token' } });
+
+it('create_integration names the integration and the machine whose gh login it reads', async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'create_integration', args: ghArgs('m1'), class: 'irreversible' })], OWNER);
+  expect(card.summary).toBe('criar a integração do GitHub "GitHub pessoal" com o login do gh (`gh auth token`) no macbook m3');
+});
+
+it("create_integration never names another owner's machine", async () => {
+  const repos = fakeRepos();
+  const [card] = await describeActions(repos, [action({ tool: 'create_integration', args: ghArgs('m9'), class: 'irreversible' })], OWNER);
+  expect(card.summary).toBe('criar a integração do GitHub "GitHub pessoal" com o login do gh (`gh auth token`) numa máquina que não existe mais');
+  expect(card.summary).not.toContain('Máquina Alheia');
+});
+
+it('set_project_repo names the repository, the integration, the deploy workflow and the project', async () => {
+  const repos = fakeRepos();
+  const args = { project_id: 'p1', integration_id: 'g1', full_name: 'acme/api', deploy_workflow: 'deploy.yml', base_branch: 'develop' };
+  const [card] = await describeActions(repos, [action({ tool: 'set_project_repo', args, project_id: 'p1', class: 'irreversible' })], OWNER);
+  expect(card.summary).toBe('usar o repositório `acme/api` pela integração "GitHub ana", com o deploy no workflow `deploy.yml`, branch base `develop` no projeto reactivando');
+  expect(repos.integrations.list).toHaveBeenCalledWith(OWNER);
+});
+
+it("set_project_repo says when deploy is cleared, and never names another owner's integration", async () => {
+  const repos = fakeRepos();
+  const args = { project_id: 'p1', integration_id: 'g9', full_name: 'acme/api', deploy_workflow: null };
+  const [card] = await describeActions(repos, [action({ tool: 'set_project_repo', args, project_id: 'p1', class: 'irreversible' })], OWNER);
+  expect(card.summary).toBe('usar o repositório `acme/api` por uma integração que não existe mais, sem workflow de deploy no projeto reactivando');
+  expect(card.summary).not.toContain('Integração Alheia');
+});
+
+it('looks up integrations only when a set_project_repo card needs one', async () => {
+  const repos = fakeRepos();
+  await describeActions(repos, [action({ tool: 'send_input', args: { tab_id: 't1', text: 'x' }, tab_id: 't1' })], OWNER);
+  expect(repos.integrations.list).not.toHaveBeenCalled();
 });
