@@ -44,6 +44,15 @@ const ticketIdsOf = (action: ChatAction): string[] => {
   return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
 };
 
+/** The machine a create_integration action reads the gh login from — nested in `secret_from`, so the
+ * gate's `targetOf` never copies it onto the row: read straight from `args`, like `taskIdOf`. */
+const secretMachineIdOf = (action: ChatAction): string => {
+  if (action.tool !== 'create_integration') return '';
+  const from = (action.args as Record<string, unknown> | null)?.secret_from;
+  const id = from && typeof from === 'object' ? asString((from as Record<string, unknown>).machine_id) : '';
+  return id.length <= 64 ? id : '';
+};
+
 /**
  * What the sentence says was proposed, before naming where. Unknown tools (the gate classifies
  * anything it does not recognise as irreversible rather than silently allowing it) still read as a
@@ -78,7 +87,7 @@ function formatKeys(keys: string[]): string {
  * no single machine and naming one would be misleading. */
 const MACHINE_LINK_TOOLS = new Set(['link_project_machine', 'set_project_machine_cwd', 'unlink_project_machine']);
 
-function verbPhrase(action: ChatAction, task: Task | undefined, ticketById: Map<string, Ticket>): string {
+function verbPhrase(action: ChatAction, task: Task | undefined, ticketById: Map<string, Ticket>, integrationById: Map<string, { name: string }>): string {
   const args = (action.args ?? {}) as Record<string, unknown>;
   switch (action.tool) {
     case 'send_input':
@@ -128,6 +137,17 @@ function verbPhrase(action: ChatAction, task: Task | undefined, ticketById: Map<
         ? `mudar o ${link.key} no ${PROVIDER_NAME[link.provider]} para "${STATUS_LABEL[task.status] ?? task.status}" (como a tarefa ${named(task)})`
         : `atualizar o ticket da tarefa ${named(task)}`;
     }
+    case 'create_integration':
+      return `criar a integração do GitHub "${asString(args.name)}" com o login do gh (\`gh auth token\`)`;
+    case 'set_project_repo': {
+      // The integration is named from the owner-scoped list `describeActions` read: another owner's
+      // id reads exactly like one that does not exist.
+      const integration = integrationById.get(asString(args.integration_id));
+      const deploy =
+        typeof args.deploy_workflow === 'string' ? `, com o deploy no workflow \`${args.deploy_workflow}\`` : args.deploy_workflow === null ? ', sem workflow de deploy' : '';
+      const base = typeof args.base_branch === 'string' ? `, branch base \`${args.base_branch}\`` : '';
+      return `usar o repositório \`${asString(args.full_name)}\` ${integration ? `pela integração "${integration.name}"` : 'por uma integração que não existe mais'}${deploy}${base}`;
+    }
     default:
       return `usar a ferramenta ${action.tool}`;
   }
@@ -174,8 +194,8 @@ function targetPhrase(loc: Location): string {
   return place ? `${place}, no ${loc.machine}` : `no ${loc.machine}`;
 }
 
-function summarize(action: ChatAction, task: Task | undefined, loc: Location, ticketById: Map<string, Ticket>): string {
-  const verb = verbPhrase(action, task, ticketById);
+function summarize(action: ChatAction, task: Task | undefined, loc: Location, ticketById: Map<string, Ticket>, integrationById: Map<string, { name: string }>): string {
+  const verb = verbPhrase(action, task, ticketById, integrationById);
   const where = targetPhrase(loc);
   return where ? `${verb} ${where}` : verb;
 }
@@ -243,9 +263,15 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
 
   const machineIds = new Set<string>();
   for (const a of actions) if (a.machine_id) machineIds.add(a.machine_id);
+  for (const a of actions) if (secretMachineIdOf(a)) machineIds.add(secretMachineIdOf(a));
   for (const t of tabs) machineIds.add(t.machine_id);
   const machines = machineIds.size ? await repos.machines.findByIdsForOwner([...machineIds], ownerId) : [];
   const machineById = new Map(machines.map((m) => [m.id, m]));
+
+  // set_project_repo only: the integration it points the project at, from the owner's own list (one
+  // lookup, and none at all when no such card is in the batch).
+  const integrations = actions.some((a) => a.tool === 'set_project_repo') ? await repos.integrations.list(ownerId) : [];
+  const integrationById = new Map(integrations.map((i) => [i.id, i]));
 
   // close_tab only: who opened the tab decides what the card says (TER-184), so the one confirmation
   // the gate now asks for (a gated token may close any of the user's tabs after this single "yes") is
@@ -320,6 +346,9 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
     } else if (action.project_id) {
       const project = projectById.get(action.project_id);
       loc = project ? { project: project.name } : { missing: 'project' };
+    } else if (secretMachineIdOf(action)) {
+      const machine = machineById.get(secretMachineIdOf(action));
+      loc = machine ? { machine: machine.name } : { missing: 'machine' };
     } else if (action.machine_id) {
       const machine = machineById.get(action.machine_id);
       loc = machine ? { machine: machine.name } : { missing: 'machine' };
@@ -327,7 +356,7 @@ export async function describeActions(repos: Repositories, actions: ChatAction[]
       loc = {};
     }
 
-    const summary = summarize(action, task, loc, ticketById);
+    const summary = summarize(action, task, loc, ticketById, integrationById);
     const sa = action.subagent_id ? subById.get(action.subagent_id) : undefined;
     const subagent = sa && sa.conversation_id === action.conversation_id ? { id: sa.id, description: sa.description } : null;
     return toCard(action, summary, subagent);

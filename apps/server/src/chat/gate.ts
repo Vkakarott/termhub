@@ -23,6 +23,8 @@ const readTools = new Set([
   'get_ticket',
   'read_attachment',
   'search_memory',
+  'list_integrations',
+  'get_project_setup',
 ]);
 
 const writeTools = new Set([
@@ -44,7 +46,9 @@ const writeTools = new Set([
 // control/terminals.ts skips its per-token ownership check for a gated token because every gated
 // close_tab is asked here. Letting it through without a question would let the chat close any of the
 // user's tabs. Revisit control/terminals.ts's `!ctx.token.gated` check first.
-const irreversibleTools = new Set(['close_tab', 'delete_task', 'push_ticket_status']);
+// create_integration and set_project_repo change credentials and where the CI panel reads from
+// (spec 2026-09-28 MCP integrations D6): always a card, never covered by a grant.
+const irreversibleTools = new Set(['close_tab', 'delete_task', 'push_ticket_status', 'create_integration', 'set_project_repo']);
 
 // Keys that interrupt the running process and cannot be undone
 const interruptingKeys = new Set(['C-c', 'Escape']);

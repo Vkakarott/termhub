@@ -12,7 +12,7 @@ import { controlContextFor, ControlError, type ControlContext } from '../control
 import { HttpError } from '../lib/errors.js';
 import { authenticateToken } from './auth.js';
 import { TokenRateLimiter } from './rate-limit.js';
-import { allowedTools, parseArgs, refusalMessage } from './tools.js';
+import { allowedTools, inputSchemaOf, parseArgs, refusalMessage } from './tools.js';
 
 export const MCP_BODY_LIMIT = 256 * 1024;
 
@@ -104,7 +104,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
     // With no tools at all the SDK would answer "Method not found" to tools/list; answer an empty list instead.
     if (tools.length === 0) server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
     for (const tool of tools) {
-      server.registerTool(tool.name, { description: tool.description, inputSchema: tool.input }, async (args: Record<string, unknown>, extra: { signal: AbortSignal; _meta?: unknown }) => {
+      server.registerTool(tool.name, { description: tool.description, inputSchema: tool.strict ? inputSchemaOf(tool) : tool.input }, async (args: Record<string, unknown>, extra: { signal: AbortSignal; _meta?: unknown }) => {
         const started = Date.now();
         let errorCode: string | null = null;
         let out: ToolResult;

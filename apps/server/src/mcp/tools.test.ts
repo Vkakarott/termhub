@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 // The control layer is stubbed: these tests pin what the tool adapters hand the model.
 vi.mock('../control/tickets.js', async (importOriginal) => ({
@@ -8,7 +8,7 @@ vi.mock('../control/tickets.js', async (importOriginal) => ({
 }));
 
 import type { ControlContext } from '../control/context.js';
-import { allowedTools, parseArgs, TOOLS } from './tools.js';
+import { allowedTools, inputSchemaOf, parseArgs, TOOLS } from './tools.js';
 
 it('read_screen says what ⟦…⟧ means and what styled: false means', () => {
   const d = TOOLS.find((t) => t.name === 'read_screen')!.description;
@@ -156,4 +156,70 @@ it('answer_tab_question needs the terminals scope and the terminals:write grant,
   expect(parseArgs(t, { ...ok, sources: ['not-a-ref'] }).ok).toBe(false);
   expect(parseArgs(t, { ...ok, answers: [{ selected: [] }] }).ok).toBe(false);
   expect(parseArgs(t, { ...ok, mode: 'now' }).ok).toBe(false);
+});
+
+describe('integration and repository setup tools', () => {
+  const by = (n: string) => TOOLS.find((t) => t.name === n)!;
+  const create = { provider: 'github', name: 'GitHub pessoal', secret_from: { machine_id: 'm1', source: 'gh_auth_token' } };
+
+  it('reads need the read scope, writes the terminals scope, each with its grant (spec D5)', () => {
+    expect([by('list_integrations').scope, by('list_integrations').resource, by('list_integrations').action]).toEqual(['read', 'integrations', 'read']);
+    expect([by('get_project_setup').scope, by('get_project_setup').resource, by('get_project_setup').action]).toEqual(['read', 'projects', 'read']);
+    expect([by('create_integration').scope, by('create_integration').resource, by('create_integration').action]).toEqual(['terminals', 'integrations', 'create']);
+    expect([by('set_project_repo').scope, by('set_project_repo').resource, by('set_project_repo').action]).toEqual(['terminals', 'projects', 'update']);
+  });
+
+  it('no tool takes the secret itself as an argument', () => {
+    const SECRET_KEYS = /^(secret|token|password|value|api_key|key_value)$/i;
+    for (const t of TOOLS) for (const k of Object.keys(t.input)) expect(`${t.name}.${k}`).not.toMatch(/\.(secret|token|password|api_key)$/i);
+    const secretFrom = (by('create_integration').input.secret_from as unknown as { unwrap?: () => unknown; shape?: Record<string, unknown> }).shape!;
+    for (const k of Object.keys(secretFrom)) expect(k).not.toMatch(SECRET_KEYS);
+  });
+
+  it('create_integration accepts github + gh_auth_token only', () => {
+    const t = by('create_integration');
+    expect(parseArgs(t, create).ok).toBe(true);
+    expect(parseArgs(t, { ...create, provider: 'jira' }).ok).toBe(false);
+    expect(parseArgs(t, { ...create, secret_from: { machine_id: 'm1', source: 'file' } }).ok).toBe(false);
+    expect(parseArgs(t, { ...create, secret_from: { machine_id: 'm1' } }).ok).toBe(false);
+    expect(parseArgs(t, { ...create, name: '' }).ok).toBe(false);
+  });
+
+  it('create_integration rejects a secret or token argument instead of stripping it', () => {
+    const t = by('create_integration');
+    expect(parseArgs(t, { ...create, secret: 'gho_x' }).ok).toBe(false);
+    expect(parseArgs(t, { ...create, token: 'gho_x' }).ok).toBe(false);
+    expect(parseArgs(t, { ...create, secret_from: { machine_id: 'm1', source: 'gh_auth_token', value: 'gho_x' } }).ok).toBe(false);
+    // the schema the MCP SDK validates with is the same strict one
+    expect(inputSchemaOf(t).safeParse({ ...create, secret: 'gho_x' }).success).toBe(false);
+    expect(inputSchemaOf(t).safeParse(create).success).toBe(true);
+  });
+
+  it('set_project_repo takes the repository block only', () => {
+    const t = by('set_project_repo');
+    const ok = { project_id: 'p1', integration_id: 'g1', full_name: 'acme/api' };
+    expect(parseArgs(t, ok).ok).toBe(true);
+    expect(parseArgs(t, { ...ok, deploy_workflow: 'deploy.yml', base_branch: 'main' }).ok).toBe(true);
+    expect(parseArgs(t, { ...ok, deploy_workflow: null }).ok).toBe(true);
+    expect(parseArgs(t, { ...ok, runner: { machine_id: 'm1' } }).ok).toBe(false);
+    expect(parseArgs(t, { project_id: 'p1', full_name: 'acme/api' }).ok).toBe(false);
+  });
+
+  it('list_integrations and get_project_setup validate their input', () => {
+    expect(parseArgs(by('list_integrations'), {}).ok).toBe(true);
+    expect(parseArgs(by('list_integrations'), { provider: 'github' }).ok).toBe(true);
+    expect(parseArgs(by('list_integrations'), { provider: 'gitlab' }).ok).toBe(false);
+    expect(parseArgs(by('get_project_setup'), { project_id: 'p1' }).ok).toBe(true);
+    expect(parseArgs(by('get_project_setup'), {}).ok).toBe(false);
+  });
+
+  it('a read token sees the two reads and never the two writes', async () => {
+    const ctx = { can: async () => true } as unknown as ControlContext;
+    const read = (await allowedTools(ctx, ['read', 'tasks', 'memory'])).map((t) => t.name);
+    expect(read).toEqual(expect.arrayContaining(['list_integrations', 'get_project_setup']));
+    expect(read).not.toContain('create_integration');
+    expect(read).not.toContain('set_project_repo');
+    const full = (await allowedTools(ctx, ['read', 'terminals'])).map((t) => t.name);
+    expect(full).toEqual(expect.arrayContaining(['create_integration', 'set_project_repo']));
+  });
 });

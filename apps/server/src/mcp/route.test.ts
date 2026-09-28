@@ -7,6 +7,7 @@ vi.mock('../control/screen.js', async (orig) => ({ ...(await orig<typeof import(
 vi.mock('../control/terminals.js', async (orig) => ({ ...(await orig<typeof import('../control/terminals.js')>()), sendInput: vi.fn() }));
 vi.mock('../control/tasks.js', async (orig) => ({ ...(await orig<typeof import('../control/tasks.js')>()), createTask: vi.fn(), deleteTask: vi.fn() }));
 vi.mock('../control/agents.js', async (orig) => ({ ...(await orig<typeof import('../control/agents.js')>()), startAgent: vi.fn() }));
+vi.mock('../control/integrations.js', async (orig) => ({ ...(await orig<typeof import('../control/integrations.js')>()), createIntegration: vi.fn() }));
 vi.mock('../chat/attachments/read-tool.js', async (orig) => ({ ...(await orig<typeof import('../chat/attachments/read-tool.js')>()), readAttachment: vi.fn() }));
 
 import { canAccess } from '../auth/permissions.js';
@@ -16,6 +17,7 @@ import { sendInput } from '../control/terminals.js';
 import { createTask, deleteTask } from '../control/tasks.js';
 import { startAgent } from '../control/agents.js';
 import { readAttachment } from '../chat/attachments/read-tool.js';
+import { createIntegration } from '../control/integrations.js';
 import type { AttachmentStore } from '../chat/attachments/store.js';
 import { ControlError } from '../control/context.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -98,7 +100,7 @@ describe('POST /mcp tools', () => {
 
     const list = await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const names = list.json().result.tools.map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(['find', 'list_machines', 'list_projects', 'list_tab_questions', 'list_tabs', 'read_screen', 'wait_for_state']);
+    expect(names).toEqual(['find', 'get_project_setup', 'list_machines', 'list_projects', 'list_tab_questions', 'list_tabs', 'read_screen', 'wait_for_state']);
     await flush();
     expect(apiTokens.touchLastUsed).toHaveBeenCalledWith('tok1');
   });
@@ -590,5 +592,52 @@ describe('read_attachment', () => {
     await rpc(app, call('list_machines', { id: 'abc123' }));
     await flush();
     expect(apiTokens.recordEvent.mock.calls[0][0].attachment_id).toBeNull();
+  });
+});
+
+describe('integration tools', () => {
+  const full = token({ scopes: ['read', 'terminals'] });
+  const grants = ['integrations:read', 'integrations:create', 'projects:read', 'projects:update'];
+  const args = { provider: 'github', name: 'GitHub pessoal', secret_from: { machine_id: 'm1', source: 'gh_auth_token' } };
+  const PASTED = 'gho_PastedTokenValue999';
+
+  it('offers the reads to a read token and the writes only to a terminals token', async () => {
+    const read = build({ grants });
+    const readNames = (await rpc(read.app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json().result.tools.map((t: { name: string }) => t.name);
+    expect(readNames).toEqual(expect.arrayContaining(['list_integrations', 'get_project_setup']));
+    expect(readNames).not.toContain('create_integration');
+    expect(readNames).not.toContain('set_project_repo');
+    const write = build({ token: full, grants });
+    const writeNames = (await rpc(write.app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json().result.tools.map((t: { name: string }) => t.name);
+    expect(writeNames).toEqual(expect.arrayContaining(['create_integration', 'set_project_repo']));
+  });
+
+  it('advertises create_integration with no room for extra arguments', async () => {
+    const { app } = build({ token: full, grants });
+    const tools = (await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json().result.tools as { name: string; inputSchema: { additionalProperties?: unknown; properties: Record<string, unknown> } }[];
+    const t = tools.find((x) => x.name === 'create_integration')!;
+    expect(t.inputSchema.additionalProperties).toBe(false);
+    expect(Object.keys(t.inputSchema.properties).sort()).toEqual(['name', 'provider', 'secret_from']);
+  });
+
+  it('refuses a pasted token argument: the tool never runs and the value is neither echoed nor audited', async () => {
+    const { app, apiTokens } = build({ token: full, grants });
+    for (const extra of [{ secret: PASTED }, { token: PASTED }, { secret_from: { ...args.secret_from, value: PASTED } }]) {
+      const r = await rpc(app, call('create_integration', { ...args, ...extra }));
+      expect(r.json().error ?? r.json().result.isError).toBeTruthy();
+      expect(r.body).not.toContain(PASTED);
+    }
+    await flush();
+    expect(createIntegration).not.toHaveBeenCalled();
+    expect(apiTokens.recordEvent.mock.calls.map((c) => (c as unknown[])[0])).toEqual(Array(3).fill(expect.objectContaining({ tool: 'create_integration', ok: false, error_code: 'INVALID_ARGS' })));
+    expect(JSON.stringify(apiTokens.recordEvent.mock.calls)).not.toContain(PASTED);
+  });
+
+  it('runs create_integration with valid arguments', async () => {
+    vi.mocked(createIntegration).mockResolvedValue({ id: 'g1', provider: 'github', name: 'GitHub pessoal', config: { login: 'ana' }, created_at: '', account: 'ana' });
+    const { app } = build({ token: full, grants });
+    const r = await rpc(app, call('create_integration', args));
+    expect(r.json().result.isError).toBeFalsy();
+    expect(vi.mocked(createIntegration).mock.calls[0][1]).toEqual(args);
   });
 });

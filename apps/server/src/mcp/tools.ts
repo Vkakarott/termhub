@@ -11,6 +11,7 @@ import { addSubtasks, createTask, deleteTask, listTasks, moveTask, TASK_DESCRIPT
 import { getTicket, importTickets, listTickets, pushTicketStatus, syncTickets, TICKET_IMPORT_MAX, TICKET_LIST_MAX } from '../control/tickets.js';
 import { PROMPT_MAX_CHARS, startAgent } from '../control/agents.js';
 import { answerTabQuestionTool, listTabQuestions, recordDecision, searchMemory, MEMORY_REF, type MemoryRefKind } from '../control/memory.js';
+import { createIntegration, getProjectSetup, listIntegrations, setProjectRepo } from '../control/integrations.js';
 import { readAttachment } from '../chat/attachments/read-tool.js';
 import { MAX_SUBTASKS_PER_CALL } from '../db/repositories/tasks.js';
 import type { TaskStatus, TaskType } from '../db/repositories/types.js';
@@ -28,6 +29,9 @@ export interface ToolDef {
   /** how the refusal names the grant when `allowedIf` is set (after "da permissão ") */
   grantText?: string;
   input: ZodRawShape;
+  /** Refuse unknown arguments instead of stripping them — for a tool where a stray argument (a pasted
+   * token, say) must never be accepted, stored on the chat action or shown on its card. */
+  strict?: true;
   run(ctx: ControlContext, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
 }
 
@@ -41,13 +45,19 @@ const taskTitle = z.string().trim().min(1).max(TASK_TITLE_MAX);
 const taskDescription = z.string().trim().max(TASK_DESCRIPTION_MAX).nullable();
 const subtaskItems = z.array(z.object({ title: taskTitle, description: taskDescription.optional() })).min(1).max(MAX_SUBTASKS_PER_CALL);
 
+/** The object schema a tool's arguments are validated against — by `parseArgs` and by the MCP SDK. */
+export function inputSchemaOf(tool: ToolDef) {
+  const schema = z.object(tool.input);
+  return tool.strict ? schema.strict() : schema;
+}
+
 /**
  * One place that turns raw tool arguments into validated ones — used by the route pre-check and by the SDK.
  * Only `undefined` (arguments omitted entirely) is treated as empty; `null` is a distinct, invalid value —
  * zod's object schema rejects it on its own, exactly as it would reject any other non-object.
  */
 export function parseArgs(tool: ToolDef, args: unknown): { ok: true; value: Record<string, unknown> } | { ok: false } {
-  const parsed = z.object(tool.input).safeParse(args === undefined ? {} : args);
+  const parsed = inputSchemaOf(tool).safeParse(args === undefined ? {} : args);
   return parsed.success ? { ok: true, value: parsed.data as Record<string, unknown> } : { ok: false };
 }
 
@@ -319,6 +329,50 @@ export const TOOLS: ToolDef[] = [
       const { card, ticket_key, state } = await pushTicketStatus(ctx, a as { task_id: string });
       return { card, ticket_key, state };
     },
+  },
+  {
+    name: 'list_integrations',
+    description:
+      'List your integrations (GitHub, Linear, Jira): id, provider, name, config (who it logs in as — GitHub login, Jira site and e-mail) and when it was created. The secret is never returned. provider filters.',
+    scope: 'read', resource: 'integrations', action: 'read',
+    input: { provider: z.enum(['github', 'linear', 'jira']).optional() },
+    run: (ctx, a) => listIntegrations(ctx, a as { provider?: 'github' | 'linear' | 'jira' }),
+  },
+  {
+    name: 'create_integration',
+    description:
+      "Create a GitHub integration from the GitHub CLI login of one of your machines: the server reads that machine's `gh auth token` through its agent (agent 0.9.0 or newer), tests it against GitHub and stores it encrypted. You never see or pass the token: there is no argument for it. provider: github only (Linear and Jira are created on the Integrações screen). If gh is not logged in there, the answer says to run `gh auth login` on that machine. The person always confirms it.",
+    scope: 'terminals', resource: 'integrations', action: 'create',
+    strict: true,
+    input: {
+      provider: z.literal('github'),
+      name: z.string().trim().min(1).max(80),
+      secret_from: z.object({ machine_id: id, source: z.literal('gh_auth_token') }).strict(),
+    },
+    run: (ctx, a) => createIntegration(ctx, a as { provider: 'github'; name: string; secret_from: { machine_id: string; source: 'gh_auth_token' } }),
+  },
+  {
+    name: 'get_project_setup',
+    description:
+      "Read a project's repository setup: the GitHub integration, the repository (owner/repo), the base branch and the deploy workflow (the GitHub Actions workflow whose run on a merge is the deploy; null = not tracked), with the integration's name and login.",
+    scope: 'read', resource: 'projects', action: 'read',
+    input: { project_id: id },
+    run: (ctx, a) => getProjectSetup(ctx, a as { project_id: string }),
+  },
+  {
+    name: 'set_project_repo',
+    description:
+      "Set a project's repository: integration_id (a GitHub integration of the project's owner, from list_integrations), full_name (owner/repo), and optionally deploy_workflow (workflow file or name; null clears it) and base_branch. Left-out optional fields keep their current value. Only the repository block changes; ticket sources, runner, agent and approvals stay as they are (change those on the Setup screen). The person always confirms it.",
+    scope: 'terminals', resource: 'projects', action: 'update',
+    strict: true,
+    input: {
+      project_id: id,
+      integration_id: id,
+      full_name: z.string().trim().min(1).max(200),
+      deploy_workflow: z.string().trim().min(1).max(200).nullable().optional(),
+      base_branch: z.string().trim().min(1).max(100).optional(),
+    },
+    run: (ctx, a) => setProjectRepo(ctx, a as { project_id: string; integration_id: string; full_name: string; deploy_workflow?: string | null; base_branch?: string }),
   },
 ];
 
