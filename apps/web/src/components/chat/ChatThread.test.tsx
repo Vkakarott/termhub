@@ -220,6 +220,17 @@ describe('ChatThread', () => {
     expect(screen.getByRole('list', { name: 'Conversa' })).toBe(list);
   });
 
+  it('never scrolls sideways: the scroller clips x and the list lets any word break (TER-402)', () => {
+    // jsdom lays nothing out, so the classes are what can be asserted. Measured in Chromium with the
+    // built app: a pasted 130-character path in a bubble or a card made the list 940px wide inside a
+    // 387px scroller (`overflow-y-auto` computes `overflow-x` to `auto`), and one sideways trackpad
+    // wheel scrolled it 300px — only the ends of the lines were left on screen. `break-words`
+    // (`overflow-wrap: break-word`) does not shrink a min-content width; `anywhere` does.
+    render(<Thread followKey={1} rows={['a']} />);
+    expect(scroller().className).toContain('overflow-x-hidden');
+    expect(screen.getByRole('list', { name: 'Conversa' }).className).toContain('[overflow-wrap:anywhere]');
+  });
+
   it('renders the empty state it is given above the list', () => {
     render(
       <ChatThread reconnecting={false} followKey={1} empty={<p>Peça algo</p>}>

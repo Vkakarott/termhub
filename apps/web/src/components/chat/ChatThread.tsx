@@ -130,8 +130,15 @@ export function ChatThread({ children, empty, reconnecting, followKey, stickRef 
         </p>
       )}
       {empty}
-      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain" onScroll={onScroll}>
-        <ol ref={listRef} aria-label="Conversa" className="min-w-0 space-y-5 py-4">
+      {/* `overflow-y-auto` alone computes `overflow-x` to `auto`, so anything wider than the column —
+       * a pasted path in a bubble, a long line in a card, neither inside a block that scrolls on its
+       * own — turned the whole conversation into a sideways scroller: one sideways trackpad wheel and
+       * only the ends of the lines were left on screen (TER-402). `overflow-x-hidden` makes that
+       * impossible, and `overflow-wrap: anywhere` on the list (inherited by bubbles and cards) is what
+       * keeps the column from growing in the first place — unlike `break-words`, which wraps but never
+       * shrinks a min-content width. Fences and tables keep their own `overflow-x-auto` (ChatTurn). */}
+      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain" onScroll={onScroll}>
+        <ol ref={listRef} aria-label="Conversa" className="min-w-0 space-y-5 py-4 [overflow-wrap:anywhere]">
           {children}
         </ol>
       </div>
