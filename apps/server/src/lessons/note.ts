@@ -24,6 +24,19 @@ export interface NoteSection {
  *  itself (spec D7) — a stray line that merely looks like one but breaks the shape is left as text. */
 const OPEN = /^<!-- termhub:lesson id=([a-z0-9_]{1,40}) at=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) tab=([a-z0-9]{1,64}|-) -->$/;
 const CLOSE = '<!-- /termhub:lesson -->';
+
+/**
+ * `OPEN`, plus the one check its regex cannot make: `at` must be a real instant that round-trips
+ * through `Date` unchanged (final review fix). `2026-99-99T99:…` or `2026-02-30T…` has the right shape
+ * but is no date at all — as a lesson it would become an `Invalid Date` `source_at` and fail the whole
+ * note's index on every pass. Such a line is the person's text, exactly like a shape-invalid marker.
+ */
+function matchOpen(line: string): RegExpExecArray | null {
+  const m = OPEN.exec(line);
+  if (!m) return null;
+  const t = Date.parse(m[2]!);
+  return Number.isFinite(t) && new Date(t).toISOString() === m[2] ? m : null;
+}
 const EVIDENCE_PT = { observed: 'observada', fixed: 'corrigida', confirmed: 'confirmada' } as const;
 
 const LESSONS_HEADING = '## Lições';
@@ -119,7 +132,7 @@ function lineStarts(lines: string[]): number[] {
  * Splits a project note into the person's own text and the agent-written lesson blocks (spec D7/D6).
  * A line matching `OPEN` starts a block only when a `CLOSE` line follows it before any other `OPEN`
  * line — otherwise it is left in the person's text, exactly like any other line (never a lesson, never
- * dropped). The person's text, blocks removed, is chunked like any other doc for `sections`.
+ * dropped). So is an `OPEN`-shaped line whose `at` is not a real instant (`matchOpen`). The person's text, blocks removed, is chunked like any other doc for `sections`.
  */
 export function splitNote(content: string): { sections: NoteSection[]; lessons: NoteLesson[] } {
   const lines = content.split('\n');
@@ -130,7 +143,7 @@ export function splitNote(content: string): { sections: NoteSection[]; lessons: 
   let i = 0;
   while (i < lines.length) {
     const line = lines[i]!;
-    const m = OPEN.exec(line.trim());
+    const m = matchOpen(line.trim());
     if (m) {
       let closeIdx = -1;
       for (let j = i + 1; j < lines.length; j++) {
@@ -139,7 +152,7 @@ export function splitNote(content: string): { sections: NoteSection[]; lessons: 
           closeIdx = j;
           break;
         }
-        if (OPEN.test(t)) break;
+        if (matchOpen(t)) break;
       }
       if (closeIdx >= 0) {
         const [, id, atIso, tab] = m as unknown as [string, string, string, string];

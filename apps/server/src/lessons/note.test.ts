@@ -33,6 +33,18 @@ describe('project note lessons', () => {
     expect(lessons).toHaveLength(0);
     expect(sections.map((s) => s.text).join('')).toContain('### x');
   });
+  it('treats a fence whose at is not a real instant as the person\'s text; the other blocks still parse', () => {
+    const bad = renderLessonBlock('bad', at, null, input).replace(at.toISOString(), '2026-99-99T99:99:99.999Z');
+    const feb30 = renderLessonBlock('feb', at, null, input).replace(at.toISOString(), '2026-02-30T03:10:00.000Z');
+    const note = appendLessonBlock(appendLessonBlock(appendLessonBlock('Meu texto', bad), feb30), renderLessonBlock('ok', at, null, input));
+    const { lessons, sections } = splitNote(note);
+    expect(lessons.map((l) => l.id)).toEqual(['ok']);
+    expect(lessons.every((l) => Number.isFinite(Date.parse(l.at)))).toBe(true);
+    expect(sections.map((s) => s.text).join('\n')).toContain('id=bad');
+    // The merge never trips on it either: the bad one is plain text, the good one is kept.
+    const merged = mergeNoteSave(note, 'Meu texto editado', new Date('2026-09-27T03:00:00.000Z'));
+    expect(splitNote(merged).lessons.map((l) => l.id)).toEqual(['ok']);
+  });
   it('removes one block by id', () => {
     const note = appendLessonBlock(appendLessonBlock('', renderLessonBlock('l1', at, null, input)), renderLessonBlock('l2', at, null, input));
     expect(splitNote(removeLessonBlock(note, 'l1')).lessons.map((l) => l.id)).toEqual(['l2']);
