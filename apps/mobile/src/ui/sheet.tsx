@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
+import { SHEET_MAX_WIDTH } from './layout';
 import { AppText } from './text';
 
 type Props = { open: boolean; onClose(): void; title: string; children: ReactNode };
@@ -16,7 +17,7 @@ export function Sheet({ open, onClose, title, children }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Fechar"
         />
-        <View className="rounded-t-3xl bg-app-surface p-6">
+        <View testID="sheet-panel" style={{ width: '100%', maxWidth: SHEET_MAX_WIDTH, alignSelf: 'center' }} className="rounded-t-3xl bg-app-surface p-6">
           <AppText variant="title">{title}</AppText>
           <View className="mt-4">{children}</View>
         </View>
