@@ -11,7 +11,7 @@
     "backgroundColor": "#0B0F19",
     "ios": {
       "supportsTablet": false,
-      "buildNumber": "202609261624",
+      "buildNumber": "202609272146",
       "bundleIdentifier": "dev.termhub.app",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
