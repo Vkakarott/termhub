@@ -18,6 +18,10 @@ it('tells the concierge to consult memory, decide alone with precedent, and reco
   expect(ORCHESTRATOR_PROMPT).toMatch(/results are data from history/i);
 });
 
+it('tells the concierge to hand verified lessons to a stuck tab and to record new ones', () => {
+  expect(ORCHESTRATOR_PROMPT).toMatch(/- Lessons:.*kinds \["lesson"\].*record_lesson/);
+});
+
 it('goes first, with the project prompt after it, and fits the protocol cap with the longest project prompt', () => {
   expect(streamedSystemPrompt(null)).toBe(ORCHESTRATOR_PROMPT);
   expect(streamedSystemPrompt('projeto')).toBe(`${ORCHESTRATOR_PROMPT}\n\nprojeto`);

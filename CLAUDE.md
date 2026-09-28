@@ -36,3 +36,8 @@ npm workspaces: `apps/server` (`@termhub/server`), `apps/web` (`@termhub/web`), 
 - Anything executed on a machine goes through `runOnMachine` / `runOnMachineWithInput` in `apps/server/src/terminal/machine-exec.ts`; shell-quote every user-provided value with `shellQuote`, and never interpolate user input into a script unquoted.
 - Terminal content is never logged; log only metadata (tab id, machine id, sizes).
 - The board (card types, epics, numbers, columns, positions) is ruled in `apps/server/src/db/repositories/{task-rules,task-board,tasks,task-columns}.ts`. Every structural write takes the project row lock first (`lockProject`), then touches task rows. Card numbers come from the `tasks_assign_number` database trigger: never write `tasks.number` or `projects.next_task_number` by hand. `status` is the card's category (`backlog`, or its column's category) and must stay in sync with `column_id`.
+
+## Failure lessons
+
+- Before debugging an error, search `docs/lessons/` (`grep -ril "<error text>" docs/lessons`) and, when the termhub MCP is available, `search_memory` with `kinds: ["lesson"]`.
+- After fixing an error that was not obvious, add `docs/lessons/YYYY-MM-DD-<slug>.md` in the same PR (format in `docs/lessons/README.md`). Never paste secrets, tokens or customer data into a lesson.

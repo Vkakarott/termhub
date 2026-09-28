@@ -40,4 +40,24 @@ describe('lesson files', () => {
     expect(long.meta.tags).toHaveLength(10);
     expect(long.meta.evidence).toBe('observed');
   });
+
+  it('parses the repo README and example lesson front matter, and the README is skipped by isLessonPath', async () => {
+    const { readFileSync } = await import('node:fs');
+    expect(isLessonPath('docs/lessons/README.md')).toBe(false);
+
+    const readme = readFileSync(new URL('../../../../docs/lessons/README.md', import.meta.url), 'utf8');
+    const parsedReadme = parseLessonFile('docs/lessons/README.md', readme);
+    // no front matter in the README: falls back to the path, default evidence, no crash
+    expect(parsedReadme.title).toBe('docs/lessons/README.md');
+    expect(parsedReadme.meta.evidence).toBe('observed');
+
+    const example = readFileSync(new URL('../../../../docs/lessons/2026-09-26-p3009-failed-migration.md', import.meta.url), 'utf8');
+    const parsedExample = parseLessonFile('docs/lessons/2026-09-26-p3009-failed-migration.md', example);
+    expect(parsedExample.meta).toEqual({
+      evidence: 'fixed', card: 'TER-57', pr: null, tags: ['prisma', 'deploy'], agent: 'claude', tab_id: null, origin: 'file',
+      path: 'docs/lessons/2026-09-26-p3009-failed-migration.md',
+    });
+    expect(parsedExample.title).toMatch(/P3009/);
+    expect(parsedExample.chunks.map((c) => c.text).join('\n')).toMatch(/migrate resolve --rolled-back/);
+  });
 });
