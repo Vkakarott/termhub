@@ -20,7 +20,8 @@ Run `npm run build:packages` from the repo root before `npm run typecheck -w @te
 workflow (`.github/workflows/deploy.yml`) does the same, which is why CI was green while a local
 typecheck right after a rebase was not.
 
-On jarvis (the host has no Node), run it through Docker, as `CLAUDE.md` shows:
+On jarvis (the host has no Node), run it through Docker — the pattern `CLAUDE.md` uses, with `node:22`,
+the Node version CI runs (`.github/workflows/deploy.yml`):
 
 ```bash
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/w" -w /w node:22 \
