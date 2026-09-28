@@ -11,11 +11,23 @@ import { cleanMemoryText, ITEM_TEXT_MAX } from './text.js';
  *  back to `fixed` — the most common case and never a value that reads as unfounded. */
 const EVIDENCE_FROM_PT: Record<string, LessonMeta['evidence']> = { observada: 'observed', corrigida: 'fixed', confirmada: 'confirmed' };
 
+/** A PR segment always looks like a URL (`renderLessonBlock` writes it verbatim); a card never does
+ *  (`TER-57`, `PROJ-12`, …) — telling the two apart by shape, not position, is what makes a block with
+ *  a PR but no card parse correctly (review fix round 1: `renderLessonBlock`'s `filter(Boolean)` drops
+ *  a missing card, so that block's line has only two segments — evidence, then the PR alone — and a
+ *  purely positional read would misfile the PR as the card). */
+const PR_RE = /^https?:\/\//;
+/** Same cap `lessons/file.ts` puts on a file lesson's `card`/`pr` (`META_STRING_MAX`) — a note is
+ *  hand-editable, so nothing stops a person from typing something absurdly long into it. */
+const META_STRING_MAX = 300;
+
 /**
- * Reads the `- **Evidência:** <evidência> · <card> · <pr>` line `renderLessonBlock` writes (card/pr
- * omitted when the person did not give them) back into `{ evidence, card, pr }`. The three segments
- * are positional — a block with only two segments (evidence + one of card/pr) cannot say which one is
- * missing, an accepted, narrow ambiguity (spec 2026-09-27 failure lessons); `pr` is simply `null` then.
+ * Reads the `- **Evidência:** <evidência> · <card> · <pr>` line `renderLessonBlock` writes (card and/or
+ * pr omitted when the person did not give them) back into `{ evidence, card, pr }`. Segments after the
+ * evidence word are classified by shape (`PR_RE`), not by position, so a block with only one of
+ * card/pr is read correctly either way; two non-URL segments (a hand-edited note with an odd card) fall
+ * back to keeping the last one as `card` — a narrow, accepted ambiguity. Card/pr are capped at
+ * `META_STRING_MAX`.
  */
 function parseEvidenceLine(body: string): { evidence: LessonMeta['evidence']; card: string | null; pr: string | null } {
   let raw = '';
@@ -27,7 +39,14 @@ function parseEvidenceLine(body: string): { evidence: LessonMeta['evidence']; ca
     .split('·')
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-  return { evidence: EVIDENCE_FROM_PT[parts[0] ?? ''] ?? 'fixed', card: parts[1] ?? null, pr: parts[2] ?? null };
+  const evidence = EVIDENCE_FROM_PT[parts[0] ?? ''] ?? 'fixed';
+  let card: string | null = null;
+  let pr: string | null = null;
+  for (const seg of parts.slice(1)) {
+    if (PR_RE.test(seg)) pr = seg.slice(0, META_STRING_MAX);
+    else card = seg.slice(0, META_STRING_MAX);
+  }
+  return { evidence, card, pr };
 }
 
 /** Only to give a note lesson's row a non-null `source_hash` (mirroring a file lesson's sha256), so

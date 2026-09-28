@@ -222,14 +222,22 @@ export class MemoryItemsRepository {
   }
 
   /**
-   * Deletes every `doc` row whose link id — the `source_id` part before the first `:` — is not in
-   * `linkIds` (spec D15, fix round 1): a link that was unlinked, or whose machine was deleted (the link
+   * Deletes every `doc` row, and every file-origin `lesson` row, whose link id — the `source_id` part
+   * before the first `:` — is not in `linkIds` (spec D15, fix round 1; lessons: 2026-09-27 failure
+   * lessons, review fix round 1): a link that was unlinked, or whose machine was deleted (the link
    * cascades, `memory_items` has no FK to it), would otherwise stay searchable forever, and a re-link
-   * (a new link id) would index the same files a second time. **An empty `linkIds` deletes every doc
-   * row**: the caller must only pass the result of a link listing that succeeded. Never another kind.
+   * (a new link id) would index the same files a second time. A note-origin lesson (`source_id`
+   * `note:<projectId>:<lessonId>`, `meta->>'origin' = 'note'`) is never touched here — its `source_id`
+   * never matches a link id in the first place (`split_part` gives the literal string `note`), but the
+   * `meta->>'origin' = 'file'` guard is explicit rather than relying on that coincidence. **An empty
+   * `linkIds` deletes every doc row and every file lesson row**: the caller must only pass the result
+   * of a link listing that succeeded. Never a `project_note` or a note-origin lesson.
    */
   async deleteDocsNotInLinks(linkIds: string[]): Promise<number> {
-    return this.db.$executeRaw`DELETE FROM "memory_items" WHERE "kind" = 'doc' AND split_part("source_id", ':', 1) <> ALL(${linkIds}::text[])`;
+    return this.db.$executeRaw`
+      DELETE FROM "memory_items"
+      WHERE (("kind" = 'doc') OR ("kind" = 'lesson' AND "meta"->>'origin' = 'file'))
+        AND split_part("source_id", ':', 1) <> ALL(${linkIds}::text[])`;
   }
 
   /** Removes chunks `fromIndex..` of a source (a doc re-chunked shorter): never chunk 0.. of a

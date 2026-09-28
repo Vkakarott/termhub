@@ -177,6 +177,37 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('MemoryItemsRepository (Po
     });
   });
 
+  it('deleteDocsNotInLinks (review fix round 1): also deletes file-origin lesson rows of gone links, never a note-origin lesson', async () => {
+    const fileMeta = (path: string): LessonMeta => ({ evidence: 'fixed', card: null, pr: null, tags: [], agent: null, tab_id: null, origin: 'file', path });
+    const noteMeta: LessonMeta = { evidence: 'fixed', card: null, pr: null, tags: [], agent: null, tab_id: null, origin: 'note', path: null };
+    const live = newId();
+    const gone = newId();
+    const noteLessonSource = `note:${projectId}:${newId()}`;
+    await repo.upsertMany([
+      item({ kind: 'lesson', source_id: `${live}:docs/lessons/a.md`, title: 'a', text: 'a', meta: fileMeta('docs/lessons/a.md') }),
+      item({ kind: 'lesson', source_id: `${gone}:docs/lessons/b.md`, title: 'b', text: 'b', meta: fileMeta('docs/lessons/b.md') }),
+      item({ kind: 'lesson', source_id: noteLessonSource, title: 'n', text: 'n', meta: noteMeta }),
+    ]);
+    await inRolledBackTx(async (r) => {
+      const txDb = (r as unknown as { db: PrismaClient }).db;
+      const removed = await r.deleteDocsNotInLinks([live]);
+      expect(removed).toBeGreaterThanOrEqual(1);
+      expect(await txDb.memoryItem.count({ where: { kind: 'lesson', sourceId: `${live}:docs/lessons/a.md` } })).toBe(1);
+      expect(await txDb.memoryItem.count({ where: { kind: 'lesson', sourceId: `${gone}:docs/lessons/b.md` } })).toBe(0);
+      // A note-origin lesson's source_id never starts with a real link id (it starts with the literal
+      // "note"), so it would already survive `split_part` alone — but the `meta->>'origin'` guard makes
+      // that explicit rather than incidental, and this asserts it directly.
+      expect(await txDb.memoryItem.count({ where: { kind: 'lesson', sourceId: noteLessonSource } })).toBe(1);
+    });
+    await inRolledBackTx(async (r) => {
+      const txDb = (r as unknown as { db: PrismaClient }).db;
+      await r.deleteDocsNotInLinks([]);
+      // Even with an empty link list (every doc/file-lesson row goes), the note-origin lesson survives.
+      expect(await txDb.memoryItem.count({ where: { kind: 'lesson', sourceId: `${live}:docs/lessons/a.md` } })).toBe(0);
+      expect(await txDb.memoryItem.count({ where: { kind: 'lesson', sourceId: noteLessonSource } })).toBe(1);
+    });
+  });
+
   it('listSourceHashes: source_id → source_hash of chunk 0, only under the given prefix, only rows with a hash', async () => {
     await repo.upsertMany([
       item({ kind: 'doc', source_id: 'pm1:docs/a.md', chunk_index: 0, title: 'a', text: 'a', source_hash: 'hash-a' }),

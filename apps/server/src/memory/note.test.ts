@@ -64,6 +64,36 @@ describe('indexProjectNote', () => {
     expect(lessonItems.find((it) => it.source_id === 'note:p1:l2')!.meta).toMatchObject({ evidence: 'confirmed' });
   });
 
+  it('a PR with no card is read as pr, never mistaken for card (review fix round 1)', async () => {
+    const content = block('l1', null, { card: undefined, pr: 'https://github.com/x/y/pull/9' });
+    const repos = fakeRepos({ content });
+    await indexProjectNote(repos as never, 'p1', { embedder: null, log: log() });
+    const lessonItems = repos.memoryItems.upsertMany.mock.calls[1]![0] as NewMemoryItem[];
+    expect(lessonItems[0]!.meta).toMatchObject({ card: null, pr: 'https://github.com/x/y/pull/9' });
+  });
+
+  it('a card with no PR is read as card, never mistaken for pr', async () => {
+    const content = block('l1', null, { card: 'TER-99', pr: undefined });
+    const repos = fakeRepos({ content });
+    await indexProjectNote(repos as never, 'p1', { embedder: null, log: log() });
+    const lessonItems = repos.memoryItems.upsertMany.mock.calls[1]![0] as NewMemoryItem[];
+    expect(lessonItems[0]!.meta).toMatchObject({ card: 'TER-99', pr: null });
+  });
+
+  it('a hand-edited note note can push card/pr past the length cap; both are truncated to 300 chars', async () => {
+    const longCard = 'C'.repeat(400);
+    const longPr = `https://example.com/${'p'.repeat(400)}`;
+    const content = block('l1', null, { card: longCard, pr: longPr });
+    const repos = fakeRepos({ content });
+    await indexProjectNote(repos as never, 'p1', { embedder: null, log: log() });
+    const lessonItems = repos.memoryItems.upsertMany.mock.calls[1]![0] as NewMemoryItem[];
+    const meta = lessonItems[0]!.meta!;
+    expect(meta.card).toHaveLength(300);
+    expect(meta.pr).toHaveLength(300);
+    expect(longCard.startsWith(meta.card!)).toBe(true);
+    expect(longPr.startsWith(meta.pr!)).toBe(true);
+  });
+
   it('a section longer than ITEM_TEXT_MAX splits into consecutive chunks, never truncated', async () => {
     const long = 'a'.repeat(ITEM_TEXT_MAX + 500);
     const content = `# Grande\n${long}`;

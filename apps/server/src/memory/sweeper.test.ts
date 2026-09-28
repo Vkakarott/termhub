@@ -207,6 +207,22 @@ describe('startMemorySweeper', () => {
     stop();
   });
 
+  it('deleteDocsNotInLinks count (docs + file-origin lessons, review fix round 1) flows into the "stale" figure the pass logs', async () => {
+    const repos = fakeRepos();
+    const built = {
+      tasks: { listChangedForOwner: repos.tasks.listChangedForOwner, findByIdsForOwner: repos.tasks.findByIdsForOwner, listOwnersWithTasks: repos.listOwnersWithTasksMock },
+      memoryItems: { ...repos.memoryItems, listSourceHashes: vi.fn(async () => new Map()), deleteDocsNotInLinks: vi.fn(async () => 3) },
+      projectMachines: { listAllWithOwner: vi.fn(async () => []) },
+    };
+    const l = log();
+    const stop = startMemorySweeper(built as never, l, null, 1000, { scan: vi.fn(), read: vi.fn(), readLessons: vi.fn() });
+    await vi.advanceTimersByTimeAsync(0);
+    // The sweeper itself does not need to know lessons exist: it just surfaces whatever count the
+    // repository's (now wider) cleanup query removed.
+    expect(l.info).toHaveBeenCalledWith({ links: 0, read: 0, removed: 0, stale: 3 }, 'memory docs indexed');
+    stop();
+  });
+
   it('a failing link does not stop the next one, and logs only the link id and a code', async () => {
     const repos = fakeRepos();
     const listSourceHashes = vi.fn(async (_k: string, prefix: string) => {
