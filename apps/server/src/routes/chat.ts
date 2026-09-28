@@ -13,7 +13,22 @@ import { dismissTabSuggestion, sendTabSuggestion } from '../chat/tab-suggestion-
 import { failureLabel, type ChatService } from '../chat/service.js';
 import { defaultEmbedder } from '../chat/embeddings.js';
 import { chatBus } from '../chat/bus.js';
-import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectAllGrantableAction, assertProjectGrantableAction, assertTabTerminalGrantableAction, grantProject, grantTab, grantTabTerminal, listGrants, revokeGrant } from '../chat/grants.js';
+import {
+  activeGrants,
+  activeProjectGrants,
+  activeStandingGrants,
+  assertGrantableAction,
+  assertProjectAllGrantableAction,
+  assertProjectGrantableAction,
+  assertStandingGrantableAction,
+  assertTabTerminalGrantableAction,
+  grantProject,
+  grantStanding,
+  grantTab,
+  grantTabTerminal,
+  listGrants,
+  revokeGrant,
+} from '../chat/grants.js';
 import { decideMany } from '../chat/decisions.js';
 import { indexActions as indexActionsWrite } from '../memory/index-items.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
@@ -39,7 +54,7 @@ const messageBody = z
 const scopeQuery = z.object({ project: z.string().min(1).max(64).optional() });
 const resetBody = z.object({ project_id: z.string().min(1).max(64).nullish() });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
-const decisionBody = z.object({ decision: z.enum(['approve', 'deny', 'approve_tab', 'approve_project', 'approve_tab_terminal', 'approve_project_all']) });
+const decisionBody = z.object({ decision: z.enum(['approve', 'deny', 'approve_tab', 'approve_project', 'approve_tab_terminal', 'approve_project_all', 'approve_project_always']) });
 const batchBody = z.object({
   decisions: z
     .array(z.object({ id: z.string().min(1).max(64), decision: z.enum(['approve', 'deny']) }))
@@ -74,7 +89,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     // The trail comes from here, not from live events (which only update what is already on
     // screen): a reload must see every pending/decided action exactly as the server has it,
     // including an old denied row sitting beside a newer pending one for the same proposal.
-    const [messages, rows, host, grants, project_grants, questionRows, subagents] = await Promise.all([
+    const [messages, rows, host, grants, project_grants, standing_grants, questionRows, subagents] = await Promise.all([
       repos.chat.listMessages(conversation.id),
       repos.chatActions.listByConversation(conversation.id),
       // The state, not a rendered sentence: which machine will run the next message, or which of the
@@ -84,6 +99,9 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       deps.service.hostFor(request.scope.user, projectId),
       activeGrants(repos, request.scope.user.id, conversation.id),
       activeProjectGrants(repos, request.scope.user.id, conversation.id),
+      // Standing grants (spec 2026-09-28 TER-386): the conversation's own project, or — for the
+      // general chat (`project_id: null`) — every standing grant this user has.
+      activeStandingGrants(repos, request.scope.user.id, conversation.project_id),
       repos.tabQuestions.listByConversation(conversation.id),
       // The subagents panel (spec 2026-09-26 §4): every one still open, plus any that ended recently.
       deps.service.subagentsFor(conversation.id),
@@ -92,7 +110,7 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
     const actions = await describeActions(repos, rows, request.scope.user.id);
     const { tab_questions, tab_suggestions } = splitTabRows(await describeTabQuestions(repos, questionRows, request.scope.user.id));
     // `compacting`: a screen opened in the middle of "Compactar" (TER-315) shows it as under way.
-    return { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents, compacting: deps.service.isCompacting(conversation.id) };
+    return { conversation, messages, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting: deps.service.isCompacting(conversation.id) };
   });
 
   /**
@@ -185,6 +203,9 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       decision === 'approve_project' ? await assertProjectGrantableAction(repos, user.id, id)
       : decision === 'approve_project_all' ? await assertProjectAllGrantableAction(repos, user.id, id)
       : undefined;
+    // "Liberar sem prazo" (spec 2026-09-28 TER-386) likewise, resolved the same way with the gate's own
+    // resolver — kind and project.
+    const standingCheck = decision === 'approve_project_always' ? await assertStandingGrantableAction(repos, user.id, id) : undefined;
 
     // The decision itself, and only it, decides who may answer this row — `decide` filters by the
     // owning conversation's user_id in SQL, so wrong id, another user's row and an already-decided
@@ -228,15 +249,23 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
         request.log.warn({ code: failureLabel(err), actionId: action.id }, 'chat project grant failed after approval');
       }
     }
+    let standing_grant: Awaited<ReturnType<typeof grantStanding>> | undefined;
+    if (standingCheck) {
+      try {
+        standing_grant = await grantStanding(repos, user.id, action, standingCheck.kind, standingCheck.projectId);
+      } catch (err) {
+        request.log.warn({ code: failureLabel(err), actionId: action.id }, 'chat standing grant failed after approval');
+      }
+    }
 
     try {
       const message = await deps.service.resumeAfterDecision(user, action);
-      return { action, message, grant, project_grant };
+      return { action, message, grant, project_grant, standing_grant };
     } catch (err) {
       // The decision above already happened and was already published — a busy run must not turn a
       // successful decision into a 409. The row stays approved/denied with no injection yet; the run
       // holding the lock will pick it up and inject it through `drainNextDecision` once it finishes.
-      if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { action, queued: true, note: QUEUED_NOTE, grant, project_grant };
+      if (err instanceof HttpError && err.code === 'CHAT_BUSY') return { action, queued: true, note: QUEUED_NOTE, grant, project_grant, standing_grant };
       throw err;
     }
   });
