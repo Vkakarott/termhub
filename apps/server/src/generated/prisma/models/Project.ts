@@ -279,6 +279,7 @@ export type ProjectWhereInput = {
   agentColumn?: Prisma.XOR<Prisma.TaskColumnNullableScalarRelationFilter, Prisma.TaskColumnWhereInput> | null
   columns?: Prisma.TaskColumnListRelationFilter
   pullRequests?: Prisma.TaskPullRequestListRelationFilter
+  standingGrants?: Prisma.ChatStandingGrantListRelationFilter
 }
 
 export type ProjectOrderByWithRelationInput = {
@@ -308,6 +309,7 @@ export type ProjectOrderByWithRelationInput = {
   agentColumn?: Prisma.TaskColumnOrderByWithRelationInput
   columns?: Prisma.TaskColumnOrderByRelationAggregateInput
   pullRequests?: Prisma.TaskPullRequestOrderByRelationAggregateInput
+  standingGrants?: Prisma.ChatStandingGrantOrderByRelationAggregateInput
 }
 
 export type ProjectWhereUniqueInput = Prisma.AtLeast<{
@@ -340,6 +342,7 @@ export type ProjectWhereUniqueInput = Prisma.AtLeast<{
   agentColumn?: Prisma.XOR<Prisma.TaskColumnNullableScalarRelationFilter, Prisma.TaskColumnWhereInput> | null
   columns?: Prisma.TaskColumnListRelationFilter
   pullRequests?: Prisma.TaskPullRequestListRelationFilter
+  standingGrants?: Prisma.ChatStandingGrantListRelationFilter
 }, "id" | "key">
 
 export type ProjectOrderByWithAggregationInput = {
@@ -403,6 +406,7 @@ export type ProjectCreateInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateInput = {
@@ -430,6 +434,7 @@ export type ProjectUncheckedCreateInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUpdateInput = {
@@ -457,6 +462,7 @@ export type ProjectUpdateInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateInput = {
@@ -484,6 +490,7 @@ export type ProjectUncheckedUpdateInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateManyInput = {
@@ -812,6 +819,20 @@ export type ProjectUpdateOneWithoutChatConversationsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectUpdateToOneWithWhereWithoutChatConversationsInput, Prisma.ProjectUpdateWithoutChatConversationsInput>, Prisma.ProjectUncheckedUpdateWithoutChatConversationsInput>
 }
 
+export type ProjectCreateNestedOneWithoutStandingGrantsInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutStandingGrantsInput, Prisma.ProjectUncheckedCreateWithoutStandingGrantsInput>
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutStandingGrantsInput
+  connect?: Prisma.ProjectWhereUniqueInput
+}
+
+export type ProjectUpdateOneRequiredWithoutStandingGrantsNestedInput = {
+  create?: Prisma.XOR<Prisma.ProjectCreateWithoutStandingGrantsInput, Prisma.ProjectUncheckedCreateWithoutStandingGrantsInput>
+  connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutStandingGrantsInput
+  upsert?: Prisma.ProjectUpsertWithoutStandingGrantsInput
+  connect?: Prisma.ProjectWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ProjectUpdateToOneWithWhereWithoutStandingGrantsInput, Prisma.ProjectUpdateWithoutStandingGrantsInput>, Prisma.ProjectUncheckedUpdateWithoutStandingGrantsInput>
+}
+
 export type ProjectCreateNestedOneWithoutTabQuestionsInput = {
   create?: Prisma.XOR<Prisma.ProjectCreateWithoutTabQuestionsInput, Prisma.ProjectUncheckedCreateWithoutTabQuestionsInput>
   connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutTabQuestionsInput
@@ -896,6 +917,7 @@ export type ProjectCreateWithoutOwnerInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutOwnerInput = {
@@ -922,6 +944,7 @@ export type ProjectUncheckedCreateWithoutOwnerInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutOwnerInput = {
@@ -991,6 +1014,7 @@ export type ProjectCreateWithoutMachinesInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutMachinesInput = {
@@ -1017,6 +1041,7 @@ export type ProjectUncheckedCreateWithoutMachinesInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutMachinesInput = {
@@ -1059,6 +1084,7 @@ export type ProjectUpdateWithoutMachinesInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutMachinesInput = {
@@ -1085,6 +1111,7 @@ export type ProjectUncheckedUpdateWithoutMachinesInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutTabsInput = {
@@ -1111,6 +1138,7 @@ export type ProjectCreateWithoutTabsInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutTabsInput = {
@@ -1137,6 +1165,7 @@ export type ProjectUncheckedCreateWithoutTabsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutTabsInput = {
@@ -1179,6 +1208,7 @@ export type ProjectUpdateWithoutTabsInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutTabsInput = {
@@ -1205,6 +1235,7 @@ export type ProjectUncheckedUpdateWithoutTabsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutTicketsInput = {
@@ -1231,6 +1262,7 @@ export type ProjectCreateWithoutTicketsInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutTicketsInput = {
@@ -1257,6 +1289,7 @@ export type ProjectUncheckedCreateWithoutTicketsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutTicketsInput = {
@@ -1299,6 +1332,7 @@ export type ProjectUpdateWithoutTicketsInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutTicketsInput = {
@@ -1325,6 +1359,7 @@ export type ProjectUncheckedUpdateWithoutTicketsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutColumnsInput = {
@@ -1351,6 +1386,7 @@ export type ProjectCreateWithoutColumnsInput = {
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutProjectInput
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutColumnsInput = {
@@ -1377,6 +1413,7 @@ export type ProjectUncheckedCreateWithoutColumnsInput = {
   groupItems?: Prisma.ProjectGroupItemUncheckedCreateNestedManyWithoutProjectInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutColumnsInput = {
@@ -1408,6 +1445,7 @@ export type ProjectCreateWithoutAgentColumnInput = {
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutAgentColumnInput = {
@@ -1434,6 +1472,7 @@ export type ProjectUncheckedCreateWithoutAgentColumnInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutAgentColumnInput = {
@@ -1481,6 +1520,7 @@ export type ProjectUpdateWithoutColumnsInput = {
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutProjectNestedInput
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutColumnsInput = {
@@ -1507,6 +1547,7 @@ export type ProjectUncheckedUpdateWithoutColumnsInput = {
   groupItems?: Prisma.ProjectGroupItemUncheckedUpdateManyWithoutProjectNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUpsertWithWhereUniqueWithoutAgentColumnInput = {
@@ -1549,6 +1590,7 @@ export type ProjectCreateWithoutTasksInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutTasksInput = {
@@ -1575,6 +1617,7 @@ export type ProjectUncheckedCreateWithoutTasksInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutTasksInput = {
@@ -1617,6 +1660,7 @@ export type ProjectUpdateWithoutTasksInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutTasksInput = {
@@ -1643,6 +1687,7 @@ export type ProjectUncheckedUpdateWithoutTasksInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutPullRequestsInput = {
@@ -1669,6 +1714,7 @@ export type ProjectCreateWithoutPullRequestsInput = {
   memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutProjectInput
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutPullRequestsInput = {
@@ -1695,6 +1741,7 @@ export type ProjectUncheckedCreateWithoutPullRequestsInput = {
   groupItems?: Prisma.ProjectGroupItemUncheckedCreateNestedManyWithoutProjectInput
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutPullRequestsInput = {
@@ -1737,6 +1784,7 @@ export type ProjectUpdateWithoutPullRequestsInput = {
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutProjectNestedInput
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutPullRequestsInput = {
@@ -1763,6 +1811,7 @@ export type ProjectUncheckedUpdateWithoutPullRequestsInput = {
   groupItems?: Prisma.ProjectGroupItemUncheckedUpdateManyWithoutProjectNestedInput
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutNoteInput = {
@@ -1789,6 +1838,7 @@ export type ProjectCreateWithoutNoteInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutNoteInput = {
@@ -1815,6 +1865,7 @@ export type ProjectUncheckedCreateWithoutNoteInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutNoteInput = {
@@ -1857,6 +1908,7 @@ export type ProjectUpdateWithoutNoteInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutNoteInput = {
@@ -1883,6 +1935,7 @@ export type ProjectUncheckedUpdateWithoutNoteInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutSetupInput = {
@@ -1909,6 +1962,7 @@ export type ProjectCreateWithoutSetupInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutSetupInput = {
@@ -1935,6 +1989,7 @@ export type ProjectUncheckedCreateWithoutSetupInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutSetupInput = {
@@ -1977,6 +2032,7 @@ export type ProjectUpdateWithoutSetupInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutSetupInput = {
@@ -2003,6 +2059,7 @@ export type ProjectUncheckedUpdateWithoutSetupInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutChatConversationsInput = {
@@ -2029,6 +2086,7 @@ export type ProjectCreateWithoutChatConversationsInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutChatConversationsInput = {
@@ -2055,6 +2113,7 @@ export type ProjectUncheckedCreateWithoutChatConversationsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutChatConversationsInput = {
@@ -2097,6 +2156,7 @@ export type ProjectUpdateWithoutChatConversationsInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutChatConversationsInput = {
@@ -2117,6 +2177,131 @@ export type ProjectUncheckedUpdateWithoutChatConversationsInput = {
   note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
   setup?: Prisma.ProjectSetupUncheckedUpdateOneWithoutProjectNestedInput
   tickets?: Prisma.TicketUncheckedUpdateManyWithoutProjectNestedInput
+  tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutProjectNestedInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutProjectNestedInput
+  groupItems?: Prisma.ProjectGroupItemUncheckedUpdateManyWithoutProjectNestedInput
+  memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
+  columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
+  pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
+}
+
+export type ProjectCreateWithoutStandingGrantsInput = {
+  id: string
+  key: string
+  nextTaskNumber?: number
+  name: string
+  status?: $Enums.ProjectStatus
+  description?: string | null
+  isPublic?: boolean
+  lastTerminalAt?: Date | string | null
+  createdAt?: Date | string
+  owner?: Prisma.UserCreateNestedOneWithoutProjectsInput
+  machines?: Prisma.ProjectMachineCreateNestedManyWithoutProjectInput
+  tabs?: Prisma.TabCreateNestedManyWithoutProjectInput
+  tasks?: Prisma.TaskCreateNestedManyWithoutProjectInput
+  note?: Prisma.NoteCreateNestedOneWithoutProjectInput
+  setup?: Prisma.ProjectSetupCreateNestedOneWithoutProjectInput
+  tickets?: Prisma.TicketCreateNestedManyWithoutProjectInput
+  chatConversations?: Prisma.ChatConversationCreateNestedManyWithoutProjectInput
+  tabQuestions?: Prisma.TabQuestionCreateNestedManyWithoutProjectInput
+  chatDecisions?: Prisma.ChatDecisionCreateNestedManyWithoutProjectInput
+  groupItems?: Prisma.ProjectGroupItemCreateNestedManyWithoutProjectInput
+  memoryItems?: Prisma.MemoryItemCreateNestedManyWithoutProjectInput
+  agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
+  columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
+  pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+}
+
+export type ProjectUncheckedCreateWithoutStandingGrantsInput = {
+  id: string
+  ownerId?: string | null
+  key: string
+  nextTaskNumber?: number
+  name: string
+  status?: $Enums.ProjectStatus
+  description?: string | null
+  isPublic?: boolean
+  agentColumnId?: string | null
+  lastTerminalAt?: Date | string | null
+  createdAt?: Date | string
+  machines?: Prisma.ProjectMachineUncheckedCreateNestedManyWithoutProjectInput
+  tabs?: Prisma.TabUncheckedCreateNestedManyWithoutProjectInput
+  tasks?: Prisma.TaskUncheckedCreateNestedManyWithoutProjectInput
+  note?: Prisma.NoteUncheckedCreateNestedOneWithoutProjectInput
+  setup?: Prisma.ProjectSetupUncheckedCreateNestedOneWithoutProjectInput
+  tickets?: Prisma.TicketUncheckedCreateNestedManyWithoutProjectInput
+  chatConversations?: Prisma.ChatConversationUncheckedCreateNestedManyWithoutProjectInput
+  tabQuestions?: Prisma.TabQuestionUncheckedCreateNestedManyWithoutProjectInput
+  chatDecisions?: Prisma.ChatDecisionUncheckedCreateNestedManyWithoutProjectInput
+  groupItems?: Prisma.ProjectGroupItemUncheckedCreateNestedManyWithoutProjectInput
+  memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
+  columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
+  pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+}
+
+export type ProjectCreateOrConnectWithoutStandingGrantsInput = {
+  where: Prisma.ProjectWhereUniqueInput
+  create: Prisma.XOR<Prisma.ProjectCreateWithoutStandingGrantsInput, Prisma.ProjectUncheckedCreateWithoutStandingGrantsInput>
+}
+
+export type ProjectUpsertWithoutStandingGrantsInput = {
+  update: Prisma.XOR<Prisma.ProjectUpdateWithoutStandingGrantsInput, Prisma.ProjectUncheckedUpdateWithoutStandingGrantsInput>
+  create: Prisma.XOR<Prisma.ProjectCreateWithoutStandingGrantsInput, Prisma.ProjectUncheckedCreateWithoutStandingGrantsInput>
+  where?: Prisma.ProjectWhereInput
+}
+
+export type ProjectUpdateToOneWithWhereWithoutStandingGrantsInput = {
+  where?: Prisma.ProjectWhereInput
+  data: Prisma.XOR<Prisma.ProjectUpdateWithoutStandingGrantsInput, Prisma.ProjectUncheckedUpdateWithoutStandingGrantsInput>
+}
+
+export type ProjectUpdateWithoutStandingGrantsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  owner?: Prisma.UserUpdateOneWithoutProjectsNestedInput
+  machines?: Prisma.ProjectMachineUpdateManyWithoutProjectNestedInput
+  tabs?: Prisma.TabUpdateManyWithoutProjectNestedInput
+  tasks?: Prisma.TaskUpdateManyWithoutProjectNestedInput
+  note?: Prisma.NoteUpdateOneWithoutProjectNestedInput
+  setup?: Prisma.ProjectSetupUpdateOneWithoutProjectNestedInput
+  tickets?: Prisma.TicketUpdateManyWithoutProjectNestedInput
+  chatConversations?: Prisma.ChatConversationUpdateManyWithoutProjectNestedInput
+  tabQuestions?: Prisma.TabQuestionUpdateManyWithoutProjectNestedInput
+  chatDecisions?: Prisma.ChatDecisionUpdateManyWithoutProjectNestedInput
+  groupItems?: Prisma.ProjectGroupItemUpdateManyWithoutProjectNestedInput
+  memoryItems?: Prisma.MemoryItemUpdateManyWithoutProjectNestedInput
+  agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
+  columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
+  pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+}
+
+export type ProjectUncheckedUpdateWithoutStandingGrantsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  ownerId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  key?: Prisma.StringFieldUpdateOperationsInput | string
+  nextTaskNumber?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumProjectStatusFieldUpdateOperationsInput | $Enums.ProjectStatus
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isPublic?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  agentColumnId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastTerminalAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  machines?: Prisma.ProjectMachineUncheckedUpdateManyWithoutProjectNestedInput
+  tabs?: Prisma.TabUncheckedUpdateManyWithoutProjectNestedInput
+  tasks?: Prisma.TaskUncheckedUpdateManyWithoutProjectNestedInput
+  note?: Prisma.NoteUncheckedUpdateOneWithoutProjectNestedInput
+  setup?: Prisma.ProjectSetupUncheckedUpdateOneWithoutProjectNestedInput
+  tickets?: Prisma.TicketUncheckedUpdateManyWithoutProjectNestedInput
+  chatConversations?: Prisma.ChatConversationUncheckedUpdateManyWithoutProjectNestedInput
   tabQuestions?: Prisma.TabQuestionUncheckedUpdateManyWithoutProjectNestedInput
   chatDecisions?: Prisma.ChatDecisionUncheckedUpdateManyWithoutProjectNestedInput
   groupItems?: Prisma.ProjectGroupItemUncheckedUpdateManyWithoutProjectNestedInput
@@ -2149,6 +2334,7 @@ export type ProjectCreateWithoutTabQuestionsInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutTabQuestionsInput = {
@@ -2175,6 +2361,7 @@ export type ProjectUncheckedCreateWithoutTabQuestionsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutTabQuestionsInput = {
@@ -2217,6 +2404,7 @@ export type ProjectUpdateWithoutTabQuestionsInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutTabQuestionsInput = {
@@ -2243,6 +2431,7 @@ export type ProjectUncheckedUpdateWithoutTabQuestionsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutChatDecisionsInput = {
@@ -2269,6 +2458,7 @@ export type ProjectCreateWithoutChatDecisionsInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutChatDecisionsInput = {
@@ -2295,6 +2485,7 @@ export type ProjectUncheckedCreateWithoutChatDecisionsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutChatDecisionsInput = {
@@ -2337,6 +2528,7 @@ export type ProjectUpdateWithoutChatDecisionsInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutChatDecisionsInput = {
@@ -2363,6 +2555,7 @@ export type ProjectUncheckedUpdateWithoutChatDecisionsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutMemoryItemsInput = {
@@ -2389,6 +2582,7 @@ export type ProjectCreateWithoutMemoryItemsInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutMemoryItemsInput = {
@@ -2415,6 +2609,7 @@ export type ProjectUncheckedCreateWithoutMemoryItemsInput = {
   groupItems?: Prisma.ProjectGroupItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutMemoryItemsInput = {
@@ -2457,6 +2652,7 @@ export type ProjectUpdateWithoutMemoryItemsInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutMemoryItemsInput = {
@@ -2483,6 +2679,7 @@ export type ProjectUncheckedUpdateWithoutMemoryItemsInput = {
   groupItems?: Prisma.ProjectGroupItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateWithoutGroupItemsInput = {
@@ -2509,6 +2706,7 @@ export type ProjectCreateWithoutGroupItemsInput = {
   agentColumn?: Prisma.TaskColumnCreateNestedOneWithoutAgentForInput
   columns?: Prisma.TaskColumnCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectUncheckedCreateWithoutGroupItemsInput = {
@@ -2535,6 +2733,7 @@ export type ProjectUncheckedCreateWithoutGroupItemsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedCreateNestedManyWithoutProjectInput
   columns?: Prisma.TaskColumnUncheckedCreateNestedManyWithoutProjectInput
   pullRequests?: Prisma.TaskPullRequestUncheckedCreateNestedManyWithoutProjectInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedCreateNestedManyWithoutProjectInput
 }
 
 export type ProjectCreateOrConnectWithoutGroupItemsInput = {
@@ -2577,6 +2776,7 @@ export type ProjectUpdateWithoutGroupItemsInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutGroupItemsInput = {
@@ -2603,6 +2803,7 @@ export type ProjectUncheckedUpdateWithoutGroupItemsInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectCreateManyOwnerInput = {
@@ -2642,6 +2843,7 @@ export type ProjectUpdateWithoutOwnerInput = {
   agentColumn?: Prisma.TaskColumnUpdateOneWithoutAgentForNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutOwnerInput = {
@@ -2668,6 +2870,7 @@ export type ProjectUncheckedUpdateWithoutOwnerInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateManyWithoutOwnerInput = {
@@ -2720,6 +2923,7 @@ export type ProjectUpdateWithoutAgentColumnInput = {
   memoryItems?: Prisma.MemoryItemUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateWithoutAgentColumnInput = {
@@ -2746,6 +2950,7 @@ export type ProjectUncheckedUpdateWithoutAgentColumnInput = {
   memoryItems?: Prisma.MemoryItemUncheckedUpdateManyWithoutProjectNestedInput
   columns?: Prisma.TaskColumnUncheckedUpdateManyWithoutProjectNestedInput
   pullRequests?: Prisma.TaskPullRequestUncheckedUpdateManyWithoutProjectNestedInput
+  standingGrants?: Prisma.ChatStandingGrantUncheckedUpdateManyWithoutProjectNestedInput
 }
 
 export type ProjectUncheckedUpdateManyWithoutAgentColumnInput = {
@@ -2778,6 +2983,7 @@ export type ProjectCountOutputType = {
   memoryItems: number
   columns: number
   pullRequests: number
+  standingGrants: number
 }
 
 export type ProjectCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -2792,6 +2998,7 @@ export type ProjectCountOutputTypeSelect<ExtArgs extends runtime.Types.Extension
   memoryItems?: boolean | ProjectCountOutputTypeCountMemoryItemsArgs
   columns?: boolean | ProjectCountOutputTypeCountColumnsArgs
   pullRequests?: boolean | ProjectCountOutputTypeCountPullRequestsArgs
+  standingGrants?: boolean | ProjectCountOutputTypeCountStandingGrantsArgs
 }
 
 /**
@@ -2881,6 +3088,13 @@ export type ProjectCountOutputTypeCountPullRequestsArgs<ExtArgs extends runtime.
   where?: Prisma.TaskPullRequestWhereInput
 }
 
+/**
+ * ProjectCountOutputType without action
+ */
+export type ProjectCountOutputTypeCountStandingGrantsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ChatStandingGrantWhereInput
+}
+
 
 export type ProjectSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -2909,6 +3123,7 @@ export type ProjectSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   agentColumn?: boolean | Prisma.Project$agentColumnArgs<ExtArgs>
   columns?: boolean | Prisma.Project$columnsArgs<ExtArgs>
   pullRequests?: boolean | Prisma.Project$pullRequestsArgs<ExtArgs>
+  standingGrants?: boolean | Prisma.Project$standingGrantsArgs<ExtArgs>
   _count?: boolean | Prisma.ProjectCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["project"]>
 
@@ -2975,6 +3190,7 @@ export type ProjectInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs
   agentColumn?: boolean | Prisma.Project$agentColumnArgs<ExtArgs>
   columns?: boolean | Prisma.Project$columnsArgs<ExtArgs>
   pullRequests?: boolean | Prisma.Project$pullRequestsArgs<ExtArgs>
+  standingGrants?: boolean | Prisma.Project$standingGrantsArgs<ExtArgs>
   _count?: boolean | Prisma.ProjectCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type ProjectIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -3010,6 +3226,7 @@ export type $ProjectPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
      */
     columns: Prisma.$TaskColumnPayload<ExtArgs>[]
     pullRequests: Prisma.$TaskPullRequestPayload<ExtArgs>[]
+    standingGrants: Prisma.$ChatStandingGrantPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -3449,6 +3666,7 @@ export interface Prisma__ProjectClient<T, Null = never, ExtArgs extends runtime.
   agentColumn<T extends Prisma.Project$agentColumnArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$agentColumnArgs<ExtArgs>>): Prisma.Prisma__TaskColumnClient<runtime.Types.Result.GetResult<Prisma.$TaskColumnPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   columns<T extends Prisma.Project$columnsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$columnsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TaskColumnPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   pullRequests<T extends Prisma.Project$pullRequestsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$pullRequestsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TaskPullRequestPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  standingGrants<T extends Prisma.Project$standingGrantsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Project$standingGrantsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatStandingGrantPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -4227,6 +4445,30 @@ export type Project$pullRequestsArgs<ExtArgs extends runtime.Types.Extensions.In
   take?: number
   skip?: number
   distinct?: Prisma.TaskPullRequestScalarFieldEnum | Prisma.TaskPullRequestScalarFieldEnum[]
+}
+
+/**
+ * Project.standingGrants
+ */
+export type Project$standingGrantsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ChatStandingGrant
+   */
+  select?: Prisma.ChatStandingGrantSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ChatStandingGrant
+   */
+  omit?: Prisma.ChatStandingGrantOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ChatStandingGrantInclude<ExtArgs> | null
+  where?: Prisma.ChatStandingGrantWhereInput
+  orderBy?: Prisma.ChatStandingGrantOrderByWithRelationInput | Prisma.ChatStandingGrantOrderByWithRelationInput[]
+  cursor?: Prisma.ChatStandingGrantWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ChatStandingGrantScalarFieldEnum | Prisma.ChatStandingGrantScalarFieldEnum[]
 }
 
 /**

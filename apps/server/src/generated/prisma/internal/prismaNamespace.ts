@@ -429,6 +429,7 @@ export const ModelName = {
   ChatLiveRun: 'ChatLiveRun',
   ChatGrant: 'ChatGrant',
   ChatProjectGrant: 'ChatProjectGrant',
+  ChatStandingGrant: 'ChatStandingGrant',
   TabQuestion: 'TabQuestion',
   ChatDecision: 'ChatDecision',
   MemoryItem: 'MemoryItem',
@@ -456,7 +457,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
+    modelProps: "user" | "role" | "permission" | "session" | "loginCode" | "loginAttempt" | "machine" | "project" | "projectMachine" | "tab" | "tabEvent" | "machineHook" | "ticket" | "taskColumn" | "task" | "taskPullRequest" | "note" | "integration" | "projectSetup" | "aiAccount" | "waitlistEntry" | "upload" | "apiToken" | "apiTokenEvent" | "chatConversation" | "chatMessage" | "chatAttachment" | "chatAction" | "chatSubagent" | "chatLiveRun" | "chatGrant" | "chatProjectGrant" | "chatStandingGrant" | "tabQuestion" | "chatDecision" | "memoryItem" | "instanceSecret" | "projectGroup" | "projectGroupItem" | "deviceRequest" | "device" | "deviceToken" | "deviceChallenge" | "deviceEvent" | "userNotification"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2828,6 +2829,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ChatStandingGrant: {
+      payload: Prisma.$ChatStandingGrantPayload<ExtArgs>
+      fields: Prisma.ChatStandingGrantFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ChatStandingGrantFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ChatStandingGrantFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>
+        }
+        findFirst: {
+          args: Prisma.ChatStandingGrantFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ChatStandingGrantFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>
+        }
+        findMany: {
+          args: Prisma.ChatStandingGrantFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>[]
+        }
+        create: {
+          args: Prisma.ChatStandingGrantCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>
+        }
+        createMany: {
+          args: Prisma.ChatStandingGrantCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ChatStandingGrantCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>[]
+        }
+        delete: {
+          args: Prisma.ChatStandingGrantDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>
+        }
+        update: {
+          args: Prisma.ChatStandingGrantUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>
+        }
+        deleteMany: {
+          args: Prisma.ChatStandingGrantDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ChatStandingGrantUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ChatStandingGrantUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>[]
+        }
+        upsert: {
+          args: Prisma.ChatStandingGrantUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ChatStandingGrantPayload>
+        }
+        aggregate: {
+          args: Prisma.ChatStandingGrantAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateChatStandingGrant>
+        }
+        groupBy: {
+          args: Prisma.ChatStandingGrantGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChatStandingGrantGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ChatStandingGrantCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ChatStandingGrantCountAggregateOutputType> | number
+        }
+      }
+    }
     TabQuestion: {
       payload: Prisma.$TabQuestionPayload<ExtArgs>
       fields: Prisma.TabQuestionFieldRefs
@@ -4280,6 +4355,21 @@ export const ChatProjectGrantScalarFieldEnum = {
 export type ChatProjectGrantScalarFieldEnum = (typeof ChatProjectGrantScalarFieldEnum)[keyof typeof ChatProjectGrantScalarFieldEnum]
 
 
+export const ChatStandingGrantScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  projectId: 'projectId',
+  kind: 'kind',
+  conversationId: 'conversationId',
+  sourceActionId: 'sourceActionId',
+  createdAt: 'createdAt',
+  revokedAt: 'revokedAt',
+  revokedBy: 'revokedBy'
+} as const
+
+export type ChatStandingGrantScalarFieldEnum = (typeof ChatStandingGrantScalarFieldEnum)[keyof typeof ChatStandingGrantScalarFieldEnum]
+
+
 export const TabQuestionScalarFieldEnum = {
   id: 'id',
   tabId: 'tabId',
@@ -4945,6 +5035,7 @@ export type GlobalOmitConfig = {
   chatLiveRun?: Prisma.ChatLiveRunOmit
   chatGrant?: Prisma.ChatGrantOmit
   chatProjectGrant?: Prisma.ChatProjectGrantOmit
+  chatStandingGrant?: Prisma.ChatStandingGrantOmit
   tabQuestion?: Prisma.TabQuestionOmit
   chatDecision?: Prisma.ChatDecisionOmit
   memoryItem?: Prisma.MemoryItemOmit

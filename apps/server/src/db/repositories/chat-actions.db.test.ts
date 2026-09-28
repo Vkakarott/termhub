@@ -103,6 +103,30 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatActionsRepository (Po
     }
   });
 
+  it('countByGrantSince counts rows with that grant_id created after since, across conversations', async () => {
+    // Two conversations of different users, both charged against the same standing grant id
+    // (TER-386): the count must not be scoped to one conversation, unlike countForGrantSince.
+    const userA = newId();
+    const userB = newId();
+    await db.user.create({ data: { id: userA, email: `${userA}@test.local`, name: 'a' } });
+    await db.user.create({ data: { id: userB, email: `${userB}@test.local`, name: 'b' } });
+    const convA = (await new ChatRepository(db).getOrCreateForUser(userA)).id;
+    const convB = (await new ChatRepository(db).getOrCreateForUser(userB)).id;
+    try {
+      const since = new Date(Date.now() - 60_000);
+      await repo.insertApproved({ conversation_id: convA, tool: 'open_tab', args: { project_id: 'p1' }, class: 'write', idempotency_key: 'sg-a1', grant_id: 'sg1', decided_by: userA });
+      await repo.insertApproved({ conversation_id: convB, tool: 'open_tab', args: { project_id: 'p1' }, class: 'write', idempotency_key: 'sg-b1', grant_id: 'sg1', decided_by: userB });
+      await repo.insertApproved({ conversation_id: convB, tool: 'close_tab', args: { tab_id: 't1' }, class: 'write', idempotency_key: 'sg-b2', grant_id: 'sg2', decided_by: userB });
+
+      expect(await repo.countByGrantSince('sg1', since)).toBe(2);
+      expect(await repo.countByGrantSince('sg2', since)).toBe(1);
+      expect(await repo.countByGrantSince('sg1', new Date(Date.now() + 60_000))).toBe(0);
+    } finally {
+      await db.user.delete({ where: { id: userA } });
+      await db.user.delete({ where: { id: userB } });
+    }
+  });
+
   it('finds a denial by its key, with when it was decided, and ignores an executed row', async () => {
     const refused = await pending('k8');
     await repo.decide(refused.id, userId, 'denied');
