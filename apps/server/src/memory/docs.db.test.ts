@@ -11,13 +11,15 @@ const spec = (n: string) => `docs/superpowers/specs/${n}.md`;
 
 /** An in-memory checkout the test edits between passes: path → { sha, text }. */
 function checkout(files: Map<string, { sha: string; text: string }>): DocsExec {
+  const read = async (_m: Machine, _c: string, paths: string[]) =>
+    paths
+      .filter((p) => files.has(p))
+      .map((p) => `B\t${Buffer.byteLength(files.get(p)!.text)}\t${p}\n${Buffer.from(files.get(p)!.text).toString('base64')}\nE`)
+      .join('\n') + '\n';
   return {
     scan: async () => [...files].map(([p, f]) => `F\t${f.sha}\t${Buffer.byteLength(f.text)}\t${p}`).join('\n') + '\n',
-    read: async (_m, _c, paths) =>
-      paths
-        .filter((p) => files.has(p))
-        .map((p) => `B\t${Buffer.byteLength(files.get(p)!.text)}\t${p}\n${Buffer.from(files.get(p)!.text).toString('base64')}\nE`)
-        .join('\n') + '\n',
+    read,
+    readLessons: read,
   };
 }
 

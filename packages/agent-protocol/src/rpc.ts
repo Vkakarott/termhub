@@ -6,8 +6,10 @@ export const sessionName = z.string().min(1).max(128).regex(SESSION_RE);
 export const machinePath = z.string().min(1).max(4096).refine((p) => (p === '~' || p.startsWith('~/') || p.startsWith('/')) && !/[\0\n\r]/.test(p), 'invalid path');
 /** Sanitized file name: what paste-file.safeName() produces. */
 export const pasteName = z.string().min(1).max(255).regex(/^[A-Za-z0-9._-]+$/);
-/** A `docs/superpowers/{specs,plans}/*.md` file, relative to the link's cwd (spec D15). No `..`, no nesting. */
-export const DOC_PATH_RE = /^docs\/superpowers\/(specs|plans)\/[A-Za-z0-9._-]{1,200}\.md$/;
+/** A `docs/superpowers/{specs,plans}/*.md` or `docs/lessons/*.md` file (spec D15; lessons: spec
+ *  2026-09-27 failure lessons), relative to the link's cwd. No `..`, no nesting, and never
+ *  `docs/lessons/README.md` (the format's own doc, not a lesson). */
+export const DOC_PATH_RE = /^docs\/(?:superpowers\/(?:specs|plans)\/[A-Za-z0-9._-]{1,200}\.md|lessons\/(?!README\.md$)[A-Za-z0-9._-]{1,200}\.md)$/;
 export const docPath = z.string().regex(DOC_PATH_RE);
 export const aiProvider = z.enum(['claude', 'chatgpt', 'gemini', 'antigravity']);
 

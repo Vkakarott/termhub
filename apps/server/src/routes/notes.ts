@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { defaultEmbedder } from '../chat/embeddings.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { NOTE_MAX, NoteTooLargeError } from '../db/repositories/notes.js';
 import { HttpError, notFound } from '../lib/errors.js';
+import { indexProjectNote } from '../memory/note.js';
 import { scoped } from '../auth/scope.js';
 
 const idParam = z.object({ id: z.string().min(1).max(64) });
@@ -25,6 +27,8 @@ export async function noteRoutes(app: FastifyInstance, repos: Repositories) {
     const { content, base_updated_at } = putBody.parse(request.body);
     try {
       const note = await repos.notes.saveMerged(id, content, base_updated_at ? new Date(base_updated_at) : null);
+      // Best effort, never blocks or fails the save (spec 2026-09-27 failure lessons §4).
+      void indexProjectNote(repos, id, { embedder: defaultEmbedder(), log: app.log });
       return { note };
     } catch (e) {
       if (e instanceof NoteTooLargeError) throw new HttpError(413, 'A anotação passou do limite de 200 000 caracteres', 'NOTE_TOO_LARGE');

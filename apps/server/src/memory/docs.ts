@@ -5,6 +5,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { NewMemoryItem } from '../db/repositories/memory-items.js';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
+import { isLessonPath, parseLessonFile } from '../lessons/file.js';
 import { runOnMachine, shellQuote } from '../terminal/machine-exec.js';
 import { chunkMarkdown } from './chunk.js';
 import { embedInserted, type MemoryDeps } from './index-items.js';
@@ -12,6 +13,12 @@ import { cleanMemoryText, ITEM_TEXT_MAX } from './text.js';
 
 /** First agent release that answers `docs.scan` / `docs.read` (spec 2026-09-26 concierge memory D15). */
 export const DOCS_MIN_AGENT_VERSION = '0.8.0';
+/** First agent release whose `docPath` accepts `docs/lessons/*.md` (spec 2026-09-27 failure lessons):
+ *  an older agent's own `@termhub/agent-protocol` still only knows `docs/superpowers/{specs,plans}`,
+ *  so its params parse would fail before dispatch (the same reason `DOCS_MIN_AGENT_VERSION` exists at
+ *  all) — lesson paths are only ever sent to an agent at or above this version; `docs.scan` and the
+ *  specs/plans `docs.read` stay gated at `DOCS_MIN_AGENT_VERSION` as before. */
+export const DOCS_LESSONS_MIN_AGENT_VERSION = '0.8.1';
 /** At most this many paths per `docs.read` call (the RPC's own `max(20)`, spec §4). */
 export const DOCS_READ_BATCH = 20;
 
@@ -34,6 +41,10 @@ const READ_TIMEOUT_MS = 20_000;
 export interface DocsExec {
   scan(machine: Machine, cwd: string): Promise<string>;
   read(machine: Machine, cwd: string, paths: string[]): Promise<string>;
+  /** Same RPC/script as `read`, for `docs/lessons/*.md` paths only — kept a separate method so an agent
+   *  too old for lessons (`DOCS_LESSONS_MIN_AGENT_VERSION`) is only ever asked through here, and so its
+   *  failure never touches the specs/plans call (spec 2026-09-27 failure lessons §4). */
+  readLessons(machine: Machine, cwd: string, paths: string[]): Promise<string>;
 }
 
 async function runDocsScript(machine: Machine, script: string, timeoutMs: number): Promise<string> {
@@ -52,6 +63,13 @@ async function runDocsScript(machine: Machine, script: string, timeoutMs: number
  * `ssh`/`local` machine runs the very same script through `runOnMachine`, with the cwd and every path
  * `shellQuote`d — and those paths only ever come from a validated scan (`DOC_PATH_RE`).
  */
+/** `docs.read` over the agent RPC, version-gated by `minVersion` — `DOCS_MIN_AGENT_VERSION` for
+ *  specs/plans, `DOCS_LESSONS_MIN_AGENT_VERSION` for lessons (see `DocsExec.readLessons`). */
+async function agentRead(machine: Machine, cwd: string, paths: string[], minVersion: string): Promise<string> {
+  requireAgentVersion(machine, minVersion);
+  return (await agentRpc(machine, 'docs.read', { cwd, paths })).stdout;
+}
+
 export const machineDocsExec: DocsExec = {
   async scan(machine, cwd) {
     if (machine.type === 'agent') {
@@ -61,10 +79,11 @@ export const machineDocsExec: DocsExec = {
     return runDocsScript(machine, buildDocsScanScript(shellQuote(cwd)), SCAN_TIMEOUT_MS);
   },
   async read(machine, cwd, paths) {
-    if (machine.type === 'agent') {
-      requireAgentVersion(machine, DOCS_MIN_AGENT_VERSION);
-      return (await agentRpc(machine, 'docs.read', { cwd, paths })).stdout;
-    }
+    if (machine.type === 'agent') return agentRead(machine, cwd, paths, DOCS_MIN_AGENT_VERSION);
+    return runDocsScript(machine, buildDocsReadScript(shellQuote(cwd), paths.map(shellQuote)), READ_TIMEOUT_MS);
+  },
+  async readLessons(machine, cwd, paths) {
+    if (machine.type === 'agent') return agentRead(machine, cwd, paths, DOCS_LESSONS_MIN_AGENT_VERSION);
     return runDocsScript(machine, buildDocsReadScript(shellQuote(cwd), paths.map(shellQuote)), READ_TIMEOUT_MS);
   },
 };
@@ -78,19 +97,20 @@ export interface DocsLink {
   machine: Machine;
 }
 
-/** Reads every path in `paths` in batches of ≤ `DOCS_READ_BATCH`. `docs.read` returns a *prefix* of
- *  what it was asked for (it stops before the file that would cross its byte budget) and silently
- *  skips a file that vanished or grew past the size limit since the scan: so after each call the
- *  queue resumes right after the last path that came back — a path skipped before it is dropped
- *  (it will be looked at again on the next pass) — and a call that returns none of its batch drops
- *  that whole batch. Every call removes at least one path, so this always ends. Throws on the first
- *  failed call; nothing is written by then. */
-async function readAll(exec: DocsExec, link: DocsLink, paths: string[]): Promise<Map<string, string>> {
+/** Reads every path in `paths` in batches of ≤ `DOCS_READ_BATCH`, through `read` (either
+ *  `exec.read` for specs/plans or `exec.readLessons` for lessons — see `indexDocsForLink`). `docs.read`
+ *  returns a *prefix* of what it was asked for (it stops before the file that would cross its byte
+ *  budget) and silently skips a file that vanished or grew past the size limit since the scan: so
+ *  after each call the queue resumes right after the last path that came back — a path skipped before
+ *  it is dropped (it will be looked at again on the next pass) — and a call that returns none of its
+ *  batch drops that whole batch. Every call removes at least one path, so this always ends. Throws on
+ *  the first failed call; nothing is written by then. */
+async function readAll(read: (paths: string[]) => Promise<string>, paths: string[]): Promise<Map<string, string>> {
   const texts = new Map<string, string>();
   let queue = paths;
   while (queue.length > 0) {
     const batch = queue.slice(0, DOCS_READ_BATCH);
-    const got = parseDocsRead(await exec.read(link.machine, link.cwd, batch));
+    const got = parseDocsRead(await read(batch));
     let last = -1;
     batch.forEach((p, i) => {
       const text = got.get(p);
@@ -104,29 +124,40 @@ async function readAll(exec: DocsExec, link: DocsLink, paths: string[]): Promise
 }
 
 /**
- * Indexes one link's `docs/superpowers/{specs,plans}/*.md` into `memory_items` (spec 2026-09-26
- * concierge memory D15, §4): `docs.scan` lists each file's sha256; a file whose sha differs from the
- * `source_hash` its chunk 0 already carries (or that has no item yet) is read and re-chunked
- * (`chunkMarkdown`) — upserted as `kind: 'doc'`, trust `derived`, `source_id` `${link.id}:${path}`,
- * every chunk carrying the file's sha — through `replaceSourceChunks`, which trims the chunks past the
- * new count and upserts in one transaction, so a crash never leaves a stale tail behind a fresh chunk
- * 0. An unchanged file is never read. A stored file that the scan no longer lists has all its items
- * deleted. So does one the scan reports **over `DOCS_MAX_BYTES`** (sha `null`): it still exists, but
- * its content can no longer be read or verified, so its old chunks would be stale text nobody can
- * refresh.
+ * Indexes one link's `docs/superpowers/{specs,plans}/*.md` and `docs/lessons/*.md` into `memory_items`
+ * (spec 2026-09-26 concierge memory D15, §4; lessons: spec 2026-09-27 failure lessons §4): `docs.scan`
+ * lists every such file's sha256 in one call; a file whose sha differs from the `source_hash` its
+ * chunk 0 already carries (or that has no item yet) is read and re-chunked. A specs/plans file is
+ * upserted as `kind: 'doc'`, trust `derived`, chunked by `chunkMarkdown`; a `docs/lessons/*.md` file
+ * (`isLessonPath`, never `docs/lessons/README.md` — the scan itself never lists it) is upserted as
+ * `kind: 'lesson'`, trust `derived`, `parseLessonFile`'s chunks and meta. Both share `source_id`
+ * `${link.id}:${path}`, every chunk carrying the file's sha, through `replaceSourceChunks`, which trims
+ * the chunks past the new count and upserts in one transaction, so a crash never leaves a stale tail
+ * behind a fresh chunk 0. An unchanged file is never read. A stored file that the scan no longer lists
+ * has all its items deleted. So does one the scan reports **over `DOCS_MAX_BYTES`** (sha `null`): it
+ * still exists, but its content can no longer be read or verified, so its old chunks would be stale
+ * text nobody can refresh.
+ *
+ * The two kinds are read in **separate** `docs.read` calls (`exec.read` for specs/plans, kept exactly
+ * as TER-95 left it; `exec.readLessons` for lessons, version-gated at `DOCS_LESSONS_MIN_AGENT_VERSION`
+ * instead of `DOCS_MIN_AGENT_VERSION`) so a failure reading one never touches the other: an agent old
+ * enough for specs/plans but not yet for lessons still gets its specs/plans re-indexed every pass,
+ * with its lesson chunks simply left untouched (never deleted) until it updates.
  *
  * A file that chunks to nothing (empty or whitespace only) ends up with no items at all, so it has no
  * stored hash and is simply read again on the next pass — cheap, and rare.
  *
- * Every failure to reach the checkout — offline agent (`AGENT_OFFLINE`), agent older than 0.8.0
- * (`AGENT_OUTDATED`), unreachable ssh, a timeout, a missing cwd (`DOCS_NOTFOUND`), no sha256 tool on the
- * machine (`DOCS_NOHASH`), or a failed read call — returns `{ read: 0, removed: 0 }` with a single
- * `{ linkId, code }` log and **writes and deletes nothing**: a machine that is merely off must never
- * wipe what was indexed from it. So does a scan that succeeds with no file at all while the link has
- * docs stored (`DOCS_EMPTY`, see below). Repository failures propagate to the caller (the sweeper logs
- * them per link). Logs never carry a path, a title or text — the link id, counts and codes only.
- * `deps.exec` defaults to `machineDocsExec`. Returns how many files were (re-)indexed and how many
- * files' items were removed.
+ * A failure to reach the checkout at the scan step — offline agent (`AGENT_OFFLINE`), agent older than
+ * 0.8.0 (`AGENT_OUTDATED`), unreachable ssh, a timeout, a missing cwd (`DOCS_NOTFOUND`), no sha256 tool
+ * on the machine (`DOCS_NOHASH`) — returns `{ read: 0, removed: 0 }` with a single `{ linkId, code }`
+ * log and **writes and deletes nothing at all**: a machine that is merely off must never wipe what was
+ * indexed from it. So does a scan that succeeds with no file at all while the link has docs or lessons
+ * stored (`DOCS_EMPTY`, see below). A failure reading just one of the two batches is logged the same
+ * way but only skips writing/deleting *that* batch's kind — the other still runs to completion.
+ * Repository failures propagate to the caller (the sweeper logs them per link). Logs never carry a
+ * path, a title or text — the link id, counts and codes only. `deps.exec` defaults to
+ * `machineDocsExec`. Returns how many files were (re-)indexed and how many files' items were removed,
+ * across both kinds.
  */
 export async function indexDocsForLink(
   repos: Pick<Repositories, 'memoryItems'>,
@@ -148,21 +179,38 @@ export async function indexDocsForLink(
   if (scan.err !== null) return skip(`DOCS_${scan.err.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 20)}`);
 
   const prefix = `${link.id}:`;
-  const known = await repos.memoryItems.listSourceHashes('doc', prefix);
-  // A scan that succeeds but lists nothing while this link has docs stored is far more likely a
+  const [known, knownLessons] = await Promise.all([repos.memoryItems.listSourceHashes('doc', prefix), repos.memoryItems.listSourceHashes('lesson', prefix)]);
+  // A scan that succeeds but lists nothing while this link has docs/lessons stored is far more likely a
   // transient state (an unmounted disk, a branch switch mid-checkout) than every spec being deleted at
   // once: keep everything this pass (fix round 1 ruling). A non-empty scan deletes gone files as usual.
-  if (scan.entries.length === 0 && known.size > 0) return skip('DOCS_EMPTY');
+  if (scan.entries.length === 0 && (known.size > 0 || knownLessons.size > 0)) return skip('DOCS_EMPTY');
+
   const readable = new Map<string, string>(); // path → sha, only files that can still be read
   for (const e of scan.entries) if (e.sha256 !== null) readable.set(e.path, e.sha256);
-  const changed = [...readable].filter(([path, sha]) => known.get(prefix + path) !== sha).map(([path]) => path);
+  const readableDocs = new Map([...readable].filter(([path]) => !isLessonPath(path)));
+  const readableLessons = new Map([...readable].filter(([path]) => isLessonPath(path)));
+  const changed = [...readableDocs].filter(([path, sha]) => known.get(prefix + path) !== sha).map(([path]) => path);
+  const changedLessons = [...readableLessons].filter(([path, sha]) => knownLessons.get(prefix + path) !== sha).map(([path]) => path);
 
   let texts = new Map<string, string>();
+  let docsFailed = false;
   if (changed.length > 0) {
     try {
-      texts = await readAll(exec, link, changed);
+      texts = await readAll((batch) => exec.read(link.machine, link.cwd, batch), changed);
     } catch (err) {
-      return skip(failureCode(err));
+      deps.log.info({ linkId: link.id, code: failureCode(err) }, 'memory docs skipped for a link');
+      docsFailed = true;
+    }
+  }
+
+  let lessonTexts = new Map<string, string>();
+  let lessonsFailed = false;
+  if (changedLessons.length > 0) {
+    try {
+      lessonTexts = await readAll((batch) => exec.readLessons(link.machine, link.cwd, batch), changedLessons);
+    } catch (err) {
+      deps.log.info({ linkId: link.id, code: failureCode(err) }, 'memory docs skipped for a link');
+      lessonsFailed = true;
     }
   }
 
@@ -183,14 +231,49 @@ export async function indexDocsForLink(
       text: cleanMemoryText(c.text).slice(0, ITEM_TEXT_MAX),
       trust: 'derived',
       source_at: now,
-      source_hash: readable.get(path)!,
+      source_hash: readableDocs.get(path)!,
     }));
     const inserted = await repos.memoryItems.replaceSourceChunks('doc', sourceId, items);
     if (deps.embedder) void embedInserted(repos, deps.embedder, inserted, deps.log);
   }
 
-  const gone = [...known.keys()].filter((sourceId) => !readable.has(sourceId.slice(prefix.length)));
-  if (gone.length > 0) await repos.memoryItems.deleteBySource('doc', gone);
+  for (const [path, text] of lessonTexts) {
+    const sourceId = prefix + path;
+    const parsed = parseLessonFile(path, text);
+    const items: NewMemoryItem[] = parsed.chunks.map((c, i) => ({
+      owner_id: link.owner_id,
+      project_id: link.project_id,
+      kind: 'lesson',
+      source_id: sourceId,
+      chunk_index: i,
+      // Every chunk of a lesson file shares its one title (the symptom, or the path when there is
+      // none) — unlike a doc, where each chunk's own heading is the title.
+      title: cleanMemoryText(parsed.title),
+      text: cleanMemoryText(c.text).slice(0, ITEM_TEXT_MAX),
+      trust: 'derived',
+      source_at: now,
+      source_hash: readableLessons.get(path)!,
+      meta: parsed.meta,
+    }));
+    const inserted = await repos.memoryItems.replaceSourceChunks('lesson', sourceId, items);
+    if (deps.embedder) void embedInserted(repos, deps.embedder, inserted, deps.log);
+  }
 
-  return { read: texts.size, removed: gone.length };
+  let removed = 0;
+  if (!docsFailed) {
+    const gone = [...known.keys()].filter((sourceId) => !readableDocs.has(sourceId.slice(prefix.length)));
+    if (gone.length > 0) {
+      await repos.memoryItems.deleteBySource('doc', gone);
+      removed += gone.length;
+    }
+  }
+  if (!lessonsFailed) {
+    const goneLessons = [...knownLessons.keys()].filter((sourceId) => !readableLessons.has(sourceId.slice(prefix.length)));
+    if (goneLessons.length > 0) {
+      await repos.memoryItems.deleteBySource('lesson', goneLessons);
+      removed += goneLessons.length;
+    }
+  }
+
+  return { read: texts.size + lessonTexts.size, removed };
 }

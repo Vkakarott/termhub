@@ -90,6 +90,32 @@ describe('buildDocsScanScript / parseDocsScan', () => {
     20_000,
   );
 
+  it('lists docs/lessons/*.md alongside specs/plans, but never a nested file or README.md', () => {
+    write('docs/lessons/2026-09-27-x.md', 'L');
+    write('docs/lessons/sub/y.md', 'nope');
+    write('docs/lessons/README.md', 'format doc, not a lesson');
+    write('docs/superpowers/specs/a.md', 'A');
+    const { entries, err } = parseDocsScan(runScan(dir));
+    expect(err).toBeNull();
+    expect(entries.map((e) => e.path).sort()).toEqual(['docs/lessons/2026-09-27-x.md', 'docs/superpowers/specs/a.md']);
+  });
+
+  it('a symlinked docs/lessons directory yields nothing from it (scan and read), specs untouched', () => {
+    write('docs/superpowers/specs/a.md', 'A');
+    const secretDir = mkdtempSync(join(tmpdir(), 'docs-lessons-secret-'));
+    writeFileSync(join(secretDir, 'b.md'), 'SECRET');
+    symlinkSync(secretDir, join(dir, 'docs/lessons'));
+    try {
+      const { entries } = parseDocsScan(runScan(dir));
+      expect(entries.map((e) => e.path)).toEqual(['docs/superpowers/specs/a.md']);
+      const map = parseDocsRead(runRead(dir, ['docs/superpowers/specs/a.md', 'docs/lessons/b.md']));
+      expect(map.get('docs/superpowers/specs/a.md')).toBe('A');
+      expect(map.has('docs/lessons/b.md')).toBe(false);
+    } finally {
+      rmSync(secretDir, { recursive: true, force: true });
+    }
+  });
+
   it('a missing docs/superpowers gives zero entries and no ERR', () => {
     const { entries, err } = parseDocsScan(runScan(dir));
     expect(entries).toEqual([]);
@@ -201,6 +227,16 @@ describe('buildDocsReadScript / parseDocsRead', () => {
     write('docs/other/x.md', 'nope');
     const map = parseDocsRead(runRead(dir, ['docs/other/x.md']));
     expect(map.size).toBe(0);
+  });
+
+  it('reads a docs/lessons/*.md file, but never README.md or a nested path', () => {
+    write('docs/lessons/2026-09-27-x.md', 'lição');
+    write('docs/lessons/README.md', 'formato');
+    write('docs/lessons/sub/y.md', 'nope');
+    const map = parseDocsRead(runRead(dir, ['docs/lessons/2026-09-27-x.md', 'docs/lessons/README.md', 'docs/lessons/sub/y.md']));
+    expect(map.get('docs/lessons/2026-09-27-x.md')).toBe('lição');
+    expect(map.has('docs/lessons/README.md')).toBe(false);
+    expect(map.has('docs/lessons/sub/y.md')).toBe(false);
   });
 
   it('rejects a path with an extra slash (traversal), even handed directly to the script', () => {

@@ -11,7 +11,7 @@ const { agentRpc, requireAgentVersion, runOnMachine } = vi.hoisted(() => ({
 vi.mock('../agent/errors.js', () => ({ agentRpc, requireAgentVersion }));
 vi.mock('../terminal/machine-exec.js', async (orig) => ({ ...(await orig<typeof import('../terminal/machine-exec.js')>()), runOnMachine }));
 
-const { DOCS_MIN_AGENT_VERSION, indexDocsForLink, machineDocsExec } = await import('./docs.js');
+const { DOCS_LESSONS_MIN_AGENT_VERSION, DOCS_MIN_AGENT_VERSION, indexDocsForLink, machineDocsExec } = await import('./docs.js');
 
 const log = () => ({ info: vi.fn(), warn: vi.fn() });
 const sha = (c: string) => c.repeat(64);
@@ -32,7 +32,9 @@ const toRow = (it: NewMemoryItem): MemoryItem => ({ ...it, id: `mem-${it.source_
 
 function fakeRepos(known: Record<string, string> = {}) {
   const memoryItems = {
-    listSourceHashes: vi.fn(async () => new Map(Object.entries(known))),
+    // `known` here is always doc-shaped fixtures (pre-dating lessons): a lesson lookup gets an empty
+    // map, never the same rows back under the other kind.
+    listSourceHashes: vi.fn(async (kind: string) => new Map(kind === 'lesson' ? [] : Object.entries(known))),
     replaceSourceChunks: vi.fn(async (_kind: string, _sourceId: string, items: NewMemoryItem[]) => items.map(toRow)),
     upsertMany: vi.fn(async (items: NewMemoryItem[]) => items.map(toRow)),
     deleteChunksFrom: vi.fn(async () => 0),
@@ -209,6 +211,114 @@ describe('indexDocsForLink', () => {
     expect(logged).not.toContain('segredo');
     expect(logged).not.toContain('secreto');
   });
+
+  describe('docs/lessons/*.md (spec 2026-09-27 failure lessons)', () => {
+    const lessonPath = (n: string) => `docs/lessons/${n}.md`;
+
+    /** Distinguishes `known`/`knownLessons` by the `kind` the caller passes — unlike the top-level
+     *  `fakeRepos`, whose stub ignores it (fine there, since no test above mixes doc and lesson
+     *  source ids under the same link). */
+    function fakeReposByKind(knownDocs: Record<string, string> = {}, knownLessons: Record<string, string> = {}) {
+      const listSourceHashes = vi.fn(async (kind: string) => new Map(Object.entries(kind === 'lesson' ? knownLessons : knownDocs)));
+      return {
+        memoryItems: {
+          listSourceHashes,
+          replaceSourceChunks: vi.fn(async (_kind: string, _sourceId: string, items: NewMemoryItem[]) => items.map(toRow)),
+          upsertMany: vi.fn(async (items: NewMemoryItem[]) => items.map(toRow)),
+          deleteChunksFrom: vi.fn(async () => 0),
+          deleteBySource: vi.fn(async () => 0),
+          setEmbedding: vi.fn(async () => {}),
+        },
+      };
+    }
+
+    const lessonMd = (symptom: string) => `---\nsymptom: "${symptom}"\nevidence: fixed\n---\n\ncorpo`;
+
+    it('scans specs/plans and lessons together, but reads lessons in a separate call, indexed as kind lesson', async () => {
+      const repos = fakeReposByKind();
+      const exec = {
+        scan: vi.fn(async () => scanOut([{ path: spec('s'), sha: sha('a') }, { path: lessonPath('a'), sha: sha('b') }])),
+        read: vi.fn(async (_m: Machine, _c: string, paths: string[]) => readOut(Object.fromEntries(paths.map((p) => [p, 'corpo do spec'])))),
+        readLessons: vi.fn(async (_m: Machine, _c: string, paths: string[]) => readOut(Object.fromEntries(paths.map((p) => [p, lessonMd('P1: falha')])))),
+      };
+      const r = await indexDocsForLink(repos as never, link(), deps(exec));
+
+      expect(exec.read).toHaveBeenCalledTimes(1);
+      expect(exec.read.mock.calls[0]![2]).toEqual([spec('s')]);
+      expect(exec.readLessons).toHaveBeenCalledTimes(1);
+      expect(exec.readLessons.mock.calls[0]![2]).toEqual([lessonPath('a')]);
+
+      const docCall = repos.memoryItems.replaceSourceChunks.mock.calls.find((c) => c[0] === 'doc')!;
+      expect(docCall[1]).toBe(`L1:${spec('s')}`);
+
+      const lessonCall = repos.memoryItems.replaceSourceChunks.mock.calls.find((c) => c[0] === 'lesson')!;
+      expect(lessonCall[1]).toBe(`L1:${lessonPath('a')}`);
+      const lessonItems = lessonCall[2] as NewMemoryItem[];
+      expect(lessonItems).toEqual([
+        expect.objectContaining({
+          kind: 'lesson',
+          trust: 'derived',
+          title: 'P1: falha',
+          text: 'corpo',
+          source_hash: sha('b'),
+          meta: expect.objectContaining({ origin: 'file', path: lessonPath('a'), evidence: 'fixed' }),
+        }),
+      ]);
+      expect(r).toEqual({ read: 2, removed: 0 });
+    });
+
+    it('docs/lessons/README.md is never requested even if a scan somehow reports it', async () => {
+      const repos = fakeReposByKind();
+      const readme = 'docs/lessons/README.md';
+      const exec = {
+        scan: vi.fn(async () => scanOut([{ path: readme, sha: sha('r') }])),
+        read: vi.fn(async () => ''),
+        readLessons: vi.fn(async () => ''),
+      };
+      await indexDocsForLink(repos as never, link(), deps(exec));
+      // `isLessonPath` refuses README.md, so it is treated as neither a doc nor a lesson path.
+      expect(exec.read).not.toHaveBeenCalled();
+      expect(exec.readLessons).not.toHaveBeenCalled();
+    });
+
+    it('a lessons read failure (e.g. an agent too old for 0.8.1) never blocks specs/plans, and deletes no lesson', async () => {
+      const repos = fakeReposByKind({}, { [`L1:${lessonPath('old')}`]: sha('e') });
+      const exec = {
+        scan: vi.fn(async () => scanOut([{ path: spec('s'), sha: sha('a') }, { path: lessonPath('old'), sha: sha('f') }])),
+        read: vi.fn(async (_m: Machine, _c: string, paths: string[]) => readOut(Object.fromEntries(paths.map((p) => [p, 'corpo do spec'])))),
+        readLessons: vi.fn(async () => Promise.reject(new HttpError(409, 'Atualize', 'AGENT_OUTDATED'))),
+      };
+      const l = log();
+      const r = await indexDocsForLink(repos as never, link(), deps(exec, l));
+
+      expect(repos.memoryItems.replaceSourceChunks).toHaveBeenCalledWith('doc', `L1:${spec('s')}`, expect.anything());
+      expect(repos.memoryItems.replaceSourceChunks).not.toHaveBeenCalledWith('lesson', expect.anything(), expect.anything());
+      expect(repos.memoryItems.deleteBySource).not.toHaveBeenCalled();
+      expect(l.info).toHaveBeenCalledWith({ linkId: 'L1', code: 'AGENT_OUTDATED' }, expect.any(String));
+      expect(r).toEqual({ read: 1, removed: 0 });
+    });
+
+    it('a specs/plans read failure never blocks lessons', async () => {
+      const repos = fakeReposByKind();
+      const exec = {
+        scan: vi.fn(async () => scanOut([{ path: spec('s'), sha: sha('a') }, { path: lessonPath('a'), sha: sha('b') }])),
+        read: vi.fn(async () => Promise.reject(new HttpError(504, 'x', 'AGENT_TIMEOUT'))),
+        readLessons: vi.fn(async (_m: Machine, _c: string, paths: string[]) => readOut(Object.fromEntries(paths.map((p) => [p, lessonMd('P1')])))),
+      };
+      const r = await indexDocsForLink(repos as never, link(), deps(exec));
+      expect(repos.memoryItems.replaceSourceChunks).toHaveBeenCalledWith('lesson', `L1:${lessonPath('a')}`, expect.anything());
+      expect(repos.memoryItems.replaceSourceChunks).not.toHaveBeenCalledWith('doc', expect.anything(), expect.anything());
+      expect(r).toEqual({ read: 1, removed: 0 });
+    });
+
+    it('a lesson file no longer listed has its lesson items deleted, never a doc', async () => {
+      const repos = fakeReposByKind({ [`L1:${spec('kept')}`]: sha('c') }, { [`L1:${lessonPath('gone')}`]: sha('g') });
+      const exec = fakeExec({ [spec('kept')]: { sha: sha('c'), text: 'x' } });
+      const r = await indexDocsForLink(repos as never, link(), deps(exec));
+      expect(repos.memoryItems.deleteBySource).toHaveBeenCalledWith('lesson', [`L1:${lessonPath('gone')}`]);
+      expect(r).toEqual({ read: 0, removed: 1 });
+    });
+  });
 });
 
 describe('machineDocsExec', () => {
@@ -238,6 +348,26 @@ describe('machineDocsExec', () => {
     expect(agentRpc).not.toHaveBeenCalled();
   });
 
+  it('readLessons goes through docs.read too, but version-gated at DOCS_LESSONS_MIN_AGENT_VERSION, not DOCS_MIN_AGENT_VERSION', async () => {
+    agentRpc.mockResolvedValueOnce({ stdout: 'lessons' });
+    const m = machine('agent');
+    expect(await machineDocsExec.readLessons(m, '/srv/repo', ['docs/lessons/a.md'])).toBe('lessons');
+    expect(requireAgentVersion).toHaveBeenCalledWith(m, DOCS_LESSONS_MIN_AGENT_VERSION);
+    expect(DOCS_LESSONS_MIN_AGENT_VERSION).toBe('0.8.1');
+    expect(agentRpc).toHaveBeenCalledWith(m, 'docs.read', { cwd: '/srv/repo', paths: ['docs/lessons/a.md'] });
+  });
+
+  it('an agent too old for lessons but old enough for specs/plans is refused only on readLessons', async () => {
+    requireAgentVersion.mockImplementation((_m: Machine, minVersion: string) => {
+      if (minVersion === DOCS_LESSONS_MIN_AGENT_VERSION) throw new HttpError(409, 'Atualize', 'AGENT_OUTDATED');
+    });
+    agentRpc.mockResolvedValueOnce({ stdout: 'read' });
+    const m = machine('agent');
+    await expect(machineDocsExec.readLessons(m, '/srv/repo', ['docs/lessons/a.md'])).rejects.toMatchObject({ code: 'AGENT_OUTDATED' });
+    expect(await machineDocsExec.read(m, '/srv/repo', [spec('a')])).toBe('read');
+    expect(agentRpc).toHaveBeenCalledTimes(1);
+  });
+
   for (const type of ['ssh', 'local'] as const) {
     it(`a ${type} machine runs the shell-quoted script through runOnMachine`, async () => {
       runOnMachine.mockResolvedValue({ code: 0, stdout: 'out', stderr: '', timedOut: false });
@@ -251,6 +381,13 @@ describe('machineDocsExec', () => {
       expect(script1).toContain(`P='/srv/it'\\''s'`);
       const script2 = runOnMachine.mock.calls[1]![2] as string;
       expect(script2).toContain(`for f in '${spec('a')}' '${plan('b')}'; do`);
+
+      runOnMachine.mockClear();
+      runOnMachine.mockResolvedValue({ code: 0, stdout: 'out', stderr: '', timedOut: false });
+      expect(await machineDocsExec.readLessons(m, '/srv/repo', ['docs/lessons/a.md'])).toBe('out');
+      const script3 = runOnMachine.mock.calls[0]![2] as string;
+      expect(script3).toContain(`for f in 'docs/lessons/a.md'; do`);
+      expect(agentRpc).not.toHaveBeenCalled();
     });
   }
 

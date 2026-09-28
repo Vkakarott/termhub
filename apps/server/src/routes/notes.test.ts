@@ -4,7 +4,11 @@ import type { Repositories } from '../db/repositories/index.js';
 import { NoteTooLargeError } from '../db/repositories/notes.js';
 import type { Note } from '../db/repositories/types.js';
 import { applyErrorHandler } from '../lib/errors.js';
-import { noteRoutes } from './notes.js';
+
+const { indexProjectNote } = vi.hoisted(() => ({ indexProjectNote: vi.fn(async () => ({ sections: 0, lessons: 0 })) }));
+vi.mock('../memory/note.js', () => ({ indexProjectNote }));
+
+const { noteRoutes } = await import('./notes.js');
 
 const project = { id: 'p1', key: 'P1', owner_id: 'u1' };
 const note = (over: Partial<Note> = {}): Note => ({ id: 'n1', project_id: 'p1', content: 'texto', updated_at: '2026-09-27T03:00:00.000Z', ...over });
@@ -83,5 +87,26 @@ describe('note routes', () => {
     const { app } = buildApp();
     const r = await app.inject({ method: 'GET', url: '/projects/p9/note' });
     expect(r.statusCode).toBe(404);
+  });
+
+  it('a successful PUT fires indexProjectNote (best effort, never awaited by the response)', async () => {
+    indexProjectNote.mockClear();
+    const { app } = buildApp();
+    const r = await app.inject({ method: 'PUT', url: '/projects/p1/note', payload: { content: 'novo texto' } });
+    expect(r.statusCode).toBe(200);
+    expect(indexProjectNote).toHaveBeenCalledTimes(1);
+    expect(indexProjectNote.mock.calls[0]![1]).toBe('p1');
+    expect(indexProjectNote.mock.calls[0]![2]).toMatchObject({ log: expect.anything() });
+  });
+
+  it('a 413 (note too large) never fires indexProjectNote', async () => {
+    indexProjectNote.mockClear();
+    const saveMerged = vi.fn(async () => {
+      throw new NoteTooLargeError();
+    });
+    const { app } = buildApp(saveMerged);
+    const r = await app.inject({ method: 'PUT', url: '/projects/p1/note', payload: { content: 'x', base_updated_at: '2026-09-27T03:00:00.000Z' } });
+    expect(r.statusCode).toBe(413);
+    expect(indexProjectNote).not.toHaveBeenCalled();
   });
 });
