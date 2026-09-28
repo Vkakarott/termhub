@@ -412,30 +412,34 @@ describe('"Lições" (spec 2026-09-27 failure lessons §6/§8)', () => {
     expect(spy.mock.calls.length).toBe(callsBefore);
   });
 
-  it('verifyLesson calls the API and updates the row in place', async () => {
+  it('toggleLessonVerified(id, false) calls verifyChatLesson and updates the row in place', async () => {
     const { store, api } = await setup();
     jest.spyOn(api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1' })], next_cursor: null });
     await store.getState().loadLessons();
     const verified = lesson({ id: 'l1', verified: true, verified_at: '2026-09-27T10:00:00.000Z' });
     const spy = jest.spyOn(api, 'verifyChatLesson').mockResolvedValue(verified);
+    const unverifySpy = jest.spyOn(api, 'unverifyChatLesson');
 
-    await store.getState().verifyLesson('l1');
+    await store.getState().toggleLessonVerified('l1', false);
 
     expect(spy).toHaveBeenCalledWith(expect.anything(), 'l1');
+    expect(unverifySpy).not.toHaveBeenCalled();
     expect(store.getState().lessons?.[0]).toEqual(verified);
     expect(store.getState().verifyingLessonId).toBeNull();
   });
 
-  it('unverifyLesson calls the API and updates the row in place', async () => {
+  it('toggleLessonVerified(id, true) calls unverifyChatLesson and updates the row in place', async () => {
     const { store, api } = await setup();
     jest.spyOn(api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1', verified: true, verified_at: '2026-09-27T10:00:00.000Z' })], next_cursor: null });
     await store.getState().loadLessons();
     const unverified = lesson({ id: 'l1', verified: false, verified_at: null });
     const spy = jest.spyOn(api, 'unverifyChatLesson').mockResolvedValue(unverified);
+    const verifySpy = jest.spyOn(api, 'verifyChatLesson');
 
-    await store.getState().unverifyLesson('l1');
+    await store.getState().toggleLessonVerified('l1', true);
 
     expect(spy).toHaveBeenCalledWith(expect.anything(), 'l1');
+    expect(verifySpy).not.toHaveBeenCalled();
     expect(store.getState().lessons?.[0]).toEqual(unverified);
   });
 

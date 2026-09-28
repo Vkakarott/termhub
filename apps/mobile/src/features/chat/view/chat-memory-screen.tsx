@@ -141,8 +141,7 @@ export function ChatMemoryScreen() {
   const loadLessons = useChatMemoryStore((s) => s.loadLessons);
   const searchLessons = useChatMemoryStore((s) => s.searchLessons);
   const loadMoreLessons = useChatMemoryStore((s) => s.loadMoreLessons);
-  const verifyLesson = useChatMemoryStore((s) => s.verifyLesson);
-  const unverifyLesson = useChatMemoryStore((s) => s.unverifyLesson);
+  const toggleLessonVerified = useChatMemoryStore((s) => s.toggleLessonVerified);
   const forgetLesson = useChatMemoryStore((s) => s.forgetLesson);
 
   useEffect(() => {
@@ -172,13 +171,6 @@ export function ChatMemoryScreen() {
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Esquecer', style: 'destructive', onPress: () => void forgetNote(n.id) },
     ]);
-  };
-
-  /** "Verificar" / "Desfazer verificação": one handler, the direction decided by the row's own
-   * current state — mirrors `ChatMemoryPage`'s `toggleLessonVerified`. */
-  const toggleLessonVerified = (l: TLessonItem) => {
-    if (l.verified) void unverifyLesson(l.id);
-    else void verifyLesson(l.id);
   };
 
   /** "Esquecer esta lição?" verbatim (binding clarifications) — the mobile twin of the web's
@@ -287,7 +279,7 @@ export function ChatMemoryScreen() {
                       lesson={l}
                       verifying={verifyingLessonId === l.id}
                       forgetting={forgettingLessonId === l.id}
-                      onToggleVerified={() => toggleLessonVerified(l)}
+                      onToggleVerified={() => void toggleLessonVerified(l.id, l.verified)}
                       onForget={() => confirmForgetLesson(l)}
                     />
                   ))}

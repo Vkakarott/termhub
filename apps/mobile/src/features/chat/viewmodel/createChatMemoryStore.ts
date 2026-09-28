@@ -112,11 +112,11 @@ export interface ChatMemoryState {
   searchLessons(q: string): void;
   /** The next page, appended; a no-op with no `lessonsCursor` or while one is already loading. */
   loadMoreLessons(): Promise<void>;
-  /** "Verificar": 404 (silently, like every other memory-item id here) is not expected — the row
-   * shown is always this user's own. */
-  verifyLesson(id: string): Promise<void>;
-  /** "Desfazer verificação": the inverse of `verifyLesson`. */
-  unverifyLesson(id: string): Promise<void>;
+  /** "Verificar" / "Desfazer verificação": one call, the direction picked by `verified` (the row's
+   * own current state, mirroring `ChatMemoryPage`'s `toggleLessonVerified`) — `true` unverifies,
+   * `false` verifies. 404 (silently, like every other memory-item id here) is not expected — the
+   * row shown is always this user's own. */
+  toggleLessonVerified(id: string, verified: boolean): Promise<void>;
   /** "Esquecer": the same hard delete as a decision's/note's, plus the server's `note` (if any) in
    * `lessonsNote` for the screen to show. */
   forgetLesson(id: string): Promise<void>;
@@ -373,24 +373,11 @@ export function createChatMemoryStore(deps: ChatMemoryDeps) {
         }
       },
 
-      async verifyLesson(id) {
+      async toggleLessonVerified(id, verified) {
         if (get().verifyingLessonId !== null) return;
         set({ verifyingLessonId: id, lessonsError: null });
         try {
-          const updated = await api.verifyChatLesson(session().auth(), id);
-          set((s) => ({ lessons: (s.lessons ?? []).map((l) => (l.id === updated.id ? updated : l)), verifyingLessonId: null }));
-        } catch (e) {
-          set({ verifyingLessonId: null });
-          if (session().handleApiError(e)) return;
-          set({ lessonsError: isApiError(e) ? e.message : 'Não foi possível verificar a lição' });
-        }
-      },
-
-      async unverifyLesson(id) {
-        if (get().verifyingLessonId !== null) return;
-        set({ verifyingLessonId: id, lessonsError: null });
-        try {
-          const updated = await api.unverifyChatLesson(session().auth(), id);
+          const updated = verified ? await api.unverifyChatLesson(session().auth(), id) : await api.verifyChatLesson(session().auth(), id);
           set((s) => ({ lessons: (s.lessons ?? []).map((l) => (l.id === updated.id ? updated : l)), verifyingLessonId: null }));
         } catch (e) {
           set({ verifyingLessonId: null });
