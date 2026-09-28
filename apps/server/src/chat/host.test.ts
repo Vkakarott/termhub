@@ -71,8 +71,11 @@ function build(opts: {
   const agents = {
     capabilities: vi.fn((id: string) => online[id]?.capabilities ?? null),
     info: vi.fn((id: string) => (online[id] ? { agent_version: online[id].agent_version } : null)),
+    // The default here is an agent already reachable: nothing to wait for. Tests of the wait itself
+    // override this.
+    awaitAgent: vi.fn(async () => true),
   };
-  return { ctx: { repos, agents } as unknown as HostContext, repos, agents, conversation };
+  return { ctx: { repos, agents } as unknown as HostContext, repos, agents, online, conversation };
 }
 
 const kinds = (choice: HostChoice) => choice.kind;
@@ -262,4 +265,29 @@ it('says whether the run conversation session is at stake, not the account-wide 
   expect(await resolveHost(ctx, user, { runSessionId: null })).toMatchObject({ kind: 'not_chosen', sessionAtStake: false });
   expect(await resolveHost(ctx, user, { runSessionId: 'sess-project' })).toMatchObject({ kind: 'not_chosen', sessionAtStake: true });
   expect(await resolveHost(ctx, user)).toMatchObject({ kind: 'not_chosen', sessionAtStake: true });
+});
+
+it('waits for a moving agent (a deploy) before reading capabilities, and reports it ready once it attaches', async () => {
+  const moving = machine('m1', 'jarvis');
+  const { ctx, agents, online } = build({ machines: [moving], online: {} });
+  // Not online yet when resolveHost starts (capabilities would answer null); awaitAgent resolving is
+  // what a moving agent's attach looks like, so capabilities only becomes readable after it resolves.
+  agents.awaitAgent.mockImplementation(async () => {
+    online['m1'] = { capabilities: ['claude'], agent_version: '0.5.0' };
+    return true;
+  });
+
+  const choice = await resolveHost(ctx, user);
+
+  expect(choice.kind).toBe('ready');
+  expect(agents.awaitAgent).toHaveBeenCalledWith(moving);
+});
+
+it('answers offline when the awaited agent never attaches in time', async () => {
+  const moving = machine('m1', 'jarvis');
+  const { ctx, agents } = build({ machines: [moving], online: {} });
+  agents.awaitAgent.mockResolvedValue(false);
+
+  expect(await resolveHost(ctx, user)).toEqual({ kind: 'offline', machine: moving });
+  expect(agents.awaitAgent).toHaveBeenCalledWith(moving);
 });

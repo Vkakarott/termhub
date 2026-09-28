@@ -36,7 +36,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   vi.mocked(captureScreen).mockReset();
   vi.mocked(captureStyledScreen).mockReset();
-  vi.spyOn(agents, 'isOnline').mockReturnValue(true);
+  vi.spyOn(agents, 'awaitAgent').mockResolvedValue(true);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -77,9 +77,21 @@ describe('readScreen', () => {
   });
 
   it('reports an offline agent machine as MACHINE_OFFLINE without trying to capture', async () => {
-    vi.mocked(agents.isOnline).mockReturnValue(false);
+    vi.mocked(agents.awaitAgent).mockResolvedValue(false);
     await expect(readScreen(ctx(), { tab_id: 't1' })).rejects.toMatchObject({ code: 'MACHINE_OFFLINE', message: 'A máquina está offline: o termhub-agent dela não está conectado' });
     expect(captureStyledScreen).not.toHaveBeenCalled();
+  });
+
+  it('proceeds once a moving agent (a deploy) attaches within the wait, instead of answering offline at once', async () => {
+    let release!: (v: boolean) => void;
+    vi.mocked(agents.awaitAgent).mockReturnValue(new Promise<boolean>((r) => (release = r)));
+    vi.mocked(captureStyledScreen).mockResolvedValue({ text: '$ ls\n', styled: true });
+    const reading = readScreen(ctx(), { tab_id: 't1' });
+    await Promise.resolve();
+    expect(captureStyledScreen).not.toHaveBeenCalled();
+    release(true);
+    await expect(reading).resolves.toMatchObject({ text: '$ ls\n' });
+    expect(agents.awaitAgent).toHaveBeenCalledWith(m1);
   });
 
   it('reports an agent that dropped mid-capture as MACHINE_OFFLINE', async () => {

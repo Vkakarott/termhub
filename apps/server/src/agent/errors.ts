@@ -82,6 +82,9 @@ export function requireSimCapable(machine: Machine): void {
 /** Calls a named RPC on the machine's agent connection, converting connection/protocol errors via toHttpError. */
 export async function agentRpc<M extends RpcMethod>(machine: Machine, method: M, params: RpcParams<M>): Promise<RpcResult<M>> {
   try {
+    // A moving agent (a deploy) gets a few seconds to attach; an offline result falls through to
+    // `agents.rpc`, which throws AgentOfflineError -> toHttpError -> 503, same as today.
+    await agents.awaitAgent(machine);
     return await agents.rpc(machine.id, method, params);
   } catch (err) {
     throw toHttpError(err);

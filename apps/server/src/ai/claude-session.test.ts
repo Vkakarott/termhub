@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { claudeLinkScript } from '@termhub/machine-ops';
 
-const { rpc, info, runOnMachine } = vi.hoisted(() => ({ rpc: vi.fn(), info: vi.fn(), runOnMachine: vi.fn() }));
-vi.mock('../agent/registry.js', () => ({ agents: { rpc, info }, AgentOfflineError: class extends Error {} }));
+const { rpc, info, awaitAgent, runOnMachine } = vi.hoisted(() => ({ rpc: vi.fn(), info: vi.fn(), awaitAgent: vi.fn(), runOnMachine: vi.fn() }));
+vi.mock('../agent/registry.js', () => ({ agents: { rpc, info, awaitAgent }, AgentOfflineError: class extends Error {} }));
 vi.mock('../terminal/machine-exec.js', () => ({ runOnMachine }));
 
 import type { Machine } from '../db/repositories/types.js';
@@ -17,6 +17,7 @@ const input = { transcriptPath: PATH, sessionId: SID, configDir: '~/.claude_b' }
 beforeEach(() => {
   vi.clearAllMocks();
   info.mockReturnValue({ agent_version: '0.7.0' });
+  awaitAgent.mockResolvedValue(true);
 });
 
 describe('linkClaudeSession', () => {

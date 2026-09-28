@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Machine } from '../db/repositories/types.js';
 import { AgentRpcError, AgentTimeoutError } from './connection.js';
 import { AgentOfflineError, agents } from './registry.js';
-import { requireSimCapable, toHttpError, versionAtLeast } from './errors.js';
+import { agentRpc, requireSimCapable, toHttpError, versionAtLeast } from './errors.js';
 
 describe('versionAtLeast', () => {
   it('compares dotted numeric versions component by component', () => {
@@ -78,5 +78,35 @@ describe('requireSimCapable', () => {
   it('passes when the agent claims sim', () => {
     attachFake('m-sim', { agent_version: '0.5.0', capabilities: ['sim'] });
     expect(() => requireSimCapable({ ...base, type: 'agent' })).not.toThrow();
+  });
+});
+
+describe('agentRpc', () => {
+  const machine = { id: 'm1', name: 'jarvis', type: 'agent' } as unknown as Machine;
+  afterEach(() => vi.restoreAllMocks());
+
+  it('waits for a moving agent before calling the rpc, in that order', async () => {
+    const order: string[] = [];
+    const awaitAgentSpy = vi.spyOn(agents, 'awaitAgent').mockImplementation(async () => {
+      order.push('awaitAgent');
+      return true;
+    });
+    const rpcSpy = vi.spyOn(agents, 'rpc').mockImplementation(async () => {
+      order.push('rpc');
+      return { ok: true } as never;
+    });
+
+    await agentRpc(machine, 'tmux.capture' as never, {} as never);
+
+    expect(awaitAgentSpy).toHaveBeenCalledWith(machine);
+    expect(rpcSpy).toHaveBeenCalled();
+    expect(order).toEqual(['awaitAgent', 'rpc']);
+  });
+
+  it('an awaited agent that never attaches still falls through to rpc, which answers 503 AGENT_OFFLINE as today', async () => {
+    vi.spyOn(agents, 'awaitAgent').mockResolvedValue(false);
+    vi.spyOn(agents, 'rpc').mockRejectedValue(new AgentOfflineError('agent offline: m1'));
+
+    await expect(agentRpc(machine, 'tmux.capture' as never, {} as never)).rejects.toMatchObject({ statusCode: 503, code: 'AGENT_OFFLINE' });
   });
 });

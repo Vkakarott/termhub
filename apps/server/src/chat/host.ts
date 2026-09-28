@@ -12,6 +12,9 @@ import { HttpError } from '../lib/errors.js';
 export interface HostAgents {
   capabilities(machineId: string): string[] | null;
   info(machineId: string): { agent_version: string } | null;
+  /** Waits a little for a machine's agent that is moving between instances (a deploy, spec §5.3)
+   *  before `capabilities` is read; `AgentRegistry.awaitAgent` in production. */
+  awaitAgent(machine: Pick<Machine, 'id' | 'type' | 'agent_last_seen_at'>): Promise<boolean>;
 }
 
 /** Everything `resolveHost` needs, so it can be exercised without a server: the owner-scoped reads
@@ -104,6 +107,8 @@ export async function resolveHost(ctx: HostContext, user: User, opts: { requires
   const machine = chosen ?? (candidates.length === 1 ? candidates[0] : undefined);
   if (!machine) return { kind: 'not_chosen', machines: candidates, sessionAtStake };
 
+  // a host moving between instances (a deploy) gets a few seconds before the message is answered "offline"
+  await ctx.agents.awaitAgent(machine);
   const capabilities = ctx.agents.capabilities(machine.id);
   // Offline, or connected but still before `hello`: the same thing to a message that has to be sent
   // now. Never a fallback to the operator's container (spec §3) — that would spend the operator's

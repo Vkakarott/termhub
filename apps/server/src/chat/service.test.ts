@@ -274,6 +274,7 @@ function build(lines: string[] | (() => AsyncIterable<string>), opts: { chatActi
   const agents = {
     capabilities: vi.fn(() => (opts.host && 'capabilities' in opts.host ? (opts.host.capabilities ?? null) : ['pty', 'claude', 'claude.system_prompt', ...(opts.streaming ? ['claude.stream_input'] : [])])),
     info: vi.fn(() => ({ agent_version: '0.5.0' })),
+    awaitAgent: vi.fn(async () => true),
   };
   const runner: RunnerClient = {
     // Every run can take more input, like `agentRunner`'s: a one-shot run simply never gets any.
