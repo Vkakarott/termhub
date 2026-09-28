@@ -12,12 +12,29 @@
 export const APP_HEIGHT_VAR = '--app-height';
 
 /**
+ * Whether an on-screen keyboard can ever appear on this window: only a touch screen has one. iPadOS
+ * reports a desktop-class window (and, in Safari, a desktop user agent) but still has touch points;
+ * a Mac, with or without a trackpad, has none.
+ */
+export function hasOnScreenKeyboard(win: Window = window): boolean {
+  return (win.navigator?.maxTouchPoints ?? 0) > 0;
+}
+
+/**
  * Keeps `--app-height` on `<html>` up to date until the returned function is called. Only the
  * screens that need it install this (ChatLayout, and ChatDock while a project chat is shown — full
  * screen on a narrow window, docked in `Layout`'s row on a wide one such as an iPad), so every other
  * screen — the terminals above all — keeps the sizing it already had.
+ *
+ * On a window that cannot show an on-screen keyboard this is a no-op: the variable stays unset and
+ * the shells fall back to their CSS height (`100%`, `100svh`), which is the window. The visual
+ * viewport is only tracked for the keyboard, and on a desktop it has nothing the window does not —
+ * so anything it reports there can only size the shell to something other than the window. That is
+ * what happened when the docked chat started tracking it on every wide window (TER-313): Chrome on
+ * a Mac published about half the window, and the whole app ended halfway down the page (TER-385).
  */
 export function trackAppHeight(win: Window = window): () => void {
+  if (!hasOnScreenKeyboard(win)) return () => {};
   const viewport = win.visualViewport ?? null;
   const root = win.document.documentElement;
 

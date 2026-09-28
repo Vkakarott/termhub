@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { APP_HEIGHT_VAR, trackAppHeight } from './viewport';
 
 /** A window with a scriptable visual viewport: jsdom has no `visualViewport` and never resizes one. */
-function fakeWindow(opts: { viewportHeight?: number | null; scale?: number; innerHeight?: number; scrollY?: number } = {}) {
-  const { viewportHeight = 400, scale = 1, innerHeight = 800, scrollY = 0 } = opts;
+function fakeWindow(opts: { viewportHeight?: number | null; scale?: number; innerHeight?: number; scrollY?: number; touchPoints?: number } = {}) {
+  // a touch screen by default: every keyboard scenario below is a phone or an iPad
+  const { viewportHeight = 400, scale = 1, innerHeight = 800, scrollY = 0, touchPoints = 5 } = opts;
   const listeners = new Map<string, Set<() => void>>();
   const on = (type: string, fn: () => void) => {
     const set = listeners.get(type) ?? new Set();
@@ -19,6 +20,7 @@ function fakeWindow(opts: { viewportHeight?: number | null; scale?: number; inne
     innerHeight,
     scrollY,
     scrollTo: vi.fn(),
+    navigator: { maxTouchPoints: touchPoints },
     document: window.document,
     addEventListener: on,
     removeEventListener: off,
@@ -81,6 +83,25 @@ describe('trackAppHeight', () => {
     const { win } = fakeWindow({ viewportHeight: null, innerHeight: 768 });
     trackAppHeight(win);
     expect(appHeight()).toBe('768px');
+  });
+
+  it('is a no-op on a window without a touch screen (a desktop): no variable, no listeners (TER-385)', () => {
+    // A desktop browser has no on-screen keyboard, so its visual viewport never has anything the
+    // window does not; whatever it reports (Chrome on a Mac gave about half the window) can only size
+    // the shell to something other than the window. The CSS fallback (100% / 100svh) is the window.
+    const { win, listenerCount } = fakeWindow({ touchPoints: 0, viewportHeight: 480, innerHeight: 959 });
+    const stop = trackAppHeight(win);
+    expect(appHeight()).toBe('');
+    expect(listenerCount()).toBe(0);
+    expect(win.scrollTo).not.toHaveBeenCalled();
+    stop();
+    expect(appHeight()).toBe('');
+  });
+
+  it('still tracks on an iPad: a desktop-class window, but a touch screen with a keyboard', () => {
+    const { win } = fakeWindow({ touchPoints: 5, viewportHeight: 417, innerHeight: 834 });
+    trackAppHeight(win);
+    expect(appHeight()).toBe('417px');
   });
 
   it('drops its listeners and the variable on cleanup, so other routes keep their own sizing', () => {

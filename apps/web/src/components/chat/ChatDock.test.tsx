@@ -143,6 +143,7 @@ it('wide window (an iPad): tracks the height the keyboard leaves while a chat is
   // screen-tall page under it (TER-313).
   const visualViewport = { height: 500, scale: 1, addEventListener: vi.fn(), removeEventListener: vi.fn() };
   Object.defineProperty(window, 'visualViewport', { value: visualViewport, configurable: true });
+  Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true }); // a touch screen
   try {
     chat.alive = ['p1'];
     chat.shownProjectId = 'p1';
@@ -156,6 +157,28 @@ it('wide window (an iPad): tracks the height the keyboard leaves while a chat is
     expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('');
   } finally {
     delete (window as { visualViewport?: unknown }).visualViewport;
+    delete (navigator as { maxTouchPoints?: unknown }).maxTouchPoints;
+  }
+});
+
+it('wide window without a touch screen (a desktop): leaves --app-height alone, so the row keeps the window height (TER-385)', () => {
+  // No on-screen keyboard can ever shrink a desktop window, so nothing the visual viewport reports
+  // there is worth sizing the row to: Chrome on a Mac reported about half the window, and the whole
+  // app (sidebar, terminal, chat) ended halfway down the page. The row's CSS fallback is 100%.
+  const visualViewport = { height: 480, scale: 1, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+  Object.defineProperty(window, 'visualViewport', { value: visualViewport, configurable: true });
+  Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+  try {
+    chat.alive = ['p1'];
+    chat.shownProjectId = 'p1';
+    chat.prefs = { p1: open() };
+    renderDock();
+    expect(screen.getByRole('complementary', { name: 'Chat · termhub' })).toBeTruthy();
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('');
+    expect(visualViewport.addEventListener).not.toHaveBeenCalled();
+  } finally {
+    delete (window as { visualViewport?: unknown }).visualViewport;
+    delete (navigator as { maxTouchPoints?: unknown }).maxTouchPoints;
   }
 });
 
