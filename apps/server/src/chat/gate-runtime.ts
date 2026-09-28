@@ -7,13 +7,15 @@
  */
 import { CONTROL_CHARS } from '../control/agents.js';
 import { ControlError, type ControlContext } from '../control/context.js';
+import { readScreen } from '../control/screen.js';
 import type { ChatAction, ChatActionClass } from '../db/repositories/chat-actions.js';
 import { describeActions } from '../db/repositories/chat-actions-view.js';
 import type { Tab } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
 import { boardProjectOf } from './board-project.js';
-import { actionClass, BOARD_GRANT_BUDGET, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor } from './gate.js';
+import { actionClass, BOARD_GRANT_BUDGET, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, GRANTABLE_TOOL, idempotencyKeyFor, TAB_TERMINAL_GRANT, TERMINAL_GRANT_BUDGET, TERMINAL_GRANT_TOOLS, terminalGrantable } from './gate.js';
+import { permissionDialogVisible } from './permission-dialog.js';
 import { ACTION_TTL_MS } from './service.js';
 import { subagentOrigins } from './subagent-origin.js';
 
@@ -143,6 +145,14 @@ const TAB_WAITING_PERMISSION = (tabId: string) => ({
   message: `A aba ${tabId} passou a esperar uma permissão enquanto a confirmação estava pendente: digitar agora responderia essa pergunta, não o que o usuário confirmou. Nada foi executado e a confirmação não vale mais. Leia a tela com read_screen e proponha a ação de novo.`,
 });
 
+/** A call a grant ran into a tab that started asking for a permission after the gate let it through
+ * (spec 2026-09-27 TER-325 §2 "Lock at execution time"). Unlike a clicked `send_key`, a granted key
+ * never answers a permission: the user has to see that dialog. */
+const GRANTED_KEY_ON_PERMISSION = (tabId: string) => ({
+  code: 'WAITING_PERMISSION',
+  message: `A aba ${tabId} passou a pedir uma permissão antes desta tecla: responder permissões nunca é liberado sem o usuário. Nada foi executado. Proponha a ação de novo e o usuário confirma no chat.`,
+});
+
 const TAB_PROMPT_CHANGED = (tabId: string) => ({
   code: 'PROMPT_CHANGED',
   message: `A aba ${tabId} está esperando outra permissão, pedida depois da pergunta que o usuário confirmou: responder agora aceitaria algo que ele nunca viu. Nada foi executado e a confirmação não vale mais. Leia a tela com read_screen e proponha a ação de novo.`,
@@ -208,7 +218,8 @@ function promptChangedSince(tab: Tab, row: ChatAction): boolean {
  * An approval is a snapshot of the moment the user gave it. Between the question and the keystroke
  * the tab can be killed, or the tool in it can start asking for a permission — and then the approved
  * text would answer the wrong question. Either way the approval is spent: the row fails (never back
- * to pending) and the model is told why.
+ * to pending) and the model is told why. A row a grant approved never answers a permission at all,
+ * whatever the tool: nobody saw that dialog.
  */
 async function staleApproval(ctx: ControlContext, call: GatedCall, row: ChatAction): Promise<{ code: string; message: string } | undefined> {
   if (!row.tab_id) return undefined;
@@ -220,6 +231,8 @@ async function staleApproval(ctx: ControlContext, call: GatedCall, row: ChatActi
   if (!tab) return TAB_GONE(row.tab_id);
   if (tab.state === 'waiting_permission') {
     if (typesFreeText(call)) return TAB_WAITING_PERMISSION(row.tab_id);
+    // A grant's call was never shown to the user, so it cannot be the answer they chose.
+    if (row.grant_id) return GRANTED_KEY_ON_PERMISSION(row.tab_id);
     // The exempted tools answer a permission on purpose — but only the one the user actually saw.
     if (promptChangedSince(tab, row)) return TAB_PROMPT_CHANGED(row.tab_id);
   }
@@ -324,7 +337,8 @@ async function ask(ctx: ControlContext, call: GatedCall, conversationId: string,
 
 /**
  * Runs a call a grant (tab or project) already answered ("Permitir sempre nesta aba", spec 2026-09-25;
- * "Permitir sempre neste projeto", spec 2026-09-26). The row is
+ * "Permitir sempre neste projeto", spec 2026-09-26; "Liberar teclas e shell nesta aba" / "Liberar tudo
+ * neste projeto", spec 2026-09-27 TER-325). The row is
  * born `approved` and goes through `execute()` like a clicked approval — the claim, `staleApproval`
  * (so a dead tab or a tab waiting on a permission still blocks) and the audit — and the trail is told
  * live, since no card was ever shown for it.
@@ -399,8 +413,50 @@ async function projectGrantCovering(ctx: ControlContext, conversationId: string,
   if (!projectId) return null;
   const grant = await ctx.repos.chatProjectGrants.findActive(conversationId, projectId);
   if (!grant) return null;
-  const used = await ctx.repos.chatActions.countForGrantSince(conversationId, grant.id, new Date(Date.now() - BOARD_GRANT_BUDGET.windowMs));
+  // Board calls only: a "tudo" grant's terminal calls have a budget of their own (spec 2026-09-27 §2).
+  const used = await ctx.repos.chatActions.countForGrantSince(conversationId, grant.id, new Date(Date.now() - BOARD_GRANT_BUDGET.windowMs), [...BOARD_GRANT_TOOLS]);
   return used < BOARD_GRANT_BUDGET.calls ? grant.id : null;
+}
+
+/** Whether a grant has terminal calls left this hour, against `TERMINAL_GRANT_BUDGET`. */
+async function terminalBudgetLeft(ctx: ControlContext, conversationId: string, grantId: string): Promise<boolean> {
+  const used = await ctx.repos.chatActions.countForGrantSince(conversationId, grantId, new Date(Date.now() - TERMINAL_GRANT_BUDGET.windowMs), [...TERMINAL_GRANT_TOOLS]);
+  return used < TERMINAL_GRANT_BUDGET.calls;
+}
+
+/** The live half of "never answer a permission" (spec 2026-09-27 TER-325 §2): a plain capture of the
+ * tab's last lines. A dialog on screen — or a capture that fails, since then nothing is known — means
+ * ask. The capture is never logged or stored. */
+async function permissionOnScreen(ctx: ControlContext, tabId: string): Promise<boolean> {
+  try {
+    const { text } = await readScreen(ctx, { tab_id: tabId, lines: 40 }, { plain: true });
+    return permissionDialogVisible(text);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The terminal-level grant that covers a `send_input`/`send_key` (spec 2026-09-27 TER-325 §4): the tab's
+ * own "teclas e shell" grant, else a project "tudo" grant for the tab's project — resolved owner-scoped,
+ * so a foreign or missing tab is never covered by a project grant. A tab-level grant naming a tab that no
+ * longer resolves still returns, so `execute()` records `TAB_GONE`. `waiting_permission`, a dialog on the
+ * screen and a spent budget all return null: the call is asked. Like the board budget, not atomic with
+ * the insert.
+ */
+async function terminalGrantCovering(ctx: ControlContext, conversationId: string, tabId: string): Promise<string | null> {
+  const [tab] = await ctx.repos.tabs.findByIdsForOwner([tabId], ctx.scope.user.id);
+  const tabGrant = await ctx.repos.chatGrants.findActive(conversationId, tabId, TAB_TERMINAL_GRANT);
+  if (!tab) return tabGrant ? tabGrant.id : null;
+  if (tab.state === 'waiting_permission') return null;
+  let grantId: string | null = null;
+  if (tabGrant && (await terminalBudgetLeft(ctx, conversationId, tabGrant.id))) grantId = tabGrant.id;
+  if (!grantId) {
+    const projectGrant = await ctx.repos.chatProjectGrants.findActive(conversationId, tab.project_id);
+    if (projectGrant?.scope === 'all' && (await terminalBudgetLeft(ctx, conversationId, projectGrant.id))) grantId = projectGrant.id;
+  }
+  if (!grantId) return null;
+  return (await permissionOnScreen(ctx, tabId)) ? null : grantId;
 }
 
 /** The gate itself: run the call, or answer why it did not run. */
@@ -436,6 +492,11 @@ export async function applyGate(ctx: ControlContext, call: GatedCall): Promise<G
     if (!row && grantable(call.tool, call.args) && !textOutsideGrant(call.args)) {
       const grant = await ctx.repos.chatGrants.findActive(conversationId, call.args.tab_id, GRANTABLE_TOOL);
       if (grant && (await grantCoversTab(ctx, call.args.tab_id))) return executeGranted(ctx, call, conversationId, key, cls, grant.id);
+    }
+    // Wider, and tried after the narrow grant so agent chatter stays off the terminal budget.
+    if (!row && terminalGrantable(call.tool, call.args) && !textOutsideGrant(call.args)) {
+      const grantId = await terminalGrantCovering(ctx, conversationId, call.args.tab_id);
+      if (grantId) return executeGranted(ctx, call, conversationId, key, cls, grantId);
     }
     if (!row && boardGrantable(call.tool)) {
       const grantId = await projectGrantCovering(ctx, conversationId, call);
