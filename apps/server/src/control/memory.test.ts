@@ -60,6 +60,9 @@ const item = (over: Partial<MemoryHit> & { id: string }): MemoryHit => ({
   content_hash: 'h',
   source_hash: null,
   embed_model: 'm',
+  meta: null,
+  verified: false,
+  verified_at: null,
   source_at: '2026-09-24T10:00:00.000Z',
   created_at: '2026-09-24T10:00:00.000Z',
   updated_at: '2026-09-24T10:00:00.000Z',
@@ -100,6 +103,8 @@ describe('parseRef', () => {
     expect(parseRef('decision:abc123')).toEqual({ kind: 'decision', id: 'abc123' });
     expect(parseRef('doc:abc123')).toEqual({ kind: 'doc', id: 'abc123' });
     expect(parseRef('note:a1b2c3d4e5f6')).toEqual({ kind: 'note', id: 'a1b2c3d4e5f6' });
+    expect(parseRef('lesson:a1b2c3')).toEqual({ kind: 'lesson', id: 'a1b2c3' });
+    expect(parseRef('project_note:a1b2c3')).toEqual({ kind: 'project_note', id: 'a1b2c3' });
   });
 
   it('rejects an unknown kind, uppercase id or missing id', () => {
@@ -155,6 +160,38 @@ describe('searchMemory', () => {
     expect(calls.nearest).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['doc'] }), expect.anything(), expect.anything());
     expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['doc'] }), expect.anything(), expect.anything());
     expect(r.results.every((x) => x.kind === 'doc')).toBe(true);
+  });
+
+  it('kinds: ["lesson"] searches only lessons, and a lesson result carries verified/evidence/origin/path/tab_id/card/pr from meta', async () => {
+    const meta = { evidence: 'confirmed' as const, card: 'TER-57', pr: 'https://github.com/x/y/pull/1', tags: [], agent: null, tab_id: 't1', origin: 'note' as const, path: null };
+    const { ctx, embedder, calls } = ctxFor({
+      vecItems: [item({ id: 'i1', kind: 'lesson', meta, verified: true })],
+      textItems: [item({ id: 'i1', kind: 'lesson', meta, verified: true, rank: 1 })],
+    });
+    const r = await searchMemory(ctx, { query: 'x', kinds: ['lesson'] }, { embedder });
+    expect(calls.nearestAny).not.toHaveBeenCalled();
+    expect(calls.decisionTextSearch).not.toHaveBeenCalled();
+    expect(calls.nearest).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['lesson'] }), expect.anything(), expect.anything());
+    expect(r.results).toHaveLength(1);
+    expect(r.results[0]).toMatchObject({ kind: 'lesson', verified: true, evidence: 'confirmed', origin: 'note', path: null, tab_id: 't1', card: 'TER-57', pr: 'https://github.com/x/y/pull/1' });
+  });
+
+  it('a lesson result with no meta falls back to unverified/fixed/file, and a non-lesson result carries none of these fields', async () => {
+    const { ctx, embedder } = ctxFor({ vecItems: [item({ id: 'i1', kind: 'lesson' }), item({ id: 'i2', kind: 'note' })] });
+    const r = await searchMemory(ctx, { query: 'x' }, { embedder });
+    const lesson = r.results.find((x) => x.kind === 'lesson')!;
+    expect(lesson).toMatchObject({ verified: false, evidence: 'fixed', origin: 'file', path: null, tab_id: null, card: null, pr: null });
+    const note = r.results.find((x) => x.kind === 'note')!;
+    expect(note.verified).toBeUndefined();
+    expect(note.evidence).toBeUndefined();
+    expect(note.origin).toBeUndefined();
+  });
+
+  it('kinds: ["project_note"] searches only project notes', async () => {
+    const { ctx, embedder, calls } = ctxFor({ vecItems: [item({ id: 'i1', kind: 'project_note' })], textItems: [item({ id: 'i1', kind: 'project_note', rank: 1 })] });
+    const r = await searchMemory(ctx, { query: 'x', kinds: ['project_note'] }, { embedder });
+    expect(calls.nearest).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['project_note'] }), expect.anything(), expect.anything());
+    expect(r.results.every((x) => x.kind === 'project_note')).toBe(true);
   });
 
   it('an embedder that rejects falls back to text-only results, similarity null, match "text", and never throws', async () => {

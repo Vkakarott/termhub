@@ -6,8 +6,9 @@ export type ActionClass = 'read' | 'self_mediated' | 'write' | 'irreversible';
 // Tools whose effect is already mediated by the person, so asking again would double the question
 // (spec 2026-09-26 concierge memory D13): record_decision writes a note the person sees and can
 // forget on the Memória screen; answer_tab_question only schedules a countdown the person can cancel,
-// or leaves a suggestion. Never add a tool here that acts on a machine directly.
-const selfMediatedTools = new Set(['record_decision', 'answer_tab_question']);
+// or leaves a suggestion. record_lesson writes an unverified, visible block the person can forget —
+// spec TER-205 D11. Never add a tool here that acts on a machine directly.
+const selfMediatedTools = new Set(['record_decision', 'answer_tab_question', 'record_lesson']);
 
 // Tools classified by reversibility
 const readTools = new Set([

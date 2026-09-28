@@ -66,9 +66,10 @@ it('classifies search_memory as read', () => {
   expect(actionClass('search_memory', {})).toBe('read');
 });
 
-it('classifies record_decision and answer_tab_question as self_mediated, and keeps close_tab/delete_task/an unknown tool irreversible', () => {
+it('classifies record_decision, answer_tab_question and record_lesson as self_mediated, and keeps close_tab/delete_task/an unknown tool irreversible', () => {
   expect(actionClass('record_decision', {})).toBe('self_mediated');
   expect(actionClass('answer_tab_question', {})).toBe('self_mediated');
+  expect(actionClass('record_lesson', {})).toBe('self_mediated');
   expect(actionClass('close_tab', { tab_id: 't1' })).toBe('irreversible');
   expect(actionClass('delete_task', { task_id: 'k1' })).toBe('irreversible');
   expect(actionClass('some_future_tool', {})).toBe('irreversible');
