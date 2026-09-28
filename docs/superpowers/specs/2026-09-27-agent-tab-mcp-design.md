@@ -21,13 +21,13 @@ Taken alone by Claude, as asked (autonomy granted on the card's scope). None cha
 |---|---|---|---|
 | D1 | Which token | A **tab token**: an ordinary row in `api_tokens` with a new nullable column `tab_id` (plain text, **no FK**), minted by `startAgent` for that one tab. `gated = false`, name `aba «<tab name>» (automático)`, expires in 30 days. | Reuses the whole `/mcp` path (hash lookup, rate limit, audit rows in `api_token_events`, the Settings list where the person can revoke it). No FK: a cascade would delete the audit rows, and `SET NULL` would turn a tab token into an unrestricted one (§D4 keys everything on `tab_id`). |
 | D2 | Scopes | `read` + `memory`, and on top of them a **fixed tool allowlist** for tab tokens: `search_memory` and `record_lesson` (TER-205; listed by name now, it appears on its own when that tool exists). Every other tool is absent from `tools/list` and refused on `tools/call`. | Scopes alone are too coarse: `read` would also hand the tab `list_tabs`, `read_screen` of every other tab, `list_machines`… The card asks for "buscar lições/memória e propor lição; sem abrir abas, mandar input ou mexer no board". Grants still apply (effective = allowlist ∩ scopes ∩ the owner's grants). |
-| D3 | What a tab can read | `search_memory` pinned to **the tab's project** (a different `project_id` is refused; a missing one is filled in) and without the kinds `message` (the person's chat messages) and `action` (gate decisions). Everything else of that project: decisions, cards, specs/plans, notes, and lessons/project notes once TER-205 adds them. | A tab may be running in an untrusted checkout; if a prompt injection turns it against the person, the most it can pull out is its own project's knowledge — which it could mostly read from the repo anyway — not other projects' memory or what the person typed in the chat. Lessons of other projects are a loss we accept (the person can still ask the concierge, whose token is not pinned). |
+| D3 | What a tab can read | `search_memory` pinned to **the tab's project** (a different `project_id` is refused; a missing one is filled in) and without the kinds `message` (the person's chat messages) and `action` (gate decisions). Everything else of that project: decisions, cards, specs/plans, notes, and lessons/project notes once TER-205 adds them. | A tab may be running in an untrusted checkout; if a prompt injection turns it against the person, the most it can pull out is its own project's knowledge — which it could mostly read from the repo anyway — not other projects' memory or what the person typed in the chat. Lessons of other projects are a loss we accept (the person can still ask the concierge, whose token is not pinned). The pin is on what the **token** reaches, not on the machine: tabs on the same machine run as the same user, so an injected tab could also read another tab's config file (and its token) under `~/.termhub/tabs/` — the boundary is per machine user, not per tab, the same "same user" line as §6's token-leak note. |
 | D4 | What a tab can write | Only what `record_lesson` writes (an unverified, `derived`, visible and forgettable block; 20/h; TER-205 D7–D11). Its `project_id` must be the tab's project and its `tab_id` is forced to the tab itself, so the provenance on the block cannot be forged. `record_decision` (a concierge note) is **not** in the allowlist. | Lessons are the card's goal. A decision note is the concierge's instrument; a tab writing one would pollute what the concierge relies on. |
 | D5 | Pinning, generically | The MCP route applies one rule to every call of a tab token, before the tool runs: an argument named `project_id` must equal the tab's project (absent → set), an argument named `tab_id` must equal the tab (absent → set). Unknown argument names are left to each tool's schema. | TER-205's `record_lesson` (and any later tab tool) is pinned without touching its code; the check lives in one place, next to the scope check. |
 | D6 | Lifecycle | Minted after the tab exists and before the launch line is typed. **Revoked** in the same transaction that deletes the tab row (`TabsRepository.delete`, which every close path uses: `close_tab`, the web's close, unlinking a project from a machine). **And** `authenticateToken` refuses a tab token whose tab row no longer exists (covers the machine delete cascade and any path that forgets). 30-day expiry as the last floor. | Belt and braces: the transactional revoke is the rule; the auth check makes "tab gone ⇒ token dead" hold even for a delete that bypasses the repository method. |
 | D7 | Delivery of the config | A private directory per tab on the machine: `~/.termhub/tabs/<tab_id>/` (mode 0700), written by one POSIX script in `@termhub/machine-ops` that reads the file body **from stdin** and writes it with `umask 077` (file 0600) via a temp file + rename. Agent machines run it through a new RPC `tab.mcp.write` (agent **0.10.0**); ssh/local machines through `runOnMachineWithInput`. The token never appears in the typed line, in an argv, in the shell history or in a log. | Same pattern the hooks' env file and the concierge's run dir already use. Stdin keeps the secret out of `ps`. |
 | D8 | Claude | File `mcp.json` = `mcpConfig(url, token)` with the server named **`termhub_tab`**. Line: `claude --mcp-config <dir>/mcp.json --allowedTools mcp__termhub_tab__search_memory mcp__termhub_tab__record_lesson -- '<prompt>'`. No `--strict-mcp-config`. | A distinct name never collides with a `termhub` server the person configured with a personal token. `--mcp-config` and `--allowedTools` are variadic, so `--` ends them before the prompt. Pre-allowing exactly these two tools keeps a read (and an unverified lesson) from raising a permission card on every call; this is not a bypass flag — every other tool asks as before. |
-| D9 | Codex | File `token` (the bare token, 0600). Line: `TERMHUB_MCP_TOKEN="$(cat <dir>/token)" codex -c 'mcp_servers.termhub_tab.url="<mcp url>"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' '<prompt>'`. | Codex takes MCP servers from `config.toml` or `-c` overrides; streamable HTTP servers read the bearer from an env var (`bearer_token_env_var`). The typed line holds only the path; the env var is visible to that user's processes only — the same boundary as the 0600 file. **Not verified live**: the only machine with Codex (hulk) was offline while this was built (§8). |
+| D9 | Codex | File `token` (the bare token, 0600). Line: `TERMHUB_MCP_TOKEN="$(cat <dir>/token)" codex -c 'mcp_servers.termhub_tab.url="<mcp url>"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' '<prompt>'`. | Codex takes MCP servers from `config.toml` or `-c` overrides; streamable HTTP servers read the bearer from an env var (`bearer_token_env_var`). The typed line holds only the path; the env var is visible to that user's processes only — the same boundary as the 0600 file. **Not verified live**: the only machine with Codex (hulk) was offline while this was built (§8). **Disabled for now** (`CODEX_TAB_MCP_ENABLED = false` in `control/agents.ts`, TER-356): until it is checked on hulk, a Codex tab starts with the plain line, nothing is minted, and the note says `o MCP no Codex ainda não foi verificado` — an older Codex could refuse to start with unknown `-c` overrides. `launchLine` still builds the Codex line above (unit-tested), so turning the constant on is the whole switch. |
 | D10 | When it is skipped | No MCP (the tab starts exactly as today, and the result's `note` says why) when: `MCP_URL` is not configured; the provider is not Claude/Codex; an agent machine is older than 0.10.0; or writing the file fails. A failed write revokes the token it minted. | `start_agent` must never fail because of an optional extra. |
 | D11 | Account swap | `resumeLine` (Claude, account swap) adds the same `--mcp-config`/`--allowedTools` when the tab has a live tab token: the file is still there, the token still valid. | The resumed session keeps the memory. |
 | D12 | Cleanup on the machine | On tab close, best effort `tab.mcp.remove` / the ssh twin deletes `~/.termhub/tabs/<tab_id>/`. Failure is ignored: the token is already revoked (D6). | Hygiene, not security. |
@@ -103,8 +103,8 @@ transaction.
 
 ## 8. Out of scope and known limits
 
-- Codex path unverified live (D9): when hulk is online, open one Codex tab with `start_agent` and check
-  that `search_memory` is listed. Tracked as its own subtask.
+- Codex path unverified live (D9), so disabled behind `CODEX_TAB_MCP_ENABLED`: when hulk is online,
+  turn it on, open one Codex tab with `start_agent` and check that `search_memory` is listed (TER-356).
 - Tabs opened by hand (the "+" in the UI) get no tab token: the card is about `start_agent`.
 - Tabs opened before this release keep running without MCP.
 
@@ -119,7 +119,7 @@ the gap they close; none changes the design's decisions above.
   `packages/claude-cli/{package.json,dist}` next to the other packages it already copied — without
   that `COPY`, the prod image would import-crash on boot. It was already in the `-w` build lists.
 - **`MCP_URL` must not contain a backslash.** `launchLine`'s URL check
-  (`/^https?:\/\/[^\s'"\\]+$/`) is stricter than the spec's D9 line implies: a `\` inside the value
+  (now `/^https?:\/\/[^\s'"\\\x00-\x1f\x7f]+$/`) is stricter than the spec's D9 line implies: a `\` inside the value
   would land inside the double-quoted TOML string of Codex's `-c mcp_servers.termhub_tab.url="…"`
   override and could break out of it. Not a real-world limitation — no valid URL needs one.
 - **An extra skip reason, `MCP_URL inválido`** (D10): a configured but malformed `MCP_URL` (fails the
@@ -129,3 +129,30 @@ the gap they close; none changes the design's decisions above.
   to `request.log`. `startAgent` needed a way to log `{ tabId, machineId, installed, reason }` for the
   tab MCP install without a module-level logger anywhere in `control/`; passing it on the context kept
   that one call site the only logger the module needs.
+- **Codex tabs get no MCP yet** (D9, D10): `CODEX_TAB_MCP_ENABLED = false` adds the skip reason
+  `o MCP no Codex ainda não foi verificado` (log reason `codex_unverified`), checked after the
+  `MCP_URL` checks and before anything is minted. Claude tabs are unaffected.
+- **`MCP_URL` must not contain a control byte either** (`\x00`–`\x1f`, `\x7f`): the check above also
+  refuses them, so nothing in the value can act on the terminal the line is typed into.
+- **Tab calls are validated with `project_id`/`tab_id` optional** (D5): the MCP SDK and the route's
+  pre-check validate a call before the handler pins it, so a tool that declares either one as required
+  (TER-205's `record_lesson`) would refuse a tab that — rightly — does not know its ids. For a tab token
+  the route registers each allowlisted tool with an input shape where those two keys (when declared)
+  are `.optional()` (`tabInputShape`); `pinTabArgs` fills them in before the gate and the tool, and a
+  foreign value is still refused as `TAB_SCOPE`. Ordinary tokens keep the tool's own schema.
+- **Project and machine deletes revoke their tabs' tokens** (D6): those tabs go by database cascade, not
+  through `TabsRepository.delete`, so the routes call `ApiTokensRepository.revokeForTabs` with the tabs
+  being removed before the delete. The auth check already made those tokens dead; this keeps Settings
+  from listing them as active.
+- **The ssh config script runs under `sh -c`** (D7, D12): the remote command goes to the user's login
+  shell, which may not be POSIX (fish), so the script is sent as `sh -c '<script>'`.
+
+### Rollback
+
+Rolling back to a release before TER-212 leaves every live tab token as an **ordinary `read` + `memory`
+token** on the old code: that code knows nothing of `tab_id`, so there is no allowlist, no pinning and no
+"tab still exists" check. After such a rollback the operator revokes them through the prod DB container:
+
+```sql
+UPDATE api_tokens SET revoked_at = now() WHERE tab_id IS NOT NULL AND revoked_at IS NULL;
+```
