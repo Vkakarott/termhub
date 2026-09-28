@@ -51,13 +51,13 @@ describe('lesson files', () => {
     expect(parsedReadme.title).toBe('docs/lessons/README.md');
     expect(parsedReadme.meta.evidence).toBe('observed');
 
-    const example = readFileSync(new URL('../../../../docs/lessons/2026-09-26-p3009-failed-migration.md', import.meta.url), 'utf8');
-    const parsedExample = parseLessonFile('docs/lessons/2026-09-26-p3009-failed-migration.md', example);
+    const example = readFileSync(new URL('../../../../docs/lessons/2026-09-27-stale-internal-package-dist.md', import.meta.url), 'utf8');
+    const parsedExample = parseLessonFile('docs/lessons/2026-09-27-stale-internal-package-dist.md', example);
+    expect(parsedExample.title).toBe(`TS2305: Module '"@termhub/mobile-api"' has no exported member 'PullRequestBadge'`);
     expect(parsedExample.meta).toEqual({
-      evidence: 'fixed', card: 'TER-57', pr: null, tags: ['prisma', 'deploy'], agent: 'claude', tab_id: null, origin: 'file',
-      path: 'docs/lessons/2026-09-26-p3009-failed-migration.md',
+      evidence: 'fixed', card: 'TER-205', pr: null, tags: ['typescript', 'monorepo', 'packages'], agent: 'claude', tab_id: null, origin: 'file',
+      path: 'docs/lessons/2026-09-27-stale-internal-package-dist.md',
     });
-    expect(parsedExample.title).toMatch(/P3009/);
-    expect(parsedExample.chunks.map((c) => c.text).join('\n')).toMatch(/migrate resolve --rolled-back/);
+    expect(parsedExample.chunks.map((c) => c.text).join('\n')).toMatch(/npm run build:packages/);
   });
 });

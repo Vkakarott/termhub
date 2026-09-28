@@ -6,7 +6,7 @@ next agent that hits the same symptom finds it instead of re-diagnosing it from 
 - **One lesson per file**, committed with the fix (same PR). Do not batch several lessons into one
   file, and do not edit an old lesson to describe a different error — write a new one.
 - **File name:** `docs/lessons/YYYY-MM-DD-<slug>.md` (the date the lesson was written, a short
-  kebab-case slug). Example: `2026-09-26-p3009-failed-migration.md`.
+  kebab-case slug). Example: `2026-09-27-stale-internal-package-dist.md`.
 - `docs/lessons/README.md` (this file) is never itself indexed as a lesson.
 
 ## Format
@@ -57,5 +57,5 @@ Front-matter keys:
 
 ## Example
 
-See [`2026-09-26-p3009-failed-migration.md`](./2026-09-26-p3009-failed-migration.md) for a real lesson
-from this repository's history.
+See [`2026-09-27-stale-internal-package-dist.md`](./2026-09-27-stale-internal-package-dist.md) for a
+real lesson from this repository's history.
