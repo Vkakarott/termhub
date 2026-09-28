@@ -281,7 +281,7 @@ describe('indexDocsForLink', () => {
       expect(exec.readLessons).not.toHaveBeenCalled();
     });
 
-    it('a lessons read failure (e.g. an agent too old for 0.8.1) never blocks specs/plans, and deletes no lesson', async () => {
+    it('a lessons read failure (e.g. an agent too old for 0.9.1) never blocks specs/plans, and deletes no lesson', async () => {
       const repos = fakeReposByKind({}, { [`L1:${lessonPath('old')}`]: sha('e') });
       const exec = {
         scan: vi.fn(async () => scanOut([{ path: spec('s'), sha: sha('a') }, { path: lessonPath('old'), sha: sha('f') }])),
@@ -383,7 +383,7 @@ describe('machineDocsExec', () => {
     const m = machine('agent');
     expect(await machineDocsExec.readLessons(m, '/srv/repo', ['docs/lessons/a.md'])).toBe('lessons');
     expect(requireAgentVersion).toHaveBeenCalledWith(m, DOCS_LESSONS_MIN_AGENT_VERSION);
-    expect(DOCS_LESSONS_MIN_AGENT_VERSION).toBe('0.8.1');
+    expect(DOCS_LESSONS_MIN_AGENT_VERSION).toBe('0.9.1');
     expect(agentRpc).toHaveBeenCalledWith(m, 'docs.read', { cwd: '/srv/repo', paths: ['docs/lessons/a.md'] });
   });
 

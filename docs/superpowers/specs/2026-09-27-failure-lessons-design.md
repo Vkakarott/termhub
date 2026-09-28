@@ -188,10 +188,15 @@ Under the chat memory routes (`guarded('chat', …)`, mounted at `/api/chat` and
   version-gates nothing)". In the real agent protocol a param the agent's RPC schema does not know
   fails the params parse before dispatch, the same failure mode `DOCS_MIN_AGENT_VERSION` already
   existed to avoid for specs/plans — so lessons get their own floor, `DOCS_LESSONS_MIN_AGENT_VERSION =
-  '0.8.1'` (`memory/docs.ts`), next to `DOCS_MIN_AGENT_VERSION = '0.8.0'`. The agent itself was bumped
-  to 0.8.1. `docs.read` for `docs/lessons/*.md` is a separate call (`DocsExec.readLessons`) from the
-  specs/plans one, gated independently, so a machine on an agent between 0.8.0 and 0.8.1 keeps reading
-  specs/plans while its lessons are skipped until it updates (auto-update within the hour).
+  '0.9.1'` (`memory/docs.ts`), next to `DOCS_MIN_AGENT_VERSION = '0.8.0'`. The agent itself was bumped
+  to 0.9.1. `docs.read` for `docs/lessons/*.md` is a separate call (`DocsExec.readLessons`) from the
+  specs/plans one, gated independently, so a machine on an agent between 0.8.0 and 0.9.1 keeps reading
+  specs/plans while its lessons are skipped until it updates (auto-update within the hour). (0.9.1, not
+  0.8.1: after rebasing onto `main`, it turned out `main` had already released agent 0.9.0 for the
+  `secret.read` RPC, another card, ahead of this one, so lessons needed the next version to land after
+  it.)
+- **This branch's migration is `20260928200000_failure_lessons`**, renamed (from an earlier timestamp)
+  to sort after `main`'s own `20260928090000_chat_project_grant_scope`, picked up by the same rebase.
 - **The project note's free text is split by a note-local splitter (`splitPersonText`,
   `lessons/note.ts`), not TER-95's `chunkMarkdown`.** `chunkMarkdown` drops a heading-only section and
   failed the plan's unclosed-fence test; `splitPersonText` keeps the same heading-split shape but

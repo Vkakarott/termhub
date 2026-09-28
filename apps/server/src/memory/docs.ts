@@ -17,8 +17,10 @@ export const DOCS_MIN_AGENT_VERSION = '0.8.0';
  *  an older agent's own `@termhub/agent-protocol` still only knows `docs/superpowers/{specs,plans}`,
  *  so its params parse would fail before dispatch (the same reason `DOCS_MIN_AGENT_VERSION` exists at
  *  all) — lesson paths are only ever sent to an agent at or above this version; `docs.scan` and the
- *  specs/plans `docs.read` stay gated at `DOCS_MIN_AGENT_VERSION` as before. */
-export const DOCS_LESSONS_MIN_AGENT_VERSION = '0.8.1';
+ *  specs/plans `docs.read` stay gated at `DOCS_MIN_AGENT_VERSION` as before. Bumped from 0.8.1 to 0.9.1:
+ *  main released agent 0.9.0 first for the `secret.read` RPC (another card), so lessons needed the
+ *  next version to land after it. */
+export const DOCS_LESSONS_MIN_AGENT_VERSION = '0.9.1';
 /** At most this many paths per `docs.read` call (the RPC's own `max(20)`, spec §4). */
 export const DOCS_READ_BATCH = 20;
 
