@@ -1,0 +1,46 @@
+import type { RpcParams } from '@termhub/agent-protocol';
+import { AgentClosedError, AgentRpcError, AgentTimeoutError } from '../agent/connection.js';
+import { requireAgentVersion } from '../agent/errors.js';
+import { AgentOfflineError, agents } from '../agent/registry.js';
+import type { Machine } from '../db/repositories/types.js';
+import { HttpError } from '../lib/errors.js';
+
+export type SecretSource = RpcParams<'secret.read'>['source'];
+
+/** First agent release that answers `secret.read` (spec 2026-09-28 MCP integrations D8). */
+export const SECRET_MIN_AGENT_VERSION = '0.9.0';
+
+/** A token as a provider takes it: one word, bounded like the integration route's `secret`. */
+const SECRET_SHAPE = /^\S{1,4096}$/;
+
+/**
+ * Reads a secret the machine already holds (today only its `gh auth token`) through the agent, for
+ * the caller to store encrypted. The value never reaches a log or an error: every failure answers a
+ * fixed pt-BR message that names the machine, never the agent's own text (like `readCredential`).
+ * Agent machines only: an ssh/local machine would need a shell script, and D2 keeps this to the one
+ * reviewed RPC. An agent older than 0.9.0 drops the unknown method (a full timeout), so the version
+ * is checked first.
+ */
+export async function readMachineSecret(machine: Machine, source: SecretSource): Promise<string> {
+  if (machine.type !== 'agent') {
+    throw new HttpError(400, `A máquina ${machine.name} não está conectada pelo agente do termhub; só dá para ler o login do gh de uma máquina com o agente`, 'UNSUPPORTED_MACHINE');
+  }
+  const offline = () => new HttpError(503, `A máquina ${machine.name} está desconectada`, 'MACHINE_OFFLINE');
+  if (!agents.isOnline(machine.id)) throw offline();
+  requireAgentVersion(machine, SECRET_MIN_AGENT_VERSION);
+  const unavailable = () => new HttpError(502, `\`gh auth token\` falhou na máquina ${machine.name}: rode \`gh auth login\` nela`, 'SECRET_UNAVAILABLE');
+  let value: string;
+  try {
+    ({ value } = await agents.rpc(machine.id, 'secret.read', { source }));
+  } catch (err) {
+    if (err instanceof AgentOfflineError || err instanceof AgentClosedError) throw offline();
+    if (err instanceof AgentTimeoutError) throw new HttpError(504, `A máquina ${machine.name} não respondeu a tempo`, 'AGENT_TIMEOUT');
+    if (err instanceof AgentRpcError) {
+      if (err.rpcError.code === 'failed') throw unavailable();
+      throw new HttpError(502, `Falha ao ler o login do gh na máquina ${machine.name}`, 'MACHINE_FAILED');
+    }
+    throw err;
+  }
+  if (!SECRET_SHAPE.test(value)) throw unavailable();
+  return value;
+}
