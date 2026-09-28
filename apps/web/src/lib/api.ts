@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, ConciergeNote, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary, SubagentView } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatDecisionWord, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, ConciergeNote, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary, SubagentView } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -250,13 +250,14 @@ export const api = {
   /**
    * 200 normally; 200 with `queued: true` and a pt-BR `note` when a run is in flight (the decision is
    * recorded and will be applied once it finishes); 404 unknown/not yours; 409 already decided (400
-   * `GRANT_NOT_ALLOWED` for `approve_tab`/`approve_project` on an action the server does not consider
-   * grantable that way). `action` is the raw decided row (not the enriched card `GET /api/chat`
-   * returns — no `summary` here): only its `id`/`status` are honoured, and the card's summary is kept
-   * as already known. `grant` is the new (or renewed) trusted-tab grant, present only for
-   * `approve_tab`; `project_grant` is the trusted-project one, present only for `approve_project`.
+   * `GRANT_NOT_ALLOWED` for `approve_tab`/`approve_project`/`approve_tab_terminal`/`approve_project_all`
+   * on an action the server does not consider grantable that way). `action` is the raw decided row (not
+   * the enriched card `GET /api/chat` returns — no `summary` here): only its `id`/`status` are honoured,
+   * and the card's summary is kept as already known. `grant` is the new (or renewed) trusted-tab grant,
+   * present only for `approve_tab`/`approve_tab_terminal`; `project_grant` is the trusted-project one,
+   * present only for `approve_project`/`approve_project_all`.
    */
-  decideChatAction: (id: string, decision: 'approve' | 'deny' | 'approve_tab' | 'approve_project') =>
+  decideChatAction: (id: string, decision: ChatDecisionWord) =>
     request<{ action: { id: string; status: ChatActionStatus }; message?: ChatMessage; queued?: true; note?: string; grant?: ChatGrant; project_grant?: ChatProjectGrant }>('POST', `/chat/actions/${id}/decision`, { decision }),
   /** A grouped confirmation: every decision of the batch in one request, injected as one sentence. */
   decideChatActions: (decisions: { id: string; decision: 'approve' | 'deny' }[]) =>

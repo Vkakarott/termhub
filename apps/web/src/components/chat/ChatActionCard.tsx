@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import type { ChatAction, ChatGrant, ChatProjectGrant } from '../../lib/types';
+import type { ChatAction, ChatDecisionWord, ChatGrant, ChatProjectGrant } from '../../lib/types';
 import { untilLabel } from './grant-time';
 
 /** How a decided action reads once there is nothing left to click. `pending` has its own buttons
@@ -23,6 +23,12 @@ const BOARD_GRANT_TOOLS = new Set(['create_task', 'add_subtasks', 'update_task',
 /** Mirrors the server's `BOARD_GRANT_TOOLS`; the server still refuses a card whose project does not resolve. */
 export const isBoardGrantable = (action: ChatAction): boolean => BOARD_GRANT_TOOLS.has(action.tool);
 
+/** Mirrors the server's `terminalGrantable` (apps/server/src/chat/gate.ts). */
+export function isTerminalGrantable(action: ChatAction): boolean {
+  const args = (action.args ?? {}) as Record<string, unknown>;
+  return (action.tool === 'send_input' || action.tool === 'send_key') && args.answering_permission !== true && Boolean(action.tab_id);
+}
+
 export interface ChatActionCardProps {
   action: ChatAction;
   /** This card's decision is in flight (`decidingId` in `ChatPanel`): its buttons are disabled. */
@@ -37,7 +43,7 @@ export interface ChatActionCardProps {
   /** Takes the grant's id, so the panel can pass one stable callback to every card. */
   onRevoke?: (grantId: string) => void;
   /** Takes the action's id, for the same reason. */
-  onDecide: (id: string, decision: 'approve' | 'deny' | 'approve_tab' | 'approve_project') => void;
+  onDecide: (id: string, decision: ChatDecisionWord) => void;
 }
 
 /**
@@ -53,7 +59,7 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
       {/* The subagent whose turn proposed this action (spec 2026-09-26 §4), when there is one. */}
       {action.subagent && <p className="text-xs text-fg-dim">Pedido pelo subagente «{action.subagent.description}»</p>}
       {action.status === 'pending' ? (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
           <button type="button" className="btn-primary" disabled={deciding} onClick={() => onDecide(action.id, 'approve')}>
             Autorizar
           </button>
@@ -65,6 +71,16 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
           {isBoardGrantable(action) && (
             <button type="button" className="btn-ghost" disabled={deciding} onClick={() => onDecide(action.id, 'approve_project')}>
               Permitir sempre neste projeto
+            </button>
+          )}
+          {isTerminalGrantable(action) && (
+            <button type="button" className="btn-ghost" disabled={deciding} onClick={() => onDecide(action.id, 'approve_tab_terminal')}>
+              Liberar teclas e shell nesta aba
+            </button>
+          )}
+          {(isTerminalGrantable(action) || isBoardGrantable(action)) && (
+            <button type="button" className="btn-ghost" disabled={deciding} onClick={() => onDecide(action.id, 'approve_project_all')}>
+              Liberar tudo neste projeto
             </button>
           )}
           <button type="button" className="btn-danger" disabled={deciding} onClick={() => onDecide(action.id, 'deny')}>
@@ -79,7 +95,9 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
       )}
       {grant && (
         <p className="mt-1 flex items-center gap-2 text-xs text-fg-dim">
-          <span>Permitido nesta aba {untilLabel(grant.expires_at)}</span>
+          <span>
+            {grant.tool === 'terminal' ? 'Teclas e shell liberados nesta aba' : 'Permitido nesta aba'} {untilLabel(grant.expires_at)}
+          </span>
           <button type="button" className="underline hover:text-fg" disabled={revoking} onClick={() => onRevoke?.(grant.id)}>
             Revogar
           </button>
@@ -87,7 +105,9 @@ export const ChatActionCard = memo(function ChatActionCard({ action, deciding, n
       )}
       {projectGrant && (
         <p className="mt-1 flex items-center gap-2 text-xs text-fg-dim">
-          <span>Permitido neste projeto {untilLabel(projectGrant.expires_at)}</span>
+          <span>
+            {projectGrant.scope === 'all' ? 'Tudo liberado neste projeto' : 'Permitido neste projeto'} {untilLabel(projectGrant.expires_at)}
+          </span>
           <button type="button" className="underline hover:text-fg" disabled={revoking} onClick={() => onRevoke?.(projectGrant.id)}>
             Revogar
           </button>

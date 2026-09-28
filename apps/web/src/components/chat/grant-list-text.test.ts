@@ -21,3 +21,8 @@ it('titles a tab row by the tab, and a project row by the project', () => {
   expect(grantTitleLabel({ kind: 'project', tab_name: null, project_name: 'App' })).toBe('Quadro do projeto App');
   expect(grantTitleLabel({ kind: 'project', tab_name: null, project_name: null })).toBe('Projeto que não existe mais');
 });
+it('names the terminal level on a tab row, and the "tudo" scope on a project row', () => {
+  expect(grantTitleLabel({ kind: 'tab', tab_name: 'api', tool: 'terminal' })).toBe('Aba api · teclas e shell');
+  expect(grantTitleLabel({ kind: 'project', project_name: 'X', scope: 'all' })).toBe('Tudo no projeto X');
+  expect(grantTitleLabel({ kind: 'project', project_name: 'X', scope: 'board' })).toBe('Quadro do projeto X');
+});

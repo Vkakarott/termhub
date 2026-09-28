@@ -24,7 +24,7 @@ import { isActive, upsertSubagent } from '../../lib/subagents';
 import { PROMPT_CHANGED_TEXT, upsertTabQuestion } from './tab-question-text';
 import { SUGGESTION_CHANGED_TEXT, upsertTabSuggestion } from './tab-suggestion-text';
 import { useAuth } from '../../lib/auth';
-import type { AiAccount, ChatAction, ChatAttachment, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
+import type { AiAccount, ChatAction, ChatAttachment, ChatDecisionWord, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
 
 /** How often the panel's elapsed labels ("há N min") refresh while it is open. */
 const SUBAGENTS_REFRESH_MS = 30_000;
@@ -310,7 +310,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   );
   const { connected } = useChatStream(load, onEvent);
 
-  const decide = useCallback(async (id: string, decision: 'approve' | 'deny' | 'approve_tab' | 'approve_project') => {
+  const decide = useCallback(async (id: string, decision: ChatDecisionWord) => {
     setDecidingId(id);
     setActionError(null);
     try {

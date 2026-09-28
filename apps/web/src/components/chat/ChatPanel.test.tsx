@@ -453,6 +453,30 @@ it('"Permitir sempre nesta aba" on a pending card records the grant, shows it on
   expect(screen.getByText(/^Permitido nesta aba até/)).toBeInTheDocument();
 });
 
+it('"Liberar teclas e shell nesta aba" passes approve_tab_terminal through', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [action({ id: 'a1', tool: 'send_key', args: { tab_id: 't1', key: 'Enter' } })], host: READY, grants: [] });
+  decideMock.mockResolvedValue({ action: { id: 'a1', status: 'approved' }, grant: grant({ id: 'g1', tool: 'terminal' }) });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Liberar teclas e shell nesta aba' }));
+  await waitFor(() => expect(decideMock).toHaveBeenCalledWith('a1', 'approve_tab_terminal'));
+});
+
+it('"Liberar tudo neste projeto" passes approve_project_all through', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [action({ id: 'a1', tool: 'create_task', args: { title: 'x' } })], host: READY, grants: [] });
+  decideMock.mockResolvedValue({ action: { id: 'a1', status: 'approved' }, project_grant: { id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: '2026-09-21T00:00:00.000Z', expires_at: new Date(Date.now() + 3_600_000).toISOString(), scope: 'all' } });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Liberar tudo neste projeto' }));
+  await waitFor(() => expect(decideMock).toHaveBeenCalledWith('a1', 'approve_project_all'));
+});
+
 it('two pending cards render as one group; Ver separadas shows the cards', async () => {
   chatMock.mockResolvedValue({ conversation: { id: 'c1', ai_account_id: null }, messages: [], actions: [action({ id: 'a1' }), action({ id: 'a2', summary: 'mover o card TER-1' })], host: READY });
   render(

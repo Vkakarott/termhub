@@ -887,6 +887,14 @@ export type ChatActionClass = 'read' | 'write' | 'irreversible';
 export type ChatActionStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'executed' | 'failed';
 
 /**
+ * A pending card's decision word, sent to `POST /api/chat/actions/:id/decision`: `approve`/`deny` decide
+ * this one call; `approve_tab`/`approve_project` are the narrow standing grants (agent text on one tab /
+ * board tools on one project); `approve_tab_terminal`/`approve_project_all` are the wider ones (keys and
+ * shell typing on one tab / everything above plus that on every tab of the project) — spec 2026-09-27 §6.
+ */
+export type ChatDecisionWord = 'approve' | 'deny' | 'approve_tab' | 'approve_project' | 'approve_tab_terminal' | 'approve_project_all';
+
+/**
  * A write the concierge proposed on a gated token, as the server enriches it: `summary` is the
  * server-composed pt-BR sentence ("digitar `npm test` na aba Terminal 2 do projeto reactivando, no
  * macbook m3") — never a tool name and three ids. Never render it as HTML: it can carry a command a
@@ -939,7 +947,9 @@ export interface ChatGrant {
 
 /**
  * A "Permitir sempre neste projeto" grant, as the server enriches it: it trusts the whole board of one
- * project rather than a single tab. `project_name` is null once the project is gone.
+ * project rather than a single tab. `project_name` is null once the project is gone. `scope` is `'all'`
+ * for "Liberar tudo neste projeto" (the board tools plus the terminal level on every tab of the
+ * project); `'board'` (or absent, from an older server) is the narrower board-only grant.
  */
 export interface ChatProjectGrant {
   id: string;
@@ -948,6 +958,7 @@ export interface ChatProjectGrant {
   source_action_id: string | null;
   created_at: string;
   expires_at: string;
+  scope?: 'board' | 'all';
 }
 
 /** How a listed grant stands: in force, run out, revoked by someone, or ended by "Nova conversa". */
@@ -970,6 +981,9 @@ export interface ChatGrantListItem {
   expires_at: string;
   project_id: string | null;
   project_name: string | null;
+  /** `'board'`/`'all'` for a project row (`null`/absent from an older server means `'board'`); always
+   * `null` for a tab row. */
+  scope?: 'board' | 'all' | null;
   conversation_id: string;
   /** Null = the account-wide chat. */
   conversation_project_name: string | null;
