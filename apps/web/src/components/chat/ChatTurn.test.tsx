@@ -192,6 +192,14 @@ describe('ChatTurn', () => {
     expect(prose?.classList.contains('overflow-x-auto')).toBe(true);
   });
 
+  it("the person's own bubble lets a pasted path break anywhere, since `break-words` keeps its min-content width (TER-402)", () => {
+    const path = '/home/pedrogoiania/.claude/projects/-home-pedrogoiania/ad2c903c/tool-results/mcp-termhub-blob-1790597704665-micfp6.jpg';
+    render(<ChatTurn message={answer({ role: 'user', text: `olha ${path}` })} waiting={false} failed={false} />);
+    const bubble = screen.getByText(`olha ${path}`).parentElement!;
+    expect(bubble.className).toContain('[overflow-wrap:anywhere]');
+    expect(bubble.className).not.toContain('break-words');
+  });
+
   it('does not decorate an answer with no fence in it at all', () => {
     render(
       <ol>

@@ -153,9 +153,11 @@ export const ChatTurn = memo(function ChatTurn({ message, streaming, tools, wait
     const attachments = message.attachments ?? [];
     return (
       <li className="chat-enter flex justify-end">
-        {/* `break-words` so a pasted path or URL wraps instead of widening the column on a phone. A
-            message may be attachments alone (spec §3): then there is no text line at all. */}
-        <div className="max-w-[85%] break-words rounded-2xl bg-accent/10 px-4 py-2.5 text-sm leading-relaxed text-fg">
+        {/* `overflow-wrap: anywhere` so a pasted path or URL wraps instead of widening the column:
+            `break-words` (`break-word`) wraps too, but keeps the token's min-content width, which is
+            what made the whole thread scroll sideways (TER-402). A message may be attachments alone
+            (spec §3): then there is no text line at all. */}
+        <div className="max-w-[85%] [overflow-wrap:anywhere] rounded-2xl bg-accent/10 px-4 py-2.5 text-sm leading-relaxed text-fg">
           {message.text && <div className="whitespace-pre-wrap">{message.text}</div>}
           {attachments.length > 0 && <MessageAttachments attachments={attachments} />}
         </div>
