@@ -658,6 +658,11 @@ describe('tab token (TER-212)', () => {
     expect(r.json()).toEqual({ error: 'Não autenticado', code: 'UNAUTHORIZED' });
   });
 
+  it('401s a tab token that claims to be gated, even with its tab alive', async () => {
+    const { app } = build({ token: { ...tabToken(), gated: true }, grants, tabs });
+    expect((await rpc(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).statusCode).toBe(401);
+  });
+
   it('lists only the allowlisted memory tools', async () => {
     const { app } = build({ token: tabToken(), grants, tabs });
     const names: string[] = (await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json().result.tools.map((t: { name: string }) => t.name);

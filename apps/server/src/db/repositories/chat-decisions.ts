@@ -129,11 +129,11 @@ const mapRaw = (r: RawRow): ChatDecision => ({
   created_at: r.created_at.toISOString(),
 });
 
-/** Escapes a person's search text for a LIKE/ILIKE pattern: `%`/`_` are wildcards and `\` is the
- *  escape character itself, so all three must be escaped before wrapping in `%…%`. */
 /** ` AND d.project_id = …` when a search is held to one project, nothing otherwise. */
 const projectFilter = (projectId: string | undefined) => (projectId ? Prisma.sql` AND d.project_id = ${projectId}` : Prisma.empty);
 
+/** Escapes a person's search text for a LIKE/ILIKE pattern: `%`/`_` are wildcards and `\` is the
+ *  escape character itself, so all three must be escaped before wrapping in `%…%`. */
 const escapeLike = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** Keyset cursor over `(created_at, id)`, newest first: opaque to the caller, defensively decoded — an

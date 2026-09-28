@@ -272,6 +272,13 @@ describe('searchMemory with a tab token (TER-212 D3)', () => {
     expect(calls.decisionTextSearch).not.toHaveBeenCalled();
   });
 
+  it('searches every kind but message and action by default', async () => {
+    const { ctx, embedder, calls } = withTab({});
+    await searchMemory(ctx, { query: 'x' }, { embedder });
+    expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['task', 'doc', 'note'] }), expect.anything(), expect.anything());
+    expect(calls.decisionTextSearch).toHaveBeenCalled();
+  });
+
   it('drops message and action from the kinds asked for', async () => {
     const { ctx, embedder, calls } = withTab({});
     await searchMemory(ctx, { query: 'x', kinds: ['doc', 'message', 'action'] }, { embedder });

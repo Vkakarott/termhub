@@ -19,6 +19,8 @@ export async function authenticateToken(
   if (!token) return null;
   let tab: { id: string; project_id: string } | null = null;
   if (token.tab_id) {
+    // A tab token is never gated (D2, §6): `mintTabToken` never makes one, and a row that says otherwise is refused.
+    if (token.gated) return null;
     const row = await repos.tabs.findById(token.tab_id);
     if (!row) return null;
     tab = { id: row.id, project_id: row.project_id };

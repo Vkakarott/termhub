@@ -218,14 +218,17 @@ export async function searchMemory(
   return { note: MEMORY_NOTE, results };
 }
 
+/** Every kind `search_memory` can return, as a record so that a new `MemoryRefKind` (TER-205's lessons,
+ *  say) breaks the build here until it is listed — a tab search must not silently leave it out (D3). */
+const ALL_REF_KINDS = Object.keys({ decision: true, task: true, message: true, action: true, doc: true, note: true } satisfies Record<MemoryRefKind, true>) as MemoryRefKind[];
+
 const isTabExcluded = (kind: MemoryRefKind): boolean => (TAB_EXCLUDED_KINDS as readonly string[]).includes(kind);
 
 /** A tab token's `search_memory` arguments (TER-212 D3): the tab's project (another one is refused), and
  *  the kinds asked for minus `message`/`action` — every other kind when none were asked for. */
 function tabSearch<T extends { project_id?: string; kinds?: MemoryRefKind[] }>(projectId: string, a: T): T {
   if (a.project_id !== undefined && a.project_id !== projectId) throw new ControlError('TAB_SCOPE', 'O token desta aba só acessa o projeto da aba');
-  const all: MemoryRefKind[] = ['decision', 'task', 'message', 'action', 'doc', 'note'];
-  const kinds = (a.kinds ?? all).filter((k) => !isTabExcluded(k));
+  const kinds = (a.kinds ?? ALL_REF_KINDS).filter((k) => !isTabExcluded(k));
   if (kinds.length === 0) throw new ControlError('TAB_SCOPE', 'O token desta aba não lê mensagens do chat nem decisões do gate');
   return { ...a, project_id: projectId, kinds };
 }
