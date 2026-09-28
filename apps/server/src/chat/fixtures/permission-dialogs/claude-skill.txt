@@ -1,0 +1,7 @@
+────────────────────────────────────────────────────────────────────────────────
+ Use skill "deploy"
+ Use this skill?
+ Claude may use instructions, code, or files from this Skill.
+ ❯ 1. Yes
+   2. Yes, and don't ask again for deploy
+   3. No

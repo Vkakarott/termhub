@@ -1,0 +1,4 @@
+  Do you want to approve network access to "registry.npmjs.org"?
+› 1. Yes, just this once
+  2. Yes, and allow this host for this conversation
+  3. No, and block this host in the future

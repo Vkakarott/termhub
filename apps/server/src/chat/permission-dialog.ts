@@ -49,6 +49,37 @@ export function promptVisible(screen: string, row: Pick<TabQuestion, 'kind' | 'p
   return shown.includes(squash('Do you want'));
 }
 
-/** Whether the screen shows a Claude Code permission dialog right now — `promptVisible`'s rule for a
- * `permission` row, without a row. Used by the gate before a terminal grant presses a key (TER-325). */
-export const permissionDialogVisible = (screen: string): boolean => promptVisible(screen, { kind: 'permission', payload: { tool_name: '' } });
+/**
+ * Questions and titles of the approval dialogs of Claude Code 2.1.283 and Codex 0.157.1, read from the
+ * shipped binaries (spec 2026-09-28 TER-374 §2-3). The generic three cover almost every approval
+ * question; the rest are titles not phrased as "do you / would you". Over-matching only turns a
+ * keystroke into a confirmation card, never the other way round.
+ */
+export const PERMISSION_MARKERS: readonly string[] = [
+  'do you want to', 'do you wish to', 'would you like to',
+  'enter plan mode', 'exit plan mode', 'ready to code', 'allow reads outside', 'approve the command', 'approve this command',
+  'run this command', 'use this skill', 'allow claude to', 'trust this directory', 'a project you created or one you trust',
+  'needs your approval', 'approve network access',
+];
+const squashLower = (s: string) => squash(s).toLowerCase();
+const MARKERS = PERMISSION_MARKERS.map(squashLower);
+/** The selected option of a numbered menu: Claude Code draws `❯ 1. Yes`, Codex `› 1. Yes, proceed (y)`. */
+const SELECTED_OPTION = /^\s*[❯›>]\s*\d+\./;
+
+/**
+ * Whether the screen shows an agent's permission dialog right now. Used by the gate before a terminal
+ * grant presses a key (TER-325), so it leans towards "yes": `promptVisible`'s rule for a permission row
+ * (footer + "Do you want"), or — for dialogs worded otherwise or without that footer — a marker phrase
+ * above the menu's selected option, both inside the last `PROMPT_MARKER_LINES` non-blank lines. The
+ * cursor keeps the model's own prose ("Would you like to proceed?") from counting; a menu with no
+ * marker (Claude Code's exit menu, `/resume`) is not a permission and stays free (TER-374).
+ */
+export function permissionDialogVisible(screen: string): boolean {
+  if (promptVisible(screen, { kind: 'permission', payload: { tool_name: '' } })) return true;
+  const lines = lastNonBlankLines(screen, PROMPT_MARKER_LINES).split('\n');
+  let cursor = -1;
+  for (let i = lines.length - 1; i >= 0; i--) if (SELECTED_OPTION.test(lines[i]!)) { cursor = i; break; }
+  if (cursor < 0) return false;
+  const above = squashLower(lines.slice(0, cursor).join('\n'));
+  return MARKERS.some((m) => above.includes(m));
+}

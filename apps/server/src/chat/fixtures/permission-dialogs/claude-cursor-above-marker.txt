@@ -1,0 +1,5 @@
+ ❯ 1. Exit and stop tasks
+   2. Move to background and exit
+● Do you want to proceed? That was the question in the old dialog.
+────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts

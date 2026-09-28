@@ -1,0 +1,6 @@
+────────────────────────────────────────────────────────────────────────────────
+ Background work is running
+ The following will stop when you exit:
+   • npm run dev
+ ❯ 1. Exit and stop tasks
+   2. Move to background and exit

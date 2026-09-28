@@ -1,0 +1,6 @@
+────────────────────────────────────────────────────────────────────────────────
+ Read outside the working directories
+ Allow reads outside the working directories?
+ ❯ 1. Yes, keep allowing reads outside the working directories
+   2. No, block reads outside the working directories from now on
+   3. No, ask again next time

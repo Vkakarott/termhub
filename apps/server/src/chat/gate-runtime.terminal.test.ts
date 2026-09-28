@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ControlContext } from '../control/context.js';
 import { readScreen } from '../control/screen.js';
@@ -127,6 +128,13 @@ describe('terminal grants in the gate', () => {
     expect(await call('send_key', { tab_id: 't1', key: '1' })).toMatchObject({ code: 'CONFIRMATION_PENDING' });
     expect(run).not.toHaveBeenCalled();
     expect(actions.insertApproved).not.toHaveBeenCalled();
+  });
+
+  it('an exit-plan-mode dialog on screen asks, with no Esc footer (TER-374)', async () => {
+    seedTabGrant('t1');
+    vi.mocked(readScreen).mockResolvedValueOnce({ tab_id: 't1', lines: 40, styled: false, text: readFileSync(new URL('./fixtures/permission-dialogs/claude-exit-plan.txt', import.meta.url), 'utf8') });
+    expect(await call('send_key', { tab_id: 't1', key: 'Enter' })).toMatchObject({ code: 'CONFIRMATION_PENDING' });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it('a failed screen capture asks', async () => {
