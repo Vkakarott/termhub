@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: require('../../../../test/helpers/ui-stores').stores.chat }));
@@ -112,5 +112,40 @@ describe('Chats on a wide window (iPad, spec 2026-09-28 §2.3)', () => {
     await act(async () => mockFocus?.());
     expect(useChatStore.getState().activeProject).toBe('p-termhub');
     expect(await screen.findByText(SEEDED_USER, undefined, LOAD)).toBeTruthy();
+  });
+
+  it('shows a failure once: in the pane when a chat is open there, in the list otherwise', async () => {
+    await render(<ChatsScreen />);
+    await screen.findByText('termhub', undefined, LOAD);
+    await act(() => useChatStore.setState({ error: 'Sem conexão' }));
+    expect(screen.getAllByText('Sem conexão')).toHaveLength(1); // no pane yet: the list says it
+
+    await fireEvent.press(screen.getByRole('button', { name: /^termhub/ }));
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    await act(() => useChatStore.setState({ error: 'Sem conexão' }));
+    // The store has one `error`: the list and the pane both read it, so only the pane shows it.
+    expect(screen.getAllByText('Sem conexão')).toHaveLength(1);
+    expect(screen.getByTestId('chats-detail-pane')).toBeTruthy();
+    await act(() => useChatStore.setState({ error: null }));
+  });
+
+  // Last in the file: it denies the seeded confirmations on the shared mock server.
+  it('keeps the list live next to the pane: a decision taken there clears its row\'s badge, with no spinner', async () => {
+    await render(<ChatsScreen />);
+    await fireEvent.press(await screen.findByRole('button', { name: /^termhub/ }, LOAD));
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+    expect(screen.getByLabelText('2 confirmações pendentes')).toBeTruthy();
+    await waitFor(() => expect(useChatStore.getState().loadingProjects).toBe(false));
+
+    const spun: boolean[] = [];
+    const unsubscribe = useChatStore.subscribe((s) => spun.push(s.loadingProjects));
+    // A real decision through the pane: "Recusar todas" on the grouped card (no PIN for denials)
+    // makes the mock server broadcast a `decision` event per card, as the real server does; the
+    // list hears it through `subscribeEvents` and re-reads the projects, debounced by a second.
+    await fireEvent.press(await screen.findByRole('button', { name: 'Recusar todas' }, LOAD));
+    await waitFor(() => expect(screen.queryByLabelText('2 confirmações pendentes')).toBeNull(), { timeout: 5_000 });
+    expect(useChatStore.getState().projects.find((p) => p.id === 'p-termhub')!.pending_confirmations).toBe(0);
+    unsubscribe();
+    expect(spun).not.toContain(true);
   });
 });

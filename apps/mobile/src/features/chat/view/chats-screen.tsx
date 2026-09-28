@@ -1,10 +1,14 @@
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 import { relativeTime } from '@/features/shared/relative-time';
 import { AppText, Banner, EmptyState, Screen, SPLIT_LIST_WIDTH, useWideLayout } from '@/ui';
 import { useChatStore } from '../viewmodel/useChatStore';
 import { ConversationView } from './conversation-screen';
+
+/** How long the split's list waits after the last socket event of a burst before re-reading the
+ * projects: one request per burst of cards, decisions and messages, not one per event. */
+const LIVE_LIST_DEBOUNCE_MS = 1000;
 
 type Row = { route: string; name: string; busy: boolean; pending: number; lastMessageAt: string | null };
 
@@ -45,6 +49,7 @@ export function ChatsScreen() {
   const loadProjects = useChatStore((s) => s.loadProjects);
   const wide = useWideLayout();
   const openByRoute = useChatStore((s) => s.openByRoute);
+  const subscribeEvents = useChatStore((s) => s.subscribeEvents);
   /** The chat in the split's right pane (spec 2026-09-28 iPad §2.3). Kept while the window is
    * compact, so widening it again brings the same chat back. */
   const [selected, setSelected] = useState<string | null>(null);
@@ -68,6 +73,30 @@ export function ChatsScreen() {
     }, [loadProjects, openByRoute]),
   );
 
+  // In the split the tab never loses focus while the person works in the pane, so the focus refresh
+  // alone would leave "respondendo…", the pending badges and the other projects' activity stale next
+  // to the thread (spec 2026-09-28 iPad §2.3). Every socket event but the streamed deltas (the noisy
+  // ones, and they change nothing the list shows) schedules a quiet re-read: a `decision` after an
+  // approval in the pane, a `confirmation` or `message` anywhere. Quiet, so the list neither spins
+  // nor wipes the pane's banner. The server publishes a `decision` for every decided card, so this
+  // also covers decisions taken in the pane without hooking `decide`.
+  useEffect(() => {
+    if (!wide) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribeEvents((e) => {
+      if (e.type === 'delta') return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void loadProjects({ quiet: true });
+      }, LIVE_LIST_DEBOUNCE_MS);
+    });
+    return () => {
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
+  }, [wide, subscribeEvents, loadProjects]);
+
   const open = (route: string) => (wide ? setSelected(route) : router.push(`/chat/${route}` as Href));
 
   const rows: Row[] = [
@@ -79,7 +108,8 @@ export function ChatsScreen() {
     <>
       <View className="gap-3 px-6 pb-2 pt-4">
         <AppText variant="title">Chats</AppText>
-        {error ? <Banner tone="danger" text={error} /> : null}
+        {/* The store has one `error`: with a chat in the pane, the pane's banner already shows it. */}
+        {error && !(wide && selected) ? <Banner tone="danger" text={error} /> : null}
       </View>
       <FlatList
         data={rows}
