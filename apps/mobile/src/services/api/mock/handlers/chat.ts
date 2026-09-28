@@ -31,7 +31,7 @@ import {
   type TTabSuggestion,
 } from '../../contract';
 import type { MockRouter } from '../router';
-import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockMessage, type MockNote, type MockProjectGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
+import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockLesson, type MockMessage, type MockNote, type MockProjectGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
 import { pushConfirmationNotification, pushReplyNotification } from './notifications';
 
 const USER_ID = 'u1';
@@ -528,9 +528,10 @@ function projectGrantListItem(state: MockState, g: MockProjectGrant, now: number
 
 // --- chat memory (spec 2026-09-26 §4.6, concierge memory D8/D12) ----------------------------
 
-/** 50 per page, same as the server's `DECISIONS_PAGE`/`NOTES_PAGE` (`apps/server/src/routes/chat-memory.ts`). */
+/** 50 per page, same as the server's `DECISIONS_PAGE`/`NOTES_PAGE`/`LESSONS_PAGE` (`apps/server/src/routes/chat-memory.ts`). */
 const DECISIONS_PAGE = 50;
 const NOTES_PAGE = 50;
+const LESSONS_PAGE = 50;
 
 /** `q` matches the question, the header, the answer (labels or free text) or the project name —
  * mirrors `repos.chatDecisions.listForUser`'s `ILIKE` over the same columns. */
@@ -538,6 +539,13 @@ function matchesDecisionQuery(d: MockDecision, q: string): boolean {
   const needle = q.toLowerCase();
   const answer = d.answer.text ?? d.answer.labels.join(' ');
   return [d.question, d.header, answer, d.project_name ?? ''].some((s) => s.toLowerCase().includes(needle));
+}
+
+/** `q` matches the title or the excerpt (the server's `ILIKE` over `title`/`text`) — spec 2026-09-27
+ * failure lessons §6. */
+function matchesLessonQuery(l: MockLesson, q: string): boolean {
+  const needle = q.toLowerCase();
+  return [l.title, l.excerpt, l.project?.name ?? '', l.path ?? ''].some((s) => s.toLowerCase().includes(needle));
 }
 
 function chatMemoryView(state: MockState): TChatMemory {
@@ -1066,5 +1074,53 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     const idx = state.notes.findIndex((n) => n.id === ctx.params.id);
     if (idx !== -1) state.notes.splice(idx, 1);
     return { status: 204, body: {} };
+  });
+
+  // --- "Lições" (spec 2026-09-27 failure lessons §6/§8) -------------------------------------
+
+  router.route('GET', '/api/m/v1/chat/lessons', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
+    const q = ctx.query.q?.trim();
+    let list = [...state.lessons].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)); // newest first
+    if (q) list = list.filter((l) => matchesLessonQuery(l, q));
+    const cursor = ctx.query.cursor;
+    const start = cursor ? Math.max(0, list.findIndex((l) => l.id === cursor) + 1) : 0;
+    const lessons = list.slice(start, start + LESSONS_PAGE);
+    const next_cursor = start + LESSONS_PAGE < list.length ? (lessons[lessons.length - 1]?.id ?? null) : null;
+    return { status: 200, body: { lessons, next_cursor } };
+  });
+
+  /** "Verificar": 404 for an id that is not one of the mock's own lessons — mirrors the server's
+   * `findLessonForOwner` scoping. */
+  router.route('POST', '/api/m/v1/chat/lessons/:id/verify', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'POST', htu: ctx.htu, now: ctx.now() });
+    const lesson = state.lessons.find((l) => l.id === ctx.params.id);
+    if (!lesson) throw new WireError(404, 'NOT_FOUND', 'Lição não encontrada.');
+    lesson.verified = true;
+    lesson.verified_at = new Date(ctx.now()).toISOString();
+    return { status: 200, body: lesson };
+  });
+
+  /** "Desfazer verificação": the inverse, same scope. */
+  router.route('DELETE', '/api/m/v1/chat/lessons/:id/verify', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'DELETE', htu: ctx.htu, now: ctx.now() });
+    const lesson = state.lessons.find((l) => l.id === ctx.params.id);
+    if (!lesson) throw new WireError(404, 'NOT_FOUND', 'Lição não encontrada.');
+    lesson.verified = false;
+    lesson.verified_at = null;
+    return { status: 200, body: lesson };
+  });
+
+  /** "Esquecer": a file-origin lesson only ever hides (the response says the file stays in the
+   * repository until a PR removes it, same wording as the server); a note-origin one is simply
+   * removed here — the mock keeps no project note to trim a block off of. 404 for an unknown id. */
+  router.route('DELETE', '/api/m/v1/chat/lessons/:id', (ctx) => {
+    verifyAuth(state, { headers: ctx.headers, htm: 'DELETE', htu: ctx.htu, now: ctx.now() });
+    const idx = state.lessons.findIndex((l) => l.id === ctx.params.id);
+    if (idx === -1) throw new WireError(404, 'NOT_FOUND', 'Lição não encontrada.');
+    const lesson = state.lessons[idx]!;
+    state.lessons.splice(idx, 1);
+    if (lesson.origin === 'file') return { status: 200, body: { ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' } };
+    return { status: 200, body: { ok: true } };
   });
 }

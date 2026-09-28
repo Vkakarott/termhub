@@ -21,6 +21,9 @@ import {
   deviceSelf as deviceSelfSchema,
   emptyResponse,
   hostOptionsResponse,
+  lessonForgetSchema,
+  lessonItemSchema,
+  lessonListSchema,
   meResponse,
   notesResponse,
   notificationsResponse,
@@ -300,6 +303,16 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
       return call('GET', `/api/m/v1/chat/notes${qs ? `?${qs}` : ''}`, notesResponse, { token: a.accessToken });
     },
     forgetChatNote: (a: Auth, id: string) => empty('DELETE', `/api/m/v1/chat/notes/${encodeURIComponent(id)}`, { token: a.accessToken }),
+    chatLessons: (a: Auth, q, cursor) => {
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      if (cursor) params.set('cursor', cursor);
+      const qs = params.toString();
+      return call('GET', `/api/m/v1/chat/lessons${qs ? `?${qs}` : ''}`, lessonListSchema, { token: a.accessToken });
+    },
+    verifyChatLesson: (a: Auth, id: string) => call('POST', `/api/m/v1/chat/lessons/${encodeURIComponent(id)}/verify`, lessonItemSchema, { token: a.accessToken, body: {} }),
+    unverifyChatLesson: (a: Auth, id: string) => call('DELETE', `/api/m/v1/chat/lessons/${encodeURIComponent(id)}/verify`, lessonItemSchema, { token: a.accessToken }),
+    forgetChatLesson: (a: Auth, id: string) => call('DELETE', `/api/m/v1/chat/lessons/${encodeURIComponent(id)}`, lessonForgetSchema, { token: a.accessToken }),
 
     notifications: (a: Auth, before?: string) =>
       call('GET', `/api/m/v1/notifications${before ? `?before=${encodeURIComponent(before)}` : ''}`, notificationsResponse, {

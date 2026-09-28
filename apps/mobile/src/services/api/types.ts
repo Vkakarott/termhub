@@ -18,6 +18,9 @@ import type {
   TDeviceRequestResponse,
   TDeviceSelf,
   THostOptionsResponse,
+  TLessonForgetResponse,
+  TLessonItem,
+  TLessonsResponse,
   TMeResponse,
   TMobileBatchDecisionBody,
   TMobileDecisionBody,
@@ -137,6 +140,18 @@ export interface MobileApi {
   /** Idempotent and silent about whether `id` ever existed, was someone else's, or was some other
    *  memory kind — always 204. */
   forgetChatNote(auth: Auth, id: string): Promise<void>;
+  /** "Lições" (spec 2026-09-27 failure lessons §6/§8): the twin of the web's
+   *  `api.chat.lessons.list`/`verify`/`unverify`/`forget`. Newest `source_at` first, 50 per page;
+   *  `q` filters title/text, `cursor` is `next_cursor`. No PIN. */
+  chatLessons(auth: Auth, q?: string, cursor?: string | null): Promise<TLessonsResponse>;
+  /** "Verificar": 404 for another user's row (or not a lesson at all), never a 403 that would
+   *  confirm the id exists. */
+  verifyChatLesson(auth: Auth, id: string): Promise<TLessonItem>;
+  /** "Desfazer verificação": the inverse, same scope. */
+  unverifyChatLesson(auth: Auth, id: string): Promise<TLessonItem>;
+  /** "Esquecer": `note` is present only for a file-origin lesson, saying the file itself stays in
+   *  the repository until a PR removes it. 404 for another user's row (or not a lesson at all). */
+  forgetChatLesson(auth: Auth, id: string): Promise<TLessonForgetResponse>;
 
   // notifications (P§9)
   notifications(auth: Auth, before?: string): Promise<TNotificationsResponse>;

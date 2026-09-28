@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/chat/viewmodel/useChatMemoryStore', () => ({ useChatMemoryStore: require('../../../../test/helpers/ui-stores').stores.chatMemory }));
@@ -7,7 +7,8 @@ jest.mock('@/features/chat/viewmodel/useChatMemoryStore', () => ({ useChatMemory
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: jest.fn(() => true) };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
-import type { TChatDecision, TConciergeNote, TDecisionsResponse } from '@/services/api/contract';
+import type { TChatDecision, TConciergeNote, TDecisionsResponse, TLessonItem } from '@/services/api/contract';
+import { TERMHUB_URL } from '@/services/api/config';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { useChatMemoryStore } from '../viewmodel/useChatMemoryStore';
 import { ChatMemoryScreen } from './chat-memory-screen';
@@ -41,15 +42,33 @@ function note(over: Partial<TConciergeNote> & { id: string; question: string }):
   };
 }
 
+function lesson(over: Partial<TLessonItem> & { id: string; title: string }): TLessonItem {
+  return {
+    project: null,
+    excerpt: 'Um erro que já aconteceu.',
+    origin: 'file',
+    path: 'docs/lessons/x.md',
+    tab_id: null,
+    card: null,
+    pr: null,
+    evidence: 'observed',
+    verified: false,
+    verified_at: null,
+    created_at: new Date().toISOString(),
+    ...over,
+  };
+}
+
 beforeAll(async () => {
   await enrolStores();
 });
 
 beforeEach(() => {
   for (const fn of Object.values(mockRouter)) fn.mockClear();
-  // Every test starts from an empty notes list unless it seeds its own — this file's shared mock
-  // backend carries no note fixtures (unlike decisions).
+  // Every test starts from an empty notes/lessons list unless it seeds its own — this file's shared
+  // mock backend carries no note or lesson fixtures (unlike decisions).
   jest.spyOn(stores.api, 'chatNotes').mockResolvedValue({ notes: [], next_cursor: null });
+  jest.spyOn(stores.api, 'chatLessons').mockResolvedValue({ lessons: [], next_cursor: null });
 });
 
 afterEach(() => {
@@ -69,6 +88,14 @@ afterEach(() => {
     loadingMoreNotes: false,
     forgettingNoteId: null,
     notesError: null,
+    lessons: null,
+    lessonsCursor: null,
+    lessonsQ: '',
+    loadingMoreLessons: false,
+    verifyingLessonId: null,
+    forgettingLessonId: null,
+    lessonsError: null,
+    lessonsNote: null,
   });
 });
 
@@ -202,5 +229,107 @@ describe('Memória do chat', () => {
     await render(<ChatMemoryScreen />);
     await fireEvent.press(await screen.findByRole('button', { name: 'Voltar' }, LOAD));
     expect(mockRouter.back).toHaveBeenCalledTimes(1);
+  });
+
+  describe('"Lições" (spec 2026-09-27 failure lessons §6/§8)', () => {
+    it('no lessons shows "Nenhuma lição ainda."', async () => {
+      await render(<ChatMemoryScreen />);
+      expect(await screen.findByText('Nenhuma lição ainda.', undefined, LOAD)).toBeTruthy();
+    });
+
+    it('lists title, excerpt, project/origin/evidence/date, and the "verificada" badge when verified', async () => {
+      jest.spyOn(stores.api, 'chatLessons').mockResolvedValueOnce({
+        lessons: [
+          lesson({
+            id: 'l1',
+            title: 'Migração sem transação',
+            project: { id: 'p1', name: 'termhub' },
+            origin: 'file',
+            path: 'docs/lessons/migration.md',
+            evidence: 'fixed',
+            verified: true,
+          }),
+        ],
+        next_cursor: null,
+      });
+      await render(<ChatMemoryScreen />);
+      expect(await screen.findByText('Migração sem transação', undefined, LOAD)).toBeTruthy();
+      expect(screen.getByText('Um erro que já aconteceu.')).toBeTruthy();
+      expect(screen.getByText(/termhub · arquivo docs\/lessons\/migration\.md · corrigida · .+ · verificada/)).toBeTruthy();
+    });
+
+    it('"Verificar" calls the API and flips the label to "Desfazer verificação"', async () => {
+      jest.spyOn(stores.api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1', title: 'Sintoma X' })], next_cursor: null });
+      const verify = jest.spyOn(stores.api, 'verifyChatLesson').mockResolvedValue(lesson({ id: 'l1', title: 'Sintoma X', verified: true, verified_at: new Date().toISOString() }));
+      await render(<ChatMemoryScreen />);
+      await screen.findByText('Sintoma X', undefined, LOAD);
+
+      await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Verificar' })));
+      expect(verify).toHaveBeenCalledWith(expect.anything(), 'l1');
+      expect(await screen.findByRole('button', { name: 'Desfazer verificação' }, LOAD)).toBeTruthy();
+    });
+
+    it('"Esquecer" asks a native confirm, removes the row and shows the server\'s note', async () => {
+      jest.spyOn(stores.api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1', title: 'Sintoma X' })], next_cursor: null });
+      const forget = jest
+        .spyOn(stores.api, 'forgetChatLesson')
+        .mockResolvedValue({ ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' });
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation((title, _msg, buttons) => {
+        expect(title).toBe('Esquecer esta lição?');
+        buttons?.find((b) => b.style === 'destructive')?.onPress?.();
+      });
+      await render(<ChatMemoryScreen />);
+      await screen.findByText('Sintoma X', undefined, LOAD);
+
+      // Decisions' own fixtures also render "Esquecer" buttons; the lesson's own is the last one.
+      const forgetButtons = screen.getAllByRole('button', { name: 'Esquecer' });
+      await act(async () => fireEvent.press(forgetButtons[forgetButtons.length - 1]!));
+      expect(alert).toHaveBeenCalled();
+      await waitFor(() => expect(forget).toHaveBeenCalledWith(expect.anything(), 'l1'), LOAD);
+      await waitFor(() => expect(screen.queryByText('Sintoma X')).toBeNull(), LOAD);
+      expect(await screen.findByText('O arquivo continua no repositório; apague-o por um PR para sumir de vez', undefined, LOAD)).toBeTruthy();
+    });
+
+    it('"Abrir origem" opens the PR link when present', async () => {
+      jest.spyOn(stores.api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1', title: 'Sintoma X', pr: 'https://github.com/x/y/pull/1' })], next_cursor: null });
+      const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+      await render(<ChatMemoryScreen />);
+      await screen.findByText('Sintoma X', undefined, LOAD);
+
+      await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Abrir origem' })));
+      expect(open).toHaveBeenCalledWith('https://github.com/x/y/pull/1');
+    });
+
+    it('"Abrir origem" opens the web app\'s card URL when there is no PR', async () => {
+      jest.spyOn(stores.api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1', title: 'Sintoma X', card: 'TER-205' })], next_cursor: null });
+      const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+      await render(<ChatMemoryScreen />);
+      await screen.findByText('Sintoma X', undefined, LOAD);
+
+      await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Abrir origem' })));
+      expect(open).toHaveBeenCalledWith(`${TERMHUB_URL}/project/TER-205`);
+    });
+
+    it('"Abrir origem" is hidden with neither a PR nor a card', async () => {
+      jest.spyOn(stores.api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1', title: 'Sintoma X' })], next_cursor: null });
+      await render(<ChatMemoryScreen />);
+      await screen.findByText('Sintoma X', undefined, LOAD);
+      expect(screen.queryByRole('button', { name: 'Abrir origem' })).toBeNull();
+    });
+
+    it('"Buscar lições" re-queries with q, debounced', async () => {
+      const spy = jest.spyOn(stores.api, 'chatLessons').mockImplementation(async (_auth, q) => {
+        const all = [lesson({ id: 'l1', title: 'Sintoma X' }), lesson({ id: 'l2', title: 'Sintoma Y' })];
+        return { lessons: q ? all.filter((l) => l.title.toLowerCase().includes(q.toLowerCase())) : all, next_cursor: null };
+      });
+      await render(<ChatMemoryScreen />);
+      await screen.findByText('Sintoma X', undefined, LOAD);
+      spy.mockClear();
+
+      await fireEvent.changeText(screen.getByTestId('chat-memory-lessons-search'), 'Y');
+      await waitFor(() => expect(screen.queryByText('Sintoma X')).toBeNull(), LOAD);
+      expect(screen.getByText('Sintoma Y')).toBeTruthy();
+      expect(spy).toHaveBeenLastCalledWith(expect.anything(), 'Y');
+    });
   });
 });

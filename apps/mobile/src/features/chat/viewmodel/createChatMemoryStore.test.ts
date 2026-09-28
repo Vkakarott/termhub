@@ -2,7 +2,7 @@
 // `HttpMobileApi` + `MockTransport` with an enrolled session, same setup as the notifications
 // store's own tests (`createNotificationsStore.test.ts`).
 import { sessionEnded } from '@/features/shared/signals';
-import type { TChatDecision, TChatMemory, TConciergeNote, TDecisionsResponse, TNotesResponse } from '@/services/api/contract';
+import type { TChatDecision, TChatMemory, TConciergeNote, TDecisionsResponse, TLessonItem, TLessonsResponse, TNotesResponse } from '@/services/api/contract';
 import { enrol, setupSession } from '../../../../test/helpers/enrolled-session';
 import { createChatMemoryStore } from './createChatMemoryStore';
 
@@ -36,6 +36,24 @@ function note(over: Partial<TConciergeNote> & { id: string }): TConciergeNote {
     question: 'Usar worktree?',
     decision: 'Sim',
     reason: 'Você sempre isola em worktree',
+    created_at: '2026-09-20T10:00:00.000Z',
+    ...over,
+  };
+}
+
+function lesson(over: Partial<TLessonItem> & { id: string }): TLessonItem {
+  return {
+    project: { id: 'p-termhub', name: 'termhub' },
+    title: 'Sintoma X',
+    excerpt: 'Um erro que já aconteceu.',
+    origin: 'file',
+    path: 'docs/lessons/x.md',
+    tab_id: null,
+    card: null,
+    pr: null,
+    evidence: 'observed',
+    verified: false,
+    verified_at: null,
     created_at: '2026-09-20T10:00:00.000Z',
     ...over,
   };
@@ -346,6 +364,107 @@ describe('"Anotações do concierge" (spec D12/§8)', () => {
   });
 });
 
+describe('"Lições" (spec 2026-09-27 failure lessons §6/§8)', () => {
+  it('loadLessons reads the first page', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1' })], next_cursor: 'l1' });
+
+    await store.getState().loadLessons();
+
+    expect(store.getState().lessons?.map((l) => l.id)).toEqual(['l1']);
+    expect(store.getState().lessonsCursor).toBe('l1');
+  });
+
+  it('searchLessons updates lessonsQ at once and re-queries after the debounce', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatLessons').mockResolvedValue({ lessons: [], next_cursor: null });
+    await store.getState().loadLessons();
+    const spy = jest.spyOn(api, 'chatLessons');
+    spy.mockClear();
+
+    store.getState().searchLessons('sintoma');
+    expect(store.getState().lessonsQ).toBe('sintoma');
+    expect(spy).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(300);
+    expect(spy).toHaveBeenCalledWith(expect.anything(), 'sintoma');
+  });
+
+  it('loadMoreLessons appends the next page and next_cursor null stops it (a further call is a no-op)', async () => {
+    const { store, api } = await setup();
+    const first = lesson({ id: 'l1' });
+    const second = lesson({ id: 'l2', title: 'Sintoma Y' });
+    const spy = jest.spyOn(api, 'chatLessons').mockImplementation(async (_auth, _q, cursor) => {
+      if (!cursor) return { lessons: [first], next_cursor: 'l1' } satisfies TLessonsResponse;
+      expect(cursor).toBe('l1');
+      return { lessons: [second], next_cursor: null } satisfies TLessonsResponse;
+    });
+
+    await store.getState().loadLessons();
+    expect(store.getState().lessons).toEqual([first]);
+
+    await store.getState().loadMoreLessons();
+    expect(store.getState().lessons).toEqual([first, second]);
+    expect(store.getState().lessonsCursor).toBeNull();
+
+    const callsBefore = spy.mock.calls.length;
+    await store.getState().loadMoreLessons(); // no cursor: no-op
+    expect(spy.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('verifyLesson calls the API and updates the row in place', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1' })], next_cursor: null });
+    await store.getState().loadLessons();
+    const verified = lesson({ id: 'l1', verified: true, verified_at: '2026-09-27T10:00:00.000Z' });
+    const spy = jest.spyOn(api, 'verifyChatLesson').mockResolvedValue(verified);
+
+    await store.getState().verifyLesson('l1');
+
+    expect(spy).toHaveBeenCalledWith(expect.anything(), 'l1');
+    expect(store.getState().lessons?.[0]).toEqual(verified);
+    expect(store.getState().verifyingLessonId).toBeNull();
+  });
+
+  it('unverifyLesson calls the API and updates the row in place', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1', verified: true, verified_at: '2026-09-27T10:00:00.000Z' })], next_cursor: null });
+    await store.getState().loadLessons();
+    const unverified = lesson({ id: 'l1', verified: false, verified_at: null });
+    const spy = jest.spyOn(api, 'unverifyChatLesson').mockResolvedValue(unverified);
+
+    await store.getState().unverifyLesson('l1');
+
+    expect(spy).toHaveBeenCalledWith(expect.anything(), 'l1');
+    expect(store.getState().lessons?.[0]).toEqual(unverified);
+  });
+
+  it('forgetLesson deletes and removes the row locally, exposing the server note', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1' })], next_cursor: null });
+    await store.getState().loadLessons();
+    const spy = jest.spyOn(api, 'forgetChatLesson').mockResolvedValue({ ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' });
+
+    await store.getState().forgetLesson('l1');
+
+    expect(spy).toHaveBeenCalledWith(expect.anything(), 'l1');
+    expect(store.getState().lessons!.some((l) => l.id === 'l1')).toBe(false);
+    expect(store.getState().lessonsNote).toBe('O arquivo continua no repositório; apague-o por um PR para sumir de vez');
+  });
+
+  it('forgetLesson failure shows "Não foi possível esquecer a lição"', async () => {
+    const { store, api } = await setup();
+    jest.spyOn(api, 'chatLessons').mockResolvedValueOnce({ lessons: [lesson({ id: 'l1' })], next_cursor: null });
+    await store.getState().loadLessons();
+    jest.spyOn(api, 'forgetChatLesson').mockRejectedValueOnce(new Error('boom'));
+
+    await store.getState().forgetLesson('l1');
+
+    expect(store.getState().lessonsError).toBe('Não foi possível esquecer a lição');
+    expect(store.getState().lessons!.some((l) => l.id === 'l1')).toBe(true); // still there: the delete failed
+  });
+});
+
 it('resets on sessionEnded', async () => {
   const { store } = await setup();
   await store.getState().load();
@@ -353,5 +472,19 @@ it('resets on sessionEnded', async () => {
 
   sessionEnded.emit();
 
-  expect(store.getState()).toMatchObject({ memory: null, decisions: null, cursor: null, q: '', error: null, notes: null, notesCursor: null, notesError: null });
+  expect(store.getState()).toMatchObject({
+    memory: null,
+    decisions: null,
+    cursor: null,
+    q: '',
+    error: null,
+    notes: null,
+    notesCursor: null,
+    notesError: null,
+    lessons: null,
+    lessonsCursor: null,
+    lessonsQ: '',
+    lessonsError: null,
+    lessonsNote: null,
+  });
 });

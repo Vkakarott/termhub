@@ -1,11 +1,32 @@
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { Alert, FlatList, Switch, View } from 'react-native';
-import type { TChatDecision, TConciergeNote } from '@/services/api/contract';
+import { Alert, FlatList, Linking, Switch, View } from 'react-native';
+import type { TChatDecision, TConciergeNote, TLessonItem } from '@/services/api/contract';
+import { TERMHUB_URL } from '@/services/api/config';
 import { AppText, Banner, Button, EmptyState, Field, Screen } from '@/ui';
 import { useChatMemoryStore } from '../viewmodel/useChatMemoryStore';
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('pt-BR');
+
+/** "Lições" (spec 2026-09-27 failure lessons §6/§8): pt-BR labels for `evidence`, verbatim (binding
+ * clarifications) — the mobile twin of `ChatMemoryPage`'s `EVIDENCE_LABEL`. */
+const EVIDENCE_LABEL: Record<TLessonItem['evidence'], string> = { observed: 'observada', fixed: 'corrigida', confirmed: 'confirmada' };
+
+/** "arquivo <path>" for a file-origin lesson, "anotação do projeto" for a note-origin one —
+ * verbatim, copied from `ChatMemoryPage`'s `originText`. */
+function originText(l: TLessonItem): string {
+  return l.origin === 'file' ? `arquivo ${l.path ?? ''}` : 'anotação do projeto';
+}
+
+/** "Abrir origem" (binding clarifications): the PR link when `pr` is set; else the card, built as
+ * the web app's own `/project/<ref>` URL (`TERMHUB_URL`, the same host the web app is served from)
+ * since the phone has no in-app card screen to navigate to; `null` — a note-origin lesson with
+ * neither — hides the action, as the app has no project notes screen either. */
+function lessonSourceHref(l: TLessonItem): string | null {
+  if (l.pr) return l.pr;
+  if (l.card) return `${TERMHUB_URL}/project/${l.card}`;
+  return null;
+}
 
 /** One decision's answer, as the list shows it: the picked labels, or the free text (chat decision
  * memory spec 2026-09-26 §4.6 — `answer.text` and `answer.labels` are mutually meaningful, never
@@ -42,6 +63,40 @@ function NoteRow({ note, forgetting, onForget }: { note: TConciergeNote; forgett
   );
 }
 
+/** "Lições" (spec 2026-09-27 failure lessons §6/§8): one `lesson` item, as the list shows it — the
+ * mobile twin of `ChatMemoryPage`'s row. "Verificar"/"Desfazer verificação" is one button, the
+ * direction decided by the row's own current state; "Abrir origem" is hidden when
+ * `lessonSourceHref` has nothing to open. */
+function LessonRow({
+  lesson,
+  verifying,
+  forgetting,
+  onToggleVerified,
+  onForget,
+}: {
+  lesson: TLessonItem;
+  verifying: boolean;
+  forgetting: boolean;
+  onToggleVerified(): void;
+  onForget(): void;
+}) {
+  const href = lessonSourceHref(lesson);
+  return (
+    <View className="gap-1 rounded-xl border border-app-border bg-app-surface2 p-4">
+      <AppText className="font-semibold">{lesson.title}</AppText>
+      <AppText variant="muted">{lesson.excerpt}</AppText>
+      <AppText variant="muted" className="text-xs">
+        {`${lesson.project?.name ?? 'sem projeto'} · ${originText(lesson)} · ${EVIDENCE_LABEL[lesson.evidence]} · ${fmtDate(lesson.created_at)}${lesson.verified ? ' · verificada' : ''}`}
+      </AppText>
+      <View className="flex-row flex-wrap items-center gap-3">
+        <Button label={lesson.verified ? 'Desfazer verificação' : 'Verificar'} variant="ghost" disabled={verifying} onPress={onToggleVerified} />
+        <Button label="Esquecer" variant="ghost" disabled={forgetting} onPress={onForget} />
+        {href ? <Button label="Abrir origem" variant="ghost" onPress={() => void Linking.openURL(href)} /> : null}
+      </View>
+    </View>
+  );
+}
+
 /**
  * "Memória do chat" (chat decision memory spec 2026-09-26 §5.2), route `/chat-memory`, reached from
  * a row in Ajustes: the switch, a search field and the list of remembered decisions, paginated —
@@ -73,12 +128,29 @@ export function ChatMemoryScreen() {
   const loadNotes = useChatMemoryStore((s) => s.loadNotes);
   const loadMoreNotes = useChatMemoryStore((s) => s.loadMoreNotes);
   const forgetNote = useChatMemoryStore((s) => s.forgetNote);
+  // "Lições" (spec 2026-09-27 failure lessons §6/§8): its own search box and pagination,
+  // independent of both lists above.
+  const lessons = useChatMemoryStore((s) => s.lessons);
+  const lessonsCursor = useChatMemoryStore((s) => s.lessonsCursor);
+  const lessonsQ = useChatMemoryStore((s) => s.lessonsQ);
+  const loadingMoreLessons = useChatMemoryStore((s) => s.loadingMoreLessons);
+  const verifyingLessonId = useChatMemoryStore((s) => s.verifyingLessonId);
+  const forgettingLessonId = useChatMemoryStore((s) => s.forgettingLessonId);
+  const lessonsError = useChatMemoryStore((s) => s.lessonsError);
+  const lessonsNote = useChatMemoryStore((s) => s.lessonsNote);
+  const loadLessons = useChatMemoryStore((s) => s.loadLessons);
+  const searchLessons = useChatMemoryStore((s) => s.searchLessons);
+  const loadMoreLessons = useChatMemoryStore((s) => s.loadMoreLessons);
+  const verifyLesson = useChatMemoryStore((s) => s.verifyLesson);
+  const unverifyLesson = useChatMemoryStore((s) => s.unverifyLesson);
+  const forgetLesson = useChatMemoryStore((s) => s.forgetLesson);
 
   useEffect(() => {
     void load();
-    // "Anotações do concierge" reads on its own, independent of the search box above — same as the
-    // web page's own effect for `api.chatNotes()`.
+    // "Anotações do concierge" and "Lições" read on their own, independent of the search box above
+    // — same as the web page's own effects for `api.chatNotes()`/`api.chat.lessons.list()`.
     void loadNotes();
+    void loadLessons();
     // The store is a singleton that outlives this screen: leaving before a debounced search fires,
     // or while one is already in flight, must not let it land later and clobber the next visit's
     // own fresh `load()` — `cancel()` (createChatMemoryStore.ts) guards exactly that.
@@ -99,6 +171,22 @@ export function ChatMemoryScreen() {
     Alert.alert('Esquecer esta anotação?', `«${n.question}»`, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Esquecer', style: 'destructive', onPress: () => void forgetNote(n.id) },
+    ]);
+  };
+
+  /** "Verificar" / "Desfazer verificação": one handler, the direction decided by the row's own
+   * current state — mirrors `ChatMemoryPage`'s `toggleLessonVerified`. */
+  const toggleLessonVerified = (l: TLessonItem) => {
+    if (l.verified) void unverifyLesson(l.id);
+    else void verifyLesson(l.id);
+  };
+
+  /** "Esquecer esta lição?" verbatim (binding clarifications) — the mobile twin of the web's
+   * `window.confirm('Esquecer esta lição?')`. */
+  const confirmForgetLesson = (l: TLessonItem) => {
+    Alert.alert('Esquecer esta lição?', `«${l.title}»`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Esquecer', style: 'destructive', onPress: () => void forgetLesson(l.id) },
     ]);
   };
 
@@ -175,6 +263,38 @@ export function ChatMemoryScreen() {
               )}
               {notesCursor ? (
                 <Button label={loadingMoreNotes ? 'Carregando…' : 'Carregar mais anotações'} variant="ghost" disabled={loadingMoreNotes} onPress={() => void loadMoreNotes()} />
+              ) : null}
+            </View>
+            <View className="gap-3 pt-6">
+              <AppText variant="title" className="text-base">
+                Lições
+              </AppText>
+              <AppText variant="muted">
+                Erros que já aconteceram — de arquivos docs/lessons e de anotações do projeto — para o concierge não repetir.
+              </AppText>
+              <Field label="Buscar lições" value={lessonsQ} onChangeText={searchLessons} placeholder="sintoma, projeto ou arquivo" testID="chat-memory-lessons-search" />
+              {lessonsError ? <Banner tone="danger" text={lessonsError} /> : null}
+              {lessonsNote ? <AppText variant="muted">{lessonsNote}</AppText> : null}
+              {lessons === null ? (
+                <AppText variant="muted">Carregando…</AppText>
+              ) : lessons.length === 0 ? (
+                <AppText variant="muted">Nenhuma lição ainda.</AppText>
+              ) : (
+                <View className="gap-3">
+                  {lessons.map((l) => (
+                    <LessonRow
+                      key={l.id}
+                      lesson={l}
+                      verifying={verifyingLessonId === l.id}
+                      forgetting={forgettingLessonId === l.id}
+                      onToggleVerified={() => toggleLessonVerified(l)}
+                      onForget={() => confirmForgetLesson(l)}
+                    />
+                  ))}
+                </View>
+              )}
+              {lessonsCursor ? (
+                <Button label={loadingMoreLessons ? 'Carregando…' : 'Carregar mais lições'} variant="ghost" disabled={loadingMoreLessons} onPress={() => void loadMoreLessons()} />
               ) : null}
             </View>
           </View>
