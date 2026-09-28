@@ -5,6 +5,7 @@ import {
   decisionsResponse,
   isBoardGrantable,
   isTabGrantable,
+  isTerminalGrantable,
   mobileBatchDecisionBody,
   mobileDecisionBody,
   mobileMessageBody,
@@ -35,6 +36,30 @@ describe('mobileDecisionBody: approve_project', () => {
   });
   it('batches never take approve_project', () => {
     expect(mobileBatchDecisionBody.safeParse({ decisions: [{ id: 'a', decision: 'approve_project', challenge: 'c', pin_proof: 'p' }] }).success).toBe(false);
+  });
+});
+
+describe('mobileDecisionBody: terminal grants (TER-325)', () => {
+  it.each(['approve_tab_terminal', 'approve_project_all'])('%s parses only with a challenge and a PIN proof', (decision) => {
+    expect(mobileDecisionBody.safeParse({ decision }).success).toBe(false);
+    expect(mobileDecisionBody.safeParse({ decision, challenge: 'c' }).success).toBe(false);
+    expect(mobileDecisionBody.safeParse({ decision, pin_proof: 'p' }).success).toBe(false);
+    expect(mobileDecisionBody.parse({ decision, challenge: 'c', pin_proof: 'p' }).decision).toBe(decision);
+  });
+  it.each(['approve_tab_terminal', 'approve_project_all'])('batches never take %s', (decision) => {
+    expect(mobileBatchDecisionBody.safeParse({ decisions: [{ id: 'a', decision, challenge: 'c', pin_proof: 'p' }] }).success).toBe(false);
+  });
+});
+
+describe('isTerminalGrantable', () => {
+  const base = { tool: 'send_key', args: { tab_id: 't1', key: 'enter' }, tab_id: 't1' };
+  it('send_key or send_input to a tab, never answering a permission', () => {
+    expect(isTerminalGrantable(base)).toBe(true);
+    expect(isTerminalGrantable({ ...base, tool: 'send_input', args: { tab_id: 't1', text: 'oi' } })).toBe(true);
+    expect(isTerminalGrantable({ ...base, tool: 'send_input', args: { tab_id: 't1', text: '1', answering_permission: true } })).toBe(false);
+    expect(isTerminalGrantable({ ...base, args: { tab_id: 't1', key: 'enter', answering_permission: true } })).toBe(false);
+    expect(isTerminalGrantable({ ...base, tab_id: null })).toBe(false);
+    expect(isTerminalGrantable({ ...base, tool: 'run_command' })).toBe(false);
   });
 });
 

@@ -21,6 +21,14 @@ describe('chatEventSchema: grants', () => {
     expect(chatEventSchema.parse({ type: 'project_grant', ...base, grant: { ...pg, project_name: null, source_action_id: null } }).type).toBe('project_grant');
     expect(chatEventSchema.parse({ type: 'project_grant_revoked', ...base, grant_id: 'pg1' }).type).toBe('project_grant_revoked');
   });
+  it('project grants carry a scope, board when an older server omits it (TER-325)', () => {
+    const pg = { id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: '2026-09-27T10:00:00.000Z', expires_at: '2026-09-28T10:00:00.000Z' };
+    const old = chatEventSchema.parse({ type: 'project_grant', ...base, grant: pg });
+    expect(old.type === 'project_grant' && old.grant.scope).toBe('board');
+    const all = chatEventSchema.parse({ type: 'project_grant', ...base, grant: { ...pg, scope: 'all' } });
+    expect(all.type === 'project_grant' && all.grant.scope).toBe('all');
+    expect(chatEventSchema.safeParse({ type: 'project_grant', ...base, grant: { ...pg, scope: 'tudo' } }).success).toBe(false);
+  });
   it('keeps grant_id on the card', () => {
     const r = chatEventSchema.parse({ type: 'granted_action', ...base, action: card });
     expect(r.type === 'granted_action' && r.action.grant_id).toBe('g1');
@@ -118,6 +126,14 @@ describe('chat grant list', () => {
     expect(chatGrantListItemSchema.parse(tabRow).kind).toBe('tab');
     expect(chatGrantListItemSchema.parse({ ...tabRow, kind: 'project', tab_id: null, tab_name: null, tool: null }).kind).toBe('project');
     expect(chatGrantListQuery.parse({ state: 'active' }).kinds).toBe('tab');
+  });
+
+  it('list items: scope is null by default (tab rows, older servers), board or all on project rows (TER-325)', () => {
+    const tabRow = { ...grant, project_id: 'p1', project_name: 'App', conversation_id: 'c1', conversation_project_name: null, conversation_archived: false, state: 'active', ended_at: null };
+    expect(chatGrantListItemSchema.parse(tabRow).scope).toBeNull();
+    const projectRow = { ...tabRow, kind: 'project', tab_id: null, tab_name: null, tool: null };
+    expect(chatGrantListItemSchema.parse({ ...projectRow, scope: 'all' }).scope).toBe('all');
+    expect(chatGrantListItemSchema.parse({ ...projectRow, scope: 'board' }).scope).toBe('board');
   });
 });
 

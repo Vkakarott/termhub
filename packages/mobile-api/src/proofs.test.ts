@@ -17,4 +17,9 @@ describe('proof helpers', () => {
     expect(decisionProofMessage('c1', 'a1', 'approve_project')).not.toBe(decisionProofMessage('c1', 'a1', 'approve_tab'));
     expect(decisionProofMessage('c1', 'a1', 'approve_project')).not.toBe(decisionProofMessage('c1', 'a1', 'approve'));
   });
+  it('the terminal grants sign their own words, different from every other', () => {
+    const words = ['approve', 'approve_tab', 'approve_project', 'approve_tab_terminal', 'approve_project_all'] as const;
+    expect(decisionProofMessage('c', 'a', 'approve_tab_terminal')).toBe('c\na\napprove_tab_terminal');
+    expect(new Set(words.map((w) => decisionProofMessage('c', 'a', w))).size).toBe(words.length);
+  });
 });
