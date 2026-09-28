@@ -38,6 +38,11 @@ function build(opts: {
   boardTasks?: { id: string; project_id: string }[];
   /** Active project grants `chatProjectGrants.listActive` answers with, as `GET /chat` returns them. */
   projectGrants?: { id: string; conversation_id: string; project_id: string; scope?: 'board' | 'all'; source_action_id: string | null; granted_by: string; created_at: string; expires_at: string; revoked_at: string | null; revoked_by: string | null }[];
+  /** Active standing grants `chatStandingGrants.listActive` answers with, as `GET /chat` returns them (TER-386). */
+  standingGrants?: { id: string; user_id: string; project_id: string; kind: string; conversation_id: string | null; source_action_id: string | null; created_at: string; revoked_at: string | null; revoked_by: string | null }[];
+  revokeStanding?: ReturnType<typeof vi.fn>;
+  findStandingGrantByIdForUser?: ReturnType<typeof vi.fn>;
+  listForUserStanding?: ReturnType<typeof vi.fn>;
   /** "View as" another owner: the request's own user stays 'u1'. */
   viewAsOwner?: string;
   subagentsFor?: ReturnType<typeof vi.fn>;
@@ -113,6 +118,17 @@ function build(opts: {
       findByIdForUser: vi.fn(async () => undefined),
       findActiveBySourceAction: vi.fn(async () => undefined),
       revokeForConversation: vi.fn(async () => 0),
+      listForUser: vi.fn(async () => ({ grants: [], next: null })),
+    },
+    // ...and then to standing grants (TER-386): by default none matches either.
+    chatStandingGrants: {
+      grant: vi.fn(async (input: { user_id: string; project_id: string; kind: string; conversation_id: string | null; source_action_id: string | null }) => ({ id: 'sg1', ...input, created_at: '2026-09-28T10:00:00.000Z', revoked_at: null, revoked_by: null })),
+      listActive: vi.fn(async () => opts.standingGrants ?? []),
+      findActive: vi.fn(async (): Promise<unknown> => undefined),
+      findActiveBySourceAction: vi.fn(async (): Promise<unknown> => undefined),
+      revoke: opts.revokeStanding ?? vi.fn(async () => undefined),
+      findByIdForUser: opts.findStandingGrantByIdForUser ?? vi.fn(async () => undefined),
+      listForUser: opts.listForUserStanding ?? vi.fn(async () => ({ grants: [], next: null })),
     },
   };
   const app = Fastify();
@@ -762,6 +778,97 @@ it.each(['approve_tab_terminal', 'approve_project_all'])('a batch refuses %s', a
   const res = await app.inject({ method: 'POST', url: '/chat/actions/decisions', payload: { decisions: [{ id: 'act1', decision }] } });
   expect(res.statusCode).toBe(400);
   expect(decide).not.toHaveBeenCalled();
+});
+
+it('approve_project_always on a board card decides, grants standing with no expiry and returns standing_grant (TER-386)', async () => {
+  const events: ChatEvent[] = [];
+  const off = chatBus.subscribe((e) => events.push(e));
+  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_always' } });
+  off();
+  expect(res.statusCode).toBe(200);
+  expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+  expect(repos.chatStandingGrants.grant).toHaveBeenCalledWith({ user_id: 'u1', project_id: 'p1', kind: 'board', conversation_id: 'c1', source_action_id: 'act1' });
+  expect(res.json().standing_grant).toMatchObject({ id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'board', source_action_id: 'act1' });
+  expect(res.json()).not.toHaveProperty('grant');
+  expect(res.json()).not.toHaveProperty('project_grant');
+  expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'standing_grant']));
+  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+});
+
+it('approve_project_always on a terminal card grants the tab\'s project as a "terminal" standing grant', async () => {
+  const { app, repos } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_always' } });
+  expect(res.statusCode).toBe(200);
+  expect(repos.chatStandingGrants.grant).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'p1', kind: 'terminal' }));
+  expect(res.json().standing_grant).toMatchObject({ kind: 'terminal' });
+});
+
+it.each([
+  ['delete_task', { ...boardCard, tool: 'delete_task', args: { task_id: 'k1' } }],
+  ['a tab that is not this user\'s', keyCard],
+])('approve_project_always on %s answers 400 GRANT_NOT_ALLOWED and decides nothing', async (_l, row) => {
+  const { app, decide, repos } = build({ findByIdForUser: vi.fn(async () => row), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_always' } });
+  expect(res.statusCode).toBe(400);
+  expect(res.json().code).toBe('GRANT_NOT_ALLOWED');
+  expect(decide).not.toHaveBeenCalled();
+  expect(repos.chatStandingGrants.grant).not.toHaveBeenCalled();
+});
+
+it('approve_project_always whose grant fails still approves and resumes, with no standing_grant in the answer', async () => {
+  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+  vi.mocked(repos.chatStandingGrants.grant).mockRejectedValueOnce(new Error('connection terminated'));
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_always' } });
+  expect(res.statusCode).toBe(200);
+  expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+  expect(res.json()).not.toHaveProperty('standing_grant');
+  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+});
+
+it('a batch refuses approve_project_always', async () => {
+  const { app, decide } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/decisions', payload: { decisions: [{ id: 'act1', decision: 'approve_project_always' }] } });
+  expect(res.statusCode).toBe(400);
+  expect(decide).not.toHaveBeenCalled();
+});
+
+it('GET /chat returns the conversation\'s active standing grants, scoped to the conversation\'s project', async () => {
+  const { app, repos } = build({
+    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: null, project_id: 'p1' })),
+    standingGrants: [{ id: 'sg1', user_id: 'u1', project_id: 'p1', kind: 'board', conversation_id: 'c0', source_action_id: 'a0', created_at: 'x', revoked_at: null, revoked_by: null }],
+    projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }],
+  });
+  const res = await app.inject({ method: 'GET', url: '/chat' });
+  expect(repos.chatStandingGrants.listActive).toHaveBeenCalledWith('u1', 'p1');
+  expect(res.json().standing_grants).toEqual([{ id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'board', source_action_id: 'a0', created_at: 'x' }]);
+});
+
+it('GET /chat with no project (general chat) reads every one of the user\'s standing grants', async () => {
+  const { app, repos } = build({
+    conversationFor: vi.fn(async () => ({ id: 'c1', user_id: 'u1', review_mode: false, machine_id: 'm1', ai_account_id: null, cli_session_id: null, project_id: null })),
+  });
+  await app.inject({ method: 'GET', url: '/chat' });
+  expect(repos.chatStandingGrants.listActive).toHaveBeenCalledWith('u1', undefined);
+});
+
+it('GET /chat/grants?kinds=all_standing passes through to listGrants', async () => {
+  const listForUserStanding = vi.fn(async () => ({ grants: [], next: null }));
+  const { app } = build({ listForUserStanding });
+  const res = await app.inject({ method: 'GET', url: '/chat/grants?state=ended&kinds=all_standing' });
+  expect(res.statusCode).toBe(200);
+  expect(listForUserStanding).toHaveBeenCalledWith('u1', { state: 'ended', cursor: null, limit: 50 });
+});
+
+it('DELETE /chat/grants/:id on a standing id revokes and answers 200', async () => {
+  const revokeStanding = vi.fn(async () => ({ id: 'sg1', user_id: 'u1', project_id: 'p1', kind: 'board', conversation_id: null, source_action_id: 'a0', created_at: 'x', revoked_at: 'now', revoked_by: 'u1' }));
+  // Neither the tab- nor the project-grant table matches this id, so `revokeGrant` falls through to
+  // the standing table, exactly as it would with a real (non-colliding) id.
+  const { app, repos } = build({ revoke: vi.fn(async () => undefined), revokeStanding, projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
+  const res = await app.inject({ method: 'DELETE', url: '/chat/grants/sg1' });
+  expect(res.statusCode).toBe(200);
+  expect(repos.chatStandingGrants.revoke).toHaveBeenCalledWith('sg1', 'u1');
+  expect(res.json().grant).toMatchObject({ id: 'sg1', project_id: 'p1', kind: 'board' });
 });
 
 it('GET /chat returns the conversation\'s active project grants with the project name', async () => {

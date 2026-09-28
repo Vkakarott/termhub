@@ -195,6 +195,11 @@ export class ChatActionsRepository {
     return this.db.chatAction.count({ where: { conversationId, grantId, createdAt: { gt: since }, ...(tools ? { tool: { in: [...tools] } } : {}) } });
   }
 
+  /** Calls charged to one grant since `since`, across conversations (a standing grant, TER-386). */
+  async countByGrantSince(grantId: string, since: Date): Promise<number> {
+    return this.db.chatAction.count({ where: { grantId, createdAt: { gt: since } } });
+  }
+
   /**
    * Records the user's decision on a pending action. Filtered by `id` **and** the owning
    * conversation's `user_id` in the same query, so another user's row is refused in SQL — a

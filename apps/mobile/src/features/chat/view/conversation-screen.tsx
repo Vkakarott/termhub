@@ -8,7 +8,7 @@ import { AppText, Banner, Button, EmptyState, MAX_READABLE_WIDTH, readableColumn
 import { activeGrantIndex, isGrantActive } from '../model/grant-time';
 import { isActive } from '../model/subagents';
 import { chatTimeline, groupPendingActions, type ChatEntry } from '../model/timeline';
-import type { ChatMessage } from '../model/types';
+import type { ChatMessage, ChatStandingGrant } from '../model/types';
 import type { ChatDecision } from '../viewmodel/createChatStore';
 import { useChatStore } from '../viewmodel/useChatStore';
 import { ActionCard } from './action-card';
@@ -120,7 +120,12 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   const actions = slot?.actions;
   const grants = useMemo(() => slot?.grants ?? [], [slot?.grants]);
   const projectGrants = useMemo(() => slot?.projectGrants ?? [], [slot?.projectGrants]);
-  const activeGrantCount = useMemo(() => grants.filter((g) => isGrantActive(g)).length + projectGrants.filter((g) => isGrantActive(g)).length, [grants, projectGrants]);
+  // Standing grants ("Liberar sem prazo") never expire: all of them count, and no tick re-checks them.
+  const standingGrants = useMemo(() => slot?.standingGrants ?? [], [slot?.standingGrants]);
+  const activeGrantCount = useMemo(
+    () => grants.filter((g) => isGrantActive(g)).length + projectGrants.filter((g) => isGrantActive(g)).length + standingGrants.length,
+    [grants, projectGrants, standingGrants],
+  );
   const tabQuestions = slot?.tabQuestions;
   const tabSuggestions = slot?.tabSuggestions;
 
@@ -135,6 +140,11 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
   // `grantTick` is a dependency on purpose: it is what re-checks expiry.
   const grantIndex = useMemo(() => activeGrantIndex(grants), [grants, grantTick]);
   const projectGrantIndex = useMemo(() => activeGrantIndex(projectGrants), [projectGrants, grantTick]);
+  const standingGrantIndex = useMemo(() => {
+    const index = new Map<string, ChatStandingGrant>();
+    for (const g of standingGrants) if (g.source_action_id !== null) index.set(g.source_action_id, g);
+    return index;
+  }, [standingGrants]);
 
   // A deep link followed after unlock replaces `/unlock` with this screen: nothing behind it.
   const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
@@ -190,6 +200,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
           onDecide={onDecide}
           grant={grantIndex.get(item.action.id)}
           projectGrant={projectGrantIndex.get(item.action.id)}
+          standingGrant={standingGrantIndex.get(item.action.id)}
           revoking={revokingId !== null}
           onRevoke={onRevoke}
         />
@@ -202,6 +213,7 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
       decidingId,
       grantIndex,
       projectGrantIndex,
+      standingGrantIndex,
       loadTabQuestionScreen,
       onAnswer,
       onCancelAutoAnswer,
@@ -216,8 +228,8 @@ export function ConversationView({ routeId, embedded = false }: { routeId: strin
     ],
   );
   const extra = useMemo(
-    () => ({ decidingId, grantIndex, projectGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors }),
-    [decidingId, grantIndex, projectGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors],
+    () => ({ decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors }),
+    [decidingId, grantIndex, projectGrantIndex, standingGrantIndex, revokingId, answeringQuestionIds, questionErrors, busySuggestionIds, suggestionErrors],
   );
 
   const title = activeProject ? (projects.find((p) => p.id === activeProject)?.name ?? 'Conversa') : 'Chat geral';

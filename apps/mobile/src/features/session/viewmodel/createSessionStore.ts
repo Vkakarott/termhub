@@ -364,15 +364,15 @@ export function createSessionStore(deps: SessionDeps) {
             return accessToken === null || tokenExpiresAt === null || now() >= tokenExpiresAt - RENEW_BEFORE_MS;
           },
 
-          requestPinProof(actionId, perform, decision = 'approve') {
-            return get().requestPinProofs([actionId], (proofs) => perform(proofs[actionId]!), decision);
+          requestPinProof(actionId, perform, decision = 'approve', title) {
+            return get().requestPinProofs([actionId], (proofs) => perform(proofs[actionId]!), decision, title);
           },
 
-          requestPinProofs(actionIds, perform, decision = 'approve') {
+          requestPinProofs(actionIds, perform, decision = 'approve', title) {
             dropPrompt();
             return new Promise<void>((resolve, reject) => {
               prompt = { actionIds, perform, decision, resolve, reject };
-              const pinPrompt = actionIds.length > 1 ? { actionId: actionIds[0]!, actionIds, decision } : { actionId: actionIds[0]!, decision };
+              const pinPrompt = { ...(actionIds.length > 1 ? { actionId: actionIds[0]!, actionIds, decision } : { actionId: actionIds[0]!, decision }), ...(title ? { title } : {}) };
               set({ pinPrompt, error: null, attemptsLeft: null });
             });
           },

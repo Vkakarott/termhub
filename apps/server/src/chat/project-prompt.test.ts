@@ -58,3 +58,31 @@ it('stays under the protocol cap with a long name and many long paths, and keeps
   expect(text).toContain('A dimmed `Try "…"` in an empty prompt');
   expect(text.endsWith('Keep answers short unless asked for detail.')).toBe(true);
 });
+
+it('says nothing about standing grants when none are active', () => {
+  const text = projectSystemPrompt({ name: 'X', key: 'X' }, []);
+  expect(text).not.toContain('Liberado sem confirmação');
+});
+
+it('names the active standing grants, in STANDING_GRANT_KINDS order, regardless of input order', () => {
+  const text = projectSystemPrompt({ name: 'X', key: 'X' }, [], ['terminal', 'open_tab', 'board']);
+  expect(text).toContain(
+    'Liberado sem confirmação neste projeto (o usuário liberou sem prazo): abrir abas, mexer no quadro, teclas e texto nas abas. As exceções de sempre continuam pedindo: delete_task, run_command, responder permissões, texto com "!" ou caracteres de controle.',
+  );
+  expect(text).not.toContain('fechar abas trabalhando');
+});
+
+it('adds the working-tab exception only when close_tab is granted', () => {
+  const text = projectSystemPrompt({ name: 'X', key: 'X' }, [], ['close_tab']);
+  expect(text).toContain(
+    'Liberado sem confirmação neste projeto (o usuário liberou sem prazo): fechar abas paradas. As exceções de sempre continuam pedindo: delete_task, run_command, responder permissões, texto com "!" ou caracteres de controle, fechar abas trabalhando.',
+  );
+});
+
+it('stays under the protocol cap with a long machine list and the standing grants line, cutting the machine list', () => {
+  const links = Array.from({ length: 200 }, (_, i) => ({ machine: `m${i}`, cwd: `/very/long/path/${'d'.repeat(40)}/${i}` }));
+  const text = projectSystemPrompt({ name: 'N'.repeat(200), key: 'X' }, links, ['open_tab', 'close_tab', 'start_agent', 'board', 'terminal']);
+  expect(text.length).toBeLessThanOrEqual(4000);
+  expect(text).toContain('Liberado sem confirmação neste projeto');
+  expect(text.endsWith('Keep answers short unless asked for detail.')).toBe(true);
+});

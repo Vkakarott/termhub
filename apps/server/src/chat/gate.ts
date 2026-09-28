@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { ChatAction, ChatActionStatus } from '../db/repositories/chat-actions.js';
+import { STANDING_GRANT_KINDS, type StandingGrantKind } from '../db/repositories/chat-standing-grants.js';
+
+export { STANDING_GRANT_KINDS, type StandingGrantKind };
 
 export type ActionClass = 'read' | 'self_mediated' | 'write' | 'irreversible';
 
@@ -43,10 +46,10 @@ const writeTools = new Set([
   'import_tickets',
 ]);
 
-// close_tab must stay irreversible and never become grantable (or otherwise auto-approved):
-// control/terminals.ts skips its per-token ownership check for a gated token because every gated
-// close_tab is asked here. Letting it through without a question would let the chat close any of the
-// user's tabs. Revisit control/terminals.ts's `!ctx.token.gated` check first.
+// close_tab stays irreversible. control/terminals.ts skips its per-token ownership check for a gated
+// token because the gate mediates every gated close_tab: a card, or a standing grant (TER-386) under
+// which the gate itself resolves the tab owner-scoped and requires it to belong to the granted project
+// (chat/standing-project.ts) before the call runs. Never let close_tab through without one of the two.
 // create_integration and set_project_repo change credentials and where the CI panel reads from
 // (spec 2026-09-28 MCP integrations D6): always a card, never covered by a grant.
 const irreversibleTools = new Set(['close_tab', 'delete_task', 'push_ticket_status', 'create_integration', 'set_project_repo']);
@@ -171,6 +174,25 @@ export function terminalGrantable(tool: string, args: Record<string, unknown>): 
 
 /** Terminal calls one grant (tab or project) covers per rolling hour; past it, calls are asked. */
 export const TERMINAL_GRANT_BUDGET = { calls: 120, windowMs: 60 * 60 * 1000 } as const;
+
+const idArg = (v: unknown): v is string => typeof v === 'string' && v.length >= 1 && v.length <= 64;
+
+/**
+ * Which standing grant kind ("Liberar sem prazo", spec 2026-09-28 TER-386) may cover this call, or null:
+ * a closed map, like the sets above. Terminal calls keep `terminalGrantable`'s rules (never an answer to a
+ * permission); the gate adds the tab's state, the screen check and the text rules on top.
+ */
+export function standingKindOf(tool: string, args: Record<string, unknown>): StandingGrantKind | null {
+  if (tool === 'open_tab' || tool === 'start_agent') return idArg(args.project_id) ? tool : null;
+  if (tool === 'close_tab') return idArg(args.tab_id) ? 'close_tab' : null;
+  if (boardGrantable(tool)) return 'board';
+  if (terminalGrantable(tool, args)) return 'terminal';
+  return null;
+}
+
+/** Calls one standing grant covers per rolling hour, per kind — a brake, not a quota (spec §2). */
+export const STANDING_GRANT_BUDGETS: Record<StandingGrantKind, number> = { open_tab: 30, close_tab: 30, start_agent: 10, board: 30, terminal: 120 };
+export const STANDING_BUDGET_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Decides whether to allow, ask, wait, or refuse a proposed action.

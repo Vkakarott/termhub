@@ -21,6 +21,7 @@ import {
   chatMessage,
   chatProjectGrantSchema,
   chatProjectItem,
+  chatStandingGrantSchema,
   chatProjectsResponse,
   conciergeNoteView,
   decisionsResponse,
@@ -115,6 +116,9 @@ export const chatResponse = z.object({
   /** "Permitir sempre neste projeto" grants still in force for this conversation (design spec
    * 2026-09-26 §7). Defaulted: an older server never sends the field. */
   project_grants: z.array(chatProjectGrantSchema).default([]),
+  /** "Liberar sem prazo" grants (spec 2026-09-28 TER-386): the project's, or all of the user's in the
+   * account-wide chat — not bound to the conversation. Defaulted: an older server never sends the field. */
+  standing_grants: z.array(chatStandingGrantSchema).default([]),
   tab_questions: z.array(tabQuestionSchema).default([]),
   tab_suggestions: z.array(tabSuggestionSchema).default([]),
   subagents: z.array(subagentViewSchema).default([]),
@@ -209,6 +213,8 @@ export type TChatAction = z.infer<typeof chatActionSchema>;
 export type TChatGrant = z.infer<typeof chatGrantSchema>;
 /** "Permitir sempre neste projeto" (server `ChatProjectGrantView`). */
 export type TChatProjectGrant = z.infer<typeof chatProjectGrantSchema>;
+/** "Liberar sem prazo" (server `ChatStandingGrantView`, spec 2026-09-28 TER-386). */
+export type TChatStandingGrant = z.infer<typeof chatStandingGrantSchema>;
 export type TChatGrantListItem = z.infer<typeof chatGrantListItemSchema>;
 export type TChatGrantListResponse = z.infer<typeof chatGrantListResponse>;
 export type TTabQuestion = z.infer<typeof tabQuestionSchema>;

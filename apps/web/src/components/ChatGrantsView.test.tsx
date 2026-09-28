@@ -21,7 +21,7 @@ import { ChatGrantsView } from './ChatGrantsView';
 const item = (over: Partial<ChatGrantListItem> & { id: string }): ChatGrantListItem => ({
   kind: 'tab', tab_id: 't1', tool: 'send_input', source_action_id: null, created_at: '2026-09-25T10:00:00.000Z', expires_at: new Date(Date.now() + 3_600_000).toISOString(),
   tab_name: 'api', project_id: 'p1', project_name: 'termhub', conversation_id: 'c1', conversation_project_name: null, conversation_archived: false,
-  state: 'active', ended_at: null, ...over,
+  state: 'active', ended_at: null, standing_kind: null, ...over,
 });
 
 beforeEach(() => {
@@ -100,4 +100,13 @@ it('a failed load says so and retries', async () => {
   serve([], [{ grants: [], next_cursor: null }]);
   fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
   expect(await screen.findByText('Nenhuma permissão ativa agora.')).toBeInTheDocument();
+});
+
+it('lists a standing grant as "sem prazo", asks for all_standing and explains both validities', async () => {
+  serve([item({ id: 's1', kind: 'standing', standing_kind: 'close_tab', tab_id: null, tab_name: null, tool: null, project_name: 'App', expires_at: null, conversation_id: null })], [{ grants: [], next_cursor: null }]);
+  render(<ChatGrantsView />);
+  const active = await screen.findByRole('region', { name: 'Ativas' });
+  expect(within(active).getByText('Fechar abas paradas no projeto App · sem prazo')).toBeInTheDocument();
+  expect(within(active).getByText('Conversa apagada · sem prazo')).toBeInTheDocument();
+  expect(screen.getByText('O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.')).toBeInTheDocument();
 });

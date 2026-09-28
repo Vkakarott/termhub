@@ -253,10 +253,10 @@ export function createHttpMobileApi(o: CreateHttpMobileApiOptions): MobileApi & 
       empty('POST', `/api/m/v1/chat/actions/${actionId}/decision`, { token: a.accessToken, body }),
     decideMany: (a: Auth, body: TMobileBatchDecisionBody) => empty('POST', '/api/m/v1/chat/actions/decisions', { token: a.accessToken, body }),
     revokeGrant: (a: Auth, grantId: string) => empty('DELETE', `/api/m/v1/chat/grants/${encodeURIComponent(grantId)}`, { token: a.accessToken }),
-    // `kinds=all` unconditionally: "Permissões do chat" always wants tab and project grants together
-    // (design spec 2026-09-26 §7); an older server without project grants simply ignores it.
+    // `kinds=all_standing` unconditionally: "Permissões do chat" always wants tab, project and standing
+    // grants together (design spec 2026-09-26 §7, TER-386).
     listGrants: (a: Auth, q: { state: 'active' | 'ended'; cursor?: string | null }) =>
-      call('GET', `/api/m/v1/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}&kinds=all`, chatGrantListResponse, { token: a.accessToken }),
+      call('GET', `/api/m/v1/chat/grants?state=${q.state}${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ''}&kinds=all_standing`, chatGrantListResponse, { token: a.accessToken }),
     answerTabQuestion: (a: Auth, id: string, body: TTabQuestionAnswerBody) =>
       empty('POST', `/api/m/v1/chat/tab-questions/${encodeURIComponent(id)}/answer`, { token: a.accessToken, body }),
     cancelAutoAnswer: (a: Auth, id: string) =>

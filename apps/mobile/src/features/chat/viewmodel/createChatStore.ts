@@ -15,24 +15,25 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SessionState } from '@/features/session/model/session.types';
 import { appBackgrounded, sessionEnded } from '@/features/shared/signals';
-import type { TChatAttachment, TChatProjectItem, THostOptionsResponse, TTabQuestionAnswerBody } from '@/services/api/contract';
+import { STANDING_KIND_LABEL, standingKindOf, type TChatAttachment, type TChatProjectItem, type THostOptionsResponse, type TTabQuestionAnswerBody } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { randomId } from '@/services/crypto/random';
 import type { MobileApi } from '@/services/api/types';
 import { mmkvStateStorage } from '@/services/storage';
-import { applyEvent, mergeThread, settlePending, upsertTabQuestion } from '../model/events';
+import { applyEvent, applyStandingGrantEvent, mergeThread, settlePending, upsertTabQuestion } from '../model/events';
 import { belongsTo } from '../model/filter';
 import { CHAT_MSG } from '../model/messages';
 import { emptyFold, pruneLive, type LiveFold } from '../model/live';
 import type { PickedFile } from './attachments';
 import { createThrottledStorage } from './throttled-storage';
-import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from '../model/types';
+import type { ChatAction, ChatConversation, ChatEvent, ChatGrant, ChatHostState, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabSuggestion } from '../model/types';
 
 /** `approve_tab` approves the card *and* trusts its tab for send_input ("Permitir sempre nesta aba");
  * `approve_project` approves it *and* trusts its project's board ("Permitir sempre neste projeto");
  * `approve_tab_terminal` trusts the tab's keys and shell ("Liberar teclas e shell nesta aba") and
- * `approve_project_all` everything in the project ("Liberar tudo neste projeto"). */
-export type ChatDecision = 'approve' | 'deny' | 'approve_tab' | 'approve_project' | 'approve_tab_terminal' | 'approve_project_all';
+ * `approve_project_all` everything in the project ("Liberar tudo neste projeto"); `approve_project_always`
+ * trusts one kind of action on the card's project with no expiry ("Liberar sem prazo", TER-386). */
+export type ChatDecision = 'approve' | 'deny' | 'approve_tab' | 'approve_project' | 'approve_tab_terminal' | 'approve_project_all' | 'approve_project_always';
 
 /** What the chat store needs from the session store (read through a getter, so tests can inject
  * a session store built over the same mock transport). */
@@ -52,6 +53,9 @@ export interface ConversationSlot {
   /** The projects' boards trusted in this conversation ("Permitir sempre neste projeto", design spec
    * 2026-09-26 §7); the server lists those still in force. */
   projectGrants: ChatProjectGrant[];
+  /** The standing grants ("Liberar sem prazo", spec 2026-09-28 TER-386) on this slot's project — all of
+   * them in the account-wide chat. Not bound to the conversation: a reset keeps them. */
+  standingGrants: ChatStandingGrant[];
   /** The tabs' questions pushed into this conversation (spec 2026-09-25 §6.3). */
   tabQuestions: TabQuestion[];
   /** The tabs' suggestions pushed into this conversation. */
@@ -122,8 +126,8 @@ export interface ChatState {
   /** A grouped confirmation of the open conversation: one request, and one PIN entry for all its
    * approvals (none for a batch of denials). `decidingId` holds the first id while it is in flight. */
   decideMany(decisions: { id: string; decision: 'approve' | 'deny' }[]): Promise<void>;
-  /** "Revogar" a trusted tab or a trusted project's board of the open conversation. A grant already
-   * revoked elsewhere (409) is dropped quietly: it is gone either way. */
+  /** "Revogar" a trusted tab, a trusted project or a standing grant shown in the open conversation. A
+   * grant already revoked elsewhere (409) is dropped quietly: it is gone either way. */
   revokeGrant(grantId: string): Promise<void>;
   /** Answers a tab's question from its card — no PIN. A question the tab moved past (409) says so in its card and re-reads. */
   answerTabQuestion(questionId: string, body: TTabQuestionAnswerBody): Promise<void>;
@@ -163,7 +167,7 @@ export interface ChatState {
 
 type Data = Omit<ChatState, { [K in keyof ChatState]: ChatState[K] extends (...args: never[]) => unknown ? K : never }[keyof ChatState]>;
 
-type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'projectGrants' | 'tabQuestions' | 'tabSuggestions' | 'subagents' | 'host'>;
+type PersistedSlot = Pick<ConversationSlot, 'conversation' | 'messages' | 'actions' | 'grants' | 'projectGrants' | 'standingGrants' | 'tabQuestions' | 'tabSuggestions' | 'subagents' | 'host'>;
 type Persisted = { projects: TChatProjectItem[]; conversations: Record<string, PersistedSlot> };
 
 const initialData = (): Data => ({
@@ -185,7 +189,7 @@ const initialData = (): Data => ({
   attachmentStatuses: {},
 });
 
-const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [], host: null, loaded: false, error: null });
+const emptySlot = (): ConversationSlot => ({ conversation: null, messages: [], actions: [], grants: [], projectGrants: [], standingGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [], host: null, loaded: false, error: null });
 const keyOf = (projectId: string | null): string => projectId ?? '';
 const projectOf = (key: string): string | null => (key === '' ? null : key);
 
@@ -262,6 +266,7 @@ export function createChatStore(deps: ChatDeps) {
               actions: res.actions,
               grants: res.grants,
               projectGrants: res.project_grants,
+              standingGrants: res.standing_grants,
               tabQuestions: res.tab_questions,
               tabSuggestions: res.tab_suggestions,
               subagents: res.subagents,
@@ -281,7 +286,26 @@ export function createChatStore(deps: ChatDeps) {
           }
         };
 
+        /** A standing grant's event reaches every slot that shows it, open or not (`applyStandingGrantEvent`). */
+        const onStandingGrantEvent = (e: ChatEvent): void => {
+          const conversations = get().conversations;
+          let changed = false;
+          const next = Object.fromEntries(
+            Object.entries(conversations).map(([key, slot]) => {
+              const standingGrants = applyStandingGrantEvent(slot.standingGrants, projectOf(key), e);
+              if (standingGrants === slot.standingGrants) return [key, slot];
+              changed = true;
+              return [key, { ...slot, standingGrants }];
+            }),
+          );
+          if (changed) set({ conversations: next });
+        };
+
         const onEvent = (e: ChatEvent): void => {
+          if (e.type === 'standing_grant' || e.type === 'standing_grant_revoked') {
+            onStandingGrantEvent(e);
+            return;
+          }
           const key = activeKey();
           if (key === null) return;
           const current = get().conversations[key] ?? emptySlot();
@@ -515,8 +539,11 @@ export function createChatStore(deps: ChatDeps) {
                 await api.decide(session().auth(), actionId, { decision: 'deny' });
               } else {
                 const word = decision; // keeps the narrowed type (no 'deny') inside the closures below
-                const withPin = () => session().requestPinProof(actionId, (proof) => api.decide(session().auth(), actionId, { decision: word, ...proof }), word);
                 const card = get().conversations[key]?.actions.find((a) => a.id === actionId);
+                // "Liberar sem prazo": the PIN sheet's title is the card's button label, kind included.
+                const standingKind = word === 'approve_project_always' && card ? standingKindOf({ tool: card.tool, args: card.args, tab_id: card.tab_id, project_id: card.project_id }) : null;
+                const title = standingKind ? `Liberar sem prazo: ${STANDING_KIND_LABEL[standingKind]} neste projeto` : undefined;
+                const withPin = () => session().requestPinProof(actionId, (proof) => api.decide(session().auth(), actionId, { decision: word, ...proof }), word, title);
                 // TER-92: a write card approves with the unlocked session; the server is the judge and
                 // answers PIN_REQUIRED when it disagrees, which falls back to the sheet. A server rolled
                 // back to the old schema (no optional proof) answers VALIDATION instead: same fallback,
@@ -542,7 +569,7 @@ export function createChatStore(deps: ChatDeps) {
               // The `decision` event confirms it; this only saves a flicker back to "pending". Only a
               // card still pending moves: a re-read may already have it executed, failed or expired.
               patchSlot(key, (slot) => ({ actions: settlePending(slot.actions, actionId, decision === 'deny' ? 'denied' : 'approved') }));
-              // The `grant`/`project_grant` event brings the trusted tab or project; the re-read puts
+              // The `grant`/`project_grant`/`standing_grant` event brings the new grant; the re-read puts
               // it on screen even if the socket is down.
               if (decision !== 'approve' && decision !== 'deny') void reread(key);
             } catch (e) {
@@ -613,7 +640,12 @@ export function createChatStore(deps: ChatDeps) {
             const key = keyOf(projectId);
             const gen = generation;
             set({ revokingId: grantId, error: null });
-            const drop = () => patchSlot(key, (slot) => ({ grants: slot.grants.filter((g) => g.id !== grantId), projectGrants: slot.projectGrants.filter((g) => g.id !== grantId) }));
+            const drop = () =>
+              patchSlot(key, (slot) => ({
+                grants: slot.grants.filter((g) => g.id !== grantId),
+                projectGrants: slot.projectGrants.filter((g) => g.id !== grantId),
+                standingGrants: slot.standingGrants.filter((g) => g.id !== grantId),
+              }));
             try {
               await api.revokeGrant(session().auth(), grantId);
               if (gen === generation) drop();
@@ -760,7 +792,8 @@ export function createChatStore(deps: ChatDeps) {
               await api.reset(session().auth(), projectId);
               if (gen !== generation) return;
               set({ live: emptyFold() });
-              patchSlot(key, () => ({ messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] })); // a reset ends the old conversation's grants too
+              // A reset ends the old conversation's grants too — not the standing ones, which outlive it.
+              patchSlot(key, () => ({ messages: [], actions: [], grants: [], projectGrants: [], tabQuestions: [], tabSuggestions: [], subagents: [], cancelFailed: [] }));
               await reread(key);
             } catch (e) {
               fail(gen, e);
@@ -818,7 +851,7 @@ export function createChatStore(deps: ChatDeps) {
             // A row still in flight, or one that failed, is this device's alone: not worth a restart.
             Object.entries(s.conversations).map(([key, c]) => [
               key,
-              { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, projectGrants: c.projectGrants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, subagents: c.subagents, host: c.host },
+              { conversation: c.conversation, messages: c.messages.filter((m) => m.local === undefined), actions: c.actions, grants: c.grants, projectGrants: c.projectGrants, standingGrants: c.standingGrants, tabQuestions: c.tabQuestions, tabSuggestions: c.tabSuggestions, subagents: c.subagents, host: c.host },
             ]),
           ),
         }),

@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { actionClass, BOARD_GRANT_TOOLS, boardGrantable, gateDecision, grantable, idempotencyKeyFor, terminalGrantable } from './gate.js';
+import {
+  actionClass,
+  BOARD_GRANT_TOOLS,
+  boardGrantable,
+  gateDecision,
+  grantable,
+  idempotencyKeyFor,
+  standingKindOf,
+  STANDING_BUDGET_WINDOW_MS,
+  STANDING_GRANT_BUDGETS,
+  terminalGrantable,
+} from './gate.js';
 
 it('classifies every tool the MCP exposes, and defaults an unknown one to irreversible', () => {
   expect(actionClass('list_machines', {})).toBe('read');
@@ -125,4 +136,33 @@ describe('terminalGrantable', () => {
     ['open_tab', { project_id: 'p1' }, false],
     ['close_tab', { tab_id: 't1' }, false],
   ])('%s %j → %s', (tool, args, ok) => expect(terminalGrantable(tool, args)).toBe(ok));
+});
+
+describe('standingKindOf', () => {
+  it.each([
+    ['open_tab', { project_id: 'p1' }, 'open_tab'],
+    ['open_tab', {}, null],
+    ['close_tab', { tab_id: 't1' }, 'close_tab'],
+    ['close_tab', {}, null],
+    ['start_agent', { project_id: 'p1', account_id: 'a1', prompt: 'oi' }, 'start_agent'],
+    ['start_agent', {}, null],
+    ['create_task', { project_id: 'p1' }, 'board'],
+    ['add_subtasks', { task_id: 'k1' }, 'board'],
+    ['update_task', { task_id: 'k1' }, 'board'],
+    ['move_task', { task_id: 'k1' }, 'board'],
+    ['send_input', { tab_id: 't1', text: 'ls' }, 'terminal'],
+    ['send_input', { tab_id: 't1', text: 'y', answering_permission: true }, null],
+    ['send_key', { tab_id: 't1', key: 'Enter' }, 'terminal'],
+    ['run_command', { tab_id: 't1', command: 'ls' }, null],
+    ['delete_task', { task_id: 'k1' }, null],
+    ['push_ticket_status', {}, null],
+    ['create_integration', {}, null],
+    ['set_project_repo', {}, null],
+    ['link_project_machine', { project_id: 'p1', machine_id: 'm1' }, null],
+  ])('%s %j → %s', (tool, args, expected) => expect(standingKindOf(tool, args)).toBe(expected));
+});
+
+it('standing grant budgets and window match spec (TER-386)', () => {
+  expect(STANDING_GRANT_BUDGETS).toEqual({ open_tab: 30, close_tab: 30, start_agent: 10, board: 30, terminal: 120 });
+  expect(STANDING_BUDGET_WINDOW_MS).toBe(60 * 60 * 1000);
 });

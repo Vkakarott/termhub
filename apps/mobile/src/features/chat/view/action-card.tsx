@@ -1,10 +1,11 @@
 import { memo } from 'react';
 import { View } from 'react-native';
-import { isBoardGrantable, isTabGrantable, isTerminalGrantable } from '@/services/api/contract';
+import { standingKindLabel } from '@/features/chat-grants/model/labels';
+import { isBoardGrantable, isTabGrantable, isTerminalGrantable, STANDING_KIND_LABEL, standingKindOf } from '@/services/api/contract';
 import { AppText, Button } from '@/ui';
 import { untilLabel } from '../model/grant-time';
 import type { ChatDecision } from '../viewmodel/createChatStore';
-import type { ChatAction, ChatGrant, ChatProjectGrant } from '../model/types';
+import type { ChatAction, ChatGrant, ChatProjectGrant, ChatStandingGrant } from '../model/types';
 
 const STATUS_LABEL: Record<Exclude<ChatAction['status'], 'pending'>, string> = {
   approved: 'autorizada',
@@ -14,6 +15,16 @@ const STATUS_LABEL: Record<Exclude<ChatAction['status'], 'pending'>, string> = {
   failed: 'falhou',
 };
 
+/** Tools whose standing grant trusts the project's tabs themselves (open, close, start an agent). */
+const TAB_LIFECYCLE_TOOLS = new Set(['open_tab', 'close_tab', 'start_agent']);
+
+/** What a call run under a grant adds to its status line — the web's `grantedLabel`. */
+function grantedLabel(action: ChatAction): string {
+  if (isBoardGrantable({ tool: action.tool })) return ' · quadro confiado';
+  if (TAB_LIFECYCLE_TOOLS.has(action.tool)) return ' · liberado no projeto';
+  return ' · aba confiada';
+}
+
 type Props = {
   action: ChatAction;
   busy: boolean;
@@ -22,6 +33,8 @@ type Props = {
   grant?: ChatGrant;
   /** The project grant this card created ("Permitir sempre neste projeto"), while it is still in force. */
   projectGrant?: ChatProjectGrant;
+  /** The standing grant this card created ("Liberar sem prazo"), until it is revoked. */
+  standingGrant?: ChatStandingGrant;
   revoking: boolean;
   onRevoke(grantId: string): void;
 };
@@ -30,13 +43,15 @@ type Props = {
  * pending — plus "Permitir sempre nesta aba" (PIN) for a send_input to a tab, or "Permitir sempre
  * neste projeto" (PIN) for one of the four board tools, and the wider "Liberar teclas e shell nesta
  * aba" (a send_input/send_key to a tab) and "Liberar tudo neste projeto" (either kind), each with the
- * PIN and its own proof word — or how it ended ("· aba confiada" /
- * "· quadro confiado" when it ran under a grant), and "Permitido até HH:MM · Revogar" on the card
- * that trusted its tab or its project. Memoised: `onDecide` and `onRevoke` are the store's own
+ * PIN and its own proof word, and "Liberar sem prazo: <ação> neste projeto" (PIN, TER-386) when the card
+ * maps to a standing kind — or how it ended ("· aba confiada" / "· quadro confiado" / "· liberado no
+ * projeto" when it ran under a grant), and "Permitido até HH:MM · Revogar" (or "…, sem prazo · Revogar")
+ * on the card that created the grant. Memoised: `onDecide` and `onRevoke` are the store's own
  * (stable) actions. */
-export const ActionCard = memo(function ActionCard({ action, busy, onDecide, grant, projectGrant, revoking, onRevoke }: Props) {
+export const ActionCard = memo(function ActionCard({ action, busy, onDecide, grant, projectGrant, standingGrant, revoking, onRevoke }: Props) {
   // explicit fields: the contract infers `args` (z.unknown) as optional
   const terminal = isTerminalGrantable({ tool: action.tool, args: action.args, tab_id: action.tab_id });
+  const standingKind = standingKindOf({ tool: action.tool, args: action.args, tab_id: action.tab_id, project_id: action.project_id });
   return (
     <View className="gap-3 rounded-2xl border border-app-accent bg-app-surface2 p-4">
       <AppText variant="label">Pedido de confirmação</AppText>
@@ -66,9 +81,12 @@ export const ActionCard = memo(function ActionCard({ action, busy, onDecide, gra
           {terminal || isBoardGrantable({ tool: action.tool }) ? (
             <Button label="Liberar tudo neste projeto" variant="secondary" onPress={() => onDecide(action.id, 'approve_project_all')} disabled={busy} />
           ) : null}
+          {standingKind ? (
+            <Button label={`Liberar sem prazo: ${STANDING_KIND_LABEL[standingKind]} neste projeto`} variant="secondary" onPress={() => onDecide(action.id, 'approve_project_always')} disabled={busy} />
+          ) : null}
         </View>
       ) : (
-        <AppText variant="muted">{`${STATUS_LABEL[action.status]}${action.grant_id ? (isBoardGrantable({ tool: action.tool }) ? ' · quadro confiado' : ' · aba confiada') : ''}`}</AppText>
+        <AppText variant="muted">{`${STATUS_LABEL[action.status]}${action.grant_id ? grantedLabel(action) : ''}`}</AppText>
       )}
       {grant ? (
         <View className="flex-row items-center justify-between gap-2">
@@ -80,6 +98,12 @@ export const ActionCard = memo(function ActionCard({ action, busy, onDecide, gra
         <View className="flex-row items-center justify-between gap-2">
           <AppText variant="muted" className="flex-1">{`${projectGrant.scope === 'all' ? 'Tudo liberado neste projeto ' : 'Permitido neste projeto '}${untilLabel(projectGrant.expires_at)}`}</AppText>
           <Button label="Revogar" variant="ghost" onPress={() => onRevoke(projectGrant.id)} disabled={revoking} />
+        </View>
+      ) : null}
+      {standingGrant ? (
+        <View className="flex-row items-center justify-between gap-2">
+          <AppText variant="muted" className="flex-1">{`${standingKindLabel(standingGrant.kind)} liberado neste projeto, sem prazo`}</AppText>
+          <Button label="Revogar" variant="ghost" onPress={() => onRevoke(standingGrant.id)} disabled={revoking} />
         </View>
       ) : null}
     </View>

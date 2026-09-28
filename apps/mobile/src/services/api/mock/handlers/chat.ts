@@ -16,6 +16,8 @@ import {
   mobileMessageBody,
   resetBody,
   setHostBody,
+  standingKindOf,
+  type StandingGrantKind,
   tabQuestionAnswerBody,
   tabSuggestionSendBody,
   type PinDecision,
@@ -26,12 +28,13 @@ import {
   type TChatHostState,
   type TChatMemory,
   type TChatProjectGrant,
+  type TChatStandingGrant,
   type TSubagentView,
   type TTabQuestion,
   type TTabSuggestion,
 } from '../../contract';
 import type { MockRouter } from '../router';
-import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockLesson, type MockMessage, type MockNote, type MockProjectGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
+import { broadcast, countPinFailure, type MockAction, type MockAttachment, type MockConversation, type MockDecision, type MockDevice, type MockGrant, type MockLesson, type MockMessage, type MockNote, type MockProjectGrant, type MockStandingGrant, type MockSubagent, type MockState, type MockTabQuestion, type MockTabSuggestion, verifyAuth, WireError } from '../state';
 import { pushConfirmationNotification, pushReplyNotification } from './notifications';
 
 const USER_ID = 'u1';
@@ -218,6 +221,48 @@ function grantProject(state: MockState, action: MockAction, projectId: string, n
     revoked_by_user: false,
   };
   state.projectGrants.push(grant);
+  return grant;
+}
+
+/** The wire shape of a standing grant (the server's `ChatStandingGrantView`), `project_name` resolved
+ * like `projectGrantView`'s. */
+function standingGrantView(state: MockState, g: MockStandingGrant): TChatStandingGrant {
+  return { id: g.id, project_id: g.project_id, project_name: state.projects.get(g.project_id)?.name ?? null, kind: g.kind, source_action_id: g.source_action_id, created_at: g.created_at };
+}
+
+/** `GET chat`'s `standing_grants` (TER-386): not the conversation's but the user's — the project's
+ * own, or every one of them in the account-wide chat (`projectId` null); oldest first. */
+function activeStandingGrantsFor(state: MockState, projectId: string | null): TChatStandingGrant[] {
+  return state.standingGrants.filter((g) => !g.revoked && (projectId === null || g.project_id === projectId)).map((g) => standingGrantView(state, g));
+}
+
+/** The project a standing grant of `kind` trusts, as the server's `standingProjectOf` resolves it: a
+ * tab's own project for `close_tab` and `terminal`, the card's project for the rest — or null. */
+function standingProjectOf(action: MockAction, kind: StandingGrantKind): string | null {
+  if (kind === 'close_tab' || kind === 'terminal') return (action.tab_id && TABS[action.tab_id]?.project_id) || null;
+  return action.project_id;
+}
+
+/** Trusts `kind` on `projectId` with no expiry: an active grant of the same (project, kind) is revoked
+ * first — at most one, as the server's partial unique index keeps it. */
+function grantStanding(state: MockState, action: MockAction, projectId: string, kind: StandingGrantKind, now: number): MockStandingGrant {
+  for (const g of state.standingGrants) {
+    if (g.project_id === projectId && g.kind === kind && !g.revoked) {
+      g.revoked = true;
+      g.revoked_at = new Date(now).toISOString();
+    }
+  }
+  const grant: MockStandingGrant = {
+    id: randomId(10),
+    conversation_id: action.conversation_id,
+    project_id: projectId,
+    kind,
+    source_action_id: action.id,
+    created_at: new Date(now).toISOString(),
+    revoked: false,
+    revoked_at: null,
+  };
+  state.standingGrants.push(grant);
   return grant;
 }
 
@@ -485,6 +530,7 @@ function grantListItem(state: MockState, g: MockGrant, now: number): TChatGrantL
     kind: 'tab',
     ...grantView(g),
     scope: null,
+    standing_kind: null,
     project_id: project?.id ?? null,
     project_name: project?.name ?? null,
     conversation_id: g.conversation_id,
@@ -516,6 +562,7 @@ function projectGrantListItem(state: MockState, g: MockProjectGrant, now: number
     expires_at: g.expires_at,
     tab_name: null,
     scope: g.scope,
+    standing_kind: null,
     project_id: grantedProject?.id ?? null,
     project_name: grantedProject?.name ?? null,
     conversation_id: g.conversation_id,
@@ -523,6 +570,33 @@ function projectGrantListItem(state: MockState, g: MockProjectGrant, now: number
     conversation_archived: conversation?.archived_at != null,
     state: s,
     ended_at: s === 'active' ? null : s === 'expired' ? g.expires_at : g.revoked_at,
+  };
+}
+
+/** The mock's `ChatGrantListItem` for a standing grant (TER-386): no expiry, so only `active` or
+ * `revoked`; the granting conversation may be gone (`conversation_id` null). */
+function standingGrantListItem(state: MockState, g: MockStandingGrant): TChatGrantListItem {
+  const conversation = state.conversations.get(g.conversation_id);
+  const conversationProject = conversation?.project_id ? state.projects.get(conversation.project_id) : undefined;
+  const grantedProject = state.projects.get(g.project_id);
+  return {
+    kind: 'standing',
+    id: g.id,
+    tab_id: null,
+    tool: null,
+    source_action_id: g.source_action_id,
+    created_at: g.created_at,
+    expires_at: null,
+    tab_name: null,
+    scope: null,
+    standing_kind: g.kind,
+    project_id: grantedProject?.id ?? null,
+    project_name: grantedProject?.name ?? null,
+    conversation_id: conversation ? g.conversation_id : null,
+    conversation_project_name: conversationProject?.name ?? null,
+    conversation_archived: conversation?.archived_at != null,
+    state: g.revoked ? 'revoked' : 'active',
+    ended_at: g.revoked ? g.revoked_at : null,
   };
 }
 
@@ -621,6 +695,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
         actions: actionsFor(state, conversation.id),
         grants: activeGrantsFor(state, conversation.id, ctx.now()),
         project_grants: activeProjectGrantsFor(state, conversation.id, ctx.now()),
+        standing_grants: activeStandingGrantsFor(state, projectId),
         tab_questions: state.tabQuestions.filter((q) => q.conversation_id === conversation.id).map(tabQuestionView),
         tab_suggestions: state.tabSuggestions.filter((s) => s.conversation_id === conversation.id).map(tabSuggestionView),
         subagents: state.subagents.filter((s) => s.conversation_id === conversation.id).map(subagentView),
@@ -824,6 +899,12 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     if (body.decision === 'approve_project_all' && grantedProjectId === null) {
       throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Não dá para liberar tudo neste projeto aqui');
     }
+    // TER-386: a standing kind for the card, and the project it trusts, resolved like the server does.
+    const standingKind = body.decision === 'approve_project_always' ? standingKindOf({ tool: action.tool, args: action.args, tab_id: action.tab_id, project_id: action.project_id }) : null;
+    const standingProjectId = standingKind ? standingProjectOf(action, standingKind) : null;
+    if (body.decision === 'approve_project_always' && standingProjectId === null) {
+      throw new WireError(400, 'GRANT_NOT_ALLOWED', 'Não dá para liberar sem prazo neste projeto aqui');
+    }
 
     checkDecisionProof(state, device, action.id, body.decision, { challenge: body.challenge!, pin_proof: body.pin_proof! }, now);
     device.pinFailures = 0;
@@ -839,6 +920,13 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       const grant = grantView(made.grant);
       broadcast(state, { type: 'grant', user_id: USER_ID, conversation_id: action.conversation_id, grant });
       return { status: 200, body: { grant } };
+    }
+
+    if (body.decision === 'approve_project_always') {
+      // Answered under its own key, `standing_grant` (routes/m-chat.ts).
+      const standingGrant = standingGrantView(state, grantStanding(state, action, standingProjectId!, standingKind!, now));
+      broadcast(state, { type: 'standing_grant', user_id: USER_ID, conversation_id: action.conversation_id, grant: standingGrant });
+      return { status: 200, body: { standing_grant: standingGrant } };
     }
 
     // The server answers a project grant under its own key, `project_grant` (routes/m-chat.ts).
@@ -892,15 +980,18 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
 
   /** "Permissões do chat": the server's paging (newest first, cursor = the last row's id). With
    * `kinds=all` (the default is `tab`, for an app or a server predating project grants), tab and
-   * project rows are merged by `created_at` before paging — mirrors the server's cursor, valid for
-   * both tables since it is just `(created_at, id)`. */
+   * project rows — and standing rows too with `kinds=all_standing` (TER-386) — are merged by
+   * `created_at` before paging — mirrors the server's cursor, valid for every table since it is just
+   * `(created_at, id)`. */
   router.route('GET', '/api/m/v1/chat/grants', (ctx) => {
     verifyAuth(state, { headers: ctx.headers, htm: 'GET', htu: ctx.htu, now: ctx.now() });
     const q = chatGrantListQuery.parse(ctx.query);
     const now = ctx.now();
     const tabRows = state.grants.map((g) => grantListItem(state, g, now));
-    const projectRows = q.kinds === 'all' ? state.projectGrants.map((g) => projectGrantListItem(state, g, now)) : [];
-    const rows = [...tabRows, ...projectRows]
+    const projectRows = q.kinds === 'tab' ? [] : state.projectGrants.map((g) => projectGrantListItem(state, g, now));
+    // Standing rows only for an app that asks for them (TER-386): an older one cannot show a row with no expiry.
+    const standingRows = q.kinds === 'all_standing' ? state.standingGrants.map((g) => standingGrantListItem(state, g)) : [];
+    const rows = [...tabRows, ...projectRows, ...standingRows]
       .sort((a, b) => (a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1))
       .filter((g) => (q.state === 'active' ? g.state === 'active' : g.state !== 'active'));
     const start = q.state === 'ended' && q.cursor ? rows.findIndex((g) => g.id === q.cursor) + 1 : 0;
@@ -909,7 +1000,7 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
     return { status: 200, body: { grants: page, next_cursor: more ? page[page.length - 1]!.id : null } };
   });
 
-  /** "Revogar" (no PIN: it only takes power away): looks in both repositories, like the server's
+  /** "Revogar" (no PIN: it only takes power away): looks in the three repositories, like the server's
    * `revokeGrant` — ids never collide (`randomId`). 404 unknown, 409 already revoked. */
   router.route('DELETE', '/api/m/v1/chat/grants/:id', (ctx) => {
     verifyAuth(state, { headers: ctx.headers, htm: 'DELETE', htu: ctx.htu, now: ctx.now() });
@@ -921,6 +1012,15 @@ export function registerChatRoutes(router: MockRouter, state: MockState, opts: {
       grant.revoked_by_user = true;
       broadcast(state, { type: 'grant_revoked', user_id: USER_ID, conversation_id: grant.conversation_id, grant_id: grant.id });
       return { status: 200, body: { grant: grantView(grant) } };
+    }
+
+    const standingGrant = state.standingGrants.find((g) => g.id === ctx.params.id);
+    if (standingGrant) {
+      if (standingGrant.revoked) throw new WireError(409, 'CONFLICT', 'Esta permissão já foi revogada');
+      standingGrant.revoked = true;
+      standingGrant.revoked_at = new Date(ctx.now()).toISOString();
+      broadcast(state, { type: 'standing_grant_revoked', user_id: USER_ID, conversation_id: standingGrant.conversation_id, grant_id: standingGrant.id });
+      return { status: 200, body: { grant: standingGrantView(state, standingGrant) } };
     }
 
     const projectGrant = state.projectGrants.find((g) => g.id === ctx.params.id);

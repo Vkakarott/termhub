@@ -94,6 +94,26 @@ describe('PinPromptSheet', () => {
     expect(screen.getByText('Liberar tudo neste projeto')).toBeTruthy();
   });
 
+  it('titles a standing grant with the button label it was given, or "Liberar sem prazo neste projeto" without one (TER-386)', async () => {
+    useSessionStore.setState({ pinPrompt: { actionId: 'a1', decision: 'approve_project_always', title: 'Liberar sem prazo: fechar abas paradas neste projeto' } });
+    await render(<PinPromptSheet />);
+    expect(screen.getByText('Liberar sem prazo: fechar abas paradas neste projeto')).toBeTruthy();
+    await act(async () => {
+      useSessionStore.setState({ pinPrompt: { actionId: 'a1', decision: 'approve_project_always' } });
+    });
+    expect(screen.getByText('Liberar sem prazo neste projeto')).toBeTruthy();
+  });
+
+  it('requestPinProof passes its title to the prompt (TER-386)', async () => {
+    await act(async () => {
+      void stores.store
+        .getState()
+        .requestPinProof('a1', async () => undefined, 'approve_project_always', 'Liberar sem prazo: abrir abas neste projeto')
+        .catch(() => undefined);
+    });
+    expect(useSessionStore.getState().pinPrompt).toEqual({ actionId: 'a1', decision: 'approve_project_always', title: 'Liberar sem prazo: abrir abas neste projeto' });
+  });
+
   it('counts the actions of a batch: "Autorizar 2 ações"', async () => {
     useSessionStore.setState({ pinPrompt: { actionId: 'a1', actionIds: ['a1', 'a2'], decision: 'approve' } });
     await render(<PinPromptSheet />);

@@ -5,7 +5,7 @@ import type { TChatAttachment } from '@/services/api/contract';
 import { applyLive, type LiveFold } from './live';
 import { upsertSubagent } from './subagents';
 import { upsertTabSuggestion } from './tab-suggestion-text';
-import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from './types';
+import type { ChatAction, ChatEvent, ChatGrant, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabSuggestion } from './types';
 
 export interface EventSlice {
   messages: ChatMessage[];
@@ -182,4 +182,17 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
     default:
       return slice;
   }
+}
+
+/**
+ * A standing grant ("Liberar sem prazo", spec 2026-09-28 TER-386) is not bound to a conversation: its
+ * two events apply to every slot that shows it, whatever conversation they are tagged with — the same
+ * set `GET chat` returns (the slot's project, or all of them in the account-wide chat, `slotProject`
+ * null); a revoke is applied by id. A re-grant of the same kind on the same project replaces the older
+ * one, as on the server. The same array for an event that changes nothing here.
+ */
+export function applyStandingGrantEvent(grants: ChatStandingGrant[], slotProject: string | null, e: ChatEvent): ChatStandingGrant[] {
+  if (e.type === 'standing_grant_revoked') return grants.some((g) => g.id === e.grant_id) ? grants.filter((g) => g.id !== e.grant_id) : grants;
+  if (e.type !== 'standing_grant' || (slotProject !== null && e.grant.project_id !== slotProject)) return grants;
+  return [...grants.filter((g) => g.id !== e.grant.id && !(g.project_id === e.grant.project_id && g.kind === e.grant.kind)), e.grant];
 }

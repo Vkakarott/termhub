@@ -215,6 +215,12 @@ export type ChatGrant = Prisma.ChatGrantModel
  */
 export type ChatProjectGrant = Prisma.ChatProjectGrantModel
 /**
+ * Model ChatStandingGrant
+ * "Liberar sem prazo" (spec 2026-09-28 standing grants): one user + one project + one kind, until
+ * revoked. Not conversation-bound; `conversation_id` only records which chat granted it.
+ */
+export type ChatStandingGrant = Prisma.ChatStandingGrantModel
+/**
  * Model TabQuestion
  * A question an agent in a tab put to the person — Claude Code's AskUserQuestion (`choice`) or a
  * permission prompt (`permission`) — shown as a card in the project's chat (spec 2026-09-25 §5).

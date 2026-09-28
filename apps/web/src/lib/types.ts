@@ -891,8 +891,10 @@ export type ChatActionStatus = 'pending' | 'approved' | 'denied' | 'expired' | '
  * this one call; `approve_tab`/`approve_project` are the narrow standing grants (agent text on one tab /
  * board tools on one project); `approve_tab_terminal`/`approve_project_all` are the wider ones (keys and
  * shell typing on one tab / everything above plus that on every tab of the project) — spec 2026-09-27 §6.
+ * `approve_project_always` is "Liberar sem prazo": this card's kind of action on its project, with no
+ * expiry, until revoked (spec 2026-09-28 TER-386).
  */
-export type ChatDecisionWord = 'approve' | 'deny' | 'approve_tab' | 'approve_project' | 'approve_tab_terminal' | 'approve_project_all';
+export type ChatDecisionWord = 'approve' | 'deny' | 'approve_tab' | 'approve_project' | 'approve_tab_terminal' | 'approve_project_all' | 'approve_project_always';
 
 /**
  * A write the concierge proposed on a gated token, as the server enriches it: `summary` is the
@@ -961,16 +963,36 @@ export interface ChatProjectGrant {
   scope?: 'board' | 'all';
 }
 
+/** What a standing grant ("Liberar sem prazo") trusts on its project; mirrors the server's `StandingKind`. */
+export type ChatStandingKind = 'open_tab' | 'close_tab' | 'start_agent' | 'board' | 'terminal';
+
+/**
+ * A "Liberar sem prazo" grant (spec 2026-09-28 TER-386): one user, one project, one kind of action,
+ * no expiry — it lasts until revoked and is not bound to the conversation that created it.
+ * `project_name` is null once the project is gone.
+ */
+export interface ChatStandingGrant {
+  id: string;
+  project_id: string;
+  project_name: string | null;
+  kind: ChatStandingKind;
+  source_action_id: string | null;
+  created_at: string;
+}
+
 /** How a listed grant stands: in force, run out, revoked by someone, or ended by "Nova conversa". */
 export type ChatGrantState = 'active' | 'expired' | 'revoked' | 'ended';
 
 /**
- * A row of "Permissões do chat" (`GET /api/chat/grants?kinds=all`): a trusted tab or a trusted
- * project, told apart by `kind`. `tab_id`/`tool`/`tab_name` are set only for `kind === 'tab'`;
- * `project_id`/`project_name` are set for both (a tab grant always belongs to a project too).
+ * A row of "Permissões do chat" (`GET /api/chat/grants?kinds=all_standing`): a trusted tab, a trusted
+ * project or a standing grant, told apart by `kind`. `tab_id`/`tool`/`tab_name` are set only for
+ * `kind === 'tab'`; `project_id`/`project_name` are set for all three (a tab grant always belongs to a
+ * project too). A standing row has no expiry and no conversation, and is only `active` or `revoked`.
  */
 export interface ChatGrantListItem {
-  kind: 'tab' | 'project';
+  kind: 'tab' | 'project' | 'standing';
+  /** The standing grant's kind; null for a tab or project row. */
+  standing_kind: ChatStandingKind | null;
   id: string;
   tab_id: string | null;
   tool: string | null;
@@ -978,13 +1000,15 @@ export interface ChatGrantListItem {
   tab_name: string | null;
   source_action_id: string | null;
   created_at: string;
-  expires_at: string;
+  /** Null only on a standing row. */
+  expires_at: string | null;
   project_id: string | null;
   project_name: string | null;
   /** `'board'`/`'all'` for a project row (`null`/absent from an older server means `'board'`); always
    * `null` for a tab row. */
   scope?: 'board' | 'all' | null;
-  conversation_id: string;
+  /** Null on a standing row (not bound to a conversation). */
+  conversation_id: string | null;
   /** Null = the account-wide chat. */
   conversation_project_name: string | null;
   conversation_archived: boolean;
@@ -1192,6 +1216,11 @@ export type ChatEvent =
   | { type: 'project_grant'; grant: ChatProjectGrant; conversation_id?: string }
   /** A project grant was revoked (by this or another tab, or because it expired and a reset ended it). */
   | { type: 'project_grant_revoked'; grant_id: string; conversation_id?: string }
+  /** A new (or renewed) "Liberar sem prazo" grant; `conversation_id` is where it was granted. */
+  | { type: 'standing_grant'; grant: ChatStandingGrant; conversation_id?: string }
+  /** A standing grant was revoked. Tagged with the conversation that created it, but it applies to
+   * every panel that shows it: a standing grant is not bound to a conversation. */
+  | { type: 'standing_grant_revoked'; grant_id: string; conversation_id?: string }
   /** An action the server ran straight away under a trusted tab or a trusted project, with no confirmation card first. */
   | { type: 'granted_action'; action: ChatAction; conversation_id?: string }
   /** A tab asked something, the chat answered it (or failed to), or it left the tab's screen: the whole card each time. */

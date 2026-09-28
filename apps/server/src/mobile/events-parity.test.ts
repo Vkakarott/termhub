@@ -1,6 +1,7 @@
-import { chatEventSchema } from '@termhub/mobile-api';
+import { chatEventSchema, STANDING_GRANT_KINDS as CONTRACT_STANDING_GRANT_KINDS } from '@termhub/mobile-api';
 import { describe, expect, it } from 'vitest';
 import type { ChatEvent } from '../chat/bus.js';
+import { STANDING_GRANT_KINDS } from '../db/repositories/chat-standing-grants.js';
 
 // One sample of every `ChatEvent` variant the bus carries, keyed by its type: the `Record` makes the
 // type checker refuse this file when a variant is added to the bus and not here, and the test then
@@ -68,6 +69,8 @@ const samples: { [K in ChatEvent['type']]: Extract<ChatEvent, { type: K }> } = {
   grant_revoked: { type: 'grant_revoked', ...base, grant_id: 'g1' },
   project_grant: { type: 'project_grant', ...base, grant: { id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: '2026-09-27T10:00:00.000Z', expires_at: '2026-09-28T10:00:00.000Z' } },
   project_grant_revoked: { type: 'project_grant_revoked', ...base, grant_id: 'pg1' },
+  standing_grant: { type: 'standing_grant', ...base, grant: { id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'close_tab', source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z' } },
+  standing_grant_revoked: { type: 'standing_grant_revoked', ...base, grant_id: 'sg1' },
   run_finished: { type: 'run_finished', ...base, message_id: null, ok: false, error_code: 'CHAT_FAILED' },
   granted_action: { type: 'granted_action', ...base, action: { id: 'a2', tool: 'send_input', args: { tab_id: 't1', text: 'oi' }, class: 'write', status: 'executed', machine_id: null, project_id: null, tab_id: 't1', grant_id: 'g1', summary: 'digitar `oi` na aba api', subagent: null, created_at: '2026-09-25T10:01:00.000Z' } },
   tab_question: { type: 'tab_question', ...base, question },
@@ -99,6 +102,10 @@ describe('ChatEvent / chatEventSchema parity', () => {
   it('a confirmation re-published with origin_update still parses (the app ignores the flag)', () => {
     const r = chatEventSchema.safeParse({ ...samples.confirmation, origin_update: true });
     expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
+  });
+
+  it('the standing grant kinds are the same list on the server and in the mobile contract', () => {
+    expect([...STANDING_GRANT_KINDS]).toEqual([...CONTRACT_STANDING_GRANT_KINDS]);
   });
 
   it('run_finished also parses with a message id and no error', () => {

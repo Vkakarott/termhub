@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
-import type { ChatAction, ChatGrant, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabSuggestion } from '../../lib/types';
+import type { ChatAction, ChatGrant, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabSuggestion } from '../../lib/types';
 
 const chatMock = vi.fn();
 const sendMock = vi.fn();
@@ -126,6 +126,15 @@ const projectGrant = (over: Partial<ChatProjectGrant> & { id: string }): ChatPro
   source_action_id: 'a1',
   created_at: '2026-09-21T00:00:00.000Z',
   expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+  ...over,
+});
+
+const standingGrant = (over: Partial<ChatStandingGrant> & { id: string }): ChatStandingGrant => ({
+  project_id: 'p1',
+  project_name: 'App',
+  kind: 'close_tab',
+  source_action_id: 'a1',
+  created_at: '2026-09-21T00:00:00.000Z',
   ...over,
 });
 
@@ -1205,5 +1214,66 @@ describe('context meter and "Compactar" (TER-315)', () => {
   it('no Compactar before the first message', async () => {
     await renderFull({ messages: [], conversation: { id: 'c1', project_id: null, ai_account_id: null, context_tokens: 5, context_window: null } });
     expect(screen.getByRole('button', { name: 'Compactar' })).toBeDisabled();
+  });
+});
+
+describe('standing grants (TER-386)', () => {
+  const listen = () => {
+    let onEvent!: (e: unknown) => void;
+    streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+      onEvent = cb;
+      return { connected: true };
+    });
+    return (e: unknown) => act(() => onEvent(e));
+  };
+  const renderPanel = () =>
+    render(
+      <MemoryRouter>
+        <ChatPanel projectId="p1" />
+      </MemoryRouter>,
+    );
+
+  it('counts the standing grants from GET /chat in the indicator', async () => {
+    chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [grant({ id: 'g1' })], standing_grants: [standingGrant({ id: 'sg1' }), standingGrant({ id: 'sg2', kind: 'board' })] });
+    renderPanel();
+    expect(await screen.findByRole('link', { name: '3 permissões ativas' })).toBeInTheDocument();
+  });
+
+  it('"Liberar sem prazo" sends approve_project_always and shows the grant on the card', async () => {
+    chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [action({ id: 'a1', tool: 'close_tab', args: { tab_id: 't1' }, project_id: 'p1' })], host: READY, grants: [], standing_grants: [] });
+    decideMock.mockResolvedValue({ action: { id: 'a1', status: 'approved' }, standing_grant: standingGrant({ id: 'sg1' }) });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Liberar sem prazo: fechar abas paradas neste projeto' }));
+    await waitFor(() => expect(decideMock).toHaveBeenCalledWith('a1', 'approve_project_always'));
+    expect(await screen.findByText('Fechar abas paradas liberado neste projeto, sem prazo')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
+  });
+
+  it('a standing_grant event adds (replacing the same project and kind), and a revoke from any conversation removes it', async () => {
+    const emit = listen();
+    chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [], standing_grants: [standingGrant({ id: 'sg1' })] });
+    renderPanel();
+    expect(await screen.findByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
+
+    emit({ type: 'standing_grant', conversation_id: 'c_p1', grant: standingGrant({ id: 'sg2', kind: 'board' }) });
+    expect(await screen.findByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+
+    // Same project and kind: a renewal, not a third grant.
+    emit({ type: 'standing_grant', conversation_id: 'c_p1', grant: standingGrant({ id: 'sg3' }) });
+    expect(screen.getByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+
+    // Another project's grant, granted from another conversation, is not this panel's.
+    emit({ type: 'standing_grant', conversation_id: 'c_other', grant: standingGrant({ id: 'sg_p2', project_id: 'p2' }) });
+    expect(screen.getByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+
+    // This project's, granted from the account-wide chat, is.
+    emit({ type: 'standing_grant', conversation_id: 'c_general', grant: standingGrant({ id: 'sg4', kind: 'open_tab' }) });
+    expect(await screen.findByRole('link', { name: '3 permissões ativas' })).toBeInTheDocument();
+    emit({ type: 'standing_grant_revoked', conversation_id: 'c_general', grant_id: 'sg4' });
+    expect(await screen.findByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+
+    // A standing grant is not bound to the conversation that created it: its revoke applies here too.
+    emit({ type: 'standing_grant_revoked', conversation_id: 'c_other', grant_id: 'sg3' });
+    expect(await screen.findByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
   });
 });

@@ -2,7 +2,8 @@ import { expect, it, vi } from 'vitest';
 import type { ChatAction } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
 import type { ChatProjectGrant, ChatProjectGrantWithConversation } from './chat-project-grants.js';
-import { describeActions, describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, grantState } from './chat-actions-view.js';
+import type { ChatStandingGrantWithConversation } from './chat-standing-grants.js';
+import { describeActions, describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, describeStandingGrantList, describeStandingGrants, grantState } from './chat-actions-view.js';
 
 const OWNER = 'u1';
 const OTHER_OWNER = 'u2';
@@ -514,7 +515,7 @@ it('describeGrantList names the tab, its project and the origin conversation, wi
   expect(active).toEqual({
     kind: 'tab', id: 'g1', tab_id: tab.id, tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
     tab_name: tab.name, project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
-    conversation_archived: false, state: 'active', ended_at: null, scope: null,
+    conversation_archived: false, state: 'active', ended_at: null, scope: null, standing_kind: null,
   });
   expect(revoked).toMatchObject({ state: 'revoked', ended_at: '2026-09-25T11:00:00.000Z', conversation_project_name: null, conversation_archived: true });
   expect(expiredThenReset).toMatchObject({ state: 'expired', ended_at: '2026-09-25T09:00:00.000Z', tab_name: null, project_id: null, project_name: null });
@@ -593,7 +594,7 @@ it('describeProjectGrantList names the project and the origin conversation, with
   expect(active).toEqual({
     kind: 'project', id: 'pg1', tab_id: null, tool: null, tab_name: null, source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z',
     project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
-    conversation_archived: false, state: 'active', ended_at: null, scope: 'board',
+    conversation_archived: false, state: 'active', ended_at: null, scope: 'board', standing_kind: null,
   });
   expect(revoked).toMatchObject({ state: 'revoked', ended_at: '2026-09-25T11:00:00.000Z', conversation_project_name: null, conversation_archived: true, tab_id: null, tab_name: null, tool: null });
   // A gone or foreign project: project_name (and the derived conversation_project_name) never leak it —
@@ -654,4 +655,41 @@ it('looks up integrations only when a set_project_repo card needs one', async ()
   const repos = fakeRepos();
   await describeActions(repos, [action({ tool: 'send_input', args: { tab_id: 't1', text: 'x' }, tab_id: 't1' })], OWNER);
   expect(repos.integrations.list).not.toHaveBeenCalled();
+});
+
+// "Liberar sem prazo" (spec 2026-09-28 TER-386): no expiry, no tab, not conversation-bound.
+const standing = (over: Partial<ChatStandingGrantWithConversation>): ChatStandingGrantWithConversation => ({
+  id: 'sg1', user_id: OWNER, project_id: project.id, kind: 'close_tab', conversation_id: 'c1', source_action_id: 'a1',
+  created_at: '2026-09-28T10:00:00.000Z', revoked_at: null, revoked_by: null, conversation_project_id: null, conversation_archived: false, ...over,
+});
+
+it('describeStandingGrants names the project owner-scoped and carries the kind — no user ids', async () => {
+  const [mine, foreign] = await describeStandingGrants(fakeRepos(), [standing({}), standing({ id: 'sg2', project_id: foreignProject.id, kind: 'board', source_action_id: null })], OWNER);
+  expect(mine).toEqual({ id: 'sg1', project_id: project.id, project_name: project.name, kind: 'close_tab', source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z' });
+  expect(foreign).toEqual({ id: 'sg2', project_id: foreignProject.id, project_name: null, kind: 'board', source_action_id: null, created_at: '2026-09-28T10:00:00.000Z' });
+});
+
+it('describeStandingGrantList: kind standing, no tab, no expiry, no scope; active or revoked; a gone conversation stays null', async () => {
+  const [active, revoked, orphan] = await describeStandingGrantList(
+    fakeRepos(),
+    [
+      standing({ conversation_project_id: project.id }),
+      standing({ id: 'sg2', kind: 'terminal', revoked_at: '2026-09-28T11:00:00.000Z', revoked_by: OWNER, conversation_archived: true }),
+      standing({ id: 'sg3', project_id: foreignProject.id, kind: 'open_tab', conversation_id: null }),
+    ],
+    OWNER,
+  );
+  expect(active).toEqual({
+    kind: 'standing', id: 'sg1', tab_id: null, tool: null, tab_name: null, source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z', expires_at: null,
+    project_id: project.id, project_name: project.name, conversation_id: 'c1', conversation_project_name: project.name,
+    conversation_archived: false, state: 'active', ended_at: null, scope: null, standing_kind: 'close_tab',
+  });
+  expect(revoked).toMatchObject({ state: 'revoked', ended_at: '2026-09-28T11:00:00.000Z', standing_kind: 'terminal', conversation_archived: true, expires_at: null });
+  expect(orphan).toMatchObject({ conversation_id: null, conversation_project_name: null, project_name: null, standing_kind: 'open_tab' });
+  expect(JSON.stringify(orphan)).not.toContain(foreignProject.name);
+});
+
+it('tab and project list rows carry standing_kind: null', async () => {
+  const [p] = await describeProjectGrantList(fakeRepos(), [listedProject({ id: 'pg1', project_id: project.id })], OWNER, NOW);
+  expect(p.standing_kind).toBeNull();
 });

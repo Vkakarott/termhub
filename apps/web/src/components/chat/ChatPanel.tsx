@@ -24,7 +24,7 @@ import { isActive, upsertSubagent } from '../../lib/subagents';
 import { PROMPT_CHANGED_TEXT, upsertTabQuestion } from './tab-question-text';
 import { SUGGESTION_CHANGED_TEXT, upsertTabSuggestion } from './tab-suggestion-text';
 import { useAuth } from '../../lib/auth';
-import type { AiAccount, ChatAction, ChatAttachment, ChatDecisionWord, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, SubagentView, TabQuestion, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
+import type { AiAccount, ChatAction, ChatAttachment, ChatDecisionWord, ChatEvent, ChatGrant, ChatHostMachine, ChatHostState, ChatMessage, ChatProjectGrant, ChatStandingGrant, SubagentView, TabQuestion, TabQuestionAnswer, TabSuggestion } from '../../lib/types';
 
 /** How often the panel's elapsed labels ("há N min") refresh while it is open. */
 const SUBAGENTS_REFRESH_MS = 30_000;
@@ -48,6 +48,12 @@ const COMPOSER_REASON: Record<Exclude<ChatHostState['kind'], 'ready'>, string> =
 const HOST_CODES = new Set(['CHAT_NO_MACHINE', 'CHAT_HOST_NOT_CHOSEN', 'CHAT_HOST_OFFLINE', 'CHAT_AGENT_TOO_OLD']);
 /** How many early events (see `early` in the panel) are held while the conversation id is unknown. */
 const EARLY_EVENTS_CAP = 500;
+
+/** A re-grant of the same kind on the same project replaces the older one, as on the server. */
+const upsertStandingGrant = (prev: ChatStandingGrant[], grant: ChatStandingGrant): ChatStandingGrant[] => [
+  ...prev.filter((g) => g.id !== grant.id && !(g.project_id === grant.project_id && g.kind === grant.kind)),
+  grant,
+];
 
 /** A Claude account of one of the user's machines, as the host picker needs it. */
 type HostAccountRow = Pick<AiAccount, 'id' | 'label' | 'machine_id'>;
@@ -114,6 +120,10 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   /** The conversation's trusted-project grants ("Permitir sempre neste projeto"), sourced and kept
    *  live the same way as `grants`, through `project_grant`/`project_grant_revoked`. */
   const [projectGrants, setProjectGrants] = useState<ChatProjectGrant[]>([]);
+  /** The user's standing grants ("Liberar sem prazo") on this conversation's project (all of them in the
+   *  account-wide chat): from `GET /api/chat`, kept live by `standing_grant`/`standing_grant_revoked`.
+   *  They never expire and are not bound to a conversation. */
+  const [standingGrants, setStandingGrants] = useState<ChatStandingGrant[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   /** The tabs' questions of this conversation (spec 2026-09-25 §6.2), from `GET /api/chat` and the three events. */
   const [tabQuestions, setTabQuestions] = useState<TabQuestion[]>([]);
@@ -209,11 +219,12 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const load = useCallback(async () => {
     // No project = the account-wide chat: called with no argument, because the response must be
     // `request<...>('GET', '/chat')` exactly — a server that predates project chats knows nothing else.
-    const { conversation, messages, actions, host, grants, project_grants, tab_questions, tab_suggestions, subagents, compacting } = projectId ? await api.chat(projectId) : await api.chat();
+    const { conversation, messages, actions, host, grants, project_grants, standing_grants, tab_questions, tab_suggestions, subagents, compacting } = projectId ? await api.chat(projectId) : await api.chat();
     setMessages(messages);
     setActions(actions ?? []);
     setGrants(grants ?? []);
     setProjectGrants(project_grants ?? []);
+    setStandingGrants(standing_grants ?? []);
     setTabQuestions(tab_questions ?? []);
     setTabSuggestions(tab_suggestions ?? []);
     setSubagents(subagents ?? []);
@@ -264,6 +275,17 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         early.current = [...early.current.slice(-(EARLY_EVENTS_CAP - 1)), e];
         return;
       }
+      // A standing grant is not bound to a conversation: its events are tagged with the one that
+      // created it, but they apply to every panel that shows it — the same set `GET /api/chat` returns
+      // (this project's, or all of them in the account-wide chat); a revoke is simply applied by id.
+      if (e.type === 'standing_grant_revoked') {
+        setStandingGrants((prev) => prev.filter((g) => g.id !== e.grant_id));
+        return;
+      }
+      if (e.type === 'standing_grant') {
+        if (!projectId || e.grant.project_id === projectId) setStandingGrants((prev) => upsertStandingGrant(prev, e.grant));
+        return;
+      }
       if (!mine(e)) return;
       // The fold takes what is its business (deltas, tool calls, resets, announcements) and ignores the rest.
       push(e);
@@ -306,7 +328,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
         else if (e.state === 'failed') setError(compactFailedText(e.error_code));
       }
     },
-    [conversationId, mine, push],
+    [conversationId, mine, push, projectId],
   );
   const { connected } = useChatStream(load, onEvent);
 
@@ -324,6 +346,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       if (res.grant) setGrants((prev) => [...prev.filter((g) => g.id !== res.grant!.id && !(g.tab_id === res.grant!.tab_id && g.tool === res.grant!.tool)), res.grant!]);
       // A re-grant for the same project replaces the older one, as on the server.
       if (res.project_grant) setProjectGrants((prev) => [...prev.filter((g) => g.id !== res.project_grant!.id && g.project_id !== res.project_grant!.project_id), res.project_grant!]);
+      if (res.standing_grant) setStandingGrants((prev) => upsertStandingGrant(prev, res.standing_grant!));
     } catch (e) {
       // A host that cannot run the answer right now (offline, most often) answers this with its own
       // 409 — but `decide` already recorded the decision before that throw, and the server injects it
@@ -371,8 +394,8 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
   const onDecideBatch = useCallback((d: BatchDecision[]) => void decideBatch(d), [decideBatch]);
   const onShowSeparately = useCallback(() => setSeparate(true), []);
 
-  /** "Revogar", from the card that granted it — a tab grant or a project grant, this call does not
-   *  care which: it drops the id from both lists, since only one of them will ever have it. Stable:
+  /** "Revogar", from the card that granted it — a tab, project or standing grant, this call does not
+   *  care which: it drops the id from every list, since only one of them will ever have it. Stable:
    *  every card gets this same one. */
   const revoke = useCallback(async (grantId: string) => {
     setRevokingId(grantId);
@@ -381,12 +404,14 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       await api.revokeChatGrant(grantId);
       setGrants((prev) => prev.filter((g) => g.id !== grantId));
       setProjectGrants((prev) => prev.filter((g) => g.id !== grantId));
+      setStandingGrants((prev) => prev.filter((g) => g.id !== grantId));
     } catch (e) {
       // 409: it was already revoked (another tab, or it expired and a reset ended it) — the list is
       // stale, not wrong.
       if (e instanceof ApiError && e.status === 409) {
         setGrants((prev) => prev.filter((g) => g.id !== grantId));
         setProjectGrants((prev) => prev.filter((g) => g.id !== grantId));
+        setStandingGrants((prev) => prev.filter((g) => g.id !== grantId));
       } else setActionError(e instanceof ApiError ? e.message : 'Não foi possível revogar a permissão');
     } finally {
       setRevokingId(null);
@@ -610,6 +635,12 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     for (const g of projectGrants) if (g.source_action_id !== null && isGrantActive(g)) map.set(g.source_action_id, g);
     return map;
   }, [projectGrants]);
+  /** Same idea again, for the standing grant a card created ("Liberar sem prazo"); these never expire. */
+  const standingGrantByAction = useMemo(() => {
+    const map = new Map<string, ChatStandingGrant>();
+    for (const g of standingGrants) if (g.source_action_id !== null) map.set(g.source_action_id, g);
+    return map;
+  }, [standingGrants]);
 
   /** What the thread's pin follows: a new row or card (the timeline) or a streamed delta (the fold). */
   const followKey = useMemo(() => ({ timeline, version }), [timeline, version]);
@@ -727,7 +758,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
     if (canCompact) void compact();
   };
 
-  const activeGrantCount = grants.filter((g) => isGrantActive(g)).length + projectGrants.filter((g) => isGrantActive(g)).length;
+  const activeGrantCount = grants.filter((g) => isGrantActive(g)).length + projectGrants.filter((g) => isGrantActive(g)).length + standingGrants.length;
 
   return (
     // Height and overflow belong to ChatLayout; this page owns the reading column: centred, capped
@@ -886,6 +917,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
           if (entry.kind === 'action') {
             const g = grantByAction.get(entry.action.id);
             const pg = projectGrantByAction.get(entry.action.id);
+            const sg = standingGrantByAction.get(entry.action.id);
             return (
               <ChatActionCard
                 key={entry.action.id}
@@ -894,7 +926,8 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
                 note={queuedNotes[entry.action.id]}
                 grant={g}
                 projectGrant={pg}
-                revoking={(g !== undefined && revokingId === g.id) || (pg !== undefined && revokingId === pg.id)}
+                standingGrant={sg}
+                revoking={(g !== undefined && revokingId === g.id) || (pg !== undefined && revokingId === pg.id) || (sg !== undefined && revokingId === sg.id)}
                 onRevoke={revoke}
                 onDecide={decide}
               />

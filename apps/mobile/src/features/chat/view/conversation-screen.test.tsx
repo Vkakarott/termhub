@@ -26,7 +26,7 @@ jest.mock('expo-router', () => ({
 
 import { useChatStore } from '@/features/chat/viewmodel/useChatStore';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
-import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatProjectGrant, TChatResponse, TSubagentView, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
+import type { TChatAction, TChatEvent, TChatGrant, TChatMessage, TChatProjectGrant, TChatResponse, TChatStandingGrant, TSubagentView, TTabQuestion, TTabSuggestion } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { emptyFold, foldLive } from '../model/live';
@@ -74,7 +74,7 @@ function stubAction<K extends 'decide' | 'decideMany' | 'reset' | 'setHost' | 'r
  * mock's answer. These tests look at one pending card: the seed's second one (`a-termhub-2`) is
  * always left out, unless `keepBoth` is set (the grouped-card tests want both pending actions on
  * screen). A patch may leave `project_grants` out: it then keeps whatever the real mock answered. */
-function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'actions' | 'grants' | 'project_grants' | 'subagents'>> = (res) => res, keepBoth = false) {
+function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'actions' | 'grants' | 'project_grants' | 'standing_grants' | 'subagents'>> = (res) => res, keepBoth = false) {
   const real = stores.api.chat.bind(stores.api);
   jest.spyOn(stores.api, 'chat').mockImplementation(async (auth, projectId) => {
     const res = await real(auth, projectId);
@@ -86,6 +86,7 @@ function serveChat(patch: (res: TChatResponse) => Partial<Pick<TChatResponse, 'a
 
 const GRANT: TChatGrant = { id: 'g1', tab_id: 't-api', tool: 'send_input', source_action_id: 'a-termhub-1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
 const PROJECT_GRANT: TChatProjectGrant = { id: 'pg1', project_id: 'p-termhub', project_name: 'termhub', source_action_id: 'a-termhub-2', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2099-01-01T00:00:00.000Z', scope: 'board' };
+const STANDING_GRANT: TChatStandingGrant = { id: 'sg1', project_id: 'p-termhub', project_name: 'termhub', kind: 'terminal', source_action_id: 'a-termhub-1', created_at: '2026-09-25T10:00:00.000Z' };
 const SUBAGENT: TSubagentView = { id: 'sub1', description: 'Buscar CI', subagent_type: null, status: 'running', started_at: '2026-09-27T00:00:00.000Z', ended_at: null };
 const withAction = (res: TChatResponse, patch: Partial<TChatAction>): TChatAction[] => res.actions.map((a) => (a.id === 'a-termhub-1' ? { ...a, ...patch } : a));
 
@@ -271,6 +272,18 @@ describe('Conversa', () => {
     serveChat((res) => ({ actions: withAction(res, { status: 'approved' }), grants: [GRANT], project_grants: [PROJECT_GRANT] }));
     await render(<ConversationScreen />);
     expect(await screen.findByRole('button', { name: '2 permissões ativas' }, LOAD)).toBeTruthy();
+  });
+
+  it('counts a standing grant with the others, and shows it on the card that created it (TER-386)', async () => {
+    serveChat((res) => ({ actions: withAction(res, { status: 'approved' }), grants: [GRANT], project_grants: [], standing_grants: [STANDING_GRANT] }));
+    const revokeGrant = stubAction('revokeGrant');
+    await render(<ConversationScreen />);
+    expect(await screen.findByRole('button', { name: '2 permissões ativas' }, LOAD)).toBeTruthy();
+    expect(screen.getByText('Teclas e texto nas abas liberado neste projeto, sem prazo')).toBeTruthy();
+    const revoke = screen.getAllByRole('button', { name: 'Revogar' });
+    expect(revoke).toHaveLength(2);
+    await fireEvent.press(revoke[1]!);
+    expect(revokeGrant).toHaveBeenCalledWith('sg1');
   });
 
   it('shows the project grant on the card that created it, with Revogar', async () => {

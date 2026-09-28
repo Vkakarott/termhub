@@ -47,6 +47,8 @@ beforeEach(() => {
     chatActions: actions,
     chatGrants: { findActive: vi.fn(async () => undefined) },
     chatProjectGrants: { findActive: vi.fn(async (c: string, p: string) => projectGrants.find((g) => g.conversation_id === c && g.project_id === p && !g.revoked_at && Date.parse(g.expires_at) > Date.now())) },
+    // No standing grant (TER-386): these tests are about the conversation-bound ones.
+    chatStandingGrants: { findActive: vi.fn(async () => undefined) },
     projects: { findByIdsForOwner: vi.fn(async (ids: string[], o: string) => (o === 'u1' ? ids.filter((i) => i === 'p1' || i === 'p2').map((id) => ({ id, name: id })) : [])) },
     tasks: { findByIdsForOwner: vi.fn(async (ids: string[], o: string) => (o === 'u1' ? ids.filter((i) => i === 'k1').map((id) => ({ id, project_id: 'p1', ref: 'APP-1', title: 't' })) : [])) },
     tabs: { findByIdsForOwner: vi.fn(async () => []) },

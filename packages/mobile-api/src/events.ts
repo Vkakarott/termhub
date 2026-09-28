@@ -63,26 +63,49 @@ export const chatProjectGrantSchema = z.object({
   scope: z.enum(['board', 'all']).default('board'),
 });
 
+/** Mirrors the server's `STANDING_GRANT_KINDS` (apps/server/src/db/repositories/chat-standing-grants.ts);
+ * a server test keeps the two lists identical. */
+export const STANDING_GRANT_KINDS = ['open_tab', 'close_tab', 'start_agent', 'board', 'terminal'] as const;
+export type StandingGrantKind = (typeof STANDING_GRANT_KINDS)[number];
+
+/** "Liberar sem prazo" while it holds (server `ChatStandingGrantView`, spec 2026-09-28 TER-386): one kind
+ * of routine action in one project, for this user, with no expiry. `project_name` is null when the
+ * project is gone. */
+export const chatStandingGrantSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  project_name: z.string().nullable(),
+  kind: z.enum(STANDING_GRANT_KINDS),
+  source_action_id: z.string().nullable(),
+  created_at: z.string(),
+});
+
 /** How a listed grant stands (server `ChatGrantState`). */
 export const chatGrantState = z.enum(['active', 'expired', 'revoked', 'ended']);
 
 /** One row of "Abas confiáveis" (server `ChatGrantListItem`): a tab grant, or (with `kinds=all`) a
- * project grant, which carries no tab. */
+ * project grant, which carries no tab, or (with `kinds=all_standing`) a standing grant, which carries
+ * no tab and no expiry. */
 export const chatGrantListItemSchema = chatGrantSchema.extend({
   /** Absent from servers before project grants: those only list tab grants. */
-  kind: z.enum(['tab', 'project']).default('tab'),
+  kind: z.enum(['tab', 'project', 'standing']).default('tab'),
+  /** Null only on standing rows, which never expire. */
+  expires_at: z.string().nullable(),
   tab_id: z.string().nullable(),
   tool: z.string().nullable(),
   tab_name: z.string().nullable(),
   project_id: z.string().nullable(),
   project_name: z.string().nullable(),
-  conversation_id: z.string(),
+  /** Null only on a standing row whose granting conversation is gone. */
+  conversation_id: z.string().nullable(),
   conversation_project_name: z.string().nullable(),
   conversation_archived: z.boolean(),
   state: chatGrantState,
   ended_at: z.string().nullable(),
   /** A project row's scope (`board` or `all`, TER-325); null on tab rows and from older servers. */
   scope: z.enum(['board', 'all']).nullable().default(null),
+  /** A standing row's kind (TER-386); null on tab and project rows and from older servers. */
+  standing_kind: z.enum(STANDING_GRANT_KINDS).nullable().default(null),
 });
 
 export const chatGrantListResponse = z.object({ grants: z.array(chatGrantListItemSchema), next_cursor: z.string().nullable() });
@@ -92,8 +115,9 @@ export const chatGrantListQuery = z.object({
   state: z.enum(['active', 'ended']),
   cursor: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  /** `all` adds project grants; without it an old app never sees a row with no tab. */
-  kinds: z.enum(['tab', 'all']).default('tab'),
+  /** `all` adds project grants; without it an old app never sees a row with no tab. `all_standing` adds
+   * standing grants too (TER-386): only an app that sends it ever sees a row with no expiry. */
+  kinds: z.enum(['tab', 'all', 'all_standing']).default('tab'),
 });
 
 /** Mirrors `TabQuestionView` (apps/server/src/db/repositories/tab-questions-view.ts): a question a tab
@@ -239,6 +263,10 @@ export const chatEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('grant_revoked'), user_id: z.string(), conversation_id: z.string(), grant_id: z.string() }),
   z.object({ type: z.literal('project_grant'), user_id: z.string(), conversation_id: z.string(), grant: chatProjectGrantSchema }),
   z.object({ type: z.literal('project_grant_revoked'), user_id: z.string(), conversation_id: z.string(), grant_id: z.string() }),
+  /** "Liberar sem prazo" (TER-386): `conversation_id` is the granting conversation's. */
+  z.object({ type: z.literal('standing_grant'), user_id: z.string(), conversation_id: z.string(), grant: chatStandingGrantSchema }),
+  /** Applied by id whatever the conversation: a standing grant is not conversation-bound. */
+  z.object({ type: z.literal('standing_grant_revoked'), user_id: z.string(), conversation_id: z.string(), grant_id: z.string() }),
   z.object({ type: z.literal('granted_action'), user_id: z.string(), conversation_id: z.string(), action: chatActionSchema }),
   z.object({ type: z.literal('tab_question'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),
   z.object({ type: z.literal('tab_question_answered'), user_id: z.string(), conversation_id: z.string(), question: tabQuestionSchema }),

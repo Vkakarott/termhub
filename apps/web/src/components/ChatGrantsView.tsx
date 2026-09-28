@@ -12,7 +12,8 @@ const title = (g: ChatGrantListItem) => `${grantTitleLabel(g)}${g.kind === 'tab'
 
 /**
  * "Permissões do chat" (spec 2026-09-26 §4.2, §6): what the chat was allowed to do without asking, in
- * every conversation — trusted tabs and trusted projects, the grants in force with Revogar, and the
+ * every conversation — trusted tabs, trusted projects and standing grants ("Liberar sem prazo", which
+ * have no expiry and outlive their conversation), the grants in force with Revogar, and the
  * paged history. Reads on open, after a revoke and on "Carregar mais"; no live updates.
  */
 export function ChatGrantsView() {
@@ -86,7 +87,7 @@ export function ChatGrantsView() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <p className="text-sm text-fg-muted">O que o chat pode fazer sem pedir confirmação. Cada permissão vale para uma conversa, por até 24 horas.</p>
+      <p className="text-sm text-fg-muted">O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.</p>
       {error && <p className="text-sm text-danger">{error}</p>}
       <section aria-labelledby="chat-grants-active" className="space-y-2">
         <h2 id="chat-grants-active" className="text-sm font-semibold text-fg">
@@ -100,7 +101,7 @@ export function ChatGrantsView() {
               <li key={g.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-bg-2 px-3 py-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm text-fg">{title(g)}</p>
-                  <p className="text-xs text-fg-dim">{`${grantOriginLabel(g)} · ${untilLabel(g.expires_at)}`}</p>
+                  <p className="text-xs text-fg-dim">{`${grantOriginLabel(g)} · ${typeof g.expires_at === 'string' ? untilLabel(g.expires_at) : 'sem prazo'}`}</p>
                 </div>
                 <button type="button" className="btn-ghost shrink-0" disabled={revokingId === g.id} onClick={() => void revoke(g.id)}>
                   Revogar

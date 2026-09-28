@@ -83,6 +83,7 @@ export const ModelName = {
   ChatLiveRun: 'ChatLiveRun',
   ChatGrant: 'ChatGrant',
   ChatProjectGrant: 'ChatProjectGrant',
+  ChatStandingGrant: 'ChatStandingGrant',
   TabQuestion: 'TabQuestion',
   ChatDecision: 'ChatDecision',
   MemoryItem: 'MemoryItem',
@@ -636,6 +637,21 @@ export const ChatProjectGrantScalarFieldEnum = {
 } as const
 
 export type ChatProjectGrantScalarFieldEnum = (typeof ChatProjectGrantScalarFieldEnum)[keyof typeof ChatProjectGrantScalarFieldEnum]
+
+
+export const ChatStandingGrantScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  projectId: 'projectId',
+  kind: 'kind',
+  conversationId: 'conversationId',
+  sourceActionId: 'sourceActionId',
+  createdAt: 'createdAt',
+  revokedAt: 'revokedAt',
+  revokedBy: 'revokedBy'
+} as const
+
+export type ChatStandingGrantScalarFieldEnum = (typeof ChatStandingGrantScalarFieldEnum)[keyof typeof ChatStandingGrantScalarFieldEnum]
 
 
 export const TabQuestionScalarFieldEnum = {
