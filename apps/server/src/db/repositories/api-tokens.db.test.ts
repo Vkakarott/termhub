@@ -90,6 +90,17 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ApiTokensRepository (Post
     expect((await repo.listByUser(userId)).find((t) => t.id === tabToken.id)?.revoked_at).not.toBeNull();
   });
 
+  it('hasLiveForTab: only a tab token neither revoked nor expired', async () => {
+    const tab = `tab${newId().slice(-8).toLowerCase()}`;
+    expect(await repo.hasLiveForTab(tab)).toBe(false);
+    await repo.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: new Date(Date.now() - 1000), tabId: tab }, newId(32));
+    expect(await repo.hasLiveForTab(tab)).toBe(false);
+    await repo.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: new Date(Date.now() + DAY), tabId: tab }, newId(32));
+    expect(await repo.hasLiveForTab(tab)).toBe(true);
+    await repo.revokeForTab(tab);
+    expect(await repo.hasLiveForTab(tab)).toBe(false);
+  });
+
   it('revokeForConversation revokes only that conversation\'s live tokens', async () => {
     // Two active conversations of the same user: `chat_conversations_one_active` is keyed on
     // COALESCE(project_id, ''), so the second one needs a project of its own to coexist with the

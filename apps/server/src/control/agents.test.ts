@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { openTab, sendTextToSession } = vi.hoisted(() => ({ openTab: vi.fn(), sendTextToSession: vi.fn() }));
-vi.mock('../config.js', () => ({ config: { publicUrl: 'https://app.test' } }));
+const { openTab, sendTextToSession, installTabMcp, tabMcpSupported, cfg } = vi.hoisted(() => ({
+  openTab: vi.fn(),
+  sendTextToSession: vi.fn(),
+  installTabMcp: vi.fn(),
+  tabMcpSupported: vi.fn(),
+  cfg: { publicUrl: 'https://app.test', mcpUrl: null as string | null },
+}));
+vi.mock('../config.js', () => ({ config: cfg }));
 vi.mock('./terminals.js', () => ({ openTab }));
 vi.mock('../terminal/session-ops.js', () => ({ sendTextToSession }));
+vi.mock('../terminal/tab-mcp.js', async (orig) => ({ ...(await orig<typeof import('../terminal/tab-mcp.js')>()), installTabMcp, tabMcpSupported }));
 
 import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine, Project, Task } from '../db/repositories/types.js';
@@ -64,20 +71,32 @@ function ctx(grants: string[] = ['terminals:write', 'tasks:update']) {
       startWork: vi.fn(async () => undefined),
     },
     tabs: { setAgentFields: vi.fn(async () => undefined) },
+    apiTokens: {
+      create: vi.fn(async (userId: string, input: { name: string; tabId?: string | null }) => ({ id: 'tt1', user_id: userId, name: input.name, tab_id: input.tabId ?? null })),
+      revokeForTab: vi.fn(async () => 1),
+    },
   };
   const scope = { user: { id: 'u1' } as never, viewAs: { kind: 'self' } as const, ownerId: 'u1', createAs: 'u1' };
   const c: ControlContext = {
     repos: repos as unknown as Repositories, scope, scoped: new Scoped(repos as unknown as Repositories, scope),
     can: async (r, a) => grants.includes(`${r}:${a}`), token: { id: 'tok1', scopes: ['terminals'] },
+    log: { info: vi.fn(), warn: vi.fn() } as never,
   };
-  return { c, repos };
+  return { c, repos, log: c.log as unknown as { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn> } };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   openTab.mockResolvedValue({ tab_id: 't9', name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-t9', created: true });
   sendTextToSession.mockResolvedValue(undefined);
+  installTabMcp.mockResolvedValue(undefined);
+  tabMcpSupported.mockReturnValue(true);
+  cfg.mcpUrl = null;
 });
+
+const NOTE = 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.';
+const MCP_URL = 'https://termhub.dev/mcp';
+const MCP_FLAGS = `--mcp-config "$HOME"/'.termhub/tabs/abc/mcp.json' --allowedTools 'mcp__termhub_tab__search_memory' 'mcp__termhub_tab__record_lesson'`;
 
 describe('launchLine', () => {
   it('starts claude with the prompt as its argument, under CLAUDE_CONFIG_DIR when the account has one', () => {
@@ -103,6 +122,38 @@ describe('launchLine', () => {
     expect(launchLine('claude', '/tmp/~/x', 'x')).toBe("CLAUDE_CONFIG_DIR='/tmp/~/x' claude 'x'");
   });
 
+  it('points claude at the tab config and pre-allows only the memory tools, `--` before the prompt', () => {
+    expect(launchLine('claude', null, 'write a spec', { tabId: 'abc', url: MCP_URL })).toBe(`claude ${MCP_FLAGS} -- 'write a spec'`);
+    expect(launchLine('claude', '~/.claude-work', 'x', { tabId: 'abc', url: MCP_URL })).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude-work' claude ${MCP_FLAGS} -- 'x'`);
+  });
+
+  it('gives codex the server by -c overrides and the token through an env var read from the tab file', () => {
+    expect(launchLine('chatgpt', '/Users/p/.codex-work', 'fix it', { tabId: 'abc', url: MCP_URL })).toBe(
+      `TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" CODEX_HOME='/Users/p/.codex-work' codex -c 'mcp_servers.termhub_tab.url="https://termhub.dev/mcp"' -c 'mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN"' 'fix it'`,
+    );
+  });
+
+  it('never carries a token, and keeps a prompt starting with a quote quoted', () => {
+    for (const provider of ['claude', 'chatgpt'] as const) {
+      const line = launchLine(provider, null, "'; rm -rf ~ #", { tabId: 'abc', url: MCP_URL });
+      expect(line).not.toContain('thb_pat_');
+      expect(line.endsWith(`''\\''; rm -rf ~ #'`)).toBe(true);
+    }
+  });
+
+  it('refuses a tab id or url that could break out of the line', () => {
+    expect(() => launchLine('claude', null, 'x', { tabId: '../x', url: MCP_URL })).toThrow(new ControlError('INVALID_TAB', 'Id de aba inválido'));
+    expect(() => launchLine('chatgpt', null, 'x', { tabId: 'ABC', url: MCP_URL })).toThrow(ControlError);
+    for (const url of ['ftp://x', 'https://x/"; id', "https://x/'", 'https://x y', 'https://x\\y']) {
+      expect(() => launchLine('chatgpt', null, 'x', { tabId: 'abc', url })).toThrow(ControlError);
+    }
+  });
+
+  it('is exactly the plain line without mcp', () => {
+    expect(launchLine('claude', null, 'x', null)).toBe("claude 'x'");
+    expect(launchLine('chatgpt', null, 'x', undefined)).toBe("codex 'x'");
+  });
+
   it('refuses gemini and antigravity for now', () => {
     expect(() => launchLine('gemini', null, 'x')).toThrow(new ControlError('PROVIDER_UNSUPPORTED', 'Iniciar um agente gemini ainda não é suportado; por enquanto só claude e chatgpt (Codex)'));
     expect(() => launchLine('antigravity', null, 'x')).toThrow(ControlError);
@@ -123,6 +174,12 @@ describe('resumeLine', () => {
 
   it('does not add the lessons reminder: a resumed session already had it', () => {
     expect(resumeLine(null, SID, RESUME_PROMPT)).not.toContain(LESSONS_REMINDER);
+  });
+
+  it('keeps the tab config when the tab has a live tab token, `--` before the prompt', () => {
+    expect(resumeLine('~/.claude_b', SID, 'x', 'abc')).toBe(`CLAUDE_CONFIG_DIR="$HOME"/'.claude_b' claude ${MCP_FLAGS} --resume ${SID} -- 'x'`);
+    expect(resumeLine(null, SID, 'x', null)).toBe(`claude --resume ${SID} 'x'`);
+    expect(() => resumeLine(null, SID, 'x', '../x')).toThrow(ControlError);
   });
 });
 
@@ -160,8 +217,93 @@ describe('startAgent', () => {
     expect(sendTextToSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'termhub-p1-t9', launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('write a spec')), true);
     expect(r).toEqual({
       tab_id: 't9', tab_name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-t9', tab_url: 'https://app.test/projects/p1', command: 'claude', task_id: null, previous_tab_id: null,
-      note: 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.',
+      note: `${NOTE} A aba abriu sem o MCP de memória: MCP_URL não configurado.`,
     });
+  });
+
+  describe('with MCP_URL set', () => {
+    beforeEach(() => {
+      cfg.mcpUrl = MCP_URL;
+      openTab.mockResolvedValue({ tab_id: 'abc', name: 'pedrogoiania', project_id: 'p1', tmux_session: 'termhub-p1-abc', created: true });
+    });
+
+    it('mints a tab token, installs the config with it and types the line that points claude at it', async () => {
+      const { c, repos, log } = ctx();
+      const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'write a spec' });
+      expect(repos.apiTokens.create).toHaveBeenCalledWith('u1', expect.objectContaining({ tabId: 'abc', gated: false, scopes: ['read', 'memory'] }), expect.any(String));
+      await expect(repos.apiTokens.create.mock.results[0].value).resolves.toMatchObject({ tab_id: 'abc' });
+      expect(installTabMcp).toHaveBeenCalledTimes(1);
+      const [m, tabId, file, body] = installTabMcp.mock.calls[0];
+      expect([m.id, tabId, file]).toEqual(['m1', 'abc', 'mcp.json']);
+      const parsed = JSON.parse(body);
+      expect(Object.keys(parsed.mcpServers)).toEqual(['termhub_tab']);
+      expect(parsed.mcpServers.termhub_tab.url).toBe(MCP_URL);
+      const token = parsed.mcpServers.termhub_tab.headers.Authorization.replace('Bearer ', '');
+      expect(token).toMatch(/^thb_pat_/);
+      const line = sendTextToSession.mock.calls[0][2] as string;
+      expect(line).toBe(`CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude ${MCP_FLAGS} -- 'write a spec'`);
+      expect(line).not.toContain(token);
+      expect(r.note).toBe(`${NOTE} A aba tem o MCP termhub_tab (search_memory) para consultar a memória do projeto.`);
+      expect(repos.apiTokens.revokeForTab).not.toHaveBeenCalled();
+      expect(log.info).toHaveBeenCalledWith({ tabId: 'abc', machineId: 'm1', installed: true, reason: null }, expect.any(String));
+      expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls, r])).not.toContain(token);
+    });
+
+    it('installs the bare token for codex', async () => {
+      const { c } = ctx();
+      await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
+      const [, , file, body] = installTabMcp.mock.calls[0];
+      expect(file).toBe('token');
+      expect(body).toMatch(/^thb_pat_/);
+      const line = sendTextToSession.mock.calls[0][2] as string;
+      expect(line.startsWith(`TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" codex -c `)).toBe(true);
+      expect(line).not.toContain(body);
+    });
+
+    it('revokes the token and types the plain line when the install fails', async () => {
+      const { c, repos, log } = ctx();
+      installTabMcp.mockRejectedValue(new Error('ssh down'));
+      const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'write a spec' });
+      expect(repos.apiTokens.revokeForTab).toHaveBeenCalledWith('abc');
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'termhub-p1-abc', "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'write a spec'", true);
+      expect(r.note).toBe(`${NOTE} A aba abriu sem o MCP de memória: não foi possível gravar a configuração na máquina.`);
+      expect(log.info).toHaveBeenCalledWith({ tabId: 'abc', machineId: 'm1', installed: false, reason: 'install_failed' }, expect.any(String));
+    });
+
+    it('still starts the agent when minting fails', async () => {
+      const { c, repos } = ctx();
+      repos.apiTokens.create.mockRejectedValue(new Error('db down'));
+      const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' });
+      expect(installTabMcp).not.toHaveBeenCalled();
+      expect(repos.apiTokens.revokeForTab).toHaveBeenCalledWith('abc');
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'p'", true);
+      expect(r.note).toContain('A aba abriu sem o MCP de memória');
+    });
+
+    it('still starts the agent when even the revoke fails', async () => {
+      const { c, repos } = ctx();
+      installTabMcp.mockRejectedValue(new Error('ssh down'));
+      repos.apiTokens.revokeForTab.mockRejectedValue(new Error('db down'));
+      await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' })).resolves.toMatchObject({ tab_id: 'abc' });
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'p'", true);
+    });
+
+    it('mints nothing on an agent older than 0.10.0', async () => {
+      const { c, repos } = ctx();
+      tabMcpSupported.mockReturnValue(false);
+      const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' });
+      expect(repos.apiTokens.create).not.toHaveBeenCalled();
+      expect(installTabMcp).not.toHaveBeenCalled();
+      expect(r.note).toBe(`${NOTE} A aba abriu sem o MCP de memória: o termhub-agent desta máquina é anterior à 0.10.0.`);
+    });
+  });
+
+  it('mints no token when MCP_URL is not configured', async () => {
+    const { c, repos, log } = ctx();
+    await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' });
+    expect(repos.apiTokens.create).not.toHaveBeenCalled();
+    expect(installTabMcp).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith({ tabId: 't9', machineId: 'm1', installed: false, reason: 'no_mcp_url' }, expect.any(String));
   });
 
   it("records the account on the tab: a later swap must not pick it again", async () => {

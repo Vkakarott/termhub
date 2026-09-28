@@ -74,6 +74,7 @@ function makeRepos() {
     },
     aiAccounts: { list: vi.fn(async () => accounts) },
     machines: { findById: vi.fn(async () => machine()) },
+    apiTokens: { hasLiveForTab: vi.fn(async () => false) },
   };
   return { repos, r: repos as unknown as Repositories };
 }
@@ -186,6 +187,25 @@ describe('swapAccount', () => {
       meta: { event: 'AccountSwap', from: 'a1', to: 'a3', auto: false },
     });
     expect(monitorBus.listenerCount()).toBe(0);
+  });
+
+  it('keeps the tab memory MCP on the resumed session when the tab has a live tab token', async () => {
+    const { repos, r } = makeRepos();
+    repos.apiTokens.hasLiveForTab.mockResolvedValue(true);
+    stored = baseTab({ state: 'idle' });
+    await drive(swapAccount(r, log, baseTab(), machine(), { auto: false }));
+    expect(repos.apiTokens.hasLiveForTab).toHaveBeenCalledWith('t1');
+    const line = resumeLine(null, SID, RESUME_PROMPT, 't1');
+    expect(line).toContain("--mcp-config \"$HOME\"/'.termhub/tabs/t1/mcp.json'");
+    expect(sendTextToSession).toHaveBeenLastCalledWith(expect.anything(), 'th-t1', line, true);
+  });
+
+  it('resumes with the plain line when the tab token lookup fails', async () => {
+    const { repos, r } = makeRepos();
+    repos.apiTokens.hasLiveForTab.mockRejectedValue(new Error('db down'));
+    stored = baseTab({ state: 'idle' });
+    await drive(swapAccount(r, log, baseTab(), machine(), { auto: false }));
+    expect(sendTextToSession).toHaveBeenLastCalledWith(expect.anything(), 'th-t1', resumeLine(null, SID, RESUME_PROMPT), true);
   });
 
   it('pauses after Escape before /exit, and lets the shell settle after idle before the resume line', async () => {

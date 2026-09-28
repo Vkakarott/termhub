@@ -82,6 +82,8 @@ COPY --from=build --chown=app:app /app/apps/web/dist-city ./apps/web/dist-city
 # at that same relative path in the runner stage.
 COPY --from=build --chown=app:app /app/packages/agent-protocol/package.json ./packages/agent-protocol/
 COPY --from=build --chown=app:app /app/packages/agent-protocol/dist ./packages/agent-protocol/dist
+COPY --from=build --chown=app:app /app/packages/claude-cli/package.json ./packages/claude-cli/
+COPY --from=build --chown=app:app /app/packages/claude-cli/dist ./packages/claude-cli/dist
 COPY --from=build --chown=app:app /app/packages/machine-ops/package.json ./packages/machine-ops/
 COPY --from=build --chown=app:app /app/packages/machine-ops/dist ./packages/machine-ops/dist
 COPY --from=build --chown=app:app /app/packages/mobile-api/package.json ./packages/mobile-api/

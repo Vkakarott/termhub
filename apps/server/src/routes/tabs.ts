@@ -7,6 +7,7 @@ import { requireSimCapable } from '../agent/errors.js';
 import { swapAccount } from '../control/account-swap.js';
 import { ControlError } from '../control/context.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
+import { removeTabMcp } from '../terminal/tab-mcp.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { PASTE_MAX_BYTES, saveFileOnMachine } from '../terminal/paste-file.js';
 import { INPUT_MAX_CHARS, sendKeysToSession } from '../monitor/send-keys.js';
@@ -122,6 +123,8 @@ export async function tabRoutes(
       } catch {
         killed = false;
       }
+      // the tab's MCP config dir, if start_agent wrote one (never throws)
+      void removeTabMcp(machine, tab.id);
     }
     await repos.tabs.delete(id);
     publicBus.publishTabRemoved({ tab_id: tab.id, project_id: tab.project_id, machine_id: machine.id });

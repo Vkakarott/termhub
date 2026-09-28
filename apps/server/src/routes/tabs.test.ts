@@ -15,6 +15,9 @@ const { sendKeysToSession, swapAccount, canAccess } = vi.hoisted(() => ({
 vi.mock('../monitor/send-keys.js', () => ({ INPUT_MAX_CHARS: 4000, sendKeysToSession }));
 vi.mock('../control/account-swap.js', () => ({ swapAccount }));
 vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess }));
+const { removeTabMcp, killTmuxSession } = vi.hoisted(() => ({ removeTabMcp: vi.fn(async () => undefined), killTmuxSession: vi.fn() }));
+vi.mock('../terminal/tab-mcp.js', () => ({ removeTabMcp }));
+vi.mock('../terminal/machine-exec.js', async (orig) => ({ ...(await orig<typeof import('../terminal/machine-exec.js')>()), killTmuxSession }));
 
 import { tabRoutes } from './tabs.js';
 
@@ -167,6 +170,17 @@ describe('DELETE /tabs/:id', () => {
     } finally {
       off();
     }
+  });
+
+  it("kills the session and removes the tab's MCP config dir from the machine, best effort", async () => {
+    killTmuxSession.mockRejectedValue(new Error('offline'));
+    removeTabMcp.mockClear();
+    const store = { t1: tab({ id: 't1' }) };
+    const { app } = buildApp(store);
+    const res = await app.inject({ method: 'DELETE', url: '/tabs/t1' });
+    expect(res.json()).toEqual({ ok: true, killed: false });
+    expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'th-t1');
+    expect(removeTabMcp).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 't1');
   });
 });
 

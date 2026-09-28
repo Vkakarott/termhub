@@ -5,6 +5,7 @@ import type { Machine, Project, Tab } from '../db/repositories/types.js';
 import { HttpError, notFound } from '../lib/errors.js';
 import { browseMachine, ensureDirectory } from '../terminal/machine-fs.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
+import { removeTabMcp } from '../terminal/tab-mcp.js';
 import { publicBus } from '../public/bus.js';
 import { publishTabsRemoved } from '../monitor/tab-events.js';
 import { ControlError, type ControlContext } from './context.js';
@@ -83,7 +84,10 @@ export function announceLinked(project: Project): void {
 
 /** Closes the project's tabs on that machine (best-effort tmux kill), then removes the link. Returns how many tabs were closed. */
 export async function removeProjectMachineLink(repos: Repositories, projectId: string, machine: Machine, tabs: Tab[]): Promise<number> {
-  await Promise.allSettled(tabs.filter((t) => t.tmux_session).map((t) => killTmuxSession(machine, t.tmux_session!)));
+  const sessions = tabs.filter((t) => t.tmux_session);
+  await Promise.allSettled(sessions.map((t) => killTmuxSession(machine, t.tmux_session!)));
+  // each tab's MCP config dir, if start_agent wrote one (never throws)
+  for (const t of sessions) void removeTabMcp(machine, t.id);
   for (const t of tabs) await repos.tabs.delete(t.id);
   await publishTabsRemoved(repos, tabs, [machine]);
   await repos.projectMachines.unlink(projectId, machine.id);

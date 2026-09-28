@@ -111,6 +111,12 @@ export class ApiTokensRepository {
     return count;
   }
 
+  /** Whether a tab still has a live (neither revoked nor expired) tab token — the account swap keeps the
+   * tab's memory MCP on the resumed session only then (spec 2026-09-27 agent-tab-mcp D11). */
+  async hasLiveForTab(tabId: string, now = new Date()): Promise<boolean> {
+    return (await this.db.apiToken.count({ where: { tabId, ...activeWhere(now) } })) > 0;
+  }
+
   /** The token for a presented secret's hash, when it is neither revoked nor expired. */
   async findActiveByHash(tokenHash: string, now = new Date()): Promise<ApiToken | undefined> {
     const t = await this.db.apiToken.findFirst({ where: { tokenHash, ...activeWhere(now) } });

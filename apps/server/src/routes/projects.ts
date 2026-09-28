@@ -9,6 +9,7 @@ import { nextTerminalName } from '../lib/tab-names.js';
 import { scoped } from '../auth/scope.js';
 import { requireSimCapable } from '../agent/errors.js';
 import { killTmuxSession, listTmuxSessions } from '../terminal/machine-exec.js';
+import { removeTabMcp } from '../terminal/tab-mcp.js';
 import type { SimulatorSessionManager } from '../simulator/session-manager.js';
 import { publicBus } from '../public/bus.js';
 import { publishTabOpened, publishTabsRemoved } from '../monitor/tab-events.js';
@@ -158,7 +159,10 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
         .filter((t) => t.tmux_session)
         .map((t) => {
           const m = machines.find((x) => x.machine.id === t.machine_id)?.machine;
-          return m ? killTmuxSession(m, t.tmux_session!) : Promise.resolve(false);
+          if (!m) return Promise.resolve(false);
+          // the tab's MCP config dir, if start_agent wrote one (never throws); its token is refused once the row is gone
+          void removeTabMcp(m, t.id);
+          return killTmuxSession(m, t.tmux_session!);
         }),
     );
     await repos.projects.delete(id);
