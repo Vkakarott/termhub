@@ -216,8 +216,7 @@ switch_proxy() {
 # new colour with close 1012, then every browser socket, and exits. -t 30 is the upper bound before Docker kills
 # it; exit 137 in the log below means the drain did not finish. Colors are only stopped, never removed, so a
 # rollback is a plain `docker start`; legacy is renamed to termhub-app-legacy and stopped (not removed).
-retire_old() {
-  local old="$1"
+pause_for_inflight() {
   local delay="${DRAIN_DELAY:-3}"
 
   if [ "$DRY_RUN" = "1" ]; then
@@ -225,6 +224,12 @@ retire_old() {
   else
     sleep "$delay"
   fi
+}
+
+retire_old() {
+  local old="$1"
+
+  pause_for_inflight
 
   case "$old" in
     blue | green)
@@ -315,6 +320,7 @@ rollback() {
   wait_healthy "$target"
   switch_proxy "$target"
   write_state "$target"
+  pause_for_inflight
   run "stop app-$current (previously active)" "${COMPOSE[@]}" stop -t 30 "app-$current"
 
   log "active: $target, stopped: $current"
