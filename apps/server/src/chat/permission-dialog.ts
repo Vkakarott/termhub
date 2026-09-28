@@ -70,10 +70,6 @@ const SELECTED_OPTION = /^\s*[❯›>]\s*(\d+)\./;
 const PLAIN_OPTION = /^\s*(\d+)\./;
 /** A horizontal rule: Claude Code draws its input box between two of them. */
 const RULE = /^\s*[─━-]{10,}\s*$/;
-/** How far above the cursor a sibling option may sit: a wrapped label or a multi-line description can
- * push it up several rows in a narrow pane. Downward has no limit — the window itself (`PROMPT_MARKER_LINES`)
- * is the only bound, since the remaining options are always listed right after, never past more prose. */
-const SIBLING_REACH_UP = 8;
 
 /**
  * Option labels that exist only in an approval menu, never in a routine one (spec 2026-09-28 TER-374
@@ -91,13 +87,14 @@ const OPTIONS = APPROVAL_OPTIONS.map(squashLower);
 
 /**
  * The index in `lines` of the selected option of a real menu, or -1 (spec 2026-09-28 TER-380, fix
- * round 1). A menu has a plain sibling option (the cursor's number ± 1), searched up to
- * `SIBLING_REACH_UP` lines above the cursor and with no limit below it (a wrapped label or a multi-line
- * description in a narrow pane); a cursor right under a rule is Claude Code's input box (`❯ 1. …` typed
- * by the user or the concierge). A second cursor immediately adjacent to it (index ± 1) whose number is
- * also the cursor's ± 1 is a quoted list (`> 1.` / `> 2.`, every row prefixed) — that alone is rejected;
- * an echoed `› 1. …` message sitting further above a real Codex dialog is not, since a sent message is
- * never adjacent to the dialog's own options.
+ * round 2). A menu has a plain sibling option (the cursor's number ± 1), searched across the whole
+ * window — `lines` is already just the last `PROMPT_MARKER_LINES` non-blank rows, so that window is the
+ * only bound in either direction (a wrapped label or a multi-line description can push a sibling many
+ * rows away in a narrow pane, round 2); a cursor right under a rule is Claude Code's input box (`❯ 1. …`
+ * typed by the user or the concierge). A second cursor immediately adjacent to it (index ± 1) whose
+ * number is also the cursor's ± 1 is a quoted list (`> 1.` / `> 2.`, every row prefixed) — that alone is
+ * rejected; an echoed `› 1. …` message sitting further above a real Codex dialog is not, since a sent
+ * message is never adjacent to the dialog's own options (round 1).
  */
 function menuCursor(lines: string[]): number {
   let cursor = -1;
@@ -111,7 +108,7 @@ function menuCursor(lines: string[]): number {
     if (m && Math.abs(Number(m[1]) - n) === 1) return -1;
   }
   let sibling = false;
-  for (let i = Math.max(0, cursor - SIBLING_REACH_UP); i < lines.length; i++) {
+  for (let i = 0; i < lines.length; i++) {
     if (i === cursor) continue;
     const m = PLAIN_OPTION.exec(lines[i]!);
     if (m && Math.abs(Number(m[1]) - n) === 1) sibling = true;
@@ -129,7 +126,8 @@ function menuCursor(lines: string[]): number {
  * question itself out of the window (TER-374 fix round 1); a menu with no marker or approval option
  * (Claude Code's exit menu, `/resume`) is not a permission and stays free (TER-374). `menuCursor` rejects
  * a typed input box, a Codex composer line and a quoted list before either half runs, while still finding
- * a real menu next to an echoed message above it or an option wrapped over several rows (TER-380).
+ * a real menu next to an echoed message above it or an option wrapped over any number of rows in the
+ * window (TER-380).
  */
 export function permissionDialogVisible(screen: string): boolean {
   if (promptVisible(screen, { kind: 'permission', payload: { tool_name: '' } })) return true;

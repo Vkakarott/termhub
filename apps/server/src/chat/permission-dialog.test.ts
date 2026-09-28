@@ -37,6 +37,31 @@ describe('permissionDialogVisible', () => {
         ].join('\n'),
       ),
     ).toBe(true));
+  it('sees a menu whose middle option wraps over 10 continuation rows in a very narrow pane (TER-380 fix round 2)', () =>
+    expect(
+      permissionDialogVisible(
+        [
+          '────────────────────────────────────────',
+          ' Bash command',
+          '   rm -rf dist',
+          ' Do you want to proceed?',
+          '   1. Yes',
+          "   2. Yes, and don't ask again for rm",
+          '      commands in',
+          '      /home/dev/project/some/very/long',
+          '      /path/that/keeps/wrapping/in/a',
+          '      narrow/pane/that/keeps/going',
+          '      and/going/and/going/some/more',
+          '      even/further/down/the/tree',
+          '      still/not/done/wrapping/here',
+          '      almost/at/the/end/of/the/path',
+          '      just/one/more/segment/to/go',
+          '      finally/the/last/continuation',
+          ' ❯ 3. No, and tell Claude what to do',
+          '      differently (esc)',
+        ].join('\n'),
+      ),
+    ).toBe(true));
 });
 
 describe('promptVisible stays strict', () => {
