@@ -358,4 +358,40 @@ describe('createUpgradeRouter', () => {
       expect(publicHandler).not.toHaveBeenCalled();
     });
   });
+
+  describe('when draining starts while the upgrade is being admitted', () => {
+    let server: http.Server;
+    let wss: WebSocketServer;
+    let port: number;
+    const handler = vi.fn();
+    const lifecycle = createLifecycle();
+
+    beforeEach(async () => {
+      handler.mockReset();
+      server = http.createServer();
+      const router = createUpgradeRouter(server, { auth: {} as AuthContext, lifecycle });
+      wss = new WebSocketServer({ noServer: true });
+      router.add(/^\/ws\/ok$/, ({ req, socket, head }) => {
+        handler();
+        wss.handleUpgrade(req, socket, head, (ws) => ws.send('opened'));
+      });
+      port = await listen(server);
+    });
+
+    afterEach(async () => {
+      resolveUserMock.mockReset();
+      wss.close();
+      await shutdown(server);
+    });
+
+    it('a cookie route answers 503 when draining flips during auth, and its handler is not called', async () => {
+      resolveUserMock.mockImplementation(async () => {
+        lifecycle.startDraining();
+        return { id: 'u1' };
+      });
+      const outcome = await attempt(`ws://127.0.0.1:${port}/ws/ok`);
+      expect(outcome.statusCode).toBe(503);
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });

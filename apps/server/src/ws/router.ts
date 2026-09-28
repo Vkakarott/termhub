@@ -99,6 +99,8 @@ export function createUpgradeRouter(server: HttpServer, deps: { auth: AuthContex
     // conversation, so nobody who cannot read a terminal has any business on it either.
     // (The chat's own per-user filter lives in chat/ws.ts; this only decides who may connect.)
     if (!(await canAccess(deps.auth.repos, user, 'terminals', 'read'))) return rejectUpgrade(socket, 403, 'Forbidden');
+    // The awaits above give a drain time to start: a socket admitted now would miss its handover.
+    if (deps.lifecycle?.draining) return rejectUpgrade(socket, 503, 'Service Unavailable');
     try {
       await route.r.handler({ req, socket, head, url, params: route.m.slice(1), user, scope });
     } catch {
