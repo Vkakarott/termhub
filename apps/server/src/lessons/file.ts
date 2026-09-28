@@ -68,11 +68,15 @@ function splitFrontMatter(md: string): { frontMatter: Record<string, string | st
   return { frontMatter: parseFrontMatter(lines.slice(1, closeIdx).join('\n')), body: lines.slice(closeIdx + 1).join('\n') };
 }
 
+/** A file lesson's `pr` must look like this (final review fix); anything else is dropped to null. */
+const HTTP_URL_RE = /^https?:\/\//i;
+
 /**
  * Parses one `docs/lessons/*.md` file (spec 2026-09-27 failure lessons §4): front matter into `meta`,
  * `symptom` into `title` (falls back to the path when there is none), and the body — front matter
  * stripped — chunked like any other doc (`chunkMarkdown`). Every meta value is capped here, before it
- * ever reaches the database: tags at 10 entries of 40 chars, every other string at 300.
+ * ever reaches the database: tags at 10 entries of 40 chars, every other string at 300. `pr` is kept
+ * only when it is an http(s) URL (`HTTP_URL_RE`).
  */
 export function parseLessonFile(path: string, md: string): ParsedLesson {
   const { frontMatter, body } = splitFrontMatter(md);
@@ -87,10 +91,13 @@ export function parseLessonFile(path: string, md: string): ParsedLesson {
   const tags = rawTags.slice(0, TAGS_MAX).map((t) => cap(t, TAG_MAX));
 
   const str = (key: string): string | null => (typeof frontMatter[key] === 'string' ? cap(frontMatter[key] as string, META_STRING_MAX) : null);
+  // `pr` is linked by the web list and handed to `Linking.openURL` on mobile: only ever an http(s)
+  // URL, never `javascript:`/`data:` or a bare host a client would resolve some other way.
+  const pr = str('pr');
 
   return {
     title,
     chunks: chunkMarkdown(path, body),
-    meta: { evidence, card: str('card'), pr: str('pr'), tags, agent: str('agent'), tab_id: null, origin: 'file', path },
+    meta: { evidence, card: str('card'), pr: pr !== null && HTTP_URL_RE.test(pr) ? pr : null, tags, agent: str('agent'), tab_id: null, origin: 'file', path },
   };
 }

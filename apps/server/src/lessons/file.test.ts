@@ -41,6 +41,17 @@ describe('lesson files', () => {
     expect(long.meta.evidence).toBe('observed');
   });
 
+  it.each(['javascript:alert(1)', 'JAVASCRIPT:alert(1)', 'data:text/html,x', 'github.com/x/y/pull/1', 'ftp://x/y'])(
+    'keeps pr only when it is an http(s) URL: %s is dropped',
+    (pr) => {
+      expect(parseLessonFile('docs/lessons/x.md', `---\npr: ${pr}\n---\nx`).meta.pr).toBeNull();
+    },
+  );
+  it('keeps an http:// or https:// pr', () => {
+    expect(parseLessonFile('docs/lessons/x.md', `---\npr: http://git.local/x/pull/2\n---\nx`).meta.pr).toBe('http://git.local/x/pull/2');
+    expect(parseLessonFile('docs/lessons/x.md', `---\npr: HTTPS://github.com/x/y/pull/1\n---\nx`).meta.pr).toBe('HTTPS://github.com/x/y/pull/1');
+  });
+
   it('parses the repo README and example lesson front matter, and the README is skipped by isLessonPath', async () => {
     const { readFileSync } = await import('node:fs');
     expect(isLessonPath('docs/lessons/README.md')).toBe(false);
