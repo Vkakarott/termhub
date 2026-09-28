@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MAX_READABLE_WIDTH } from './layout';
+import { MAX_READABLE_WIDTH, readableColumn } from './layout';
 
 type Props = { children: ReactNode; scroll?: boolean; padded?: boolean; width?: 'readable' | 'full' };
 
 /** A readable column (spec 2026-09-28 iPad §2.4): on a wide window the content is centred at
  * `MAX_READABLE_WIDTH`; `width="full"` is for screens that lay out their own widths (Chats' split,
  * the conversation). On a phone both are the same. */
-const READABLE = { width: '100%', maxWidth: MAX_READABLE_WIDTH, alignSelf: 'center' } as const;
+const READABLE = readableColumn(MAX_READABLE_WIDTH);
 
 export function Screen({ children, scroll = false, padded = true, width = 'readable' }: Props) {
   const paddingClassName = padded ? 'px-6 py-4' : '';

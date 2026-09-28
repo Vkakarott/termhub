@@ -17,3 +17,10 @@ export const SHEET_MAX_WIDTH = 560;
 export function isWide(width: number): boolean {
   return width >= WIDE_MIN_WIDTH;
 }
+
+/** A column that fills a narrow window and, past `maxWidth`, stays that wide and centred — the one
+ * style behind Screen's readable width, the sheets' panel, the conversation's thread and composer,
+ * and Progresso's list, so they cannot drift apart. */
+export function readableColumn(maxWidth: number) {
+  return { width: '100%', maxWidth, alignSelf: 'center' } as const;
+}

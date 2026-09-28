@@ -4,7 +4,7 @@ import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activeGrantsLabel } from '@/features/chat-grants/model/labels';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
-import { AppText, Banner, Button, EmptyState, MAX_READABLE_WIDTH, Screen, Sheet } from '@/ui';
+import { AppText, Banner, Button, EmptyState, MAX_READABLE_WIDTH, readableColumn, Screen, Sheet } from '@/ui';
 import { activeGrantIndex, isGrantActive } from '../model/grant-time';
 import { isActive } from '../model/subagents';
 import { chatTimeline, groupPendingActions, type ChatEntry } from '../model/timeline';
@@ -38,7 +38,7 @@ const entryKey = (entry: ChatEntry) =>
 
 /** The thread and the composer never stretch past a readable width (spec 2026-09-28 iPad §2.4); the
  * header and the list's own frame still span the pane. */
-const READABLE_COLUMN = { width: '100%', maxWidth: MAX_READABLE_WIDTH, alignSelf: 'center' } as const;
+const READABLE_COLUMN = readableColumn(MAX_READABLE_WIDTH);
 
 /** One message row, subscribed to its own streamed text (spec §4.2 "Incremental fold"): a delta
  * re-renders this row and nothing else — `renderItem` and `extraData` do not change for it.
