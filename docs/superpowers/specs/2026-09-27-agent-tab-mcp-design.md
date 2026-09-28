@@ -107,3 +107,25 @@ transaction.
   that `search_memory` is listed. Tracked as its own subtask.
 - Tabs opened by hand (the "+" in the UI) get no tab token: the card is about `start_agent`.
 - Tabs opened before this release keep running without MCP.
+
+## 9. Deviations
+
+Found while implementing Tasks 1–5, kept because reverting them would either break the build or reopen
+the gap they close; none changes the design's decisions above.
+
+- **The server now depends on `@termhub/claude-cli`** (Task 4): `control/agents.ts` calls its
+  `mcpConfig(url, token, name)` to build a tab's `mcp.json`, so `apps/server/package.json` gained
+  `"@termhub/claude-cli": "*"` and the Dockerfile's runner stage now also copies
+  `packages/claude-cli/{package.json,dist}` next to the other packages it already copied — without
+  that `COPY`, the prod image would import-crash on boot. It was already in the `-w` build lists.
+- **`MCP_URL` must not contain a backslash.** `launchLine`'s URL check
+  (`/^https?:\/\/[^\s'"\\]+$/`) is stricter than the spec's D9 line implies: a `\` inside the value
+  would land inside the double-quoted TOML string of Codex's `-c mcp_servers.termhub_tab.url="…"`
+  override and could break out of it. Not a real-world limitation — no valid URL needs one.
+- **An extra skip reason, `MCP_URL inválido`** (D10): a configured but malformed `MCP_URL` (fails the
+  regex above) skips the tab MCP the same way an unset one does, with its own note sentence, checked
+  before anything is minted so a bad value never wastes a token.
+- **`ControlContext` gained an optional `log?: FastifyBaseLogger`** (Task 4), set by the `/mcp` route
+  to `request.log`. `startAgent` needed a way to log `{ tabId, machineId, installed, reason }` for the
+  tab MCP install without a module-level logger anywhere in `control/`; passing it on the context kept
+  that one call site the only logger the module needs.
