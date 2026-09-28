@@ -241,7 +241,7 @@ describe('startAgent', () => {
       const token = parsed.mcpServers.termhub_tab.headers.Authorization.replace('Bearer ', '');
       expect(token).toMatch(/^thb_pat_/);
       const line = sendTextToSession.mock.calls[0][2] as string;
-      expect(line).toBe(`CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude ${MCP_FLAGS} -- 'write a spec'`);
+      expect(line).toBe(launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('write a spec'), { tabId: 'abc', url: MCP_URL }));
       expect(line).not.toContain(token);
       expect(r.note).toBe(`${NOTE} A aba tem o MCP termhub_tab (search_memory) para consultar a memória do projeto.`);
       expect(repos.apiTokens.revokeForTab).not.toHaveBeenCalled();
@@ -255,7 +255,7 @@ describe('startAgent', () => {
       const r = await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
       expect(repos.apiTokens.create).not.toHaveBeenCalled();
       expect(installTabMcp).not.toHaveBeenCalled();
-      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'termhub-p1-abc', "codex 'fix it'", true);
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'termhub-p1-abc', launchLine('chatgpt', null, withLessonsReminder('fix it')), true);
       expect(r.note).toBe(`${NOTE} A aba abriu sem o MCP de memória: o MCP no Codex ainda não foi verificado.`);
       expect(log.info).toHaveBeenCalledWith({ tabId: 'abc', machineId: 'm1', installed: false, reason: 'codex_unverified' }, expect.any(String));
     });
@@ -265,7 +265,7 @@ describe('startAgent', () => {
       installTabMcp.mockRejectedValue(new Error('ssh down'));
       const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'write a spec' });
       expect(repos.apiTokens.revokeForTab).toHaveBeenCalledWith('abc');
-      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'termhub-p1-abc', "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'write a spec'", true);
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'termhub-p1-abc', launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('write a spec')), true);
       expect(r.note).toBe(`${NOTE} A aba abriu sem o MCP de memória: não foi possível gravar a configuração na máquina.`);
       expect(log.info).toHaveBeenCalledWith({ tabId: 'abc', machineId: 'm1', installed: false, reason: 'install_failed' }, expect.any(String));
     });
@@ -276,7 +276,7 @@ describe('startAgent', () => {
       const r = await startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' });
       expect(installTabMcp).not.toHaveBeenCalled();
       expect(repos.apiTokens.revokeForTab).toHaveBeenCalledWith('abc');
-      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'p'", true);
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('p')), true);
       expect(r.note).toContain('A aba abriu sem o MCP de memória');
     });
 
@@ -285,7 +285,7 @@ describe('startAgent', () => {
       installTabMcp.mockRejectedValue(new Error('ssh down'));
       repos.apiTokens.revokeForTab.mockRejectedValue(new Error('db down'));
       await expect(startAgent(c, { project_id: 'p1', account_id: 'a1', prompt: 'p' })).resolves.toMatchObject({ tab_id: 'abc' });
-      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), "CLAUDE_CONFIG_DIR='/Users/p/.claude-work' claude 'p'", true);
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), launchLine('claude', '/Users/p/.claude-work', withLessonsReminder('p')), true);
     });
 
     it('mints nothing on an agent older than 0.10.0', async () => {

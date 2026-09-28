@@ -251,7 +251,7 @@ describe('searchMemory with a tab token (TER-212 D3)', () => {
   it('searches only the tab\'s project, without messages or gate decisions', async () => {
     const { ctx, embedder, calls } = withTab({});
     await searchMemory(ctx, { query: 'x', project_id: 'p1' }, { embedder });
-    const filter = { ownerId: 'u1', projectId: 'p1', kinds: ['task', 'doc', 'note'] };
+    const filter = { ownerId: 'u1', projectId: 'p1', kinds: ['task', 'doc', 'note', 'lesson', 'project_note'] };
     expect(calls.nearest).toHaveBeenCalledWith(filter, expect.anything(), expect.anything());
     expect(calls.itemTextSearch).toHaveBeenCalledWith(filter, expect.anything(), expect.anything());
     expect(calls.nearestAny).toHaveBeenCalledWith('u1', expect.anything(), expect.anything(), 'p1');
@@ -275,7 +275,7 @@ describe('searchMemory with a tab token (TER-212 D3)', () => {
   it('searches every kind but message and action by default', async () => {
     const { ctx, embedder, calls } = withTab({});
     await searchMemory(ctx, { query: 'x' }, { embedder });
-    expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['task', 'doc', 'note'] }), expect.anything(), expect.anything());
+    expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['task', 'doc', 'note', 'lesson', 'project_note'] }), expect.anything(), expect.anything());
     expect(calls.decisionTextSearch).toHaveBeenCalled();
   });
 

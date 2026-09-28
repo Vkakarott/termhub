@@ -220,7 +220,7 @@ export async function searchMemory(
 
 /** Every kind `search_memory` can return, as a record so that a new `MemoryRefKind` (TER-205's lessons,
  *  say) breaks the build here until it is listed — a tab search must not silently leave it out (D3). */
-const ALL_REF_KINDS = Object.keys({ decision: true, task: true, message: true, action: true, doc: true, note: true } satisfies Record<MemoryRefKind, true>) as MemoryRefKind[];
+const ALL_REF_KINDS = Object.keys({ decision: true, task: true, message: true, action: true, doc: true, note: true, lesson: true, project_note: true } satisfies Record<MemoryRefKind, true>) as MemoryRefKind[];
 
 const isTabExcluded = (kind: MemoryRefKind): boolean => (TAB_EXCLUDED_KINDS as readonly string[]).includes(kind);
 
