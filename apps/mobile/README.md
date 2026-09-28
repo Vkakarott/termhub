@@ -127,6 +127,12 @@ Everything below is automated except this: run it by hand, on a development buil
    9. "Sair e remover este aparelho" in Ajustes, and confirm the app returns to Início.
 2. **The key diagnostic** — `Ajustes → Diagnóstico da chave → "Testar a chave do aparelho"`, on both a real iOS device and a real Android device (P§11.1's first on-device check). It always uses `HardwareDeviceKey` (tag `dev.termhub.diagnostic`, never the enrolled key), in mock mode as well as http, so a development build with no server is enough to exercise the Secure Enclave / Keystore — only Jest runs the software key instead. Every step (`create`, `exists`, `publicJwk`, `thumbprint`, `sign+verify`, `destroy`) should say "ok".
 
+## iPad
+
+The build is universal (`ios.supportsTablet: true`): the iPhone stays in portrait, the iPad rotates freely and supports Split View and Slide Over (Expo writes every `UISupportedInterfaceOrientations~ipad` because full screen is not required). From 700 pt of window width Chats shows the list and the conversation side by side; other screens keep a 720 pt column. Design and manual check: `docs/superpowers/specs/2026-09-28-mobile-ipad-design.md` (§5). Enter-to-send on a hardware keyboard is not there yet (spec §2.5).
+
+An `ios/` folder generated before this change stays iPhone-only (prebuild does not rewrite it): after pulling, re-run `npx expo prebuild --clean` before building (e.g. `npm run ios`); `npm run release:ios` already prebuilds with `--clean`, so a TestFlight build picks it up by itself.
+
 ## Conventions
 
 - Code, comments and commits in English; every string a person sees in pt-BR.

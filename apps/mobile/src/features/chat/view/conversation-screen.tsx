@@ -4,7 +4,7 @@ import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activeGrantsLabel } from '@/features/chat-grants/model/labels';
 import type { TTabQuestionAnswerBody } from '@/services/api/contract';
-import { AppText, Banner, Button, EmptyState, Screen, Sheet } from '@/ui';
+import { AppText, Banner, Button, EmptyState, MAX_READABLE_WIDTH, readableColumn, Screen, Sheet } from '@/ui';
 import { activeGrantIndex, isGrantActive } from '../model/grant-time';
 import { isActive } from '../model/subagents';
 import { chatTimeline, groupPendingActions, type ChatEntry } from '../model/timeline';
@@ -36,6 +36,10 @@ const entryKey = (entry: ChatEntry) =>
           ? `s:${entry.suggestion.id}`
           : `q:${entry.question.id}`;
 
+/** The thread and the composer never stretch past a readable width (spec 2026-09-28 iPad §2.4); the
+ * header and the list's own frame still span the pane. */
+const READABLE_COLUMN = readableColumn(MAX_READABLE_WIDTH);
+
 /** One message row, subscribed to its own streamed text (spec §4.2 "Incremental fold"): a delta
  * re-renders this row and nothing else — `renderItem` and `extraData` do not change for it.
  * Every started row waits, not only the newest: with queued or injected turns several answers can be
@@ -50,11 +54,10 @@ const MessageRow = memo(function MessageRow({ message }: { message: ChatMessage 
 });
 
 /** The conversation (spec §11.2): thread, action cards, the host line when the host needs attention,
- * the trusted tabs and composer.
- * The route param is a conversation id (a deep link), a project id or `general` — the store
- * resolves which. */
-export function ConversationScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+ * the trusted tabs and composer. `routeId` is a conversation id (a deep link), a project id or
+ * `general` — the store resolves which. `embedded` is the iPad split's right pane (spec 2026-09-28
+ * §2.3): no "Voltar", the list next to it is the way out. */
+export function ConversationView({ routeId, embedded = false }: { routeId: string; embedded?: boolean }) {
   const router = useRouter();
   const openByRoute = useChatStore((s) => s.openByRoute);
   const activeProject = useChatStore((s) => s.activeProject);
@@ -110,8 +113,8 @@ export function ConversationScreen() {
   const onCancelSubagent = useCallback((id: string) => void cancelSubagent(id), [cancelSubagent]);
 
   useEffect(() => {
-    if (id) void openByRoute(id);
-  }, [id, openByRoute]);
+    if (routeId) void openByRoute(routeId);
+  }, [routeId, openByRoute]);
 
   const messages = slot?.messages;
   const actions = slot?.actions;
@@ -227,7 +230,7 @@ export function ConversationScreen() {
   };
 
   return (
-    <Screen padded={false}>
+    <Screen padded={false} width="full">
       {/* `padding` on iOS, `height` on Android (spec §4.2 "Keyboard"): stock behaviour on both, no
           extra native module. The avoiding view compares its frame, relative to its parent, with the
           keyboard's top on screen: the offset is where that parent really starts on screen, measured,
@@ -240,8 +243,8 @@ export function ConversationScreen() {
             are siblings of the list, never rows inside it: a line appearing there changes the list's
             frame, not its content, and the inverted list keeps its end pinned through that. */}
         <View>
-          <View className="flex-row items-center gap-2 border-b border-app-border px-2 py-2">
-            <Button label="Voltar" variant="ghost" onPress={goBack} />
+          <View className={`flex-row items-center gap-2 border-b border-app-border py-2 ${embedded ? 'px-4' : 'px-2'}`}>
+            {embedded ? null : <Button label="Voltar" variant="ghost" onPress={goBack} />}
             <AppText variant="title" className="flex-1 text-xl" numberOfLines={1}>
               {title}
             </AppText>
@@ -273,11 +276,22 @@ export function ConversationScreen() {
             </Pressable>
           )
         ) : (
-          <FlatList inverted keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" data={entries} keyExtractor={entryKey} contentContainerClassName="gap-3 px-4 py-4" extraData={extra} renderItem={renderItem} />
+          <FlatList
+            testID="conversation-thread"
+            inverted
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            data={entries}
+            keyExtractor={entryKey}
+            contentContainerClassName="gap-3 px-4 py-4"
+            contentContainerStyle={READABLE_COLUMN}
+            extraData={extra}
+            renderItem={renderItem}
+          />
         )}
         {/* The footer block, a sibling of the list like the header: its height changes the list's
             frame, not its content (spec 2026-09-26 §4.2 "Keyboard"). */}
-        <View>
+        <View testID="conversation-composer-column" style={READABLE_COLUMN}>
           <Composer sending={sending} onSend={send} uploadAttachment={uploadAttachment} deleteAttachment={deleteAttachment} attachmentStatuses={attachmentStatuses} />
         </View>
       </KeyboardAvoidingView>
@@ -292,4 +306,10 @@ export function ConversationScreen() {
       <SubagentsSheet open={subagentsOpen} onClose={() => setSubagentsOpen(false)} subagents={subagents} cancelFailed={cancelFailed} onCancel={onCancelSubagent} now={subagentsNow} />
     </Screen>
   );
+}
+
+/** The `/chat/[id]` route: the conversation full screen, with "Voltar". */
+export function ConversationScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return <ConversationView routeId={id} />;
 }

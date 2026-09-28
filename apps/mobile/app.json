@@ -10,7 +10,7 @@
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0F19",
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "buildNumber": "202609272146",
       "bundleIdentifier": "dev.termhub.app",
       "googleServicesFile": "./GoogleService-Info.plist",

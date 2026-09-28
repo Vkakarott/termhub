@@ -2,6 +2,16 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/chat/viewmodel/useChatStore', () => ({ useChatStore: require('../../../../test/helpers/ui-stores').stores.chat }));
+// The screen now renders the wide split's embedded `ConversationView` too (unused at this narrow
+// width, but its module graph is still loaded): the composer's microphone never records here.
+jest.mock('@/features/chat/viewmodel/use-voice', () => ({
+  useVoice: () => ({ state: 'idle', seconds: 0, error: null, notice: null, start: jest.fn(), stop: jest.fn(), cancel: jest.fn() }),
+  useRecorder: () => ({ state: 'idle', seconds: 0, error: null, start: jest.fn(async () => undefined), stop: jest.fn(async () => null), cancel: jest.fn() }),
+}));
+// This file is about the compact (phone) behaviour; jest-expo's default window (750 pt wide) is
+// past the split's threshold, so it is pinned narrow here. `chats-screen.wide.test.tsx` covers the
+// split.
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({ __esModule: true, default: () => ({ width: 390, height: 844, scale: 2, fontScale: 1 }) }));
 
 const mockPush = jest.fn();
 /** The last `useFocusEffect` callback: a test calls it to simulate the tab coming back into focus. */

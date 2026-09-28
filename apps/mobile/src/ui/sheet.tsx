@@ -1,8 +1,12 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
+import { readableColumn, SHEET_MAX_WIDTH } from './layout';
 import { AppText } from './text';
 
 type Props = { open: boolean; onClose(): void; title: string; children: ReactNode };
+
+/** On a wide window the panel stays a centred sheet instead of a full-width slab (spec 2026-09-28 iPad §2.4). */
+const PANEL = readableColumn(SHEET_MAX_WIDTH);
 
 export function Sheet({ open, onClose, title, children }: Props) {
   return (
@@ -16,7 +20,7 @@ export function Sheet({ open, onClose, title, children }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Fechar"
         />
-        <View className="rounded-t-3xl bg-app-surface p-6">
+        <View testID="sheet-panel" style={PANEL} className="rounded-t-3xl bg-app-surface p-6">
           <AppText variant="title">{title}</AppText>
           <View className="mt-4">{children}</View>
         </View>

@@ -69,6 +69,26 @@ it('loadProjects fills the three projects', async () => {
   expect(loadingProjects).toBe(false);
 });
 
+it('loadProjects({ quiet }) refreshes the list in the background: no spinner, and the banner is left alone (spec 2026-09-28 iPad §2.3)', async () => {
+  const { chat, api } = await setup();
+  const spun: boolean[] = [];
+  const unsubscribe = chat.subscribe((s) => spun.push(s.loadingProjects));
+  // The open pane's own failure: a background refresh must neither clear it nor replace it.
+  chat.setState({ error: 'Falha no chat' });
+
+  await chat.getState().loadProjects({ quiet: true });
+  expect(chat.getState().projects.map((p) => p.id).sort()).toEqual(['p-opapingou', 'p-reactivando', 'p-termhub']);
+  expect(chat.getState().error).toBe('Falha no chat');
+
+  jest.spyOn(api, 'chatProjects').mockRejectedValueOnce(new Error('network down'));
+  await chat.getState().loadProjects({ quiet: true });
+  expect(chat.getState().error).toBe('Falha no chat');
+  expect(chat.getState().projects).toHaveLength(3); // the last good list stays
+
+  unsubscribe();
+  expect(spun).not.toContain(true);
+});
+
 it('an open tab question counts as pending in the projects list, as on the server (spec 2026-09-26 §4.9)', async () => {
   const { chat } = await setup();
   await openAndConnect(chat, 'p-termhub');

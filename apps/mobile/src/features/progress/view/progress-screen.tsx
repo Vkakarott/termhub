@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { FlatList, Linking, Pressable, RefreshControl, Text, View } from 'react-native';
 import { relativeTime } from '@/features/shared/relative-time';
 import type { TAgentOnCard, TEpicProgress } from '@/services/api/contract';
+import { MAX_READABLE_WIDTH, readableColumn } from '@/ui';
 import { ciLabel, epicCiLine, formatEstimate, stateLabel } from '../model/format';
 import { useProgressStore } from '../viewmodel/useProgressStore';
 
@@ -60,6 +61,10 @@ function Epic({ epic }: { epic: TEpicProgress }) {
   );
 }
 
+/** The epics stay a readable column on the iPad (spec 2026-09-28 §2.4); the list's own frame, and so
+ * its pull-to-refresh and background, still span the window. */
+const COLUMN = readableColumn(MAX_READABLE_WIDTH);
+
 /** The Progresso tab (spec 2026-09-26 progress-panel D10): active epics across projects, read-only. */
 export function ProgressScreen() {
   const epics = useProgressStore((s) => s.epics);
@@ -76,6 +81,7 @@ export function ProgressScreen() {
     <FlatList
       testID="progress-list"
       className="flex-1 bg-[#0B0E17]"
+      contentContainerStyle={COLUMN}
       data={epics}
       keyExtractor={(e) => e.id}
       renderItem={({ item }) => <Epic epic={item} />}

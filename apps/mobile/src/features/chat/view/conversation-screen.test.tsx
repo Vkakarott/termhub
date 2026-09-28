@@ -31,7 +31,7 @@ import { ApiError } from '@/services/api/errors';
 import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { emptyFold, foldLive } from '../model/live';
 import type { ChatMessage } from '../model/types';
-import { ConversationScreen } from './conversation-screen';
+import { ConversationScreen, ConversationView } from './conversation-screen';
 
 /** The composer's text frame (composer.tsx `textFrame`): sharing the buttons' row, or on its own line above it. */
 const BESIDE_BUTTONS = { marginLeft: 40, marginRight: 40, marginBottom: 0, height: 36 };
@@ -752,5 +752,29 @@ describe('Conversa', () => {
       reject(new ApiError(409, 'HOST_OFFLINE', 'A máquina do chat está offline.'));
     });
     expect(screen.getByLabelText('Mensagem').props.value).toBe('oi');
+  });
+});
+
+describe('ConversationView (iPad, spec 2026-09-28 §2.3/§2.4)', () => {
+  it('embedded: shows the thread without a "Voltar" button', async () => {
+    await render(<ConversationView routeId="p-termhub" embedded />);
+    expect(await screen.findByText(SEEDED_USER, undefined, { timeout: 15_000 })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Voltar' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Nova conversa' })).toBeTruthy();
+  });
+
+  it('as the route: keeps "Voltar"', async () => {
+    await render(<ConversationScreen />);
+    await screen.findByText(SEEDED_USER, undefined, { timeout: 15_000 });
+    expect(screen.getByRole('button', { name: 'Voltar' })).toBeTruthy();
+  });
+
+  it('centres the thread and the composer in a readable column; the list itself fills the pane', async () => {
+    await render(<ConversationView routeId="p-termhub" embedded />);
+    await screen.findByText(SEEDED_USER, undefined, { timeout: 15_000 });
+    const list = screen.getByTestId('conversation-thread');
+    expect(StyleSheet.flatten(list.props.contentContainerStyle)).toMatchObject({ width: '100%', maxWidth: 720, alignSelf: 'center' });
+    expect(StyleSheet.flatten(list.props.style)?.maxWidth).toBeUndefined();
+    expect(StyleSheet.flatten(screen.getByTestId('conversation-composer-column').props.style)).toMatchObject({ width: '100%', maxWidth: 720, alignSelf: 'center' });
   });
 });

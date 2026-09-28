@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 jest.mock('@/features/session/viewmodel/useSessionStore', () => ({ useSessionStore: require('../../../../test/helpers/ui-stores').stores.store }));
 jest.mock('@/features/progress/viewmodel/useProgressStore', () => ({ useProgressStore: require('../../../../test/helpers/ui-stores').stores.progress }));
@@ -78,5 +79,12 @@ describe('Progresso', () => {
     jest.spyOn(stores.api, 'progress').mockResolvedValue({ epics: [], generated_at: '' });
     await render(<ProgressScreen />);
     expect(await screen.findByText('Nenhum épico em andamento', {}, LOAD)).toBeTruthy();
+  });
+
+  it('keeps the epics in a readable column on a wide window (spec 2026-09-28 iPad §2.4)', async () => {
+    await render(<ProgressScreen />);
+    await screen.findByText('Visão gerencial', {}, LOAD);
+    const column = StyleSheet.flatten(screen.getByTestId('progress-list').props.contentContainerStyle);
+    expect(column).toMatchObject({ width: '100%', maxWidth: 720, alignSelf: 'center' });
   });
 });
