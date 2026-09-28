@@ -180,3 +180,73 @@ Under the chat memory routes (`guarded('chat', …)`, mounted at `/api/chat` and
 - Sharing lessons between people, public lesson networks, consensus between agents: out (TER-110).
 - Writing into a person's repository from the server (e.g. moving a note lesson to `docs/lessons/` by a
   PR): out; the person or an agent in a tab does it.
+
+## 12. Adjustments found while implementing
+
+- **§4 revised: the docs sweeper does version-gate `docs/lessons`.** §4 said an agent older than the
+  one that knows `docs/lessons` "just returns fewer files (the RPC validates paths, so the server
+  version-gates nothing)". In the real agent protocol a param the agent's RPC schema does not know
+  fails the params parse before dispatch, the same failure mode `DOCS_MIN_AGENT_VERSION` already
+  existed to avoid for specs/plans — so lessons get their own floor, `DOCS_LESSONS_MIN_AGENT_VERSION =
+  '0.8.1'` (`memory/docs.ts`), next to `DOCS_MIN_AGENT_VERSION = '0.8.0'`. The agent itself was bumped
+  to 0.8.1. `docs.read` for `docs/lessons/*.md` is a separate call (`DocsExec.readLessons`) from the
+  specs/plans one, gated independently, so a machine on an agent between 0.8.0 and 0.8.1 keeps reading
+  specs/plans while its lessons are skipped until it updates (auto-update within the hour).
+- **The project note's free text is split by a note-local splitter (`splitPersonText`,
+  `lessons/note.ts`), not TER-95's `chunkMarkdown`.** `chunkMarkdown` drops a heading-only section and
+  failed the plan's unclosed-fence test; `splitPersonText` keeps the same heading-split shape but
+  handles both. A `project_note` section over `ITEM_TEXT_MAX` (1200 chars) is split into consecutive
+  chunks (`memory/note.ts`), never truncated — the plan's data model (§3) did not say what happens to
+  an oversized section.
+- **Card vs. PR in a note lesson's `- **Evidência:**` line are told apart by shape, not position**
+  (`parseEvidenceLine`, `memory/note.ts`): a PR always looks like a URL, a card never does, so a block
+  with a PR but no card (an omitted-field render) still parses correctly. A note lesson's `meta` is
+  otherwise thinner than a file lesson's: `tags: []` and `agent: null` always (`record_lesson` takes
+  neither), `evidence` falling back to `fixed` when the line is missing or unrecognised.
+- **`deleteDocsNotInLinks` also removes file lessons of an unlinked/deleted project link**, not only
+  `kind = 'doc'` rows (fix round 1, Task 4): a project link's `docs/lessons/*.md` items were otherwise
+  never revisited once its link was gone, staying indexed forever.
+- **`indexProjectNote` loads the note's owner through the projects repository and skips a deleted
+  project**, and both the note route and `record_lesson` fire it `void` (best effort) after their
+  write — a crash between saving and indexing leaves the note stale until the memory sweeper's own
+  pass, never blocks or fails the save/record call itself.
+- **`record_lesson` returns `ref: null`, not a failure, when the just-written block is not yet
+  indexed** (`control/lessons.ts`): the write to the note always succeeds and is reported as such; only
+  the ref the caller could cite in the same turn is missing until the index catches up.
+- **`NotesEditor.tsx` only advances its `base.current` when it adopts the merged content, or when
+  nothing was typed since sending** (fix round 1, Task 7, was Critical): advancing it unconditionally
+  on every response — including when the person had typed since and the merge was *not* shown — let a
+  base newer than a just-appended block's `at` reach the next save, so the server's merge (D9) no
+  longer re-appended it and the lesson was silently lost.
+- **The concierge prompt's line about lessons (D12) is in English**, next to TER-95's own '- Memory:'
+  line in `chat/concierge-prompt.ts`, which is already English — not pt-BR as the plan assumed. The
+  `start_agent` reminder (D13) stays pt-BR, like the rest of `RESUME_PROMPT`.
+- **`docs/lessons/README.md`'s example (D14) is a lesson actually hit during this delivery**, not the
+  plan's P3009 migration story: after rebasing on `main`, `npm run typecheck -w @termhub/server` failed
+  with a `TS2305` on `@termhub/mobile-api` because the internal packages' `dist/` was stale;
+  `npm run build:packages` (the same step CI runs before the server typecheck) fixed it. The original
+  P3009 example was a preventive runbook in the TER-57 spec, never an incident, so writing it up with
+  `evidence: fixed` and a past-tense narrative would have fabricated a history that never happened.
+- **Verification (Task 10) ran on `node:22`**, matching CI and the rest of this delivery's tasks, not
+  the `node:20` CLAUDE.md's "Verifying before pushing" section names — only the image tag would change
+  if that were wrong (that command is stale against `deploy.yml`'s `node-version: 22`; out of scope
+  for this PR to fix, and already the ruling Task 9's lesson example landed on).
+- **`th-ter205-db`'s migration bookkeeping needed a manual `prisma migrate resolve --applied`
+  before Task 10's checks could run**: `20260927170000_concierge_memory`'s DDL (the `memory_items`
+  table, `users.chat_autodecide`, …) had already been applied under an earlier name
+  (`20260927100000_concierge_memory`, TER-95's original timestamp) by an earlier task's full
+  `migrate deploy`; once TER-95's migration was renumbered to sort after this branch's other
+  post-merge migrations, Prisma no longer recognised the folder as already applied and a later
+  `migrate deploy` failed on `column "chat_autodecide" already exists`. Resolving the renamed migration
+  as applied (no DDL re-run) is a one-time fix of `th-ter205-db`'s own history, not a code change.
+- **End-to-end smoke (Task 10), real embedder against `th-ter205-db` + a throwaway `docker/embed`
+  container built as `th-ter205-embed`** (model weights copied from the existing `termhub_embed-models`
+  volume into a throwaway one, so no download and no touching that volume): seeded a user, a project
+  and a personal token (`read`, `memory`). Over `/mcp`: `record_lesson` (`symptom: "P9999 smoke"`,
+  `evidence: "fixed"`) wrote the fenced block under a new `## Lições` heading and returned a ref;
+  `search_memory({query: "P9999", kinds: ["lesson"]})` found it with `verified: false`. Logging in as
+  that user (password login, session cookie) and calling `POST /api/chat/lessons/:id/verify` (the
+  route's own session + CSRF auth, not the MCP token) returned `verified: true`, and the next
+  `search_memory` call agreed. `PUT /projects/:id/note` with content that dropped the block and a
+  `base_updated_at` older than the block's `at` came back with the block re-appended under `## Lições`,
+  exactly as D9 specifies.
