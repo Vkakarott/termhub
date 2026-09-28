@@ -75,8 +75,10 @@ function LayoutRow({ collapsed, setCollapsed, onLeaveSettings }: { collapsed: bo
   const { shownProjectId, pref } = useProjectChat();
   const narrow = useNarrowWindow();
   const maximized = shownProjectId !== null && !narrow && pref(shownProjectId).maximized;
+  // `--app-height` is the height the on-screen keyboard leaves, tracked by ChatDock while a chat is
+  // shown (lib/viewport); otherwise unset, and the row is the full height it always was.
   return (
-    <div className="flex h-full">
+    <div className="flex h-[var(--app-height,100%)]">
       <Chrome collapsed={collapsed} setCollapsed={setCollapsed} onLeaveSettings={onLeaveSettings} />
       <main className={`relative min-w-0 flex-1 ${maximized ? 'hidden' : ''}`}>
         <DeviceRequestBanner />

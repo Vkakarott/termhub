@@ -258,6 +258,11 @@ describe('Layout chat dock', () => {
     expect(main.className).not.toContain('hidden');
   });
 
+  it('sizes the row from --app-height (the keyboard-aware height ChatDock tracks), falling back to the full height', () => {
+    mountLayout();
+    expect(screen.getByRole('main').parentElement!.className).toContain('h-[var(--app-height,100%)]');
+  });
+
   it('hides main (still mounted) while the shown chat is maximized', () => {
     dock.shownProjectId = 'p1';
     dock.maximized = true;

@@ -13,16 +13,19 @@ export const APP_HEIGHT_VAR = '--app-height';
 
 /**
  * Keeps `--app-height` on `<html>` up to date until the returned function is called. Only the
- * screens that need it install this (ChatLayout, and ChatDock's full-screen chat on a narrow window),
- * next to their `chat-locked` body class, so every other screen — the terminals above all — keeps
- * the sizing it already had.
+ * screens that need it install this (ChatLayout, and ChatDock while a project chat is shown — full
+ * screen on a narrow window, docked in `Layout`'s row on a wide one such as an iPad), so every other
+ * screen — the terminals above all — keeps the sizing it already had.
  */
 export function trackAppHeight(win: Window = window): () => void {
   const viewport = win.visualViewport ?? null;
   const root = win.document.documentElement;
 
   const apply = () => {
-    const height = viewport?.height ?? win.innerHeight;
+    // `height` is in CSS px of the zoomed view: a pinch shrinks it with no keyboard in sight. Times
+    // `scale` it is the layout height the visible area covers — the same number at 1× (keyboard or
+    // not), and the whole window, not a reflow into the zoomed area, on a pinched desktop page.
+    const height = viewport ? viewport.height * (viewport.scale || 1) : win.innerHeight;
     root.style.setProperty(APP_HEIGHT_VAR, `${Math.round(height)}px`);
     // The shell now ends where the keyboard begins, so there is nothing left for the browser to
     // scroll into view. Without this the page keeps the offset Safari scrolled to and the header

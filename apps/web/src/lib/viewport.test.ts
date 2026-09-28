@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { APP_HEIGHT_VAR, trackAppHeight } from './viewport';
 
 /** A window with a scriptable visual viewport: jsdom has no `visualViewport` and never resizes one. */
-function fakeWindow(opts: { viewportHeight?: number | null; innerHeight?: number; scrollY?: number } = {}) {
-  const { viewportHeight = 400, innerHeight = 800, scrollY = 0 } = opts;
+function fakeWindow(opts: { viewportHeight?: number | null; scale?: number; innerHeight?: number; scrollY?: number } = {}) {
+  const { viewportHeight = 400, scale = 1, innerHeight = 800, scrollY = 0 } = opts;
   const listeners = new Map<string, Set<() => void>>();
   const on = (type: string, fn: () => void) => {
     const set = listeners.get(type) ?? new Set();
@@ -13,7 +13,7 @@ function fakeWindow(opts: { viewportHeight?: number | null; innerHeight?: number
   };
   const off = (type: string, fn: () => void) => listeners.get(type)?.delete(fn);
   const viewport =
-    viewportHeight === null ? undefined : { height: viewportHeight, addEventListener: on, removeEventListener: off };
+    viewportHeight === null ? undefined : { height: viewportHeight, scale, addEventListener: on, removeEventListener: off };
   const win = {
     visualViewport: viewport,
     innerHeight,
@@ -53,6 +53,16 @@ describe('trackAppHeight', () => {
     (viewport as { height: number }).height = 844; // keyboard down
     fire('resize');
     expect(appHeight()).toBe('844px');
+  });
+
+  it('ignores pinch zoom: a zoomed-in page keeps its layout height instead of reflowing into the zoomed area', () => {
+    // A trackpad pinch on a desktop, where the docked chat installs this too: the visual viewport
+    // shows half the page at 2×, yet the layout still has a whole window to fill.
+    const { win, viewport, fire } = fakeWindow({ viewportHeight: 900, innerHeight: 900 });
+    trackAppHeight(win);
+    Object.assign(viewport as object, { height: 450, scale: 2 });
+    fire('resize');
+    expect(appHeight()).toBe('900px');
   });
 
   it('pins the page back to the top, undoing the scroll Safari does to reveal the focused field', () => {
