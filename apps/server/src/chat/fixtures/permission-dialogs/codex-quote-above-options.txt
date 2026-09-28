@@ -1,0 +1,7 @@
+• Writing the notes before the migration
+  Would you like to run the following command?
+  $ printf '%s\n' '> 1. Keep the current schema' \
+  > 2. Add the scope column
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `printf` (p)
+  3. No, and tell Codex what to do differently (esc)

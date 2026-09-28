@@ -1,0 +1,7 @@
+• Printing the report header
+  Would you like to run the following command?
+  $ printf 'report\n'
+  ----------
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `printf` (p)
+  3. No, and tell Codex what to do differently (esc)
