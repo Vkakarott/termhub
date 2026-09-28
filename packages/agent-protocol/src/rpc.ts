@@ -76,6 +76,12 @@ export const RPC = {
     z.object({ stdout: z.string() }),
   ),
   'ai.credential': def(z.object({ provider: aiProvider, config_dir: machinePath.nullable() }), z.object({ stdout: z.string() }), 10_000),
+  /**
+   * A secret the machine already holds, read for the server to store encrypted (spec 2026-09-28 MCP
+   * integrations D1/D2). One source only: `gh_auth_token` (`gh auth token`); new sources are added one
+   * by one, never a generic file or command (since agent 0.9.0).
+   */
+  'secret.read': def(z.object({ source: z.enum(['gh_auth_token']) }), z.object({ value: z.string().max(4096) }), 10_000),
   /** Symlinks a Claude Code transcript into another account's config dir so `claude --resume` finds it there (since agent 0.7.0). */
   'claude.linkSession': def(
     z.object({

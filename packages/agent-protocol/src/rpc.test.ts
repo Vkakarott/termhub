@@ -5,7 +5,7 @@ describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
     expect([...RPC_METHODS].sort()).toEqual([
       'agent.update', 'ai.credential', 'claude.linkSession', 'docs.read', 'docs.scan', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install',
-      'hooks.uninstall', 'hw.probe', 'sim.boot', 'sim.list', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey',
+      'hooks.uninstall', 'hw.probe', 'secret.read', 'sim.boot', 'sim.list', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey',
       'tmux.sendText', 'tools.detect', 'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail', 'wda.setup.start', 'wda.setup.state',
     ]);
   });
@@ -70,6 +70,14 @@ describe('rpc catalog', () => {
     expect(RPC['hw.probe'].timeoutMs).toBe(15_000);
     expect(RPC['tmux.list'].timeoutMs).toBe(8_000);
     expect(RPC['ai.credential'].timeoutMs).toBe(10_000); // same as the ssh path's credential read
+  });
+  it('secret.read takes the gh_auth_token source only and bounds the value', () => {
+    expect(RPC['secret.read'].params.safeParse({ source: 'gh_auth_token' }).success).toBe(true);
+    expect(RPC['secret.read'].params.safeParse({ source: 'file' }).success).toBe(false);
+    expect(RPC['secret.read'].params.safeParse({}).success).toBe(false);
+    expect(RPC['secret.read'].result.safeParse({ value: 'gho_x' }).success).toBe(true);
+    expect(RPC['secret.read'].result.safeParse({ value: 'x'.repeat(4097) }).success).toBe(false);
+    expect(RPC['secret.read'].timeoutMs).toBe(10_000);
   });
   it('validates claude.linkSession params and result', () => {
     const good = { transcript_path: '/h/.claude/projects/-p/6d127d73-4bd0-42d6-b4a6-d96899507e62.jsonl', session_id: '6d127d73-4bd0-42d6-b4a6-d96899507e62', config_dir: '~/.claude-work' };

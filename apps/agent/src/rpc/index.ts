@@ -6,6 +6,7 @@ import * as fs from './fs.js';
 import * as hooks from './hooks.js';
 import * as hw from './hw.js';
 import * as paste from './paste.js';
+import * as secret from './secret.js';
 import * as sim from './sim.js';
 import * as tmux from './tmux.js';
 import * as tools from './tools.js';
@@ -30,6 +31,7 @@ export const handlers: Handlers = {
   'fs.list': fs.list,
   'fs.mkdir': fs.mkdir,
   'ai.credential': ai.credential,
+  'secret.read': secret.read,
   'claude.linkSession': claude.linkSession,
   'docs.scan': docs.scan,
   'docs.read': docs.read,
