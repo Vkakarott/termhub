@@ -5,9 +5,15 @@ import type { MemoryItem } from '../db/repositories/memory-items.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { config } from '../config.js';
 import { publishTabQuestions } from '../chat/tab-questions.js';
+import { defaultEmbedder } from '../chat/embeddings.js';
+import { notFound } from '../lib/errors.js';
+import { scoped } from '../auth/scope.js';
+import { indexProjectNote } from '../memory/note.js';
+import { excerpt } from '../memory/text.js';
 
 const listQuery = z.object({ q: z.string().trim().max(200).optional(), cursor: z.string().max(500).optional() });
 const notesQuery = z.object({ cursor: z.string().max(500).optional() });
+const lessonsQuery = z.object({ q: z.string().trim().max(200).optional(), project_id: z.string().min(1).max(64).optional(), cursor: z.string().max(500).optional() });
 const idParam = z.object({ id: z.string().min(1).max(64) });
 /** `PATCH /memory` (spec D8/§8): at least one of the two switches, never neither — an empty body is a
  *  400, not a silent no-op. */
@@ -19,6 +25,8 @@ const memoryBody = z
 export const DECISIONS_PAGE = 50;
 /** 50 notes per page (task-10 brief), same page size as decisions. */
 export const NOTES_PAGE = 50;
+/** 50 lessons per page (spec 2026-09-27 failure lessons §6), same page size as decisions/notes. */
+export const LESSONS_PAGE = 50;
 
 /** The wire shape of one remembered decision: every `ChatDecision` column but `user_id`,
  * `conversation_id`, `tab_question_id`, `question_index` and `embed_model` — none of which the
@@ -65,13 +73,40 @@ function toNoteView(item: MemoryItem) {
   };
 }
 
+/** One "Lições" list row (spec 2026-09-27 failure lessons §6/§8): a `lesson` item (chunk 0), as the
+ *  list (and the verify/unverify routes, which answer the same shape) show it. `evidence` falls back
+ *  to `'observed'` and `path`/`tab_id`/`card`/`pr` to `null` when `meta` is missing — never actually the
+ *  case for a `lesson` row, but it keeps the mapping total rather than throwing on a malformed one.
+ *  Never `source_id`, `trust`, `content_hash`, `owner_id` or any other column the list has no use for. */
+function toLessonView(item: MemoryItem) {
+  const meta = item.meta;
+  return {
+    id: item.id,
+    project: item.project_id ? { id: item.project_id, name: item.project_name ?? '' } : null,
+    title: item.title,
+    excerpt: excerpt(item.text),
+    origin: meta?.origin ?? 'file',
+    path: meta?.path ?? null,
+    tab_id: meta?.tab_id ?? null,
+    card: meta?.card ?? null,
+    pr: meta?.pr ?? null,
+    evidence: meta?.evidence ?? 'observed',
+    verified: item.verified,
+    verified_at: item.verified_at,
+    created_at: item.created_at,
+  };
+}
+
 /** "Memória do chat" (spec 2026-09-26 §4.6, concierge memory D8/D12/§8): the user's own decisions, the
- * suggestion and "Responder sozinho" switches, and the concierge's own notes. Mounted by both the web
- * chat and the phone's, under the `chat` resource; always the signed-in user's rows — `PATCH /memory`,
- * `DELETE /decisions/:id` and `DELETE /notes/:id` only ever touch the requester's own memory, so the
- * ordinary `chat:update`/`chat:delete` grants (held by every role with the chat — BETA has full CRUD
- * on `chat`, migration 20260921233000_chat_beta_role) are enough; no `{ config: { action: 'read' } }`
- * override is needed here (see the task-6 report for the check). */
+ * suggestion and "Responder sozinho" switches, the concierge's own notes, and (spec 2026-09-27 failure
+ * lessons §6/§8) the "Lições" list — verify/unverify/forget, always the signed-in user's own `lesson`
+ * items. Mounted by both the web chat and the phone's, under the `chat` resource; always the
+ * signed-in user's rows — `PATCH /memory`, `DELETE /decisions/:id`, `DELETE /notes/:id` and every
+ * lessons route only ever touch the requester's own memory, so the ordinary `chat:update`/`chat:delete`
+ * grants (held by every role with the chat — BETA has full CRUD on `chat`, migration
+ * 20260921233000_chat_beta_role) are enough; the two verify routes set `action: 'update'` explicitly
+ * since their HTTP methods (`POST`/`DELETE`) would otherwise default to `create`/`delete` (see the
+ * task-6 report for the check). */
 export async function chatMemoryRoutes(app: FastifyInstance, repos: Repositories) {
   app.get('/decisions', async (request) => {
     const { q, cursor } = listQuery.parse(request.query);
@@ -129,5 +164,66 @@ export async function chatMemoryRoutes(app: FastifyInstance, repos: Repositories
     const { id } = idParam.parse(request.params);
     await repos.memoryItems.deleteNote(id, request.scope.user.id);
     return reply.code(204).send();
+  });
+
+  /** "Lições" (spec §6/§8): the owner's `lesson` items, one row per source (chunk 0), newest first;
+   *  `q` is ILIKE on title/text. `project_id`, when given, is ownership-checked through
+   *  `scoped(...).project` first — a project outside the requester's scope is a 404, never an empty,
+   *  silently-filtered list. */
+  app.get('/lessons', async (request) => {
+    const { q, project_id, cursor } = lessonsQuery.parse(request.query);
+    if (project_id) await scoped(repos, request).project(project_id);
+    const { items, next_cursor } = await repos.memoryItems.listLessons(request.scope.user.id, { q: q || undefined, projectId: project_id, cursor, limit: LESSONS_PAGE });
+    return { lessons: items.map(toLessonView), next_cursor };
+  });
+
+  /** "Verificar" (spec D8/§7): only this user's own `lesson` chunk 0 — any other id (someone else's
+   *  row, a non-lesson item, one already hidden) is a 404, never a 403 that would confirm the id
+   *  exists. `POST`'s default action would be `create`; this — like "Desfazer verificação" — is
+   *  `chat:update`. */
+  app.post('/lessons/:id/verify', { config: { action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const ownerId = request.scope.user.id;
+    const item = await repos.memoryItems.findLessonForOwner(id, ownerId);
+    if (!item) throw notFound();
+    await repos.memoryItems.setVerified(id, ownerId, ownerId);
+    const updated = await repos.memoryItems.findLessonForOwner(id, ownerId);
+    return toLessonView(updated ?? item);
+  });
+
+  /** "Desfazer verificação": the inverse of `POST .../verify`, same scope and grant — `DELETE`'s
+   *  default action would be `delete`; unverifying is `chat:update`, not a deletion of the lesson. */
+  app.delete('/lessons/:id/verify', { config: { action: 'update' } }, async (request) => {
+    const { id } = idParam.parse(request.params);
+    const ownerId = request.scope.user.id;
+    const item = await repos.memoryItems.findLessonForOwner(id, ownerId);
+    if (!item) throw notFound();
+    await repos.memoryItems.clearVerified(id, ownerId);
+    const updated = await repos.memoryItems.findLessonForOwner(id, ownerId);
+    return toLessonView(updated ?? item);
+  });
+
+  /** "Esquecer" (spec §6): a note-origin lesson (`source_id` `note:<project id>:<lesson id>`) has its
+   *  block removed from the note first (row-locked; a block already gone from the note — `removeBlock`
+   *  answering `null` — still lets the item delete and the route succeed), then its memory items are
+   *  deleted, then the note is re-indexed (best effort) so its sections reflect the removal. A
+   *  file-origin lesson is only ever hidden (`hideSource`) — the file stays in the repository until a
+   *  PR removes it, which the response says in words. 404 for an id that is not this user's own
+   *  `lesson` (or not a lesson at all), never another user's data. */
+  app.delete('/lessons/:id', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const ownerId = request.scope.user.id;
+    const item = await repos.memoryItems.findLessonForOwner(id, ownerId);
+    if (!item) throw notFound();
+    if (item.meta?.origin === 'note' && item.project_id) {
+      const prefix = `note:${item.project_id}:`;
+      const lessonId = item.source_id.startsWith(prefix) ? item.source_id.slice(prefix.length) : item.source_id;
+      await repos.notes.removeBlock(item.project_id, lessonId);
+      await repos.memoryItems.deleteBySource('lesson', [item.source_id]);
+      void indexProjectNote(repos, item.project_id, { embedder: defaultEmbedder(), log: app.log });
+      return { ok: true };
+    }
+    await repos.memoryItems.hideSource(id, ownerId);
+    return { ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' };
   });
 }

@@ -6,6 +6,9 @@ import {
   isBoardGrantable,
   isTabGrantable,
   isTerminalGrantable,
+  lessonForgetSchema,
+  lessonItemSchema,
+  lessonListSchema,
   mobileBatchDecisionBody,
   mobileDecisionBody,
   mobileMessageBody,
@@ -242,5 +245,68 @@ describe('notesResponse (spec D12/§8)', () => {
         next_cursor: null,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('lessonItemSchema/lessonListSchema (spec 2026-09-27 failure lessons §6/§8)', () => {
+  const fileLesson = {
+    id: 'l1',
+    project: { id: 'p1', name: 'Projeto X' },
+    title: 'P3009: migrate found failed migrations',
+    excerpt: 'Cause…',
+    origin: 'file' as const,
+    path: 'docs/lessons/2026-09-27-p3009.md',
+    tab_id: null,
+    card: 'TER-57',
+    pr: 'https://github.com/x/y/pull/169',
+    evidence: 'fixed' as const,
+    verified: true,
+    verified_at: '2026-09-27T00:00:00.000Z',
+    created_at: '2026-09-27T00:00:00.000Z',
+  };
+  const noteLesson = {
+    id: 'l2',
+    project: { id: 'p1', name: 'Projeto X' },
+    title: 'Sintoma',
+    excerpt: 'Causa…',
+    origin: 'note' as const,
+    path: null,
+    tab_id: 't1',
+    card: null,
+    pr: null,
+    evidence: 'observed' as const,
+    verified: false,
+    verified_at: null,
+    created_at: '2026-09-27T00:00:00.000Z',
+  };
+
+  it('parses a file lesson and a note lesson', () => {
+    expect(lessonItemSchema.safeParse(fileLesson).success).toBe(true);
+    expect(lessonItemSchema.safeParse(noteLesson).success).toBe(true);
+  });
+
+  it('accepts a null project (an orphaned project)', () => {
+    expect(lessonItemSchema.safeParse({ ...fileLesson, project: null }).success).toBe(true);
+  });
+
+  it('refuses an unknown origin or evidence value', () => {
+    expect(lessonItemSchema.safeParse({ ...fileLesson, origin: 'other' }).success).toBe(false);
+    expect(lessonItemSchema.safeParse({ ...fileLesson, evidence: 'maybe' }).success).toBe(false);
+  });
+
+  it('parses a page of lessons with a next cursor, and an empty last page', () => {
+    expect(lessonListSchema.safeParse({ lessons: [fileLesson, noteLesson], next_cursor: 'CURSOR' }).success).toBe(true);
+    expect(lessonListSchema.safeParse({ lessons: [], next_cursor: null }).success).toBe(true);
+  });
+});
+
+describe('lessonForgetSchema (spec 2026-09-27 failure lessons §6)', () => {
+  it('parses ok alone (a note lesson) and ok with a note (a file lesson)', () => {
+    expect(lessonForgetSchema.safeParse({ ok: true }).success).toBe(true);
+    expect(lessonForgetSchema.safeParse({ ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' }).success).toBe(true);
+  });
+
+  it('refuses ok: false', () => {
+    expect(lessonForgetSchema.safeParse({ ok: false }).success).toBe(false);
   });
 });
