@@ -1,3 +1,4 @@
+import type { Prisma } from '../../generated/prisma/client.js';
 import type { PrismaClient } from '../prisma.js';
 import { newId } from '../../lib/ids.js';
 import { appendLessonBlock, mergeNoteSave, removeLessonBlock } from '../../lessons/note.js';
@@ -15,6 +16,21 @@ export class NoteTooLargeError extends Error {
 }
 
 type Row = { id: string; content: string };
+
+/**
+ * Creates the note row empty if the project has none yet, then locks it — the pair `appendBlock` and
+ * `saveMerged` (with a base) both need before touching content (spec D9). The insert has to come
+ * *before* the lock: a project's very first note has no row yet, so `SELECT … FOR UPDATE` alone would
+ * find nothing to lock, and two first-ever writers racing each other must not both try to create the
+ * row — `ON CONFLICT (project_id) DO NOTHING` makes the loser's insert a no-op instead of an error, so
+ * both then reach the same row through the `SELECT … FOR UPDATE` that follows, one waiting for the
+ * other's transaction to commit.
+ */
+async function lockOrCreate(tx: Prisma.TransactionClient, projectId: string): Promise<Row> {
+  await tx.$executeRaw`INSERT INTO notes (id, project_id, content, updated_at) VALUES (${newId()}, ${projectId}, '', now()) ON CONFLICT (project_id) DO NOTHING`;
+  const [row] = await tx.$queryRaw<Row[]>`SELECT id, content FROM notes WHERE project_id = ${projectId} FOR UPDATE`;
+  return row!;
+}
 
 export class NotesRepository {
   constructor(private db: PrismaClient) {}
@@ -45,11 +61,10 @@ export class NotesRepository {
    */
   async appendBlock(projectId: string, block: string): Promise<Note> {
     return this.db.$transaction(async (tx) => {
-      await tx.$executeRaw`INSERT INTO notes (id, project_id, content, updated_at) VALUES (${newId()}, ${projectId}, '', now()) ON CONFLICT (project_id) DO NOTHING`;
-      const [row] = await tx.$queryRaw<Row[]>`SELECT id, content FROM notes WHERE project_id = ${projectId} FOR UPDATE`;
-      const content = appendLessonBlock(row!.content, block);
+      const row = await lockOrCreate(tx, projectId);
+      const content = appendLessonBlock(row.content, block);
       if (content.length > NOTE_MAX) throw new NoteTooLargeError();
-      return mapNote(await tx.note.update({ where: { id: row!.id }, data: { content } }));
+      return mapNote(await tx.note.update({ where: { id: row.id }, data: { content } }));
     });
   }
 
@@ -82,11 +97,10 @@ export class NotesRepository {
       return this.upsert(projectId, content);
     }
     return this.db.$transaction(async (tx) => {
-      await tx.$executeRaw`INSERT INTO notes (id, project_id, content, updated_at) VALUES (${newId()}, ${projectId}, '', now()) ON CONFLICT (project_id) DO NOTHING`;
-      const [row] = await tx.$queryRaw<Row[]>`SELECT id, content FROM notes WHERE project_id = ${projectId} FOR UPDATE`;
-      const merged = mergeNoteSave(row!.content, content, baseUpdatedAt);
+      const row = await lockOrCreate(tx, projectId);
+      const merged = mergeNoteSave(row.content, content, baseUpdatedAt);
       if (merged.length > NOTE_MAX) throw new NoteTooLargeError();
-      return mapNote(await tx.note.update({ where: { id: row!.id }, data: { content: merged } }));
+      return mapNote(await tx.note.update({ where: { id: row.id }, data: { content: merged } }));
     });
   }
 }
