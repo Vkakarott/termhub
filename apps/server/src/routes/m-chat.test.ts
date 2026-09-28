@@ -128,6 +128,11 @@ function build(opts: {
       revoke: vi.fn(async () => undefined),
       findByIdForUser: vi.fn(async () => undefined),
     },
+    // ...and then to standing grants (TER-386): by default none matches either.
+    chatStandingGrants: {
+      revoke: vi.fn(async () => undefined),
+      findByIdForUser: vi.fn(async () => undefined),
+    },
     projects: {
       findByIdsForOwner: vi.fn(async (ids: string[], ownerId: string) => (ownerId === 'u1' ? (opts.namedProjects ?? []).filter((p) => ids.includes(p.id)) : [])),
       list: vi.fn(async (f: { owner?: string }) =>

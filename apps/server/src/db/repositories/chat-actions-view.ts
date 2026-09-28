@@ -3,6 +3,7 @@ import type { Repositories } from './index.js';
 import type { ChatAction, ChatActionClass, ChatActionStatus } from './chat-actions.js';
 import type { ChatGrant, ChatGrantWithConversation } from './chat-grants.js';
 import type { ChatProjectGrant, ChatProjectGrantWithConversation, ProjectGrantScope } from './chat-project-grants.js';
+import type { ChatStandingGrant, ChatStandingGrantWithConversation, StandingGrantKind } from './chat-standing-grants.js';
 import type { Task, Ticket } from './types.js';
 
 /**
@@ -402,30 +403,35 @@ export function grantState(g: Pick<ChatGrant, 'expires_at' | 'revoked_at' | 'rev
   return expiresAt > now.getTime() && g.revoked_at === null ? 'active' : 'expired';
 }
 
-/** A grant as "Abas confiáveis" lists it, either kind: the chat's view (tab grant) or a project grant
- * (spec 2026-09-26 project grant §5) — `tab_id`/`tool`/`tab_name` are null for the latter, since it
- * carries no tab. Plus the project, the conversation that granted it and how it stands. No user ids. */
+/** A grant as "Abas confiáveis" lists it, any kind: the chat's view (tab grant), a project grant (spec
+ * 2026-09-26 project grant §5) or a standing grant (spec 2026-09-28 TER-386) — `tab_id`/`tool`/`tab_name`
+ * are null for the latter two, since they carry no tab. Plus the project, the conversation that granted
+ * it and how it stands. No user ids. */
 export interface ChatGrantListItem {
-  kind: 'tab' | 'project';
+  kind: 'tab' | 'project' | 'standing';
   id: string;
   tab_id: string | null;
   tool: string | null;
   source_action_id: string | null;
   created_at: string;
-  expires_at: string;
-  /** Null when the tab is gone (or not this user's) — or, for a project grant, always. */
+  /** Null only for a standing grant, which never expires. */
+  expires_at: string | null;
+  /** Null when the tab is gone (or not this user's) — or, for a project or standing grant, always. */
   tab_name: string | null;
   project_id: string | null;
   project_name: string | null;
-  conversation_id: string;
+  /** Null only for a standing grant whose granting conversation is gone (it outlives it). */
+  conversation_id: string | null;
   /** Null = the account-wide chat ("Chat geral"). */
   conversation_project_name: string | null;
   conversation_archived: boolean;
   state: ChatGrantState;
   /** When it stopped counting: the revocation, or the expiry; null while active. */
   ended_at: string | null;
-  /** A project grant's scope (TER-325); always null for a tab grant. */
+  /** A project grant's scope (TER-325); always null for a tab or standing grant. */
   scope: ProjectGrantScope | null;
+  /** A standing grant's kind (TER-386); always null for a tab or project grant. */
+  standing_kind: StandingGrantKind | null;
 }
 
 /** Enriches a page of grants like `describeGrants`: one owner-scoped lookup for the tabs and one for the
@@ -458,6 +464,7 @@ export async function describeGrantList(repos: Repositories, grants: ChatGrantWi
       state,
       ended_at: state === 'active' ? null : state === 'expired' ? g.expires_at : g.revoked_at,
       scope: null,
+      standing_kind: null,
     };
   });
 }
@@ -510,6 +517,57 @@ export async function describeProjectGrantList(repos: Repositories, grants: Chat
       state,
       ended_at: state === 'active' ? null : state === 'expired' ? g.expires_at : g.revoked_at,
       scope: g.scope,
+      standing_kind: null,
     };
   });
+}
+
+/** "Liberar sem prazo" as the chat shows it (spec 2026-09-28 TER-386): the project by name (owner-scoped)
+ * and the kind of routine action it trusts. No expiry, no conversation, no user ids. */
+export interface ChatStandingGrantView {
+  id: string;
+  project_id: string;
+  /** Null when the project is gone or not this user's. */
+  project_name: string | null;
+  kind: StandingGrantKind;
+  source_action_id: string | null;
+  created_at: string;
+}
+
+/** Enriches a batch of standing grants with the project's name, exactly like `describeProjectGrants` —
+ * one batched, owner-scoped lookup, never one per grant. */
+export async function describeStandingGrants(repos: Repositories, grants: ChatStandingGrant[], ownerId: string): Promise<ChatStandingGrantView[]> {
+  const ids = [...new Set(grants.map((g) => g.project_id))];
+  const projects = ids.length ? await repos.projects.findByIdsForOwner(ids, ownerId) : [];
+  const name = new Map(projects.map((p) => [p.id, p.name]));
+  return grants.map((g) => ({ id: g.id, project_id: g.project_id, project_name: name.get(g.project_id) ?? null, kind: g.kind, source_action_id: g.source_action_id, created_at: g.created_at }));
+}
+
+/** Enriches a page of standing grants like `describeProjectGrantList`, for `kinds=all_standing`: one
+ * owner-scoped lookup for the grant's own project and the conversation's. Always `kind: 'standing'`,
+ * with no tab, no expiry and no scope; it is either in force or revoked. `conversation_id` stays null
+ * when the granting conversation is gone — a standing grant outlives it. */
+export async function describeStandingGrantList(repos: Repositories, grants: ChatStandingGrantWithConversation[], ownerId: string): Promise<ChatGrantListItem[]> {
+  const ids = [...new Set(grants.flatMap((g) => [g.project_id, ...(g.conversation_project_id ? [g.conversation_project_id] : [])]))];
+  const projects = ids.length ? await repos.projects.findByIdsForOwner(ids, ownerId) : [];
+  const name = new Map(projects.map((p) => [p.id, p.name]));
+  return grants.map((g) => ({
+    kind: 'standing',
+    id: g.id,
+    tab_id: null,
+    tool: null,
+    tab_name: null,
+    source_action_id: g.source_action_id,
+    created_at: g.created_at,
+    expires_at: null,
+    project_id: g.project_id,
+    project_name: name.get(g.project_id) ?? null,
+    conversation_id: g.conversation_id,
+    conversation_project_name: g.conversation_project_id ? (name.get(g.conversation_project_id) ?? null) : null,
+    conversation_archived: g.conversation_archived,
+    state: g.revoked_at === null ? 'active' : 'revoked',
+    ended_at: g.revoked_at,
+    scope: null,
+    standing_kind: g.kind,
+  }));
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { chatActionSchema, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, subagentViewSchema, tabQuestionSchema, tabSuggestionSchema } from './events.js';
+import { chatActionSchema, chatEventSchema, chatGrantListItemSchema, chatGrantListQuery, chatGrantListResponse, chatStandingGrantSchema, STANDING_GRANT_KINDS, subagentViewSchema, tabQuestionSchema, tabSuggestionSchema } from './events.js';
 
 const base = { user_id: 'u1', conversation_id: 'c1' };
 const grant = { id: 'g1', tab_id: 't1', tool: 'send_input', source_action_id: 'a1', created_at: '2026-09-25T10:00:00.000Z', expires_at: '2026-09-26T10:00:00.000Z', tab_name: 'api' };
@@ -134,6 +134,50 @@ describe('chat grant list', () => {
     const projectRow = { ...tabRow, kind: 'project', tab_id: null, tab_name: null, tool: null };
     expect(chatGrantListItemSchema.parse({ ...projectRow, scope: 'all' }).scope).toBe('all');
     expect(chatGrantListItemSchema.parse({ ...projectRow, scope: 'board' }).scope).toBe('board');
+  });
+});
+
+describe('standing grants (TER-386)', () => {
+  const standing = { id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'close_tab', source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z' };
+  const listRow = {
+    kind: 'standing', id: 'sg1', tab_id: null, tool: null, tab_name: null, source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z', expires_at: null,
+    project_id: 'p1', project_name: 'App', conversation_id: null, conversation_project_name: null, conversation_archived: false, state: 'active', ended_at: null, scope: null, standing_kind: 'close_tab',
+  };
+
+  it('the kinds are the five the server knows', () => {
+    expect(STANDING_GRANT_KINDS).toEqual(['open_tab', 'close_tab', 'start_agent', 'board', 'terminal']);
+  });
+
+  it('parses a standing grant view, with a gone project and no source; refuses an unknown kind', () => {
+    expect(chatStandingGrantSchema.parse(standing)).toEqual(standing);
+    expect(chatStandingGrantSchema.safeParse({ ...standing, project_name: null, source_action_id: null }).success).toBe(true);
+    expect(chatStandingGrantSchema.safeParse({ ...standing, kind: 'delete_task' }).success).toBe(false);
+  });
+
+  it('events standing_grant and standing_grant_revoked parse', () => {
+    for (const e of [{ type: 'standing_grant', ...base, grant: standing }, { type: 'standing_grant_revoked', ...base, grant_id: 'sg1' }]) {
+      const r = chatEventSchema.safeParse(e);
+      expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
+    }
+    expect(chatEventSchema.safeParse({ type: 'standing_grant_revoked', ...base }).success).toBe(false);
+  });
+
+  it('a standing list row parses: no expiry, no tab, a kind, and a conversation that may be gone', () => {
+    const r = chatGrantListItemSchema.safeParse(listRow);
+    expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
+    expect(r.data).toMatchObject({ kind: 'standing', expires_at: null, standing_kind: 'close_tab', conversation_id: null });
+    expect(chatGrantListItemSchema.parse({ ...listRow, state: 'revoked', ended_at: '2026-09-28T11:00:00.000Z', conversation_id: 'c1' }).state).toBe('revoked');
+    expect(chatGrantListItemSchema.safeParse({ ...listRow, standing_kind: 'delete_task' }).success).toBe(false);
+  });
+
+  it('an old-shape tab row still parses: kind defaults to tab and standing_kind to null', () => {
+    const tabRow = { ...grant, project_id: 'p1', project_name: 'App', conversation_id: 'c1', conversation_project_name: null, conversation_archived: false, state: 'active', ended_at: null };
+    expect(chatGrantListItemSchema.parse(tabRow)).toMatchObject({ kind: 'tab', standing_kind: null, scope: null });
+  });
+
+  it('the list query takes kinds=all_standing', () => {
+    expect(chatGrantListQuery.parse({ state: 'ended', kinds: 'all_standing' }).kinds).toBe('all_standing');
+    expect(chatGrantListQuery.safeParse({ state: 'ended', kinds: 'standing' }).success).toBe(false);
   });
 });
 

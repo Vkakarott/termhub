@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments.js';
-import { tabQuestionSchema } from './events.js';
+import { tabQuestionSchema, type StandingGrantKind } from './events.js';
 
 /** `POST chat/messages`: text, or attachments, or both (spec 2026-09-26 §5.5). An empty text with ids
  * is a message made of files alone; neither is refused before anything is stored. */
@@ -29,14 +29,17 @@ export const mobileDecisionBody = z
     /** Approve *and* trust the project's board and its tabs' keys and typing in this conversation (24 h
      * max, spec 2026-09-27 TER-325). Always PIN-proven. */
     z.object({ decision: z.literal('approve_project_all'), ...proof }),
+    /** Approve *and* trust this kind of routine action in the card's project with no expiry ("Liberar
+     * sem prazo", spec 2026-09-28 TER-386), until revoked. Always PIN-proven. */
+    z.object({ decision: z.literal('approve_project_always'), ...proof }),
   ])
   .refine((b) => b.decision !== 'approve' || (b.challenge === undefined) === (b.pin_proof === undefined), { message: 'challenge e pin_proof vão juntos' });
 
 /** A grouped confirmation from the phone (spec 2026-09-26 §7). Each approval follows the single
  * decision's rule (TER-92): a `write` card approves with the session alone, an irreversible one
  * carries its own proof, bound to that action and the word `approve` (the server decides). There is
- * no `approve_tab`, `approve_project`, `approve_tab_terminal` nor `approve_project_all` here: "Permitir
- * sempre" and "Liberar" are always a single, PIN-proven decision. */
+ * no `approve_tab`, `approve_project`, `approve_tab_terminal`, `approve_project_all` nor
+ * `approve_project_always` here: "Permitir sempre" and "Liberar" are always a single, PIN-proven decision. */
 export const mobileBatchDecisionBody = z.object({
   decisions: z
     .array(
@@ -70,6 +73,26 @@ export function isTerminalGrantable(action: { tool: string; args: unknown; tab_i
  * and refuses a card whose project does not resolve. */
 export const BOARD_GRANT_TOOLS = ['create_task', 'add_subtasks', 'update_task', 'move_task'] as const;
 export const isBoardGrantable = (action: { tool: string }): boolean => (BOARD_GRANT_TOOLS as readonly string[]).includes(action.tool);
+
+/** How "Liberar sem prazo: <ação> neste projeto" names each kind (spec 2026-09-28 TER-386 §6). */
+export const STANDING_KIND_LABEL: Record<StandingGrantKind, string> = {
+  open_tab: 'abrir abas',
+  close_tab: 'fechar abas paradas',
+  start_agent: 'iniciar agentes',
+  board: 'mexer no quadro',
+  terminal: 'teclas e texto nas abas',
+};
+
+/** Mirrors the server's `standingKindOf` (apps/server/src/chat/gate.ts), which is the judge and also
+ * refuses a card whose project (or tab) does not resolve: which standing grant kind the card may offer
+ * "Liberar sem prazo" for, or null. Read from the card's own `project_id`/`tab_id`. */
+export function standingKindOf(action: { tool: string; args: unknown; tab_id: string | null; project_id: string | null }): StandingGrantKind | null {
+  if (action.tool === 'open_tab' || action.tool === 'start_agent') return action.project_id ? action.tool : null;
+  if (action.tool === 'close_tab') return action.tab_id ? 'close_tab' : null;
+  if (isBoardGrantable(action)) return 'board';
+  if (isTerminalGrantable(action)) return 'terminal';
+  return null;
+}
 
 export const chatProjectItem = z.object({
   id: z.string(),

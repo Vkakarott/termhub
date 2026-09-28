@@ -114,6 +114,11 @@ function build(opts: {
       findActiveBySourceAction: vi.fn(async () => undefined),
       revokeForConversation: vi.fn(async () => 0),
     },
+    // ...and then to standing grants (TER-386): by default none matches either.
+    chatStandingGrants: {
+      revoke: vi.fn(async () => undefined),
+      findByIdForUser: vi.fn(async () => undefined),
+    },
   };
   const app = Fastify();
   applyErrorHandler(app);

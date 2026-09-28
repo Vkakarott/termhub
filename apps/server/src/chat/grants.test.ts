@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpError } from '../lib/errors.js';
 import { chatBus } from './bus.js';
-import { assertProjectAllGrantableAction, assertProjectGrantableAction, assertTabTerminalGrantableAction, decodeGrantCursor, encodeGrantCursor, grantProject, grantTabTerminal, listGrants, revokeGrant } from './grants.js';
+import { activeStandingGrants, assertProjectAllGrantableAction, assertProjectGrantableAction, assertStandingGrantableAction, assertTabTerminalGrantableAction, decodeGrantCursor, encodeGrantCursor, grantProject, grantStanding, grantTabTerminal, listGrants, revokeGrant } from './grants.js';
 
 it('round-trips a cursor', () => {
   const c = { created_at: '2026-09-25T10:00:00.000Z', id: 'abc123' };
@@ -53,6 +53,7 @@ describe('project grants', () => {
       revoke: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined),
     },
     chatGrants: { revoke: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) },
+    chatStandingGrants: { revoke: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) },
   });
 
   it('assertProjectGrantableAction returns the resolved project', async () => {
@@ -232,5 +233,128 @@ describe('listGrants kinds', () => {
 
     // Every row of both tables appears exactly once across the two pages, oldest-to-newest order kept.
     expect([...page1.grants, ...page2.grants].map((g) => g.id)).toEqual(['g2', 'pg2', 'g1', 'pg1']);
+  });
+});
+
+describe('standing grants (TER-386)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(chatBus, 'publish').mockImplementation(() => undefined);
+  });
+
+  const openCard = { id: 'a1', conversation_id: 'c1', tool: 'open_tab', args: { project_id: 'p1', machine_id: 'm1' }, status: 'pending', tab_id: null, project_id: 'p1' };
+  const row = (over: Record<string, unknown> = {}) => ({ id: 'sg1', user_id: 'u1', project_id: 'p1', kind: 'open_tab', conversation_id: 'c1', source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z', revoked_at: null, revoked_by: null, ...over });
+  const repos = (card: unknown = openCard) => ({
+    chatActions: { findByIdForUser: vi.fn(async () => card) },
+    tabs: { findByIdsForOwner: vi.fn(async (ids: string[]) => (ids.includes('t1') ? [{ id: 't1', name: 'api', project_id: 'p1', state: 'idle' }] : [])) },
+    tasks: { findByIdsForOwner: vi.fn(async () => [{ id: 'k1', project_id: 'p1' }]) },
+    projects: { findByIdsForOwner: vi.fn(async (ids: string[]) => (ids.includes('p1') ? [{ id: 'p1', name: 'App' }] : [])) },
+    chatGrants: { revoke: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) },
+    chatProjectGrants: { revoke: vi.fn(async () => undefined), findByIdForUser: vi.fn(async () => undefined) },
+    chatStandingGrants: {
+      grant: vi.fn(async (input: Record<string, unknown>) => row(input)),
+      listActive: vi.fn(async () => [row()]),
+      revoke: vi.fn(async (): Promise<unknown> => undefined),
+      findByIdForUser: vi.fn(async (): Promise<unknown> => undefined),
+    },
+  });
+  const refused = { statusCode: 400, code: 'GRANT_NOT_ALLOWED', message: 'Só dá para liberar sem prazo uma ação de rotina de um projeto seu' };
+
+  it('assertStandingGrantableAction resolves kind and project for a pending card of the user\'s own project', async () => {
+    const r = repos();
+    expect(await assertStandingGrantableAction(r as never, 'u1', 'a1')).toEqual({ action: openCard, kind: 'open_tab', projectId: 'p1' });
+    expect(r.chatActions.findByIdForUser).toHaveBeenCalledWith('a1', 'u1');
+    expect(r.projects.findByIdsForOwner).toHaveBeenCalledWith(['p1'], 'u1');
+    const closeCard = { ...openCard, tool: 'close_tab', args: { tab_id: 't1' }, tab_id: 't1' };
+    expect(await assertStandingGrantableAction(repos(closeCard) as never, 'u1', 'a1')).toMatchObject({ kind: 'close_tab', projectId: 'p1' });
+    const boardCard = { ...openCard, tool: 'move_task', args: { task_id: 'k1', status: 'done' }, project_id: null };
+    expect(await assertStandingGrantableAction(repos(boardCard) as never, 'u1', 'a1')).toMatchObject({ kind: 'board', projectId: 'p1' });
+  });
+
+  it('assertStandingGrantableAction refuses a non-routine tool and an unresolved project with 400, a decided row with 409, another user\'s with 404', async () => {
+    await expect(assertStandingGrantableAction(repos({ ...openCard, tool: 'delete_task', args: { task_id: 'k1' } }) as never, 'u1', 'a1')).rejects.toMatchObject(refused);
+    await expect(assertStandingGrantableAction(repos({ ...openCard, args: { project_id: 'p9' } }) as never, 'u1', 'a1')).rejects.toMatchObject(refused);
+    await expect(assertStandingGrantableAction(repos({ ...openCard, tool: 'close_tab', args: { tab_id: 't9' }, tab_id: 't9' }) as never, 'u1', 'a1')).rejects.toMatchObject(refused);
+    await expect(assertStandingGrantableAction(repos({ ...openCard, status: 'approved' }) as never, 'u1', 'a1')).rejects.toMatchObject({ statusCode: 409 });
+    const foreign = repos();
+    foreign.chatActions.findByIdForUser.mockResolvedValueOnce(undefined as never);
+    await expect(assertStandingGrantableAction(foreign as never, 'u2', 'a1')).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('grantStanding writes the grant for user + project + kind, describes it and publishes standing_grant', async () => {
+    const r = repos();
+    const g = await grantStanding(r as never, 'u1', openCard as never, 'open_tab', 'p1');
+    expect(r.chatStandingGrants.grant).toHaveBeenCalledWith({ user_id: 'u1', project_id: 'p1', kind: 'open_tab', conversation_id: 'c1', source_action_id: 'a1' });
+    const view = { id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'open_tab', source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z' };
+    expect(g).toEqual(view);
+    expect(vi.mocked(chatBus.publish).mock.calls.map(([e]) => e)).toEqual([{ type: 'standing_grant', user_id: 'u1', conversation_id: 'c1', grant: view }]);
+  });
+
+  it('activeStandingGrants reads the project\'s, or every one of the user\'s for the general chat', async () => {
+    const r = repos();
+    expect(await activeStandingGrants(r as never, 'u1', 'p1')).toEqual([{ id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'open_tab', source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z' }]);
+    expect(r.chatStandingGrants.listActive).toHaveBeenLastCalledWith('u1', 'p1');
+    await activeStandingGrants(r as never, 'u1', null);
+    expect(r.chatStandingGrants.listActive).toHaveBeenLastCalledWith('u1', undefined);
+  });
+
+  it('revokeGrant falls through to standing grants: publishes standing_grant_revoked with the granting conversation and returns the view', async () => {
+    const r = repos();
+    r.chatStandingGrants.revoke.mockResolvedValueOnce(row({ revoked_at: 'x', revoked_by: 'u1' }));
+    const out = await revokeGrant(r as never, 'u1', 'sg1');
+    expect(r.chatStandingGrants.revoke).toHaveBeenCalledWith('sg1', 'u1');
+    expect(out).toEqual({ id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'open_tab', source_action_id: 'a1', created_at: '2026-09-28T10:00:00.000Z' });
+    expect(vi.mocked(chatBus.publish).mock.calls.map(([e]) => e)).toEqual([{ type: 'standing_grant_revoked', user_id: 'u1', conversation_id: 'c1', grant_id: 'sg1' }]);
+  });
+
+  it('revokeGrant publishes nothing for a standing grant whose conversation is gone', async () => {
+    const r = repos();
+    r.chatStandingGrants.revoke.mockResolvedValueOnce(row({ conversation_id: null, revoked_at: 'x', revoked_by: 'u1' }));
+    expect(await revokeGrant(r as never, 'u1', 'sg1')).toMatchObject({ id: 'sg1' });
+    expect(chatBus.publish).not.toHaveBeenCalled();
+  });
+
+  it('revokeGrant 409 for an already revoked standing grant, 404 for an unknown one', async () => {
+    const r = repos();
+    r.chatStandingGrants.findByIdForUser.mockResolvedValueOnce(row({ revoked_at: 'x' }));
+    await expect(revokeGrant(r as never, 'u1', 'sg1')).rejects.toMatchObject({ statusCode: 409 });
+    expect(r.chatStandingGrants.findByIdForUser).toHaveBeenCalledWith('sg1', 'u1');
+    await expect(revokeGrant(repos() as never, 'u1', 'nope')).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('listGrants kinds=all_standing (TER-386)', () => {
+  const tab = (id: string, at: string) => ({ id, conversation_id: 'c1', tab_id: 't1', tool: 'send_input', source_action_id: null, granted_by: 'u1', created_at: at, expires_at: at, revoked_at: at, revoked_by: 'u1', conversation_project_id: null, conversation_archived: false });
+  const proj = (id: string, at: string) => ({ id, conversation_id: 'c1', project_id: 'p1', scope: 'board', source_action_id: null, granted_by: 'u1', created_at: at, expires_at: at, revoked_at: at, revoked_by: 'u1', conversation_project_id: null, conversation_archived: false });
+  const std = (id: string, at: string) => ({ id, user_id: 'u1', project_id: 'p1', kind: 'board', conversation_id: null, source_action_id: null, created_at: at, revoked_at: at, revoked_by: 'u1', conversation_project_id: null, conversation_archived: false });
+  const table = (rows: unknown[], next: { created_at: string; id: string } | null = null) => vi.fn(async () => ({ grants: rows, next }));
+  const repos = (tabs: unknown[], projects: unknown[], standing: unknown[], standingNext: { created_at: string; id: string } | null = null) => ({
+    chatGrants: { listForUser: table(tabs) },
+    chatProjectGrants: { listForUser: table(projects) },
+    chatStandingGrants: { listForUser: table(standing, standingNext) },
+    tabs: { findByIdsForOwner: vi.fn(async () => []) },
+    projects: { findByIdsForOwner: vi.fn(async () => [{ id: 'p1', name: 'App' }]) },
+  });
+
+  it('merges the three tables newest first, cuts to limit and returns the cut row as cursor', async () => {
+    const r = repos([tab('g1', '2026-01-02T00:00:00.000Z')], [proj('pg1', '2026-01-04T00:00:00.000Z')], [std('sg1', '2026-01-03T00:00:00.000Z'), std('sg0', '2026-01-01T00:00:00.000Z')]);
+    const out = await listGrants(r as never, 'u1', { state: 'ended', limit: 3, kinds: 'all_standing' });
+    expect(out.grants.map((g) => [g.id, g.kind])).toEqual([['pg1', 'project'], ['sg1', 'standing'], ['g1', 'tab']]);
+    expect(out.grants[1]).toMatchObject({ standing_kind: 'board', expires_at: null, state: 'revoked', conversation_id: null });
+    expect(out.next_cursor).toBe(encodeGrantCursor({ created_at: '2026-01-02T00:00:00.000Z', id: 'g1' }));
+    expect(r.chatStandingGrants.listForUser).toHaveBeenCalledWith('u1', { state: 'ended', cursor: null, limit: 3 });
+  });
+
+  it('keeps paging while only the standing table has more', async () => {
+    const r = repos([], [], [std('sg1', '2026-01-03T00:00:00.000Z')], { created_at: '2026-01-03T00:00:00.000Z', id: 'sg1' });
+    const out = await listGrants(r as never, 'u1', { state: 'ended', limit: 1, kinds: 'all_standing' });
+    expect(out.next_cursor).toBe(encodeGrantCursor({ created_at: '2026-01-03T00:00:00.000Z', id: 'sg1' }));
+  });
+
+  it('kinds=all never reads standing grants', async () => {
+    const r = repos([tab('g1', '2026-01-02T00:00:00.000Z')], [proj('pg1', '2026-01-04T00:00:00.000Z')], [std('sg1', '2026-01-03T00:00:00.000Z')]);
+    const out = await listGrants(r as never, 'u1', { state: 'ended', limit: 50, kinds: 'all' });
+    expect(out.grants.map((g) => g.id)).toEqual(['pg1', 'g1']);
+    expect(r.chatStandingGrants.listForUser).not.toHaveBeenCalled();
   });
 });

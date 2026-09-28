@@ -1,14 +1,15 @@
 import type { z } from 'zod';
 import type { chatGrantListQuery } from '@termhub/mobile-api';
 import type { ChatAction } from '../db/repositories/chat-actions.js';
-import { describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, type ChatGrantListItem, type ChatGrantView, type ChatProjectGrantView } from '../db/repositories/chat-actions-view.js';
+import { describeGrantList, describeGrants, describeProjectGrantList, describeProjectGrants, describeStandingGrantList, describeStandingGrants, type ChatGrantListItem, type ChatGrantView, type ChatProjectGrantView, type ChatStandingGrantView } from '../db/repositories/chat-actions-view.js';
 import { GRANT_LIST_MAX, type GrantCursor } from '../db/repositories/chat-grants.js';
 import type { ProjectGrantScope } from '../db/repositories/chat-project-grants.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
 import { boardProjectOf } from './board-project.js';
 import { chatBus } from './bus.js';
-import { boardGrantable, grantable, GRANTABLE_TOOL, TAB_TERMINAL_GRANT, terminalGrantable } from './gate.js';
+import { boardGrantable, grantable, GRANTABLE_TOOL, standingKindOf, TAB_TERMINAL_GRANT, terminalGrantable, type StandingGrantKind } from './gate.js';
+import { standingProjectOf } from './standing-project.js';
 
 /**
  * "Permitir sempre nesta aba" is only for what the gate will honour (`grantable`): checked on the row
@@ -117,9 +118,44 @@ export async function activeProjectGrants(repos: Repositories, userId: string, c
   return describeProjectGrants(repos, await repos.chatProjectGrants.listActive(conversationId), userId);
 }
 
-/** "Revogar", either kind: tab grants first, then project grants (ids never collide). 404 unknown or
- * not this user's, 409 already revoked. */
-export async function revokeGrant(repos: Repositories, userId: string, grantId: string): Promise<ChatGrantView | ChatProjectGrantView> {
+const STANDING_GRANT_NOT_ALLOWED = () => new HttpError(400, 'Só dá para liberar sem prazo uma ação de rotina de um projeto seu', 'GRANT_NOT_ALLOWED');
+
+/** "Liberar sem prazo" (spec 2026-09-28 TER-386) only for a pending card of a standing kind
+ * (`standingKindOf`) whose project resolves — for a tab-borne kind, whose tab is this user's. Checked
+ * before anything is decided and before the phone's PIN challenge is spent, with the caller's own user id
+ * and the gate's own resolver (`standingProjectOf`), so the button is accepted for exactly the grants the
+ * gate will honour. */
+export async function assertStandingGrantableAction(repos: Repositories, userId: string, actionId: string): Promise<{ action: ChatAction; kind: StandingGrantKind; projectId: string }> {
+  const row = await pendingRow(repos, userId, actionId);
+  const args = (row.args ?? {}) as Record<string, unknown>;
+  const kind = standingKindOf(row.tool, args);
+  if (!kind) throw STANDING_GRANT_NOT_ALLOWED();
+  const resolved = await standingProjectOf(repos, userId, kind, row.tool, args);
+  if (!resolved) throw STANDING_GRANT_NOT_ALLOWED();
+  return { action: row, kind, projectId: resolved.projectId };
+}
+
+/** Trusts one kind of routine action in the project of an action the user just approved, with no expiry,
+ * and tells every open screen (web and phone). Created before the decision is re-injected, so the
+ * injected sentence can mention it. */
+export async function grantStanding(repos: Repositories, userId: string, action: ChatAction, kind: StandingGrantKind, projectId: string): Promise<ChatStandingGrantView> {
+  const created = await repos.chatStandingGrants.grant({ user_id: userId, project_id: projectId, kind, conversation_id: action.conversation_id, source_action_id: action.id });
+  const [grant] = await describeStandingGrants(repos, [created], userId);
+  chatBus.publish({ type: 'standing_grant', user_id: userId, conversation_id: action.conversation_id, grant });
+  return grant;
+}
+
+/** The user's standing grants in force, as `GET /chat` (web and phone) returns them: the conversation's
+ * project's, or — for the general chat (`null`) — all of them. */
+export async function activeStandingGrants(repos: Repositories, userId: string, projectId: string | null): Promise<ChatStandingGrantView[]> {
+  return describeStandingGrants(repos, await repos.chatStandingGrants.listActive(userId, projectId ?? undefined), userId);
+}
+
+/** "Revogar", any kind: tab grants first, then project grants, then standing grants (ids never collide).
+ * 404 unknown or not this user's, 409 already revoked. A standing grant whose granting conversation is
+ * gone publishes no event: the list screen re-reads on its own and an open chat drops it on its next
+ * `GET /chat` (spec 2026-09-28 §5). */
+export async function revokeGrant(repos: Repositories, userId: string, grantId: string): Promise<ChatGrantView | ChatProjectGrantView | ChatStandingGrantView> {
   const tab = await repos.chatGrants.revoke(grantId, userId);
   if (tab) {
     chatBus.publish({ type: 'grant_revoked', user_id: userId, conversation_id: tab.conversation_id, grant_id: tab.id });
@@ -130,7 +166,13 @@ export async function revokeGrant(repos: Repositories, userId: string, grantId: 
     chatBus.publish({ type: 'project_grant_revoked', user_id: userId, conversation_id: project.conversation_id, grant_id: project.id });
     return (await describeProjectGrants(repos, [project], userId))[0];
   }
-  const existing = (await repos.chatGrants.findByIdForUser(grantId, userId)) ?? (await repos.chatProjectGrants.findByIdForUser(grantId, userId));
+  const standing = await repos.chatStandingGrants.revoke(grantId, userId);
+  if (standing) {
+    if (standing.conversation_id) chatBus.publish({ type: 'standing_grant_revoked', user_id: userId, conversation_id: standing.conversation_id, grant_id: standing.id });
+    return (await describeStandingGrants(repos, [standing], userId))[0];
+  }
+  const existing =
+    (await repos.chatGrants.findByIdForUser(grantId, userId)) ?? (await repos.chatProjectGrants.findByIdForUser(grantId, userId)) ?? (await repos.chatStandingGrants.findByIdForUser(grantId, userId));
   throw existing ? conflict('Esta permissão já foi revogada') : notFound('Permissão não encontrada');
 }
 
@@ -166,20 +208,24 @@ export function decodeGrantCursor(s: string): GrantCursor {
  * same cursor and `limit` each (each returns at most `limit` rows after the cursor, so the merged first
  * `limit` rows of both pages together are exactly the next page), merged newest first by `(created_at,
  * id)` and cut to `limit`; the cut row's own `(created_at, id)` is a valid cursor for both tables. An
- * old app that never sends `kinds` keeps seeing tab grants only. */
+ * old app that never sends `kinds` keeps seeing tab grants only.
+ *
+ * `kinds: 'all_standing'` (spec 2026-09-28 TER-386) reads standing grants too, the same way — three
+ * tables, one cursor. Only an app that asks for it sees a row with no expiry (`all` stays tab + project). */
 export async function listGrants(repos: Repositories, userId: string, query: z.infer<typeof chatGrantListQuery>, now = new Date()): Promise<{ grants: ChatGrantListItem[]; next_cursor: string | null }> {
   const cursor = query.cursor ? decodeGrantCursor(query.cursor) : null;
   const limit = query.state === 'active' ? GRANT_LIST_MAX : query.limit;
   const opts = { state: query.state, cursor, limit };
   const tabs = await repos.chatGrants.listForUser(userId, opts, now);
   const tabItems = await describeGrantList(repos, tabs.grants, userId, now);
-  if (query.kinds !== 'all') return { grants: tabItems, next_cursor: tabs.next ? encodeGrantCursor(tabs.next) : null };
+  if (query.kinds !== 'all' && query.kinds !== 'all_standing') return { grants: tabItems, next_cursor: tabs.next ? encodeGrantCursor(tabs.next) : null };
   const projects = await repos.chatProjectGrants.listForUser(userId, opts, now);
-  const merged = [...tabItems, ...(await describeProjectGrantList(repos, projects.grants, userId, now))].sort((a, b) =>
+  const standing = query.kinds === 'all_standing' ? await repos.chatStandingGrants.listForUser(userId, opts) : { grants: [], next: null };
+  const merged = [...tabItems, ...(await describeProjectGrantList(repos, projects.grants, userId, now)), ...(await describeStandingGrantList(repos, standing.grants, userId))].sort((a, b) =>
     a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1,
   );
   const page = merged.slice(0, limit);
-  const more = merged.length > limit || tabs.next !== null || projects.next !== null;
+  const more = merged.length > limit || tabs.next !== null || projects.next !== null || standing.next !== null;
   const last = page[page.length - 1];
   return { grants: page, next_cursor: query.state === 'ended' && more && last ? encodeGrantCursor({ created_at: last.created_at, id: last.id }) : null };
 }

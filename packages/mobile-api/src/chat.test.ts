@@ -13,6 +13,8 @@ import {
   mobileDecisionBody,
   mobileMessageBody,
   notesResponse,
+  STANDING_KIND_LABEL,
+  standingKindOf,
   tabQuestionAutoAnswerCancelResponse,
 } from './chat.js';
 import { tabQuestionSchema } from './events.js';
@@ -51,6 +53,39 @@ describe('mobileDecisionBody: terminal grants (TER-325)', () => {
   });
   it.each(['approve_tab_terminal', 'approve_project_all'])('batches never take %s', (decision) => {
     expect(mobileBatchDecisionBody.safeParse({ decisions: [{ id: 'a', decision, challenge: 'c', pin_proof: 'p' }] }).success).toBe(false);
+  });
+});
+
+describe('mobileDecisionBody: standing grant (TER-386)', () => {
+  it('approve_project_always parses only with a challenge and a PIN proof', () => {
+    expect(mobileDecisionBody.safeParse({ decision: 'approve_project_always' }).success).toBe(false);
+    expect(mobileDecisionBody.safeParse({ decision: 'approve_project_always', challenge: 'c' }).success).toBe(false);
+    expect(mobileDecisionBody.safeParse({ decision: 'approve_project_always', pin_proof: 'p' }).success).toBe(false);
+    expect(mobileDecisionBody.parse({ decision: 'approve_project_always', challenge: 'c', pin_proof: 'p' }).decision).toBe('approve_project_always');
+  });
+  it('batches never take approve_project_always', () => {
+    expect(mobileBatchDecisionBody.safeParse({ decisions: [{ id: 'a', decision: 'approve_project_always', challenge: 'c', pin_proof: 'p' }] }).success).toBe(false);
+  });
+});
+
+describe('standingKindOf (client mirror of the server gate)', () => {
+  it.each([
+    ['open_tab with a project', { tool: 'open_tab', args: { project_id: 'p1' }, tab_id: null, project_id: 'p1' }, 'open_tab'],
+    ['open_tab without a project', { tool: 'open_tab', args: {}, tab_id: null, project_id: null }, null],
+    ['start_agent with a project', { tool: 'start_agent', args: { project_id: 'p1' }, tab_id: null, project_id: 'p1' }, 'start_agent'],
+    ['start_agent without a project', { tool: 'start_agent', args: {}, tab_id: null, project_id: null }, null],
+    ['close_tab with a tab', { tool: 'close_tab', args: { tab_id: 't1' }, tab_id: 't1', project_id: 'p1' }, 'close_tab'],
+    ['close_tab without a tab', { tool: 'close_tab', args: {}, tab_id: null, project_id: 'p1' }, null],
+    ['a board tool', { tool: 'move_task', args: { task_id: 'k1' }, tab_id: null, project_id: null }, 'board'],
+    ['send_key to a tab', { tool: 'send_key', args: { tab_id: 't1', key: 'enter' }, tab_id: 't1', project_id: 'p1' }, 'terminal'],
+    ['send_input answering a permission', { tool: 'send_input', args: { tab_id: 't1', text: '1', answering_permission: true }, tab_id: 't1', project_id: 'p1' }, null],
+    ['delete_task', { tool: 'delete_task', args: { task_id: 'k1' }, tab_id: null, project_id: 'p1' }, null],
+    ['run_command', { tool: 'run_command', args: { command: 'ls' }, tab_id: 't1', project_id: 'p1' }, null],
+  ])('%s', (_name, action, kind) => {
+    expect(standingKindOf(action)).toBe(kind);
+  });
+  it('has a pt-BR label for every kind', () => {
+    expect(STANDING_KIND_LABEL).toEqual({ open_tab: 'abrir abas', close_tab: 'fechar abas paradas', start_agent: 'iniciar agentes', board: 'mexer no quadro', terminal: 'teclas e texto nas abas' });
   });
 });
 
