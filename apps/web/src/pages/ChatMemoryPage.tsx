@@ -1,8 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
-import type { ChatDecision, ChatMemory, ConciergeNote } from '../lib/types';
+import type { ChatDecision, ChatMemory, ConciergeNote, LessonItem } from '../lib/types';
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('pt-BR');
+
+/** "Lições" (spec 2026-09-27 failure lessons §6/§8): pt-BR labels for the two enums the list shows —
+ *  binding clarifications, verbatim. */
+const EVIDENCE_LABEL: Record<LessonItem['evidence'], string> = { observed: 'observada', fixed: 'corrigida', confirmed: 'confirmada' };
+function originText(l: LessonItem): string {
+  return l.origin === 'file' ? `arquivo ${l.path ?? ''}` : 'anotação do projeto';
+}
+
+/** "Abrir origem": the PR link when `pr` is set, else the card (the web's `/project/<ref>` route),
+ *  else — for a note-origin lesson — the project's own notes; `null` hides the action. */
+function sourceHref(l: LessonItem): string | null {
+  if (l.pr) return l.pr;
+  if (l.card) return `/project/${l.card}`;
+  if (l.origin === 'note' && l.project) return `/projects/${l.project.id}/notes`;
+  return null;
+}
 
 /** One decision's answer, as the list shows it: the picked labels, or the free text (spec 2026-09-26
  * §4.6 — `answer.text` and `answer.labels` are mutually meaningful, never both at once). */
@@ -32,6 +49,20 @@ export function ChatMemoryPage() {
   const [notesError, setNotesError] = useState<string | null>(null);
   const [loadingMoreNotes, setLoadingMoreNotes] = useState(false);
   const [forgettingNoteId, setForgettingNoteId] = useState<string | null>(null);
+
+  // "Lições" (spec 2026-09-27 failure lessons §6/§8): its own search box and pagination, independent of
+  // the decisions one above. `lessonsGenRef` guards its search the same way `genRef` guards the
+  // decisions one (a slow, superseded search must never clobber a newer one's result); verifying and
+  // forgetting reuse `mountedRef` only, exactly like `toggle`/`forget` above.
+  const [lessons, setLessons] = useState<LessonItem[] | null>(null);
+  const [lessonsCursor, setLessonsCursor] = useState<string | null>(null);
+  const [lessonsError, setLessonsError] = useState<string | null>(null);
+  const [lessonsNote, setLessonsNote] = useState<string | null>(null);
+  const [lessonsQ, setLessonsQ] = useState('');
+  const [loadingMoreLessons, setLoadingMoreLessons] = useState(false);
+  const [verifyingLessonId, setVerifyingLessonId] = useState<string | null>(null);
+  const [forgettingLessonId, setForgettingLessonId] = useState<string | null>(null);
+  const lessonsGenRef = useRef(0);
 
   /**
    * `genRef` guards against a slow, superseded search resolving after a newer one and overwriting its
@@ -211,6 +242,85 @@ export function ChatMemoryPage() {
     }
   };
 
+  /** Re-reads the "Lições" list from its first page (own search box, own debounce below). */
+  const loadLessonsFirstPage = useCallback(async (query: string) => {
+    const myGen = ++lessonsGenRef.current;
+    setLessonsError(null);
+    try {
+      const page = await api.chat.lessons.list({ q: query || undefined });
+      if (lessonsGenRef.current !== myGen) return; // superseded by a newer search, or unmounted meanwhile
+      setLessons(page.lessons);
+      setLessonsCursor(page.next_cursor);
+    } catch (e) {
+      if (lessonsGenRef.current !== myGen) return;
+      setLessonsError(e instanceof ApiError ? e.message : 'Não foi possível carregar as lições');
+    }
+  }, []);
+
+  const didMountLessons = useRef(false);
+  useEffect(() => {
+    if (!didMountLessons.current) {
+      didMountLessons.current = true;
+      void loadLessonsFirstPage(lessonsQ);
+      return;
+    }
+    const t = setTimeout(() => void loadLessonsFirstPage(lessonsQ), 300);
+    return () => clearTimeout(t);
+  }, [lessonsQ, loadLessonsFirstPage]);
+
+  const loadMoreLessons = async () => {
+    if (!lessonsCursor) return;
+    const myGen = lessonsGenRef.current;
+    setLoadingMoreLessons(true);
+    setLessonsError(null);
+    try {
+      const page = await api.chat.lessons.list({ q: lessonsQ || undefined, cursor: lessonsCursor });
+      if (lessonsGenRef.current !== myGen) return;
+      setLessons((prev) => [...(prev ?? []), ...page.lessons]);
+      setLessonsCursor(page.next_cursor);
+    } catch (e) {
+      if (lessonsGenRef.current !== myGen) return;
+      setLessonsError(e instanceof ApiError ? e.message : 'Não foi possível carregar mais lições');
+    } finally {
+      if (lessonsGenRef.current === myGen) setLoadingMoreLessons(false);
+    }
+  };
+
+  /** "Verificar" / "Desfazer verificação": one handler, the direction decided by the row's own current
+   *  state — matches the pt-BR button that was actually shown. */
+  const toggleLessonVerified = async (l: LessonItem) => {
+    setVerifyingLessonId(l.id);
+    setLessonsError(null);
+    try {
+      const updated = l.verified ? await api.chat.lessons.unverify(l.id) : await api.chat.lessons.verify(l.id);
+      if (!mountedRef.current) return;
+      setLessons((prev) => (prev ?? []).map((x) => (x.id === updated.id ? updated : x)));
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setLessonsError(e instanceof ApiError ? e.message : 'Não foi possível verificar a lição');
+    } finally {
+      if (mountedRef.current) setVerifyingLessonId(null);
+    }
+  };
+
+  const forgetLesson = async (l: LessonItem) => {
+    if (!window.confirm('Esquecer esta lição?')) return;
+    setForgettingLessonId(l.id);
+    setLessonsError(null);
+    setLessonsNote(null);
+    try {
+      const r = await api.chat.lessons.forget(l.id);
+      if (!mountedRef.current) return;
+      setLessons((prev) => (prev ?? []).filter((x) => x.id !== l.id));
+      if (r.note) setLessonsNote(r.note);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setLessonsError(e instanceof ApiError ? e.message : 'Não foi possível esquecer a lição');
+    } finally {
+      if (mountedRef.current) setForgettingLessonId(null);
+    }
+  };
+
   return (
     <div className="mx-auto w-full min-w-0 max-w-3xl flex-1 overflow-y-auto px-4 py-6">
       <h2 className="text-lg font-semibold text-fg">Memória do chat</h2>
@@ -323,6 +433,78 @@ export function ChatMemoryPage() {
       {notesCursor && (
         <button type="button" className="btn-ghost mt-4" disabled={loadingMoreNotes} onClick={() => void loadMoreNotes()}>
           {loadingMoreNotes ? 'Carregando…' : 'Carregar mais anotações'}
+        </button>
+      )}
+
+      <h3 className="mt-8 text-base font-semibold text-fg">Lições</h3>
+      <p className="mt-1 text-sm text-fg-muted">
+        Erros que já aconteceram — de arquivos <code>docs/lessons</code> e de anotações do projeto — para o concierge não repetir.
+      </p>
+
+      <div className="mt-4">
+        <label className="label" htmlFor="chat-memory-lessons-search">
+          Buscar lições
+        </label>
+        <input
+          id="chat-memory-lessons-search"
+          className="input mt-1"
+          value={lessonsQ}
+          onChange={(e) => setLessonsQ(e.target.value)}
+          placeholder="sintoma, projeto ou arquivo"
+        />
+      </div>
+
+      {lessonsError && <p className="mt-3 text-sm text-danger">{lessonsError}</p>}
+      {lessonsNote && <p className="mt-3 text-sm text-fg-dim">{lessonsNote}</p>}
+
+      {lessons === null ? (
+        <p className="mt-4 text-sm text-fg-dim">Carregando…</p>
+      ) : lessons.length === 0 ? (
+        <p className="mt-4 text-sm text-fg-dim">Nenhuma lição ainda.</p>
+      ) : (
+        <ul className="mt-4 space-y-2">
+          {lessons.map((l) => {
+            const href = sourceHref(l);
+            return (
+              <li key={l.id} className="rounded-lg border border-line bg-bg-2 p-3 text-sm">
+                <p className="whitespace-pre-wrap text-fg">{l.title}</p>
+                <p className="mt-1 text-fg-muted">{l.excerpt}</p>
+                <p className="mt-1 text-xs text-fg-dim">
+                  {`${l.project?.name ?? 'sem projeto'} · ${originText(l)} · ${EVIDENCE_LABEL[l.evidence]} · ${fmtDate(l.created_at)}`}
+                  {l.verified && (
+                    <>
+                      {' · '}
+                      <span className="text-ok">verificada</span>
+                    </>
+                  )}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <button type="button" className="btn-ghost text-xs" disabled={verifyingLessonId === l.id} onClick={() => void toggleLessonVerified(l)}>
+                    {l.verified ? 'Desfazer verificação' : 'Verificar'}
+                  </button>
+                  <button type="button" className="btn-ghost text-xs text-danger" disabled={forgettingLessonId === l.id} onClick={() => void forgetLesson(l)}>
+                    Esquecer
+                  </button>
+                  {href &&
+                    (href.startsWith('http') ? (
+                      <a href={href} target="_blank" rel="noreferrer" className="btn-ghost text-xs">
+                        Abrir origem
+                      </a>
+                    ) : (
+                      <Link to={href} className="btn-ghost text-xs">
+                        Abrir origem
+                      </Link>
+                    ))}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {lessonsCursor && (
+        <button type="button" className="btn-ghost mt-4" disabled={loadingMoreLessons} onClick={() => void loadMoreLessons()}>
+          {loadingMoreLessons ? 'Carregando…' : 'Carregar mais lições'}
         </button>
       )}
     </div>

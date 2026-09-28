@@ -1,4 +1,4 @@
-import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatDecisionWord, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, ConciergeNote, CreatedApiToken, InviteResult, ViewAs, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary, SubagentView } from './types';
+import type { AccessStatus, ApiToken, ApiTokenScope, ChatAction, ChatActionStatus, ChatAttachment, ChatConversation, ChatDecision, ChatDecisionWord, ChatGrant, ChatGrantListItem, ChatHostState, ChatMemory, ChatMessage, ChatProjectGrant, CityLink, ConciergeNote, CreatedApiToken, InviteResult, ViewAs, LessonItem, OfficeCity, PermissionAction, ProgressResponse, ProgressScope, PullRequestBadge, ResourcePermissions, Role, WaitlistEntry, HardwareSnapshot, AiAccount, AiAccountUsage, AiProvider, AuthConfig, ConnectionInfo, DashboardItem, FsListing, Integration, IntegrationProvider, Machine, MachineHooks, MachineType, MonitorItem, Note, Project, ProjectGroup, ProjectInput, ProjectMachineLink, ProjectChatStatus, ProjectSetup, ProjectSetupData, Simulator, SourceSync, Tab, TabEvent, TabKind, Task, TabQuestion, TabQuestionAnswer, TabSuggestion, Transcription, BoardData, ColumnCategory, MoveTarget, TaskColumn, TaskCreateInput, TaskPatchInput, UploadEntry, UploadMachineStatus, Ticket, User, WdaSetupState, WaitlistInviteResult, Device, DeviceEventView, DeviceRequestView, DevicesSummary, SubagentView } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -203,6 +203,25 @@ export const api = {
         /** The download (images are served inline, everything else as an attachment). */
         url: (id: string) => `/api/chat/attachments/${encodeURIComponent(id)}`,
       },
+      /** "Lições" (spec 2026-09-27 failure lessons §6/§8): newest first, 50 per page, keyset `cursor`
+       *  like `chatDecisions`/`chatNotes`. `projectId` (when given) 404s outside the requester's scope. */
+      lessons: {
+        list: (params: { q?: string; projectId?: string; cursor?: string | null } = {}) => {
+          const p = new URLSearchParams();
+          if (params.q) p.set('q', params.q);
+          if (params.projectId) p.set('project_id', params.projectId);
+          if (params.cursor) p.set('cursor', params.cursor);
+          const qs = p.toString();
+          return request<{ lessons: LessonItem[]; next_cursor: string | null }>('GET', `/chat/lessons${qs ? `?${qs}` : ''}`);
+        },
+        /** "Verificar": marks the lesson confirmed by the signed-in user; answers the updated item. */
+        verify: (id: string) => request<LessonItem>('POST', `/chat/lessons/${encodeURIComponent(id)}/verify`, {}),
+        /** "Desfazer verificação": the inverse of `verify`. */
+        unverify: (id: string) => request<LessonItem>('DELETE', `/chat/lessons/${encodeURIComponent(id)}/verify`),
+        /** "Esquecer": a note-origin lesson is removed outright; a file-origin one is only hidden here
+         *  (the file stays in the repository until a PR removes it) — `note` carries that sentence. */
+        forget: (id: string) => request<{ ok: true; note?: string }>('DELETE', `/chat/lessons/${encodeURIComponent(id)}`),
+      },
     },
   ),
   /**
@@ -341,7 +360,10 @@ export const api = {
   },
   notes: {
     get: (projectId: string) => request<{ note: Note }>('GET', `/projects/${projectId}/note`),
-    save: (projectId: string, content: string) => request<{ note: Note }>('PUT', `/projects/${projectId}/note`, { content }),
+    /** `baseUpdatedAt` (D9): the note's `updated_at` last loaded or saved, so the server can keep a
+     *  lesson block an agent appended concurrently instead of the submission silently erasing it. */
+    save: (projectId: string, content: string, baseUpdatedAt?: string | null) =>
+      request<{ note: Note }>('PUT', `/projects/${projectId}/note`, baseUpdatedAt ? { content, base_updated_at: baseUpdatedAt } : { content }),
   },
   integrations: {
     list: () => request<{ integrations: Integration[] }>('GET', '/integrations'),

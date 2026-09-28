@@ -1124,6 +1124,26 @@ export interface ConciergeNote {
   created_at: string;
 }
 
+/** "Lições" (spec 2026-09-27 failure lessons §6/§8): one `lesson` item (chunk 0), as the "Lições"
+ * list (and the verify/unverify routes, which answer the same shape) show it — never the embedding,
+ * the owning user, `source_id` or the raw `meta`. `project` is `null` for an orphaned project; `path`,
+ * `tab_id`, `card` and `pr` are `null` when the lesson (or its origin) has none. */
+export interface LessonItem {
+  id: string;
+  project: { id: string; name: string } | null;
+  title: string;
+  excerpt: string;
+  origin: 'file' | 'note';
+  path: string | null;
+  tab_id: string | null;
+  card: string | null;
+  pr: string | null;
+  evidence: 'observed' | 'fixed' | 'confirmed';
+  verified: boolean;
+  verified_at: string | null;
+  created_at: string;
+}
+
 export type TabSuggestionStatus = TabQuestionStatus | 'dismissed';
 /**
  * Claude Code's dimmed next prompt in a tab (spec 2026-09-25 tab suggestions §6.4): a card with the text

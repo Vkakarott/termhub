@@ -6,7 +6,10 @@ interface Props {
   projectId: string;
 }
 
-type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+/** `merged`: the server's save answered a content different from what was sent (D9 — it kept a
+ *  lesson block an agent appended concurrently) and nothing was typed since; the textarea has just
+ *  adopted that content, and the status line says so instead of "salvo". */
+type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'merged';
 const DEBOUNCE_MS = 800;
 
 export function NotesEditor({ projectId }: Props) {
@@ -17,6 +20,11 @@ export function NotesEditor({ projectId }: Props) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef('');
   const lastSaved = useRef('');
+  // The note's `updated_at` last loaded or saved (D9): sent back as `base_updated_at` on the next save
+  // (and on the keep-alive unload save), so the server can tell a lesson block appended after this
+  // from one already known. A ref, not state, so the unload handler (registered once per `projectId`)
+  // always reads the latest value rather than the one captured when it was added.
+  const base = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,7 +35,9 @@ export function NotesEditor({ projectId }: Props) {
         setContent(r.note.content);
         latest.current = r.note.content;
         lastSaved.current = r.note.content;
-        setUpdatedAt(r.note.id ? r.note.updated_at : null);
+        const at = r.note.id ? r.note.updated_at : null;
+        setUpdatedAt(at);
+        base.current = at;
       })
       .catch(() => !cancelled && setContent(''));
     return () => {
@@ -47,9 +57,22 @@ export function NotesEditor({ projectId }: Props) {
     }
     setSaveState('saving');
     try {
-      const r = await api.notes.save(projectId, value);
-      lastSaved.current = value;
+      const r = await api.notes.save(projectId, value, base.current);
+      base.current = r.note.updated_at;
       setUpdatedAt(r.note.updated_at);
+      if (r.note.content !== value && latest.current === value) {
+        // Nothing typed since this request started (D9): the server kept a lesson block an agent
+        // appended concurrently — adopt it rather than let the next autosave erase it again.
+        latest.current = r.note.content;
+        lastSaved.current = r.note.content;
+        setContent(r.note.content);
+        setSaveState('merged');
+        return;
+      }
+      // Either the content came back unchanged, or the person typed more while this was in flight —
+      // either way, their newer text (if any) stays on screen; a merge on it, if still needed, is what
+      // the next save is for.
+      lastSaved.current = value;
       setSaveState(latest.current === value ? 'saved' : 'dirty');
     } catch (e) {
       setSaveState('error');
@@ -69,7 +92,7 @@ export function NotesEditor({ projectId }: Props) {
   useEffect(() => {
     const flush = () => {
       if (latest.current !== lastSaved.current) {
-        const body = JSON.stringify({ content: latest.current });
+        const body = JSON.stringify(base.current ? { content: latest.current, base_updated_at: base.current } : { content: latest.current });
         const csrf = document.cookie.match(/(?:^|; )termhub_csrf=([^;]*)/)?.[1] ?? '';
         void fetch(`/api/projects/${projectId}/note`, {
           method: 'PUT',
@@ -96,7 +119,17 @@ export function NotesEditor({ projectId }: Props) {
   if (content === null) return <div className="flex h-full items-center justify-center text-sm text-fg-dim">Carregando notas…</div>;
 
   const status =
-    saveState === 'saving' ? 'salvando…' : saveState === 'dirty' ? 'alterações pendentes' : saveState === 'error' ? 'erro ao salvar' : saveState === 'saved' ? 'salvo' : '';
+    saveState === 'saving'
+      ? 'salvando…'
+      : saveState === 'dirty'
+        ? 'alterações pendentes'
+        : saveState === 'error'
+          ? 'erro ao salvar'
+          : saveState === 'merged'
+            ? 'lição adicionada por um agente'
+            : saveState === 'saved'
+              ? 'salvo'
+              : '';
 
   return (
     <div className="flex h-full flex-col">
