@@ -68,6 +68,23 @@ it('loads the note and, after the debounce, saves sending base_updated_at', asyn
   await waitFor(() => expect(saveMock).toHaveBeenCalledWith('p1', 'texto editado', '2026-09-20T10:00:00.000Z'));
 });
 
+it('a project with no note yet (id \'\') still sends the epoch as base_updated_at, so a concierge append survives', async () => {
+  const epoch = new Date(0).toISOString();
+  getMock.mockResolvedValue({ note: note({ id: '', content: '', updated_at: epoch }) });
+  saveMock.mockResolvedValue({ note: note({ content: 'primeira linha', updated_at: '2026-09-20T10:01:00.000Z' }) });
+  render(<NotesEditor projectId="p1" />);
+  const textarea = await screen.findByPlaceholderText(/Notas do projeto/);
+
+  vi.useFakeTimers();
+  fireEvent.change(textarea, { target: { value: 'primeira linha' } });
+  await vi.advanceTimersByTimeAsync(800);
+  vi.useRealTimers();
+  await waitFor(() => expect(saveMock).toHaveBeenCalled());
+  expect(saveMock.mock.calls[0]).toEqual(['p1', 'primeira linha', epoch]);
+  // The epoch is a merge base, never a date to show: no "31/12/1969" in the status line.
+  expect(screen.queryByText(/1969|1970/)).toBeNull();
+});
+
 it('an ordinary save (server content matches what was sent) shows "salvo" and keeps the typed text', async () => {
   getMock.mockResolvedValue({ note: note() });
   saveMock.mockResolvedValue({ note: note({ content: 'texto editado', updated_at: '2026-09-20T10:01:00.000Z' }) });

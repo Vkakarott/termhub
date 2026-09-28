@@ -35,9 +35,12 @@ export function NotesEditor({ projectId }: Props) {
         setContent(r.note.content);
         latest.current = r.note.content;
         lastSaved.current = r.note.content;
-        const at = r.note.id ? r.note.updated_at : null;
-        setUpdatedAt(at);
-        base.current = at;
+        // Only a real note has a date worth showing; but the base is always sent (final review fix):
+        // for a project with no note yet the server answers the epoch, and without a base the first
+        // save would be a plain upsert that erases a lesson the concierge appended into the brand-new
+        // note meanwhile. With the epoch, every such block is newer than the base and is kept.
+        setUpdatedAt(r.note.id ? r.note.updated_at : null);
+        base.current = r.note.updated_at;
       })
       .catch(() => !cancelled && setContent(''));
     return () => {
