@@ -126,6 +126,91 @@ it("keeps the person's text when they typed again before the save resolved with 
   expect(screen.queryByText(/lição adicionada por um agente/)).toBeNull();
 });
 
+it("when the response content matches what was sent, the NEXT save carries the response's updated_at as the new base", async () => {
+  getMock.mockResolvedValue({ note: note() });
+  saveMock.mockResolvedValueOnce({ note: note({ content: 'texto editado', updated_at: '2026-09-20T10:01:00.000Z' }) });
+  render(<NotesEditor projectId="p1" />);
+  const textarea = await screen.findByDisplayValue('texto inicial');
+
+  vi.useFakeTimers();
+  fireEvent.change(textarea, { target: { value: 'texto editado' } });
+  await vi.advanceTimersByTimeAsync(800);
+  vi.useRealTimers();
+  await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+  expect(saveMock).toHaveBeenLastCalledWith('p1', 'texto editado', '2026-09-20T10:00:00.000Z');
+
+  saveMock.mockResolvedValueOnce({ note: note({ content: 'mais texto', updated_at: '2026-09-20T10:02:00.000Z' }) });
+  vi.useFakeTimers();
+  fireEvent.change(textarea, { target: { value: 'mais texto' } });
+  await vi.advanceTimersByTimeAsync(800);
+  vi.useRealTimers();
+
+  await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(2));
+  expect(saveMock).toHaveBeenLastCalledWith('p1', 'mais texto', '2026-09-20T10:01:00.000Z');
+});
+
+it("after adopting a merged response (nothing typed since), the NEXT save carries the response's updated_at as the new base", async () => {
+  getMock.mockResolvedValue({ note: note() });
+  let resolveSave!: (v: { note: Note }) => void;
+  saveMock.mockImplementationOnce(() => new Promise((resolve) => (resolveSave = resolve)));
+  render(<NotesEditor projectId="p1" />);
+  const textarea = await screen.findByDisplayValue('texto inicial');
+
+  vi.useFakeTimers();
+  fireEvent.change(textarea, { target: { value: 'texto editado' } });
+  await vi.advanceTimersByTimeAsync(800);
+  vi.useRealTimers();
+  await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+
+  const merged = 'texto editado\n\n## Lições\n\nbloco adicionado pelo agente';
+  await act(async () => resolveSave({ note: note({ content: merged, updated_at: '2026-09-20T10:05:00.000Z' }) }));
+  expect(await screen.findByDisplayValue(merged, { normalizer: (s) => s })).toBeInTheDocument();
+
+  // The person types again only after the adoption landed — a plain, uncontested next edit.
+  saveMock.mockResolvedValueOnce({ note: note({ content: 'mais uma edição', updated_at: '2026-09-20T10:06:00.000Z' }) });
+  vi.useFakeTimers();
+  fireEvent.change(textarea, { target: { value: 'mais uma edição' } });
+  await vi.advanceTimersByTimeAsync(800);
+  vi.useRealTimers();
+
+  await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(2));
+  expect(saveMock).toHaveBeenLastCalledWith('p1', 'mais uma edição', '2026-09-20T10:05:00.000Z');
+});
+
+it("after the typed-since race (merge response differs, person kept typing), the NEXT save carries the ORIGINAL base — not the response's updated_at", async () => {
+  getMock.mockResolvedValue({ note: note() });
+  let resolveSave!: (v: { note: Note }) => void;
+  saveMock.mockImplementationOnce(() => new Promise((resolve) => (resolveSave = resolve)));
+  render(<NotesEditor projectId="p1" />);
+  const textarea = await screen.findByDisplayValue('texto inicial');
+
+  vi.useFakeTimers();
+  fireEvent.change(textarea, { target: { value: 'texto editado' } }); // base sent with this request: T0
+  await vi.advanceTimersByTimeAsync(800);
+  vi.useRealTimers();
+  await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+  expect(saveMock).toHaveBeenLastCalledWith('p1', 'texto editado', '2026-09-20T10:00:00.000Z');
+
+  // The person keeps typing while that request (base T0) is still in flight.
+  vi.useFakeTimers();
+  fireEvent.change(textarea, { target: { value: 'texto editado e mais um pouco' } });
+
+  saveMock.mockResolvedValueOnce({ note: note({ content: 'texto editado e mais um pouco', updated_at: '2026-09-20T10:02:00.000Z' }) });
+  const merged = 'texto editado\n\n## Lições\n\nbloco adicionado pelo agente';
+  // The in-flight request resolves with a row the submission does not fully carry (it grew a lesson
+  // block, updated_at T3) — since the person typed since, the editor must not adopt it, and must not
+  // advance `base` to T3 either (T3's row already has the block; sending T3 back would make the
+  // server's merge think the block is already known and drop it for good).
+  await act(async () => resolveSave({ note: note({ content: merged, updated_at: '2026-09-20T10:05:00.000Z' }) }));
+  expect((textarea as HTMLTextAreaElement).value).toBe('texto editado e mais um pouco');
+
+  await vi.advanceTimersByTimeAsync(800);
+  vi.useRealTimers();
+
+  await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(2));
+  expect(saveMock).toHaveBeenLastCalledWith('p1', 'texto editado e mais um pouco', '2026-09-20T10:00:00.000Z');
+});
+
 it('the keep-alive save on unload also sends base_updated_at', async () => {
   getMock.mockResolvedValue({ note: note() });
   const fetchMock = vi.fn().mockResolvedValue(undefined);

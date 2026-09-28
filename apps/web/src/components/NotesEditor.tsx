@@ -58,20 +58,32 @@ export function NotesEditor({ projectId }: Props) {
     setSaveState('saving');
     try {
       const r = await api.notes.save(projectId, value, base.current);
-      base.current = r.note.updated_at;
-      setUpdatedAt(r.note.updated_at);
-      if (r.note.content !== value && latest.current === value) {
+      const typedSince = latest.current !== value;
+      const merged = r.note.content !== value;
+      if (merged && !typedSince) {
         // Nothing typed since this request started (D9): the server kept a lesson block an agent
-        // appended concurrently — adopt it rather than let the next autosave erase it again.
+        // appended concurrently — adopt it rather than let the next autosave erase it again. This
+        // response's `updated_at` now safely describes what the textarea holds.
+        base.current = r.note.updated_at;
+        setUpdatedAt(r.note.updated_at);
         latest.current = r.note.content;
         lastSaved.current = r.note.content;
         setContent(r.note.content);
         setSaveState('merged');
         return;
       }
-      // Either the content came back unchanged, or the person typed more while this was in flight —
-      // either way, their newer text (if any) stays on screen; a merge on it, if still needed, is what
-      // the next save is for.
+      if (!merged) {
+        // No merge happened (the row still holds exactly what was sent): this response's
+        // `updated_at` is a safe base for the next save, typed-since or not.
+        base.current = r.note.updated_at;
+        setUpdatedAt(r.note.updated_at);
+      }
+      // `merged && typedSince`: the person kept typing, so their newer text stays on screen — but
+      // `base` (and the displayed date) must NOT advance to this response's `updated_at`. That
+      // timestamp is the row's, which already carries the appended block; sending it back as the
+      // next save's `base_updated_at` would tell the server's merge (`mergeNoteSave`, only re-appends
+      // a block newer than the base) that the block is already known and drop it for good. Keeping
+      // `base` at what this request was sent with makes the next save merge against it again.
       lastSaved.current = value;
       setSaveState(latest.current === value ? 'saved' : 'dirty');
     } catch (e) {
