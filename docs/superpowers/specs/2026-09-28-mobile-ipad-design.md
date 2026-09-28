@@ -39,6 +39,7 @@ Details:
 - The selection is local state of the Chats screen. Collapsing to compact (Split View narrowed, rotation on the mini) shows the list only and keeps the selection; widening again restores the pane. No automatic push on collapse (a push while another tab is focused would yank the person there).
 - The chat store holds one active conversation. A deep link or a notification tap still pushes `/chat/<id>` full screen on the iPad (unchanged); when the Chats tab regains focus, it re-opens its selected route, so the pane never shows the conversation the pushed screen left active.
 - The tab bar stays; on the iPad React Navigation already lays the labels beside the icons.
+- Crossing 700 pt (dragging the Split View divider, rotating the mini) remounts the pane: an unsent draft and its attachment chips are lost, and the list scrolls back to the top. Known and accepted for now; keeping them would mean lifting the composer's state out of the conversation view.
 
 ### 2.4 Readable width everywhere else
 
@@ -97,6 +98,9 @@ No code, manual check only (§5):
 5. Attachments: photo (popover), camera, file, audio recording, dictation.
 6. Sheets centred; Ajustes, Notificações and Progresso in a readable column.
 7. Trackpad: taps, scrolling, selecting text in a bubble.
+8. In Slide Over, Stage Manager and with the floating iPad keyboard: focus the composer and open the PIN sheet; both must sit on the keyboard (RN's `KeyboardAvoidingView` compares screen and window coordinates, and off the screen origin they may float or hide).
+9. Drag the Split View divider across 700 pt with a draft and an attachment chip in the composer: the pane remounts, the draft and the chips are lost and the list scrolls back to the top (known, §2.3) — nothing else breaks.
+10. A build from an `ios/` folder generated before this change stays iPhone-only: re-run `npx expo prebuild --clean` first.
 
 ## 6. Out of scope
 
