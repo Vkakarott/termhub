@@ -1,0 +1,5 @@
+• Would you like to run the migration now?
+
+› 1. yes, run it
+
+  ⏎ send   ⇧⏎ newline   ⌃T transcript   ⌃C quit

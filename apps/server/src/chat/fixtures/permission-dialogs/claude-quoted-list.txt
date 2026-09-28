@@ -1,0 +1,8 @@
+● Would you like to proceed with one of these?
+  > 1. Keep the current schema
+  > 2. Add the scope column
+  > 3. Split the table
+────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts

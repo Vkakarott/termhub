@@ -1,0 +1,6 @@
+● I wrote the plan to docs/plan.md. Would you like to proceed?
+────────────────────────────────────────────────────────────────────────────────
+❯ 1. corrige o teste
+  2. roda a migration
+────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts

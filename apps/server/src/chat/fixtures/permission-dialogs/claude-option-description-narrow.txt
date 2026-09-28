@@ -1,0 +1,10 @@
+────────────────────────────────────────
+ Enter plan mode?
+ Claude wants to enter plan mode to
+ explore and design an implementation
+ approach.
+ ❯ 1. Yes, enter plan mode
+      Claude will explore the codebase
+      and present a plan for your
+      approval.
+   2. No, start implementing now

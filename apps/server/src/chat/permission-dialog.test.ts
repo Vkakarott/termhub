@@ -10,12 +10,13 @@ describe('permissionDialogVisible', () => {
   it.each([
     'claude-edit.txt', 'claude-webfetch.txt', 'claude-network.txt', 'claude-exit-plan.txt', 'claude-enter-plan.txt', 'claude-skill.txt',
     'claude-reads-outside.txt', 'claude-trust.txt', 'codex-command.txt', 'codex-edits.txt', 'codex-permissions.txt', 'codex-network.txt',
-    'codex-long-command.txt',
+    'codex-long-command.txt', 'claude-cursor-last-option.txt', 'claude-option-description.txt',
+    'codex-echo-above-dialog.txt', 'claude-option-description-narrow.txt', 'claude-cursor-last-option-narrow.txt',
   ])('sees %s', (f) => expect(permissionDialogVisible(fx(f))).toBe(true));
-  it.each(['claude-prompt.txt', 'claude-exit-menu.txt', 'claude-prose-question.txt', 'claude-cursor-above-marker.txt', 'claude-resume-list.txt'])(
-    'ignores %s',
-    (f) => expect(permissionDialogVisible(fx(f))).toBe(false),
-  );
+  it.each([
+    'claude-prompt.txt', 'claude-exit-menu.txt', 'claude-prose-question.txt', 'claude-cursor-above-marker.txt', 'claude-resume-list.txt',
+    'claude-typed-numbered-prompt.txt', 'claude-typed-numbered-list.txt', 'claude-quoted-list.txt', 'codex-typed-numbered-prompt.txt',
+  ])('ignores %s', (f) => expect(permissionDialogVisible(fx(f))).toBe(false));
   it('ignores a dialog that scrolled away', () => {
     const filler = Array.from({ length: 30 }, (_, i) => `● line ${i}`).join('\n');
     expect(permissionDialogVisible(`${fx('claude-exit-plan.txt')}\n${filler}\n${fx('claude-prompt.txt')}`)).toBe(false);
@@ -33,6 +34,31 @@ describe('permissionDialogVisible', () => {
           ' ❯ 1. Yes, keep allowing reads outside the working directories',
           '   2. No, block reads outside the working directories from now on',
           '   3. No, ask again next time',
+        ].join('\n'),
+      ),
+    ).toBe(true));
+  it('sees a menu whose middle option wraps over 10 continuation rows in a very narrow pane (TER-380 fix round 2)', () =>
+    expect(
+      permissionDialogVisible(
+        [
+          '────────────────────────────────────────',
+          ' Bash command',
+          '   rm -rf dist',
+          ' Do you want to proceed?',
+          '   1. Yes',
+          "   2. Yes, and don't ask again for rm",
+          '      commands in',
+          '      /home/dev/project/some/very/long',
+          '      /path/that/keeps/wrapping/in/a',
+          '      narrow/pane/that/keeps/going',
+          '      and/going/and/going/some/more',
+          '      even/further/down/the/tree',
+          '      still/not/done/wrapping/here',
+          '      almost/at/the/end/of/the/path',
+          '      just/one/more/segment/to/go',
+          '      finally/the/last/continuation',
+          ' ❯ 3. No, and tell Claude what to do',
+          '      differently (esc)',
         ].join('\n'),
       ),
     ).toBe(true));
