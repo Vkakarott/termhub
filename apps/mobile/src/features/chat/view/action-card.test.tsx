@@ -83,11 +83,11 @@ describe('ActionCard: "Liberar teclas e shell nesta aba" / "Liberar tudo neste p
     expect(screen.queryByRole('button', { name: 'Liberar tudo neste projeto' })).toBeNull();
   });
 
-  it('shows a terminal tab grant as "Teclas e shell liberados até HH:MM", a narrow one as "Permitido até HH:MM"', async () => {
+  it('shows a terminal tab grant as "Teclas e shell liberados nesta aba até HH:MM", a narrow one as "Permitido até HH:MM"', async () => {
     const grant = { id: 'g1', tab_id: 't-api', tool: 'terminal', source_action_id: 'a1', created_at: new Date().toISOString(), expires_at: '2099-01-01T00:00:00.000Z', tab_name: 'api' };
     const executed = { ...SEND_KEY, status: 'executed' as const };
     await render(<ActionCard action={executed} busy={false} onDecide={jest.fn()} grant={grant} revoking={false} onRevoke={jest.fn()} />);
-    expect(screen.getByText(/^Teclas e shell liberados até/)).toBeTruthy();
+    expect(screen.getByText(/^Teclas e shell liberados nesta aba até/)).toBeTruthy();
     await render(<ActionCard action={executed} busy={false} onDecide={jest.fn()} grant={{ ...grant, tool: 'send_input' }} revoking={false} onRevoke={jest.fn()} />);
     expect(screen.getByText(/^Permitido até/)).toBeTruthy();
   });

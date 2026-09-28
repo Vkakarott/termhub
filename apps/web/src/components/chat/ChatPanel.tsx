@@ -281,7 +281,7 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       } else if (e.type === 'decision') {
         // Someone answered — possibly in another open tab. Keyed on the action id alone.
         setActions((prev) => prev.map((a) => (a.id === e.action_id ? { ...a, status: e.status } : a)));
-      } else if (e.type === 'grant') setGrants((prev) => [...prev.filter((g) => g.id !== e.grant.id && g.tab_id !== e.grant.tab_id), e.grant]);
+      } else if (e.type === 'grant') setGrants((prev) => [...prev.filter((g) => g.id !== e.grant.id && !(g.tab_id === e.grant.tab_id && g.tool === e.grant.tool)), e.grant]);
       else if (e.type === 'grant_revoked') setGrants((prev) => prev.filter((g) => g.id !== e.grant_id));
       else if (e.type === 'project_grant') setProjectGrants((prev) => [...prev.filter((g) => g.id !== e.grant.id && g.project_id !== e.grant.project_id), e.grant]);
       else if (e.type === 'project_grant_revoked') setProjectGrants((prev) => prev.filter((g) => g.id !== e.grant_id));
@@ -319,8 +319,9 @@ export function ChatPanel({ projectId }: { projectId: string | null }) {
       // its status is applied, keeping the card's already-known summary and other fields as they are.
       setActions((prev) => prev.map((a) => (a.id === id ? { ...a, status: res.action.status } : a)));
       if (res.queued && res.note) setQueuedNotes((prev) => ({ ...prev, [id]: res.note! }));
-      // A re-grant for the same tab replaces the older one, as on the server.
-      if (res.grant) setGrants((prev) => [...prev.filter((g) => g.id !== res.grant!.id && g.tab_id !== res.grant!.tab_id), res.grant!]);
+      // A re-grant for the same tab and tool replaces the older one, as on the server (a narrow grant
+      // never drops an active terminal one; widening revokes the narrow one via `grant_revoked`).
+      if (res.grant) setGrants((prev) => [...prev.filter((g) => g.id !== res.grant!.id && !(g.tab_id === res.grant!.tab_id && g.tool === res.grant!.tool)), res.grant!]);
       // A re-grant for the same project replaces the older one, as on the server.
       if (res.project_grant) setProjectGrants((prev) => [...prev.filter((g) => g.id !== res.project_grant!.id && g.project_id !== res.project_grant!.project_id), res.project_grant!]);
     } catch (e) {

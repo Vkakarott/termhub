@@ -143,6 +143,13 @@ describe('terminal grants in the gate', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it('the 120th terminal call in an hour still runs', async () => {
+    seedTabGrant('t1');
+    for (let i = 0; i < 119; i++) actions.rows.push(fakeRow({ grant_id: 'tg1', tool: 'send_key' }));
+    expect(await call('send_key', { tab_id: 't1', key: 'Enter' })).toMatchObject({ ok: true });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it('a project "tudo" grant covers the project tabs only (Review Focus 3)', async () => {
     seedProjectGrant('p1', 'all');
     expect(await call('send_key', { tab_id: 't1', key: 'Escape' })).toMatchObject({ ok: true });

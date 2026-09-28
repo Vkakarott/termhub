@@ -143,7 +143,8 @@ export function applyEvent(slice: EventSlice, e: ChatEvent): EventSlice {
       return actions === slice.actions ? slice : { ...slice, actions };
     }
     case 'grant':
-      return { ...slice, grants: [...slice.grants.filter((g) => g.id !== e.grant.id && g.tab_id !== e.grant.tab_id), e.grant] };
+      // One active grant per (tab, tool), as on the server: a narrow grant never drops a terminal one.
+      return { ...slice, grants: [...slice.grants.filter((g) => g.id !== e.grant.id && !(g.tab_id === e.grant.tab_id && g.tool === e.grant.tool)), e.grant] };
     case 'grant_revoked':
       return { ...slice, grants: slice.grants.filter((g) => g.id !== e.grant_id) };
     case 'project_grant':

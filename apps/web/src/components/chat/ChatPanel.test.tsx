@@ -534,6 +534,41 @@ it('a grant event adds to the header count, a grant_revoked removes it, a grante
   await waitFor(() => expect(screen.queryByRole('link', { name: '1 permissão ativa' })).toBeNull());
 });
 
+it('a narrow grant event for a tab keeps its active terminal grant; a same-tool grant event replaces', async () => {
+  let onEvent!: (e: unknown) => void;
+  streamMock.mockImplementation((_reload: unknown, cb: (e: unknown) => void) => {
+    onEvent = cb;
+    return { connected: true };
+  });
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [], host: READY, grants: [grant({ id: 'gt', tool: 'terminal' })] });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole('link', { name: '1 permissão ativa' })).toBeInTheDocument();
+
+  onEvent({ type: 'grant', conversation_id: 'c_p1', grant: grant({ id: 'gn', tool: 'send_key' }) });
+  expect(await screen.findByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+
+  onEvent({ type: 'grant', conversation_id: 'c_p1', grant: grant({ id: 'gt2', tool: 'terminal' }) });
+  await waitFor(() => expect(screen.queryByRole('link', { name: '3 permissões ativas' })).toBeNull());
+  expect(screen.getByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+});
+
+it('a narrow grant from a decision keeps the active terminal grant of the same tab', async () => {
+  chatMock.mockResolvedValue({ conversation: { id: 'c_p1', project_id: 'p1', ai_account_id: null }, messages: [], actions: [action({ id: 'a1' })], host: READY, grants: [grant({ id: 'gt', tool: 'terminal' })] });
+  decideMock.mockResolvedValue({ action: { id: 'a1', status: 'approved' }, grant: grant({ id: 'gn' }) });
+  render(
+    <MemoryRouter>
+      <ChatPanel projectId="p1" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Permitir sempre nesta aba' }));
+  await waitFor(() => expect(decideMock).toHaveBeenCalledWith('a1', 'approve_tab'));
+  expect(await screen.findByRole('link', { name: '2 permissões ativas' })).toBeInTheDocument();
+});
+
 const question = (over: Partial<TabQuestion> & { id: string }): TabQuestion =>
   ({ tab_id: 't1', tab_name: 'api', kind: 'permission', payload: { tool_name: 'Bash' }, answer: null, status: 'open', error_code: null, created_at: '2026-09-21T00:00:00.000Z', answered_at: null, closed_at: null, ...over }) as TabQuestion;
 

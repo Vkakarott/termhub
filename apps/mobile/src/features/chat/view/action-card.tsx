@@ -72,7 +72,7 @@ export const ActionCard = memo(function ActionCard({ action, busy, onDecide, gra
       )}
       {grant ? (
         <View className="flex-row items-center justify-between gap-2">
-          <AppText variant="muted" className="flex-1">{`${grant.tool === 'terminal' ? 'Teclas e shell liberados ' : 'Permitido '}${untilLabel(grant.expires_at)}`}</AppText>
+          <AppText variant="muted" className="flex-1">{`${grant.tool === 'terminal' ? 'Teclas e shell liberados nesta aba ' : 'Permitido '}${untilLabel(grant.expires_at)}`}</AppText>
           <Button label="Revogar" variant="ghost" onPress={() => onRevoke(grant.id)} disabled={revoking} />
         </View>
       ) : null}

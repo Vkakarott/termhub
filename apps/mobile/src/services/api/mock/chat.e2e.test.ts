@@ -463,7 +463,7 @@ it('approve_project on a tool outside the board set, or with no resolvable proje
 });
 
 /** A pending card in the termhub conversation, seeded through the mock's test control. */
-function seedCard(transport: ReturnType<typeof makeApi>['transport'], id: string, patch: { tool: string; args: Record<string, unknown>; tab_id: string | null }) {
+function seedCard(transport: ReturnType<typeof makeApi>['transport'], id: string, patch: { tool: string; args: Record<string, unknown>; tab_id: string | null; project_id?: string | null }) {
   transport.controls.seedAction({
     id,
     conversation_id: 'c-termhub',
@@ -556,6 +556,65 @@ it.each([
   expect(grants).toEqual([expect.objectContaining({ kind: 'project', scope: 'all', project_name: 'termhub' })]);
 
   collected.close();
+});
+
+it('a tab keeps one grant per tool: a narrow grant leaves the terminal one, widening revokes the narrow one with grant_revoked (TER-325)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  const decide = async (id: string, decision: 'approve_tab' | 'approve_tab_terminal') => {
+    const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: id });
+    await api.decide(auth, id, { decision, challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, id, decision) });
+  };
+
+  seedCard(transport, 'a-key1', { tool: 'send_key', args: { tab_id: 't-api', key: '1' }, tab_id: 't-api' });
+  await decide('a-key1', 'approve_tab_terminal');
+  seedCard(transport, 'a-text1', { tool: 'send_input', args: { tab_id: 't-api', text: 'ls' }, tab_id: 't-api' });
+  await decide('a-text1', 'approve_tab');
+  let chat = await api.chat(auth, 'p-termhub');
+  expect(chat.grants.map((g) => [g.tool, g.source_action_id])).toEqual([
+    ['terminal', 'a-key1'],
+    ['send_input', 'a-text1'],
+  ]);
+
+  // A same-tool re-grant replaces the older one.
+  seedCard(transport, 'a-text2', { tool: 'send_input', args: { tab_id: 't-api', text: 'pwd' }, tab_id: 't-api' });
+  await decide('a-text2', 'approve_tab');
+  chat = await api.chat(auth, 'p-termhub');
+  expect(chat.grants.map((g) => [g.tool, g.source_action_id])).toEqual([
+    ['terminal', 'a-key1'],
+    ['send_input', 'a-text2'],
+  ]);
+  const narrowId = chat.grants[1]!.id;
+
+  // Widening revokes the narrow grant and screens hear it.
+  seedCard(transport, 'a-key2', { tool: 'send_key', args: { tab_id: 't-api', key: 'Enter' }, tab_id: 't-api' });
+  await decide('a-key2', 'approve_tab_terminal');
+  chat = await api.chat(auth, 'p-termhub');
+  expect(chat.grants.map((g) => [g.tool, g.source_action_id])).toEqual([['terminal', 'a-key2']]);
+  expect(collected.events.filter((e) => e.type === 'grant_revoked')).toEqual([expect.objectContaining({ grant_id: narrowId })]);
+
+  collected.close();
+});
+
+it('approve_project_all on a terminal card resolves the project through its tab, not the row (TER-325)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+  const decideAll = async (id: string) => {
+    const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: id });
+    return api.decide(auth, id, { decision: 'approve_project_all', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, id, 'approve_project_all') });
+  };
+
+  // A real send_key row carries no project: the tab's project is the one trusted.
+  seedCard(transport, 'a-key', { tool: 'send_key', args: { tab_id: 't-api', key: '1' }, tab_id: 't-api', project_id: null });
+  await decideAll('a-key');
+  expect((await api.chat(auth, 'p-termhub')).project_grants).toEqual([expect.objectContaining({ project_id: 'p-termhub', scope: 'all', source_action_id: 'a-key' })]);
+
+  // A tab the mock does not know resolves no project, even when the row names one.
+  seedCard(transport, 'a-gone', { tool: 'send_input', args: { tab_id: 't-gone', text: 'ls' }, tab_id: 't-gone', project_id: 'p-termhub' });
+  await expect(decideAll('a-gone')).rejects.toMatchObject({ status: 400, code: 'GRANT_NOT_ALLOWED' });
 });
 
 it('reset archives the conversation: chat() afterwards has no messages and a new conversation id', async () => {
