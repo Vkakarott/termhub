@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { activeGrantsLabel, endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTabLabel, grantTitleLabel } from './grant-list-text';
+import { activeGrantsLabel, endedAtLabel, GRANT_STATE_LABEL, grantOriginLabel, grantTabLabel, grantTitleLabel, STANDING_KIND_LABEL, standingKindLabel } from './grant-list-text';
 
 it('counts active grants in pt-BR', () => {
   expect(activeGrantsLabel(1)).toBe('1 permissão ativa');
@@ -25,4 +25,13 @@ it('names the terminal level on a tab row, and the "tudo" scope on a project row
   expect(grantTitleLabel({ kind: 'tab', tab_name: 'api', tool: 'terminal' })).toBe('Aba api · teclas e shell');
   expect(grantTitleLabel({ kind: 'project', project_name: 'X', scope: 'all' })).toBe('Tudo no projeto X');
   expect(grantTitleLabel({ kind: 'project', project_name: 'X', scope: 'board' })).toBe('Quadro do projeto X');
+});
+it('names every standing kind, lower-case and capitalised', () => {
+  expect(STANDING_KIND_LABEL).toEqual({ open_tab: 'abrir abas', close_tab: 'fechar abas paradas', start_agent: 'iniciar agentes', board: 'mexer no quadro', terminal: 'teclas e texto nas abas' });
+  expect(standingKindLabel('close_tab')).toBe('Fechar abas paradas');
+  expect(standingKindLabel('terminal')).toBe('Teclas e texto nas abas');
+});
+it('titles a standing row by its kind and project, or says the project is gone', () => {
+  expect(grantTitleLabel({ kind: 'standing', standing_kind: 'open_tab', project_name: 'App' })).toBe('Abrir abas no projeto App · sem prazo');
+  expect(grantTitleLabel({ kind: 'standing', standing_kind: 'board', project_name: null })).toBe('Projeto que não existe mais');
 });

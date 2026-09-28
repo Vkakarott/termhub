@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatActionCard } from './ChatActionCard';
-import type { ChatAction, ChatGrant } from '../../lib/types';
+import type { ChatAction, ChatGrant, ChatStandingGrant } from '../../lib/types';
 
 afterEach(() => cleanup());
 
@@ -125,4 +125,48 @@ it('names the subagent that proposed the action', () => {
 it('no origin line without a subagent', () => {
   render(<ChatActionCard action={base} deciding={false} onDecide={vi.fn()} />);
   expect(screen.queryByText(/Pedido pelo subagente/)).toBeNull();
+});
+
+describe('"Liberar sem prazo" (TER-386)', () => {
+  it.each([
+    ['open_tab', card({ tool: 'open_tab', args: { project_id: 'p1' }, tab_id: null, project_id: 'p1' }), 'abrir abas'],
+    ['close_tab', card({ tool: 'close_tab', args: { tab_id: 't1' }, tab_id: 't1', project_id: 'p1' }), 'fechar abas paradas'],
+    ['start_agent', card({ tool: 'start_agent', args: { project_id: 'p1' }, tab_id: null, project_id: 'p1' }), 'iniciar agentes'],
+    ['a board tool', card({ tool: 'move_task', args: { task_id: 'k1' }, tab_id: null }), 'mexer no quadro'],
+    ['send_key', card({ tool: 'send_key', args: { tab_id: 't1', key: 'Enter' } }), 'teclas e texto nas abas'],
+  ])('a pending %s card offers it with its label and sends approve_project_always', (_l, action, label) => {
+    const onDecide = vi.fn();
+    render(<ChatActionCard action={action} deciding={false} onDecide={onDecide} />);
+    fireEvent.click(screen.getByRole('button', { name: `Liberar sem prazo: ${label} neste projeto` }));
+    expect(onDecide).toHaveBeenCalledWith('a1', 'approve_project_always');
+  });
+  it.each([
+    ['delete_task', card({ tool: 'delete_task', args: { task_id: 'k1' }, class: 'irreversible', project_id: 'p1' })],
+    ['run_command', card({ tool: 'run_command', args: { tab_id: 't1', command: 'ls' } })],
+    ['open_tab without a project', card({ tool: 'open_tab', args: {}, tab_id: null, project_id: null })],
+    ['a send_input answering a permission', card({ args: { tab_id: 't1', text: '1', answering_permission: true } })],
+  ])('is not offered for %s', (_l, action) => {
+    render(<ChatActionCard action={action} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /^Liberar sem prazo/ })).toBeNull();
+  });
+  it('is not offered once decided', () => {
+    render(<ChatActionCard action={card({ tool: 'close_tab', args: { tab_id: 't1' }, status: 'executed' })} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /^Liberar sem prazo/ })).toBeNull();
+  });
+  it('the card that created a standing grant says so, with Revogar', () => {
+    const onRevoke = vi.fn();
+    const sg: ChatStandingGrant = { id: 'sg1', project_id: 'p1', project_name: 'App', kind: 'close_tab', source_action_id: 'a1', created_at: 'x' };
+    render(<ChatActionCard action={card({ tool: 'close_tab', args: { tab_id: 't1' }, status: 'executed' })} standingGrant={sg} deciding={false} onDecide={vi.fn()} onRevoke={onRevoke} />);
+    expect(screen.getByText('Fechar abas paradas liberado neste projeto, sem prazo')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Revogar' }));
+    expect(onRevoke).toHaveBeenCalledWith('sg1');
+  });
+  it.each(['open_tab', 'close_tab', 'start_agent'])('a %s run under a grant reads "liberado no projeto"', (tool) => {
+    render(<ChatActionCard action={card({ tool, args: {}, status: 'executed', grant_id: 'sg1' })} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.getByText('Executado · liberado no projeto')).toBeInTheDocument();
+  });
+  it('a send_key run under a grant still reads "aba confiada"', () => {
+    render(<ChatActionCard action={card({ tool: 'send_key', args: { tab_id: 't1', key: 'Enter' }, status: 'executed', grant_id: 'sg1' })} deciding={false} onDecide={vi.fn()} />);
+    expect(screen.getByText('Executado · aba confiada')).toBeInTheDocument();
+  });
 });
