@@ -84,6 +84,10 @@ export function promptVisible(screen: string, row: Pick<TabQuestion, 'kind' | 'p
   return shown.includes(squash('Do you want'));
 }
 
+/** Whether the screen shows a Claude Code permission dialog right now — `promptVisible`'s rule for a
+ * `permission` row, without a row. Used by the gate before a terminal grant presses a key (TER-325). */
+export const permissionDialogVisible = (screen: string): boolean => promptVisible(screen, { kind: 'permission', payload: { tool_name: '' } });
+
 export const asHttp = (err: unknown): unknown => (err instanceof ControlError ? new HttpError(409, err.message, err.code) : err);
 export const codeOf = (err: unknown, fallback = 'SEND_FAILED'): string => (err instanceof ControlError || err instanceof HttpError ? (err.code ?? fallback) : fallback);
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
