@@ -137,6 +137,28 @@ it('narrow window: full screen, no separator and no maximize, body locked while 
   expect(document.body.classList.contains('chat-locked')).toBe(false);
 });
 
+it('wide window (an iPad): tracks the height the keyboard leaves while a chat is shown, without locking the body', () => {
+  // On iPadOS the keyboard only shrinks the visual viewport; the row this chat sits in (Layout) is
+  // sized from `--app-height`, so the composer stays above the keyboard instead of Safari scrolling a
+  // screen-tall page under it (TER-313).
+  const visualViewport = { height: 500, scale: 1, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+  Object.defineProperty(window, 'visualViewport', { value: visualViewport, configurable: true });
+  try {
+    chat.alive = ['p1'];
+    chat.shownProjectId = 'p1';
+    chat.prefs = { p1: open() };
+    const { rerender } = renderDock();
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('500px');
+    // `chat-locked` brings `touch-action: pan-y`, which would stop the board's sideways scroll beside it.
+    expect(document.body.classList.contains('chat-locked')).toBe(false);
+    chat.shownProjectId = null;
+    rerender(<MemoryRouter><ChatDock /></MemoryRouter>);
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('');
+  } finally {
+    delete (window as { visualViewport?: unknown }).visualViewport;
+  }
+});
+
 it('Escape does not close the docked chat', () => {
   chat.alive = ['p1'];
   chat.shownProjectId = 'p1';
