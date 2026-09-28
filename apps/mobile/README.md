@@ -105,6 +105,12 @@ Prerequisites on the Mac: Xcode, CocoaPods, Node 22, and an Apple ID of team **8
 
 Push to real devices is not wired yet (the app registers only the mock push token); when it is, the APNs key it needs is set up then.
 
+## Firebase
+
+Both apps (`dev.termhub.app`) are registered in the Firebase project `apptermhub`; `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) are committed next to `app.json` (they identify the app, they are not secrets). `@react-native-firebase/app` and `@react-native-firebase/analytics` are installed for Firebase App Distribution and Analytics: `src/services/analytics.ts` logs a `screen_view` per expo-router route pattern (`/chat/[id]`, never the resolved id).
+
+On iOS, the Firebase pods are resolved through CocoaPods (`disableSPM`), which needs static frameworks: `expo-build-properties` sets `ios.useFrameworks: "static"` for every pod. Analytics is built without the AdSupport framework (`withoutAdIdSupport`), so the app never touches the IDFA and needs no App Tracking Transparency prompt.
+
 ## Manual checklist (design spec §10)
 
 Everything below is automated except this: run it by hand, on a development build, before trusting a change that touches enrolment, the PIN, biometrics or the key.

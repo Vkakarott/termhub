@@ -1,5 +1,5 @@
 import '../global.css';
-import { Stack, useRouter, type Href } from 'expo-router';
+import { Stack, useRouter, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { AppState, Linking } from 'react-native';
@@ -7,6 +7,7 @@ import { PinPromptSheet } from '@/features/session/view/pin-prompt-sheet';
 import { usePhaseRedirect } from '@/features/session/view/use-phase-redirect';
 import { useSessionStore } from '@/features/session/viewmodel/useSessionStore';
 import { appBackgrounded } from '@/features/shared/signals';
+import { logScreen } from '@/services/analytics';
 import { socketWake } from '@/services/api/wake';
 import { ThemeProvider, useSchemeName } from '@/ui/theme-provider';
 
@@ -32,7 +33,14 @@ function chatIdFromUrl(url: string): string | null {
 function Navigator() {
   const scheme = useSchemeName();
   const router = useRouter();
+  const segments = useSegments();
   usePhaseRedirect();
+
+  // The route pattern (`/chat/[id]`), never the resolved path: ids stay out of analytics.
+  const route = `/${segments.join('/')}`;
+  useEffect(() => {
+    logScreen(route);
+  }, [route]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "863778957053",
+    "project_id": "apptermhub",
+    "storage_bucket": "apptermhub.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:863778957053:android:52934d5fd88b7859aac094",
+        "android_client_info": {
+          "package_name": "dev.termhub.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD1C-yBAHzS8RfYtBtHiteCRLmeydFNDnw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
