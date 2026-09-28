@@ -15,7 +15,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SessionState } from '@/features/session/model/session.types';
 import { appBackgrounded, sessionEnded } from '@/features/shared/signals';
-import type { TChatAttachment, TChatProjectItem, THostOptionsResponse, TTabQuestionAnswerBody } from '@/services/api/contract';
+import { STANDING_KIND_LABEL, standingKindOf, type TChatAttachment, type TChatProjectItem, type THostOptionsResponse, type TTabQuestionAnswerBody } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { randomId } from '@/services/crypto/random';
 import type { MobileApi } from '@/services/api/types';
@@ -539,8 +539,11 @@ export function createChatStore(deps: ChatDeps) {
                 await api.decide(session().auth(), actionId, { decision: 'deny' });
               } else {
                 const word = decision; // keeps the narrowed type (no 'deny') inside the closures below
-                const withPin = () => session().requestPinProof(actionId, (proof) => api.decide(session().auth(), actionId, { decision: word, ...proof }), word);
                 const card = get().conversations[key]?.actions.find((a) => a.id === actionId);
+                // "Liberar sem prazo": the PIN sheet's title is the card's button label, kind included.
+                const standingKind = word === 'approve_project_always' && card ? standingKindOf({ tool: card.tool, args: card.args, tab_id: card.tab_id, project_id: card.project_id }) : null;
+                const title = standingKind ? `Liberar sem prazo: ${STANDING_KIND_LABEL[standingKind]} neste projeto` : undefined;
+                const withPin = () => session().requestPinProof(actionId, (proof) => api.decide(session().auth(), actionId, { decision: word, ...proof }), word, title);
                 // TER-92: a write card approves with the unlocked session; the server is the judge and
                 // answers PIN_REQUIRED when it disagrees, which falls back to the sheet. A server rolled
                 // back to the old schema (no optional proof) answers VALIDATION instead: same fallback,

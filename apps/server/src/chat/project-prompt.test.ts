@@ -67,7 +67,15 @@ it('says nothing about standing grants when none are active', () => {
 it('names the active standing grants, in STANDING_GRANT_KINDS order, regardless of input order', () => {
   const text = projectSystemPrompt({ name: 'X', key: 'X' }, [], ['terminal', 'open_tab', 'board']);
   expect(text).toContain(
-    'Liberado sem confirmação neste projeto (o usuário liberou sem prazo): abrir abas, mexer no quadro, teclas e texto nas abas. As exceções de sempre continuam pedindo: delete_task, run_command, permissões, texto com "!" ou caracteres de controle, abas trabalhando.',
+    'Liberado sem confirmação neste projeto (o usuário liberou sem prazo): abrir abas, mexer no quadro, teclas e texto nas abas. As exceções de sempre continuam pedindo: delete_task, run_command, responder permissões, texto com "!" ou caracteres de controle.',
+  );
+  expect(text).not.toContain('fechar abas trabalhando');
+});
+
+it('adds the working-tab exception only when close_tab is granted', () => {
+  const text = projectSystemPrompt({ name: 'X', key: 'X' }, [], ['close_tab']);
+  expect(text).toContain(
+    'Liberado sem confirmação neste projeto (o usuário liberou sem prazo): fechar abas paradas. As exceções de sempre continuam pedindo: delete_task, run_command, responder permissões, texto com "!" ou caracteres de controle, fechar abas trabalhando.',
   );
 });
 

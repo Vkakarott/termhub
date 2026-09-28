@@ -50,8 +50,10 @@ export interface SessionState {
   mockControls: MockControls | null;
   /** The approval the PIN sheet is asking for: `decision` is the word the proof signs, and picks
    * the sheet's title ("Autorizar esta ação" / "Permitir sempre nesta aba"). `actionId` is the
-   * (first) action; `actionIds` is set only for a batch, whose title counts them ("Autorizar 2 ações"). */
-  pinPrompt: { actionId: string; actionIds?: string[]; decision: PinDecision } | null;
+   * (first) action; `actionIds` is set only for a batch, whose title counts them ("Autorizar 2 ações").
+   * `title`, when set, replaces the title the word picks: "Liberar sem prazo" names its kind there, as
+   * the card's button does ("Liberar sem prazo: fechar abas paradas neste projeto"). */
+  pinPrompt: { actionId: string; actionIds?: string[]; decision: PinDecision; title?: string } | null;
 
   /** Routes an API error that ends or locks the session (chat and notification stores call it
    * too): `DEVICE_REVOKED` wipes, `DEVICE_LOCKED` locks with the countdown, `PIN_INVALID` shows
@@ -75,11 +77,12 @@ export interface SessionState {
    * awaits `perform(proof)` with the sheet still open: `PIN_INVALID` keeps it open with the error
    * and the attempts left; `DEVICE_LOCKED` relocks (rejects `CANCELLED`); success resolves; any
    * other error closes it and rejects with that error. A cancel rejects `CANCELLED`. The proof
-   * signs `decision` (default `approve`): a proof for one decision is refused for the other. */
-  requestPinProof(actionId: string, perform: (proof: { challenge: string; pin_proof: string }) => Promise<void>, decision?: PinDecision): Promise<void>;
+   * signs `decision` (default `approve`): a proof for one decision is refused for the other. `title`
+   * overrides the sheet's title (see `pinPrompt`). */
+  requestPinProof(actionId: string, perform: (proof: { challenge: string; pin_proof: string }) => Promise<void>, decision?: PinDecision, title?: string): Promise<void>;
   /** `requestPinProof` for a batch: one PIN entry, then one decision challenge and one proof per
    * action id, and `perform(proofs)` (keyed by action id) with the sheet still open. Same outcomes. */
-  requestPinProofs(actionIds: string[], perform: (proofs: Record<string, { challenge: string; pin_proof: string }>) => Promise<void>, decision?: PinDecision): Promise<void>;
+  requestPinProofs(actionIds: string[], perform: (proofs: Record<string, { challenge: string; pin_proof: string }>) => Promise<void>, decision?: PinDecision, title?: string): Promise<void>;
   resolvePinPrompt(pin: string | 'biometrics'): Promise<void>;
   cancelPinPrompt(): void;
   /** The lock's countdown reached zero: clears `lockedUntil`, `error` and `attemptsLeft` so the

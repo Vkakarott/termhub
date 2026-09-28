@@ -11,7 +11,9 @@ const standingGrantsLine = (standing: StandingGrantKind[]): string => {
   const kinds = STANDING_GRANT_KINDS.filter((k) => active.has(k));
   if (!kinds.length) return '';
   const labels = kinds.map((k) => STANDING_KIND_LABEL[k]).join(', ');
-  return `\nLiberado sem confirmação neste projeto (o usuário liberou sem prazo): ${labels}. As exceções de sempre continuam pedindo: delete_task, run_command, permissões, texto com "!" ou caracteres de controle, abas trabalhando.`;
+  // Closing a working tab is an exception only when close_tab is granted; other kinds never close tabs.
+  const closeTab = active.has('close_tab') ? ', fechar abas trabalhando' : '';
+  return `\nLiberado sem confirmação neste projeto (o usuário liberou sem prazo): ${labels}. As exceções de sempre continuam pedindo: delete_task, run_command, responder permissões, texto com "!" ou caracteres de controle${closeTab}.`;
 };
 
 /**

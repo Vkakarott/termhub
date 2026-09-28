@@ -8,8 +8,10 @@ it('counts active grants in pt-BR', () => {
 it('names the tab, the origin and the state', () => {
   expect(grantTabLabel({ tab_name: 'api' })).toBe('Aba api');
   expect(grantTabLabel({ tab_name: null })).toBe('Aba que não existe mais');
-  expect(grantOriginLabel({ conversation_project_name: null, conversation_archived: false })).toBe('Chat geral');
-  expect(grantOriginLabel({ conversation_project_name: 'termhub', conversation_archived: true })).toBe('Chat do projeto termhub · conversa encerrada');
+  expect(grantOriginLabel({ kind: 'tab', conversation_id: 'c1', conversation_project_name: null, conversation_archived: false })).toBe('Chat geral');
+  expect(grantOriginLabel({ kind: 'project', conversation_id: 'c1', conversation_project_name: 'termhub', conversation_archived: true })).toBe('Chat do projeto termhub · conversa encerrada');
+  expect(grantOriginLabel({ kind: 'standing', conversation_id: 'c1', conversation_project_name: null, conversation_archived: false })).toBe('Chat geral');
+  expect(grantOriginLabel({ kind: 'standing', conversation_id: null, conversation_project_name: null, conversation_archived: false })).toBe('Conversa apagada');
   expect(GRANT_STATE_LABEL).toEqual({ active: 'Ativa', expired: 'Expirou', revoked: 'Revogada', ended: 'Encerrada com a conversa' });
 });
 it('formats when it ended as dd/mm/aaaa hh:mm in local time', () => {

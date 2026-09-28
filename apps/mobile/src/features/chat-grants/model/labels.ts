@@ -31,8 +31,10 @@ export const grantTitleLabel = (
   return `${grantTabLabel(g)}${g.tool === 'terminal' ? ' · teclas e shell' : ''}`;
 };
 
-/** Which conversation granted it; a reset conversation says so. */
-export function grantOriginLabel(g: Pick<ChatGrantListItem, 'conversation_project_name' | 'conversation_archived'>): string {
+/** Which conversation granted it; a reset conversation says so, and a standing grant whose granting
+ * conversation was deleted (it outlives it, `conversation_id` null) says that. */
+export function grantOriginLabel(g: Pick<ChatGrantListItem, 'kind' | 'conversation_id' | 'conversation_project_name' | 'conversation_archived'>): string {
+  if (g.kind === 'standing' && g.conversation_id === null) return 'Conversa apagada';
   const base = g.conversation_project_name ? `Chat do projeto ${g.conversation_project_name}` : 'Chat geral';
   return g.conversation_archived ? `${base} · conversa encerrada` : base;
 }

@@ -107,6 +107,6 @@ it('lists a standing grant as "sem prazo", asks for all_standing and explains bo
   render(<ChatGrantsView />);
   const active = await screen.findByRole('region', { name: 'Ativas' });
   expect(within(active).getByText('Fechar abas paradas no projeto App · sem prazo')).toBeInTheDocument();
-  expect(within(active).getByText('Chat geral · sem prazo')).toBeInTheDocument();
+  expect(within(active).getByText('Conversa apagada · sem prazo')).toBeInTheDocument();
   expect(screen.getByText('O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.')).toBeInTheDocument();
 });

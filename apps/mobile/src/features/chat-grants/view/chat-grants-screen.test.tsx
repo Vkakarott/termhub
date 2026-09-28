@@ -97,7 +97,7 @@ describe('Permissões do chat', () => {
     const revoke = jest.spyOn(stores.api, 'revokeGrant').mockResolvedValue(undefined);
     await render(<ChatGrantsScreen />);
     expect(await screen.findByText('Fechar abas paradas no projeto termhub · sem prazo', undefined, LOAD)).toBeTruthy();
-    expect(screen.getByText('Chat geral · sem prazo')).toBeTruthy();
+    expect(screen.getByText('Conversa apagada · sem prazo')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Revogar' }));
     expect(revoke).toHaveBeenCalledWith(expect.anything(), 'sg1');
     await waitFor(() => expect(stores.chatGrants.getState()).toMatchObject({ revokingId: null, loading: false }), LOAD);

@@ -489,7 +489,8 @@ it("decide(id, 'approve_project_always') asks the PIN for that word and, once re
   const { chat, store } = await setup();
   await openAndConnect(chat, 'p-termhub');
   const deciding = chat.getState().decide('a-termhub-2', 'approve_project_always');
-  expect(store.getState().pinPrompt).toEqual({ actionId: 'a-termhub-2', decision: 'approve_project_always' });
+  // The sheet's title is the card's button label, kind included (a move_task card is "mexer no quadro").
+  expect(store.getState().pinPrompt).toEqual({ actionId: 'a-termhub-2', decision: 'approve_project_always', title: 'Liberar sem prazo: mexer no quadro neste projeto' });
   await store.getState().resolvePinPrompt(PIN);
   await deciding;
   await jest.advanceTimersByTimeAsync(0); // the re-read

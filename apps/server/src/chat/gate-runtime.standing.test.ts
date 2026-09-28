@@ -95,6 +95,7 @@ beforeEach(() => {
     tasks: { findByIdsForOwner: vi.fn(async (ids: string[], o: string) => (o === 'u1' ? ids.filter((i) => i === 'k1').map((id) => ({ id, project_id: 'p1', ref: 'APP-1', title: 't' })) : [])) },
     tabs: { findByIdsForOwner: tabsFind },
     machines: { findByIdsForOwner: vi.fn(async () => []) },
+    integrations: { list: vi.fn(async () => []) },
   };
   ctx = { repos, scope: { user: { id: 'u1' }, ownerId: 'u1' } } as unknown as ControlContext;
 });
@@ -159,6 +160,10 @@ describe('standing grants in the gate', () => {
     ['delete_task', { task_id: 'k1' }],
     ['run_command', { tab_id: 't1', command: 'ls' }],
     ['push_ticket_status', { project_id: 'p1', task_id: 'k1' }],
+    ['create_integration', { provider: 'github', name: 'gh', secret_from: { machine_id: 'm1', source: 'gh_auth_token' } }],
+    ['set_project_repo', { project_id: 'p1', integration_id: 'i1', full_name: 'org/repo' }],
+    ['link_project_machine', { project_id: 'p1', machine_id: 'm2', cwd: '/srv/app' }],
+    ['sync_tickets', { project_id: 'p1' }],
   ])('%s asks even with every kind granted', async (tool, args) => {
     STANDING_GRANT_KINDS.forEach((kind, i) => seedStanding(kind, { id: `sg${i + 1}` }));
     await expectAsks(tool, args);
