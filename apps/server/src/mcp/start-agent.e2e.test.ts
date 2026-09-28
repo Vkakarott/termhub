@@ -253,8 +253,8 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
       expect(apiTokens.create).toHaveBeenCalledWith('u1', expect.objectContaining({ tabId: out.tab_id }), expect.any(String));
 
       const flat = await screenWith(app, out.tab_id, 'fake-cli toklen=');
-      expect(flat).toContain(`fake-cli argv=[--mcp-config ${dir}/mcp.json --allowedTools mcp__termhub_tab__search_memory mcp__termhub_tab__record_lesson -- ${prompt}]`);
-      expect(flat).toContain(`fake-cli last=[${prompt}]`);
+      expect(flat).toContain(`fake-cli argv=[--mcp-config ${dir}/mcp.json --allowedTools mcp__termhub_tab__search_memory mcp__termhub_tab__record_lesson -- ${flatten(withLessonsReminder(prompt))}]`);
+      expect(flat).toContain(`fake-cli last=[${flatten(withLessonsReminder(prompt))}]`);
       // the pane shows the typed line too: the token is in neither
       expect(flat).not.toContain(token);
       expect(JSON.stringify(out)).not.toContain(token);
@@ -271,7 +271,7 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
 
       const flat = await screenWith(app, out.tab_id, 'fake-cli toklen=');
       expect(flat).toContain('fake-cli toklen=0');
-      expect(flat).toContain('fake-cli argv=[arrume o teste]');
+      expect(flat).toContain(`fake-cli argv=[${flatten(withLessonsReminder('arrume o teste'))}]`);
     }, 30_000);
   });
 
