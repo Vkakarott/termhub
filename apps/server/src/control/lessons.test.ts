@@ -145,6 +145,13 @@ describe('recordLesson', () => {
     expect(r.ref).toBe('lesson:m9');
   });
 
+  it('without explicit deps (the MCP path), indexes with the context\'s request logger, never console', async () => {
+    const { ctx } = ctxFor();
+    const log = { info: vi.fn(), warn: vi.fn() };
+    await recordLesson({ ...ctx, log }, validInput);
+    expect(indexProjectNote).toHaveBeenCalledWith(ctx.repos, 'p1', expect.objectContaining({ log }));
+  });
+
   it('succeeds with ref: null when the freshly indexed item cannot be found', async () => {
     const { ctx } = ctxFor({ lessons: [] });
     const r = await recordLesson(ctx, validInput, { embedder: null, log: console });

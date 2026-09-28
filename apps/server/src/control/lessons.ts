@@ -86,7 +86,9 @@ export async function recordLesson(ctx: ControlContext, a: RecordLessonInput, de
     throw err;
   }
 
-  const { embedder, log } = deps ?? { embedder: defaultEmbedder(), log: console };
+  // The MCP path passes no `deps`: the request's logger (`ctx.log`) and the default embedder, like the
+  // notes route; `console` only for a context built without one (a script, a test).
+  const { embedder, log } = deps ?? { embedder: defaultEmbedder(), log: ctx.log ?? console };
   await indexProjectNote(ctx.repos, project.id, { embedder, log });
 
   const sourceId = `note:${project.id}:${lessonId}`;

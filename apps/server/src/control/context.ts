@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import type { Repositories } from '../db/repositories/index.js';
 import type { User } from '../db/repositories/types.js';
 import type { ApiTokenScope } from '../auth/api-tokens.js';
@@ -17,6 +17,9 @@ export interface ControlContext {
   token?: { id: string; scopes: readonly ApiTokenScope[]; gated?: boolean };
   /** The chat-files store, for `read_attachment`; set by the MCP route, absent for web-session contexts. */
   attachments?: AttachmentStore;
+  /** The request's logger, set by the MCP route: best-effort work a tool fires (e.g. `record_lesson`'s
+   *  note re-index) logs through it — ids and codes only — instead of falling back to `console`. */
+  log?: Pick<FastifyBaseLogger, 'info' | 'warn'>;
 }
 
 /** A user's own scope — never "view as", even for admins (API tokens act as their owner only). */
