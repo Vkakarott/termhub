@@ -86,7 +86,7 @@ export type HostProblem = Exclude<HostChoice, { kind: 'ready' }>;
  * list is owner-scoped in SQL, so a chosen id that belongs to someone else is simply not in it. That
  * is what makes `ready` unreachable for a machine the user does not own.
  */
-export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string; runSessionId?: string | null } = {}): Promise<HostChoice> {
+export async function resolveHost(ctx: HostContext, user: User, opts: { requires?: string; runSessionId?: string | null; wait?: boolean } = {}): Promise<HostChoice> {
   const [conversation, machines] = await Promise.all([ctx.repos.chat.getOrCreateForUser(user.id), ctx.repos.machines.list(user.id)]);
   const candidates = machines.filter((m) => m.type === 'agent');
   if (candidates.length === 0) return { kind: 'no_machine' };
@@ -107,8 +107,10 @@ export async function resolveHost(ctx: HostContext, user: User, opts: { requires
   const machine = chosen ?? (candidates.length === 1 ? candidates[0] : undefined);
   if (!machine) return { kind: 'not_chosen', machines: candidates, sessionAtStake };
 
-  // a host moving between instances (a deploy) gets a few seconds before the message is answered "offline"
-  await ctx.agents.awaitAgent(machine);
+  // A host moving between instances (a deploy) gets a few seconds before a message about to be sent
+  // is answered "offline". Only such a caller waits (`wait`): a read of the screen, or a sweep over
+  // many rows, answers with what is connected now instead of stalling on a laptop that went to sleep.
+  if (opts.wait) await ctx.agents.awaitAgent(machine);
   const capabilities = ctx.agents.capabilities(machine.id);
   // Offline, or connected but still before `hello`: the same thing to a message that has to be sent
   // now. Never a fallback to the operator's container (spec §3) — that would spend the operator's

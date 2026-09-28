@@ -277,7 +277,7 @@ it('waits for a moving agent (a deploy) before reading capabilities, and reports
     return true;
   });
 
-  const choice = await resolveHost(ctx, user);
+  const choice = await resolveHost(ctx, user, { wait: true });
 
   expect(choice.kind).toBe('ready');
   expect(agents.awaitAgent).toHaveBeenCalledWith(moving);
@@ -288,6 +288,14 @@ it('answers offline when the awaited agent never attaches in time', async () => 
   const { ctx, agents } = build({ machines: [moving], online: {} });
   agents.awaitAgent.mockResolvedValue(false);
 
-  expect(await resolveHost(ctx, user)).toEqual({ kind: 'offline', machine: moving });
+  expect(await resolveHost(ctx, user, { wait: true })).toEqual({ kind: 'offline', machine: moving });
   expect(agents.awaitAgent).toHaveBeenCalledWith(moving);
+});
+
+it('never waits for a moving agent unless asked to: a read of the screen answers at once', async () => {
+  const moving = machine('m1', 'jarvis');
+  const { ctx, agents } = build({ machines: [moving], online: {} });
+
+  expect(await resolveHost(ctx, user)).toEqual({ kind: 'offline', machine: moving });
+  expect(agents.awaitAgent).not.toHaveBeenCalled();
 });

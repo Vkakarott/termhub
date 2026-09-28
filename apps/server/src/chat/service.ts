@@ -333,11 +333,13 @@ export class ChatService {
   /** The host as seen by one run conversation: the account-wide row's machine and account, the extra
    * capability a project chat needs, and whether *this* conversation's session is at stake (spec §4.2 —
    * the conversation that owns the host is taken separately from the one being run). `null` is the
-   * account-wide conversation, whose session `resolveHost` reads itself. */
-  private hostForConversation(user: User, conversation: ChatConversation | null): Promise<HostChoice> {
+   * account-wide conversation, whose session `resolveHost` reads itself. `wait` is for a caller about
+   * to send or run now: it gives a host moving between instances (a deploy) a few seconds to attach. */
+  private hostForConversation(user: User, conversation: ChatConversation | null, opts: { wait?: boolean } = {}): Promise<HostChoice> {
     const ctx = { repos: this.deps.repos, agents: this.deps.agents };
-    if (conversation === null || conversation.project_id === null) return resolveHost(ctx, user, conversation === null ? {} : { runSessionId: conversation.cli_session_id });
-    return resolveHost(ctx, user, { requires: CAPABILITY_CLAUDE_SYSTEM_PROMPT, runSessionId: conversation.cli_session_id });
+    const wait = opts.wait === true;
+    if (conversation === null || conversation.project_id === null) return resolveHost(ctx, user, conversation === null ? { wait } : { runSessionId: conversation.cli_session_id, wait });
+    return resolveHost(ctx, user, { requires: CAPABILITY_CLAUDE_SYSTEM_PROMPT, runSessionId: conversation.cli_session_id, wait });
   }
 
   /**
@@ -404,7 +406,7 @@ export class ChatService {
     if (this.suspending) throw serverRestarting();
     const conversation = await this.conversationFor(user, projectId);
     // Before the lock, like `startIn`: a host that cannot run is a compaction that never started.
-    const host = await this.hostForConversation(user, conversation);
+    const host = await this.hostForConversation(user, conversation, { wait: true });
     if (host.kind !== 'ready') throw hostFailure(host);
     if (this.running.has(conversation.id)) throw new HttpError(409, 'O concierge ainda está respondendo: compacte quando ele terminar', 'CHAT_BUSY');
     this.running.add(conversation.id);
@@ -905,7 +907,7 @@ export class ChatService {
     //
     // Resolved *before* the busy check, not between it and `running.add`: every await in between is a
     // window in which a second message passes the check and starts a second run on the same session.
-    const host = await this.hostForConversation(user, conversation);
+    const host = await this.hostForConversation(user, conversation, { wait: true });
     if (host.kind !== 'ready') throw hostFailure(host);
     // Read with the host, before the lock and before any row: a read that fails here is a message never
     // sent, not an empty assistant bubble left behind by an error thrown mid-run.
@@ -1347,6 +1349,9 @@ export class ChatService {
         const user = await this.deps.repos.users.findById(row.user_id);
         const conversation = user ? await this.deps.repos.chat.findByIdForUser(row.conversation_id, user.id) : undefined;
         const host = user && conversation && conversation.archived_at === null ? await this.hostForConversation(user, conversation) : null;
+        // The reads above yield: `suspendAll` may have started meanwhile, and a row it released is not
+        // this instance's to claim any more (nor to give up on).
+        if (this.suspending) return;
         if (!user || !conversation || !host || host.kind !== 'ready' || !this.streams(host.machine.id)) {
           if (age > RESUME_WINDOW_MS && (await this.deps.repos.chatLiveRuns.claim(row.conversation_id, row.instance_id, this.instanceId, staleBefore))) {
             try {
@@ -1504,7 +1509,7 @@ export class ChatService {
     let taken: QueuedTurn[] = [];
     try {
       const conversation = await this.deps.repos.chat.findByIdForUser(conversationId, user.id);
-      const host = conversation && conversation.archived_at === null ? await this.hostForConversation(user, conversation) : null;
+      const host = conversation && conversation.archived_at === null ? await this.hostForConversation(user, conversation, { wait: true }) : null;
       if (!conversation || !host || host.kind !== 'ready') {
         // No host that can run them (the machine went away, the conversation was archived): each
         // queued message gets its answer row closed with a reason, never a bubble waiting for ever.
