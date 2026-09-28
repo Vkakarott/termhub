@@ -80,6 +80,7 @@ it('locks the document while it is mounted, and gives it back on the way out', (
 it('sizes itself to the visible viewport while it is mounted, and stops when it is not', () => {
   // The keyboard shrinks the visual viewport and nothing else: without this the shell stays a whole
   // screen tall behind the keyboard, which is the empty space that could be scrolled on a phone.
+  Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true }); // a phone
   const { unmount } = render(
     <MemoryRouter initialEntries={['/chat']}>
       <Routes>
@@ -93,6 +94,21 @@ it('sizes itself to the visible viewport while it is mounted, and stops when it 
   expect(document.documentElement.style.getPropertyValue('--app-height')).toBe(`${window.innerHeight}px`);
   unmount();
   expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('');
+  delete (navigator as { maxTouchPoints?: unknown }).maxTouchPoints;
+});
+
+it('on a desktop (no touch screen) it leaves the height to CSS: no keyboard can ever shrink that window (TER-385)', () => {
+  const { unmount } = render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <Routes>
+        <Route element={<ChatLayout />}>
+          <Route path="/chat" element={<p>conversa</p>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('');
+  unmount();
 });
 
 it('shows which bundle it is running', () => {

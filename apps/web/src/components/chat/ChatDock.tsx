@@ -44,7 +44,8 @@ export function ChatDock() {
   // row sized to the full screen kept its composer behind the keyboard, Safari scrolled the whole
   // page up to reveal it, and the keyboard's extra scroll range then let the page pan on past the
   // row's end into empty background (TER-313). `Layout`'s row reads `--app-height`, so tracking it
-  // here sizes the docked chat, the page and the sidebar to what is visible.
+  // here sizes the docked chat, the page and the sidebar to what is visible. On a window without a
+  // touch screen (a desktop) the tracker is a no-op and the row keeps its full height (TER-385).
   useEffect(() => (shownProjectId !== null ? trackAppHeight() : undefined), [shownProjectId]);
   // On a phone the chat covers the page, with the same body lock as `/chat` (ChatLayout), so a drag on
   // the composer does not pan the document. Not on a wide window: the lock's `touch-action: pan-y`
