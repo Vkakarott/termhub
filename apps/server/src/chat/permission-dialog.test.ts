@@ -12,6 +12,7 @@ describe('permissionDialogVisible', () => {
     'claude-reads-outside.txt', 'claude-trust.txt', 'codex-command.txt', 'codex-edits.txt', 'codex-permissions.txt', 'codex-network.txt',
     'codex-long-command.txt', 'claude-cursor-last-option.txt', 'claude-option-description.txt',
     'codex-echo-above-dialog.txt', 'claude-option-description-narrow.txt', 'claude-cursor-last-option-narrow.txt',
+    'codex-quote-above-options.txt', 'codex-dashes-above-options.txt', 'codex-box-rule-above-options.txt',
   ])('sees %s', (f) => expect(permissionDialogVisible(fx(f))).toBe(true));
   it.each([
     'claude-prompt.txt', 'claude-exit-menu.txt', 'claude-prose-question.txt', 'claude-cursor-above-marker.txt', 'claude-resume-list.txt',

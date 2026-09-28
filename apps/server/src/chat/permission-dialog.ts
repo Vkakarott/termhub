@@ -64,12 +64,14 @@ export const PERMISSION_MARKERS: readonly string[] = [
 const squashLower = (s: string) => squash(s).toLowerCase();
 const MARKERS = PERMISSION_MARKERS.map(squashLower);
 /** The selected option of a numbered menu: Claude Code draws `❯ 1. Yes`, Codex `› 1. Yes, proceed (y)`
- * (`>` is Claude Code's ASCII fallback). The number is captured to find its sibling options. */
-const SELECTED_OPTION = /^\s*[❯›>]\s*(\d+)\./;
+ * (`>` is Claude Code's ASCII fallback). Group 1 is the cursor character (to tell a real menu's cursor
+ * apart from a quoted list's `>`), group 2 the number (to find its sibling options). */
+const SELECTED_OPTION = /^\s*([❯›>])\s*(\d+)\./;
 /** An option that is not selected: a number and a dot, no cursor. */
 const PLAIN_OPTION = /^\s*(\d+)\./;
-/** A horizontal rule: Claude Code draws its input box between two of them. */
-const RULE = /^\s*[─━-]{10,}\s*$/;
+/** A box-drawing rule: Claude Code draws its input box between two of them. ASCII dashes are not a rule —
+ * they are as likely a command preview's output (`printf '%s\n' '----------'`) as a real input box. */
+const RULE = /^\s*[─━]{10,}\s*$/;
 
 /**
  * Option labels that exist only in an approval menu, never in a routine one (spec 2026-09-28 TER-374
@@ -87,25 +89,32 @@ const OPTIONS = APPROVAL_OPTIONS.map(squashLower);
 
 /**
  * The index in `lines` of the selected option of a real menu, or -1 (spec 2026-09-28 TER-380, fix
- * round 2). A menu has a plain sibling option (the cursor's number ± 1), searched across the whole
- * window — `lines` is already just the last `PROMPT_MARKER_LINES` non-blank rows, so that window is the
- * only bound in either direction (a wrapped label or a multi-line description can push a sibling many
- * rows away in a narrow pane, round 2); a cursor right under a rule is Claude Code's input box (`❯ 1. …`
- * typed by the user or the concierge). A second cursor immediately adjacent to it (index ± 1) whose
- * number is also the cursor's ± 1 is a quoted list (`> 1.` / `> 2.`, every row prefixed) — that alone is
- * rejected; an echoed `› 1. …` message sitting further above a real Codex dialog is not, since a sent
- * message is never adjacent to the dialog's own options (round 1).
+ * round 2; TER-397 narrowed both rejections below). A menu has a plain sibling option (the cursor's
+ * number ± 1), searched across the whole window — `lines` is already just the last
+ * `PROMPT_MARKER_LINES` non-blank rows, so that window is the only bound in either direction (a wrapped
+ * label or a multi-line description can push a sibling many rows away in a narrow pane, round 2); a
+ * cursor sitting inside Claude Code's input box (drawn between two box-drawing rules, `─`/`━`, one
+ * above the cursor and one further below it) is typed text (`❯ 1. …` typed by the user or the
+ * concierge), not a dialog — a rule made of ASCII dashes is not enough, since a Codex command preview's
+ * last line can print `----------` right above a real menu (TER-397). A second cursor immediately
+ * adjacent to it (index ± 1) that repeats the *same* cursor character with a number also the cursor's ±
+ * 1 is a quoted list (`> 1.` / `> 2.`, every row prefixed with the same mark) — that alone is rejected;
+ * a Codex preview line like `> 2. Add the scope column` right above a real `› 1. …` menu uses a
+ * different cursor character, so it no longer drops the menu (TER-397). An echoed `› 1. …` message
+ * sitting further above a real Codex dialog is not rejected either, since a sent message is never
+ * adjacent to the dialog's own options (round 1).
  */
 function menuCursor(lines: string[]): number {
   let cursor = -1;
   for (let i = lines.length - 1; i >= 0; i--) if (SELECTED_OPTION.test(lines[i]!)) { cursor = i; break; }
   if (cursor < 0) return -1;
-  if (cursor > 0 && RULE.test(lines[cursor - 1]!)) return -1;
-  const n = Number(SELECTED_OPTION.exec(lines[cursor]!)![1]);
+  if (cursor > 0 && RULE.test(lines[cursor - 1]!) && lines.slice(cursor + 1).some((l) => RULE.test(l))) return -1;
+  const [, mark, num] = SELECTED_OPTION.exec(lines[cursor]!)!;
+  const n = Number(num);
   for (const i of [cursor - 1, cursor + 1]) {
     if (i < 0 || i >= lines.length) continue;
     const m = SELECTED_OPTION.exec(lines[i]!);
-    if (m && Math.abs(Number(m[1]) - n) === 1) return -1;
+    if (m && m[1] === mark && Math.abs(Number(m[2]) - n) === 1) return -1;
   }
   let sibling = false;
   for (let i = 0; i < lines.length; i++) {
