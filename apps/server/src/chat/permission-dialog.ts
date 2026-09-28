@@ -67,12 +67,28 @@ const MARKERS = PERMISSION_MARKERS.map(squashLower);
 const SELECTED_OPTION = /^\s*[❯›>]\s*\d+\./;
 
 /**
+ * Option labels that exist only in an approval menu, never in a routine one (spec 2026-09-28 TER-374
+ * §3 "Approval options", fix round 1). Codex draws its question *above* the command, so a long
+ * multi-line command (a heredoc, say) can push the question out of the last `PROMPT_MARKER_LINES`
+ * non-blank lines while the menu itself — cursor and options — is still inside that window. Matched
+ * from the selected-option line to the end of the block (the menu, not the command above it), the same
+ * way as `PERMISSION_MARKERS`.
+ */
+export const APPROVAL_OPTIONS: readonly string[] = [
+  'and tell codex what to do differently', 'and tell claude what to do differently', 'yes, proceed', "don't ask again",
+  'grant these permissions', 'just this once', 'continue without running it',
+];
+const OPTIONS = APPROVAL_OPTIONS.map(squashLower);
+
+/**
  * Whether the screen shows an agent's permission dialog right now. Used by the gate before a terminal
  * grant presses a key (TER-325), so it leans towards "yes": `promptVisible`'s rule for a permission row
  * (footer + "Do you want"), or — for dialogs worded otherwise or without that footer — a marker phrase
- * above the menu's selected option, both inside the last `PROMPT_MARKER_LINES` non-blank lines. The
- * cursor keeps the model's own prose ("Would you like to proceed?") from counting; a menu with no
- * marker (Claude Code's exit menu, `/resume`) is not a permission and stays free (TER-374).
+ * above the menu's selected option, or an approval option at or below it, both inside the last
+ * `PROMPT_MARKER_LINES` non-blank lines. The cursor keeps the model's own prose ("Would you like to
+ * proceed?") from counting, and the approval-options half keeps a long command from pushing the
+ * question itself out of the window (TER-374 fix round 1); a menu with no marker or approval option
+ * (Claude Code's exit menu, `/resume`) is not a permission and stays free (TER-374).
  */
 export function permissionDialogVisible(screen: string): boolean {
   if (promptVisible(screen, { kind: 'permission', payload: { tool_name: '' } })) return true;
@@ -81,5 +97,7 @@ export function permissionDialogVisible(screen: string): boolean {
   for (let i = lines.length - 1; i >= 0; i--) if (SELECTED_OPTION.test(lines[i]!)) { cursor = i; break; }
   if (cursor < 0) return false;
   const above = squashLower(lines.slice(0, cursor).join('\n'));
-  return MARKERS.some((m) => above.includes(m));
+  if (MARKERS.some((m) => above.includes(m))) return true;
+  const menu = squashLower(lines.slice(cursor).join('\n'));
+  return OPTIONS.some((o) => menu.includes(o));
 }

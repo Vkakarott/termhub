@@ -10,13 +10,32 @@ describe('permissionDialogVisible', () => {
   it.each([
     'claude-edit.txt', 'claude-webfetch.txt', 'claude-network.txt', 'claude-exit-plan.txt', 'claude-enter-plan.txt', 'claude-skill.txt',
     'claude-reads-outside.txt', 'claude-trust.txt', 'codex-command.txt', 'codex-edits.txt', 'codex-permissions.txt', 'codex-network.txt',
+    'codex-long-command.txt',
   ])('sees %s', (f) => expect(permissionDialogVisible(fx(f))).toBe(true));
-  it.each(['claude-prompt.txt', 'claude-exit-menu.txt', 'claude-prose-question.txt', 'claude-cursor-above-marker.txt'])('ignores %s', (f) =>
-    expect(permissionDialogVisible(fx(f))).toBe(false));
+  it.each(['claude-prompt.txt', 'claude-exit-menu.txt', 'claude-prose-question.txt', 'claude-cursor-above-marker.txt', 'claude-resume-list.txt'])(
+    'ignores %s',
+    (f) => expect(permissionDialogVisible(fx(f))).toBe(false),
+  );
   it('ignores a dialog that scrolled away', () => {
     const filler = Array.from({ length: 30 }, (_, i) => `● line ${i}`).join('\n');
     expect(permissionDialogVisible(`${fx('claude-exit-plan.txt')}\n${filler}\n${fx('claude-prompt.txt')}`)).toBe(false);
   });
+  it('sees a long command whose question scrolled out of the window, by the options below the cursor (TER-374)', () =>
+    expect(permissionDialogVisible(fx('codex-long-command.txt'))).toBe(true));
+  it('sees the same dialog over CRLF line endings', () => expect(permissionDialogVisible(fx('claude-exit-plan.txt').replace(/\n/g, '\r\n'))).toBe(true));
+  it('sees a footer-less dialog whose question wraps over two lines', () =>
+    expect(
+      permissionDialogVisible(
+        [
+          '────────────────────────────────────────────────────────────────────────────────',
+          ' Allow reads outside the working directories? This grants access beyond the project',
+          ' root for the rest of the session.',
+          ' ❯ 1. Yes, keep allowing reads outside the working directories',
+          '   2. No, block reads outside the working directories from now on',
+          '   3. No, ask again next time',
+        ].join('\n'),
+      ),
+    ).toBe(true));
 });
 
 describe('promptVisible stays strict', () => {
