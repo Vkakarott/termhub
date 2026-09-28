@@ -19,6 +19,9 @@ export interface ApiToken {
   /** The conversation this token was minted for — null for a person's own token, and for a
    * concierge token minted before tokens named their conversation. */
   chat_conversation_id: string | null;
+  /** The tab this token was minted for — null for a person's own token or a concierge token
+   * (spec 2026-09-27 agent-tab-mcp D1). */
+  tab_id: string | null;
 }
 
 /** One MCP tool call: metadata only (never typed text, screen content or prompts). */
@@ -47,6 +50,7 @@ const mapApiToken = (t: PrismaApiToken): ApiToken => ({
   created_at: t.createdAt.toISOString(),
   gated: t.gated,
   chat_conversation_id: t.chatConversationId,
+  tab_id: t.tabId,
 });
 
 const activeWhere = (now: Date) => ({ revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] });
@@ -60,14 +64,15 @@ export class ApiTokensRepository {
   }
 
   // The concierge mints its own token per conversation (one for the account-wide chat, one per
-  // project chat, all live at once) — they must never count against the person's own token cap.
+  // project chat, all live at once) and a tab token per agent tab (spec 2026-09-27 agent-tab-mcp
+  // D13) — neither must count against the person's own token cap.
   async countActive(userId: string, now = new Date()): Promise<number> {
-    return this.db.apiToken.count({ where: { userId, gated: false, ...activeWhere(now) } });
+    return this.db.apiToken.count({ where: { userId, gated: false, tabId: null, ...activeWhere(now) } });
   }
 
   async create(
     userId: string,
-    input: { name: string; scopes: ApiTokenScope[]; expiresAt: Date | null; gated?: boolean; chatConversationId?: string | null },
+    input: { name: string; scopes: ApiTokenScope[]; expiresAt: Date | null; gated?: boolean; chatConversationId?: string | null; tabId?: string | null },
     tokenHash: string,
   ): Promise<ApiToken> {
     const t = await this.db.apiToken.create({
@@ -80,6 +85,7 @@ export class ApiTokensRepository {
         tokenHash,
         gated: input.gated ?? false,
         chatConversationId: input.chatConversationId ?? null,
+        tabId: input.tabId ?? null,
       },
     });
     return mapApiToken(t);
@@ -95,6 +101,13 @@ export class ApiTokensRepository {
   /** Revokes every live concierge token of a conversation — used when "Nova conversa" archives it. */
   async revokeForConversation(conversationId: string): Promise<number> {
     const { count } = await this.db.apiToken.updateMany({ where: { chatConversationId: conversationId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return count;
+  }
+
+  /** Revokes a tab's live token(s) — used by `TabsRepository.delete` (spec 2026-09-27
+   * agent-tab-mcp D6): a tab token dies with its tab, in the same transaction. */
+  async revokeForTab(tabId: string): Promise<number> {
+    const { count } = await this.db.apiToken.updateMany({ where: { tabId, revokedAt: null }, data: { revokedAt: new Date() } });
     return count;
   }
 

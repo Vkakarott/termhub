@@ -4,6 +4,7 @@ import { PrismaClient } from '../../generated/prisma/client.js';
 import { newId } from '../../lib/ids.js';
 import { needsYou } from '../../monitor/state.js';
 import { AiAccountsRepository } from './ai-accounts.js';
+import { ApiTokensRepository } from './api-tokens.js';
 import { TabsRepository } from './tabs.js';
 
 // Needs a migrated Postgres: TERMHUB_DB_TESTS=1 DATABASE_URL=… (see tasks.db.test.ts / the plan for the local Docker recipe).
@@ -142,6 +143,25 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('TabsRepository.markSeen /
 
       await repo.delete(a.id);
       expect(await repo.countOpenByToken('tok1')).toBe(1);
+    });
+  });
+
+  describe('delete', () => {
+    it('revokes the tab\'s live token in the same transaction; another tab\'s token stays live', async () => {
+      const apiTokens = new ApiTokensRepository(db);
+      const userId = newId();
+      await db.user.create({ data: { id: userId, email: `${userId}@test.local`, name: 'u' } });
+      const other = await repo.create(projectId, machineId, 'other');
+      const mine = await apiTokens.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: null, tabId }, newId(32));
+      const otherTok = await apiTokens.create(userId, { name: 'aba2', scopes: ['read', 'memory'], expiresAt: null, tabId: other.id }, newId(32));
+
+      expect(await repo.delete(tabId)).toBe(true);
+
+      const rows = await apiTokens.listByUser(userId);
+      expect(rows.find((t) => t.id === mine.id)?.revoked_at).not.toBeNull();
+      expect(rows.find((t) => t.id === otherTok.id)?.revoked_at).toBeNull();
+
+      await db.user.delete({ where: { id: userId } }); // cascades the tokens
     });
   });
 

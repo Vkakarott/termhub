@@ -257,8 +257,13 @@ export class TabsRepository {
     return this.update(id, { name });
   }
 
+  /** Deletes the tab. A tab token dies with its tab (spec 2026-09-27 agent-tab-mcp D6): revoked in
+   * the same transaction, so there is no moment where the tab is gone and its token still works. */
   async delete(id: string): Promise<boolean> {
-    const r = await this.db.tab.deleteMany({ where: { id } });
+    const [, r] = await this.db.$transaction([
+      this.db.apiToken.updateMany({ where: { tabId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
+      this.db.tab.deleteMany({ where: { id } }),
+    ]);
     return r.count > 0;
   }
 
