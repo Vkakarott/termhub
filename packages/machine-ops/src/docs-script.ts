@@ -2,8 +2,15 @@ import { EXPAND_HOME } from './fs-script.js';
 
 /** A `docs.read` call never touches a file larger than this (spec D15). Scan still reports its size. */
 export const DOCS_MAX_BYTES = 256 * 1024;
-/** `docs.scan` never lists more than this many files per link (spec D15): the first this-many by name. */
+/** `docs.scan` never lists more than this many `docs/superpowers/{specs,plans}` files per link (spec
+ *  D15): the first this-many by name, specs before plans. `docs/lessons` is counted separately
+ *  (`LESSONS_MAX_FILES`). */
 export const DOCS_MAX_FILES = 200;
+/** `docs.scan`'s own budget for `docs/lessons/*.md` (spec 2026-09-27 failure lessons, final review
+ *  fix): the first this-many by name, independent of `DOCS_MAX_FILES`. Sharing that budget meant a repo
+ *  with 200+ specs and plans never listed a single lesson — and the server reads "not listed" as
+ *  "deleted", so every indexed file lesson would have been dropped. */
+export const LESSONS_MAX_FILES = 200;
 /**
  * Cumulative raw-byte budget for one `docs.read` call. `docs.read`'s result travels as a single
  * control frame (`sendControl` in the agent, never chunked like stream data), and the server's
@@ -66,6 +73,8 @@ const SYMLINKED_DIR_GUARD = [
  * `A-Za-z0-9._-`, plus `/` for the directory separators the walk itself produces). One line per file:
  * `F\t<sha256>\t<size>\t<relpath>` normally, or `S\t<size>\t<relpath>` (no hash) for a file over
  * `DOCS_MAX_BYTES` — it will never be read, so hashing it would just cost time/IO for nothing. A
+ * `docs/superpowers/{specs,plans}` share `DOCS_MAX_FILES` (specs first); `docs/lessons` has its own
+ * `LESSONS_MAX_FILES`, so a big specs/plans tree never crowds lessons out. A
  * missing `docs/superpowers` (or either subdir) or `docs/lessons` yields zero lines, not an error —
  * only a missing `cwd` (`ERR:notfound`) or neither hasher being on `PATH` (`ERR:nohash`) does.
  * `"~"`/`"~/…"` in `cwd` are expanded on the machine, the same way `buildFsListScript` does.
@@ -81,7 +90,7 @@ export function buildDocsScanScript(cwdQuoted: string): string {
     `else echo 'ERR:nohash'; exit 0`,
     `fi`,
     SYMLINKED_DIR_GUARD,
-    `n=0`,
+    `n=0; nl=0`,
     `for d in docs/superpowers/specs docs/superpowers/plans docs/lessons; do`,
     `  [ -d "$d" ] || continue`,
     `  case "$d" in`,
@@ -93,7 +102,8 @@ export function buildDocsScanScript(cwdQuoted: string): string {
     `    [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || continue`,
     `    case "$f" in *[!A-Za-z0-9._/-]*) continue;; esac`,
     `    case "$f" in docs/lessons/README.md) continue;; esac`,
-    `    n=$((n+1)); [ "$n" -le ${DOCS_MAX_FILES} ] || break 2`,
+    `    if [ "$d" = docs/lessons ]; then nl=$((nl+1)); [ "$nl" -le ${LESSONS_MAX_FILES} ] || break`,
+    `    else n=$((n+1)); [ "$n" -le ${DOCS_MAX_FILES} ] || break; fi`,
     `    s=$(wc -c < "$f" | tr -d ' ')`,
     `    [ -n "$s" ] || continue`,
     `    if [ "$s" -le ${DOCS_MAX_BYTES} ]; then`,
