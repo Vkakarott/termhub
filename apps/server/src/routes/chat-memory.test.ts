@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { lessonForgetSchema, lessonItemSchema, lessonListSchema } from '@termhub/mobile-api';
 import { config } from '../config.js';
 import { applyErrorHandler } from '../lib/errors.js';
 
@@ -373,6 +374,11 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
       ],
       next_cursor: 'CURSOR',
     });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonListSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
   });
 
   it('GET /lessons defaults evidence to observed and path/tab_id/card/pr to null when meta is missing', async () => {
@@ -412,6 +418,11 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(res.statusCode).toBe(200);
     expect(repos.memoryItems.setVerified).toHaveBeenCalledWith('l1', 'u1', 'u1');
     expect(res.json()).toMatchObject({ verified: true, verified_at: '2026-09-27T01:00:00.000Z' });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonItemSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
   });
 
   it('POST /lessons/:id/verify on someone else\'s id (or a non-lesson) is a 404, never a 403', async () => {
@@ -430,6 +441,11 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(res.statusCode).toBe(200);
     expect(repos.memoryItems.clearVerified).toHaveBeenCalledWith('l1', 'u1');
     expect(res.json()).toMatchObject({ verified: false, verified_at: null });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonItemSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
   });
 
   it('DELETE /lessons/:id/verify on someone else\'s id (or a non-lesson) is a 404, never a 403', async () => {
@@ -451,6 +467,11 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(repos.memoryItems.hideSource).not.toHaveBeenCalled();
     expect(res.json()).toEqual({ ok: true });
     await vi.waitFor(() => expect(indexProjectNote).toHaveBeenCalledWith(repos, 'p1', expect.anything()));
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonForgetSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
   });
 
   it('DELETE /lessons/:id on a note lesson whose block is already gone from the note still deletes the items and succeeds', async () => {
@@ -473,6 +494,11 @@ describe.each(['web', 'mobile'] as const)('%s chat memory routes', (kind) => {
     expect(repos.notes.removeBlock).not.toHaveBeenCalled();
     expect(repos.memoryItems.deleteBySource).not.toHaveBeenCalled();
     expect(res.json()).toEqual({ ok: true, note: 'O arquivo continua no repositório; apague-o por um PR para sumir de vez' });
+    // What the phone parses (`@termhub/mobile-api`).
+    if (kind === 'mobile') {
+      const parsed = lessonForgetSchema.safeParse(res.json());
+      expect(parsed.success, JSON.stringify(!parsed.success && parsed.error.issues)).toBe(true);
+    }
   });
 
   it('DELETE /lessons/:id on someone else\'s id (or a non-lesson) is a 404, never a 403', async () => {
