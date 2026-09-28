@@ -2,12 +2,14 @@
 # Blue/green deploy for termhub.
 #
 # Builds and starts the inactive color, waits for it to report healthy, then
-# switches the proxy nginx vhost to it and retires the previously active
-# container after a grace period. Any failure before the nginx switch
+# switches the proxy nginx vhost to it and stops the previously active
+# container right after the switch. Any failure before the nginx switch
 # (build, health check, or a bad nginx config) leaves the previously active
 # container serving traffic — there is no window where nothing answers
-# requests. Open terminal WebSockets pinned to the old container reconnect
-# (to the new one) when it is finally stopped.
+# requests. The old container drains on SIGTERM (spec 2026-09-27 §5.2): it
+# sends its agents to the new color with close 1012, then every browser
+# WebSocket, then exits — `stop -t 30` gives it up to 30s to do that before
+# Docker kills it.
 #
 # Usage:
 #   bash deploy/blue-green.sh              # deploy: build + switch to the inactive color
@@ -19,6 +21,8 @@
 #                    rendered vhost + backup (default: /mnt/hd2tb/projetos/termhub/active-color)
 #   PROXY_CONF       nginx vhost file to render in place (default: /mnt/hd2tb/proxy/nginx/conf.d/termhub.dev.conf)
 #   PROXY_CONTAINER  nginx container name (default: proxy-nginx)
+#   DRAIN_DELAY      seconds to wait after the nginx switch before stopping the old color, so requests
+#                    already in flight on the old nginx workers finish (default: 3)
 #   DRY_RUN          when 1, print the command sequence instead of running it (default: 0)
 set -euo pipefail
 
@@ -207,25 +211,28 @@ switch_proxy() {
   docker exec "$PROXY_CONTAINER" nginx -s reload
 }
 
-# 30s grace period (lets in-flight requests and long-lived terminal
-# WebSockets on the old container drain/reconnect), then stops (color) or
-# renames+stops (legacy) the previously active container. Colors are only
-# stopped, never removed, so a rollback is a plain `docker start`; legacy is
-# renamed to termhub-app-legacy and stopped (not removed) so a manual
-# rollback to it stays possible after the very first run.
+# After the switch: a short pause so requests in flight on the old nginx workers finish against the old colour,
+# then SIGTERM it. The server drains (spec 2026-09-27 §5.2): it releases its chat runs, sends the agents to the
+# new colour with close 1012, then every browser socket, and exits. -t 30 is the upper bound before Docker kills
+# it; exit 137 in the log below means the drain did not finish. Colors are only stopped, never removed, so a
+# rollback is a plain `docker start`; legacy is renamed to termhub-app-legacy and stopped (not removed).
 retire_old() {
   local old="$1"
+  local delay="${DRAIN_DELAY:-3}"
 
   if [ "$DRY_RUN" = "1" ]; then
-    log "DRY_RUN: sleep 30 (grace period before retiring $old)"
+    log "DRY_RUN: sleep $delay (in-flight requests on the old nginx workers)"
   else
-    log "grace period: sleeping 30s before retiring $old"
-    sleep 30
+    sleep "$delay"
   fi
 
   case "$old" in
     blue | green)
-      run "stop app-$old (kept for rollback)" "${COMPOSE[@]}" stop "app-$old"
+      local t0=$SECONDS
+      run "stop app-$old (drains; kept for rollback)" "${COMPOSE[@]}" stop -t 30 "app-$old"
+      if [ "$DRY_RUN" != "1" ]; then
+        log "app-$old stopped in $((SECONDS - t0))s, exit code $(docker inspect --format '{{.State.ExitCode}}' "termhub-app-$old" 2>/dev/null || echo '?')"
+      fi
       ;;
     legacy)
       run "rename legacy termhub-app -> termhub-app-legacy" docker rename termhub-app termhub-app-legacy
@@ -308,7 +315,7 @@ rollback() {
   wait_healthy "$target"
   switch_proxy "$target"
   write_state "$target"
-  run "stop app-$current (previously active)" "${COMPOSE[@]}" stop "app-$current"
+  run "stop app-$current (previously active)" "${COMPOSE[@]}" stop -t 30 "app-$current"
 
   log "active: $target, stopped: $current"
 }

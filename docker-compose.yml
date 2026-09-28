@@ -64,8 +64,11 @@ x-app: &app
   depends_on:
     db:
       condition: service_healthy
+  # SIGTERM starts the drain (spec 2026-09-27 §5.2); 30 s bounds it before Docker kills the process.
+  stop_grace_period: 30s
   healthcheck:
-    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+    # ready = the database answers and the process is not draining (/api/health only says the process is up)
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/ready || exit 1"]
     interval: 15s
     timeout: 5s
     retries: 5
