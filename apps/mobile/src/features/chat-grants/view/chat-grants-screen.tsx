@@ -12,7 +12,7 @@ import { useChatGrantsStore } from '../viewmodel/useChatGrantsStore';
 const title = (g: TChatGrantListItem) => `${grantTitleLabel(g)}${g.kind === 'tab' && g.project_name ? ` · ${g.project_name}` : ''}`;
 
 /** "Permissões do chat" (design spec 2026-09-26 §7, spec 2026-09-26 §5): the phone's copy of the
- * web list — tab and project grants together. Revogar needs no PIN. */
+ * web list — tab, project and standing grants ("sem prazo", TER-386) together. Revogar needs no PIN. */
 export function ChatGrantsScreen() {
   const router = useRouter();
   const { active, history, next, loadingMore, revokingId, error, load, loadMore, revoke } = useChatGrantsStore();
@@ -30,7 +30,7 @@ export function ChatGrantsScreen() {
             Permissões do chat
           </AppText>
         </View>
-        <AppText variant="muted">O que o chat pode fazer sem pedir confirmação. Cada permissão vale para uma conversa, por até 24 horas.</AppText>
+        <AppText variant="muted">O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.</AppText>
         {error ? <Banner tone="danger" text={error} /> : null}
         {active === null || history === null ? (
           error ? <Button label="Tentar de novo" variant="secondary" onPress={() => void load()} /> : <ActivityIndicator />
@@ -45,7 +45,7 @@ export function ChatGrantsScreen() {
                   <View key={g.id} className="flex-row items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface2 px-3 py-2">
                     <View className="flex-1">
                       <AppText>{title(g)}</AppText>
-                      <AppText variant="muted">{`${grantOriginLabel(g)} · ${untilLabel(g.expires_at)}`}</AppText>
+                      <AppText variant="muted">{`${grantOriginLabel(g)} · ${typeof g.expires_at === 'string' ? untilLabel(g.expires_at) : 'sem prazo'}`}</AppText>
                     </View>
                     <Button label="Revogar" variant="ghost" onPress={() => void revoke(g.id)} disabled={revokingId === g.id} />
                   </View>

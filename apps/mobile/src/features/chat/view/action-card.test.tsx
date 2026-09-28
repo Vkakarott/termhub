@@ -98,3 +98,51 @@ describe('ActionCard: "Liberar teclas e shell nesta aba" / "Liberar tudo neste p
     expect(screen.getByText(/^Tudo liberado neste projeto até/)).toBeTruthy();
   });
 });
+
+describe('ActionCard: "Liberar sem prazo" (standing grant, TER-386)', () => {
+  const card = (patch: Partial<ChatAction>): ChatAction => ({ ...BASE_ACTION, ...patch });
+
+  it.each([
+    ['a board card', card({}), 'mexer no quadro'],
+    ['open_tab with a project', card({ tool: 'open_tab', args: { project_id: 'p-termhub' } }), 'abrir abas'],
+    ['close_tab on a tab', card({ tool: 'close_tab', args: { tab_id: 't-api' }, tab_id: 't-api', project_id: null }), 'fechar abas paradas'],
+    ['start_agent with a project', card({ tool: 'start_agent', args: {} }), 'iniciar agentes'],
+    ['send_key to a tab', card({ tool: 'send_key', args: { tab_id: 't-api', key: '1' }, tab_id: 't-api', project_id: null }), 'teclas e texto nas abas'],
+  ])('offers it on %s, with the approve_project_always word', async (_label, action, label) => {
+    const onDecide = jest.fn();
+    await render(<ActionCard action={action} busy={false} onDecide={onDecide} revoking={false} onRevoke={jest.fn()} />);
+    await fireEvent.press(screen.getByRole('button', { name: `Liberar sem prazo: ${label} neste projeto` }));
+    expect(onDecide).toHaveBeenCalledWith('a1', 'approve_project_always');
+  });
+
+  it('does not offer it on run_command, open_tab without a project, or a send_input answering a permission', async () => {
+    for (const action of [
+      card({ tool: 'run_command', args: { command: 'ls' } }),
+      card({ tool: 'open_tab', args: {}, project_id: null }),
+      card({ tool: 'send_input', args: { tab_id: 't-api', text: '1', answering_permission: true }, tab_id: 't-api' }),
+    ]) {
+      await render(<ActionCard action={action} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
+      expect(screen.queryByRole('button', { name: /^Liberar sem prazo/ })).toBeNull();
+    }
+  });
+
+  it('shows the standing grant this card created, "sem prazo", with Revogar', async () => {
+    const standingGrant = { id: 'sg1', project_id: 'p-termhub', project_name: 'termhub', kind: 'close_tab' as const, source_action_id: 'a1', created_at: new Date().toISOString() };
+    const onRevoke = jest.fn();
+    await render(<ActionCard action={card({ tool: 'close_tab', tab_id: 't-api', status: 'executed' })} busy={false} onDecide={jest.fn()} standingGrant={standingGrant} revoking={false} onRevoke={onRevoke} />);
+    expect(screen.getByText('Fechar abas paradas liberado neste projeto, sem prazo')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Revogar' }));
+    expect(onRevoke).toHaveBeenCalledWith('sg1');
+  });
+
+  it('labels a tab-lifecycle call run under a grant "· liberado no projeto"; board and terminal keep theirs', async () => {
+    for (const tool of ['open_tab', 'close_tab', 'start_agent']) {
+      await render(<ActionCard action={card({ tool, status: 'executed', grant_id: 'sg1' })} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
+      expect(screen.getByText('executada · liberado no projeto')).toBeTruthy();
+    }
+    await render(<ActionCard action={card({ status: 'executed', grant_id: 'sg1' })} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
+    expect(screen.getByText('executada · quadro confiado')).toBeTruthy();
+    await render(<ActionCard action={card({ tool: 'send_key', tab_id: 't-api', status: 'executed', grant_id: 'sg1' })} busy={false} onDecide={jest.fn()} revoking={false} onRevoke={jest.fn()} />);
+    expect(screen.getByText('executada · aba confiada')).toBeTruthy();
+  });
+});

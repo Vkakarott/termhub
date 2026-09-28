@@ -1,7 +1,7 @@
 // The chat store (design spec §6) over the real `HttpMobileApi`, the in-memory `MockTransport`
 // and its fake socket, with an enrolled, unlocked session store built over the same mock.
 import * as SecureStore from 'expo-secure-store';
-import type { TChatEvent, TChatMessage } from '@/services/api/contract';
+import type { TChatEvent, TChatMessage, TChatStandingGrant } from '@/services/api/contract';
 import { ApiError } from '@/services/api/errors';
 import { mmkv } from '@/services/storage';
 import { appBackgrounded } from '@/features/shared/signals';
@@ -483,6 +483,68 @@ it('reset clears project grants too', async () => {
   expect(slot(chat, 'p-termhub').projectGrants).toEqual([]);
 });
 
+const standing = (patch: Partial<TChatStandingGrant> = {}): TChatStandingGrant => ({ id: 'sg1', project_id: 'p-termhub', project_name: 'termhub', kind: 'close_tab', source_action_id: 'a-termhub-1', created_at: new Date().toISOString(), ...patch });
+
+it("decide(id, 'approve_project_always') asks the PIN for that word and, once resolved, the standing grant is in the slot (TER-386)", async () => {
+  const { chat, store } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const deciding = chat.getState().decide('a-termhub-2', 'approve_project_always');
+  expect(store.getState().pinPrompt).toEqual({ actionId: 'a-termhub-2', decision: 'approve_project_always' });
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  await jest.advanceTimersByTimeAsync(0); // the re-read
+  expect(slot(chat, 'p-termhub').actions.find((a) => a.id === 'a-termhub-2')!.status).toBe('approved');
+  expect(slot(chat, 'p-termhub').standingGrants).toEqual([expect.objectContaining({ project_id: 'p-termhub', kind: 'board', source_action_id: 'a-termhub-2' })]);
+  expect(slot(chat, 'p-termhub').projectGrants).toEqual([]);
+});
+
+it('standing_grant applies to the slots that show it, whatever conversation it came from; standing_grant_revoked removes it everywhere (TER-386)', async () => {
+  const { chat, handlers } = await setup();
+  await openAndConnect(chat, null);
+  await chat.getState().open('p-termhub');
+  // Tagged with the account-wide conversation, but it trusts p-termhub: both slots show it.
+  const g = standing();
+  handlers().onEvent({ type: 'standing_grant', user_id: 'u1', conversation_id: 'c-general', grant: g });
+  expect(slot(chat, 'p-termhub').standingGrants).toEqual([g]);
+  expect(slot(chat, null).standingGrants).toEqual([g]);
+  // Another project's grant: only the account-wide chat shows it.
+  const other = standing({ id: 'sg2', project_id: 'p-opapingou', project_name: 'opapingou' });
+  handlers().onEvent({ type: 'standing_grant', user_id: 'u1', conversation_id: 'c-general', grant: other });
+  expect(slot(chat, 'p-termhub').standingGrants).toEqual([g]);
+  expect(slot(chat, null).standingGrants).toEqual([g, other]);
+  // A re-grant of the same kind on the same project replaces the older one.
+  const again = standing({ id: 'sg3' });
+  handlers().onEvent({ type: 'standing_grant', user_id: 'u1', conversation_id: 'c-termhub', grant: again });
+  expect(slot(chat, 'p-termhub').standingGrants).toEqual([again]);
+  expect(slot(chat, null).standingGrants).toEqual([other, again]);
+  handlers().onEvent({ type: 'standing_grant_revoked', user_id: 'u1', conversation_id: 'c-termhub', grant_id: 'sg3' });
+  expect(slot(chat, 'p-termhub').standingGrants).toEqual([]);
+  expect(slot(chat, null).standingGrants).toEqual([other]);
+});
+
+it('revokeGrant drops a standing grant too, and a reset keeps standing grants (TER-386)', async () => {
+  const { chat, store } = await setup();
+  await openAndConnect(chat, 'p-termhub');
+  const deciding = chat.getState().decide('a-termhub-2', 'approve_project_always');
+  await store.getState().resolvePinPrompt(PIN);
+  await deciding;
+  await jest.advanceTimersByTimeAsync(0);
+  expect(slot(chat, 'p-termhub').standingGrants).toHaveLength(1);
+  // "Nova conversa" does not end a standing grant: it is not bound to the conversation — the slot
+  // never drops it, not even between the reset and its re-read.
+  const seen: number[] = [];
+  const unsubscribe = chat.subscribe((s) => seen.push(s.conversations['p-termhub']!.standingGrants.length));
+  await chat.getState().reset();
+  unsubscribe();
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen).not.toContain(0);
+  const [sg] = slot(chat, 'p-termhub').standingGrants;
+  expect(sg).toMatchObject({ kind: 'board', project_id: 'p-termhub' });
+  await chat.getState().revokeGrant(sg!.id);
+  expect(slot(chat, 'p-termhub').standingGrants).toEqual([]);
+  expect(chat.getState()).toMatchObject({ revokingId: null, error: null });
+});
+
 it('revokeGrant(id) drops the grant', async () => {
   const { chat, store } = await setup();
   await openAndConnect(chat, 'p-termhub');
@@ -833,7 +895,7 @@ it('persists projects and each conversation, never live or transient state', asy
 
   const saved = JSON.parse(mmkv.getString('chat')!).state;
   expect(Object.keys(saved).sort()).toEqual(['conversations', 'projects']);
-  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'projectGrants', 'subagents', 'tabQuestions', 'tabSuggestions']);
+  expect(Object.keys(saved.conversations['p-termhub']).sort()).toEqual(['actions', 'conversation', 'grants', 'host', 'messages', 'projectGrants', 'standingGrants', 'subagents', 'tabQuestions', 'tabSuggestions']);
 
   // A cold start shows the thread before any fetch.
   const again = createChatStore({ api, session: () => ({ phase: 'locked', auth: () => { throw new Error('LOCKED'); }, handleApiError: () => false, requestPinProof: async () => { throw new Error('CANCELLED'); }, requestPinProofs: async () => { throw new Error('CANCELLED'); }, tokenStale: () => true, renewToken: async () => null }) });

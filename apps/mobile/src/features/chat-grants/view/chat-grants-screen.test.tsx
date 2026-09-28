@@ -28,6 +28,7 @@ const ACTIVE = {
   state: 'active' as const,
   ended_at: null,
   scope: null,
+  standing_kind: null,
 };
 
 beforeAll(async () => {
@@ -65,12 +66,41 @@ describe('Permissões do chat', () => {
       state: 'active' as const,
       ended_at: null,
       scope: 'board' as const,
+      standing_kind: null,
     };
     jest.spyOn(stores.api, 'listGrants').mockImplementation(async (_a, q) => (q.state === 'active' ? { grants: [projectRow, ACTIVE], next_cursor: null } : { grants: [], next_cursor: null }));
     await render(<ChatGrantsScreen />);
     expect(await screen.findByText('Quadro do projeto termhub', undefined, LOAD)).toBeTruthy();
     expect(screen.getByText('Aba api · termhub')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Revogar' })).toHaveLength(2);
+  });
+
+  it('says how long each kind of permission lasts (TER-386)', async () => {
+    await render(<ChatGrantsScreen />);
+    expect(screen.getByText('O que o chat pode fazer sem pedir confirmação. Permissões de conversa valem por até 24 horas; as sem prazo valem até você revogar.')).toBeTruthy();
+    await waitFor(() => expect(stores.chatGrants.getState().loading).toBe(false), LOAD);
+  });
+
+  it('renders a standing row by its kind and project, "sem prazo", with Revogar (TER-386)', async () => {
+    const standingRow = {
+      ...ACTIVE,
+      kind: 'standing' as const,
+      id: 'sg1',
+      tab_id: null,
+      tool: null,
+      tab_name: null,
+      expires_at: null,
+      conversation_id: null,
+      standing_kind: 'close_tab' as const,
+    };
+    jest.spyOn(stores.api, 'listGrants').mockImplementation(async (_a, q) => (q.state === 'active' ? { grants: [standingRow], next_cursor: null } : { grants: [], next_cursor: null }));
+    const revoke = jest.spyOn(stores.api, 'revokeGrant').mockResolvedValue(undefined);
+    await render(<ChatGrantsScreen />);
+    expect(await screen.findByText('Fechar abas paradas no projeto termhub · sem prazo', undefined, LOAD)).toBeTruthy();
+    expect(screen.getByText('Chat geral · sem prazo')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Revogar' }));
+    expect(revoke).toHaveBeenCalledWith(expect.anything(), 'sg1');
+    await waitFor(() => expect(stores.chatGrants.getState()).toMatchObject({ revokingId: null, loading: false }), LOAD);
   });
 
   it('shows an active grant with its origin and revokes it without a PIN', async () => {

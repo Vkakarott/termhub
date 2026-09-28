@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { b64url, utf8 } from '../../crypto/encoding';
 import type { P256Jwk } from '../../key/types';
 import { verifyProof } from '../dpop';
-import type { TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TConciergeNote, TDeviceInfo, TLessonItem, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
+import type { StandingGrantKind, TChatAction, TChatAttachment, TChatConversation, TChatDecision, TChatGrant, TChatMessage, TConciergeNote, TDeviceInfo, TLessonItem, TNotificationRow, TSubagentView, TTabQuestion, TTabSuggestion } from '../contract';
 
 /** Every non-2xx answer the mock throws (design spec ruling): mapped to the wire shape by
  * `transport.ts`. `error` is pt-BR text; `extra` carries `attempts_left` / `retry_after`, spread
@@ -132,6 +132,20 @@ export interface MockProjectGrant {
   revoked_by_user: boolean;
 }
 
+/** A standing grant ("Liberar sem prazo", spec 2026-09-28 TER-386): the wire shape (minus
+ * `project_name`, resolved at read time) plus what the server keeps beside it — the conversation that
+ * created it (it is not bound to it: a reset leaves it alone) and whether it was revoked. No expiry. */
+export interface MockStandingGrant {
+  id: string;
+  conversation_id: string;
+  project_id: string;
+  kind: StandingGrantKind;
+  source_action_id: string | null;
+  created_at: string;
+  revoked: boolean;
+  revoked_at: string | null;
+}
+
 /** Field-for-field the wire shape of a notification row (contract `notifications.ts`). */
 export type MockNotification = TNotificationRow;
 
@@ -194,6 +208,8 @@ export interface MockState {
   /** "Permitir sempre neste projeto" grants (design spec 2026-09-26 §7): oldest first, revoked rows
    * stay, same rule as `grants`. */
   projectGrants: MockProjectGrant[];
+  /** "Liberar sem prazo" grants (TER-386): oldest first, revoked rows stay, same rule as `grants`. */
+  standingGrants: MockStandingGrant[];
   /** Oldest first; answered rows stay (a second answer is a 409, as on the server). */
   tabQuestions: MockTabQuestion[];
   /** Oldest first; closed rows stay (a second send is a 409, as on the server). */
@@ -240,6 +256,7 @@ export function createMockState(): MockState {
     actions: new Map(),
     grants: [],
     projectGrants: [],
+    standingGrants: [],
     tabQuestions: [],
     tabSuggestions: [],
     subagents: [],

@@ -859,7 +859,7 @@ it('listGrants lists active and ended grants, newest first, paging the history',
   expect(ended.next_cursor).toBeNull();
 });
 
-it("listGrants asks for kinds=all and gets both kinds merged; without it, the mock hides project rows (an old app's request)", async () => {
+it("listGrants asks for kinds=all_standing and gets both kinds merged; without it, the mock hides project rows (an old app's request)", async () => {
   const clock = { value: START };
   const { transport, api, auth, deviceId, secret } = await enrol(clock);
 
@@ -883,7 +883,8 @@ it("listGrants asks for kinds=all and gets both kinds merged; without it, the mo
   });
   await api.listGrants(auth, { state: 'active' });
   fetchSpy.mockRestore();
-  const withoutKinds = { ...captured!, url: captured!.url.replace(/[?&]kinds=all/, '') };
+  expect(captured!.url).toMatch(/[?&]kinds=all_standing(&|$)/);
+  const withoutKinds = { ...captured!, url: captured!.url.replace(/[?&]kinds=all_standing/, '') };
   const res = await transport.fetch(withoutKinds);
   const body = JSON.parse(res.text) as { grants: Array<{ kind: string }> };
   expect(body.grants.map((g) => g.kind)).toEqual(['tab']);
@@ -960,4 +961,80 @@ describe('chat decision memory', () => {
     expect(await api.setChatMemory(auth, false)).toMatchObject({ enabled: false, available: true, count: 2 });
     expect(await api.chatMemory(auth)).toMatchObject({ enabled: false });
   });
+});
+
+it('approve_project_always grants a standing kind on the card\'s project, with a proof for that word; GET chat, the list and Revogar follow it (TER-386)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  const collected = collectEvents(api, auth);
+  await jest.advanceTimersByTimeAsync(0);
+  const fetches = jest.spyOn(transport, 'fetch');
+  seedCard(transport, 'a-close', { tool: 'close_tab', args: { tab_id: 't-api' }, tab_id: 't-api', project_id: null });
+
+  // A proof signed for `approve_project_all` cannot be spent on `approve_project_always`.
+  const first = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-close' });
+  await expect(
+    api.decide(auth, 'a-close', { decision: 'approve_project_always', challenge: first.challenge, pin_proof: decisionProof(secret, first.challenge, 'a-close', 'approve_project_all') }),
+  ).rejects.toMatchObject({ status: 401, code: 'PIN_INVALID' });
+
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-close' });
+  await api.decide(auth, 'a-close', { decision: 'approve_project_always', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-close', 'approve_project_always') });
+  const decided = fetches.mock.calls.findLastIndex(([input]) => input.url.endsWith('/chat/actions/a-close/decision'));
+  const decisionBody = JSON.parse((await fetches.mock.results[decided]!.value).text);
+  // close_tab resolves its project through the tab, like the server.
+  expect(decisionBody.standing_grant).toMatchObject({ project_id: 'p-termhub', project_name: 'termhub', kind: 'close_tab', source_action_id: 'a-close' });
+  expect(decisionBody.project_grant).toBeUndefined();
+  const grantId = decisionBody.standing_grant.id as string;
+
+  // Not bound to a conversation: the project's chat and the account-wide chat show it, another project's does not.
+  const chat = await api.chat(auth, 'p-termhub');
+  expect(chat.actions.find((a) => a.id === 'a-close')!.status).toBe('approved');
+  expect(chat.standing_grants).toEqual([expect.objectContaining({ id: grantId, kind: 'close_tab' })]);
+  expect((await api.chat(auth, null)).standing_grants).toEqual([expect.objectContaining({ id: grantId })]);
+  expect((await api.chat(auth, 'p-opapingou')).standing_grants).toEqual([]);
+  // A reset of the project's chat keeps it.
+  await api.reset(auth, 'p-termhub');
+  expect((await api.chat(auth, 'p-termhub')).standing_grants).toEqual([expect.objectContaining({ id: grantId })]);
+
+  const { grants } = await api.listGrants(auth, { state: 'active' });
+  expect(grants).toEqual([expect.objectContaining({ id: grantId, kind: 'standing', standing_kind: 'close_tab', expires_at: null, project_name: 'termhub', state: 'active', ended_at: null })]);
+
+  await api.revokeGrant(auth, grantId);
+  expect((await api.chat(auth, 'p-termhub')).standing_grants).toEqual([]);
+  expect((await api.listGrants(auth, { state: 'ended' })).grants).toEqual([expect.objectContaining({ id: grantId, kind: 'standing', state: 'revoked' })]);
+  await expect(api.revokeGrant(auth, grantId)).rejects.toMatchObject({ status: 409 });
+
+  const own = collected.events.filter((e) => e.type === 'standing_grant' || e.type === 'standing_grant_revoked');
+  expect(own).toEqual([
+    expect.objectContaining({ type: 'standing_grant', conversation_id: 'c-termhub', grant: expect.objectContaining({ id: grantId }) }),
+    expect.objectContaining({ type: 'standing_grant_revoked', grant_id: grantId }),
+  ]);
+  collected.close();
+});
+
+it('approve_project_always replaces an active grant of the same project and kind (TER-386)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+  seedCard(transport, 'a-board', { tool: 'create_task', args: { project_id: 'p-termhub', title: 'x' }, tab_id: null });
+  for (const id of ['a-termhub-2', 'a-board']) {
+    const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: id });
+    await api.decide(auth, id, { decision: 'approve_project_always', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, id, 'approve_project_always') });
+  }
+  expect((await api.chat(auth, 'p-termhub')).standing_grants).toEqual([expect.objectContaining({ kind: 'board', source_action_id: 'a-board' })]);
+  expect((await api.listGrants(auth, { state: 'active' })).grants.filter((g) => g.kind === 'standing')).toHaveLength(1);
+});
+
+it('approve_project_always on a card with no standing kind is 400 GRANT_NOT_ALLOWED before the challenge is spent (TER-386)', async () => {
+  const clock = { value: START };
+  const { transport, api, auth, deviceId, secret } = await enrol(clock);
+  await jest.advanceTimersByTimeAsync(0);
+  seedCard(transport, 'a-cmd', { tool: 'run_command', args: { command: 'ls' }, tab_id: null });
+  const chal = await api.challenge({ device_id: deviceId, purpose: 'decision', action_id: 'a-cmd' });
+  await expect(
+    api.decide(auth, 'a-cmd', { decision: 'approve_project_always', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-cmd', 'approve_project_always') }),
+  ).rejects.toMatchObject({ status: 400, code: 'GRANT_NOT_ALLOWED' });
+  // the same challenge still approves it plainly
+  await api.decide(auth, 'a-cmd', { decision: 'approve', challenge: chal.challenge, pin_proof: decisionProof(secret, chal.challenge, 'a-cmd', 'approve') });
+  expect((await api.chat(auth, 'p-termhub')).standing_grants).toEqual([]);
 });
