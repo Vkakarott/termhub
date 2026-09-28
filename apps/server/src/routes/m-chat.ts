@@ -18,7 +18,7 @@ import { failureLabel, type ChatService } from '../chat/service.js';
 import { defaultEmbedder } from '../chat/embeddings.js';
 import { chatBus } from '../chat/bus.js';
 import { decideMany, pendingBatch } from '../chat/decisions.js';
-import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectGrantableAction, grantProject, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
+import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectAllGrantableAction, assertProjectGrantableAction, assertTabTerminalGrantableAction, grantProject, grantTab, grantTabTerminal, listGrants, revokeGrant } from '../chat/grants.js';
 import { indexActions as indexActionsWrite } from '../memory/index-items.js';
 import { HttpError, conflict, notFound, unauthorized } from '../lib/errors.js';
 import { DeviceLockedError, PinInvalidError, deviceRevoked, type SessionService } from '../mobile/session.js';
@@ -217,7 +217,9 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       // grant trusts is resolved here, with the user's own id, exactly as the gate will resolve it.
       let existing: ChatAction | undefined;
       if (body.decision === 'approve_tab') existing = await assertGrantableAction(repos, user.id, id);
+      else if (body.decision === 'approve_tab_terminal') existing = await assertTabTerminalGrantableAction(repos, user.id, id);
       else if (body.decision === 'approve_project') ({ action: existing, projectId } = await assertProjectGrantableAction(repos, user.id, id));
+      else if (body.decision === 'approve_project_all') ({ action: existing, projectId } = await assertProjectAllGrantableAction(repos, user.id, id));
       else existing = await repos.chatActions.findByIdForUser(id, user.id);
       if (!existing) throw notFound('Ação não encontrada');
       if (existing.status !== 'pending') throw conflict('Esta ação já foi decidida');
@@ -227,7 +229,7 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       // decision word. A proof that comes anyway (an older app) is checked and counted as before; the
       // action stays pending on every failure.
       const hasProof = body.challenge !== undefined && body.pin_proof !== undefined;
-      const needsPin = body.decision === 'approve_tab' || body.decision === 'approve_project' || existing.class !== 'write';
+      const needsPin = body.decision !== 'approve' || existing.class !== 'write';
       if (needsPin && !hasProof) throw new HttpError(401, 'Confirme com o PIN para autorizar esta ação.', 'PIN_REQUIRED');
       if (hasProof && !(await proofOk(deps, request, reply, device, id, body.decision, { challenge: body.challenge!, pin_proof: body.pin_proof! }))) return reply;
     }
@@ -251,11 +253,17 @@ export async function mobileChatRoutes(app: FastifyInstance, repos: Repositories
       } catch (err) {
         request.log.warn({ code: failureLabel(err), actionId }, 'chat grant failed after approval');
       }
+    } else if (body.decision === 'approve_tab_terminal') {
+      try {
+        grant = await grantTabTerminal(repos, user.id, action);
+      } catch (err) {
+        request.log.warn({ code: failureLabel(err), actionId }, 'chat grant failed after approval');
+      }
     }
     let project_grant: Awaited<ReturnType<typeof grantProject>> | undefined;
     if (projectId) {
       try {
-        project_grant = await grantProject(repos, user.id, action, projectId);
+        project_grant = await grantProject(repos, user.id, action, projectId, body.decision === 'approve_project_all' ? 'all' : 'board');
       } catch (err) {
         request.log.warn({ code: failureLabel(err), actionId }, 'chat project grant failed after approval');
       }

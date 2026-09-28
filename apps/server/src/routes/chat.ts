@@ -13,7 +13,7 @@ import { dismissTabSuggestion, sendTabSuggestion } from '../chat/tab-suggestion-
 import { failureLabel, type ChatService } from '../chat/service.js';
 import { defaultEmbedder } from '../chat/embeddings.js';
 import { chatBus } from '../chat/bus.js';
-import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectGrantableAction, grantProject, grantTab, listGrants, revokeGrant } from '../chat/grants.js';
+import { activeGrants, activeProjectGrants, assertGrantableAction, assertProjectAllGrantableAction, assertProjectGrantableAction, assertTabTerminalGrantableAction, grantProject, grantTab, grantTabTerminal, listGrants, revokeGrant } from '../chat/grants.js';
 import { decideMany } from '../chat/decisions.js';
 import { indexActions as indexActionsWrite } from '../memory/index-items.js';
 import { conflict, HttpError, notFound } from '../lib/errors.js';
@@ -39,7 +39,7 @@ const messageBody = z
 const scopeQuery = z.object({ project: z.string().min(1).max(64).optional() });
 const resetBody = z.object({ project_id: z.string().min(1).max(64).nullish() });
 const actionIdParam = z.object({ id: z.string().min(1).max(64) });
-const decisionBody = z.object({ decision: z.enum(['approve', 'deny', 'approve_tab', 'approve_project']) });
+const decisionBody = z.object({ decision: z.enum(['approve', 'deny', 'approve_tab', 'approve_project', 'approve_tab_terminal', 'approve_project_all']) });
 const batchBody = z.object({
   decisions: z
     .array(z.object({ id: z.string().min(1).max(64), decision: z.enum(['approve', 'deny']) }))
@@ -175,10 +175,16 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
 
     // "Permitir sempre nesta aba" is only for what the gate will honour — checked before anything is
     // decided, so a refused request changes nothing (404 not found, 400 GRANT_NOT_ALLOWED otherwise).
+    // "Liberar teclas e shell nesta aba" (TER-325) likewise.
     if (decision === 'approve_tab') await assertGrantableAction(repos, user.id, id);
-    // "Permitir sempre neste projeto" likewise, and the project it trusts is resolved here, with the
-    // user's own id (never a "view as" owner), exactly as the gate will resolve the next board call.
-    const projectCheck = decision === 'approve_project' ? await assertProjectGrantableAction(repos, user.id, id) : undefined;
+    if (decision === 'approve_tab_terminal') await assertTabTerminalGrantableAction(repos, user.id, id);
+    // "Permitir sempre neste projeto" and "Liberar tudo neste projeto" likewise, and the project they
+    // trust is resolved here, with the user's own id (never a "view as" owner), exactly as the gate will
+    // resolve the next board or terminal call.
+    const projectCheck =
+      decision === 'approve_project' ? await assertProjectGrantableAction(repos, user.id, id)
+      : decision === 'approve_project_all' ? await assertProjectAllGrantableAction(repos, user.id, id)
+      : undefined;
 
     // The decision itself, and only it, decides who may answer this row — `decide` filters by the
     // owning conversation's user_id in SQL, so wrong id, another user's row and an already-decided
@@ -207,11 +213,17 @@ export async function chatRoutes(app: FastifyInstance, repos: Repositories, deps
       } catch (err) {
         request.log.warn({ code: failureLabel(err), actionId: action.id }, 'chat grant failed after approval');
       }
+    } else if (decision === 'approve_tab_terminal') {
+      try {
+        grant = await grantTabTerminal(repos, user.id, action);
+      } catch (err) {
+        request.log.warn({ code: failureLabel(err), actionId: action.id }, 'chat grant failed after approval');
+      }
     }
     let project_grant: Awaited<ReturnType<typeof grantProject>> | undefined;
     if (projectCheck) {
       try {
-        project_grant = await grantProject(repos, user.id, action, projectCheck.projectId);
+        project_grant = await grantProject(repos, user.id, action, projectCheck.projectId, decision === 'approve_project_all' ? 'all' : 'board');
       } catch (err) {
         request.log.warn({ code: failureLabel(err), actionId: action.id }, 'chat project grant failed after approval');
       }

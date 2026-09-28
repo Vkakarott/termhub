@@ -37,7 +37,7 @@ function build(opts: {
   /** Cards `tasks.findByIdsForOwner` resolves (owner-scoped like the fixtures above): a board call's project. */
   boardTasks?: { id: string; project_id: string }[];
   /** Active project grants `chatProjectGrants.listActive` answers with, as `GET /chat` returns them. */
-  projectGrants?: { id: string; conversation_id: string; project_id: string; source_action_id: string | null; granted_by: string; created_at: string; expires_at: string; revoked_at: string | null; revoked_by: string | null }[];
+  projectGrants?: { id: string; conversation_id: string; project_id: string; scope?: 'board' | 'all'; source_action_id: string | null; granted_by: string; created_at: string; expires_at: string; revoked_at: string | null; revoked_by: string | null }[];
   /** "View as" another owner: the request's own user stays 'u1'. */
   viewAsOwner?: string;
   subagentsFor?: ReturnType<typeof vi.fn>;
@@ -101,6 +101,8 @@ function build(opts: {
       revoke: opts.revoke ?? vi.fn(async (id: string) => ({ id, conversation_id: 'c1', tab_id: 't1', tool: 'send_input', source_action_id: 'act1', granted_by: 'u1', created_at: '', expires_at: '', revoked_at: 'now', revoked_by: 'u1' })),
       findByIdForUser: opts.findGrantByIdForUser ?? vi.fn(async () => undefined),
       listForUser: opts.listForUser ?? vi.fn(async () => ({ grants: [], next: null })),
+      findActive: vi.fn(async (): Promise<unknown> => undefined),
+      revokeTool: vi.fn(async () => 0),
     },
     // `revokeGrant` falls through to this repository once a tab grant does not match: by default no
     // project grant matches either.
@@ -610,8 +612,8 @@ it('approve_project decides and grants the resolved project, and says so live', 
   off();
   expect(res.statusCode).toBe(200);
   expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
-  expect(repos.chatProjectGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', project_id: 'p1', source_action_id: 'act1', granted_by: 'u1' });
-  expect(res.json().project_grant).toEqual({ id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'act1', created_at: '2026-09-27T10:00:00.000Z', expires_at: '2026-09-28T10:00:00.000Z' });
+  expect(repos.chatProjectGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', project_id: 'p1', source_action_id: 'act1', granted_by: 'u1', scope: 'board' });
+  expect(res.json().project_grant).toEqual({ id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'act1', created_at: '2026-09-27T10:00:00.000Z', expires_at: '2026-09-28T10:00:00.000Z', scope: 'board' });
   expect(res.json()).not.toHaveProperty('grant');
   expect(repos.chatGrants.grant).not.toHaveBeenCalled();
   expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'project_grant']));
@@ -680,14 +682,96 @@ it('a batch refuses approve_project', async () => {
   expect(decide).not.toHaveBeenCalled();
 });
 
+const keyCard = { ...pendingAction, status: 'pending', tool: 'send_key', args: { tab_id: 't1', key: 'enter' }, tab_id: 't1' };
+
+it('approve_tab_terminal decides, replaces the narrow grant with a terminal one and returns grant (TER-325)', async () => {
+  const events: ChatEvent[] = [];
+  const off = chatBus.subscribe((e) => events.push(e));
+  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  vi.mocked(repos.chatGrants.findActive).mockResolvedValueOnce({ id: 'g-narrow', conversation_id: 'c1', tab_id: 't1', tool: 'send_input' });
+  vi.mocked(repos.chatGrants.revokeTool).mockResolvedValueOnce(1);
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_tab_terminal' } });
+  off();
+  expect(res.statusCode).toBe(200);
+  expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+  expect(repos.chatGrants.revokeTool).toHaveBeenCalledWith('c1', 't1', 'send_input', 'u1');
+  expect(repos.chatGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', tab_id: 't1', tool: 'terminal', source_action_id: 'act1', granted_by: 'u1' });
+  expect(res.json().grant).toMatchObject({ tab_id: 't1', tool: 'terminal', tab_name: 'Terminal 1' });
+  expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'grant_revoked', 'grant']));
+  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+});
+
+it('approve_tab_terminal whose grant fails still approves and resumes, with no grant in the answer', async () => {
+  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  vi.mocked(repos.chatGrants.grant).mockRejectedValueOnce(new Error('connection terminated'));
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_tab_terminal' } });
+  expect(res.statusCode).toBe(200);
+  expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+  expect(res.json()).not.toHaveProperty('grant');
+  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ['run_command', { ...keyCard, tool: 'run_command', args: { tab_id: 't1', command: 'ls' } }],
+  ['answering a permission', { ...keyCard, args: { tab_id: 't1', key: '1', answering_permission: true } }],
+  ['a tab that is not this user\'s', keyCard],
+])('approve_tab_terminal on %s answers 400 GRANT_NOT_ALLOWED and decides nothing', async (_l, row) => {
+  const { app, decide, repos } = build({ findByIdForUser: vi.fn(async () => row), tabs: _l === 'a tab that is not this user\'s' ? [] : [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_tab_terminal' } });
+  expect(res.statusCode).toBe(400);
+  expect(res.json().code).toBe('GRANT_NOT_ALLOWED');
+  expect(decide).not.toHaveBeenCalled();
+  expect(repos.chatGrants.grant).not.toHaveBeenCalled();
+});
+
+it('approve_project_all on a terminal card grants the tab\'s project with scope all and returns project_grant (TER-325)', async () => {
+  const events: ChatEvent[] = [];
+  const off = chatBus.subscribe((e) => events.push(e));
+  const { app, decide, repos, resumeAfterDecision } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }], projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_all' } });
+  off();
+  expect(res.statusCode).toBe(200);
+  expect(decide).toHaveBeenCalledWith('act1', 'u1', 'approved');
+  expect(repos.chatProjectGrants.grant).toHaveBeenCalledWith({ conversation_id: 'c1', project_id: 'p1', source_action_id: 'act1', granted_by: 'u1', scope: 'all' });
+  expect(res.json().project_grant).toMatchObject({ id: 'pg1', project_id: 'p1', project_name: 'App', scope: 'all' });
+  expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['decision', 'project_grant']));
+  expect(resumeAfterDecision).toHaveBeenCalledTimes(1);
+});
+
+it('approve_project_all on a board card grants the card\'s project with scope all', async () => {
+  const { app, repos } = build({ findByIdForUser: vi.fn(async () => boardCard), boardTasks: [{ id: 'k1', project_id: 'p1' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_all' } });
+  expect(res.statusCode).toBe(200);
+  expect(repos.chatProjectGrants.grant).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'p1', scope: 'all' }));
+});
+
+it.each([
+  ['delete_task', { ...boardCard, tool: 'delete_task', args: { task_id: 'k1' } }],
+  ['a tab that is not this user\'s', { ...keyCard, tab_id: 't9', args: { tab_id: 't9', key: 'enter' } }],
+])('approve_project_all on %s answers 400 GRANT_NOT_ALLOWED and decides nothing', async (_l, row) => {
+  const { app, decide, repos } = build({ findByIdForUser: vi.fn(async () => row), boardTasks: [{ id: 'k1', project_id: 'p1' }], tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/act1/decision', payload: { decision: 'approve_project_all' } });
+  expect(res.statusCode).toBe(400);
+  expect(res.json().code).toBe('GRANT_NOT_ALLOWED');
+  expect(decide).not.toHaveBeenCalled();
+  expect(repos.chatProjectGrants.grant).not.toHaveBeenCalled();
+});
+
+it.each(['approve_tab_terminal', 'approve_project_all'])('a batch refuses %s', async (decision) => {
+  const { app, decide } = build({ findByIdForUser: vi.fn(async () => keyCard), tabs: [{ id: 't1', project_id: 'p1', name: 'Terminal 1' }] });
+  const res = await app.inject({ method: 'POST', url: '/chat/actions/decisions', payload: { decisions: [{ id: 'act1', decision }] } });
+  expect(res.statusCode).toBe(400);
+  expect(decide).not.toHaveBeenCalled();
+});
+
 it('GET /chat returns the conversation\'s active project grants with the project name', async () => {
   const { app, repos } = build({
-    projectGrants: [{ id: 'pg1', conversation_id: 'c1', project_id: 'p1', source_action_id: 'a1', granted_by: 'u1', created_at: 'x', expires_at: 'y', revoked_at: null, revoked_by: null }],
+    projectGrants: [{ id: 'pg1', conversation_id: 'c1', project_id: 'p1', scope: 'all', source_action_id: 'a1', granted_by: 'u1', created_at: 'x', expires_at: 'y', revoked_at: null, revoked_by: null }],
     projects: [{ id: 'p1', owner_id: 'u1', name: 'App' }],
   });
   const res = await app.inject({ method: 'GET', url: '/chat' });
   expect(repos.chatProjectGrants.listActive).toHaveBeenCalledWith('c1');
-  expect(res.json().project_grants).toEqual([{ id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: 'x', expires_at: 'y' }]);
+  expect(res.json().project_grants).toEqual([{ id: 'pg1', project_id: 'p1', project_name: 'App', source_action_id: 'a1', created_at: 'x', expires_at: 'y', scope: 'all' }]);
   expect(res.json().grants).toEqual([]);
 });
 
