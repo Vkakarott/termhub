@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 import { relativeTime } from '@/features/shared/relative-time';
 import { AppText, Banner, EmptyState, Screen, SPLIT_LIST_WIDTH, useWideLayout } from '@/ui';
@@ -48,16 +48,24 @@ export function ChatsScreen() {
   /** The chat in the split's right pane (spec 2026-09-28 iPad §2.3). Kept while the window is
    * compact, so widening it again brings the same chat back. */
   const [selected, setSelected] = useState<string | null>(null);
+  // Read by the focus effect below without being among its deps: selecting a row already opens it
+  // (it mounts `ConversationView`, whose own effect calls `openByRoute`), so the focus callback must
+  // not change identity — and re-run — on every selection or width change, or it would fire a
+  // redundant `openByRoute`/`loadProjects` on each tap and each rotation across the breakpoint.
+  const paneRef = useRef({ wide, selected });
+  paneRef.current = { wide, selected };
 
   // On every focus, not only on mount: the tabs stay mounted under a pushed conversation, so a
   // decision or a finished answer there would otherwise leave this list stale. The split's pane is
   // re-opened too: a pushed conversation (a deep link, a notification) made itself the store's
-  // active one, and the pane shows the active one.
+  // active one, and the pane shows the active one — read from the ref, so this only happens on a
+  // real focus, not on every render that changes `wide`/`selected`.
   useFocusEffect(
     useCallback(() => {
       void loadProjects();
+      const { wide, selected } = paneRef.current;
       if (wide && selected) void openByRoute(selected);
-    }, [loadProjects, openByRoute, wide, selected]),
+    }, [loadProjects, openByRoute]),
   );
 
   const open = (route: string) => (wide ? setSelected(route) : router.push(`/chat/${route}` as Href));

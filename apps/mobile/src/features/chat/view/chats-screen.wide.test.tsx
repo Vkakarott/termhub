@@ -27,7 +27,7 @@ jest.mock('expo-router', () => ({
 }));
 
 import { useChatStore } from '@/features/chat/viewmodel/useChatStore';
-import { enrolStores } from '../../../../test/helpers/ui-stores';
+import { enrolStores, stores } from '../../../../test/helpers/ui-stores';
 import { ChatsScreen } from './chats-screen';
 
 const LOAD = { timeout: 15_000 };
@@ -42,6 +42,10 @@ beforeEach(() => {
   mockWindow.width = 1024;
   mockWindow.height = 768;
   mockPush.mockClear();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('Chats on a wide window (iPad, spec 2026-09-28 §2.3)', () => {
@@ -78,6 +82,22 @@ describe('Chats on a wide window (iPad, spec 2026-09-28 §2.3)', () => {
     mockWindow.width = 1024;
     await view.rerender(<ChatsScreen />);
     expect(await screen.findByText(SEEDED_USER, undefined, LOAD)).toBeTruthy();
+  });
+
+  it('opens a chat with a single request, not a second one from the focus effect re-running', async () => {
+    await render(<ChatsScreen />);
+    await screen.findByText('termhub', undefined, LOAD);
+    const chatSpy = jest.spyOn(stores.api, 'chat');
+    const projectsSpy = jest.spyOn(stores.api, 'chatProjects');
+
+    await fireEvent.press(screen.getByRole('button', { name: /^termhub/ }));
+    await screen.findByText(SEEDED_USER, undefined, LOAD);
+
+    // Selecting a row mounts `ConversationView`, whose own effect opens it — the focus effect must
+    // not also fire again just because `selected` changed (it would double both requests, and toggle
+    // the RefreshControl spinner on every tap).
+    expect(chatSpy).toHaveBeenCalledTimes(1);
+    expect(projectsSpy).toHaveBeenCalledTimes(0);
   });
 
   it('re-opens its own chat when the tab regains focus after a pushed one took over the store', async () => {
