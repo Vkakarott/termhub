@@ -143,7 +143,10 @@ export async function swapAccount(
       );
     }
     // built before the tab is touched: every check that can fail runs first (spec §5)
-    const line = resumeLine(to.config_dir, sessionId, RESUME_PROMPT);
+    // a tab started with its memory MCP keeps it: the config file is still on the machine while the
+    // token lives (spec 2026-09-27 agent tab MCP D11); a failed lookup just resumes without it
+    const hasTabMcp = await repos.apiTokens.hasLiveForTab(tab.id).catch(() => false);
+    const line = resumeLine(to.config_dir, sessionId, RESUME_PROMPT, hasTabMcp ? tab.id : null);
 
     // Claude waits for the reset on a usage limit (it does not exit): cancel that wait and leave.
     // Already idle means it ended on its own: the tab is at the shell and must not get these keys.

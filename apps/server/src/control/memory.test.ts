@@ -233,10 +233,72 @@ describe('searchMemory', () => {
   it('always filters by ctx.scope.user.id', async () => {
     const { ctx, embedder, calls } = ctxFor({ user: 'u7', vecDecisions: [decision({ id: 'd1' })], vecItems: [item({ id: 'i1', kind: 'note' })] });
     await searchMemory(ctx, { query: 'x' }, { embedder });
-    expect(calls.nearestAny).toHaveBeenCalledWith('u7', expect.anything(), expect.anything());
-    expect(calls.decisionTextSearch).toHaveBeenCalledWith('u7', expect.anything(), expect.anything());
+    // The 4th argument (a project to hold decisions to) is for tab tokens only (TER-212 D3).
+    expect(calls.nearestAny).toHaveBeenCalledWith('u7', expect.anything(), expect.anything(), undefined);
+    expect(calls.decisionTextSearch).toHaveBeenCalledWith('u7', expect.anything(), expect.anything(), undefined);
     expect(calls.nearest).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'u7' }), expect.anything(), expect.anything());
     expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'u7' }), expect.anything(), expect.anything());
+  });
+});
+
+describe('searchMemory with a tab token (TER-212 D3)', () => {
+  const withTab = (setup: Setup = {}) => {
+    const out = ctxFor(setup);
+    out.ctx.token = { id: 't', scopes: ['read', 'memory'], tab: { id: 'tab1', project_id: 'p1' } };
+    return out;
+  };
+
+  it('searches only the tab\'s project, without messages or gate decisions', async () => {
+    const { ctx, embedder, calls } = withTab({});
+    await searchMemory(ctx, { query: 'x', project_id: 'p1' }, { embedder });
+    const filter = { ownerId: 'u1', projectId: 'p1', kinds: ['task', 'doc', 'note', 'lesson', 'project_note'] };
+    expect(calls.nearest).toHaveBeenCalledWith(filter, expect.anything(), expect.anything());
+    expect(calls.itemTextSearch).toHaveBeenCalledWith(filter, expect.anything(), expect.anything());
+    expect(calls.nearestAny).toHaveBeenCalledWith('u1', expect.anything(), expect.anything(), 'p1');
+    expect(calls.decisionTextSearch).toHaveBeenCalledWith('u1', 'x', expect.anything(), 'p1');
+  });
+
+  it('forces the tab\'s project when project_id is missing', async () => {
+    const { ctx, embedder, calls } = withTab({});
+    await searchMemory(ctx, { query: 'x' }, { embedder });
+    expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p1' }), expect.anything(), expect.anything());
+    expect(calls.decisionTextSearch).toHaveBeenCalledWith('u1', 'x', expect.anything(), 'p1');
+  });
+
+  it('refuses another project with TAB_SCOPE before any search', async () => {
+    const { ctx, embedder, calls } = withTab({});
+    await expect(searchMemory(ctx, { query: 'x', project_id: 'p2' }, { embedder })).rejects.toMatchObject({ code: 'TAB_SCOPE' });
+    expect(calls.itemTextSearch).not.toHaveBeenCalled();
+    expect(calls.decisionTextSearch).not.toHaveBeenCalled();
+  });
+
+  it('searches every kind but message and action by default', async () => {
+    const { ctx, embedder, calls } = withTab({});
+    await searchMemory(ctx, { query: 'x' }, { embedder });
+    expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['task', 'doc', 'note', 'lesson', 'project_note'] }), expect.anything(), expect.anything());
+    expect(calls.decisionTextSearch).toHaveBeenCalled();
+  });
+
+  it('drops message and action from the kinds asked for', async () => {
+    const { ctx, embedder, calls } = withTab({});
+    await searchMemory(ctx, { query: 'x', kinds: ['doc', 'message', 'action'] }, { embedder });
+    expect(calls.itemTextSearch).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['doc'] }), expect.anything(), expect.anything());
+    expect(calls.decisionTextSearch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a request for only excluded kinds with TAB_SCOPE', async () => {
+    const { ctx, embedder, calls } = withTab({});
+    const err = await searchMemory(ctx, { query: 'x', kinds: ['message'] }, { embedder }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ControlError);
+    expect(err).toMatchObject({ code: 'TAB_SCOPE', message: 'O token desta aba não lê mensagens do chat nem decisões do gate' });
+    await expect(searchMemory(ctx, { query: 'x', kinds: ['message', 'action'] }, { embedder })).rejects.toMatchObject({ code: 'TAB_SCOPE' });
+    expect(calls.itemTextSearch).not.toHaveBeenCalled();
+  });
+
+  it('drops a message hit a repository returned anyway', async () => {
+    const { ctx, embedder } = withTab({ textItems: [item({ id: 'm1', kind: 'message', rank: 1 }), item({ id: 'n1', kind: 'note', rank: 2 })] });
+    const r = await searchMemory(ctx, { query: 'x' }, { embedder });
+    expect(r.results.map((x) => x.ref)).toEqual(['note:n1']);
   });
 });
 

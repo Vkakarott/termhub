@@ -5,8 +5,9 @@ describe('rpc catalog', () => {
   it('lists the v1 methods', () => {
     expect([...RPC_METHODS].sort()).toEqual([
       'agent.update', 'ai.credential', 'claude.linkSession', 'docs.read', 'docs.scan', 'file.paste', 'fs.list', 'fs.mkdir', 'hooks.install',
-      'hooks.uninstall', 'hw.probe', 'secret.read', 'sim.boot', 'sim.list', 'tmux.capture', 'tmux.ensure', 'tmux.kill', 'tmux.list', 'tmux.sendKey',
-      'tmux.sendText', 'tools.detect', 'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail', 'wda.setup.start', 'wda.setup.state',
+      'hooks.uninstall', 'hw.probe', 'secret.read', 'sim.boot', 'sim.list', 'tab.mcp.remove', 'tab.mcp.write', 'tmux.capture', 'tmux.ensure',
+      'tmux.kill', 'tmux.list', 'tmux.sendKey', 'tmux.sendText', 'tools.detect', 'wda.runner.alive', 'wda.runner.start', 'wda.runner.tail',
+      'wda.setup.start', 'wda.setup.state',
     ]);
   });
   it('validates udids and the WDA port ranges for the simulator rpcs', () => {
@@ -119,6 +120,17 @@ describe('rpc catalog', () => {
     expect(docPath.safeParse('docs/lessons/sub/y.md').success).toBe(false);
     expect(docPath.safeParse('docs/lessons/../x.md').success).toBe(false);
     expect(docPath.safeParse('docs/superpowers/specs/a.md').success).toBe(true);
+  });
+  it('bounds tab.mcp.write/remove', () => {
+    expect(RPC['tab.mcp.write'].params.safeParse({ tab_id: 'abc', file: 'token', body: 'x' }).success).toBe(true);
+    expect(RPC['tab.mcp.write'].params.safeParse({ tab_id: '../x', file: 'token', body: 'x' }).success).toBe(false);
+    expect(RPC['tab.mcp.write'].params.safeParse({ tab_id: 'abc', file: 'other', body: 'x' }).success).toBe(false);
+    expect(RPC['tab.mcp.write'].params.safeParse({ tab_id: 'abc', file: 'token', body: 'x'.repeat(8193) }).success).toBe(false);
+    expect(RPC['tab.mcp.write'].params.safeParse({ tab_id: 'abc', file: 'token', body: 'x'.repeat(8192) }).success).toBe(true);
+    expect(RPC['tab.mcp.write'].timeoutMs).toBe(10_000);
+    expect(RPC['tab.mcp.remove'].params.safeParse({ tab_id: 'abc' }).success).toBe(true);
+    expect(RPC['tab.mcp.remove'].params.safeParse({ tab_id: '../x' }).success).toBe(false);
+    expect(RPC['tab.mcp.remove'].timeoutMs).toBe(10_000);
   });
   it('shapes rpc errors', () => {
     expect(rpcErrorSchema.parse({ code: 'eperm', message: 'x', path: '/v' }).code).toBe('eperm');

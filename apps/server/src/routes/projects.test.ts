@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { ensureDirectory, killTmuxSession, listTmuxSessions } = vi.hoisted(() => ({ ensureDirectory: vi.fn(), killTmuxSession: vi.fn(), listTmuxSessions: vi.fn() }));
 vi.mock('../terminal/machine-fs.js', () => ({ ensureDirectory }));
 vi.mock('../terminal/machine-exec.js', () => ({ killTmuxSession, listTmuxSessions }));
+const { removeTabMcp } = vi.hoisted(() => ({ removeTabMcp: vi.fn(async () => undefined) }));
+vi.mock('../terminal/tab-mcp.js', () => ({ removeTabMcp }));
 
 import type { Repositories } from '../db/repositories/index.js';
 import { ProjectRuleError } from '../db/repositories/projects.js';
@@ -92,6 +94,7 @@ function buildApp() {
       }),
     },
     tasks: { openCountByProject: vi.fn(async () => ({ p1: 2 })) },
+    apiTokens: { revokeForTabs: vi.fn(async (ids: string[]) => ids.length) },
   };
   app.register((a) => projectRoutes(a, repos as unknown as Repositories, { simulators: { isReady: () => false } as never }), { prefix: '/projects' });
   return { app, repos, get links() { return links; }, get tabs() { return tabs; } };
@@ -189,6 +192,8 @@ describe('PATCH / DELETE /projects/:id', () => {
     expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'th-t1');
     expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }), 'th-t2');
     expect(repos.projects.delete).toHaveBeenCalledWith('p2');
+    expect(removeTabMcp).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 't1');
+    expect(removeTabMcp).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }), 't2');
   });
 
   it('deleting a project only touches tabs on machines in scope, leaving a cross-owner link\'s tab alone', async () => {
@@ -198,6 +203,15 @@ describe('PATCH / DELETE /projects/:id', () => {
     expect(r.statusCode).toBe(200);
     expect(killTmuxSession).toHaveBeenCalledTimes(1);
     expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'th-t3');
+    expect(removeTabMcp).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokes the tokens of every tab the cascade removes, before the delete', async () => {
+    const { app, repos } = buildApp();
+    expect((await app.inject({ method: 'DELETE', url: '/projects/p4' })).statusCode).toBe(200);
+    // the cross-owner link's tab goes with the project too, so its token dies with it
+    expect(repos.apiTokens.revokeForTabs).toHaveBeenCalledWith(['t3', 't4']);
+    expect(repos.apiTokens.revokeForTabs.mock.invocationCallOrder[0]).toBeLessThan(repos.projects.delete.mock.invocationCallOrder[0]!);
   });
 });
 

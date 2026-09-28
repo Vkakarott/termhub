@@ -79,6 +79,8 @@ function buildApp(
     return true;
   });
 
+  const revokeForTabs = vi.fn(async (ids: string[]) => ids.length);
+
   const machineHooks = {
     findByMachine: vi.fn(async () => undefined),
     installedAtByMachine: vi.fn(async () => health.hooks ?? {}),
@@ -93,6 +95,7 @@ function buildApp(
       listByMachine: vi.fn(async (id: string) => (id === 'm1' ? [{ id: 't1', project_id: 'p1', machine_id: 'm1' }, { id: 't2', project_id: 'p2', machine_id: 'm1' }] : [])),
     },
     aiAccounts: { list: vi.fn(async () => aiAccounts) },
+    apiTokens: { revokeForTabs },
     machines: {
       findById: async (id: string) => store[id],
       list: async () => Object.values(store),
@@ -107,7 +110,7 @@ function buildApp(
   } as unknown as Repositories;
 
   app.register((instance) => machineRoutes(instance, repos), { prefix: '/api/machines' });
-  return { app, repos: { create, rotateAgentToken, update, delete: del, machineHooks } };
+  return { app, repos: { create, rotateAgentToken, update, delete: del, machineHooks, revokeForTabs } };
 }
 
 let app: FastifyInstance;
@@ -362,6 +365,14 @@ describe('DELETE /api/machines/:id', () => {
     const res = await app.inject({ method: 'DELETE', url: '/api/machines/m1' });
     expect(res.statusCode).toBe(200);
     expect(store.m1).toBeUndefined();
+  });
+
+  it('revokes the tokens of every tab the cascade takes, before the delete', async () => {
+    store.m1 = makeMachine({ id: 'm1', type: 'agent' });
+    const built = buildApp(store);
+    expect((await built.app.inject({ method: 'DELETE', url: '/api/machines/m1' })).statusCode).toBe(200);
+    expect(built.repos.revokeForTabs).toHaveBeenCalledWith(['t1', 't2']);
+    expect(built.repos.revokeForTabs.mock.invocationCallOrder[0]).toBeLessThan(built.repos.delete.mock.invocationCallOrder[0]!);
   });
 
   it('announces the removal of every tab the cascade takes, under the machine owner', async () => {

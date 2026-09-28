@@ -13,6 +13,11 @@ export const DOC_PATH_RE = /^docs\/(?:superpowers\/(?:specs|plans)\/[A-Za-z0-9._
 export const docPath = z.string().regex(DOC_PATH_RE);
 export const aiProvider = z.enum(['claude', 'chatgpt', 'gemini', 'antigravity']);
 
+/** A tab id, as minted by the server (see @termhub/machine-ops TAB_ID_RE, which this must match). */
+export const TAB_ID_RE = /^[a-z0-9]{1,64}$/;
+export const tabId = z.string().regex(TAB_ID_RE);
+export const tabMcpFile = z.enum(['mcp.json', 'token']);
+
 /** Simulator UDID as `xcrun simctl` prints it. The same regex lives in `@termhub/machine-ops`
  *  (`simulator.ts`), which cannot depend on this package; the server's tests assert they match. */
 export const UDID_RE = /^[A-Fa-f0-9-]{8,64}$/;
@@ -143,6 +148,13 @@ export const RPC = {
    * `DOCS_MAX_BYTES` is skipped silently. `parseDocsRead` reads the output back (since agent 0.8.0).
    */
   'docs.read': def(z.object({ cwd: machinePath, paths: z.array(docPath).min(1).max(20) }), z.object({ stdout: z.string() }), 20_000),
+  /**
+   * Writes a tab's private MCP config file (`~/.termhub/tabs/<tab_id>/<file>`, spec D7): `body`
+   * travels only on stdin, never in this params object's serialized form on disk/log (since agent 0.10.0).
+   */
+  'tab.mcp.write': def(z.object({ tab_id: tabId, file: tabMcpFile, body: z.string().min(1).max(8192) }), z.object({ ok: z.literal(true) }), 10_000),
+  /** Deletes a tab's whole MCP config dir on close (spec D12); best effort (since agent 0.10.0). */
+  'tab.mcp.remove': def(z.object({ tab_id: tabId }), z.object({ ok: z.literal(true) }), 10_000),
 } as const;
 
 export type RpcMethod = keyof typeof RPC;

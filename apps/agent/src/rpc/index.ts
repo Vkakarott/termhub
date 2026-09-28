@@ -8,6 +8,7 @@ import * as hw from './hw.js';
 import * as paste from './paste.js';
 import * as secret from './secret.js';
 import * as sim from './sim.js';
+import * as tabMcp from './tab-mcp.js';
 import * as tmux from './tmux.js';
 import * as tools from './tools.js';
 import * as update from './update.js';
@@ -46,4 +47,6 @@ export const handlers: Handlers = {
   'wda.runner.tail': wda.runnerTail,
   'wda.setup.start': wda.setupStart,
   'wda.setup.state': wda.setupState,
+  'tab.mcp.write': tabMcp.write,
+  'tab.mcp.remove': tabMcp.remove,
 };

@@ -11,6 +11,8 @@ const { browseMachine, ensureDirectory, killTmuxSession, publishTabsRemoved, pub
 }));
 vi.mock('../terminal/machine-fs.js', () => ({ browseMachine, ensureDirectory }));
 vi.mock('../terminal/machine-exec.js', () => ({ killTmuxSession }));
+const { removeTabMcp } = vi.hoisted(() => ({ removeTabMcp: vi.fn(async () => undefined) }));
+vi.mock('../terminal/tab-mcp.js', () => ({ removeTabMcp }));
 vi.mock('../public/bus.js', () => ({ publicBus }));
 vi.mock('../monitor/tab-events.js', () => ({ publishTabsRemoved }));
 
@@ -216,5 +218,7 @@ describe('removeProjectMachineLink', () => {
     expect((repos as { tabs: { delete: ReturnType<typeof vi.fn> } }).tabs.delete).toHaveBeenCalledTimes(2);
     expect((repos as { projectMachines: { unlink: ReturnType<typeof vi.fn> } }).projectMachines.unlink).toHaveBeenCalledWith('p1', 'm1');
     expect(publicBus.publishRobotsGone).toHaveBeenCalledWith({ machine_id: 'm1', project_id: 'p1' });
+    expect(removeTabMcp).toHaveBeenCalledWith(machine, 't1');
+    expect(removeTabMcp).toHaveBeenCalledWith(machine, 't2');
   });
 });

@@ -16,6 +16,8 @@ vi.mock('../agent/registry.js', () => ({ agents: { awaitAgent } }));
 vi.mock('../agent/errors.js', () => ({ requireAgentVersion }));
 vi.mock('../terminal/session-ops.js', () => ({ ensureSession, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION: '0.2.0', INPUT_MAX_CHARS: 4000 }));
 vi.mock('../terminal/machine-exec.js', () => ({ killTmuxSession }));
+const { removeTabMcp } = vi.hoisted(() => ({ removeTabMcp: vi.fn(async () => undefined) }));
+vi.mock('../terminal/tab-mcp.js', () => ({ removeTabMcp }));
 // Only waitForState is faked here; assertTerminal/clamp/offline/SCREEN_*_LINES come from the real module
 // (screen.test.ts already covers waitForState's own behavior — this file only needs to control when it resolves).
 vi.mock('./screen.js', async (importOriginal) => {
@@ -253,6 +255,13 @@ describe('closeTab', () => {
   it('kills the session and removes a tab this token opened', async () => {
     killTmuxSession.mockResolvedValue(true);
     await expect(closeTab(ctxWith(), { tab_id: 't1' })).resolves.toEqual({ tab_id: 't1', killed: true });
+  });
+
+  it("removes the tab's MCP config dir from the machine, best effort, even when the kill fails", async () => {
+    killTmuxSession.mockRejectedValue(new Error('offline'));
+    removeTabMcp.mockClear();
+    await expect(closeTab(ctxWith(), { tab_id: 't1' })).resolves.toEqual({ tab_id: 't1', killed: false });
+    expect(removeTabMcp).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 't1');
   });
 
   it('refuses a tab opened somewhere else unless force is given', async () => {

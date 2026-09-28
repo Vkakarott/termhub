@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../auth/permissions.js', async (orig) => ({ ...(await orig<typeof import('../auth/permissions.js')>()), canAccess: vi.fn() }));
 vi.mock('../control/inventory.js', async (orig) => ({ ...(await orig<typeof import('../control/inventory.js')>()), listMachines: vi.fn() }));
@@ -8,6 +8,7 @@ vi.mock('../control/terminals.js', async (orig) => ({ ...(await orig<typeof impo
 vi.mock('../control/tasks.js', async (orig) => ({ ...(await orig<typeof import('../control/tasks.js')>()), createTask: vi.fn(), deleteTask: vi.fn() }));
 vi.mock('../control/agents.js', async (orig) => ({ ...(await orig<typeof import('../control/agents.js')>()), startAgent: vi.fn() }));
 vi.mock('../control/integrations.js', async (orig) => ({ ...(await orig<typeof import('../control/integrations.js')>()), createIntegration: vi.fn() }));
+vi.mock('../control/memory.js', async (orig) => ({ ...(await orig<typeof import('../control/memory.js')>()), searchMemory: vi.fn() }));
 vi.mock('../chat/attachments/read-tool.js', async (orig) => ({ ...(await orig<typeof import('../chat/attachments/read-tool.js')>()), readAttachment: vi.fn() }));
 
 import { canAccess } from '../auth/permissions.js';
@@ -17,6 +18,7 @@ import { sendInput } from '../control/terminals.js';
 import { createTask, deleteTask } from '../control/tasks.js';
 import { startAgent } from '../control/agents.js';
 import { readAttachment } from '../chat/attachments/read-tool.js';
+import { searchMemory } from '../control/memory.js';
 import { createIntegration } from '../control/integrations.js';
 import type { AttachmentStore } from '../chat/attachments/store.js';
 import { ControlError } from '../control/context.js';
@@ -27,11 +29,13 @@ import { hashApiToken } from '../auth/api-tokens.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { mcpRoutes } from './route.js';
 import { TokenRateLimiter } from './rate-limit.js';
+import { TOOLS, type ToolDef } from './tools.js';
+import { z } from 'zod';
 
 const SECRET = 'thb_pat_' + 'A'.repeat(43);
 const token = (over: Partial<ApiToken> = {}): ApiToken => ({ id: 'tok1', user_id: 'u1', name: 'jarvis', scopes: ['read'], expires_at: null, last_used_at: null, revoked_at: null, created_at: '', ...over });
 
-function build(opts: { token?: ApiToken | undefined; grants?: string[]; limiter?: TokenRateLimiter; attachments?: AttachmentStore } = {}) {
+function build(opts: { token?: ApiToken | undefined; grants?: string[]; limiter?: TokenRateLimiter; attachments?: AttachmentStore; tabs?: { id: string; project_id: string }[] } = {}) {
   const app = Fastify();
   applyErrorHandler(app);
   const active = 'token' in opts ? opts.token : token();
@@ -40,7 +44,8 @@ function build(opts: { token?: ApiToken | undefined; grants?: string[]; limiter?
     touchLastUsed: vi.fn(async () => {}),
     recordEvent: vi.fn(async () => {}),
   };
-  const repos = { apiTokens, users: { findById: vi.fn(async (id: string) => (id === 'u1' ? { id: 'u1', role_id: 'r' } : undefined)) } } as unknown as Repositories;
+  const tabs = { findById: vi.fn(async (id: string) => opts.tabs?.find((t) => t.id === id)) };
+  const repos = { apiTokens, tabs, users: { findById: vi.fn(async (id: string) => (id === 'u1' ? { id: 'u1', role_id: 'r' } : undefined)) } } as unknown as Repositories;
   const grants = opts.grants ?? ['machines:read', 'projects:read', 'terminals:read'];
   vi.mocked(canAccess).mockImplementation(async (_r, _u, resource, action) => grants.includes(`${resource}:${action}`));
   app.register((a) => mcpRoutes(a, { repos, version: '0.0.0-test', limiter: opts.limiter, attachments: opts.attachments }));
@@ -639,5 +644,124 @@ describe('integration tools', () => {
     const r = await rpc(app, call('create_integration', args));
     expect(r.json().result.isError).toBeFalsy();
     expect(vi.mocked(createIntegration).mock.calls[0][1]).toEqual(args);
+  });
+});
+
+describe('tab token (TER-212)', () => {
+  const tabToken = () => token({ id: 'tokTab', scopes: ['read', 'memory'], tab_id: 'tab1', gated: false });
+  const tabs = [{ id: 'tab1', project_id: 'p1' }];
+  const grants = ['machines:read', 'projects:read', 'terminals:read', 'terminals:write', 'chat:read', 'chat:create', 'tasks:read'];
+  beforeEach(() => vi.mocked(searchMemory).mockReset());
+
+  it('401s once the tab row is gone', async () => {
+    const { app } = build({ token: tabToken(), grants, tabs: [] });
+    const r = await rpc(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    expect(r.statusCode).toBe(401);
+    expect(r.json()).toEqual({ error: 'Não autenticado', code: 'UNAUTHORIZED' });
+  });
+
+  it('401s a tab token that claims to be gated, even with its tab alive', async () => {
+    const { app } = build({ token: { ...tabToken(), gated: true }, grants, tabs });
+    expect((await rpc(app, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).statusCode).toBe(401);
+  });
+
+  it('lists only the allowlisted memory tools', async () => {
+    const { app } = build({ token: tabToken(), grants, tabs });
+    const names: string[] = (await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json().result.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain('search_memory');
+    expect(names.every((n) => ['search_memory', 'record_lesson'].includes(n))).toBe(true);
+  });
+
+  it('also lists the real record_lesson once the owner has notes:update (TER-205)', async () => {
+    const { app } = build({ token: tabToken(), grants: [...grants, 'notes:update'], tabs });
+    const names: string[] = (await rpc(app, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).json().result.tools.map((t: { name: string }) => t.name);
+    expect(names.sort()).toEqual(['record_lesson', 'search_memory']);
+  });
+
+  it('refuses list_tabs as a pt-BR tool error, audited as TOOL_NOT_ALLOWED', async () => {
+    const { app, apiTokens } = build({ token: tabToken(), grants, tabs });
+    const res = (await rpc(app, call('list_tabs', { project_id: 'p1' }))).json().result;
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('list_tabs');
+    expect(res.content[0].text).toContain('aba');
+    await flush();
+    expect(apiTokens.recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tool: 'list_tabs', ok: false, error_code: 'TOOL_NOT_ALLOWED' }));
+  });
+
+  it('refuses search_memory on another project without running it, audited as TAB_SCOPE', async () => {
+    const { app, apiTokens } = build({ token: tabToken(), grants, tabs });
+    const res = (await rpc(app, call('search_memory', { query: 'x', project_id: 'p2' }))).json().result;
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('projeto da aba');
+    expect(searchMemory).not.toHaveBeenCalled();
+    await flush();
+    expect(apiTokens.recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tool: 'search_memory', ok: false, error_code: 'TAB_SCOPE' }));
+  });
+
+  it('fills a missing project_id with the tab\'s project and hands the tab to the control layer', async () => {
+    vi.mocked(searchMemory).mockResolvedValue({ note: 'n', results: [] });
+    const { app, apiTokens } = build({ token: tabToken(), grants, tabs });
+    const res = (await rpc(app, call('search_memory', { query: 'x' }))).json().result;
+    expect(res.isError).toBeFalsy();
+    const [ctx, args] = vi.mocked(searchMemory).mock.calls[0]!;
+    expect(args).toEqual({ query: 'x', project_id: 'p1' });
+    expect(ctx.token?.tab).toEqual({ id: 'tab1', project_id: 'p1' });
+    await flush();
+    expect(apiTokens.recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tool: 'search_memory', ok: true, project_id: 'p1' }));
+  });
+
+  describe('a tool whose project_id and tab_id are required', () => {
+    // Stands in for record_lesson (TER-205): allowlisted by name, with ids a tab does not know.
+    const run = vi.fn(async (_ctx: unknown, a: Record<string, unknown>) => ({ saved: a }));
+    const fake: ToolDef = {
+      name: 'record_lesson', description: 'test', scope: 'memory', resource: 'chat', action: 'read',
+      input: { project_id: z.string().min(1).max(64), tab_id: z.string().min(1).max(64), text: z.string().min(1) },
+      run: (ctx, a) => run(ctx, a),
+    };
+    beforeEach(() => {
+      run.mockClear();
+      TOOLS.push(fake);
+    });
+    afterEach(() => {
+      TOOLS.splice(TOOLS.indexOf(fake), 1);
+    });
+
+    it('runs for a tab token without them, filled with the tab\'s values', async () => {
+      const { app, apiTokens } = build({ token: tabToken(), grants, tabs });
+      const res = (await rpc(app, call('record_lesson', { text: 'l' }))).json().result;
+      expect(res.isError).toBeFalsy();
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run.mock.calls[0]![1]).toEqual({ text: 'l', project_id: 'p1', tab_id: 'tab1' });
+      await flush();
+      expect(apiTokens.recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tool: 'record_lesson', ok: true, project_id: 'p1', tab_id: 'tab1' }));
+    });
+
+    it('still refuses a foreign project as TAB_SCOPE', async () => {
+      const { app, apiTokens } = build({ token: tabToken(), grants, tabs });
+      const res = (await rpc(app, call('record_lesson', { text: 'l', project_id: 'p2' }))).json().result;
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toContain('projeto da aba');
+      expect(run).not.toHaveBeenCalled();
+      await flush();
+      expect(apiTokens.recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tool: 'record_lesson', ok: false, error_code: 'TAB_SCOPE' }));
+    });
+
+    it('keeps the required-field error for an ordinary token', async () => {
+      const { app, apiTokens } = build({ token: token({ scopes: ['read', 'memory'] }), grants });
+      const r = (await rpc(app, call('record_lesson', { text: 'l' }))).json();
+      expect(r.error ?? r.result?.isError).toBeTruthy();
+      expect(run).not.toHaveBeenCalled();
+      await flush();
+      expect(apiTokens.recordEvent).toHaveBeenCalledWith(expect.objectContaining({ tool: 'record_lesson', ok: false, error_code: 'INVALID_ARGS' }));
+    });
+  });
+
+  it('leaves an ordinary token\'s search_memory call as it came', async () => {
+    vi.mocked(searchMemory).mockResolvedValue({ note: 'n', results: [] });
+    const { app } = build({ grants });
+    await rpc(app, call('search_memory', { query: 'x' }));
+    const [ctx, args] = vi.mocked(searchMemory).mock.calls[0]!;
+    expect(args).toEqual({ query: 'x' });
+    expect(ctx.token?.tab).toBeUndefined();
   });
 });

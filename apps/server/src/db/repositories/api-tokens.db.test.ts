@@ -80,6 +80,40 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ApiTokensRepository (Post
     expect(await repo.countActive(userId)).toBe(before);
   });
 
+  it('maps tab_id, keeps tab tokens out of the active count, and revokes them by tab', async () => {
+    const tabToken = await repo.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: null, tabId: 'tab1' }, newId(32));
+    await make(userId);
+    expect(tabToken.tab_id).toBe('tab1');
+    expect(await repo.countActive(userId)).toBe(1);
+    expect(await repo.revokeForTab('tab1')).toBe(1);
+    expect(await repo.revokeForTab('tab1')).toBe(0);
+    expect((await repo.listByUser(userId)).find((t) => t.id === tabToken.id)?.revoked_at).not.toBeNull();
+  });
+
+  it('revokeForTabs revokes the live tokens of exactly those tabs', async () => {
+    const [a, b, c] = [0, 1, 2].map(() => `tab${newId().slice(-8).toLowerCase()}`);
+    const tok = (tab: string) => repo.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: new Date(Date.now() + DAY), tabId: tab }, newId(32));
+    const [ta, tb, tc] = [await tok(a!), await tok(b!), await tok(c!)];
+    expect(await repo.revokeForTabs([])).toBe(0);
+    expect(await repo.revokeForTabs([a!, b!])).toBe(2);
+    expect(await repo.revokeForTabs([a!, b!])).toBe(0);
+    const byId = (id: string) => repo.listByUser(userId).then((rows) => rows.find((r) => r.id === id));
+    expect((await byId(ta.id))?.revoked_at).not.toBeNull();
+    expect((await byId(tb.id))?.revoked_at).not.toBeNull();
+    expect((await byId(tc.id))?.revoked_at).toBeNull();
+  });
+
+  it('hasLiveForTab: only a tab token neither revoked nor expired', async () => {
+    const tab = `tab${newId().slice(-8).toLowerCase()}`;
+    expect(await repo.hasLiveForTab(tab)).toBe(false);
+    await repo.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: new Date(Date.now() - 1000), tabId: tab }, newId(32));
+    expect(await repo.hasLiveForTab(tab)).toBe(false);
+    await repo.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: new Date(Date.now() + DAY), tabId: tab }, newId(32));
+    expect(await repo.hasLiveForTab(tab)).toBe(true);
+    await repo.revokeForTab(tab);
+    expect(await repo.hasLiveForTab(tab)).toBe(false);
+  });
+
   it('revokeForConversation revokes only that conversation\'s live tokens', async () => {
     // Two active conversations of the same user: `chat_conversations_one_active` is keyed on
     // COALESCE(project_id, ''), so the second one needs a project of its own to coexist with the

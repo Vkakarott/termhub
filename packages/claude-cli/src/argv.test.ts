@@ -109,4 +109,10 @@ describe('mcpConfig', () => {
     // The token must not leak into a second place in the payload (e.g. a query string or a log field).
     expect(raw.split(token)).toHaveLength(2);
   });
+
+  it('names the server when asked (an agent tab uses termhub_tab), termhub by default', () => {
+    const raw = mcpConfig('https://termhub.dev/mcp', 'thb_pat_x', 'termhub_tab');
+    expect(Object.keys(JSON.parse(raw).mcpServers)).toEqual(['termhub_tab']);
+    expect(Object.keys(JSON.parse(mcpConfig('https://termhub.dev/mcp', 'thb_pat_x')).mcpServers)).toEqual(['termhub']);
+  });
 });

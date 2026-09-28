@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { hashApiToken } from '../auth/api-tokens.js';
 import { canAccess } from '../auth/permissions.js';
 import { withLessonsReminder } from '../control/agents.js';
+import { config } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
 import { applyErrorHandler } from '../lib/errors.js';
 import { mcpRoutes } from './route.js';
@@ -37,6 +38,10 @@ echo "fake-cli args=$#"
 echo "fake-cli cfg=$CLAUDE_CONFIG_DIR$CODEX_HOME"
 echo "fake-cli cwd=$(pwd)"
 printf 'fake-cli prompt=[%s]\\n' "$1"
+for a; do last=$a; done
+printf 'fake-cli last=[%s]\\n' "$last"
+printf 'fake-cli argv=[%s]\\n' "$*"
+echo "fake-cli toklen=\${#TERMHUB_MCP_TOKEN}"
 `;
 
 const machine = { id: 'm1', name: 'jarvis', type: 'local', os: 'linux', capabilities: ['tmux', 'claude', 'codex'], owner_id: 'u1' };
@@ -53,6 +58,9 @@ function build(cwd: string) {
     findActiveByHash: vi.fn(async (h: string) => (h === hashApiToken(SECRET) ? { id: 'tok1', user_id: 'u1', name: 'e2e', scopes: ['read', 'terminals'], expires_at: null, revoked_at: null, last_used_at: null, created_at: '' } : undefined)),
     touchLastUsed: vi.fn(async () => {}),
     recordEvent: vi.fn(async () => {}),
+    // the tab token start_agent mints when MCP_URL is set (TER-212)
+    create: vi.fn(async (userId: string, input: { name: string; tabId?: string | null }) => ({ id: `tt-${input.tabId}`, user_id: userId, name: input.name, tab_id: input.tabId ?? null })),
+    revokeForTab: vi.fn(async () => 1),
   };
   const link = { id: 'l1', project_id: 'p1', machine_id: 'm1', cwd, position: 0, created_at: '' };
   const repos = {
@@ -216,6 +224,56 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
     expect(flat).toContain(`fake-cli cfg=${cfg}`);
     expect(flat).not.toContain('fake-cli cfg=~');
   }, 30_000);
+
+  describe('with MCP_URL set', () => {
+    const cfg = config as { mcpUrl: string | null };
+    const MCP_URL = 'https://termhub.test/mcp';
+    let saved: string | null;
+    beforeAll(() => {
+      saved = cfg.mcpUrl;
+      cfg.mcpUrl = MCP_URL;
+    });
+    afterAll(() => {
+      cfg.mcpUrl = saved;
+    });
+
+    it('writes the tab config under $HOME (0700/0600) and starts claude with it, the prompt still one argument', async () => {
+      const { app, apiTokens } = build(cwd);
+      const prompt = `lição "X"; $(echo 9)`;
+
+      const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a1', prompt }));
+      expect(out.note).toContain('A aba tem o MCP termhub_tab');
+      const dir = join(home, '.termhub', 'tabs', out.tab_id);
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(dir, 'mcp.json')).mode & 0o777).toBe(0o600);
+      const written = JSON.parse(readFileSync(join(dir, 'mcp.json'), 'utf8'));
+      const token = written.mcpServers.termhub_tab.headers.Authorization.replace('Bearer ', '');
+      expect(token).toMatch(/^thb_pat_/);
+      expect(written.mcpServers.termhub_tab.url).toBe(MCP_URL);
+      expect(apiTokens.create).toHaveBeenCalledWith('u1', expect.objectContaining({ tabId: out.tab_id }), expect.any(String));
+
+      const flat = await screenWith(app, out.tab_id, 'fake-cli toklen=');
+      expect(flat).toContain(`fake-cli argv=[--mcp-config ${dir}/mcp.json --allowedTools mcp__termhub_tab__search_memory mcp__termhub_tab__record_lesson -- ${flatten(withLessonsReminder(prompt))}]`);
+      expect(flat).toContain(`fake-cli last=[${flatten(withLessonsReminder(prompt))}]`);
+      // the pane shows the typed line too: the token is in neither
+      expect(flat).not.toContain(token);
+      expect(JSON.stringify(out)).not.toContain(token);
+    }, 30_000);
+
+    it('starts codex with the plain line, no token minted nor written, while its MCP is unverified (TER-356)', async () => {
+      const { app, apiTokens } = build(cwd);
+
+      const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a2', prompt: 'arrume o teste' }));
+      expect(out.note).toContain('o MCP no Codex ainda não foi verificado');
+      expect(apiTokens.create).not.toHaveBeenCalled();
+      // (tab ids restart per build, so an earlier test's dir may sit at the same path: look for the file)
+      expect(existsSync(join(home, '.termhub', 'tabs', out.tab_id, 'token'))).toBe(false);
+
+      const flat = await screenWith(app, out.tab_id, 'fake-cli toklen=');
+      expect(flat).toContain('fake-cli toklen=0');
+      expect(flat).toContain(`fake-cli argv=[${flatten(withLessonsReminder('arrume o teste'))}]`);
+    }, 30_000);
+  });
 
   it('starts codex under CODEX_HOME for a ChatGPT account', async () => {
     const { app } = build(cwd);

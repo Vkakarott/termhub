@@ -4,6 +4,7 @@ export * from './hardware-script.js';
 export * from './fs-script.js';
 export * from './docs-script.js';
 export * from './paste.js';
+export * from './tab-mcp.js';
 export * from './ai-credentials.js';
 export * from './pty.js';
 export * from './hooks.js';

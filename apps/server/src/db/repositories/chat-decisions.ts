@@ -129,6 +129,9 @@ const mapRaw = (r: RawRow): ChatDecision => ({
   created_at: r.created_at.toISOString(),
 });
 
+/** ` AND d.project_id = …` when a search is held to one project, nothing otherwise. */
+const projectFilter = (projectId: string | undefined) => (projectId ? Prisma.sql` AND d.project_id = ${projectId}` : Prisma.empty);
+
 /** Escapes a person's search text for a LIKE/ILIKE pattern: `%`/`_` are wildcards and `\` is the
  *  escape character itself, so all three must be escaped before wrapping in `%…%`. */
 const escapeLike = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -217,13 +220,14 @@ export class ChatDecisionsRepository {
 
   /** Same as `nearest`, but across both `multi_select` shapes (a `search_memory` caller has no
    *  question payload to match a shape against — only `answer_tab_question`'s own precedent check
-   *  does, and it re-verifies the shape itself with `mapAnswer`). */
-  async nearestAny(userId: string, vector: number[], k: number): Promise<DecisionNeighbour[]> {
+   *  does, and it re-verifies the shape itself with `mapAnswer`). `projectId` keeps only that
+   *  project's rows (a tab token's search, TER-212 D3). */
+  async nearestAny(userId: string, vector: number[], k: number, projectId?: string): Promise<DecisionNeighbour[]> {
     const v = toVector(vector);
     const rows = await this.db.$queryRaw<(RawRow & { similarity: number | string })[]>`
       SELECT ${DECISION_SELECT}, 1 - (d.embedding <=> ${v}::vector) AS similarity
       FROM "chat_decisions" d LEFT JOIN "projects" p ON p.id = d.project_id
-      WHERE d.user_id = ${userId} AND d.embedding IS NOT NULL
+      WHERE d.user_id = ${userId} AND d.embedding IS NOT NULL${projectFilter(projectId)}
       ORDER BY d.embedding <=> ${v}::vector
       LIMIT ${k}`;
     return rows.map((r) => ({ ...mapRaw(r), similarity: Number(r.similarity) }));
@@ -248,13 +252,14 @@ export class ChatDecisionsRepository {
 
   /** Postgres full-text over header, question and the answer's labels/text (never the raw jsonb keys),
    *  best `ts_rank` first — same no-index trade-off as `MemoryItemsRepository.textSearch` (D5). A
-   *  query with no lexeme (only punctuation) matches nothing rather than throwing. */
-  async textSearch(userId: string, query: string, k: number): Promise<(ChatDecision & { rank: number })[]> {
+   *  query with no lexeme (only punctuation) matches nothing rather than throwing. `projectId` keeps
+   *  only that project's rows (a tab token's search, TER-212 D3), as it does for `nearestAny`. */
+  async textSearch(userId: string, query: string, k: number, projectId?: string): Promise<(ChatDecision & { rank: number })[]> {
     const rows = await this.db.$queryRaw<RawRow[]>`
       WITH q AS (SELECT websearch_to_tsquery('simple', ${query}) AS tsq)
       SELECT ${DECISION_SELECT}
       FROM "chat_decisions" d CROSS JOIN q LEFT JOIN "projects" p ON p.id = d.project_id
-      WHERE d.user_id = ${userId}
+      WHERE d.user_id = ${userId}${projectFilter(projectId)}
         AND numnode(q.tsq) > 0
         AND to_tsvector('simple', d.header || ' ' || d.question || ' ' || ${answerTextExpr}) @@ q.tsq
       ORDER BY ts_rank(to_tsvector('simple', d.header || ' ' || d.question || ' ' || ${answerTextExpr}), q.tsq) DESC, d.created_at DESC

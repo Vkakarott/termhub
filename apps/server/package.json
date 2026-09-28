@@ -26,6 +26,7 @@
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "@termhub/agent-protocol": "*",
+    "@termhub/claude-cli": "*",
     "@termhub/machine-ops": "*",
     "@termhub/mobile-api": "*",
     "argon2": "^0.41.1",

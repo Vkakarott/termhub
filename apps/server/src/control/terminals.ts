@@ -6,6 +6,7 @@ import type { Machine, Tab, TabState } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 import { nextTerminalName } from '../lib/tab-names.js';
 import { killTmuxSession } from '../terminal/machine-exec.js';
+import { removeTabMcp } from '../terminal/tab-mcp.js';
 import { ensureSession, INPUT_MAX_CHARS, sendKeyToSession, sendTextToSession, TERMINAL_RPC_MIN_AGENT_VERSION } from '../terminal/session-ops.js';
 import { ControlError, type ControlContext } from './context.js';
 import { assertTerminal, clamp, offline, SCREEN_DEFAULT_LINES, SCREEN_MAX_LINES, waitForState } from './screen.js';
@@ -191,6 +192,8 @@ export async function closeTab(ctx: ControlContext, input: { tab_id: string; for
       // An unreachable machine must not leave the tab behind; the row goes either way.
       killed = false;
     }
+    // the tab's MCP config dir, if start_agent wrote one; its token dies with the row below (never throws)
+    void removeTabMcp(machine, tab.id);
   }
   await ctx.repos.tabs.delete(tab.id);
   publicBus.publishTabRemoved({ tab_id: tab.id, project_id: tab.project_id, machine_id: machine.id });

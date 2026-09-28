@@ -13,8 +13,9 @@ export interface ControlContext {
   scoped: Scoped;
   can(resource: Resource, action: Action): Promise<boolean>;
   /** The API token this request came in with, when it came through /mcp (absent for web sessions).
-   * `gated` marks the chat concierge's token (rotated every run, see `closeTab`). */
-  token?: { id: string; scopes: readonly ApiTokenScope[]; gated?: boolean };
+   * `gated` marks the chat concierge's token (rotated every run, see `closeTab`); `tab` marks an agent
+   * tab's token (TER-212 D2–D5), pinned to that tab and its project. */
+  token?: ControlToken;
   /** The chat-files store, for `read_attachment`; set by the MCP route, absent for web-session contexts. */
   attachments?: AttachmentStore;
   /** The request's logger, set by the MCP route: best-effort work a tool fires (e.g. `record_lesson`'s
@@ -22,8 +23,16 @@ export interface ControlContext {
   log?: Pick<FastifyBaseLogger, 'info' | 'warn'>;
 }
 
+/** What a control operation knows of the /mcp token it runs under. */
+export interface ControlToken {
+  id: string;
+  scopes: readonly ApiTokenScope[];
+  gated?: boolean;
+  tab?: { id: string; project_id: string };
+}
+
 /** A user's own scope — never "view as", even for admins (API tokens act as their owner only). */
-export function controlContextFor(repos: Repositories, user: User, token?: { id: string; scopes: readonly ApiTokenScope[]; gated?: boolean }): ControlContext {
+export function controlContextFor(repos: Repositories, user: User, token?: ControlToken): ControlContext {
   const scope: Scope = { user, viewAs: { kind: 'self' }, ownerId: user.id, createAs: user.id };
   return { repos, scope, scoped: new Scoped(repos, scope), can: (resource, action) => canAccess(repos, user, resource, action), token };
 }

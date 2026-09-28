@@ -632,9 +632,14 @@ model ApiToken {
   /// The chat conversation a concierge token runs for. Null on a person's own tokens.
   chatConversationId String?           @map("chat_conversation_id")
   chatConversation   ChatConversation? @relation(fields: [chatConversationId], references: [id], onDelete: Cascade)
+  /// The tab a tab token was minted for (spec 2026-09-27 agent-tab-mcp D1). Plain text, no FK: a
+  /// cascade would delete the audit rows in api_token_events, and SET NULL would turn a tab token
+  /// into an unrestricted one. Revoked in the same transaction that deletes the tab (D6).
+  tabId String? @map("tab_id")
 
   @@index([userId])
   @@index([chatConversationId])
+  @@index([tabId])
   @@map("api_tokens")
 }
 

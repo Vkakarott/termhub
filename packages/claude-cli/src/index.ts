@@ -94,9 +94,11 @@ export function buildClaudeArgs(spec: ClaudeRunSpec): string[] {
 }
 
 /** The MCP config file's contents, so both runners write the same shape: one HTTP server, the
- * token in the header. */
-export function mcpConfig(url: string, token: string): string {
-  return JSON.stringify({ mcpServers: { termhub: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } });
+ * token in the header. `name` is the server's name as the CLI sees it (its tools become
+ * `mcp__<name>__<tool>`): an agent tab uses its own, so it never collides with a `termhub` server
+ * the person configured themselves. */
+export function mcpConfig(url: string, token: string, name = 'termhub'): string {
+  return JSON.stringify({ mcpServers: { [name]: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } });
 }
 
 /**

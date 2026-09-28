@@ -30,6 +30,7 @@ function buildApp() {
       delete: vi.fn(async (id: string) => delete store[id]),
     },
     tabs: { listByMachine: vi.fn(async () => TABS) },
+    apiTokens: { revokeForTabs: vi.fn(async () => 0) },
     // no `projects` on purpose: a transfer must not touch any project (nothing is unpublished)
   } as unknown as Repositories;
   app.register((a) => machineRoutes(a, repos), { prefix: '/machines' });

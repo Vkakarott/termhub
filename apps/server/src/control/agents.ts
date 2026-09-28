@@ -1,7 +1,10 @@
-import { isClaudeSessionId, shellQuote } from '@termhub/machine-ops';
+import { mcpConfig } from '@termhub/claude-cli';
+import { isClaudeSessionId, shellQuote, TAB_ID_RE, TAB_MCP_DIR_REL } from '@termhub/machine-ops';
 import { config } from '../config.js';
 import type { AiAccount, AiProvider, Machine, Task } from '../db/repositories/types.js';
+import { mintTabToken, TAB_TOKEN_TOOLS } from '../mcp/tab-token.js';
 import { sendTextToSession } from '../terminal/session-ops.js';
+import { installTabMcp, TAB_MCP_SERVER, tabMcpSupported } from '../terminal/tab-mcp.js';
 import { ControlError, type ControlContext } from './context.js';
 import { openTab } from './terminals.js';
 
@@ -55,11 +58,48 @@ function configDirArg(dir: string): string {
   return shellQuote(dir);
 }
 
-/** The exact line typed into the tab; every value goes through `shellQuote`, so nothing in it is interpreted. */
-export function launchLine(provider: AiProvider, configDir: string | null, prompt: string): string {
+/** A file of the tab's MCP config dir as the machine's shell must read it: `$HOME` expanded there, the rest quoted. */
+function tabMcpPath(tabId: string, file: 'mcp.json' | 'token'): string {
+  if (!TAB_ID_RE.test(tabId)) throw new ControlError('INVALID_TAB', 'Id de aba inválido');
+  return `"$HOME"/${shellQuote(`${TAB_MCP_DIR_REL}/${tabId}/${file}`)}`;
+}
+
+/**
+ * Claude's flags for the tab's memory MCP (spec 2026-09-27 agent tab MCP D8): the tab's own config file and
+ * exactly its tools pre-allowed — not a bypass flag, every other tool still asks. Both options are variadic,
+ * so the caller ends them with `--` before the prompt.
+ */
+function claudeMcpFlags(tabId: string): string {
+  const allowed = TAB_TOKEN_TOOLS.map((t) => shellQuote(`mcp__${TAB_MCP_SERVER}__${t}`)).join(' ');
+  return `--mcp-config ${tabMcpPath(tabId, 'mcp.json')} --allowedTools ${allowed}`;
+}
+
+/** What the MCP URL may look like to be spliced into a TOML string inside a quoted argument (D9):
+ *  no whitespace, quote, backslash or control byte. */
+const MCP_URL_RE = /^https?:\/\/[^\s'"\\\x00-\x1f\x7f]+$/;
+
+/**
+ * Whether a Codex (chatgpt) tab gets the memory MCP (D9). Off until the `-c mcp_servers.…` overrides are
+ * checked against a real Codex (TER-356, "verificar no hulk"): an older Codex could refuse to start with
+ * them. While off, Codex tabs start with the plain line and nothing is minted; `launchLine` still builds
+ * the Codex MCP line, so turning this on is the whole switch.
+ */
+export const CODEX_TAB_MCP_ENABLED = false;
+
+/**
+ * The exact line typed into the tab; every value goes through `shellQuote`, so nothing in it is interpreted.
+ * With `mcp`, the CLI also gets the tab's memory MCP (D8 Claude, D9 Codex): the line names only the file on
+ * the machine that holds the token, never the token itself.
+ */
+export function launchLine(provider: AiProvider, configDir: string | null, prompt: string, mcp?: { tabId: string; url: string } | null): string {
   const { binary, configEnv } = launcher(provider);
   const env = configDir ? `${configEnv}=${configDirArg(configDir)} ` : '';
-  return `${env}${binary} ${shellQuote(prompt)}`;
+  if (!mcp) return `${env}${binary} ${shellQuote(prompt)}`;
+  if (!MCP_URL_RE.test(mcp.url)) throw new ControlError('INVALID_MCP_URL', 'MCP_URL inválido');
+  if (provider === 'claude') return `${env}${binary} ${claudeMcpFlags(mcp.tabId)} -- ${shellQuote(prompt)}`;
+  const tokenEnv = `TERMHUB_MCP_TOKEN="$(cat ${tabMcpPath(mcp.tabId, 'token')})"`;
+  const server = `mcp_servers.${TAB_MCP_SERVER}`;
+  return `${tokenEnv} ${env}${binary} -c ${shellQuote(`${server}.url="${mcp.url}"`)} -c ${shellQuote(`${server}.bearer_token_env_var="TERMHUB_MCP_TOKEN"`)} ${shellQuote(prompt)}`;
 }
 
 /**
@@ -79,12 +119,16 @@ export const RESUME_PROMPT = 'A conta anterior atingiu o limite de uso. Continue
 
 /**
  * The line that resumes a Claude session under another account (spec 2026-09-26 account swap §4.4).
- * The id is a uuid, checked here too: it is the one value of the line that is not quoted.
+ * The id is a uuid, checked here too: it is the one value of the line that is not quoted. `mcpTabId` is
+ * set when the tab still has a live tab token: its config file is still on the machine, so the resumed
+ * session keeps the memory MCP (spec 2026-09-27 agent tab MCP D11).
  */
-export function resumeLine(configDir: string | null, sessionId: string, prompt: string): string {
+export function resumeLine(configDir: string | null, sessionId: string, prompt: string, mcpTabId?: string | null): string {
   if (!isClaudeSessionId(sessionId)) throw new ControlError('NO_SESSION', 'A sessão do Claude desta aba não é válida');
   const env = configDir ? `CLAUDE_CONFIG_DIR=${configDirArg(configDir)} ` : '';
-  return `${env}claude --resume ${sessionId} ${shellQuote(checkPrompt(prompt))}`;
+  const quoted = shellQuote(checkPrompt(prompt));
+  if (!mcpTabId) return `${env}claude --resume ${sessionId} ${quoted}`;
+  return `${env}claude ${claudeMcpFlags(mcpTabId)} --resume ${sessionId} -- ${quoted}`;
 }
 
 async function accountOnMachine(ctx: ControlContext, accountId: string, machine: Machine): Promise<AiAccount> {
@@ -137,7 +181,6 @@ export async function startAgent(
     if (task.project_id !== project.id) throw new ControlError('TASK_OTHER_PROJECT', `A tarefa "${task.title}" é de outro projeto`);
   }
 
-  const line = launchLine(account.provider, account.config_dir, prompt);
   const name = (input.tab_name?.trim() || task?.title || `${binary} · ${account.label}`).slice(0, TAB_NAME_MAX);
   // openTab does the readiness checks (online, agent version, tab limit) and keeps the tab if the session fails.
   const tab = await openTab(ctx, { project_id: project.id, machine_id: machine.id, name });
@@ -146,6 +189,10 @@ export async function startAgent(
   // keep typeahead (they never flush the tty on startup), so the text is waiting when the prompt appears.
   const reason = (e: unknown) => (e instanceof Error ? e.message : 'erro desconhecido');
   const keptTab = 'Veja a tela com read_screen ou feche a aba com close_tab.';
+  const mcp = await tabMcp(ctx, machine, account.provider, tab);
+  const line = mcp.installed
+    ? launchLine(account.provider, account.config_dir, prompt, { tabId: tab.tab_id, url: mcp.url })
+    : launchLine(account.provider, account.config_dir, prompt);
   try {
     await sendTextToSession(machine, tab.tmux_session as string, line, true);
   } catch (e) {
@@ -174,6 +221,47 @@ export async function startAgent(
     command: binary,
     task_id: task?.id ?? null,
     previous_tab_id: task?.tab_id ?? null,
-    note: 'O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela.',
+    note: `O agente está subindo com o prompt. Chame wait_for_state para saber quando ele terminar ou perguntar algo, e read_screen para ver a tela. ${mcp.note}`,
   };
+}
+
+/** Why a tab started without its memory MCP: the log's code and the note's pt-BR reason (D10). */
+const MCP_SKIPPED = {
+  no_mcp_url: 'MCP_URL não configurado',
+  invalid_mcp_url: 'MCP_URL inválido',
+  agent_outdated: 'o termhub-agent desta máquina é anterior à 0.10.0',
+  codex_unverified: 'o MCP no Codex ainda não foi verificado',
+  install_failed: 'não foi possível gravar a configuração na máquina',
+} as const;
+
+type TabMcpOutcome = { installed: true; url: string; note: string } | { installed: false; note: string };
+
+/**
+ * Gives a freshly opened agent tab its memory MCP (spec 2026-09-27 agent tab MCP D6–D10): mints the tab
+ * token, writes the config file holding it on the machine, and says how it went. Never throws — the MCP is
+ * an extra, `start_agent` must not fail over it: any failure after the mint revokes what was minted and the
+ * tab starts with the plain line. Logs `{ tabId, machineId, installed, reason }` only, never the token.
+ */
+async function tabMcp(ctx: ControlContext, machine: Machine, provider: AiProvider, tab: { tab_id: string; name: string }): Promise<TabMcpOutcome> {
+  const url = config.mcpUrl;
+  let reason: keyof typeof MCP_SKIPPED | null = null;
+  if (!url) reason = 'no_mcp_url';
+  // checked before anything is minted: launchLine would refuse it after the install
+  else if (!MCP_URL_RE.test(url)) reason = 'invalid_mcp_url';
+  else if (provider === 'chatgpt' && !CODEX_TAB_MCP_ENABLED) reason = 'codex_unverified';
+  else if (!tabMcpSupported(machine)) reason = 'agent_outdated';
+  else {
+    try {
+      const { token } = await mintTabToken(ctx.repos, ctx.scope.user.id, { id: tab.tab_id, name: tab.name });
+      const [file, body] = provider === 'claude' ? (['mcp.json', mcpConfig(url, token, TAB_MCP_SERVER)] as const) : (['token', token] as const);
+      await installTabMcp(machine, tab.tab_id, file, body);
+    } catch {
+      reason = 'install_failed';
+      // should the revoke fail too, the token still dies with the tab (or in 30 days)
+      await ctx.repos.apiTokens.revokeForTab(tab.tab_id).catch(() => undefined);
+    }
+  }
+  ctx.log?.info({ tabId: tab.tab_id, machineId: machine.id, installed: reason === null, reason }, 'start_agent: tab mcp');
+  if (reason === null && url) return { installed: true, url, note: 'A aba tem o MCP termhub_tab (search_memory) para consultar a memória do projeto.' };
+  return { installed: false, note: `A aba abriu sem o MCP de memória: ${MCP_SKIPPED[reason ?? 'install_failed']}.` };
 }

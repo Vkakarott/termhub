@@ -154,6 +154,7 @@ describe('DELETE /projects/:id', () => {
       projects: { findById: vi.fn(async (id: string) => PROJECTS[id]), delete: del },
       machines: { findById: vi.fn(async (id: string) => MACHINES[id]) },
       tabs: { listByProject: vi.fn(async () => []) },
+      apiTokens: { revokeForTabs: vi.fn(async () => 0) },
       projectMachines,
     } as unknown as Repositories;
     app.register((a) => projectRoutes(a, repos, { simulators: { isReady: () => false } as never }), { prefix: '/projects' });
