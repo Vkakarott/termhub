@@ -98,7 +98,10 @@ export interface ChatState {
    * it from here, since a chip's file has no message yet. Small rows; starts over with the conversation. */
   attachmentStatuses: Record<string, TChatAttachment>;
 
-  loadProjects(): Promise<void>;
+  /** `quiet` is a background refresh (the iPad split keeping its list live, spec 2026-09-28 §2.3): it
+   * never spins the pull-to-refresh nor touches `error` — the banner may be the open pane's, and a
+   * failed refresh behind the person's back has nothing to tell them. */
+  loadProjects(opts?: { quiet?: boolean }): Promise<void>;
   open(projectId: string | null): Promise<void>;
   /** The `app/chat/[id]` param: a conversation id (deep links), a project id, or `general`. */
   openByRoute(id: string): Promise<void>;
@@ -387,16 +390,22 @@ export function createChatStore(deps: ChatDeps) {
         return {
           ...initialData(),
 
-          async loadProjects() {
+          async loadProjects(opts) {
+            const quiet = opts?.quiet === true;
             const gen = generation;
-            set({ loadingProjects: true, error: null });
+            if (!quiet) set({ loadingProjects: true, error: null });
             try {
               const { projects } = await api.chatProjects(session().auth());
               if (gen !== generation) return;
-              set({ projects, loadingProjects: false });
+              set(quiet ? { projects } : { projects, loadingProjects: false });
             } catch (e) {
-              if (gen === generation) set({ loadingProjects: false });
-              fail(gen, e);
+              if (!quiet) {
+                if (gen === generation) set({ loadingProjects: false });
+                fail(gen, e);
+              } else if (gen === generation && !isLocked(e)) {
+                // Silent, but a session-ending answer still ends the session.
+                session().handleApiError(e);
+              }
             }
           },
 
