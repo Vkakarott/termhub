@@ -59,7 +59,7 @@ Enrolment (P§4): `requestDevice(email)` generates the device key, shows the ver
 
 ### Env vars
 
-See `.env.example`. `EXPO_PUBLIC_API_MODE` (`mock` | `http`; the code falls back to `mock` when it is unset, `.env.example` sets `http`) and `EXPO_PUBLIC_TERMHUB_URL` (the server `http` mode talks to, and the host Ajustes shows as "Servidor", e.g. from `expo start`). `eas.json` sets both per build profile: `development` and `production` both use `http` and `https://termhub.dev` — there is no server picker in the app, spec §11.1. Set `EXPO_PUBLIC_API_MODE=mock` in `.env` to run with no server at all.
+See `.env.example`. `EXPO_PUBLIC_API_MODE` (`mock` | `http`; the code falls back to `mock` when it is unset, `.env.example` sets `http`) and `EXPO_PUBLIC_TERMHUB_URL` (the server `http` mode talks to, and the host Ajustes shows as "Servidor", e.g. from `expo start`). `scripts/ios-release.sh` exports both for a release build: `http` and `https://termhub.dev` — there is no server picker in the app, spec §11.1. Set `EXPO_PUBLIC_API_MODE=mock` in `.env` to run with no server at all.
 
 ### Against the real server
 
@@ -81,18 +81,35 @@ npm run typecheck -w @termhub/mobile
 npm test -w @termhub/mobile
 ```
 
-The app needs a **development build** (native modules; Expo Go cannot load it):
+The app needs a **development build** (native modules; Expo Go cannot load it). On a Mac with Xcode:
 
 ```bash
 cd apps/mobile
-npx eas init                      # once per Expo account: writes extra.eas.projectId into app.json
-npx eas build --profile development --platform ios      # or android; installs on a device/simulator
+npm run ios                       # expo run:ios — prebuild, build and install on a simulator or a plugged-in phone
 npm start                         # Metro; the development build connects to it
 ```
 
-Copy `.env.example` to `.env` for `expo start`: it points the app at `https://termhub.dev` in `http` mode; with no `.env` at all the app runs in mock mode, with no server needed. Development and production builds bake `http` mode and `https://termhub.dev` in through `eas.json`.
+Copy `.env.example` to `.env` for `expo start`: it points the app at `https://termhub.dev` in `http` mode; with no `.env` at all the app runs in mock mode, with no server needed. Release builds bake `http` mode and `https://termhub.dev` in through `scripts/ios-release.sh`.
 
-Before a production build: APNs key and FCM v1 service account in EAS credentials (`npx eas credentials`), store listings, and the reviewer notes of spec §12.3.
+## Releasing to TestFlight (iOS)
+
+Builds are made locally on a Mac, without EAS, and only for iOS through TestFlight. `ios/` is generated each time and never committed.
+
+Prerequisites on the Mac: Xcode, CocoaPods, Node 22, and an Apple ID of team **8020 DIGITAL LTDA (`S873WHF2TZ`)** signed in to Xcode → Settings → Accounts with a role that may use cloud-managed distribution certificates (Admin or Account Holder). The distribution certificate is cloud-managed, so its private key is not in the keychain: Xcode signs the export through Apple, and `-allowProvisioningUpdates` creates or refreshes the App Store provisioning profile for `dev.termhub.app`.
+
+1. From an up-to-date `main`: `npm ci`, then `npm run build:contract -w @termhub/mobile`, `npm run typecheck -w @termhub/mobile` and `npm test -w @termhub/mobile`. If the typecheck rejects a route that exists under `app/` (e.g. `"/chat-grants"`), `apps/mobile/.expo/types/router.d.ts` is a stale generated file from an older checkout: delete it and run the typecheck again.
+2. Bump `expo.version` (the marketing version, e.g. `0.2.0`) and/or `expo.ios.buildNumber` in `app.json`. App Store Connect refuses a build number it has already seen for that version; the build number is the build's local date and time as a plain integer (`YYYYMMDDHHMM`, e.g. `202609261624`), so it only grows. It must stay a plain integer: the app sends it in `X-Termhub-App` (`ios/0.2.0+202609261624`) and the server rejects anything else.
+3. `npm run release:ios -w @termhub/mobile` — `expo prebuild --platform ios --clean`, `xcodebuild archive`, then `xcodebuild -exportArchive` into `apps/mobile/build/export/termhub.ipa`. Check the permission strings (camera, photo library, microphone, Face ID) in `apps/mobile/build/termhub.xcarchive/Products/Applications/termhub.app/Info.plist`.
+4. `npm run release:ios -w @termhub/mobile -- --upload` repeats the build and exports with `destination = upload`, which sends it to App Store Connect under the same Apple ID.
+5. In App Store Connect → TestFlight, wait for the build to finish processing, answer the export compliance question if asked (`ITSAppUsesNonExemptEncryption` is `false`, so it normally is not), fill in "What to Test" and add it to the testers' group.
+
+Push to real devices is not wired yet (the app registers only the mock push token); when it is, the APNs key it needs is set up then.
+
+## Firebase
+
+Both apps (`dev.termhub.app`) are registered in the Firebase project `apptermhub`; `google-services.json` (Android) and `GoogleService-Info.plist` (iOS) are committed next to `app.json` (they identify the app, they are not secrets). `@react-native-firebase/app` and `@react-native-firebase/analytics` are installed for Firebase App Distribution and Analytics: `src/services/analytics.ts` logs a `screen_view` per expo-router route pattern (`/chat/[id]`, never the resolved id).
+
+On iOS, the Firebase pods are resolved through CocoaPods (`disableSPM`), which needs static frameworks: `expo-build-properties` sets `ios.useFrameworks: "static"` for every pod. Analytics is built without the AdSupport framework (`withoutAdIdSupport`), so the app never touches the IDFA and needs no App Tracking Transparency prompt.
 
 ## Manual checklist (design spec §10)
 

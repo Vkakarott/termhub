@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 
 /**
  * The server the app talks to. A constant in production (spec §11.1): test builds point elsewhere
- * through the EAS build-time variable `EXPO_PUBLIC_TERMHUB_URL` (see eas.json), never through a
+ * through the build-time variable `EXPO_PUBLIC_TERMHUB_URL` (see scripts/ios-release.sh), never through a
  * screen. `expo start` reads it from a local `.env`.
  */
 export const TERMHUB_URL = (process.env.EXPO_PUBLIC_TERMHUB_URL || 'https://termhub.dev').replace(/\/+$/, '');

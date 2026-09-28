@@ -17,7 +17,7 @@ const platform: AppPlatform = Device.osName === 'iOS' ? 'ios' : 'android';
 const app = appHeader(platform, Application.nativeApplicationVersion, Application.nativeBuildVersion);
 
 // `mock` when unset (Jest, or `expo start` with no `.env`): only an explicit `http` talks to a
-// server. `.env.example` and every `eas.json` profile set `http`.
+// server. `.env.example` and `scripts/ios-release.sh` set `http`.
 const mode: 'mock' | 'http' = process.env.EXPO_PUBLIC_API_MODE === 'http' ? 'http' : 'mock';
 
 // The session store (Task 10) calls this once at boot to register its single-flighted

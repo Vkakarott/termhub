@@ -23,3 +23,6 @@ expo-env.d.ts
 .env*.local
 
 *.tsbuildinfo
+
+# Local iOS release output (scripts/ios-release.sh)
+/build

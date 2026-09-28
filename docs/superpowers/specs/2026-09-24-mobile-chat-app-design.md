@@ -14,7 +14,7 @@ Success: a pending action on the phone is confirmed with a PIN or a fingerprint 
 
 | Question | Decision |
 |---|---|
-| Stack | **Expo (React Native)**, development builds through EAS Build, EAS Submit for the stores. Workspace `apps/mobile` (`@termhub/mobile`). |
+| Stack | **Expo (React Native)**, development and release builds made locally with Xcode (`expo prebuild` + `xcodebuild`, no EAS); iOS reaches testers through TestFlight. Workspace `apps/mobile` (`@termhub/mobile`). |
 | Scope | Chat only: account-wide chat **and** the per-project chats, streaming, dictation, host picker, pending-action decisions. No terminal, tasks, notes, office, admin screens. |
 | Server | **Cloud only** (`app.termhub.dev`'s backend). The server URL is a constant in the app; there is no screen to change it. |
 | Where the mobile routes live | **`https://termhub.dev/api/m/v1/*` and `wss://termhub.dev/ws/m/chat`**, on the host that has no Cloudflare Access, following the `/mcp` precedent: nginx `location` blocks with per-client budgets, nothing changes in Access. The web app on `app.termhub.dev` cannot even send its cookie there. |
@@ -223,7 +223,7 @@ All additive: new tables and two nullable columns on `users`. The previous conta
 
 ## 9. Push and the notification history
 
-**Channel.** `expo-notifications` in the app; the server calls the Expo Push Service (`EXPO_PUSH_ACCESS_TOKEN`), which delivers through APNs and FCM. The APNs key and FCM service account live in EAS (manual step, §12).
+**Channel.** `expo-notifications` in the app; the server calls the Expo Push Service (`EXPO_PUSH_ACCESS_TOKEN`), which delivers through APNs and FCM. The APNs key and FCM service account are registered with the Expo Push Service when push to real devices is wired (manual step, §12).
 
 **Registration.** On every start the app calls `PUT push-token`; the token lives in `devices.push_token` and is cleared on revocation or when Expo reports `DeviceNotRegistered`.
 
@@ -276,7 +276,7 @@ The review account is tied to a disposable, isolated environment defined by the 
 
 ### 11.1 Workspace
 
-`apps/mobile`, `@termhub/mobile`: current Expo SDK, TypeScript, `expo-router`, EAS Build (development and production profiles) and EAS Submit. **Development builds, not Expo Go**, because of the native key module. Bundle / package id `dev.termhub.app`. The server URL is a constant (`https://termhub.dev`); test builds may point elsewhere through an EAS build-time variable, never through a screen.
+`apps/mobile`, `@termhub/mobile`: current Expo SDK, TypeScript, `expo-router`, local builds (`expo run:ios` for development, `apps/mobile/scripts/ios-release.sh` for TestFlight — no EAS). **Development builds, not Expo Go**, because of the native key module. Bundle / package id `dev.termhub.app`. The server URL is a constant (`https://termhub.dev`); test builds may point elsewhere through a build-time variable (`EXPO_PUBLIC_TERMHUB_URL`), never through a screen.
 
 | Need | Choice |
 |---|---|
@@ -286,7 +286,7 @@ The review account is tied to a disposable, isolated environment defined by the 
 | PIN key derivation | `@noble/hashes` (scrypt, pure JS — the strength is on the server, §5.4) |
 | Push, audio, upload, markdown | `expo-notifications`, `expo-audio`, `expo-file-system`, `react-native-markdown-display` |
 
-**Server image.** The `Dockerfile` copies every workspace's `package.json` before `npm ci`; `apps/mobile` joins that list, and the `deps` stage installs only the workspaces the server needs (`npm ci -w …`) so React Native does not inflate the image. CI: the mobile workspace's `typecheck` and tests join the `check` job; app builds are manual (`eas build`), never on push.
+**Server image.** The `Dockerfile` copies every workspace's `package.json` before `npm ci`; `apps/mobile` joins that list, and the `deps` stage installs only the workspaces the server needs (`npm ci -w …`) so React Native does not inflate the image. CI: the mobile workspace's `typecheck` and tests join the `check` job; app builds are manual (`npm run release:ios -w @termhub/mobile`, on a Mac), never on push.
 
 ### 11.2 Screens
 
@@ -294,7 +294,7 @@ Início ("Continuar com e-mail") → Aguardando aprovação (the verification co
 
 The conversation screen: thread, action cards (Autorizar → decision, PIN/biometrics first for an irreversible card; Recusar → decision), composer with the microphone button (record → upload → poll → text in the composer), host state lines ("máquina offline", "escolha a máquina", "agente antigo") and the host picker sheet on the account-wide chat, with the fresh-session warning the web shows. Assistant text is rendered as markdown; user text as plain text.
 
-Attachments (spec 2026-09-26, TER-98): the composer's 📎 opens a sheet with "Foto ou vídeo" (`expo-image-picker`, `quality: 0.8`), "Arquivo" (`expo-document-picker`) and "Gravar áudio" (the dictation recorder, kept as an audio file). Each pick becomes a chip that uploads at once through `expo-file-system`'s upload task (bearer and DPoP headers), with progress and ✕; the message can only leave once every chip has landed, and may be attachments alone. A sent message shows its images as thumbnails that open full screen, and other files as name, size and status ("processando…", "transcrevendo…", "falhou: …"), kept live by `attachment_status`. Opening a non-image file on the phone is out of scope. The two pickers are native modules: shipping them needs a new EAS build, after the server deploy.
+Attachments (spec 2026-09-26, TER-98): the composer's 📎 opens a sheet with "Foto ou vídeo" (`expo-image-picker`, `quality: 0.8`), "Arquivo" (`expo-document-picker`) and "Gravar áudio" (the dictation recorder, kept as an audio file). Each pick becomes a chip that uploads at once through `expo-file-system`'s upload task (bearer and DPoP headers), with progress and ✕; the message can only leave once every chip has landed, and may be attachments alone. A sent message shows its images as thumbnails that open full screen, and other files as name, size and status ("processando…", "transcrevendo…", "falhou: …"), kept live by `attachment_status`. Opening a non-image file on the phone is out of scope. The two pickers are native modules: shipping them needs a new app build, after the server deploy.
 
 The chat logic the web already has as pure TypeScript (timeline merge, delta fold, per-conversation filter, host and failure copy) moves to `packages/mobile-api` and is imported by both; the rendering is written for React Native.
 
@@ -308,9 +308,9 @@ The chat logic the web already has as pure TypeScript (timeline merge, delta fol
 - Location headers: `CF-IPCountry` arrives by default; enabling the "Add visitor location headers" managed transform gives `cf-ipcity` and is optional.
 - Server env: `MOBILE_PUBLIC_URL` (the `htu` base, `https://termhub.dev`), `EXPO_PUSH_ACCESS_TOKEN`, `MOBILE_MIN_APP_VERSION`.
 
-### 12.2 EAS
+### 12.2 Builds and credentials
 
-APNs key and FCM v1 service account registered in EAS credentials; `eas.json` with `development` and `production` profiles; store listings and the `termhub://` scheme.
+No EAS: builds are made on a Mac (`apps/mobile/README.md`, "Releasing to TestFlight"), signed by Xcode's automatic signing for team `S873WHF2TZ` with a cloud-managed distribution certificate, and uploaded to TestFlight by `xcodebuild -exportArchive`. The APNs key and FCM v1 service account are registered when push to real devices is wired; store listings and the `termhub://` scheme.
 
 ### 12.3 Store review
 

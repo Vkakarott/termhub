@@ -1,13 +1,12 @@
 {
   "name": "@termhub/mobile",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "private": true,
   "main": "index.ts",
   "scripts": {
     "build:contract": "npm run build -w @termhub/mobile-api",
     "prestart": "npm run build:contract",
-    "eas-build-post-install": "npm run build:contract",
     "start": "expo start --dev-client",
     "prebuild": "expo prebuild",
     "ios": "expo run:ios",
@@ -15,16 +14,20 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
     "test:watch": "jest --watch",
-    "doctor": "expo-doctor"
+    "doctor": "expo-doctor",
+    "release:ios": "bash scripts/ios-release.sh"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@pagopa/io-react-native-crypto": "^1.2.5",
+    "@react-native-firebase/analytics": "^26.4.0",
+    "@react-native-firebase/app": "^26.4.0",
     "@termhub/mobile-api": "*",
     "expo": "~57.0.23",
     "expo-application": "~57.0.3",
     "expo-audio": "~57.0.5",
+    "expo-build-properties": "~57.0.22",
     "expo-constants": "~57.0.19",
     "expo-dev-client": "~57.0.19",
     "expo-device": "~57.0.2",

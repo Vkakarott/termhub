@@ -4,14 +4,16 @@
     "slug": "termhub",
     "owner": "pedrogoiania",
     "scheme": "termhub",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0F19",
     "ios": {
       "supportsTablet": false,
+      "buildNumber": "202609272146",
       "bundleIdentifier": "dev.termhub.app",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSMicrophoneUsageDescription": "O microfone é usado para ditar mensagens no chat. O áudio é transcrito e nunca é guardado.",
@@ -22,6 +24,7 @@
     },
     "android": {
       "package": "dev.termhub.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#0B0F19",
         "foregroundImage": "./assets/adaptive-icon.png"
@@ -74,7 +77,31 @@
           "color": "#0B0F19"
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      [
+        "@react-native-firebase/app",
+        {
+          "ios": {
+            "disableSPM": true
+          }
+        }
+      ],
+      [
+        "@react-native-firebase/analytics",
+        {
+          "ios": {
+            "withoutAdIdSupport": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
