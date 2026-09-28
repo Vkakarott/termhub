@@ -86,7 +86,7 @@ lives, and the handover below deals with it.
 1. Mark the process as draining: `/api/ready` → 503, and the upgrade router refuses new WebSockets with 503.
 2. `chat.suspendAll()` (it already runs in `preClose`; it moves to the start of the drain so the rows are released
    before the agents leave; `preClose` keeps calling it, and a second call finds nothing to suspend).
-3. Close every agent connection with **1012** (`service restart`, new `CLOSE.RESTART` in `@termhub/agent-protocol`).
+3. Close every agent connection with **1012** (`service restart`, a server-side `RESTART_CLOSE` constant; `@termhub/agent-protocol` is untouched).
    The agent reconnects with its normal backoff (≈2 s), through nginx, to the new colour. No agent release is
    needed: every close code other than 4401/4409-protocol already reconnects.
 4. Close every other WebSocket (terminal, chat, monitor, public, simulator, mobile) with 1012.
@@ -108,11 +108,12 @@ offline for a while fails at once, as today.
 Where the wait applies — the places that open something on a machine right now:
 
 - the terminal WebSocket, before `createPtySession()` (the browser keeps showing "Conectando…/Reconectando…");
-- `runOnMachine` / `runOnMachineWithInput` for agent machines (`terminal/machine-exec.ts`), which covers MCP and the
-  REST routes that exec;
+- the terminal control used by the MCP and the chat (`control/terminals.ts` `assertReady`, `control/screen.ts`
+  `readScreen`) and the generic `agentRpc` helper (`agent/errors.ts`), which the REST routes use;
 - the chat host resolution (`chat/host.ts`), so a message sent in those seconds is not answered "máquina offline".
 
-A small helper, `awaitAgent(machine)`, holds the rule so each place calls one function.
+A small helper, `AgentRegistry.awaitAgent(machine)`, holds the rule so each place calls one function. The agent
+WebSocket also touches `agent_last_seen_at` when the agent disconnects, so the timestamp says when it left.
 
 ### 5.4 A lost agent is not the end of the session (TER-324, server side)
 
