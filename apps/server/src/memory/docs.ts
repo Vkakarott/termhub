@@ -88,6 +88,22 @@ export const machineDocsExec: DocsExec = {
   },
 };
 
+/**
+ * Whether this machine's `docs.scan` can list `docs/lessons` at all (final review fix): the scan
+ * script ships inside the agent, so an agent below `DOCS_LESSONS_MIN_AGENT_VERSION` scans only
+ * specs/plans — its empty lessons listing means "not looked at", never "deleted". An `ssh`/`local`
+ * machine runs the server's own, current script and always can.
+ */
+function scanListsLessons(machine: Machine): boolean {
+  if (machine.type !== 'agent') return true;
+  try {
+    requireAgentVersion(machine, DOCS_LESSONS_MIN_AGENT_VERSION);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** One project ↔ machine link as the docs pass sees it: `owner_id` is the project's owner. */
 export interface DocsLink {
   id: string;
@@ -142,7 +158,9 @@ async function readAll(read: (paths: string[]) => Promise<string>, paths: string
  * as TER-95 left it; `exec.readLessons` for lessons, version-gated at `DOCS_LESSONS_MIN_AGENT_VERSION`
  * instead of `DOCS_MIN_AGENT_VERSION`) so a failure reading one never touches the other: an agent old
  * enough for specs/plans but not yet for lessons still gets its specs/plans re-indexed every pass,
- * with its lesson chunks simply left untouched (never deleted) until it updates.
+ * with its lesson chunks simply left untouched (never deleted) until it updates — including by the
+ * "gone" pass: such an agent's scan never lists `docs/lessons` (`scanListsLessons`), so its lessons
+ * are not deleted for being absent from it.
  *
  * A file that chunks to nothing (empty or whitespace only) ends up with no items at all, so it has no
  * stored hash and is simply read again on the next pass — cheap, and rare.
@@ -267,7 +285,8 @@ export async function indexDocsForLink(
       removed += gone.length;
     }
   }
-  if (!lessonsFailed) {
+  // An agent too old to list lessons (a downgrade, or one that never updated) must not wipe them.
+  if (!lessonsFailed && scanListsLessons(link.machine)) {
     const goneLessons = [...knownLessons.keys()].filter((sourceId) => !readableLessons.has(sourceId.slice(prefix.length)));
     if (goneLessons.length > 0) {
       await repos.memoryItems.deleteBySource('lesson', goneLessons);

@@ -318,6 +318,36 @@ describe('indexDocsForLink', () => {
       expect(repos.memoryItems.deleteBySource).toHaveBeenCalledWith('lesson', [`L1:${lessonPath('gone')}`]);
       expect(r).toEqual({ read: 0, removed: 1 });
     });
+
+    it('an agent below DOCS_LESSONS_MIN_AGENT_VERSION: its scan cannot list lessons, so none is deleted (downgrade guard)', async () => {
+      requireAgentVersion.mockImplementation((_m: Machine, minVersion: string) => {
+        if (minVersion === DOCS_LESSONS_MIN_AGENT_VERSION) throw new HttpError(409, 'Atualize', 'AGENT_OUTDATED');
+      });
+      try {
+        const repos = fakeReposByKind({ [`L1:${spec('kept')}`]: sha('c'), [`L1:${spec('gone')}`]: sha('d') }, { [`L1:${lessonPath('indexed')}`]: sha('g') });
+        const exec = fakeExec({ [spec('kept')]: { sha: sha('c'), text: 'x' } });
+        const r = await indexDocsForLink(repos as never, link('agent'), deps(exec));
+        expect(repos.memoryItems.deleteBySource).toHaveBeenCalledWith('doc', [`L1:${spec('gone')}`]);
+        expect(repos.memoryItems.deleteBySource).not.toHaveBeenCalledWith('lesson', expect.anything());
+        expect(r).toEqual({ read: 0, removed: 1 });
+      } finally {
+        requireAgentVersion.mockReset();
+      }
+    });
+
+    it('an ssh machine has no agent version: a lesson no longer listed is still deleted', async () => {
+      requireAgentVersion.mockImplementation(() => {
+        throw new HttpError(409, 'Atualize', 'AGENT_OUTDATED');
+      });
+      try {
+        const repos = fakeReposByKind({ [`L1:${spec('kept')}`]: sha('c') }, { [`L1:${lessonPath('gone')}`]: sha('g') });
+        const exec = fakeExec({ [spec('kept')]: { sha: sha('c'), text: 'x' } });
+        await indexDocsForLink(repos as never, link('ssh'), deps(exec));
+        expect(repos.memoryItems.deleteBySource).toHaveBeenCalledWith('lesson', [`L1:${lessonPath('gone')}`]);
+      } finally {
+        requireAgentVersion.mockReset();
+      }
+    });
   });
 });
 
