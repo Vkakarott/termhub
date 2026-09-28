@@ -1228,7 +1228,7 @@ it('resumeAfterDecision appends one standing grant note per distinct kind (TER-3
 
   expect(messages[0].text).toContain('liberou sem prazo mexer no quadro no projeto app');
   expect(messages[0].text).toContain('liberou sem prazo teclas e texto nas abas no projeto app');
-  expect(messages[0].text).toContain('send_key e send_input nas abas desse projeto nesse projeto rodam sem pedir confirmação, em qualquer conversa, até 120 por hora');
+  expect(messages[0].text).toContain('send_key e send_input nas abas desse projeto rodam sem pedir confirmação, em qualquer conversa, até 120 por hora');
   expect(messages[0].text).toContain('Continuam pedindo: responder permissões, texto com "!" ou caracteres de controle, run_command.');
 });
 
