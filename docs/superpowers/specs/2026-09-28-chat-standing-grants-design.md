@@ -54,7 +54,7 @@ things. Irreversible or external actions keep asking, always.
 
 ## 3. Data model
 
-Migration `20260928230000_chat_standing_grants`:
+Migration `20260928233000_chat_standing_grants`:
 
 ```sql
 CREATE TABLE "chat_standing_grants" (
@@ -238,5 +238,5 @@ Kind labels (`STANDING_KIND_LABEL`, shared text in `grant-list-text.ts`): `open_
   shell that never reported a state is covered, as §2 decided.
 - The active list is capped at 100 rows across its three sources (tab, project, standing grants); paging the
   active list is deferred.
-- Migration renamed to `20260928233000_chat_standing_grants`: `main` added `20260928230000_api_token_tab`
+- Migration renamed from `20260928230000_chat_standing_grants` to `20260928233000_chat_standing_grants`: `main` added `20260928230000_api_token_tab`
   with the same timestamp prefix, and ours must apply after it.

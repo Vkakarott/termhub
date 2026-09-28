@@ -28,7 +28,7 @@
 ### Task 1: Data — migration, Prisma model, `ChatStandingGrantsRepository`, `countByGrantSince`
 
 **Files:**
-- Create: `apps/server/prisma/migrations/20260928230000_chat_standing_grants/migration.sql`
+- Create: `apps/server/prisma/migrations/20260928233000_chat_standing_grants/migration.sql`
 - Modify: `apps/server/prisma/schema.prisma` (new model after `ChatProjectGrant`; relations on `User`, `Project`, `ChatConversation`; `ChatAction` gains `@@index([grantId, createdAt])`)
 - Create: `apps/server/src/db/repositories/chat-standing-grants.ts`
 - Modify: `apps/server/src/db/repositories/chat-actions.ts` (add `countByGrantSince`)
