@@ -15,7 +15,7 @@ export class NoteTooLargeError extends Error {
   }
 }
 
-type Row = { id: string; content: string };
+type Row = { id: string; content: string; updated_at: Date };
 
 /**
  * Creates the note row empty if the project has none yet, then locks it — the pair `appendBlock` and
@@ -28,7 +28,7 @@ type Row = { id: string; content: string };
  */
 async function lockOrCreate(tx: Prisma.TransactionClient, projectId: string): Promise<Row> {
   await tx.$executeRaw`INSERT INTO notes (id, project_id, content, updated_at) VALUES (${newId()}, ${projectId}, '', now()) ON CONFLICT (project_id) DO NOTHING`;
-  const [row] = await tx.$queryRaw<Row[]>`SELECT id, content FROM notes WHERE project_id = ${projectId} FOR UPDATE`;
+  const [row] = await tx.$queryRaw<Row[]>`SELECT id, content, updated_at FROM notes WHERE project_id = ${projectId} FOR UPDATE`;
   return row!;
 }
 
@@ -58,13 +58,20 @@ export class NotesRepository {
    * never race each other to create it), then the row is taken with `SELECT … FOR UPDATE` before the
    * append is computed — a second `appendBlock` racing this one waits for the transaction to commit and
    * reads the block this one just wrote, so both blocks land instead of one clobbering the other.
+   *
+   * `render` gets the block's `at` and is called only **under the lock** (final review fix): `at` is
+   * strictly later than the locked row's `updated_at`, and the row's new `updated_at` is set to exactly
+   * `at`. Rendered before the lock, a person's save committing in between could leave the row newer
+   * than the block; a client then taking that newer `updated_at` as its base (without having seen the
+   * block) would make `mergeNoteSave` treat the block as deleted on purpose.
    */
-  async appendBlock(projectId: string, block: string): Promise<Note> {
+  async appendBlock(projectId: string, render: (at: Date) => string): Promise<Note> {
     return this.db.$transaction(async (tx) => {
       const row = await lockOrCreate(tx, projectId);
-      const content = appendLessonBlock(row.content, block);
+      const at = new Date(Math.max(Date.now(), row.updated_at.getTime() + 1));
+      const content = appendLessonBlock(row.content, render(at));
       if (content.length > NOTE_MAX) throw new NoteTooLargeError();
-      return mapNote(await tx.note.update({ where: { id: row.id }, data: { content } }));
+      return mapNote(await tx.note.update({ where: { id: row.id }, data: { content, updatedAt: at } }));
     });
   }
 

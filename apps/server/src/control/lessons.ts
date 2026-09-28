@@ -78,9 +78,9 @@ export async function recordLesson(ctx: ControlContext, a: RecordLessonInput, de
 
   const lessonId = newId();
   const input: LessonInput = { symptom: a.symptom, cause: a.cause, fix: a.fix, evidence: a.evidence ?? 'fixed', card: a.card, pr: a.pr };
-  const block = renderLessonBlock(lessonId, new Date(), tabId, input);
   try {
-    await ctx.repos.notes.appendBlock(project.id, block);
+    // The block's `at` is taken under the note's row lock (`appendBlock`), never before it (spec D9).
+    await ctx.repos.notes.appendBlock(project.id, (at) => renderLessonBlock(lessonId, at, tabId, input));
   } catch (err) {
     if (err instanceof NoteTooLargeError) throw new ControlError('NOTE_FULL', NOTE_FULL_MSG);
     throw err;

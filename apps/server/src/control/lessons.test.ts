@@ -127,7 +127,8 @@ describe('recordLesson', () => {
     // The lesson id is generated inside recordLesson, so the lookup mock reads it back out of the
     // block just appended (mirroring how the real note indexer keys a lesson item by the fence's own id).
     let writtenBlock = '';
-    calls.appendBlock.mockImplementationOnce(async (_projectId: string, block: string) => {
+    calls.appendBlock.mockImplementationOnce(async (_projectId: string, render: (at: Date) => string) => {
+      const block = render(new Date('2026-09-27T00:00:00.000Z'));
       writtenBlock = block;
       return { id: 'n1', project_id: 'p1', content: block, updated_at: '2026-09-27T00:00:00.000Z' };
     });
