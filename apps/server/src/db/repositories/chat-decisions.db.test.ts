@@ -394,4 +394,24 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ChatDecisionsRepository (
 
     expect(await repo.textSearch(userId, '!!!', 5)).toEqual([]);
   });
+  it('textSearch and nearestAny with a projectId return only that project\'s rows (TER-212)', async () => {
+    const otherProjectId = newId();
+    await db.project.create({ data: { id: otherProjectId, key: `E${otherProjectId.slice(-5).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`, name: 'proj2', ownerId: userId } });
+    try {
+      const [mine] = await repo.insertMany([newDecision({ tab_question_id: newId(), header: 'Escopo', question: 'Qual escopo Quasar888?' })]);
+      const [elsewhere] = await repo.insertMany([newDecision({ project_id: otherProjectId, conversation_id: null, tab_question_id: newId(), header: 'Escopo', question: 'Qual escopo Quasar888?' })]);
+      const [noProject] = await repo.insertMany([newDecision({ project_id: null, conversation_id: null, tab_question_id: newId(), header: 'Escopo', question: 'Qual escopo Quasar888?' })]);
+      for (const row of [mine, elsewhere, noProject]) await repo.setEmbedding(row!.id, vec(9), 'm');
+
+      expect((await repo.textSearch(userId, 'Quasar888', 10)).map((d) => d.id).sort()).toEqual([mine!.id, elsewhere!.id, noProject!.id].sort());
+      expect((await repo.textSearch(userId, 'Quasar888', 10, projectId)).map((d) => d.id)).toEqual([mine!.id]);
+      const near = (await repo.nearestAny(userId, vec(9), 50, projectId)).map((d) => d.id);
+      expect(near).toContain(mine!.id);
+      expect(near).not.toContain(elsewhere!.id);
+      expect(near).not.toContain(noProject!.id);
+    } finally {
+      await db.chatDecision.deleteMany({ where: { projectId: otherProjectId } });
+      await db.project.deleteMany({ where: { id: otherProjectId } });
+    }
+  });
 });

@@ -12,6 +12,7 @@ import { sanitisePromptText } from '../chat/tab-question-context.js';
 import { indexNote } from '../memory/index-items.js';
 import { excerpt } from '../memory/text.js';
 import { rrf, type Ranked } from '../memory/fusion.js';
+import { TAB_EXCLUDED_KINDS } from '../mcp/tab-token.js';
 import { ControlError, type ControlContext } from './context.js';
 
 /** A `search_memory` result's kind: a remembered decision, or one of `memory_items`' own kinds. */
@@ -145,16 +146,25 @@ function mergeByRank(decisions: (ChatDecision & { rank: number })[], items: Memo
  * with nothing searched. Without an embedder, or when embedding the query fails or times out (2 s
  * budget), falls back to full-text alone — it never throws for that. Never logs the query, a title or
  * an excerpt: only counts and codes belong in a log line, and this function does not log at all.
+ *
+ * Under a tab token (TER-212 D3) the search is held to the tab's project — decisions included — and
+ * never reads the kinds `message` and `action`. The MCP route already pinned `project_id`; the check
+ * is repeated here so this function holds the rule on its own.
  */
 export async function searchMemory(
   ctx: ControlContext,
   a: { query: string; project_id?: string; kinds?: MemoryRefKind[]; limit?: number },
   deps: { embedder?: Embedder | null } = {},
 ): Promise<{ note: string; results: MemoryResult[] }> {
+  const tab = ctx.token?.tab;
+  if (tab) a = tabSearch(tab.project_id, a);
   if (a.project_id) await ctx.scoped.project(a.project_id);
   const { embedder = defaultEmbedder() } = deps;
   const ownerId = ctx.scope.user.id;
   const limit = a.limit ?? SEARCH_LIMIT_DEFAULT;
+  // Decisions are held to the project only for a tab token: an ordinary token's project_id keeps
+  // narrowing the items alone, as before TER-212.
+  const decisionProject = tab ? a.project_id : undefined;
 
   const wantDecision = a.kinds === undefined || a.kinds.includes('decision');
   const itemKinds = a.kinds === undefined ? undefined : (a.kinds.filter((k): k is MemoryKind => k !== 'decision') as MemoryKind[]);
@@ -172,9 +182,9 @@ export async function searchMemory(
   }
 
   const [vecDecisions, vecItems, textDecisions, textItems] = await Promise.all([
-    vector && wantDecision ? ctx.repos.chatDecisions.nearestAny(ownerId, vector, CANDIDATE_K) : Promise.resolve([] as DecisionNeighbour[]),
+    vector && wantDecision ? ctx.repos.chatDecisions.nearestAny(ownerId, vector, CANDIDATE_K, decisionProject) : Promise.resolve([] as DecisionNeighbour[]),
     vector && !skipItems ? ctx.repos.memoryItems.nearest(itemFilter, vector, CANDIDATE_K) : Promise.resolve([] as MemoryHit[]),
-    wantDecision ? ctx.repos.chatDecisions.textSearch(ownerId, a.query, CANDIDATE_K) : Promise.resolve([] as (ChatDecision & { rank: number })[]),
+    wantDecision ? ctx.repos.chatDecisions.textSearch(ownerId, a.query, CANDIDATE_K, decisionProject) : Promise.resolve([] as (ChatDecision & { rank: number })[]),
     skipItems ? Promise.resolve([] as MemoryHit[]) : ctx.repos.memoryItems.textSearch(itemFilter, a.query, CANDIDATE_K),
   ]);
 
@@ -187,7 +197,7 @@ export async function searchMemory(
   const decisionById = new Map<string, ChatDecision>();
   for (const d of [...vecDecisions, ...textDecisions]) decisionById.set(d.id, d);
   const itemById = new Map<string, MemoryHit>();
-  for (const it of [...vecItems, ...textItems]) itemById.set(itemKey(it.kind, it.id), it);
+  for (const it of [...vecItems, ...textItems]) if (!tab || !isTabExcluded(it.kind)) itemById.set(itemKey(it.kind, it.id), it);
 
   const results: MemoryResult[] = [];
   for (const { key } of fused) {
@@ -206,6 +216,18 @@ export async function searchMemory(
   }
 
   return { note: MEMORY_NOTE, results };
+}
+
+const isTabExcluded = (kind: MemoryRefKind): boolean => (TAB_EXCLUDED_KINDS as readonly string[]).includes(kind);
+
+/** A tab token's `search_memory` arguments (TER-212 D3): the tab's project (another one is refused), and
+ *  the kinds asked for minus `message`/`action` — every other kind when none were asked for. */
+function tabSearch<T extends { project_id?: string; kinds?: MemoryRefKind[] }>(projectId: string, a: T): T {
+  if (a.project_id !== undefined && a.project_id !== projectId) throw new ControlError('TAB_SCOPE', 'O token desta aba só acessa o projeto da aba');
+  const all: MemoryRefKind[] = ['decision', 'task', 'message', 'action', 'doc', 'note'];
+  const kinds = (a.kinds ?? all).filter((k) => !isTabExcluded(k));
+  if (kinds.length === 0) throw new ControlError('TAB_SCOPE', 'O token desta aba não lê mensagens do chat nem decisões do gate');
+  return { ...a, project_id: projectId, kinds };
 }
 
 /** `record_decision`'s own cap (spec D12/§5.2): a runaway loop, or an injection that got the

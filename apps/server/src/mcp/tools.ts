@@ -3,6 +3,7 @@ import { TMUX_KEYS, tmuxKey } from '@termhub/agent-protocol';
 import type { Action, Resource } from '../auth/permissions.js';
 import type { ApiTokenScope } from '../auth/api-tokens.js';
 import type { ControlContext } from '../control/context.js';
+import { TAB_TOKEN_TOOLS } from './tab-token.js';
 import { find, listAiAccounts, listMachines, listProjects, listTabs } from '../control/inventory.js';
 import { readScreen, SCREEN_MAX_LINES, WAIT_MAX_SECONDS, waitForState } from '../control/screen.js';
 import { closeTab, INPUT_MAX_CHARS, openTab, runCommand, RUN_MAX_SECONDS, sendInput, sendKey } from '../control/terminals.js';
@@ -401,7 +402,9 @@ export const TOOLS: ToolDef[] = [
 /** Tools this token may call: its scope includes the tool's, and the user holds the tool's grant. */
 export async function allowedTools(ctx: ControlContext, scopes: readonly ApiTokenScope[]): Promise<ToolDef[]> {
   const out: ToolDef[] = [];
-  for (const t of TOOLS) if (scopes.includes(t.scope) && (await (t.allowedIf ? t.allowedIf(ctx) : ctx.can(t.resource, t.action)))) out.push(t);
+  // A tab token sees only its fixed allowlist (TER-212 D2), still intersected with scopes and grants.
+  const tabOnly: readonly string[] | null = ctx.token?.tab ? TAB_TOKEN_TOOLS : null;
+  for (const t of TOOLS) if ((!tabOnly || tabOnly.includes(t.name)) && scopes.includes(t.scope) && (await (t.allowedIf ? t.allowedIf(ctx) : ctx.can(t.resource, t.action)))) out.push(t);
   return out;
 }
 

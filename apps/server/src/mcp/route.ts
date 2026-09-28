@@ -12,6 +12,7 @@ import { controlContextFor, ControlError, type ControlContext } from '../control
 import { HttpError } from '../lib/errors.js';
 import { authenticateToken } from './auth.js';
 import { TokenRateLimiter } from './rate-limit.js';
+import { pinTabArgs, tabRefusalMessage } from './tab-token.js';
 import { allowedTools, inputSchemaOf, parseArgs, refusalMessage } from './tools.js';
 
 export const MCP_BODY_LIMIT = 256 * 1024;
@@ -61,7 +62,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
   const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
     const auth = await authenticateToken(repos, request.headers.authorization);
     if (!auth) return reply.code(401).send(UNAUTHORIZED);
-    request.mcp = { token: auth.token, ctx: { ...controlContextFor(repos, auth.user, { id: auth.token.id, scopes: auth.token.scopes, gated: auth.token.gated }), attachments: deps.attachments, log: request.log } };
+    request.mcp = { token: auth.token, ctx: { ...controlContextFor(repos, auth.user, { id: auth.token.id, scopes: auth.token.scopes, gated: auth.token.gated, tab: auth.tab ?? undefined }), attachments: deps.attachments, log: request.log } };
     void repos.apiTokens.touchLastUsed(auth.token.id).catch((err) => request.log.warn({ err }, 'mcp: touchLastUsed failed'));
   };
 
@@ -108,17 +109,23 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
         const started = Date.now();
         let errorCode: string | null = null;
         let out: ToolResult;
+        // What the tool runs with and the audit records: a tab token's pinned arguments once they pass.
+        let callArgs = args;
         const rate = limiter.take(token.id);
         if (!rate.ok) {
           errorCode = 'RATE_LIMITED';
           out = rateLimited(rate.retryInSeconds);
         } else {
           try {
+            // A tab token's project_id/tab_id are pinned to its tab (TER-212 D5) before the gate and the
+            // tool see them; a refusal is a ControlError, answered below like any other tool error.
+            const tab = ctx.token?.tab;
+            if (tab) callArgs = pinTabArgs(tab, args, Object.keys(tool.input));
             // The chat's confirmation gate sits here: after the scope check and the argument
             // validation, around the one place a tool actually runs. On a gated token a write is
             // answered as pending instead of being executed — the row in chat_actions remembers it,
             // and this request does not wait for the user (spec §5.2). One audit row either way.
-            const gated = await applyGate(ctx, { token, tool: tool.name, args, tool_use_id: toolUseIdOf(extra._meta), run: () => tool.run(ctx, args, extra.signal) });
+            const gated = await applyGate(ctx, { token, tool: tool.name, args: callArgs, tool_use_id: toolUseIdOf(extra._meta), run: () => tool.run(ctx, callArgs, extra.signal) });
             if (gated.ok) {
               // A tool that already answers MCP content (read_attachment's image or paged text) is passed through as it is.
               out = isToolContent(gated.value) ? { content: gated.value.content } : text(JSON.stringify(gated.value, null, 2));
@@ -137,7 +144,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
             }
           }
         }
-        audit(tool.name, args, errorCode, Date.now() - started);
+        audit(tool.name, callArgs, errorCode, Date.now() - started);
         return out;
       });
     }
@@ -158,7 +165,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
       if (refusal) {
         const rate = limiter.take(token.id);
         audit(name, msg.params.arguments, rate.ok ? refusal : 'RATE_LIMITED', 0);
-        const answer = !rate.ok ? rateLimited(rate.retryInSeconds) : refusal === 'TOOL_NOT_ALLOWED' ? text(refusalMessage(name), true) : null;
+        const answer = !rate.ok ? rateLimited(rate.retryInSeconds) : refusal === 'TOOL_NOT_ALLOWED' ? text(ctx.token?.tab ? tabRefusalMessage(name) : refusalMessage(name), true) : null;
         if (answer) {
           if (closed) return gone();
           return reply.code(200).send({ jsonrpc: '2.0', id: msg.id ?? null, result: answer });
