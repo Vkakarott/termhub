@@ -94,6 +94,7 @@ function buildApp() {
       }),
     },
     tasks: { openCountByProject: vi.fn(async () => ({ p1: 2 })) },
+    apiTokens: { revokeForTabs: vi.fn(async (ids: string[]) => ids.length) },
   };
   app.register((a) => projectRoutes(a, repos as unknown as Repositories, { simulators: { isReady: () => false } as never }), { prefix: '/projects' });
   return { app, repos, get links() { return links; }, get tabs() { return tabs; } };
@@ -203,6 +204,14 @@ describe('PATCH / DELETE /projects/:id', () => {
     expect(killTmuxSession).toHaveBeenCalledTimes(1);
     expect(killTmuxSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'th-t3');
     expect(removeTabMcp).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokes the tokens of every tab the cascade removes, before the delete', async () => {
+    const { app, repos } = buildApp();
+    expect((await app.inject({ method: 'DELETE', url: '/projects/p4' })).statusCode).toBe(200);
+    // the cross-owner link's tab goes with the project too, so its token dies with it
+    expect(repos.apiTokens.revokeForTabs).toHaveBeenCalledWith(['t3', 't4']);
+    expect(repos.apiTokens.revokeForTabs.mock.invocationCallOrder[0]).toBeLessThan(repos.projects.delete.mock.invocationCallOrder[0]!);
   });
 });
 

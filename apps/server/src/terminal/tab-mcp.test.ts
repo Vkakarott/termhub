@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TAB_ID_RE as PROTOCOL_TAB_ID_RE } from '@termhub/agent-protocol';
-import { buildTabMcpRemoveScript, buildTabMcpWriteScript, TAB_ID_RE as OPS_TAB_ID_RE } from '@termhub/machine-ops';
+import { buildTabMcpRemoveScript, buildTabMcpWriteScript, shellQuote, TAB_ID_RE as OPS_TAB_ID_RE } from '@termhub/machine-ops';
 import type { Machine } from '../db/repositories/types.js';
 import { HttpError } from '../lib/errors.js';
 
@@ -67,11 +67,11 @@ describe('installTabMcp', () => {
     expect(agentRpc).not.toHaveBeenCalled();
   });
 
-  it('on ssh sends the body on stdin and only the script as the remote command', async () => {
+  it('on ssh sends the body on stdin and only the script, run by sh whatever the login shell, as the remote command', async () => {
     runOnMachineWithInput.mockResolvedValue({ code: 0, stdout: 'ok\n', stderr: '', timedOut: false });
     await installTabMcp(machine('ssh'), 'abc', 'token', 'thb_pat_SECRET');
     const script = buildTabMcpWriteScript('abc', 'token');
-    expect(runOnMachineWithInput).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), { file: 'sh', args: ['-c', script] }, script, Buffer.from('thb_pat_SECRET'), 10_000);
+    expect(runOnMachineWithInput).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), { file: 'sh', args: ['-c', script] }, `sh -c ${shellQuote(script)}`, Buffer.from('thb_pat_SECRET'), 10_000);
     const [, local, remote] = runOnMachineWithInput.mock.calls[0];
     expect(JSON.stringify(local) + remote).not.toContain('thb_pat_');
   });
@@ -107,7 +107,7 @@ describe('removeTabMcp', () => {
     runOnMachineWithInput.mockResolvedValue({ code: 0, stdout: 'ok\n', stderr: '', timedOut: false });
     await removeTabMcp(machine('ssh'), 'abc');
     const script = buildTabMcpRemoveScript('abc');
-    expect(runOnMachineWithInput).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), { file: 'sh', args: ['-c', script] }, script, Buffer.alloc(0), 10_000);
+    expect(runOnMachineWithInput).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), { file: 'sh', args: ['-c', script] }, `sh -c ${shellQuote(script)}`, Buffer.alloc(0), 10_000);
   });
 
   it('swallows every failure', async () => {

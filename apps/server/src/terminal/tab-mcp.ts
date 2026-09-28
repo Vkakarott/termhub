@@ -1,4 +1,4 @@
-import { buildTabMcpRemoveScript, buildTabMcpWriteScript, type TabMcpFile } from '@termhub/machine-ops';
+import { buildTabMcpRemoveScript, buildTabMcpWriteScript, shellQuote, type TabMcpFile } from '@termhub/machine-ops';
 import { agentRpc, requireAgentVersion, versionAtLeast } from '../agent/errors.js';
 import { agents } from '../agent/registry.js';
 import type { Machine } from '../db/repositories/types.js';
@@ -27,7 +27,8 @@ export function tabMcpSupported(machine: Machine): boolean {
 }
 
 async function runScript(machine: Machine, script: string, input: Buffer): Promise<void> {
-  const r = await runOnMachineWithInput(machine, { file: 'sh', args: ['-c', script] }, script, input, SCRIPT_TIMEOUT_MS);
+  // Over ssh the remote command goes to the user's login shell, which may not be POSIX (fish): `sh -c` there too.
+  const r = await runOnMachineWithInput(machine, { file: 'sh', args: ['-c', script] }, `sh -c ${shellQuote(script)}`, input, SCRIPT_TIMEOUT_MS);
   // Only the outcome: stderr may name paths, never the body, but there is no reason to carry it along.
   if (r.code !== 0 || !/^ok$/m.test(r.stdout)) throw new Error(r.timedOut ? 'a máquina demorou para responder' : 'a máquina recusou a gravação');
 }

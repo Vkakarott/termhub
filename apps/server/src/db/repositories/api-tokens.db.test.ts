@@ -90,6 +90,19 @@ describe.skipIf(process.env.TERMHUB_DB_TESTS !== '1')('ApiTokensRepository (Post
     expect((await repo.listByUser(userId)).find((t) => t.id === tabToken.id)?.revoked_at).not.toBeNull();
   });
 
+  it('revokeForTabs revokes the live tokens of exactly those tabs', async () => {
+    const [a, b, c] = [0, 1, 2].map(() => `tab${newId().slice(-8).toLowerCase()}`);
+    const tok = (tab: string) => repo.create(userId, { name: 'aba', scopes: ['read', 'memory'], expiresAt: new Date(Date.now() + DAY), tabId: tab }, newId(32));
+    const [ta, tb, tc] = [await tok(a!), await tok(b!), await tok(c!)];
+    expect(await repo.revokeForTabs([])).toBe(0);
+    expect(await repo.revokeForTabs([a!, b!])).toBe(2);
+    expect(await repo.revokeForTabs([a!, b!])).toBe(0);
+    const byId = (id: string) => repo.listByUser(userId).then((rows) => rows.find((r) => r.id === id));
+    expect((await byId(ta.id))?.revoked_at).not.toBeNull();
+    expect((await byId(tb.id))?.revoked_at).not.toBeNull();
+    expect((await byId(tc.id))?.revoked_at).toBeNull();
+  });
+
   it('hasLiveForTab: only a tab token neither revoked nor expired', async () => {
     const tab = `tab${newId().slice(-8).toLowerCase()}`;
     expect(await repo.hasLiveForTab(tab)).toBe(false);

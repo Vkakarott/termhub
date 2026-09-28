@@ -1,3 +1,4 @@
+import type { ZodRawShape } from 'zod';
 import { newApiToken, type ApiTokenScope } from '../auth/api-tokens.js';
 import { ControlError } from '../control/context.js';
 import type { Repositories } from '../db/repositories/index.js';
@@ -54,6 +55,20 @@ export function pinTabArgs(tab: { id: string; project_id: string }, args: Record
   const out = { ...args };
   if (declaredKeys.includes('project_id')) out.project_id = tab.project_id;
   if (declaredKeys.includes('tab_id')) out.tab_id = tab.id;
+  return out;
+}
+
+/**
+ * A tool's input shape as a tab token's call is validated against (D5): `project_id` and `tab_id`, when
+ * declared, become optional — a tab does not know its ids, and `pinTabArgs` fills them in right after, so
+ * the tool still runs with both present. Every other key keeps its own rule.
+ */
+export function tabInputShape(shape: ZodRawShape): ZodRawShape {
+  const out: ZodRawShape = { ...shape };
+  for (const key of ['project_id', 'tab_id'] as const) {
+    const field = out[key];
+    if (field) out[key] = field.optional();
+  }
   return out;
 }
 

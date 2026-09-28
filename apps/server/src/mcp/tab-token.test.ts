@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { hashApiToken, API_TOKEN_RE } from '../auth/api-tokens.js';
 import { ControlError, type ControlContext } from '../control/context.js';
 import type { Repositories } from '../db/repositories/index.js';
-import { mintTabToken, pinTabArgs, TAB_EXCLUDED_KINDS, TAB_TOKEN_SCOPES, TAB_TOKEN_TOOLS, TAB_TOKEN_TTL_MS, tabRefusalMessage, tabTokenName } from './tab-token.js';
+import { mintTabToken, pinTabArgs, TAB_EXCLUDED_KINDS, TAB_TOKEN_SCOPES, TAB_TOKEN_TOOLS, TAB_TOKEN_TTL_MS, tabInputShape, tabRefusalMessage, tabTokenName } from './tab-token.js';
 import { allowedTools } from './tools.js';
+import { z } from 'zod';
 
 const tab = { id: 'tab1', project_id: 'p1' };
 
@@ -62,6 +63,20 @@ describe('pinTabArgs', () => {
     const args = { query: 'q' };
     pinTabArgs(tab, args, ['query', 'project_id']);
     expect(args).toEqual({ query: 'q' });
+  });
+});
+
+describe('tabInputShape', () => {
+  it('makes a declared project_id and tab_id optional and leaves every other key as it was', () => {
+    const text = z.string().min(1);
+    const shape = { project_id: z.string().min(1), tab_id: z.string().min(1), text };
+    const view = z.object(tabInputShape(shape));
+    expect(view.safeParse({ text: 'x' }).success).toBe(true);
+    expect(view.safeParse({}).success).toBe(false);
+    expect(view.safeParse({ text: 'x', project_id: '' }).success).toBe(false);
+    expect(tabInputShape(shape).text).toBe(text);
+    expect(z.object(shape).safeParse({ text: 'x' }).success).toBe(false);
+    expect(Object.keys(tabInputShape({ query: text }))).toEqual(['query']);
   });
 });
 

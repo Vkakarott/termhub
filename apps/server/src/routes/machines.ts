@@ -171,6 +171,8 @@ export async function machineRoutes(app: FastifyInstance, repos: Repositories) {
     const machine = await scoped(repos, request).machine(id);
     // The DB cascade removes this machine's project links and its own tabs; the projects survive.
     const tabs = await repos.tabs.listByMachine(id);
+    // the cascade bypasses TabsRepository.delete: the tabs' tokens are revoked here, before it
+    await repos.apiTokens.revokeForTabs(tabs.map((t) => t.id));
     await repos.machines.delete(id);
     await publishTabsRemoved(repos, tabs, [machine]);
     // its robots leave every public city at once (the projects, and their publish switch, stay)

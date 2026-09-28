@@ -16,7 +16,7 @@ import type { Repositories } from '../db/repositories/index.js';
 import type { AiAccount, Machine, Project, Task } from '../db/repositories/types.js';
 import { Scoped } from '../auth/scope.js';
 import { ControlError, type ControlContext } from './context.js';
-import { checkPrompt, launchLine, LESSONS_REMINDER, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
+import { checkPrompt, CODEX_TAB_MCP_ENABLED, launchLine, LESSONS_REMINDER, PROMPT_MAX_CHARS, RESUME_PROMPT, resumeLine, startAgent, withLessonsReminder } from './agents.js';
 
 const machine = (over: Partial<Machine> & { id: string }): Machine => ({
   name: over.id, host: null, ssh_user: null, ssh_port: 22, type: 'agent', os: 'macos', capabilities: ['tmux', 'claude', 'codex'], checked_at: null,
@@ -144,7 +144,7 @@ describe('launchLine', () => {
   it('refuses a tab id or url that could break out of the line', () => {
     expect(() => launchLine('claude', null, 'x', { tabId: '../x', url: MCP_URL })).toThrow(new ControlError('INVALID_TAB', 'Id de aba inválido'));
     expect(() => launchLine('chatgpt', null, 'x', { tabId: 'ABC', url: MCP_URL })).toThrow(ControlError);
-    for (const url of ['ftp://x', 'https://x/"; id', "https://x/'", 'https://x y', 'https://x\\y']) {
+    for (const url of ['ftp://x', 'https://x/"; id', "https://x/'", 'https://x y', 'https://x\\y', 'https://x/\x1b[31m', 'https://x\x00', 'https://x\x7f', 'https://x\x01y']) {
       expect(() => launchLine('chatgpt', null, 'x', { tabId: 'abc', url })).toThrow(ControlError);
     }
   });
@@ -249,15 +249,15 @@ describe('startAgent', () => {
       expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls, r])).not.toContain(token);
     });
 
-    it('installs the bare token for codex', async () => {
-      const { c } = ctx();
-      await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
-      const [, , file, body] = installTabMcp.mock.calls[0];
-      expect(file).toBe('token');
-      expect(body).toMatch(/^thb_pat_/);
-      const line = sendTextToSession.mock.calls[0][2] as string;
-      expect(line.startsWith(`TERMHUB_MCP_TOKEN="$(cat "$HOME"/'.termhub/tabs/abc/token')" codex -c `)).toBe(true);
-      expect(line).not.toContain(body);
+    it('starts codex with the plain line and mints nothing while its MCP is unverified (TER-356)', async () => {
+      expect(CODEX_TAB_MCP_ENABLED).toBe(false);
+      const { c, repos, log } = ctx();
+      const r = await startAgent(c, { project_id: 'p1', account_id: 'a2', prompt: 'fix it' });
+      expect(repos.apiTokens.create).not.toHaveBeenCalled();
+      expect(installTabMcp).not.toHaveBeenCalled();
+      expect(sendTextToSession).toHaveBeenCalledWith(expect.anything(), 'termhub-p1-abc', "codex 'fix it'", true);
+      expect(r.note).toBe(`${NOTE} A aba abriu sem o MCP de memória: o MCP no Codex ainda não foi verificado.`);
+      expect(log.info).toHaveBeenCalledWith({ tabId: 'abc', machineId: 'm1', installed: false, reason: 'codex_unverified' }, expect.any(String));
     });
 
     it('revokes the token and types the plain line when the install fails', async () => {

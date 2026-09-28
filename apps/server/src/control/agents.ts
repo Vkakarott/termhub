@@ -74,8 +74,17 @@ function claudeMcpFlags(tabId: string): string {
   return `--mcp-config ${tabMcpPath(tabId, 'mcp.json')} --allowedTools ${allowed}`;
 }
 
-/** What the MCP URL may look like to be spliced into a TOML string inside a quoted argument (D9). */
-const MCP_URL_RE = /^https?:\/\/[^\s'"\\]+$/;
+/** What the MCP URL may look like to be spliced into a TOML string inside a quoted argument (D9):
+ *  no whitespace, quote, backslash or control byte. */
+const MCP_URL_RE = /^https?:\/\/[^\s'"\\\x00-\x1f\x7f]+$/;
+
+/**
+ * Whether a Codex (chatgpt) tab gets the memory MCP (D9). Off until the `-c mcp_servers.…` overrides are
+ * checked against a real Codex (TER-356, "verificar no hulk"): an older Codex could refuse to start with
+ * them. While off, Codex tabs start with the plain line and nothing is minted; `launchLine` still builds
+ * the Codex MCP line, so turning this on is the whole switch.
+ */
+export const CODEX_TAB_MCP_ENABLED = false;
 
 /**
  * The exact line typed into the tab; every value goes through `shellQuote`, so nothing in it is interpreted.
@@ -221,6 +230,7 @@ const MCP_SKIPPED = {
   no_mcp_url: 'MCP_URL não configurado',
   invalid_mcp_url: 'MCP_URL inválido',
   agent_outdated: 'o termhub-agent desta máquina é anterior à 0.10.0',
+  codex_unverified: 'o MCP no Codex ainda não foi verificado',
   install_failed: 'não foi possível gravar a configuração na máquina',
 } as const;
 
@@ -238,6 +248,7 @@ async function tabMcp(ctx: ControlContext, machine: Machine, provider: AiProvide
   if (!url) reason = 'no_mcp_url';
   // checked before anything is minted: launchLine would refuse it after the install
   else if (!MCP_URL_RE.test(url)) reason = 'invalid_mcp_url';
+  else if (provider === 'chatgpt' && !CODEX_TAB_MCP_ENABLED) reason = 'codex_unverified';
   else if (!tabMcpSupported(machine)) reason = 'agent_outdated';
   else {
     try {

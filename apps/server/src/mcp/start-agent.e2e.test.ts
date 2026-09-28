@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
@@ -260,17 +260,18 @@ describe.skipIf(!realTmux)('start_agent against a real tmux and a fake CLI', () 
       expect(JSON.stringify(out)).not.toContain(token);
     }, 30_000);
 
-    it('hands codex the token through the env var read from the tab file, never on the line', async () => {
-      const { app } = build(cwd);
+    it('starts codex with the plain line, no token minted nor written, while its MCP is unverified (TER-356)', async () => {
+      const { app, apiTokens } = build(cwd);
 
       const out = payloadOf(await callTool(app, 'start_agent', { project_id: 'p1', account_id: 'a2', prompt: 'arrume o teste' }));
-      const token = readFileSync(join(home, '.termhub', 'tabs', out.tab_id, 'token'), 'utf8');
-      expect(token).toMatch(/^thb_pat_/);
+      expect(out.note).toContain('o MCP no Codex ainda não foi verificado');
+      expect(apiTokens.create).not.toHaveBeenCalled();
+      // (tab ids restart per build, so an earlier test's dir may sit at the same path: look for the file)
+      expect(existsSync(join(home, '.termhub', 'tabs', out.tab_id, 'token'))).toBe(false);
 
       const flat = await screenWith(app, out.tab_id, 'fake-cli toklen=');
-      expect(flat).toContain(`fake-cli toklen=${token.length}`);
-      expect(flat).toContain(`fake-cli argv=[-c mcp_servers.termhub_tab.url="${MCP_URL}" -c mcp_servers.termhub_tab.bearer_token_env_var="TERMHUB_MCP_TOKEN" arrume o teste]`);
-      expect(flat).not.toContain(token);
+      expect(flat).toContain('fake-cli toklen=0');
+      expect(flat).toContain('fake-cli argv=[arrume o teste]');
     }, 30_000);
   });
 

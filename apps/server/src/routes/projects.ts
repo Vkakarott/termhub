@@ -165,6 +165,8 @@ export async function projectRoutes(app: FastifyInstance, repos: Repositories, d
           return killTmuxSession(m, t.tmux_session!);
         }),
     );
+    // the cascade bypasses TabsRepository.delete: the tabs' tokens are revoked here, before it
+    await repos.apiTokens.revokeForTabs(allTabs.map((t) => t.id));
     await repos.projects.delete(id);
     await publishTabsRemoved(repos, allTabs, machines.map(({ machine }) => machine));
     // A deleted project can never be publicly visible again either — tell the public bus regardless

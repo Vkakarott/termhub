@@ -12,8 +12,8 @@ import { controlContextFor, ControlError, type ControlContext } from '../control
 import { HttpError } from '../lib/errors.js';
 import { authenticateToken } from './auth.js';
 import { TokenRateLimiter } from './rate-limit.js';
-import { pinTabArgs, tabRefusalMessage } from './tab-token.js';
-import { allowedTools, inputSchemaOf, parseArgs, refusalMessage } from './tools.js';
+import { pinTabArgs, tabInputShape, tabRefusalMessage } from './tab-token.js';
+import { allowedTools, inputSchemaOf, parseArgs, refusalMessage, type ToolDef } from './tools.js';
 
 export const MCP_BODY_LIMIT = 256 * 1024;
 
@@ -101,7 +101,10 @@ export async function mcpRoutes(app: FastifyInstance, deps: { repos: Repositorie
 
     server = new McpServer({ name: 'termhub', version: deps.version }, { capabilities: { tools: {} } });
     const rateLimited = (retryInSeconds: number) => text(`Limite de ${limiter.limit} chamadas por minuto deste token; tente de novo em ${retryInSeconds} s`, true);
-    const tools = await allowedTools(ctx, token.scopes);
+    // A tab token's calls are validated (by the SDK and the pre-check below) with project_id/tab_id
+    // optional: pinTabArgs fills them in before the tool runs (TER-212 D5).
+    const tabView = (t: ToolDef): ToolDef => (ctx.token?.tab ? { ...t, input: tabInputShape(t.input) } : t);
+    const tools = (await allowedTools(ctx, token.scopes)).map(tabView);
     // With no tools at all the SDK would answer "Method not found" to tools/list; answer an empty list instead.
     if (tools.length === 0) server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
     for (const tool of tools) {

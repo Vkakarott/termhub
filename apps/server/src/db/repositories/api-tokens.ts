@@ -111,6 +111,14 @@ export class ApiTokensRepository {
     return count;
   }
 
+  /** Revokes the live tokens of several tabs at once — for a project or machine delete, whose tabs go by
+   * database cascade rather than `TabsRepository.delete` (spec 2026-09-27 agent-tab-mcp D6). */
+  async revokeForTabs(tabIds: string[]): Promise<number> {
+    if (tabIds.length === 0) return 0;
+    const { count } = await this.db.apiToken.updateMany({ where: { tabId: { in: tabIds }, revokedAt: null }, data: { revokedAt: new Date() } });
+    return count;
+  }
+
   /** Whether a tab still has a live (neither revoked nor expired) tab token — the account swap keeps the
    * tab's memory MCP on the resumed session only then (spec 2026-09-27 agent-tab-mcp D11). */
   async hasLiveForTab(tabId: string, now = new Date()): Promise<boolean> {
